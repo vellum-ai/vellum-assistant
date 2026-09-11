@@ -246,11 +246,12 @@ describe("AcpSessionManager: model selection at spawn", () => {
   }): Promise<{
     state: AcpSessionState;
     sent: AssistantEvent[];
+    effectiveModel?: string;
     modelWarning?: string;
   }> {
     const manager = new AcpSessionManager(5);
     const sent: AssistantEvent[] = [];
-    const { acpSessionId, modelWarning } = await manager.spawn(
+    const { acpSessionId, effectiveModel, modelWarning } = await manager.spawn(
       opts.agentId ?? "agent-model",
       { command: "echo", args: ["hi"], model: opts.agentModel },
       "task",
@@ -262,6 +263,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
     return {
       state: manager.getStatus(acpSessionId) as AcpSessionState,
       sent,
+      effectiveModel,
       modelWarning,
     };
   }
@@ -274,9 +276,12 @@ describe("AcpSessionManager: model selection at spawn", () => {
   test("state carries the model and options the adapter reported", async () => {
     scriptedConfigOptions = [[modelOption("opus")]];
 
-    const { state } = await spawnWithModel({ conversationId: "conv-report" });
+    const { effectiveModel, state } = await spawnWithModel({
+      conversationId: "conv-report",
+    });
 
     expect(state.model).toBe("opus");
+    expect(effectiveModel).toBe("opus");
     expect(state.availableModels).toEqual(MODEL_OPTION_MODELS);
     // Nothing was requested and the adapter is already on a model, so it was
     // never asked to change.
@@ -372,12 +377,13 @@ describe("AcpSessionManager: model selection at spawn", () => {
     // The adapter resolves the alias it was handed to a full model id.
     setConfigOptionResult = [modelOption("claude-opus-4-5")];
 
-    const { state } = await spawnWithModel({
+    const { effectiveModel, state } = await spawnWithModel({
       conversationId: "conv-pin",
       requestedModel: "opus",
     });
 
     expect(state.model).toBe("claude-opus-4-5");
+    expect(effectiveModel).toBe("claude-opus-4-5");
   });
 
   test("an inherited model the adapter refuses warns nobody", async () => {
@@ -417,6 +423,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
     expect(result.modelWarning).toBe(
       "Invalid value for config option model: nope",
     );
+    expect(result.effectiveModel).toBe("opus");
     const state = manager.getStatus(result.acpSessionId) as AcpSessionState;
     // The run is live on whatever the adapter chose for itself.
     expect(state.status).toBe("running");

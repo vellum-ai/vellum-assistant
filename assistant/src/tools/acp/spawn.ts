@@ -67,6 +67,7 @@ export async function executeAcpSpawn(
   }
   const agent = parsedInput.data.agent || "claude";
   const task = parsedInput.data.task;
+  const requestedModel = parsedInput.data.model?.trim() || undefined;
 
   if (!task) {
     return { content: '"task" is required.', isError: true };
@@ -125,7 +126,7 @@ export async function executeAcpSpawn(
     // Recheck: the auto-install and the agent-env preparation above are both
     // awaits, and this is the point a long-lived subprocess starts.
     throwIfCancelled(context);
-    const { acpSessionId, protocolSessionId, modelWarning } =
+    const { acpSessionId, protocolSessionId, effectiveModel, modelWarning } =
       await manager.spawn(
         agent,
         agentConfig,
@@ -133,7 +134,7 @@ export async function executeAcpSpawn(
         cwd,
         context.conversationId,
         sendToClient,
-        { parentToolUseId: context.toolUseId, model: parsedInput.data.model },
+        { parentToolUseId: context.toolUseId, model: requestedModel },
         // The manager rechecks after its own protocol handshake and session
         // creation, so a turn stopped in that window tears the child process
         // down instead of handing it the task.
@@ -157,16 +158,21 @@ export async function executeAcpSpawn(
     const modelNote = modelWarning
       ? ` The requested model was not applied: ${modelWarning}`
       : "";
+    const effectiveModelNote = effectiveModel
+      ? ` The top-level ACP session reports "${effectiveModel}" as its effective model.`
+      : " The top-level ACP session did not report an effective model.";
     const payload = JSON.stringify({
       acpSessionId,
       protocolSessionId,
       agent,
       cwd,
+      requestedModel: requestedModel ?? null,
+      effectiveModel: effectiveModel ?? null,
       status: "running",
       message:
         `ACP agent "${agent}" spawned (session: ${protocolSessionId}). ` +
         `Results stream back via SSE. You will be notified when it completes.` +
-        `${installNote}${modelNote}${resumeHint}`,
+        `${installNote}${modelNote}${effectiveModelNote}${resumeHint}`,
     });
 
     return { content: payload, isError: false };

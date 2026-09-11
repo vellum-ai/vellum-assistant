@@ -596,6 +596,16 @@ paths:
                     type: string
                   agent:
                     type: string
+                  requestedModel:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: The model explicitly requested for this spawn, if any.
+                  effectiveModel:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: The top-level session model reported by the ACP adapter, if any.
                   modelWarning:
                     description: Why the requested model was not applied. The session is running on the agent's own model.
                     type: string
@@ -603,6 +613,8 @@ paths:
                   - acpSessionId
                   - protocolSessionId
                   - agent
+                  - requestedModel
+                  - effectiveModel
                 additionalProperties: false
   /v1/activation/dismiss:
     post:

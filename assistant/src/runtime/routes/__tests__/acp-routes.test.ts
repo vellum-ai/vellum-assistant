@@ -63,12 +63,14 @@ let fakeInMemorySessions: FakeSessionState[] = [];
 interface SpawnResult {
   acpSessionId: string;
   protocolSessionId: string;
+  effectiveModel?: string;
   modelWarning?: string;
 }
 
 const DEFAULT_SPAWN_RESULT: SpawnResult = {
   acpSessionId: "acp-route-session",
   protocolSessionId: "proto-route-session",
+  effectiveModel: "opus",
 };
 let spawnResult: SpawnResult = DEFAULT_SPAWN_RESULT;
 const spawnMock = mock(async () => spawnResult);
@@ -651,6 +653,8 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
       acpSessionId: "acp-route-session",
       protocolSessionId: "proto-route-session",
       agent: "claude",
+      requestedModel: null,
+      effectiveModel: "opus",
     });
     expect(spawnMock).toHaveBeenCalledTimes(1);
     // The real adapter binary is spawned, not a `bun x` wrapper.
@@ -755,7 +759,9 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
 describe("POST /v1/acp/spawn: model selection", () => {
   test("threads the requested model to the session manager", async () => {
     const handler = getSpawnHandler();
-    await handler({ body: { ...SPAWN_BODY, model: "opus" } });
+    const body = (await handler({
+      body: { ...SPAWN_BODY, model: "opus" },
+    })) as Record<string, unknown>;
 
     expect(confirmationRequests).toHaveLength(1);
     expect(confirmationRequests[0]?.input).toEqual({
@@ -768,6 +774,9 @@ describe("POST /v1/acp/spawn: model selection", () => {
     expect((spawnMock.mock.calls[0] as unknown[])[6]).toEqual({
       model: "opus",
     });
+
+    expect(body.requestedModel).toBe("opus");
+    expect(body.effectiveModel).toBe("opus");
   });
 
   test("a spawn that names no model asks the manager for none", async () => {
@@ -800,6 +809,8 @@ describe("POST /v1/acp/spawn: model selection", () => {
       acpSessionId: "acp-route-session",
       protocolSessionId: "proto-route-session",
       agent: "claude",
+      requestedModel: "nope",
+      effectiveModel: "opus",
       modelWarning: "Invalid value for config option model: nope",
     });
   });

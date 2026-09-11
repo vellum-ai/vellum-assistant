@@ -158,7 +158,9 @@ export function SkillsReferenceACPContent() {
               and every other agent starts on its own default. Say which model a session should run
               on, for example &ldquo;use sonnet&rdquo;, and it starts there. A session keeps the
               model it started on, so ask for a new one to change it. A standing default per agent
-              lives in your Assistant config as <code>acp.agents.&lt;id&gt;.model</code>.
+              lives in your Assistant config as <code>acp.agents.&lt;id&gt;.model</code>. The spawn
+              result reports both the requested model and the model the top-level ACP session says
+              it is actually using. The latter is authoritative.
             </li>
           </ul>
         </section>

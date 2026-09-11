@@ -284,9 +284,10 @@ export class AcpSessionManager {
    * The prompt is fired in the background — results stream via sessionUpdate
    * callbacks and completion/error messages are sent when the prompt finishes.
    *
+   * `effectiveModel` is the model the adapter reports for the live session.
    * `modelWarning` comes back when the adapter refused the model the session
-   * was asked for: the run is live on the adapter's own default, and the
-   * caller relays the reason rather than treating the spawn as failed.
+   * was asked for: the caller relays the reason rather than treating the spawn
+   * as failed.
    */
   async spawn(
     agentId: string,
@@ -300,6 +301,7 @@ export class AcpSessionManager {
   ): Promise<{
     acpSessionId: string;
     protocolSessionId: string;
+    effectiveModel?: string;
     modelWarning?: string;
   }> {
     this.assertCapacity();
@@ -429,6 +431,7 @@ export class AcpSessionManager {
     return {
       acpSessionId,
       protocolSessionId: state.acpSessionId,
+      effectiveModel: state.model,
       ...(modelWarning ? { modelWarning } : {}),
     };
   }
