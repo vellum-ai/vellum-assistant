@@ -131,6 +131,7 @@
     "clear": "Borrar",
     "clearSearch": "Borrar búsqueda",
     "closeSearch": "Cerrar búsqueda",
+    "contentSearchUnavailable": "La búsqueda en el contenido de los mensajes no está disponible. Mostrando solo coincidencias de título.",
     "noResults": "Sin resultados",
     "placeholder": "Buscar conversaciones, recuerdos…",
     "searchAriaLabel": "Buscar",

@@ -898,7 +898,7 @@ describe("searchConversations · surfaced conversations", () => {
     });
     setSurfaced(surfaced.id);
 
-    const results = await searchConversations("Quarterly metrics");
+    const { results } = await searchConversations("Quarterly metrics");
 
     expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
   });
@@ -909,7 +909,9 @@ describe("searchConversations · surfaced conversations", () => {
       conversationType: "background",
     });
 
-    expect(await searchConversations("Quarterly metrics")).toEqual([]);
+    expect((await searchConversations("Quarterly metrics")).results).toEqual(
+      [],
+    );
   });
 
   test("private conversations are never included, even with surfaced_at set", async () => {
@@ -917,7 +919,9 @@ describe("searchConversations · surfaced conversations", () => {
     setConversationType(priv.id, "private");
     setSurfaced(priv.id);
 
-    expect(await searchConversations("Quarterly metrics")).toEqual([]);
+    expect((await searchConversations("Quarterly metrics")).results).toEqual(
+      [],
+    );
   });
 
   test("surfaced subagent runs stay excluded from title search", async () => {
@@ -928,7 +932,9 @@ describe("searchConversations · surfaced conversations", () => {
     });
     setSurfaced(subagent.id);
 
-    expect(await searchConversations("Quarterly metrics")).toEqual([]);
+    expect((await searchConversations("Quarterly metrics")).results).toEqual(
+      [],
+    );
   });
 });
 

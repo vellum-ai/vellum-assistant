@@ -38,6 +38,10 @@ import {
   MESSAGES_LEXICAL_COLLECTION,
 } from "../../../persistence/embeddings/messages-lexical-index.js";
 import {
+  markQdrantAvailable,
+  markQdrantUnavailable,
+} from "../../../persistence/embeddings/qdrant-availability.js";
+import {
   clearRebuildSentinel,
   initQdrantClient,
 } from "../../../persistence/embeddings/qdrant-client.js";
@@ -46,6 +50,7 @@ import {
   enqueueMemoryJob,
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
+import { recordWatchdogEvent } from "../../../telemetry/watchdog-events-store.js";
 import { resolveQdrantUrl } from "./embeddings.js";
 import { startMemoryJobsWorker } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
@@ -97,6 +102,12 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   }
 
   if (qdrantStarted) {
+    // Publish the verdict before any Qdrant-dependent step runs. Read sites
+    // with no fallback consult it so a missing index reads as "search is
+    // unavailable" rather than "nothing matched"; see
+    // `persistence/embeddings/qdrant-availability.ts`.
+    markQdrantAvailable();
+
     // ---- v1 (legacy engine) — delete with v1 ----
     // Stays ahead of the shared embedding-identity reconcile below: that
     // reconcile persists a new `memory.qdrant.vectorSize` on a commit-fresh or
@@ -241,6 +252,17 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
         "Concept page frontmatter sweep threw — continuing startup",
       );
     }
+  } else {
+    markQdrantUnavailable("start_failed");
+    // Nothing else reports this failure anywhere a fleet-wide view can see it:
+    // the daemon has no Sentry integration and the warn above lands only in the
+    // local rotating log. Mirrors how the schedule worker reports being down
+    // (`schedule/scheduler.ts`).
+    recordWatchdogEvent({
+      checkName: "qdrant_unavailable",
+      value: QDRANT_START_MAX_ATTEMPTS,
+      detail: { reason: "start_failed", attempts: QDRANT_START_MAX_ATTEMPTS },
+    });
   }
 
   // ---- shared infra ----

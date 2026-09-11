@@ -38,6 +38,12 @@ export interface UseCommandPaletteReturn {
    * highlighting.
    */
   searchTokens: string[];
+  /**
+   * Whether the daemon could match message content for the current results.
+   * False means titles only, so an empty or short list must not be rendered
+   * as "nothing matched". True whenever no search is in play.
+   */
+  contentSearchAvailable: boolean;
   open: () => void;
   close: () => void;
   toggle: () => void;
@@ -73,6 +79,7 @@ export function useCommandPalette({
   const [searchResults, setSearchResults] =
     useState<GlobalSearchResponse | null>(null);
   const [searchTokens, setSearchTokens] = useState<string[]>(NO_TOKENS);
+  const [contentSearchAvailable, setContentSearchAvailable] = useState(true);
 
   const itemCountGetterRef = useRef<() => number>(() => 0);
   useLayoutEffect(() => {
@@ -109,6 +116,7 @@ export function useCommandPalette({
     setIsSearching(false);
     setSearchResults(null);
     setSearchTokens(NO_TOKENS);
+    setContentSearchAvailable(true);
     cancelSearch();
     onClose?.();
   }, [storeClose, cancelSearch, onClose]);
@@ -130,6 +138,7 @@ export function useCommandPalette({
       setIsSearching(false);
       setSearchResults(null);
       setSearchTokens(NO_TOKENS);
+      setContentSearchAvailable(true);
       cancelSearch();
     }
   }, [isOpen, cancelSearch]);
@@ -147,6 +156,7 @@ export function useCommandPalette({
         setIsSearching(false);
         setSearchResults(null);
         setSearchTokens(NO_TOKENS);
+        setContentSearchAvailable(true);
         return;
       }
 
@@ -166,6 +176,7 @@ export function useCommandPalette({
             if (abortControllerRef.current === controller) {
               setSearchResults(outcome.results);
               setSearchTokens(outcome.queryTokens);
+              setContentSearchAvailable(outcome.contentSearchAvailable);
               setIsSearching(false);
             }
           })
@@ -241,6 +252,7 @@ export function useCommandPalette({
     isSearching,
     searchResults,
     searchTokens,
+    contentSearchAvailable,
     open,
     close,
     toggle,

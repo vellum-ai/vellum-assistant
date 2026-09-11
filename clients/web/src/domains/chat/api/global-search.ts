@@ -21,6 +21,17 @@ export interface GlobalSearchOutcome {
   query: string;
   queryTokens: string[];
   results: GlobalSearchResponse;
+  /**
+   * Whether message content was a usable source for the conversation results.
+   * False means the daemon matched conversation titles only, so a short or
+   * empty list says nothing about what the corpus holds and the palette must
+   * say so rather than render "no results".
+   *
+   * Defaults to true on a failed or aborted request: the whole outcome is
+   * empty there, and claiming a degraded content lane would explain a
+   * transport failure as an index problem.
+   */
+  contentSearchAvailable: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +49,7 @@ const EMPTY_OUTCOME: GlobalSearchOutcome = {
   query: "",
   queryTokens: [],
   results: EMPTY_RESULTS,
+  contentSearchAvailable: true,
 };
 
 /** Whitespace-token fallback for daemons that predate `queryTokens`. */
@@ -84,6 +96,10 @@ export async function searchGlobal(
       query: data.query,
       queryTokens: tokensWithFallback(data.queryTokens, data.query),
       results: data.results,
+      // `?? true` covers a daemon predating the field, matching how
+      // `queryTokens` degrades: assume the lane is healthy rather than warn
+      // about a degradation this daemon cannot report either way.
+      contentSearchAvailable: data.contentSearchAvailable ?? true,
     };
   } catch (err) {
     // AbortError is expected when debounced queries supersede each other.

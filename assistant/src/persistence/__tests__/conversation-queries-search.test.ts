@@ -53,6 +53,10 @@ import { createConversation } from "../conversation-crud.js";
 import { searchConversations } from "../conversation-queries.js";
 import { getDb } from "../db-connection.js";
 import { initializeDb } from "../db-init.js";
+import {
+  _resetQdrantAvailability,
+  markQdrantUnavailable,
+} from "../embeddings/qdrant-availability.js";
 import { rawRun } from "../raw-query.js";
 
 await initializeDb();
@@ -128,6 +132,7 @@ describe("searchConversations · qdrant lexical index", () => {
   beforeEach(() => {
     resetTables();
     memoryEnabled = true;
+    _resetQdrantAvailability();
     // Content search is available once the index is populated: memory enabled
     // + backfill complete. These tests exercise that post-backfill path.
     markBackfillComplete();
@@ -145,7 +150,7 @@ describe("searchConversations · qdrant lexical index", () => {
 
     lexicalReturns(["m-1"]);
 
-    const results = await searchConversations("flux capacitor");
+    const { results } = await searchConversations("flux capacitor");
 
     expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
     // The query text is passed through; the limit is the wide candidate
@@ -169,7 +174,7 @@ describe("searchConversations · qdrant lexical index", () => {
 
     lexicalReturns(["a-1", "b-1"]);
 
-    const results = await searchConversations("shared token");
+    const { results } = await searchConversations("shared token");
 
     // Exactly one lexical call total — the per-conversation message rows are
     // selected from the already-fetched candidate set, not a fresh query.
@@ -216,7 +221,7 @@ describe("searchConversations · qdrant lexical index", () => {
     // worst case for a message-level cap.
     lexicalReturns([...chattyIds, "other-1"]);
 
-    const results = await searchConversations("flux capacitor");
+    const { results } = await searchConversations("flux capacitor");
 
     expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
     // Both distinct visible conversations surface despite chatty dominating
@@ -245,7 +250,7 @@ describe("searchConversations · qdrant lexical index", () => {
 
     // Candidate exists in the index, but the conversation is a non-surfaced
     // background row — the visibility SQL must filter it out.
-    expect(await searchConversations("flux capacitor")).toEqual([]);
+    expect((await searchConversations("flux capacitor")).results).toEqual([]);
   });
 
   test("applies the same archived filtering (excludes archived conversations)", async () => {
@@ -255,7 +260,7 @@ describe("searchConversations · qdrant lexical index", () => {
 
     lexicalReturns(["arch-1"]);
 
-    expect(await searchConversations("flux capacitor")).toEqual([]);
+    expect((await searchConversations("flux capacitor")).results).toEqual([]);
   });
 
   test("includeArchived: true surfaces archived conversations matching on content", async () => {
@@ -272,7 +277,7 @@ describe("searchConversations · qdrant lexical index", () => {
 
     lexicalReturns(["arch-1", "act-1"]);
 
-    const results = await searchConversations("flux capacitor", {
+    const { results } = await searchConversations("flux capacitor", {
       includeArchived: true,
     });
 
@@ -291,7 +296,7 @@ describe("searchConversations · qdrant lexical index", () => {
 
     lexicalReturns([]);
 
-    const results = await searchConversations("flux capacitor", {
+    const { results } = await searchConversations("flux capacitor", {
       includeArchived: true,
     });
 
@@ -305,7 +310,7 @@ describe("searchConversations · qdrant lexical index", () => {
 
     lexicalReturns(["p-1"]);
 
-    expect(await searchConversations("flux capacitor")).toEqual([]);
+    expect((await searchConversations("flux capacitor")).results).toEqual([]);
   });
 
   test("title-only matches still work without any lexical candidates", async () => {
@@ -315,7 +320,7 @@ describe("searchConversations · qdrant lexical index", () => {
     // finds the conversation.
     lexicalReturns([]);
 
-    const results = await searchConversations("Quarterly metrics");
+    const { results } = await searchConversations("Quarterly metrics");
 
     expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
     // No content candidates → no matching messages, just the title hit.
@@ -333,7 +338,7 @@ describe("searchConversations · qdrant lexical index", () => {
       throw new Error("qdrant unreachable");
     });
 
-    const results = await searchConversations("flux capacitor");
+    const { results } = await searchConversations("flux capacitor");
 
     expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
     // The content-only conversation is dropped; the title-matched conversation
@@ -351,7 +356,7 @@ describe("searchConversations · qdrant lexical index", () => {
     insertMessage("m-1", conv.id, "flux capacitor in content only");
     lexicalReturns(["m-1"]);
 
-    const results = await searchConversations("flux capacitor");
+    const { results } = await searchConversations("flux capacitor");
 
     expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
     expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
@@ -372,7 +377,7 @@ describe("searchConversations · qdrant lexical index", () => {
     const titleMatch = createConversation("Flux capacitor planning");
     lexicalReturns(["m-1"]);
 
-    const results = await searchConversations("flux capacitor");
+    const { results } = await searchConversations("flux capacitor");
 
     expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
     expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
@@ -396,7 +401,7 @@ describe("searchConversations · qdrant lexical index", () => {
 
     lexicalReturns(["sb-1"]);
 
-    const results = await searchConversations("flux capacitor");
+    const { results } = await searchConversations("flux capacitor");
 
     expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
     expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
@@ -412,7 +417,7 @@ describe("searchConversations · qdrant lexical index", () => {
     insertMessage("s-1", contentOnly.id, "review the C§ draft");
     const titleMatch = createConversation("C§ symbol reference");
 
-    const results = await searchConversations("C§");
+    const { results } = await searchConversations("C§");
 
     expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
     expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
@@ -425,6 +430,99 @@ describe("searchConversations · qdrant lexical index", () => {
 
     lexicalReturns([]);
 
-    expect(await searchConversations("flux capacitor")).toEqual([]);
+    expect((await searchConversations("flux capacitor")).results).toEqual([]);
+  });
+});
+
+describe("searchConversations · contentSearchAvailable", () => {
+  beforeEach(() => {
+    resetTables();
+    memoryEnabled = true;
+    _resetQdrantAvailability();
+    markBackfillComplete();
+    searchMessageIdsLexicalMock.mockClear();
+    searchMessageIdsLexicalMock.mockImplementation(async () => []);
+  });
+
+  test("is true, and content matches, when the index is a usable read source", async () => {
+    // The positive control for every negative case below. Without it, a flag
+    // hard-coded to `false` would satisfy them all.
+    const conv = createConversation("Notes");
+    insertMessage("m-1", conv.id, "the flux capacitor needs recalibration");
+    lexicalReturns(["m-1"]);
+
+    const res = await searchConversations("flux capacitor");
+
+    expect(res.contentSearchAvailable).toBe(true);
+    expect(res.results[0]!.matchingMessages).toHaveLength(1);
+  });
+
+  test("is false when Qdrant never started, and the index is not consulted", async () => {
+    // The JARVIS-1321 shape: a daemon whose local Qdrant failed to start has
+    // no index to ask, so a content-only match is unreachable and the caller
+    // must be told the lane is missing rather than shown a bare empty list.
+    markQdrantUnavailable("start_failed");
+    const contentOnly = createConversation("Notes");
+    insertMessage("m-1", contentOnly.id, "flux capacitor in content only");
+    lexicalReturns(["m-1"]);
+
+    const res = await searchConversations("flux capacitor");
+
+    expect(res.contentSearchAvailable).toBe(false);
+    expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
+    expect(res.results).toEqual([]);
+  });
+
+  test("is false when the lexical lookup throws mid-search", async () => {
+    // The pre-flight gate passes and the lookup still fails (Qdrant died after
+    // startup). The flag reports what the search could use, not what it
+    // expected to, so it must drop here too.
+    const contentOnly = createConversation("Notes");
+    insertMessage("m-1", contentOnly.id, "flux capacitor in content only");
+    searchMessageIdsLexicalMock.mockImplementation(async () => {
+      throw new Error("connection refused");
+    });
+
+    const res = await searchConversations("flux capacitor");
+
+    expect(res.contentSearchAvailable).toBe(false);
+    expect(res.results).toEqual([]);
+  });
+
+  test("is false while the backfill has not drained", async () => {
+    deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
+
+    const res = await searchConversations("flux capacitor");
+
+    expect(res.contentSearchAvailable).toBe(false);
+  });
+
+  test("stays true for a query that tokenizes to nothing", async () => {
+    // The flag describes the index, not the query. "C§" yields no lexical
+    // tokens so content matching is skipped, but the index is fine and
+    // telling the user content search is unavailable would be wrong.
+    const titleMatch = createConversation("C§ symbol reference");
+
+    const res = await searchConversations("C§");
+
+    expect(res.contentSearchAvailable).toBe(true);
+    expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
+    expect(res.results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
+  });
+
+  test("reports the degraded lane even when titles still match", async () => {
+    // The dangerous case is not an empty list, it is a SHORT one: title
+    // matches make the response look like a successful search. The flag has
+    // to be false here or a client has no way to know content was missing.
+    markQdrantUnavailable("start_failed");
+    const titleMatch = createConversation("Flux capacitor planning");
+    const contentOnly = createConversation("Notes");
+    insertMessage("m-1", contentOnly.id, "flux capacitor in content only");
+    lexicalReturns(["m-1"]);
+
+    const res = await searchConversations("flux capacitor");
+
+    expect(res.results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
+    expect(res.contentSearchAvailable).toBe(false);
   });
 });

@@ -30877,9 +30877,12 @@ paths:
                   results:
                     type: array
                     items: {}
+                  contentSearchAvailable:
+                    type: boolean
                 required:
                   - query
                   - results
+                  - contentSearchAvailable
                 additionalProperties: false
   /v1/search/global:
     get:
@@ -30927,6 +30930,8 @@ paths:
                     type: array
                     items:
                       type: string
+                  contentSearchAvailable:
+                    type: boolean
                   results:
                     type: object
                     properties:
@@ -31050,6 +31055,7 @@ paths:
                 required:
                   - query
                   - queryTokens
+                  - contentSearchAvailable
                   - results
                 additionalProperties: false
   /v1/secret:

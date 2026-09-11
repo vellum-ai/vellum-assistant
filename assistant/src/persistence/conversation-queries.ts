@@ -33,6 +33,7 @@ import {
   UNGROUPED_GROUP_ID,
 } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
+import { getQdrantAvailability } from "./embeddings/qdrant-availability.js";
 import { tokenize } from "./embeddings/sparse-tokenize.js";
 import {
   parseContentRef,
@@ -933,6 +934,21 @@ export interface ConversationSearchResult {
   }>;
 }
 
+export interface ConversationSearchResponse {
+  results: ConversationSearchResult[];
+  /**
+   * Whether message content was a usable source for this search. False means
+   * only conversation titles were matched, so a short or empty `results` is
+   * evidence about the index rather than about the corpus, and a client that
+   * renders it as "no matches" is telling the user something untrue.
+   *
+   * Reports the index, not the query: a term that tokenizes to nothing (`"C++"`,
+   * a single non-ASCII character) also skips content matching, but the index was
+   * fine and this stays true.
+   */
+  contentSearchAvailable: boolean;
+}
+
 interface ConversationSearchMsgRow {
   id: string;
   role: string;
@@ -955,16 +971,24 @@ function likeContainsPattern(query: string): string {
 }
 
 /**
- * Whether the sparse Qdrant `messages_lexical` index — the only source of
- * message-content matches — is a safe read source. Content matching is
- * unavailable (title matches only) until the one-time upgrade backfill has
- * fully drained: a partially populated collection would silently miss older
- * content (an empty result — not a throw). Indexing itself is unconditional
- * host infrastructure, so completion is the only gate; the recall read site
- * applies the same one via the shared {@link isLexicalBackfillComplete}.
+ * Whether the sparse Qdrant `messages_lexical` index, the only source of
+ * message-content matches, is a safe read source.
+ *
+ * Two conditions, both required, because migration 313 dropped `messages_fts`
+ * and left no other content source to fall back to:
+ *
+ * 1. The one-time upgrade backfill has fully drained. A partially populated
+ *    collection silently misses older content, returning an empty result
+ *    rather than throwing, so the Qdrant-error degrade path never fires.
+ * 2. Qdrant came up on this daemon at all. A daemon whose local Qdrant never
+ *    started has no index to ask, and every content lookup will throw.
+ *
+ * Both are cheap synchronous reads, so callers may consult this per query.
+ * The recall read site applies condition 1 via the shared
+ * {@link isLexicalBackfillComplete}.
  */
 function isMessageContentSearchAvailable(): boolean {
-  return isLexicalBackfillComplete();
+  return isLexicalBackfillComplete() && getQdrantAvailability().available;
 }
 
 /**
@@ -1004,9 +1028,9 @@ export async function searchConversations(
      */
     includeArchived?: boolean;
   },
-): Promise<ConversationSearchResult[]> {
+): Promise<ConversationSearchResponse> {
   if (!query.trim()) {
-    return [];
+    return { results: [], contentSearchAvailable: true };
   }
 
   ensureGroupMigration();
@@ -1016,7 +1040,10 @@ export async function searchConversations(
   const maxMsgsPerConv = opts?.maxMessagesPerConversation ?? 3;
 
   const hasTokens = hasLexicalTokens(trimmed);
-  const contentSearchAvailable = isMessageContentSearchAvailable();
+  // Starts from the pre-flight gate and drops to false if the lookup below
+  // throws, so the flag reports what this search could actually use rather
+  // than what it expected to.
+  let contentSearchAvailable = isMessageContentSearchAvailable();
 
   // LIKE pattern for title matching (message-content indexes don't cover titles).
   const titlePattern = likeContainsPattern(query);
@@ -1048,9 +1075,10 @@ export async function searchConversations(
         QDRANT_SEARCH_CANDIDATE_LIMIT,
       );
     } catch (err) {
+      contentSearchAvailable = false;
       log.warn(
         { err, query: query.slice(0, 80) },
-        "searchConversations: Qdrant lexical query failed — returning title matches only",
+        "searchConversations: Qdrant lexical query failed, returning title matches only",
       );
     }
 
@@ -1156,7 +1184,7 @@ export async function searchConversations(
   }
 
   if (contentConvIds.size === 0) {
-    return [];
+    return { results: [], contentSearchAvailable };
   }
 
   // Fetch the matching conversation rows, ordered by updatedAt, capped at limit.
@@ -1178,7 +1206,7 @@ export async function searchConversations(
   );
 
   if (matchingConversations.length === 0) {
-    return [];
+    return { results: [], contentSearchAvailable };
   }
 
   const results: ConversationSearchResult[] = [];
@@ -1231,7 +1259,7 @@ export async function searchConversations(
     });
   }
 
-  return results;
+  return { results, contentSearchAvailable };
 }
 
 /**

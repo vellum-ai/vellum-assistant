@@ -131,6 +131,7 @@
     "clear": "清除",
     "clearSearch": "清除搜尋",
     "closeSearch": "關閉搜尋",
+    "contentSearchUnavailable": "訊息內容搜尋不可用。僅顯示標題符合項目。",
     "noResults": "沒有結果",
     "placeholder": "搜尋對話、記憶…",
     "searchAriaLabel": "搜尋",

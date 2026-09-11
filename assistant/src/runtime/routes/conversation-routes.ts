@@ -3568,7 +3568,7 @@ async function handleSearchConversations({
     ? Number(queryParams.maxMessagesPerConversation)
     : undefined;
 
-  const results = await searchConversations(query, {
+  const { results, contentSearchAvailable } = await searchConversations(query, {
     ...(limit !== undefined && !isNaN(limit) ? { limit } : {}),
     ...(maxMessagesPerConversation !== undefined &&
     !isNaN(maxMessagesPerConversation)
@@ -3576,7 +3576,7 @@ async function handleSearchConversations({
       : {}),
   });
 
-  return { query, results };
+  return { query, results, contentSearchAvailable };
 }
 
 // ---------------------------------------------------------------------------
@@ -3824,6 +3824,11 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       query: z.string(),
       results: z.array(z.unknown()),
+      /**
+       * Whether message content was a usable source. False means title-only
+       * matching, so a short result list says nothing about the corpus.
+       */
+      contentSearchAvailable: z.boolean(),
     }),
     handler: handleSearchConversations,
   },

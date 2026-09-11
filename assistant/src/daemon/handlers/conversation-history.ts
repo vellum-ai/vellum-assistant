@@ -30,10 +30,11 @@ export async function performConversationSearch(
       matchingMessages: [],
     }));
   }
-  return searchConversations(params.query, {
+  const { results } = await searchConversations(params.query, {
     limit: params.limit,
     maxMessagesPerConversation: params.maxMessagesPerConversation,
   });
+  return results;
 }
 
 export interface MessageContentResult {

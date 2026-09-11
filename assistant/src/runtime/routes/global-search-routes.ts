@@ -74,6 +74,16 @@ const globalSearchResponseSchema = z.object({
    * uses. Clients highlight these instead of re-tokenizing client-side.
    */
   queryTokens: z.array(z.string()),
+  /**
+   * Whether message content was a usable source for the conversation results.
+   * False means only conversation titles were matched, so an empty or short
+   * list is evidence about the index rather than about the corpus. Clients
+   * must say so instead of rendering a bare "no results".
+   *
+   * True when conversations were not searched at all (the category was not
+   * requested): there is no degraded content lane to report.
+   */
+  contentSearchAvailable: z.boolean(),
   results: z.object({
     conversations: z.array(globalSearchConversationSchema),
     memories: z.array(globalSearchMemorySchema),
@@ -308,13 +318,16 @@ async function handleGlobalSearch({
     contacts: [],
   };
 
+  let contentSearchAvailable = true;
+
   if (categories.has("conversations")) {
-    const convResults = await searchConversations(term, {
+    const convSearch = await searchConversations(term, {
       limit,
       maxMessagesPerConversation: 1,
       includeArchived,
     });
-    results.conversations = convResults.map((c) => ({
+    contentSearchAvailable = convSearch.contentSearchAvailable;
+    results.conversations = convSearch.results.map((c) => ({
       id: c.conversationId,
       title: c.conversationTitle,
       updatedAt: c.conversationUpdatedAt,
@@ -356,7 +369,12 @@ async function handleGlobalSearch({
     }));
   }
 
-  return { query: term, queryTokens: tokenize(term), results };
+  return {
+    query: term,
+    queryTokens: tokenize(term),
+    contentSearchAvailable,
+    results,
+  };
 }
 
 // ---------------------------------------------------------------------------
