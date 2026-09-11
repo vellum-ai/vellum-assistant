@@ -59,6 +59,9 @@ describe("MCP credential coordination", () => {
     try {
       db.exec("ALTER TABLE credential_locks DROP COLUMN owner_instance");
       db.exec("ALTER TABLE credential_locks DROP COLUMN cancellation_attempt");
+      db.exec(
+        "ALTER TABLE credential_locks DROP COLUMN teardown_remove_config",
+      );
       const before = db
         .query(
           "SELECT server_key, generation FROM credential_locks ORDER BY server_key",
@@ -90,38 +93,51 @@ describe("MCP credential coordination", () => {
     }
   });
 
-  test("pending cancellation survives a crashed owner and blocks new providers", async () => {
-    const existing = createMcpCredentialFence("persisted-cancellation");
-    const worker =
-      child(`await withMcpCredentialLock("persisted-cancellation", async (lease) => {
-      lease.setPendingCancellation("cancel-attempt");
+  test.each(["cancellation", "remove", "revoke"])(
+    "pending %s survives a crashed owner and blocks connections",
+    async (kind) => {
+      const serverId = `persisted-${kind}`;
+      const existing = createMcpCredentialFence(serverId);
+      const worker =
+        child(`await withMcpCredentialLock("${serverId}", async (lease) => {
+      ${
+        kind === "cancellation"
+          ? 'lease.setPendingCancellation("cancel-attempt");'
+          : `lease.setPendingTeardown(${kind === "remove"});`
+      }
       console.log("PERSISTED"); await Bun.stdin.text();
     });`);
-    try {
-      expect(await readLine(worker.stdout.getReader())).toBe("PERSISTED");
-      worker.kill();
-      await worker.exited;
-      expect(() => createMcpCredentialFence("persisted-cancellation")).toThrow(
-        "cleanup is pending",
-      );
-      let wrote = false;
-      await expect(
-        existing.write(async () => {
-          wrote = true;
-        }),
-      ).rejects.toThrow("MCP connection changed");
-      expect(wrote).toBe(false);
-      await withMcpCredentialLock("persisted-cancellation", async (lease) => {
-        expect(lease.pendingCancellation()).toBe("cancel-attempt");
-        lease.setPendingCancellation(null);
-        lease.advance();
-      });
-      const fresh = createMcpCredentialFence("persisted-cancellation");
-      expect(await fresh.write(async () => "connected")).toBe("connected");
-    } finally {
-      worker.kill();
-    }
-  });
+      try {
+        expect(await readLine(worker.stdout.getReader())).toBe("PERSISTED");
+        worker.kill();
+        await worker.exited;
+        expect(() => createMcpCredentialFence(serverId)).toThrow(
+          "cleanup is pending",
+        );
+        let wrote = false;
+        await expect(
+          existing.write(async () => {
+            wrote = true;
+          }),
+        ).rejects.toThrow("MCP connection changed");
+        expect(wrote).toBe(false);
+        await withMcpCredentialLock(serverId, async (lease) => {
+          if (kind === "cancellation") {
+            expect(lease.pendingCancellation()).toBe("cancel-attempt");
+          } else {
+            expect(lease.pendingTeardown()).toBe(kind === "remove");
+          }
+          lease.setPendingCancellation(null);
+          lease.setPendingTeardown(null);
+          lease.advance();
+        });
+        const fresh = createMcpCredentialFence(serverId);
+        expect(await fresh.write(async () => "connected")).toBe("connected");
+      } finally {
+        worker.kill();
+      }
+    },
+  );
 
   test("a replacement process reclaims a stale lock with its reused PID", async () => {
     const serverId = "reused-owner-pid";
@@ -191,8 +207,9 @@ describe("MCP credential coordination", () => {
     "a live legacy writer is protected from stale identity metadata: %s",
     async (staleInstance) => {
       const serverId = "mixed-version-owner";
-      const worker =
-        child(`await withMcpCredentialLock(${JSON.stringify(serverId)}, async () => {
+      const worker = child(`await withMcpCredentialLock(${JSON.stringify(
+        serverId,
+      )}, async () => {
         console.log("LOCKED"); await Bun.stdin.text();
       });`);
       const db = new Database(

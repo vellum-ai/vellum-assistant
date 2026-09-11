@@ -10,7 +10,14 @@ servers cannot authorize workspace credential operations.
 client binding, discovery metadata, and static headers before removing the
 saved server. Legacy revoke clears only OAuth records and retains the server
 and static headers. Missing keys count as successful cleanup; failed deletion
-retains configuration for retry. If runtime reload fails after removal is
+retains configuration for retry. The coordination store records teardown intent
+before any credential deletion and clears it only after all required deletions
+and the configuration save succeed. Unfinished teardown blocks all workspace
+connection transports, including static-header and unauthenticated connections,
+across restarts. Retry must finish the requested teardown; a new sign-in or legacy
+revoke cannot downgrade an unfinished removal. If the configuration removal is
+already saved, retry clears the leftover intent without touching credentials.
+If runtime reload fails after removal is
 saved, repeating remove retries runtime cleanup without looking up credentials
 for an absent configuration.
 
@@ -22,17 +29,17 @@ sequenceDiagram
     participant Store as CES
     participant Runtime as MCP manager
     UI->>Route: Remove workspace server
-    Route->>Lock: Drain credential writes and advance generation
+    Route->>Lock: Drain writes, persist removal intent, advance generation
     Route->>Store: Delete OAuth records and static headers
     alt Cleanup acknowledged
         Route->>Route: Save configuration removal
-        Route->>Lock: Advance generation and release
+        Route->>Lock: Clear intent, advance generation, release
         Route->>Runtime: Reload through final queued snapshot
         Runtime-->>Route: Local cleanup result
         Route-->>UI: Removed, or saved removal with retryable runtime error
     else Credential cleanup fails
         Route->>Lock: Advance generation and release
-        Route-->>UI: Retryable error, configuration retained
+        Route-->>UI: Retryable error, configuration and intent retained
     end
 ```
 
@@ -45,7 +52,7 @@ refresh in the schedule worker as well as browser authorization in the main
 process.
 
 The coordination file is `signals/mcp-credential-coordination.sqlite`. It holds
-only hashed server IDs, random generations, pending cancellation attempt IDs,
+only hashed server IDs, random generations, unfinished teardown intent, pending cancellation attempt IDs,
 and lock owner PID/token/process-start metadata.
 It contains no credentials, server definitions, or enable/disable state. Its
 local schema is initialized idempotently; no application database migration or

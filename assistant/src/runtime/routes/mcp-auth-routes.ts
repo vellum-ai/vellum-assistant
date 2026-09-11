@@ -27,6 +27,7 @@ import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import {
   beginMcpConnection,
   cancelMcpConnectionAttempt,
+  completeSavedMcpRemoval,
   McpTeardownError,
   teardownMcpConnection,
   withMcpConfigWrite,
@@ -635,6 +636,7 @@ async function handleMcpRemove({
         throw new NotFoundError(`Workspace MCP server "${name}" not found`);
       }
       try {
+        await completeSavedMcpRemoval(name);
         const reload = await reloadMcpServers({ requireCleanup: true });
         if (!reload.success) {
           throw new Error(reload.error);

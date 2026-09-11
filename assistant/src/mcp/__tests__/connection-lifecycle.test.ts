@@ -51,9 +51,11 @@ mock.module("../../plugins/mcp-servers.js", () => ({
     issues: [],
   }),
 }));
-const { loadRawConfig } = await import("../../config/loader.js");
+const configLoader = await import("../../config/loader.js");
+const { loadRawConfig } = configLoader;
 const { ROUTES } = await import("../../runtime/routes/mcp-auth-routes.js");
 const { McpOAuthProvider } = await import("../mcp-oauth-provider.js");
+const { McpClient } = await import("../client.js");
 const { beginMcpConnection } = await import("../connection-lifecycle.js");
 const { withMcpCredentialLock } = await import("../credential-coordination.js");
 const {
@@ -109,6 +111,7 @@ function seed() {
 beforeEach(async () => {
   await withMcpCredentialLock("example", async (lease) => {
     lease.setPendingCancellation(null);
+    lease.setPendingTeardown(null);
   });
   credentials.clear();
   failedKeys = new Set();
@@ -142,6 +145,82 @@ describe("MCP connection teardown", () => {
     failedKeys.clear();
     await handler("internal_mcp_remove", { name: "example" });
     expect(credentials.size).toBe(0);
+  });
+  test.each([true, false])(
+    "unfinished teardown blocks reconnection until retry: remove=%s",
+    async (removeConfig) => {
+      const operation = removeConfig
+        ? "internal_mcp_remove"
+        : "internal_mcp_auth_revoke";
+      const body = removeConfig ? { name: "example" } : { serverId: "example" };
+      failedKeys.add("mcp:example:tokens");
+      deleteHook = async () => {
+        expect(provider).toThrow("cleanup is pending");
+      };
+      await expect(handler(operation, body)).rejects.toThrow(
+        "retry disconnecting",
+      );
+      await withMcpCredentialLock("example", async (lease) => {
+        expect(lease.pendingTeardown()).toBe(removeConfig);
+      });
+      expect(credentials.has("mcp:example:tokens")).toBe(true);
+      await expect(
+        handler("internal_mcp_auth_start", { serverId: "example" }),
+      ).rejects.toThrow("cleanup is pending");
+      if (removeConfig) {
+        await expect(
+          handler("internal_mcp_auth_revoke", { serverId: "example" }),
+        ).rejects.toThrow("retry removing");
+      }
+      for (const tokensRemain of [true, false]) {
+        if (!tokensRemain) {
+          credentials.delete("mcp:example:tokens");
+        }
+        await expect(
+          new McpClient("example").connect({
+            type: "streamable-http",
+            url: "https://mcp.example.com/mcp",
+          }),
+        ).rejects.toThrow("cleanup is pending");
+      }
+      failedKeys.clear();
+      await handler(operation, body);
+      await withMcpCredentialLock("example", async (lease) => {
+        expect(lease.pendingTeardown()).toBeNull();
+      });
+      expect(Object.hasOwn(savedServers(), "example")).toBe(!removeConfig);
+    },
+  );
+  test("a configuration save failure keeps removal pending until retry", async () => {
+    const save = spyOn(configLoader, "saveRawConfig").mockImplementation(() => {
+      throw new Error("configuration unavailable");
+    });
+    try {
+      await expect(
+        handler("internal_mcp_remove", { name: "example" }),
+      ).rejects.toThrow("retry disconnecting");
+      expect(savedServers()).toHaveProperty("example");
+      expect(provider).toThrow("cleanup is pending");
+      await withMcpCredentialLock("example", async (lease) => {
+        expect(lease.pendingTeardown()).toBe(true);
+      });
+    } finally {
+      save.mockRestore();
+    }
+    await handler("internal_mcp_remove", { name: "example" });
+    expect(savedServers()).not.toHaveProperty("example");
+  });
+  test("retry after the configuration removal was saved clears intent without deleting other credentials", async () => {
+    await handler("internal_mcp_remove", { name: "example" });
+    await withMcpCredentialLock("example", async (lease) => {
+      lease.setPendingTeardown(true);
+    });
+    credentials.set("mcp:example:tokens", "other-owner");
+    await handler("internal_mcp_remove", { name: "example" });
+    await withMcpCredentialLock("example", async (lease) => {
+      expect(lease.pendingTeardown()).toBeNull();
+    });
+    expect(credentials.get("mcp:example:tokens")).toBe("other-owner");
   });
   test("cleanup waits for sibling deletions even when one deletion throws", async () => {
     const entered = deferred();

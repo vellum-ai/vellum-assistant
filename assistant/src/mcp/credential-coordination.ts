@@ -13,6 +13,7 @@ interface CredentialLock {
   owner_token: string | null;
   owner_instance: string | null;
   cancellation_attempt: string | null;
+  teardown_remove_config: number | null;
 }
 
 function processInstance(pid: number): string | null {
@@ -84,7 +85,8 @@ function openCoordination(): Database {
     owner_pid INTEGER,
     owner_token TEXT,
     owner_instance TEXT,
-    cancellation_attempt TEXT
+    cancellation_attempt TEXT,
+    teardown_remove_config INTEGER
   )`);
     db.transaction(() => {
       const columns = db
@@ -96,6 +98,11 @@ function openCoordination(): Database {
       if (!columns.some((column) => column.name === "cancellation_attempt")) {
         db.exec(
           "ALTER TABLE credential_locks ADD COLUMN cancellation_attempt TEXT",
+        );
+      }
+      if (!columns.some((column) => column.name === "teardown_remove_config")) {
+        db.exec(
+          "ALTER TABLE credential_locks ADD COLUMN teardown_remove_config INTEGER",
         );
       }
     }).immediate();
@@ -118,7 +125,7 @@ function ensureLock(db: Database, key: string): CredentialLock {
     .query<
       CredentialLock,
       [string]
-    >("SELECT generation, owner_pid, owner_token, owner_instance, cancellation_attempt FROM credential_locks WHERE server_key = ?")
+    >("SELECT generation, owner_pid, owner_token, owner_instance, cancellation_attempt, teardown_remove_config FROM credential_locks WHERE server_key = ?")
     .get(key)!;
 }
 
@@ -161,6 +168,8 @@ export interface McpCredentialLease {
   advance(): void;
   pendingCancellation(): string | null;
   setPendingCancellation(attemptId: string | null): void;
+  pendingTeardown(): boolean | null;
+  setPendingTeardown(removeConfig: boolean | null): void;
 }
 
 /** SQLite arbitrates async CES writers across the assistant and its workers. */
@@ -212,6 +221,19 @@ export async function withMcpCredentialLock<T>(
             "UPDATE credential_locks SET cancellation_attempt = ? WHERE server_key = ? AND owner_token = ?",
           ).run(attemptId, key, token);
         },
+        pendingTeardown: () => {
+          const pending = ensureLock(db, key).teardown_remove_config;
+          return pending === null ? null : pending === 1;
+        },
+        setPendingTeardown: (removeConfig) => {
+          db.query(
+            "UPDATE credential_locks SET teardown_remove_config = ? WHERE server_key = ? AND owner_token = ?",
+          ).run(
+            removeConfig === null ? null : Number(removeConfig),
+            key,
+            token,
+          );
+        },
         advance: () => {
           db.query(
             "UPDATE credential_locks SET generation = ? WHERE server_key = ? AND owner_token = ?",
@@ -237,14 +259,25 @@ export interface McpCredentialFence {
   close(): void;
 }
 
+function assertCleanupComplete(lock: CredentialLock): void {
+  if (lock.teardown_remove_config !== null) {
+    throw new Error("MCP credential cleanup is pending; retry disconnecting");
+  }
+  if (lock.cancellation_attempt) {
+    throw new Error("MCP authorization cleanup is pending; retry connecting");
+  }
+}
+
+export function assertMcpCleanupComplete(serverId: string): void {
+  assertCleanupComplete(readCredentialLock(serverId));
+}
+
 export function createMcpCredentialFence(
   serverId: string,
   isCurrent: () => boolean | Promise<boolean> = () => true,
 ): McpCredentialFence {
   const initial = readCredentialLock(serverId);
-  if (initial.cancellation_attempt) {
-    throw new Error("MCP authorization cleanup is pending; retry connecting");
-  }
+  assertCleanupComplete(initial);
   const generation = initial.generation;
   let closed = false;
   return {
@@ -255,6 +288,7 @@ export function createMcpCredentialFence(
           closed ||
           generation !== lease.generation() ||
           lease.pendingCancellation() ||
+          lease.pendingTeardown() !== null ||
           !current
         ) {
           throw new Error("MCP connection changed; retry connecting");
