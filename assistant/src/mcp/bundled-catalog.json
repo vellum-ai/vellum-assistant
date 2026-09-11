@@ -17,6 +17,7 @@
         "mode": "oauth",
         "instructions": "Sign in to the Amplemarket workspace you want to use."
       },
+      "icon": "amplemarket",
       "definitionDigest": "694fabd29eab8aaaa2ec459f1ffb46db6318ec07047746522c18f889bf45579a",
       "documents": {
         "plugin": {
@@ -54,6 +55,7 @@
         "mode": "oauth",
         "instructions": "An organization admin must enable MCP. Analytics-only organizations are not supported."
       },
+      "icon": "ashby",
       "definitionDigest": "1939a93a13d23a621a75f2fe5c303335120917337665387bbdcafbbac492a304",
       "documents": {
         "plugin": {
@@ -155,6 +157,7 @@
         "mode": "oauth",
         "instructions": "Authorize the Attio workspace you want to use."
       },
+      "icon": "attio",
       "definitionDigest": "0a913950a64dc5e215f038d7ff1eed791eaa15a6595ef7852e8c7e910ebddea5",
       "documents": {
         "plugin": {
@@ -269,6 +272,7 @@
         "mode": "oauth",
         "instructions": "Sign in with the Circleback account whose meetings you want to use."
       },
+      "icon": "circleback",
       "definitionDigest": "d837a5bb4afc769a264736c4abaa0bc8af3439234cf4d87cc54651d52bc0ee7a",
       "documents": {
         "plugin": {
@@ -306,6 +310,7 @@
         "mode": "oauth",
         "instructions": "Requires workspace access. A workspace admin may need to allow MCP connections."
       },
+      "icon": "clay",
       "definitionDigest": "55720de0021f35d5577405f28ba7b3ae50197d74e8e9d73b681738ba066cf1e3",
       "documents": {
         "plugin": {
@@ -343,6 +348,7 @@
         "mode": "oauth",
         "instructions": "Authorize the Craft workspace and documents you want to use."
       },
+      "icon": "craft",
       "definitionDigest": "9c13d2a29deff221a311f94be025e7f5a1c920bca51dd27fd8341f74ef8ed31c",
       "documents": {
         "plugin": {
@@ -380,6 +386,7 @@
         "mode": "oauth",
         "instructions": "An account admin must enable MCP and choose permissions. This endpoint serves US-region accounts."
       },
+      "icon": "customer-io",
       "definitionDigest": "9b80ab8292766a1e1295f55e8978b9714c535217b42086a125f3c5628aebd8bb",
       "documents": {
         "plugin": {
@@ -455,6 +462,7 @@
         "mode": "oauth",
         "instructions": "Some tools are experimental or require an Enterprise plan."
       },
+      "icon": "fireflies",
       "definitionDigest": "3500bbd6e5b682ffc132b8aed8775b8dd87633a39b9a708c7124060842f1c5fa",
       "documents": {
         "plugin": {
@@ -492,6 +500,7 @@
         "mode": "oauth",
         "instructions": "Requires a Gamma account. Generations consume account credits."
       },
+      "icon": "gamma",
       "definitionDigest": "7be3ae5373d353e872632f6f377903165f8c8584a9cd64907eaf53709807433e",
       "documents": {
         "plugin": {
@@ -529,6 +538,7 @@
         "mode": "oauth",
         "instructions": "Sign in to the Guru workspace you want to search."
       },
+      "icon": "guru",
       "definitionDigest": "a49c21f282e2f8867d1fce1c1c8faa902bc1f548fc368482f40af3f71c8f27d5",
       "documents": {
         "plugin": {
@@ -566,6 +576,7 @@
         "mode": "oauth",
         "instructions": "Authorize one Interactive Brokers account. This integration is unavailable to customers in India or Japan."
       },
+      "icon": "interactive-brokers",
       "definitionDigest": "81fe04b690e6b0d22072182682f17dd9b89f4deb0dd14729f170a757ba8de228",
       "documents": {
         "plugin": {
@@ -603,6 +614,7 @@
         "mode": "oauth",
         "instructions": "This endpoint serves US-hosted Intercom workspaces. Australian workspaces are not supported."
       },
+      "icon": "intercom",
       "definitionDigest": "e61d899037e85720fcc3bb22cb43b88a0459a5890718f7fa9a6aba39ea123763",
       "documents": {
         "plugin": {
@@ -640,6 +652,7 @@
         "mode": "oauth",
         "instructions": "A workspace admin must install the Jotform MCP app before individual authorization."
       },
+      "icon": "jotform",
       "definitionDigest": "52f4e3eb5e0ad9c50a73d5407b4ad9aba44fb8fd95e5584ab9b700baa9d1aa4f",
       "documents": {
         "plugin": {
@@ -677,6 +690,7 @@
         "mode": "oauth",
         "instructions": "Requires a paid Juicebox plan. Some exports count against plan limits."
       },
+      "icon": "juicebox",
       "definitionDigest": "dede09b305b8b8c4c9bc0c8604192ca6605c83893ac2182652113d2f0dd1a80c",
       "documents": {
         "plugin": {
@@ -714,6 +728,7 @@
         "mode": "oauth",
         "instructions": "Requires an Owner, Admin, or Manager role in Klaviyo."
       },
+      "icon": "klaviyo",
       "definitionDigest": "17e203554c19843c7acc6a8ee2d772c09cc7f0d95e1a9593d2bdb80e9761a438",
       "documents": {
         "plugin": {
@@ -790,6 +805,7 @@
         "mode": "oauth",
         "instructions": "Authorize the MailerLite account you want to use."
       },
+      "icon": "mailerlite",
       "definitionDigest": "4fb78f45bf9a35bde9ef800ad5648a7c9b1365d17a1bd703b7049ecdc877b98a",
       "documents": {
         "plugin": {
@@ -827,6 +843,7 @@
         "mode": "oauth",
         "instructions": "Your Meltwater subscription must include the MCP package."
       },
+      "icon": "meltwater",
       "definitionDigest": "33a650193bc5308cb85b53b289da077bd22421db473d8db3082732504b761e36",
       "documents": {
         "plugin": {
@@ -864,6 +881,7 @@
         "mode": "oauth",
         "instructions": "Authorize the Mem account and content you want to use."
       },
+      "icon": "mem",
       "definitionDigest": "fde406a4d4c672b2603e87658c08472005a5a1248960ff60c376a0067178afb4",
       "documents": {
         "plugin": {
@@ -901,6 +919,7 @@
         "mode": "oauth",
         "instructions": "Sign in to the Mercury organization whose financial data you want to use."
       },
+      "icon": "mercury",
       "definitionDigest": "5312dfa5c0ae32c7007fe8021f2ab59c5a7c5f51d1bbce2308def22ec738edfb",
       "documents": {
         "plugin": {
@@ -938,6 +957,7 @@
         "mode": "oauth",
         "instructions": "A Navan admin must enable MCP for your organization."
       },
+      "icon": "navan",
       "definitionDigest": "820b277e1e1c35a75304777c2f57c4a0ae70432ce9b9f5e3f75ead2dbf3ce7d5",
       "documents": {
         "plugin": {
@@ -1014,6 +1034,7 @@
         "mode": "oauth",
         "instructions": "Sign in with the Otter account whose conversations you want to use."
       },
+      "icon": "otter",
       "definitionDigest": "e06b2a6b696b485248d487e5d63d185deb6b5e71e020b4bde19d097fbb1bb092",
       "documents": {
         "plugin": {
@@ -1051,6 +1072,7 @@
         "mode": "oauth",
         "instructions": "Authorize the Profound workspace you want to analyze."
       },
+      "icon": "profound",
       "definitionDigest": "03b4edf75e6d92ba391c171eb596ca6884a6ce49937ff63e8c635c94dd3b8118",
       "documents": {
         "plugin": {
@@ -1126,6 +1148,7 @@
         "mode": "oauth",
         "instructions": "Authorize the Readwise library you want to use."
       },
+      "icon": "readwise",
       "definitionDigest": "7ca2989af419cf15233cad83d753f48e53dcdca3c1d2167a324ab08f072a31e3",
       "documents": {
         "plugin": {
@@ -1163,6 +1186,7 @@
         "mode": "oauth",
         "instructions": "Your Semrush plan must include API units. Requests consume those units."
       },
+      "icon": "semrush",
       "definitionDigest": "67a7a9e5c2943fb56a3952d648afa74967812fa4a7ce4f1f40e62b8bb1faed4c",
       "documents": {
         "plugin": {
@@ -1315,6 +1339,7 @@
         "mode": "oauth",
         "instructions": "This endpoint serves standard Typeform accounts. EU-hosted accounts use a separate regional endpoint."
       },
+      "icon": "typeform",
       "definitionDigest": "6f56d0c2d2c42f1bc1004be0c8c98238d2c13215b0fd1c966ed8f85feaf69e98",
       "documents": {
         "plugin": {
@@ -1352,6 +1377,7 @@
         "mode": "oauth",
         "instructions": "Sign in to the Upwork account you want to use."
       },
+      "icon": "upwork",
       "definitionDigest": "263faefb7a1314cbfc9995898d8c67e127f6fd1d8ea532681878cfdbdeff38b6",
       "documents": {
         "plugin": {
@@ -1389,6 +1415,7 @@
         "mode": "oauth",
         "instructions": "Authorize specific accounts and capabilities. Hong Kong accounts use a separate regional endpoint."
       },
+      "icon": "webull",
       "definitionDigest": "d322af9b9dd71ac3d90d7b7c647a0c755a017910e37e906e66bbd9bd2d4d6881",
       "documents": {
         "plugin": {

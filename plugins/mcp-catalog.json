@@ -155,6 +155,7 @@
     },
     {
       "id": "amplemarket",
+      "icon": "amplemarket",
       "packagePath": "plugins/mcp-catalog/amplemarket",
       "serverKey": "amplemarket",
       "source": {
@@ -172,6 +173,7 @@
     },
     {
       "id": "ashby",
+      "icon": "ashby",
       "packagePath": "plugins/mcp-catalog/ashby",
       "serverKey": "ashby",
       "source": {
@@ -189,6 +191,7 @@
     },
     {
       "id": "attio",
+      "icon": "attio",
       "packagePath": "plugins/mcp-catalog/attio",
       "serverKey": "attio",
       "source": {
@@ -225,6 +228,7 @@
     },
     {
       "id": "circleback",
+      "icon": "circleback",
       "packagePath": "plugins/mcp-catalog/circleback",
       "serverKey": "circleback",
       "source": {
@@ -242,6 +246,7 @@
     },
     {
       "id": "clay",
+      "icon": "clay",
       "packagePath": "plugins/mcp-catalog/clay",
       "serverKey": "clay",
       "source": {
@@ -259,6 +264,7 @@
     },
     {
       "id": "craft",
+      "icon": "craft",
       "packagePath": "plugins/mcp-catalog/craft",
       "serverKey": "craft",
       "source": {
@@ -276,6 +282,7 @@
     },
     {
       "id": "customer-io",
+      "icon": "customer-io",
       "packagePath": "plugins/mcp-catalog/customer-io",
       "serverKey": "customer-io",
       "source": {
@@ -293,6 +300,7 @@
     },
     {
       "id": "fireflies",
+      "icon": "fireflies",
       "packagePath": "plugins/mcp-catalog/fireflies",
       "serverKey": "fireflies",
       "source": {
@@ -310,6 +318,7 @@
     },
     {
       "id": "gamma",
+      "icon": "gamma",
       "packagePath": "plugins/mcp-catalog/gamma",
       "serverKey": "gamma",
       "source": {
@@ -327,6 +336,7 @@
     },
     {
       "id": "guru",
+      "icon": "guru",
       "packagePath": "plugins/mcp-catalog/guru",
       "serverKey": "guru",
       "source": {
@@ -344,6 +354,7 @@
     },
     {
       "id": "interactive-brokers",
+      "icon": "interactive-brokers",
       "packagePath": "plugins/mcp-catalog/interactive-brokers",
       "serverKey": "interactive-brokers",
       "source": {
@@ -361,6 +372,7 @@
     },
     {
       "id": "intercom",
+      "icon": "intercom",
       "packagePath": "plugins/mcp-catalog/intercom",
       "serverKey": "intercom",
       "source": {
@@ -378,6 +390,7 @@
     },
     {
       "id": "jotform",
+      "icon": "jotform",
       "packagePath": "plugins/mcp-catalog/jotform",
       "serverKey": "jotform",
       "source": {
@@ -395,6 +408,7 @@
     },
     {
       "id": "juicebox",
+      "icon": "juicebox",
       "packagePath": "plugins/mcp-catalog/juicebox",
       "serverKey": "juicebox",
       "source": {
@@ -412,6 +426,7 @@
     },
     {
       "id": "klaviyo",
+      "icon": "klaviyo",
       "packagePath": "plugins/mcp-catalog/klaviyo",
       "serverKey": "klaviyo",
       "source": {
@@ -429,6 +444,7 @@
     },
     {
       "id": "mailerlite",
+      "icon": "mailerlite",
       "packagePath": "plugins/mcp-catalog/mailerlite",
       "serverKey": "mailerlite",
       "source": {
@@ -446,6 +462,7 @@
     },
     {
       "id": "meltwater",
+      "icon": "meltwater",
       "packagePath": "plugins/mcp-catalog/meltwater",
       "serverKey": "meltwater",
       "source": {
@@ -463,6 +480,7 @@
     },
     {
       "id": "mem",
+      "icon": "mem",
       "packagePath": "plugins/mcp-catalog/mem",
       "serverKey": "mem",
       "source": {
@@ -480,6 +498,7 @@
     },
     {
       "id": "mercury",
+      "icon": "mercury",
       "packagePath": "plugins/mcp-catalog/mercury",
       "serverKey": "mercury",
       "source": {
@@ -497,6 +516,7 @@
     },
     {
       "id": "navan",
+      "icon": "navan",
       "packagePath": "plugins/mcp-catalog/navan",
       "serverKey": "navan",
       "source": {
@@ -514,6 +534,7 @@
     },
     {
       "id": "otter",
+      "icon": "otter",
       "packagePath": "plugins/mcp-catalog/otter",
       "serverKey": "otter",
       "source": {
@@ -531,6 +552,7 @@
     },
     {
       "id": "profound",
+      "icon": "profound",
       "packagePath": "plugins/mcp-catalog/profound",
       "serverKey": "profound",
       "source": {
@@ -548,6 +570,7 @@
     },
     {
       "id": "readwise",
+      "icon": "readwise",
       "packagePath": "plugins/mcp-catalog/readwise",
       "serverKey": "readwise",
       "source": {
@@ -565,6 +588,7 @@
     },
     {
       "id": "semrush",
+      "icon": "semrush",
       "packagePath": "plugins/mcp-catalog/semrush",
       "serverKey": "semrush",
       "source": {
@@ -601,6 +625,7 @@
     },
     {
       "id": "typeform",
+      "icon": "typeform",
       "packagePath": "plugins/mcp-catalog/typeform",
       "serverKey": "typeform",
       "source": {
@@ -618,6 +643,7 @@
     },
     {
       "id": "upwork",
+      "icon": "upwork",
       "packagePath": "plugins/mcp-catalog/upwork",
       "serverKey": "upwork",
       "source": {
@@ -635,6 +661,7 @@
     },
     {
       "id": "webull",
+      "icon": "webull",
       "packagePath": "plugins/mcp-catalog/webull",
       "serverKey": "webull",
       "source": {
