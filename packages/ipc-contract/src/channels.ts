@@ -152,6 +152,10 @@ export const CONNECTIVITY_RETRY = "vellum:connectivity:retry";
 // Notifications
 export const NOTIFICATIONS_SHOW = "vellum:notifications:show";
 export const NOTIFICATIONS_ACTION = "vellum:notifications:action";
+export const NOTIFICATIONS_PREPARE_IDENTITY =
+  "vellum:notifications:prepareIdentity";
+export const NOTIFICATIONS_RESET_IDENTITIES =
+  "vellum:notifications:resetIdentities";
 
 // Window attention
 export const WINDOW_ATTENTION = "vellum:window:attention";

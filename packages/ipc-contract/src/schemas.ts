@@ -24,6 +24,12 @@ import {
   NOTIFICATION_AVATAR_BASE64_MAX_CHARS,
   NOTIFICATION_AVATAR_HASH_PATTERN,
   NOTIFICATION_CATEGORIES,
+  NOTIFICATION_DELIVERY_KEY_MAX_CHARS,
+  NOTIFICATION_IDENTITY_MAX_CHARS,
+  NOTIFICATION_NAME_PROVENANCES,
+  NOTIFICATION_PRESENTATIONS,
+  NOTIFICATION_SENDER_NAME_MAX_CHARS,
+  VERIFIED_NOTIFICATION_NAME_PROVENANCES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
   COMPANION_DICTATION_OFFER_MAX,
@@ -41,6 +47,31 @@ export const assistantStatusSchema = z.enum(ASSISTANT_STATUSES);
 
 export const notificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
 
+const boundedIdentityString = z
+  .string()
+  .trim()
+  .min(1)
+  .max(NOTIFICATION_IDENTITY_MAX_CHARS);
+const boundedDeliveryString = z
+  .string()
+  .max(NOTIFICATION_DELIVERY_KEY_MAX_CHARS);
+const notificationAvatarBase64Schema = z
+  .string()
+  .min(4)
+  .max(NOTIFICATION_AVATAR_BASE64_MAX_CHARS)
+  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/);
+
+export const notificationIdentitySchema = z.object({
+  scopeId: boundedIdentityString,
+  assistantId: boundedIdentityString,
+  nativeSenderId: boundedIdentityString,
+});
+
+const notificationAvatarSchema = z.object({
+  avatarBase64: notificationAvatarBase64Schema,
+  avatarHash: z.string().regex(NOTIFICATION_AVATAR_HASH_PATTERN),
+});
+
 /**
  * The hash names the file a host writes the avatar to, so the boundary that
  * accepts it is where "64 lowercase hex characters" has to be true: anything
@@ -48,27 +79,97 @@ export const notificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
  * main decodes it and writes it to disk.
  */
 const notificationSenderSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  avatarBase64: z.string().max(NOTIFICATION_AVATAR_BASE64_MAX_CHARS),
+  id: boundedIdentityString,
+  name: z.string().trim().min(1).max(NOTIFICATION_SENDER_NAME_MAX_CHARS),
+  avatarBase64: notificationAvatarBase64Schema,
   avatarHash: z.string().regex(NOTIFICATION_AVATAR_HASH_PATTERN),
 });
 
-export const showNotificationPayloadSchema = z.object({
-  category: notificationCategorySchema,
-  title: z.string(),
-  body: z.string(),
-  deliveryId: z.string().optional(),
-  conversationId: z.string().optional(),
-  toolCallId: z.string().optional(),
-  deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
-  /**
-   * A malformed decoration degrades to no decoration. `handle()` parses this
-   * payload and a throw rejects the renderer's `invoke`, so a strict field
-   * here would cost the user the banner itself rather than its avatar.
-   */
-  sender: notificationSenderSchema.optional().catch(undefined),
+export const prepareNotificationIdentityPayloadSchema = z
+  .object({
+    identity: notificationIdentitySchema,
+    scopeEpoch: z.number().int().nonnegative().safe(),
+    identityRevision: z.number().int().nonnegative().safe(),
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(NOTIFICATION_SENDER_NAME_MAX_CHARS)
+      .optional(),
+    nameProvenance: z.enum(VERIFIED_NOTIFICATION_NAME_PROVENANCES).optional(),
+    avatar: notificationAvatarSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (!value.name && !value.avatar) {
+      context.addIssue({
+        code: "custom",
+        message: "A prepared identity requires a name or avatar",
+      });
+    }
+    if (Boolean(value.name) !== Boolean(value.nameProvenance)) {
+      context.addIssue({
+        code: "custom",
+        message: "Prepared names require verified provenance",
+        path: ["nameProvenance"],
+      });
+    }
+  });
+
+export const resetNotificationIdentitiesPayloadSchema = z.object({
+  scopeId: boundedIdentityString,
+  scopeEpoch: z.number().int().nonnegative().safe(),
+  assistantId: boundedIdentityString.optional(),
 });
+
+export const showNotificationPayloadSchema = z
+  .object({
+    category: notificationCategorySchema,
+    title: z.string(),
+    body: z.string(),
+    deliveryId: boundedDeliveryString.optional(),
+    conversationId: z.string().max(NOTIFICATION_IDENTITY_MAX_CHARS).optional(),
+    toolCallId: z.string().max(NOTIFICATION_IDENTITY_MAX_CHARS).optional(),
+    deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
+    correlationId: boundedDeliveryString.optional(),
+    requestKey: boundedDeliveryString.optional(),
+    presentation: z.enum(NOTIFICATION_PRESENTATIONS).optional(),
+    identity: notificationIdentitySchema.optional(),
+    nameProvenance: z.enum(NOTIFICATION_NAME_PROVENANCES).optional(),
+    suppressGroupTitle: z.boolean().optional(),
+    /**
+     * A malformed decoration degrades to no decoration. `handle()` parses this
+     * payload and a throw rejects the renderer's `invoke`, so a strict field
+     * here would cost the user the banner itself rather than its avatar.
+     */
+    sender: notificationSenderSchema.optional().catch(undefined),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.identity &&
+      value.sender &&
+      value.identity.nativeSenderId !== value.sender.id
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Sender and routing identity must match",
+        path: ["sender", "id"],
+      });
+    }
+    if (value.nameProvenance && value.presentation !== "assistant") {
+      context.addIssue({
+        code: "custom",
+        message: "Name provenance requires assistant presentation",
+        path: ["nameProvenance"],
+      });
+    }
+    if (value.suppressGroupTitle && value.nameProvenance !== "title") {
+      context.addIssue({
+        code: "custom",
+        message: "Group title suppression requires title provenance",
+        path: ["suppressGroupTitle"],
+      });
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // Window attention

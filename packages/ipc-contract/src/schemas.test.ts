@@ -6,10 +6,16 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { showNotificationPayloadSchema } from "./schemas";
+import {
+  prepareNotificationIdentityPayloadSchema,
+  resetNotificationIdentitiesPayloadSchema,
+  showNotificationPayloadSchema,
+} from "./schemas";
 import {
   NOTIFICATION_AVATAR_BASE64_MAX_CHARS,
+  NOTIFICATION_DELIVERY_KEY_MAX_CHARS,
   NOTIFICATION_AVATAR_HASH_PATTERN,
+  resolveNotificationDeliveryKey,
 } from "./types";
 
 const HASH = "a".repeat(64);
@@ -29,6 +35,12 @@ const SENDER = {
   avatarHash: HASH,
 };
 
+const IDENTITY = {
+  scopeId: "user:user-123:org:org-abc",
+  assistantId: "assistant-1",
+  nativeSenderId: "assistant-1",
+};
+
 describe("showNotificationPayloadSchema", () => {
   test("keeps a well-formed sender", () => {
     expect(showNotificationPayloadSchema.parse(payload(SENDER))).toMatchObject({
@@ -43,6 +55,44 @@ describe("showNotificationPayloadSchema", () => {
     ).toBeUndefined();
   });
 
+  test("keeps scoped identity and presentation metadata", () => {
+    const parsed = showNotificationPayloadSchema.parse({
+      ...payload(SENDER),
+      presentation: "assistant",
+      identity: IDENTITY,
+      nameProvenance: "event",
+      correlationId: "delivery-full-key",
+      suppressGroupTitle: false,
+    });
+
+    expect(parsed).toMatchObject({
+      presentation: "assistant",
+      identity: IDENTITY,
+      nameProvenance: "event",
+      correlationId: "delivery-full-key",
+      suppressGroupTitle: false,
+    });
+  });
+
+  test("keeps legacy explicit sender decoration", () => {
+    const parsed = showNotificationPayloadSchema.parse(payload(SENDER));
+
+    expect(parsed.presentation).toBeUndefined();
+    expect(parsed.identity).toBeUndefined();
+    expect(parsed.sender).toEqual(SENDER);
+  });
+
+  test("allows app presentation with scoped and inline sender data", () => {
+    const parsed = showNotificationPayloadSchema.parse({
+      ...payload(SENDER),
+      presentation: "app",
+      identity: IDENTITY,
+    });
+
+    expect(parsed.presentation).toBe("app");
+    expect(parsed.sender).toEqual(SENDER);
+  });
+
   test.each([
     ["a hash that is not 64 lowercase hex", { ...SENDER, avatarHash: "abc" }],
     ["an uppercase hash", { ...SENDER, avatarHash: HASH.toUpperCase() }],
@@ -52,6 +102,7 @@ describe("showNotificationPayloadSchema", () => {
       { id: "assistant-1", avatarBase64: "x", avatarHash: HASH },
     ],
     ["a sender that is not an object", "assistant-1"],
+    ["invalid base64", { ...SENDER, avatarBase64: "****" }],
     [
       "an avatar past the byte cap",
       {
@@ -78,6 +129,143 @@ describe("showNotificationPayloadSchema", () => {
         category: "nope",
       }),
     ).toThrow();
+  });
+
+  test("rejects partial scoped identity", () => {
+    expect(() =>
+      showNotificationPayloadSchema.parse({
+        ...payload(),
+        presentation: "assistant",
+        identity: { scopeId: "scope", assistantId: "assistant-1" },
+      }),
+    ).toThrow();
+  });
+
+  test("rejects a sender owned by another routing identity", () => {
+    expect(() =>
+      showNotificationPayloadSchema.parse({
+        ...payload(SENDER),
+        presentation: "assistant",
+        identity: { ...IDENTITY, nativeSenderId: "assistant-2" },
+      }),
+    ).toThrow();
+  });
+
+  test("rejects invalid presentation and inconsistent title hints", () => {
+    expect(() =>
+      showNotificationPayloadSchema.parse({
+        ...payload(),
+        presentation: "person",
+      }),
+    ).toThrow();
+    expect(() =>
+      showNotificationPayloadSchema.parse({
+        ...payload(),
+        presentation: "assistant",
+        identity: IDENTITY,
+        nameProvenance: "event",
+        suppressGroupTitle: true,
+      }),
+    ).toThrow();
+  });
+
+  test("bounds delivery keys without changing the legacy optional shape", () => {
+    expect(
+      showNotificationPayloadSchema.parse({
+        ...payload(),
+        deliveryId: "",
+      }).deliveryId,
+    ).toBe("");
+    expect(() =>
+      showNotificationPayloadSchema.parse({
+        ...payload(),
+        requestKey: "x".repeat(NOTIFICATION_DELIVERY_KEY_MAX_CHARS + 1),
+      }),
+    ).toThrow();
+  });
+});
+
+describe("prepared notification identity schemas", () => {
+  test("accepts bounded name and avatar publications", () => {
+    expect(
+      prepareNotificationIdentityPayloadSchema.parse({
+        identity: IDENTITY,
+        scopeEpoch: 2,
+        identityRevision: 4,
+        name: "Ada",
+        nameProvenance: "identity-store",
+        avatar: {
+          avatarBase64: SENDER.avatarBase64,
+          avatarHash: HASH,
+        },
+      }),
+    ).toMatchObject({ identity: IDENTITY, scopeEpoch: 2, identityRevision: 4 });
+  });
+
+  test("requires content and verified provenance for a prepared name", () => {
+    expect(() =>
+      prepareNotificationIdentityPayloadSchema.parse({
+        identity: IDENTITY,
+        scopeEpoch: 0,
+        identityRevision: 0,
+      }),
+    ).toThrow();
+    expect(() =>
+      prepareNotificationIdentityPayloadSchema.parse({
+        identity: IDENTITY,
+        scopeEpoch: 0,
+        identityRevision: 0,
+        name: "Ada",
+      }),
+    ).toThrow();
+    expect(() =>
+      prepareNotificationIdentityPayloadSchema.parse({
+        identity: IDENTITY,
+        scopeEpoch: 0,
+        identityRevision: 0,
+        name: "Done",
+        nameProvenance: "title",
+      }),
+    ).toThrow();
+  });
+
+  test("accepts scoped reset for one assistant or the whole scope", () => {
+    expect(
+      resetNotificationIdentitiesPayloadSchema.parse({
+        scopeId: IDENTITY.scopeId,
+        scopeEpoch: 3,
+      }),
+    ).toEqual({ scopeId: IDENTITY.scopeId, scopeEpoch: 3 });
+    expect(
+      resetNotificationIdentitiesPayloadSchema.parse({
+        scopeId: IDENTITY.scopeId,
+        scopeEpoch: 3,
+        assistantId: IDENTITY.assistantId,
+      }).assistantId,
+    ).toBe(IDENTITY.assistantId);
+  });
+});
+
+describe("resolveNotificationDeliveryKey", () => {
+  test("uses the full correlation, delivery, then stable request key", () => {
+    expect(
+      resolveNotificationDeliveryKey({
+        correlationId: "  correlation-full  ",
+        deliveryId: "delivery-full",
+        requestKey: "request-full",
+      }),
+    ).toBe("correlation-full");
+    expect(
+      resolveNotificationDeliveryKey({
+        correlationId: " ",
+        deliveryId: "delivery-full",
+        requestKey: "request-full",
+      }),
+    ).toBe("delivery-full");
+    expect(resolveNotificationDeliveryKey({ requestKey: "request-full" })).toBe(
+      "request-full",
+    );
+    expect(resolveNotificationDeliveryKey({})).toBeNull();
   });
 });
 
