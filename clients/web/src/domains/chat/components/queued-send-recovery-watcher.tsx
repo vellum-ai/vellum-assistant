@@ -14,6 +14,8 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useTranslation } from "@/i18n";
 
+const RECONCILIATION_RETRY_MS = 1000;
+
 /** Retract every local recovery copy after history or the stream finds the row. */
 function retractQueuedSendRecovery(clientMessageId: string): void {
   const composer = useComposerStore.getState();
@@ -107,10 +109,11 @@ export function QueuedSendRecoveryWatcher() {
   const reconciliationGenerationRef = useRef(0);
 
   const reconcileQueuedSends = useCallback(
-    async (assistantId: string, generation: number): Promise<void> => {
+    async (assistantId: string, generation: number): Promise<boolean> => {
       if (!isOrgReady) {
-        return;
+        return false;
       }
+      let readFailed = false;
       const retained = [...useComposerStore.getState().queuedSends].filter(
         ([, send]) => send.assistantId === assistantId,
       );
@@ -129,6 +132,7 @@ export function QueuedSendRecoveryWatcher() {
             conversationId,
           );
         } catch {
+          readFailed = true;
           continue;
         }
         if (
@@ -136,7 +140,7 @@ export function QueuedSendRecoveryWatcher() {
           useResolvedAssistantsStore.getState().activeAssistantId !==
           assistantId
         ) {
-          return;
+          return false;
         }
 
         for (const [clientMessageId, send] of entries) {
@@ -187,6 +191,7 @@ export function QueuedSendRecoveryWatcher() {
           }
         }
       }
+      return readFailed;
     },
     [isOrgReady, t],
   );
@@ -194,14 +199,51 @@ export function QueuedSendRecoveryWatcher() {
   useEffect(() => {
     let ownerAssistantId =
       useResolvedAssistantsStore.getState().activeAssistantId;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const runReconciliation = (
+      assistantId: string,
+      generation: number,
+    ): void => {
+      void reconcileQueuedSends(assistantId, generation).then(
+        (shouldRetry) => {
+          if (
+            !shouldRetry ||
+            reconciliationGenerationRef.current !== generation ||
+            useResolvedAssistantsStore.getState().activeAssistantId !==
+              assistantId
+          ) {
+            return;
+          }
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            if (
+              reconciliationGenerationRef.current !== generation ||
+              useResolvedAssistantsStore.getState().activeAssistantId !==
+                assistantId
+            ) {
+              return;
+            }
+            reconciliationGenerationRef.current += 1;
+            runReconciliation(
+              assistantId,
+              reconciliationGenerationRef.current,
+            );
+          }, RECONCILIATION_RETRY_MS);
+        },
+      );
+    };
     const reconcileActiveAssistant = (activeAssistantId: string | null) => {
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
       reconciliationGenerationRef.current += 1;
       const generation = reconciliationGenerationRef.current;
       if (activeAssistantId === null) {
         useComposerStore.getState().clearHeldSends();
         return;
       }
-      void reconcileQueuedSends(activeAssistantId, generation);
+      runReconciliation(activeAssistantId, generation);
     };
     reconcileActiveAssistant(ownerAssistantId);
     const unsubscribe = useResolvedAssistantsStore.subscribe((state) => {
@@ -214,6 +256,9 @@ export function QueuedSendRecoveryWatcher() {
     });
     return () => {
       reconciliationGenerationRef.current += 1;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
       unsubscribe();
     };
   }, [reconcileQueuedSends]);

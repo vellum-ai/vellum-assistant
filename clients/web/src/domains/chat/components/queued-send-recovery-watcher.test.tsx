@@ -358,6 +358,33 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
+  test("retries a failed history read while the assistant stays active", async () => {
+    isOrgReady = true;
+    fetchConversationMessagesMock = mock(
+      async (..._args: unknown[]): Promise<ConversationSnapshot> => {
+        if (fetchConversationMessagesMock.mock.calls.length === 1) {
+          throw new Error("temporary read failure");
+        }
+        return { messages: [], processing: false };
+      },
+    );
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    recordQueuedSend("nonce-1", "conv-left");
+    render(<QueuedSendRecoveryWatcher />);
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    });
+
+    await waitFor(
+      () => expect(fetchConversationMessagesMock).toHaveBeenCalledTimes(2),
+      { timeout: 2500 },
+    );
+    expect(heldFor("conv-left")).toBeDefined();
+    expect(stillQueued("nonce-1")).toBe(true);
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+  });
+
   test("switching back recognizes a persisted send without a client nonce", async () => {
     isOrgReady = true;
     let resolveSnapshot: (snapshot: ConversationSnapshot) => void = () => {};
