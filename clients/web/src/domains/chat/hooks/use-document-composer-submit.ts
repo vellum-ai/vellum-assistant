@@ -426,7 +426,11 @@ export function useDocumentComposerSubmit({
         // link it before anything goes out.
         persistDocumentConversationId(doc, assistantId, targetConversationId);
         if (targetConversationId !== resolvedId) {
-          resolveEditChatDraftConversationId(resolvedId, targetConversationId);
+          resolveEditChatDraftConversationId(
+            assistantId,
+            resolvedId,
+            targetConversationId,
+          );
         }
       }
       if (assistantChanged()) {
@@ -799,7 +803,11 @@ export function useDocumentComposerSubmit({
         // the key with a row of its own has retired the key, so the row that
         // replaced it is recorded for any surface still holding the key.
         if (conversationId !== resolvedId) {
-          resolveEditChatDraftConversationId(resolvedId, conversationId);
+          resolveEditChatDraftConversationId(
+            assistantId,
+            resolvedId,
+            conversationId,
+          );
         }
         useConversationStore.getState().clearDraftConversationId(resolvedId);
       }

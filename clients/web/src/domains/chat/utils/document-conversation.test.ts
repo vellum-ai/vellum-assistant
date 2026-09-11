@@ -92,7 +92,7 @@ describe("resolveDocumentConversationId", () => {
   });
 
   test("resolves a retired draft to the row that replaced it", () => {
-    setEditChatDraftReplacement("conv-draft", "conv-minted");
+    setEditChatDraftReplacement(ASSISTANT_ID, "conv-draft", "conv-minted");
 
     const id = resolveDocumentConversationId(
       { surfaceId: SURFACE_ID, conversationId: "conv-draft" },
@@ -108,7 +108,7 @@ describe("resolveDocumentConversationId", () => {
   });
 
   test("prefers the recorded replacement over a cache naming another row", () => {
-    setEditChatDraftReplacement("conv-draft", "conv-minted");
+    setEditChatDraftReplacement(ASSISTANT_ID, "conv-draft", "conv-minted");
     persistDocumentConversationId(
       { surfaceId: SURFACE_ID, conversationId: "" },
       ASSISTANT_ID,
@@ -126,7 +126,11 @@ describe("resolveDocumentConversationId", () => {
   });
 
   test("leaves a linked conversation alone when an unrelated draft was replaced", () => {
-    setEditChatDraftReplacement("conv-other-draft", "conv-other");
+    setEditChatDraftReplacement(
+      ASSISTANT_ID,
+      "conv-other-draft",
+      "conv-other",
+    );
 
     const id = resolveDocumentConversationId(
       { surfaceId: SURFACE_ID, conversationId: "conv-linked" },
@@ -205,7 +209,7 @@ describe("resolveDocumentConversationId", () => {
 
 describe("peekDocumentConversationRow", () => {
   test("names the row that replaced a retired draft", () => {
-    setEditChatDraftReplacement("conv-draft", "conv-minted");
+    setEditChatDraftReplacement(ASSISTANT_ID, "conv-draft", "conv-minted");
 
     expect(
       peekDocumentConversationRow(

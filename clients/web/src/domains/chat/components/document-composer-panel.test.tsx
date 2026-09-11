@@ -308,7 +308,11 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
     useConversationStore.setState({
       draftConversationIds: new Set(["conv-draft"]),
     });
-    setEditChatDraftReplacement("conv-draft", "conv-minted");
+    setEditChatDraftReplacement(
+      "assistant-1",
+      "conv-draft",
+      "conv-minted",
+    );
 
     render(
       <DocumentComposerPanel

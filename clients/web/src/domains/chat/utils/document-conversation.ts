@@ -47,7 +47,7 @@ export function peekDocumentConversationRow(
   ownIsDraft: boolean,
 ): string | undefined {
   const replacement = doc.conversationId
-    ? getEditChatDraftReplacement(doc.conversationId)
+    ? getEditChatDraftReplacement(assistantId, doc.conversationId)
     : null;
   if (replacement) {
     return replacement;

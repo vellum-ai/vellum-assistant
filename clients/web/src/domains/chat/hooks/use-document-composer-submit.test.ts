@@ -651,7 +651,9 @@ describe("conversation id resolution", () => {
     // holding that id resolves to the row instead of the dead draft.
     const draftId = draftIdsAtMint[0] ?? "";
     expect(draftId).not.toBe("");
-    expect(getEditChatDraftReplacement(draftId)).toBe(MINTED_CONVERSATION_ID);
+    expect(getEditChatDraftReplacement(ASSISTANT_ID, draftId)).toBe(
+      MINTED_CONVERSATION_ID,
+    );
     expect(
       useConversationStore
         .getState()
@@ -1678,7 +1680,9 @@ describe("when the reply wait goes up", () => {
     // The key went out as a client draft and the daemon materialized a row
     // under another id, so the key is retired and any surface still holding
     // it resolves to that row.
-    expect(getEditChatDraftReplacement("conv-key")).toBe("conv-minted");
+    expect(getEditChatDraftReplacement(ASSISTANT_ID, "conv-key")).toBe(
+      "conv-minted",
+    );
     expect(
       useConversationStore.getState().draftConversationIds.has("conv-key"),
     ).toBe(false);
@@ -1697,7 +1701,9 @@ describe("when the reply wait goes up", () => {
       await result.current.submit();
     });
 
-    expect(getEditChatDraftReplacement("conv-key")).toBeNull();
+    expect(
+      getEditChatDraftReplacement(ASSISTANT_ID, "conv-key"),
+    ).toBeNull();
     expect(
       useConversationStore.getState().draftConversationIds.has("conv-key"),
     ).toBe(false);

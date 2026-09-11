@@ -165,6 +165,44 @@ describe("DocumentViewerPage", () => {
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
   });
 
+  test("flushes edits made during feedback preflight before navigating", async () => {
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+    let resolveVersion: () => void = () => {};
+    whenAssistantVersionKnownForMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveVersion = resolve;
+        }),
+    );
+    const flushPendingSave = mock(async () => {});
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+    const handleRef = viewerProps?.handleRef as {
+      current: Record<string, unknown> | null;
+    };
+    handleRef.current = {
+      refreshComments: async () => {},
+      flushPendingSave,
+    };
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = (
+        viewerProps?.onSubmitFeedback as () => Promise<void>
+      )();
+    });
+    expect(flushPendingSave).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveVersion();
+      await submitted;
+    });
+
+    expect(flushPendingSave).toHaveBeenCalledTimes(1);
+    expect(useViewerStore.getState().openedDocumentState).not.toBeNull();
+  });
+
   test("abandons feedback after the assistant switches away and back", async () => {
     documentResult = () => Promise.resolve({ data: documentSurface() });
     let resolveVersion: () => void = () => {};

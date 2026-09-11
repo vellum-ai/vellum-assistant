@@ -37,8 +37,11 @@ function buildKey(assistantId: string, appId: string): string {
   return `${PREFIX}${assistantId}:${appId}`;
 }
 
-function buildDraftKey(draftConversationId: string): string {
-  return `${PREFIX}draft:${draftConversationId}`;
+function buildDraftKey(
+  assistantId: string,
+  draftConversationId: string,
+): string {
+  return `${PREFIX}draft:${assistantId}:${draftConversationId}`;
 }
 
 function readEntry(key: string): Entry | null {
@@ -112,11 +115,12 @@ export function setEditChatConversationId(
  * TTL and reads back through {@link getEditChatDraftReplacement}.
  */
 export function setEditChatDraftReplacement(
+  assistantId: string,
   draftConversationId: string,
   conversationId: string,
   now: number = Date.now(),
 ): void {
-  writeEntry(buildDraftKey(draftConversationId), {
+  writeEntry(buildDraftKey(assistantId, draftConversationId), {
     conversationId,
     lastUsedAt: now,
   });
@@ -129,9 +133,13 @@ export function setEditChatDraftReplacement(
  * only handle a surface holding that draft has.
  */
 export function getEditChatDraftReplacement(
+  assistantId: string,
   draftConversationId: string,
 ): string | null {
-  return readEntry(buildDraftKey(draftConversationId))?.conversationId ?? null;
+  return (
+    readEntry(buildDraftKey(assistantId, draftConversationId))
+      ?.conversationId ?? null
+  );
 }
 
 /**
@@ -143,6 +151,7 @@ export function getEditChatDraftReplacement(
  * minted.
  */
 export function resolveEditChatDraftConversationId(
+  assistantId: string,
   oldConversationId: string,
   newConversationId: string,
 ): void {
@@ -151,11 +160,16 @@ export function resolveEditChatDraftConversationId(
     return;
   }
   if (oldConversationId !== newConversationId) {
-    setEditChatDraftReplacement(oldConversationId, newConversationId);
+    setEditChatDraftReplacement(
+      assistantId,
+      oldConversationId,
+      newConversationId,
+    );
   }
+  const assistantPrefix = `${PREFIX}${assistantId}:`;
   for (let i = 0; i < store.length; i += 1) {
     const key = store.key(i);
-    if (!key || !key.startsWith(PREFIX)) {
+    if (!key || !key.startsWith(assistantPrefix)) {
       continue;
     }
     const entry = readEntry(key);

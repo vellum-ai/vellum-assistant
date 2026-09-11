@@ -187,6 +187,7 @@ export function DocumentViewerContainer({
   } | null>(null);
   const markdownRevisionRef = useRef(0);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const renameAttemptRef = useRef(0);
   // The last markdown the editor produced, kept past the save that wrote it.
   // A rename posts the body along with the title, and the `content` prop is
   // the snapshot the document loaded with: it does not follow the user's
@@ -452,6 +453,8 @@ export function DocumentViewerContainer({
       }
       const pendingAtRename = pendingMarkdownRef.current;
       const renameRevision = markdownRevisionRef.current;
+      const renameAttempt = renameAttemptRef.current + 1;
+      renameAttemptRef.current = renameAttempt;
       pendingMarkdownRef.current = null;
 
       const renameTarget = { ...saveTargetRef.current, title };
@@ -461,6 +464,9 @@ export function DocumentViewerContainer({
       const markdown = latestMarkdownRef.current ?? content;
       void queueDocumentSave(() => renameTarget, markdown).then(
         () => {
+          if (renameAttemptRef.current !== renameAttempt) {
+            return;
+          }
           const pending = pendingMarkdownRef.current;
           if (pending !== null && pending.revision <= renameRevision) {
             pendingMarkdownRef.current = null;
@@ -483,6 +489,10 @@ export function DocumentViewerContainer({
           });
         },
         (err: unknown) => {
+          if (renameAttemptRef.current !== renameAttempt) {
+            captureError(err, { context: "renameDocument" });
+            return;
+          }
           saveTargetRef.current = {
             ...saveTargetRef.current,
             title: previousTitle,

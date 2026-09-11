@@ -68,7 +68,7 @@ describe("edit-chat-session", () => {
     setEditChatConversationId(ASSISTANT, "app-b", "draft-1", 0);
     setEditChatConversationId(ASSISTANT, "app-c", "draft-2", 0);
 
-    resolveEditChatDraftConversationId("draft-1", "real-1");
+    resolveEditChatDraftConversationId(ASSISTANT, "draft-1", "real-1");
 
     expect(getEditChatConversationId(ASSISTANT, "app-a", 0)).toBe("real-1");
     expect(getEditChatConversationId(ASSISTANT, "app-b", 0)).toBe("real-1");
@@ -78,31 +78,46 @@ describe("edit-chat-session", () => {
   it("records the row a resolved draft was replaced by", () => {
     setEditChatConversationId(ASSISTANT, "app-a", "draft-1", 0);
 
-    resolveEditChatDraftConversationId("draft-1", "real-1");
+    resolveEditChatDraftConversationId(ASSISTANT, "draft-1", "real-1");
 
-    expect(getEditChatDraftReplacement("draft-1")).toBe("real-1");
+    expect(getEditChatDraftReplacement(ASSISTANT, "draft-1")).toBe("real-1");
   });
 
   it("records the replacement even when no app entry named the draft", () => {
     // A document opened against the draft is the surface that needs the
     // mapping, and it has no edit-chat entry of its own.
-    resolveEditChatDraftConversationId("draft-1", "real-1");
+    resolveEditChatDraftConversationId(ASSISTANT, "draft-1", "real-1");
 
-    expect(getEditChatDraftReplacement("draft-1")).toBe("real-1");
+    expect(getEditChatDraftReplacement(ASSISTANT, "draft-1")).toBe("real-1");
+  });
+
+  it("scopes draft replacements and cached app rows to one assistant", () => {
+    setEditChatConversationId(ASSISTANT, "app-a", "draft-1", 0);
+    setEditChatConversationId("assistant-2", "app-a", "draft-1", 0);
+
+    resolveEditChatDraftConversationId(ASSISTANT, "draft-1", "real-1");
+
+    expect(getEditChatDraftReplacement(ASSISTANT, "draft-1")).toBe("real-1");
+    expect(getEditChatDraftReplacement("assistant-2", "draft-1")).toBeNull();
+    expect(getEditChatConversationId(ASSISTANT, "app-a", 0)).toBe("real-1");
+    expect(getEditChatConversationId("assistant-2", "app-a", 0)).toBe(
+      "draft-1",
+    );
   });
 
   it("returns null for a draft that was never replaced", () => {
-    expect(getEditChatDraftReplacement("draft-1")).toBeNull();
+    expect(getEditChatDraftReplacement(ASSISTANT, "draft-1")).toBeNull();
   });
 
   it("keeps a replacement well past the app-entry TTL", () => {
     setEditChatDraftReplacement(
+      ASSISTANT,
       "draft-1",
       "real-1",
       Date.now() - __TEST_ONLY__.TTL_MS * 10,
     );
 
-    expect(getEditChatDraftReplacement("draft-1")).toBe("real-1");
+    expect(getEditChatDraftReplacement(ASSISTANT, "draft-1")).toBe("real-1");
   });
 
   it("ignores corrupted JSON", () => {

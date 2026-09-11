@@ -243,7 +243,11 @@ export function DocumentViewerPage() {
         if (ownerChanged()) {
           return;
         }
-        resolveEditChatDraftConversationId(resolvedId, conversationId);
+        resolveEditChatDraftConversationId(
+          assistantId,
+          resolvedId,
+          conversationId,
+        );
         useConversationStore.getState().clearDraftConversationId(resolvedId);
       }
       persistDocumentConversationId(doc, assistantId, conversationId);
@@ -261,6 +265,15 @@ export function DocumentViewerPage() {
       // route to refuse and its turn finds the document its own way.
       if (!linked && mintsRows) {
         toast.error(t("documentComposer.sendFailed"));
+        return;
+      }
+      try {
+        await viewerRef.current?.flushPendingSave();
+      } catch {
+        toast.error(t("documentComposer.sendFailed"));
+        return;
+      }
+      if (ownerChanged()) {
         return;
       }
 

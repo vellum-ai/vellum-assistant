@@ -17,7 +17,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createRef, type ReactNode, type Ref } from "react";
+import { createRef, type ReactNode, type Ref, useState } from "react";
 
 import type { DocumentViewerContainerHandle } from "@/domains/chat/components/document-viewer-container";
 
@@ -78,19 +78,29 @@ function renderViewer(
     defaultOptions: { queries: { retry: false } },
   });
 
+  function ViewerHarness() {
+    const [documentName, setDocumentName] = useState("notes.md");
+    return (
+      <DocumentViewerContainer
+        source="document"
+        assistantId="asst-1"
+        documentName={documentName}
+        content="# Notes"
+        onClose={() => {}}
+        surfaceId="surf-1"
+        conversationId="conv-1"
+        onRenamed={(nextName) => {
+          setDocumentName(nextName);
+          props.onRenamed?.(nextName);
+        }}
+        onSubmitFeedback={props.onSubmitFeedback}
+        handleRef={props.handleRef}
+      />
+    );
+  }
+
   const { unmount } = render(
-    <DocumentViewerContainer
-      source="document"
-      assistantId="asst-1"
-      documentName="notes.md"
-      content="# Notes"
-      onClose={() => {}}
-      surfaceId="surf-1"
-      conversationId="conv-1"
-      onRenamed={props.onRenamed}
-      onSubmitFeedback={props.onSubmitFeedback}
-      handleRef={props.handleRef}
-    />,
+    <ViewerHarness />,
     {
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={queryClient}>
@@ -348,6 +358,55 @@ describe("DocumentViewerContainer rename", () => {
     expect(saveDocumentContent.mock.calls[1]![1]).toBe(
       "edited during rename",
     );
+  });
+
+  test("a failed rename cannot roll back a newer rename", async () => {
+    let failFirstRename: () => void = () => {};
+    let finishSecondRename: () => void = () => {};
+    saveDocumentContent
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            failFirstRename = () => reject(new Error("rename failed"));
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishSecondRename = () =>
+              resolve({ success: true } as unknown);
+          }),
+      );
+    const onRenamed = mock((_documentName: string) => {});
+    renderViewer({ onRenamed });
+
+    await renameTo("first name");
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    await renameTo("final name");
+    expect(saveDocumentContent).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      failFirstRename();
+    });
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      finishSecondRename();
+    });
+    await typeIntoEditor("body after renames");
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(3));
+
+    expect(onRenamed.mock.calls.map((call) => call[0])).toEqual([
+      "first name",
+      "final name",
+    ]);
+    expect(saveDocumentContent.mock.calls[2]![0]).toEqual({
+      source: "document",
+      assistantId: "asst-1",
+      surfaceId: "surf-1",
+      conversationId: "conv-1",
+      title: "final name",
+    });
   });
 
   test("the rename writes the new title with the body the editor holds", async () => {

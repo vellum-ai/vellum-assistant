@@ -1287,6 +1287,7 @@ export function useSendMessage({
             newConversationId,
           );
           resolveEditChatDraftConversationId(
+            assistantId,
             activeConversationId,
             newConversationId,
           );

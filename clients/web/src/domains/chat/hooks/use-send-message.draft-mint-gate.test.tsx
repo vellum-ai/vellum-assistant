@@ -157,6 +157,8 @@ describe("useSendMessage: a mint that assigns a different id", () => {
     // The draft mark is already off by this point, so the recorded
     // replacement is what a document still holding the draft id resolves
     // through.
-    expect(getEditChatDraftReplacement(DRAFT_ID)).toBe(MINTED_ID);
+    expect(getEditChatDraftReplacement("assistant-1", DRAFT_ID)).toBe(
+      MINTED_ID,
+    );
   });
 });
