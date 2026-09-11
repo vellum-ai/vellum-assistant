@@ -139,6 +139,8 @@ Base URL: `https://www.vellum.ai/docs`
 | Skills reference index   | `/skills-reference`                       |
 | Specific skill reference | `/skills-reference/<skill-name>`          |
 
+Install, platform, and "how do I install you" questions belong on Installation and FAQ, not memory. Pricing and "is it free" belong on Pricing, then the `assistant platform credits|subscription|plans` commands for this assistant's live plan.
+
 Use `web_fetch` to pull the page content. If a URL 404s, try fetching the docs homepage and navigating from the sidebar.
 
 ### 3. Source Code — Deep Implementation Details

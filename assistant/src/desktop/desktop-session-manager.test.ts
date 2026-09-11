@@ -481,39 +481,46 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.count("browser")).toBe(2);
   });
 
-  test("a browser exit under a viewer relaunches it, until it crash loops", async () => {
-    const h = newManager();
-    const { viewer, lost } = newViewer();
-    h.manager.acquireViewerSlot(viewer);
-    await h.manager.ensureDesktopRunning();
-    await settle();
+  test.each(["viewer", "automation"] as const)(
+    "a browser exit under %s relaunches it, until it crash loops",
+    async (owner) => {
+      const h = newManager();
+      const { viewer, lost } = newViewer();
+      if (owner === "viewer") {
+        h.manager.acquireViewerSlot(viewer);
+      } else {
+        h.manager.acquireAutomationSlot(viewer);
+      }
+      await h.manager.ensureDesktopRunning();
+      await settle();
 
-    for (let exits = 1; exits <= 3; exits += 1) {
+      for (let exits = 1; exits <= 3; exits += 1) {
+        h.child("browser").exit(1);
+        await settle();
+        expect(h.count("browser")).toBe(exits + 1);
+        expect(lost).toEqual([]);
+      }
+
       h.child("browser").exit(1);
       await settle();
-      expect(h.count("browser")).toBe(exits + 1);
-      expect(lost).toEqual([]);
-    }
-
-    h.child("browser").exit(1);
-    await settle();
-    expect(h.count("browser")).toBe(4);
-    expect(lost).toEqual([
-      { code: 4011, reason: "Desktop browser keeps crashing" },
-    ]);
-    expect(
-      h
-        .terminated()
-        .map((c) => c.role)
-        .sort(),
-    ).toEqual([
-      "clipboard",
-      "compositor",
-      "panel",
-      "window-manager",
-      "x-server",
-    ]);
-  });
+      expect(h.count("browser")).toBe(4);
+      expect(lost).toEqual([
+        { code: 4011, reason: "Desktop browser keeps crashing" },
+      ]);
+      expect(
+        h
+          .terminated()
+          .map((c) => c.role)
+          .sort(),
+      ).toEqual([
+        "clipboard",
+        "compositor",
+        "panel",
+        "window-manager",
+        "x-server",
+      ]);
+    },
+  );
 
   test("a browser that cannot be resolved takes the desktop down", async () => {
     const h = newManager();
@@ -623,5 +630,39 @@ describe("DesktopSessionManager viewer slot", () => {
     expect(h.killed).toEqual([]);
     await h.manager.ensureDesktopRunning();
     expect(h.count("x-server")).toBe(1);
+  });
+});
+
+describe("desktop automation lifecycle", () => {
+  test("an automation session outlives viewer disconnect and idles after both release", async () => {
+    const f = newManager({ exitOnTerm: true });
+    const viewer = newViewer();
+    const automation = newViewer();
+    expect(f.manager.acquireViewerSlot(viewer.viewer)).toEqual({ ok: true });
+    expect(f.manager.acquireAutomationSlot(automation.viewer)).toEqual({
+      ok: true,
+    });
+    await f.manager.ensureDesktopRunning();
+    f.manager.releaseViewerSlot(viewer.viewer);
+    await sleep(LINGER_MS + 20);
+    expect(f.terminated()).toHaveLength(0);
+    f.manager.releaseAutomationSlot(automation.viewer);
+    await waitFor(() => f.terminated().length > 0);
+    await f.manager.destroy();
+  });
+
+  test("shutdown notifies both the viewer and automation owner", async () => {
+    const f = newManager({ exitOnTerm: true });
+    const viewer = newViewer();
+    const automation = newViewer();
+    f.manager.acquireViewerSlot(viewer.viewer);
+    f.manager.acquireAutomationSlot(automation.viewer);
+    await f.manager.ensureDesktopRunning();
+    await f.manager.destroy();
+    expect(viewer.lost[0]?.code).toBe(1001);
+    expect(automation.lost[0]?.code).toBe(1001);
+    expect(f.manager.acquireAutomationSlot(newViewer().viewer)).toEqual(
+      SHUTTING_DOWN,
+    );
   });
 });

@@ -8,6 +8,7 @@ import type { DesktopEndReason } from "./desktop-connection";
 import {
   openDesktopSession,
   type DesktopSessionState,
+  type DesktopSession,
 } from "./desktop-session";
 
 // Spelled out rather than templated so the catalog-usage guard sees each key.
@@ -26,6 +27,7 @@ const RETRYABLE_END_REASONS: ReadonlySet<DesktopEndReason> = new Set([
 
 interface DesktopViewerProps {
   assistantId: string;
+  viewOnly?: boolean;
 }
 
 /**
@@ -34,8 +36,16 @@ interface DesktopViewerProps {
  * A status overlay covers the viewport until the picture is live, and again
  * once the session ends, with a Reconnect button where retrying can help.
  */
-export function DesktopViewer({ assistantId }: DesktopViewerProps) {
+export function DesktopViewer({
+  assistantId,
+  viewOnly = false,
+}: DesktopViewerProps) {
   const { t } = useTranslation("chat");
+  const sessionRef = useRef<DesktopSession | null>(null);
+  const viewOnlyRef = useRef(viewOnly);
+  useEffect(() => {
+    viewOnlyRef.current = viewOnly;
+  }, [viewOnly]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<DesktopSessionState>({
     kind: "connecting",
@@ -52,9 +62,18 @@ export function DesktopViewer({ assistantId }: DesktopViewerProps) {
       assistantId,
       container,
       onState: setState,
+      viewOnly: viewOnlyRef.current,
     });
-    return () => session.close();
+    sessionRef.current = session;
+    return () => {
+      sessionRef.current = null;
+      session.close();
+    };
   }, [assistantId, attempt]);
+
+  useEffect(() => {
+    sessionRef.current?.setViewOnly(viewOnly);
+  }, [viewOnly]);
 
   const reconnect = (): void => {
     setState({ kind: "connecting" });

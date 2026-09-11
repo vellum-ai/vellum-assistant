@@ -29,11 +29,13 @@ export interface OpenDesktopSessionArgs {
   /** The element noVNC renders its canvas into. */
   container: HTMLElement;
   onState: (state: DesktopSessionState) => void;
+  viewOnly?: boolean;
 }
 
 export interface DesktopSession {
   /** End the session and release everything it holds. Idempotent. */
   close(): void;
+  setViewOnly(viewOnly: boolean): void;
 }
 
 /**
@@ -45,8 +47,10 @@ export function openDesktopSession({
   assistantId,
   container,
   onState,
+  viewOnly = false,
 }: OpenDesktopSessionArgs): DesktopSession {
   let done = false;
+  let readOnly = viewOnly;
   let ws: WebSocket | null = null;
   let rfb: RFB | null = null;
   const teardown: (() => void)[] = [];
@@ -92,7 +96,8 @@ export function openDesktopSession({
     }
     rfb = client;
     client.scaleViewport = true;
-    client.resizeSession = true;
+    client.viewOnly = readOnly;
+    client.resizeSession = !readOnly;
     client.clipViewport = false;
 
     const connectTimer = setTimeout(() => end("lost"), CONNECT_TIMEOUT_MS);
@@ -120,7 +125,7 @@ export function openDesktopSession({
     // by the assistant once it lands there.
     const onCopy = (): void => {
       const text = document.getSelection()?.toString();
-      if (text) {
+      if (text && !readOnly) {
         client.clipboardPasteFrom(text);
       }
     };
@@ -143,6 +148,13 @@ export function openDesktopSession({
   );
 
   return {
+    setViewOnly: (value) => {
+      readOnly = value;
+      if (rfb) {
+        rfb.viewOnly = value;
+        rfb.resizeSession = !value;
+      }
+    },
     close: () => {
       if (done) {
         return;

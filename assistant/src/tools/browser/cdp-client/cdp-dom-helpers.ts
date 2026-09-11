@@ -109,6 +109,7 @@ export async function dispatchClickAt(
   cdp: CdpClient,
   point: { x: number; y: number },
   signal?: AbortSignal,
+  verifyAfterHover?: () => Promise<void>,
 ): Promise<void> {
   const base = { x: point.x, y: point.y, button: "left", clickCount: 1 };
   await cdp.send(
@@ -116,6 +117,7 @@ export async function dispatchClickAt(
     { ...base, type: "mouseMoved" },
     signal,
   );
+  await verifyAfterHover?.();
   await cdp.send(
     "Input.dispatchMouseEvent",
     { ...base, type: "mousePressed" },

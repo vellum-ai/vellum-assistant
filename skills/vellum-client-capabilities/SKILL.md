@@ -40,11 +40,24 @@ Settings has a "Timezone" field, set by searching for a city or UTC offset. If i
 
 It does not exist today in any client. The honest answer is that they can mention a place per request, or set the Timezone field in Settings as a standing default.
 
+## Shipped Clients
+
+Tell the user only what is actually downloadable. Do not invent a Linux desktop installer.
+
+- Web app: https://www.vellum.ai
+- iOS: https://apps.apple.com/us/app/vellum-assistant/id6759934423
+- Android: https://play.google.com/store/apps/details?id=ai.vellum.assistant
+- macOS and Windows desktop: https://www.vellum.ai/downloads
+- Chrome extension: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
+- Linux desktop: not shipped. Use the web app or Chrome extension. The runtime can self-host on Linux; that is the server, not a desktop app.
+
+For install, pricing, or "how do I install you" questions, also load `vellum-self-knowledge` and fetch Installation, FAQ, and Pricing from the docs. Do not answer those from memory.
+
 ## Desktop App And Chrome Extension
 
 When a task needs a logged-in browser or a host computer (internal pages, company SSO, VPN-only dashboards, local files, or host shell):
 
-1. Offer the desktop app: https://www.vellum.ai/downloads
+1. Offer the desktop app for Mac or Windows: https://www.vellum.ai/downloads
 2. For browser sessions, also offer the Chrome extension: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
 3. Offer those first. Only ask for a screenshot or pasted page content if the user cannot install either.
 

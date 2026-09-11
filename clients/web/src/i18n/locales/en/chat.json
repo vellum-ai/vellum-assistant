@@ -105,7 +105,13 @@
     "installBackground": "Setup continues if you close this window.",
     "installFailed": "Installation failed. Try again to finish setup.",
     "setupRequestFailed": "Could not check desktop setup. Reconnect to try again.",
-    "setupUnsupported": "Desktop installation requires a Linux x64 or ARM64 container with administrator access."
+    "setupUnsupported": "Desktop installation requires a Linux x64 or ARM64 container with administrator access.",
+    "assistantControlling": "Assistant is controlling this desktop",
+    "userControlling": "You have control. Allow the assistant when you are ready to continue.",
+    "controlReady": "You can watch the assistant work here.",
+    "takeControl": "Take control",
+    "allowAssistant": "Allow assistant",
+    "controlFailed": "Could not update desktop control. Reconnect to try again."
   },
   "assistantNavItem": {
     "newChat": "New Chat"

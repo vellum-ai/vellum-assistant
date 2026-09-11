@@ -8,7 +8,7 @@
  */
 
 import { SEND_USER_MESSAGE_DELIVERED_ACK } from "../config/send-user-message-constants.js";
-import { isMessageKey, MESSAGE_KEYS } from "../i18n/index.js";
+import { MESSAGE_KEYS } from "../i18n/index.js";
 import {
   requestShortLabel,
   type ShortLabelTool,
@@ -25,7 +25,10 @@ import {
   type MessageRow,
   updateConversationTitle,
 } from "./conversation-crud.js";
+import { isReplaceableTitle } from "./conversation-title-placeholders.js";
 import { projectPersistedAssistantContent } from "./user-facing-content.js";
+
+export { isReplaceableTitle } from "./conversation-title-placeholders.js";
 
 const log = getLogger("conversation-title-service");
 
@@ -83,31 +86,6 @@ export const AUTO_TITLE_LLM = 1;
  * (see `canReplaceTitle`).
  */
 export const AUTO_TITLE_DETERMINISTIC = 2;
-
-// ── Replaceability check ─────────────────────────────────────────────
-
-const REPLACEABLE_PATTERNS = [
-  /^Runtime:\s/,
-  /^New Conversation$/,
-  /^Untitled$/,
-  /^Untitled Conversation$/,
-  /^Generating title\.\.\.$/,
-];
-
-/**
- * Check whether a title is a system-generated placeholder that can be
- * safely overwritten by auto-generated titles. Returns `false` for
- * user-provided custom titles.
- */
-export function isReplaceableTitle(title: string | null): boolean {
-  if (title == null || title.trim() === "") {
-    return true;
-  }
-  if (isMessageKey(title.trim())) {
-    return true;
-  }
-  return REPLACEABLE_PATTERNS.some((pattern) => pattern.test(title));
-}
 
 /**
  * Whether auto-generation may overwrite the conversation's current title.

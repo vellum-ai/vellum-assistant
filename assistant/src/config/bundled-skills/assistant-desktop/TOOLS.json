@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "desktop_control",
+      "description": "Control the streamed assistant desktop. scope=browser uses its exact Chrome/profile with semantic refs and compact page state; scope=desktop (default) uses screenshots and X11. Browser: start with tabs, then observe a target_id; use the latest observation_id and ref for click/type/key. type appends text to that field. Browser navigation accepts HTTP(S); new_tab, close_tab, scroll and wait require the latest observation. Browser actions do not return images. Use desktop scope for browser chrome, canvas or inaccessible frames. Call done when finished. Never targets a personal host browser.",
+      "category": "computer-use",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "observe",
+              "click",
+              "type",
+              "key",
+              "scroll",
+              "drag",
+              "done",
+              "tabs",
+              "navigate",
+              "new_tab",
+              "close_tab",
+              "wait"
+            ]
+          },
+          "observation_id": {
+            "type": "string",
+            "description": "Latest observation_id. Required for input actions."
+          },
+          "x": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "y": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "to_x": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "to_y": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "button": {
+            "type": "string",
+            "enum": ["left", "right", "middle", "double"]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "key": {
+            "type": "string",
+            "description": "Desktop: X11 key combination. Browser: Enter, Tab, Escape, arrows, Backspace, Delete, Home, End, PageUp, PageDown or Space."
+          },
+          "direction": {
+            "type": "string",
+            "enum": ["up", "down", "left", "right"]
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Desktop: 1-20 wheel steps. Browser: 1-5 increments of 600 pixels, up or down."
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["desktop", "browser"]
+          },
+          "target_id": {
+            "type": "string",
+            "description": "Exact browser tab identifier from tabs. observe activates and foregrounds this tab."
+          },
+          "frame_id": {
+            "type": "string",
+            "description": "Optional frame ID from browser state. Omit to retain selected frame; use the main frame ID for navigation and clicks."
+          },
+          "ref": {
+            "type": "string",
+            "description": "Exact element eid from the latest browser observation, required for click/type/key."
+          },
+          "url": {
+            "type": "string",
+            "description": "HTTP(S) URL for browser navigate."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 10000
+          }
+        },
+        "required": ["action"]
+      },
+      "executor": "tools/desktop-control.ts",
+      "execution_target": "sandbox"
+    }
+  ]
+}

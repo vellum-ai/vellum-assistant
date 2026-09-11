@@ -18,6 +18,7 @@ declare module "@novnc/novnc" {
     constructor(target: HTMLElement, urlOrChannel: string | WebSocket);
     scaleViewport: boolean;
     resizeSession: boolean;
+    viewOnly: boolean;
     clipViewport: boolean;
     clipboardPasteFrom(text: string): void;
     disconnect(): void;

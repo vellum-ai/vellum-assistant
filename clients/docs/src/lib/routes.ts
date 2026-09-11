@@ -21,4 +21,10 @@ export const routes = {
   login: `https://${WWW_DOMAIN}/account/login`,
   assistant: `https://${WWW_DOMAIN}/assistant`,
   plugins: `https://${WWW_DOMAIN}/plugins`,
+  downloads: `https://${WWW_DOMAIN}/downloads`,
+  iosAppStore: "https://apps.apple.com/us/app/vellum-assistant/id6759934423",
+  androidPlayStore:
+    "https://play.google.com/store/apps/details?id=ai.vellum.assistant",
+  chromeWebStore:
+    "https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne",
 } as const;
