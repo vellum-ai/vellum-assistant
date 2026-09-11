@@ -257,6 +257,7 @@ export function useMcpConnect(assistantId: string) {
       if (
         activeOperation.current &&
         ((attempt?.phase !== "error" && attempt?.phase !== "waiting") ||
+          (attempt?.phase === "waiting" && attempt.serverId !== serverId) ||
           activeOperation.current !== attempt.operationId)
       ) {
         return;
@@ -349,7 +350,7 @@ export function useMcpConnect(assistantId: string) {
         }
       })();
     },
-    [assistantId, attempt?.phase, attempt?.operationId, t],
+    [assistantId, attempt?.phase, attempt?.operationId, attempt?.serverId, t],
   );
 
   const dismiss = useCallback(async () => {
@@ -395,9 +396,7 @@ export function useMcpConnect(assistantId: string) {
 
   return {
     attempt,
-    isBusy: Boolean(
-      attempt && attempt.phase !== "error" && attempt.phase !== "waiting",
-    ),
+    isBusy: Boolean(attempt && attempt.phase !== "error"),
     connect,
     retry: () => {
       if (attempt) {

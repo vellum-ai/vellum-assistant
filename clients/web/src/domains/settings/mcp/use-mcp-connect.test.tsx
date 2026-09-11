@@ -200,10 +200,18 @@ describe("useMcpConnect", () => {
     );
     popup.closed = true;
     await waitFor(() => expect(result.current.attempt?.phase).toBe("waiting"));
-    expect(result.current.isBusy).toBe(false);
+    expect(result.current.isBusy).toBe(true);
     expect(result.current.canCancel).toBe(true);
     expect(cancel).not.toHaveBeenCalled();
     expect(popup.close).not.toHaveBeenCalled();
+
+    const prepareOtherServer = mock(async () => {});
+    act(() => result.current.connect("another-integration", prepareOtherServer));
+    expect(result.current.attempt?.serverId).toBe("example-integration");
+    expect(result.current.attempt?.phase).toBe("waiting");
+    expect(prepareOtherServer).not.toHaveBeenCalled();
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(openPopup).toHaveBeenCalledTimes(1);
 
     status = { status: "complete", attempt_id: "attempt-1" };
     servers = [mcpServer({ lifecycleState: "connected" })];
@@ -277,7 +285,7 @@ describe("useMcpConnect", () => {
       expect(poll.mock.calls.length).toBeGreaterThan(beforeClose),
     );
     expect(result.current.attempt?.phase).toBe("waiting");
-    expect(result.current.isBusy).toBe(false);
+    expect(result.current.isBusy).toBe(true);
     expect(cancel).not.toHaveBeenCalled();
     status = { status: "complete", attempt_id: "attempt-1" };
     servers = [mcpServer({ lifecycleState: "connected" })];
