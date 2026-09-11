@@ -5,7 +5,7 @@
  * The voice front door owns hold, escalation, and direct-response behavior.
  */
 
-import type { LiveVoiceProgressConfig } from "../config/schemas/live-voice.js";
+import type { VoiceProgressConfig } from "../config/schemas/voice.js";
 import {
   extractToolUse,
   getConfiguredProvider,
@@ -216,7 +216,7 @@ export function effectiveSpokenTextMaxChars(
 }
 
 export function createVoiceProgressNarrator(options: {
-  config: LiveVoiceProgressConfig;
+  config: VoiceProgressConfig;
   /** Provider resolver, injectable for tests. */
   getProvider?: () => Promise<Provider | null>;
 }): VoiceProgressNarrator {

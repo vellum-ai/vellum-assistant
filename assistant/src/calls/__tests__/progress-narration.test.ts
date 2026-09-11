@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { LiveVoiceProgressConfigSchema } from "../../config/schemas/live-voice.js";
+import { VoiceProgressConfigSchema } from "../../config/schemas/voice.js";
 import type { Provider, ProviderResponse } from "../../providers/types.js";
 import {
   createVoiceProgressNarrator,
@@ -8,7 +8,7 @@ import {
   type VoiceProgressTextInput,
 } from "../progress-narration.js";
 
-const config = LiveVoiceProgressConfigSchema.parse({});
+const config = VoiceProgressConfigSchema.parse({});
 const progressInput: VoiceProgressTextInput = {
   transcriptSoFar: "compare flight prices for next month",
   completedOps: [
@@ -177,7 +177,7 @@ describe("createVoiceProgressNarrator", () => {
 
   test("bounds provider resolution by the configured timeout", async () => {
     const narrator = createVoiceProgressNarrator({
-      config: LiveVoiceProgressConfigSchema.parse({ generationTimeoutMs: 20 }),
+      config: VoiceProgressConfigSchema.parse({ generationTimeoutMs: 20 }),
       getProvider: () => new Promise<Provider | null>(() => {}),
     });
     const startedAt = Date.now();
@@ -187,7 +187,7 @@ describe("createVoiceProgressNarrator", () => {
 
   test("a caller abort settles promptly", async () => {
     const narrator = createVoiceProgressNarrator({
-      config: LiveVoiceProgressConfigSchema.parse({
+      config: VoiceProgressConfigSchema.parse({
         generationTimeoutMs: 60_000,
       }),
       getProvider: async () =>

@@ -225,6 +225,7 @@ import { resetDbForTesting } from "../../__tests__/db-test-helpers.js";
 import { createGuardianBinding } from "../../__tests__/helpers/create-guardian-binding.js";
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { loadConfig } from "../../config/loader.js";
+import type { VoiceProgressConfig } from "../../config/schemas/voice.js";
 import { getMessages } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
@@ -240,6 +241,7 @@ import {
   updateCallSession,
 } from "../call-store.js";
 import type { CallTransport } from "../call-transport.js";
+import type { VoiceProgressNarrator } from "../progress-narration.js";
 import { resolveCallTtsProvider } from "../resolve-call-tts-provider.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
@@ -412,6 +414,9 @@ function setupController(
     awaitPlaybackDrained?: () => Promise<void>;
     /** Synthesis-language resolver, as the media-stream server wires it. */
     resolveSynthesisLanguage?: () => string | undefined;
+    /** Progress narration seam; an explicit null keeps the call silent. */
+    progressNarrator?: VoiceProgressNarrator | null;
+    progressConfig?: VoiceProgressConfig;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -436,6 +441,11 @@ function setupController(
     assistantId: opts?.assistantId,
     trustContext: opts?.trustContext,
     resolveSynthesisLanguage: opts?.resolveSynthesisLanguage,
+    // Tests that do not exercise narration keep the default narrator out of
+    // the way: a null narrator never generates or speaks.
+    progressNarrator:
+      opts?.progressNarrator === undefined ? null : opts.progressNarrator,
+    progressConfig: opts?.progressConfig,
   });
   return { session, relay: transport, controller };
 }
@@ -4517,6 +4527,99 @@ describe("call-controller", () => {
         { text: FALLBACK_ESCALATION_BRIDGE, language: "en" },
         { text: "Forty-two.", language: "ko" },
       ]);
+
+      controller.destroy();
+    });
+
+    test("progress narration speaks into the escalated leg's tool loop, audio-only", async () => {
+      const narrationConfig: VoiceProgressConfig = {
+        enabled: true,
+        opsThreshold: 1,
+        idleIntervalMs: 60_000,
+        maxSilenceMs: 60_000,
+        longOpMs: 15_000,
+        minGapMs: 10,
+        generationTimeoutMs: 1_500,
+      };
+      const narrator: VoiceProgressNarrator = {
+        generateProgressText: async (input) => {
+          expect(input.transcriptSoFar).toBe("What is on my calendar?");
+          expect(input.currentOp?.toolName).toBe("calendar_list");
+          return "Pulling up your calendar now.";
+        },
+      };
+      const { session, relay, controller } = setupController(undefined, {
+        progressNarrator: narrator,
+        progressConfig: narrationConfig,
+      });
+      const calls: LegOpts[] = [];
+      mockStartVoiceTurn.mockImplementation(async (opts: LegOpts) => {
+        const index = calls.length;
+        calls.push(opts);
+        if (index === 0) {
+          opts.onTextDelta("[1] One moment.");
+          opts.onComplete();
+          return { turnId: "run-front", abort: () => {} };
+        }
+        // The escalated leg runs a tool; narration must land while it runs.
+        opts.callbacks?.tool_use_start?.("calendar_list", { toolUseId: "c1" });
+        await pollUntil(() =>
+          relay.sentTokens.some((t) =>
+            t.token.includes("Pulling up your calendar now."),
+          ),
+        );
+        opts.callbacks?.tool_result?.({
+          toolName: "calendar_list",
+          toolUseId: "c1",
+          resultPreview: "two events",
+        });
+        opts.onTextDelta("You have two events today.");
+        opts.onComplete();
+        return { turnId: "run-escalated", abort: () => {} };
+      });
+
+      await controller.handleCallerUtterance("What is on my calendar?");
+
+      const spoken = spokenText(relay);
+      expect(spoken.indexOf("One moment.")).toBeLessThan(
+        spoken.indexOf("Pulling up your calendar now."),
+      );
+      expect(spoken.indexOf("Pulling up your calendar now.")).toBeLessThan(
+        spoken.indexOf("You have two events today."),
+      );
+      // Narration is audio-only: the turn's recorded text is the model's.
+      expect(assistantSpokePayload(session.id).text).toBe(
+        "One moment. You have two events today.",
+      );
+
+      controller.destroy();
+    });
+
+    test("no narration without a narrator", async () => {
+      const { relay, controller } = setupController(undefined, {
+        progressNarrator: null,
+        progressConfig: {
+          enabled: true,
+          opsThreshold: 1,
+          idleIntervalMs: 60_000,
+          maxSilenceMs: 60_000,
+          longOpMs: 15_000,
+          minGapMs: 10,
+          generationTimeoutMs: 1_500,
+        },
+      });
+      scriptLegs([["Done."]], (opts) => {
+        opts.callbacks?.tool_use_start?.("web_search", { toolUseId: "t1" });
+        opts.callbacks?.tool_result?.({
+          toolName: "web_search",
+          toolUseId: "t1",
+          resultPreview: "ok",
+        });
+      });
+
+      await controller.handleCallerUtterance("Look it up");
+
+      expect(spokenText(relay)).toBe("Done.");
 
       controller.destroy();
     });
