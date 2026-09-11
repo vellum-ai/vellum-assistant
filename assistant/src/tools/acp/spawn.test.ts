@@ -128,13 +128,18 @@ const spawnMock = mock(
   ): Promise<{
     acpSessionId: string;
     protocolSessionId: string;
+    requestedModel?: string;
     effectiveModel?: string;
     modelWarning?: string;
-  }> => ({
-    acpSessionId: "acp-session-test",
-    protocolSessionId: "proto-session-test",
-    effectiveModel: "opus",
-  }),
+  }> => {
+    const requestedModel = _options?.model?.trim() || undefined;
+    return {
+      acpSessionId: "acp-session-test",
+      protocolSessionId: "proto-session-test",
+      requestedModel,
+      effectiveModel: "opus",
+    };
+  },
 );
 
 // Spread the real module's exports so transitive importers that pull other
@@ -488,6 +493,19 @@ describe("executeAcpSpawn - model selection", () => {
     );
   });
 
+  test("reports the manager-normalized requested model", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "  opus  " },
+      makeContext(),
+    );
+
+    expect(spawnMock.mock.calls[0][6]).toEqual({
+      parentToolUseId: undefined,
+      model: "  opus  ",
+    });
+    expect(JSON.parse(result.content).requestedModel).toBe("opus");
+  });
+
   test("a null model is treated as omitted", async () => {
     const result = await executeAcpSpawn(
       { agent: "claude", task: "do something", model: null },
@@ -503,6 +521,7 @@ describe("executeAcpSpawn - model selection", () => {
     spawnMock.mockImplementationOnce(async () => ({
       acpSessionId: "acp-session-test",
       protocolSessionId: "proto-session-test",
+      requestedModel: "nope",
       effectiveModel: "opus",
       modelWarning: "Unknown model: nope",
     }));
@@ -525,6 +544,7 @@ describe("executeAcpSpawn - model selection", () => {
     spawnMock.mockImplementationOnce(async () => ({
       acpSessionId: "acp-session-test",
       protocolSessionId: "proto-session-test",
+      requestedModel: "opus",
       modelWarning:
         'Agent "claude" does not support model selection, so the session is running on the agent\'s own model.',
     }));
@@ -556,6 +576,7 @@ describe("executeAcpSpawn - model selection", () => {
     spawnMock.mockImplementationOnce(async () => ({
       acpSessionId: "acp-session-test",
       protocolSessionId: "proto-session-test",
+      requestedModel: "sonnet",
     }));
 
     const result = await executeAcpSpawn(

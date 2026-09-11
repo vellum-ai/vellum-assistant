@@ -67,7 +67,7 @@ export async function executeAcpSpawn(
   }
   const agent = parsedInput.data.agent || "claude";
   const task = parsedInput.data.task;
-  const requestedModel = parsedInput.data.model?.trim() || undefined;
+  const model = parsedInput.data.model;
 
   if (!task) {
     return { content: '"task" is required.', isError: true };
@@ -126,20 +126,25 @@ export async function executeAcpSpawn(
     // Recheck: the auto-install and the agent-env preparation above are both
     // awaits, and this is the point a long-lived subprocess starts.
     throwIfCancelled(context);
-    const { acpSessionId, protocolSessionId, effectiveModel, modelWarning } =
-      await manager.spawn(
-        agent,
-        agentConfig,
-        task,
-        cwd,
-        context.conversationId,
-        sendToClient,
-        { parentToolUseId: context.toolUseId, model: requestedModel },
-        // The manager rechecks after its own protocol handshake and session
-        // creation, so a turn stopped in that window tears the child process
-        // down instead of handing it the task.
-        context.signal ? { signal: context.signal } : undefined,
-      );
+    const {
+      acpSessionId,
+      protocolSessionId,
+      requestedModel,
+      effectiveModel,
+      modelWarning,
+    } = await manager.spawn(
+      agent,
+      agentConfig,
+      task,
+      cwd,
+      context.conversationId,
+      sendToClient,
+      { parentToolUseId: context.toolUseId, model },
+      // The manager rechecks after its own protocol handshake and session
+      // creation, so a turn stopped in that window tears the child process
+      // down instead of handing it the task.
+      context.signal ? { signal: context.signal } : undefined,
+    );
 
     // Claude Code-only resume hint; empty for other adapters. Keyed off the
     // resolved command basename (always the real adapter binary). See

@@ -63,6 +63,7 @@ let fakeInMemorySessions: FakeSessionState[] = [];
 interface SpawnResult {
   acpSessionId: string;
   protocolSessionId: string;
+  requestedModel?: string;
   effectiveModel?: string;
   modelWarning?: string;
 }
@@ -73,7 +74,13 @@ const DEFAULT_SPAWN_RESULT: SpawnResult = {
   effectiveModel: "opus",
 };
 let spawnResult: SpawnResult = DEFAULT_SPAWN_RESULT;
-const spawnMock = mock(async () => spawnResult);
+const spawnMock = mock(async (...args: unknown[]) => {
+  const options = args[6] as { model?: string } | undefined;
+  return {
+    ...spawnResult,
+    requestedModel: options?.model?.trim() || undefined,
+  };
+});
 
 const defaultSteerOrResumeImpl = async (
   _id: string,
@@ -777,6 +784,18 @@ describe("POST /v1/acp/spawn: model selection", () => {
 
     expect(body.requestedModel).toBe("opus");
     expect(body.effectiveModel).toBe("opus");
+  });
+
+  test("reports the manager-normalized requested model", async () => {
+    const handler = getSpawnHandler();
+    const body = (await handler({
+      body: { ...SPAWN_BODY, model: "  opus  " },
+    })) as Record<string, unknown>;
+
+    expect((spawnMock.mock.calls[0] as unknown[])[6]).toEqual({
+      model: "  opus  ",
+    });
+    expect(body.requestedModel).toBe("opus");
   });
 
   test("a spawn that names no model asks the manager for none", async () => {

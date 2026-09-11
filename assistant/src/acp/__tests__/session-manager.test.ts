@@ -246,23 +246,26 @@ describe("AcpSessionManager: model selection at spawn", () => {
   }): Promise<{
     state: AcpSessionState;
     sent: AssistantEvent[];
+    requestedModel?: string;
     effectiveModel?: string;
     modelWarning?: string;
   }> {
     const manager = new AcpSessionManager(5);
     const sent: AssistantEvent[] = [];
-    const { acpSessionId, effectiveModel, modelWarning } = await manager.spawn(
-      opts.agentId ?? "agent-model",
-      { command: "echo", args: ["hi"], model: opts.agentModel },
-      "task",
-      "/tmp",
-      opts.conversationId,
-      (msg) => sent.push(msg),
-      opts.requestedModel ? { model: opts.requestedModel } : {},
-    );
+    const { acpSessionId, requestedModel, effectiveModel, modelWarning } =
+      await manager.spawn(
+        opts.agentId ?? "agent-model",
+        { command: "echo", args: ["hi"], model: opts.agentModel },
+        "task",
+        "/tmp",
+        opts.conversationId,
+        (msg) => sent.push(msg),
+        opts.requestedModel ? { model: opts.requestedModel } : {},
+      );
     return {
       state: manager.getStatus(acpSessionId) as AcpSessionState,
       sent,
+      requestedModel,
       effectiveModel,
       modelWarning,
     };
@@ -286,6 +289,24 @@ describe("AcpSessionManager: model selection at spawn", () => {
     // Nothing was requested and the adapter is already on a model, so it was
     // never asked to change.
     expect(setConfigOptionCalls).toEqual([]);
+  });
+
+  test("the spawn result owns requested-model normalization", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+
+    const manager = new AcpSessionManager(5);
+    const result = await manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-normalized-request",
+      () => {},
+      { model: "  opus  " },
+    );
+
+    expect(result.requestedModel).toBe("opus");
+    expect(selectedValue()).toBe("opus");
   });
 
   test("the model event follows the spawned event", async () => {
