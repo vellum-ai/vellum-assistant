@@ -149,44 +149,54 @@ test("scroll without a direction is rejected before mouse input", async () => {
   expect(f.calls).not.toContain("Input.dispatchMouseEvent");
 });
 
-test("new tabs retain numeric identity while an HTTP tab is open", async () => {
-  const f = fixture();
-  const first = await f.execute({ action: "observe" });
-  const originalSend = f.bridge.send;
-  const targets: Array<{ method: string; tab?: string }> = [];
-  f.bridge.send = async (
-    method: string,
-    _params?: Record<string, unknown>,
-    tab?: string,
-  ) => {
-    targets.push({ method, tab });
-    if (method === "Vellum.createTab") {
-      return { tabId: "43" };
-    }
-    if (method === "Vellum.listTabs") {
-      return {
-        tabs: [
-          { tabId: 42, url: "https://example.com", active: false },
-          { tabId: 43, url: "about:blank", active: true },
-        ],
-      };
-    }
-    return originalSend(method);
-  };
-  const created = await f.execute({
-    action: "new_tab",
-    observation_id: first.observation_id,
+for (const extraTabs of [0, 100]) {
+  test(`new tabs retain identity with ${extraTabs} additional tabs`, async () => {
+    const f = fixture();
+    const first = await f.execute({ action: "observe" });
+    const originalSend = f.bridge.send;
+    const targets: Array<{ method: string; tab?: string }> = [];
+    f.bridge.send = async (
+      method: string,
+      _params?: Record<string, unknown>,
+      tab?: string,
+    ) => {
+      targets.push({ method, tab });
+      if (method === "Vellum.createTab") {
+        return { tabId: "43" };
+      }
+      if (method === "Vellum.listTabs") {
+        return {
+          tabs: [
+            { tabId: 42, url: "https://example.com", active: false },
+            ...Array.from({ length: extraTabs }, (_, index) => ({
+              tabId: index + 100,
+              url: "https://example.org",
+              active: false,
+            })),
+            { tabId: 43, url: "about:blank", active: true },
+          ],
+        };
+      }
+      return originalSend(method);
+    };
+    const created = await f.execute({
+      action: "new_tab",
+      observation_id: first.observation_id,
+    });
+    expect(created.tab_id).toBe(43);
+    const tabs = created.tabs as Array<{ tab_id: number }>;
+    expect(tabs.length).toBeLessThanOrEqual(100);
+    expect(tabs.some((tab) => tab.tab_id === 43)).toBe(true);
+    await f.execute({
+      action: "navigate",
+      url: "https://example.org",
+      observation_id: created.observation_id,
+    });
+    expect(targets.find((call) => call.method === "Page.navigate")?.tab).toBe(
+      "43",
+    );
   });
-  expect(created.tab_id).toBe(43);
-  await f.execute({
-    action: "navigate",
-    url: "https://example.org",
-    observation_id: created.observation_id,
-  });
-  expect(targets.find((call) => call.method === "Page.navigate")?.tab).toBe(
-    "43",
-  );
-});
+}
 
 test("initial observation waits for browser readiness before sending commands", async () => {
   const f = fixture();

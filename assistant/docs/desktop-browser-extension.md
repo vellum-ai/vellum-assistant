@@ -50,7 +50,8 @@ browser commands cannot dispatch to it, including by explicit client ID.
 Take control, Allow assistant, action budget, and desktop lifetime for both
 input scopes. Browser observations include page text, controls, tabs, and
 frames. They contain no unconditional image. Element references bind to tab,
-frame, document loader, and connection generation.
+frame, document loader, and connection generation. Tab selection uses the full
+query result; the bounded tab list always includes the selected tab.
 
 A browser observation waits up to 30 seconds for a connection bound to its
 guardian. Take control and caller cancellation interrupt this startup wait.
@@ -63,6 +64,8 @@ remains pending and blocks observations in either scope until both input channel
 have been released. Closed or detached targets discard held-input records; a
 rejected press does not create a cleanup obligation. The worker retains held-input
 records across native reconnects and completes cleanup before announcing readiness.
+Cleanup uses the bridge's current guardian binding so rebinding cannot strand
+held input from the previous owner. Normal actions retain their actor checks.
 
 Embedded frames support reading when exposed by the selected target's AX tree;
 input in frames, canvas, native Chrome UI, password/file fields, and other

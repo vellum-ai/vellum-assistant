@@ -154,3 +154,41 @@ test("readiness is bounded and cancellation interrupts startup", async () => {
   controller.abort(new Error("Take control"));
   await expect(waiting).rejects.toThrow("Take control");
 });
+
+test("cleanup follows guardian rebinding while normal actions retain actor checks", async () => {
+  const f = await fixture();
+  const exchange = (
+    kind: "connect" | "poll" | "message",
+    message?: Record<string, unknown>,
+  ) =>
+    f.bridge.exchange(
+      { token: f.token, connection: "rebound", kind, message },
+      "user-new",
+    );
+  await exchange("connect");
+  await expect(
+    f.bridge.send(
+      "Input.insertText",
+      {},
+      "42",
+      "user-123",
+      "conv-123",
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow("guardian");
+  const cleanup = f.bridge.releaseInput(
+    "conv-123",
+    new AbortController().signal,
+  );
+  const { messages } = (await exchange("poll")) as {
+    messages: Record<string, unknown>[];
+  };
+  expect(messages).toHaveLength(1);
+  expect(messages[0]?.cdpMethod).toBe("Vellum.releaseInput");
+  await exchange("message", {
+    requestId: messages[0]?.requestId,
+    content: "{}",
+  });
+  await cleanup;
+  f.bridge.stop();
+});

@@ -152,6 +152,17 @@ export class DesktopBrowserBridge {
     }
   }
 
+  async releaseInput(conversation: string, signal: AbortSignal): Promise<void> {
+    await this.send(
+      "Vellum.releaseInput",
+      {},
+      undefined,
+      this.guardian,
+      conversation,
+      signal,
+    );
+  }
+
   async send<T>(
     method: string,
     params: Record<string, unknown> | undefined,

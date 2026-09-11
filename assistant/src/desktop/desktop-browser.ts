@@ -95,7 +95,7 @@ async function createTab(
 export class DesktopBrowser {
   private observation?: Observation;
   private tab?: number;
-  private inputOwner?: { actor: string; conversation: string };
+  private inputConversation?: string;
   constructor(
     private readonly bridge: DesktopBrowserBridge = desktopBrowserBridge,
   ) {}
@@ -106,20 +106,15 @@ export class DesktopBrowser {
   }
 
   async release(): Promise<void> {
-    if (!this.inputOwner) {
+    if (!this.inputConversation) {
       return;
     }
-    const { actor, conversation } = this.inputOwner;
     this.invalidate();
-    await this.bridge.send(
-      "Vellum.releaseInput",
-      {},
-      undefined,
-      actor,
-      conversation,
+    await this.bridge.releaseInput(
+      this.inputConversation,
       AbortSignal.timeout(3000),
     );
-    this.inputOwner = undefined;
+    this.inputConversation = undefined;
   }
 
   async execute(
@@ -220,7 +215,7 @@ export class DesktopBrowser {
             "Use a desktop screenshot for input in embedded frames. Browser frame observations support reading only.",
           );
         }
-        this.inputOwner = { actor, conversation };
+        this.inputConversation = conversation;
         if (action.action === "key") {
           if (!action.key) {
             throw new Error("key requires a key name");
@@ -314,14 +309,12 @@ export class DesktopBrowser {
       {},
       signal,
     );
-    const boundedTabs = tabs.slice(0, 100);
     const selected = requestedTab ?? this.tab;
     const tab =
-      boundedTabs.find((tab) => tab.tabId === selected) ??
+      tabs.find((tab) => tab.tabId === selected) ??
       (requestedTab === undefined
-        ? (boundedTabs.find(
-            (tab) => tab.active && /^https?:/.test(tab.url ?? ""),
-          ) ?? boundedTabs.find((tab) => /^https?:/.test(tab.url ?? "")))
+        ? (tabs.find((tab) => tab.active && /^https?:/.test(tab.url ?? "")) ??
+          tabs.find((tab) => /^https?:/.test(tab.url ?? "")))
         : undefined);
     if (!tab?.tabId) {
       if (requestedTab !== undefined) {
@@ -376,6 +369,16 @@ export class DesktopBrowser {
       generation,
       nodes: snapshot.selectorMap,
     };
+    const currentTab: TabInfo = tab ?? {
+      tabId: this.tab,
+      url: frameTree.frame.url,
+      active: true,
+      pinned: false,
+    };
+    const boundedTabs = [
+      currentTab,
+      ...tabs.filter((item) => item.tabId !== this.tab),
+    ].slice(0, 100);
     return {
       observation_id: id,
       tab_id: this.tab,
