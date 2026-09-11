@@ -17,7 +17,6 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
-  useLayoutEffect,
   useRef,
   useState,
   type Ref,
@@ -44,14 +43,17 @@ import {
 } from "@/domains/chat/api/document-comments";
 import {
   markdownWordCount,
-  saveDocumentContent,
   type DocumentSaveTarget,
 } from "@/domains/chat/api/document-save";
 import { NameInputDialog } from "@/domains/chat/components/name-input-dialog";
+import {
+  useDocumentEditorSave,
+  type DocumentEditorSnapshot,
+  type DocumentSendPreparation,
+} from "@/domains/chat/hooks/use-document-editor-save";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import { documentsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
-import { captureError } from "@/lib/sentry/capture-error";
 import {
   DocumentCommentPanel,
   type DocumentCommentPanelHandle,
@@ -72,6 +74,8 @@ const TiptapDocumentEditor = lazy(() =>
 export interface DocumentViewerContainerHandle {
   /** Refresh the comment panel. Call when an SSE comment event arrives. */
   refreshComments: () => Promise<void>;
+  flushPendingSave: () => Promise<DocumentEditorSnapshot>;
+  beginSendPreparation: () => DocumentSendPreparation;
 }
 
 /** A document surface: autosave writes through the documents API. */
@@ -121,7 +125,16 @@ interface TextSelection {
 // Component
 // ---------------------------------------------------------------------------
 
-export function DocumentViewerContainer({
+export function DocumentViewerContainer(props: DocumentViewerContainerProps) {
+  return (
+    <DocumentViewerContent
+      key={`${props.assistantId}:${props.surfaceId}`}
+      {...props}
+    />
+  );
+}
+
+function DocumentViewerContent({
   assistantId,
   documentName,
   content,
@@ -155,9 +168,6 @@ export function DocumentViewerContainer({
     end: number;
   } | null>(null);
 
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
-    "idle",
-  );
   const [renameOpen, setRenameOpen] = useState(false);
   // What the header's status line says when nothing is being saved. Derived
   // from the editor's live markdown rather than the documents list, so it
@@ -165,84 +175,47 @@ export function DocumentViewerContainer({
   const [wordCount, setWordCount] = useState(() => markdownWordCount(content));
 
   const commentPanelRef = useRef<DocumentCommentPanelHandle>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
-  const savedFadeRef = useRef<ReturnType<typeof setTimeout>>(null);
-
-  // The debounced save reads its destination through refs rather than the
-  // closure the keystroke created. The container is keyed per document, so a
-  // switch unmounts it with a save still pending, and a rename changes the
-  // title under a mounted one; both are cases where the value captured when
-  // the keystroke landed is no longer where the text belongs. The pending
-  // markdown rides along so the unmount flush below has something to write.
-  const saveTargetRef = useRef(saveTarget);
-  const pendingMarkdownRef = useRef<string | null>(null);
-  // The last markdown the editor produced, kept past the save that wrote it.
-  // A rename posts the body along with the title, and the `content` prop is
-  // the snapshot the document loaded with: it does not follow the user's
-  // typing, so posting it would undo every edit already saved.
-  const latestMarkdownRef = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    saveTargetRef.current = saveTarget;
+  const {
+    saveStatus,
+    editingLocked,
+    editorContent,
+    title,
+    changeContent,
+    rename,
+    flushPendingSave,
+    beginSendPreparation,
+  } = useDocumentEditorSave({
+    target: saveTarget,
+    content,
+    onRenamed,
+    onRenameSaved: () => {
+      void queryClient.invalidateQueries({
+        queryKey: documentsGetQueryKey({
+          path: { assistant_id: assistantId },
+          query: { conversationId },
+        }),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: documentsGetQueryKey({
+          path: { assistant_id: assistantId },
+        }),
+      });
+    },
+    onRenameFailed: () => toast.error(t("documentViewerContainer.renameFailed")),
   });
-
-  const flushPendingSave = useCallback(() => {
-    const markdown = pendingMarkdownRef.current;
-    if (markdown === null) {
-      return;
-    }
-    pendingMarkdownRef.current = null;
-    const target = saveTargetRef.current;
-    void saveDocumentContent(target, markdown).then(
-      () => {
-        setSaveStatus("saved");
-        savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
-      },
-      () => setSaveStatus("idle"),
-    );
-  }, []);
 
   const handleContentChange = useCallback(
     (markdown: string) => {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
+      if (changeContent(markdown)) {
+        setWordCount(markdownWordCount(markdown));
       }
-      if (savedFadeRef.current) {
-        clearTimeout(savedFadeRef.current);
-      }
-      pendingMarkdownRef.current = markdown;
-      latestMarkdownRef.current = markdown;
-      setWordCount(markdownWordCount(markdown));
-      setSaveStatus("saving");
-      saveTimerRef.current = setTimeout(() => {
-        saveTimerRef.current = null;
-        flushPendingSave();
-      }, 1000);
     },
-    [flushPendingSave],
+    [changeContent],
   );
 
-  // A keyed remount takes the pending timer down with it, so an edit made in
-  // the last second before a document switch or a close would never reach the
-  // daemon. Fire it now instead: the refs still name the document being left,
-  // so the text lands where it was typed.
-  const flushPendingSaveRef = useRef(flushPendingSave);
-  useLayoutEffect(() => {
-    flushPendingSaveRef.current = flushPendingSave;
-  });
-  useEffect(
-    () => () => {
-      if (savedFadeRef.current) {
-        clearTimeout(savedFadeRef.current);
-        savedFadeRef.current = null;
-      }
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-        flushPendingSaveRef.current();
-      }
-    },
-    [],
-  );
+  useEffect(() => {
+    setWordCount(markdownWordCount(editorContent));
+  }, [editorContent]);
 
   // Clear inline comment state when panel closes (but keep text selection
   // visible since the popover now works independently of the panel)
@@ -312,10 +285,11 @@ export function DocumentViewerContainer({
     }
   }, [assistantId, surfaceId, updateCommentAnchors]);
 
-  // Expose refreshComments for external callers (e.g. SSE handler in page).
-  useImperativeHandle(handleRef, () => ({ refreshComments }), [
-    refreshComments,
-  ]);
+  useImperativeHandle(
+    handleRef,
+    () => ({ refreshComments, flushPendingSave, beginSendPreparation }),
+    [refreshComments, flushPendingSave, beginSendPreparation],
+  );
 
   // -------------------------------------------------------------------------
   // Inline comment creation
@@ -357,76 +331,12 @@ export function DocumentViewerContainer({
   // Rename
   // -------------------------------------------------------------------------
 
-  /**
-   * Retitle the document. The documents API is an upsert keyed by surface, so
-   * the rename is the same write autosave makes, with a different title on it:
-   * there is no title-only endpoint to reach for.
-   *
-   * Optimistic, the way the conversation rename is: the caller adopts the new
-   * name immediately and takes the old one back if the write fails.
-   */
   const handleRenameSubmit = useCallback(
     (nextTitle: string) => {
       setRenameOpen(false);
-      const title = nextTitle.trim();
-      const previousTitle = documentName;
-      if (title === "" || title === previousTitle) {
-        return;
-      }
-
-      // A debounced edit is still owed a write, and it would carry the old
-      // title. Fold it into the rename rather than racing it: this write
-      // sends the same markdown.
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
-      if (savedFadeRef.current) {
-        clearTimeout(savedFadeRef.current);
-      }
-      pendingMarkdownRef.current = null;
-
-      onRenamed?.(title);
-      setSaveStatus("saving");
-      void saveDocumentContent(
-        { ...saveTargetRef.current, title },
-        latestMarkdownRef.current ?? content,
-      ).then(
-        () => {
-          setSaveStatus("saved");
-          savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
-          // The name is read from the documents list by the transcript card,
-          // the assets pill, and the Library. The conversation-scoped list and
-          // the assistant-wide one are separate cache entries; both carry it.
-          void queryClient.invalidateQueries({
-            queryKey: documentsGetQueryKey({
-              path: { assistant_id: assistantId },
-              query: { conversationId },
-            }),
-          });
-          void queryClient.invalidateQueries({
-            queryKey: documentsGetQueryKey({
-              path: { assistant_id: assistantId },
-            }),
-          });
-        },
-        (err: unknown) => {
-          setSaveStatus("idle");
-          onRenamed?.(previousTitle);
-          toast.error(t("documentViewerContainer.renameFailed"));
-          captureError(err, { context: "renameDocument" });
-        },
-      );
+      rename(nextTitle);
     },
-    [
-      assistantId,
-      content,
-      conversationId,
-      documentName,
-      onRenamed,
-      queryClient,
-      t,
-    ],
+    [rename],
   );
 
   // -------------------------------------------------------------------------
@@ -483,7 +393,7 @@ export function DocumentViewerContainer({
             variant="title-small"
             className="truncate leading-normal text-[var(--content-emphasised)]"
           >
-            {documentName}
+            {title}
           </Typography>
           <span className="flex items-center gap-1 text-[var(--content-tertiary)]">
             {saveStatus === "saving" ? (
@@ -510,6 +420,7 @@ export function DocumentViewerContainer({
             <Button
               variant="ghost"
               iconOnly={<Ellipsis />}
+              disabled={editingLocked}
               aria-label={t("documentViewerContainer.menuAria")}
               tooltip={t("documentViewerContainer.menuAria")}
             />
@@ -551,7 +462,7 @@ export function DocumentViewerContainer({
         open={renameOpen}
         title={t("documentViewerContainer.renameTitle")}
         submitLabel={t("documentViewerContainer.renameSave")}
-        initialValue={documentName}
+        initialValue={title}
         onSubmit={handleRenameSubmit}
         onCancel={() => setRenameOpen(false)}
       />
@@ -568,7 +479,8 @@ export function DocumentViewerContainer({
             }
           >
             <TiptapDocumentEditor
-              content={content}
+              content={editorContent}
+              editable={!editingLocked}
               onContentChange={handleContentChange}
               onTextSelect={(sel) => {
                 if (!sel) {

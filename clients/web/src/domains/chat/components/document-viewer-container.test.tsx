@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
   cleanup,
+  act,
   fireEvent,
   render,
   screen,
@@ -16,7 +17,11 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { createRef, type ReactNode } from "react";
+import type {
+  DocumentViewerContainerHandle,
+  DocumentViewerContainerProps,
+} from "./document-viewer-container";
 
 const saveDocumentContent = mock(
   async (_target: unknown, _markdown: string) => ({ success: true }) as unknown,
@@ -43,10 +48,12 @@ mock.module("./document-comment-panel", () => ({
 mock.module("./tiptap-document-editor", () => ({
   TiptapDocumentEditor: ({
     onContentChange,
+    editable,
   }: {
     onContentChange: (markdown: string) => void;
+    editable: boolean;
   }) => (
-    <button type="button" onClick={() => onContentChange("edited body")}>
+    <button type="button" disabled={!editable} onClick={() => onContentChange("edited body")}>
       type
     </button>
   ),
@@ -58,16 +65,17 @@ const { DocumentViewerContainer } = await import(
 
 interface RenderResult {
   unmount: () => void;
+  rerender: (props: Partial<DocumentViewerContainerProps>) => void;
 }
 
 function renderViewer(
-  props: { onRenamed?: (documentName: string) => void } = {},
+  props: Partial<DocumentViewerContainerProps> = {},
 ): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
 
-  const { unmount } = render(
+  const viewer = (overrides: Partial<DocumentViewerContainerProps>) => (
     <DocumentViewerContainer
       source="document"
       assistantId="asst-1"
@@ -76,8 +84,12 @@ function renderViewer(
       onClose={() => {}}
       surfaceId="surf-1"
       conversationId="conv-1"
-      onRenamed={props.onRenamed}
-    />,
+      {...props}
+      {...overrides}
+    />
+  );
+  const { unmount, rerender } = render(
+    viewer({}),
     {
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={queryClient}>
@@ -86,7 +98,7 @@ function renderViewer(
       ),
     },
   );
-  return { unmount };
+  return { unmount, rerender: (overrides) => rerender(viewer(overrides)) };
 }
 
 /** Emit one editor update and wait for the editor stub to have mounted. */
@@ -127,7 +139,7 @@ describe("DocumentViewerContainer autosave", () => {
 
     unmount();
 
-    expect(saveDocumentContent).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
     expect(saveDocumentContent.mock.calls[0]![0]).toEqual({
       source: "document",
       assistantId: "asst-1",
@@ -198,5 +210,44 @@ describe("DocumentViewerContainer rename", () => {
 
     expect(onRenamed).not.toHaveBeenCalled();
     expect(saveDocumentContent).not.toHaveBeenCalled();
+  });
+});
+
+describe("DocumentViewerContainer preparation", () => {
+  test("the preparation handle disables editing and rename affordances", async () => {
+    const handleRef = createRef<DocumentViewerContainerHandle>();
+    renderViewer({ handleRef });
+    await typeIntoEditor();
+    let lease!: ReturnType<DocumentViewerContainerHandle["beginSendPreparation"]>;
+    act(() => {
+      lease = handleRef.current!.beginSendPreparation();
+    });
+    expect((screen.getByRole("button", { name: "type" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Document options" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      expect(await lease.flush()).toEqual({ title: "notes.md", content: "edited body" });
+      lease.release();
+    });
+    expect((screen.getByRole("button", { name: "type" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("the same surface under another assistant invalidates the old preparation", async () => {
+    const handleRef = createRef<DocumentViewerContainerHandle>();
+    const { rerender } = renderViewer({ handleRef });
+    await typeIntoEditor();
+    const oldHandle = handleRef.current!;
+    let lease!: ReturnType<DocumentViewerContainerHandle["beginSendPreparation"]>;
+    act(() => {
+      lease = oldHandle.beginSendPreparation();
+    });
+    rerender({ assistantId: "asst-2", content: "Another assistant's notes" });
+    expect(lease.isCurrent()).toBe(false);
+    await expect(lease.flush()).rejects.toThrow("no longer active");
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    expect(saveDocumentContent.mock.calls[0]![0]).toMatchObject({ assistantId: "asst-1" });
+    await act(async () => {
+      expect(await handleRef.current!.flushPendingSave()).toEqual({ title: "notes.md", content: "Another assistant's notes" });
+    });
+    expect(handleRef.current).not.toBe(oldHandle);
   });
 });
