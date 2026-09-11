@@ -33,6 +33,7 @@ export const CU_RESULT_SCHEMA = z
     executionResult: z.string().optional(),
     executionError: z.string().optional(),
     secondaryWindows: z.string().optional(),
+    timings: z.record(z.string(), z.number()).optional(),
   })
   .passthrough();
 

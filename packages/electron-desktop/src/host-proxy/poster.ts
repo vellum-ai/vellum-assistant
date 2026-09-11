@@ -76,6 +76,8 @@ export interface HostCuResultPayload {
   executionError?: string;
   secondaryWindows?: string;
   userGuidance?: string;
+  /** Per-phase helper timings in milliseconds; older helpers send none. */
+  timings?: Record<string, number>;
 }
 
 export type HostAppControlState = "running" | "missing" | "minimized";
