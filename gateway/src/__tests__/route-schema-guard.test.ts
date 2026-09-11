@@ -11,6 +11,9 @@ import {
   buildAgentCard,
 } from "../http/routes/a2a-routes.js";
 import { buildSchema } from "../schema.js";
+import type { RouteDefinition } from "../http/router.js";
+import { createDesktopControlRoutes } from "../http/routes/desktop-setup-proxy.js";
+import { makeConfig } from "./runtime-stream-test-utils.js";
 import { buildMarkedContactRoutes } from "./helpers/contact-route-table.js";
 
 /** A route extracted from source: path + optional HTTP method. */
@@ -36,7 +39,7 @@ const ROUTE_PATH_CONSTANTS: Record<string, string> = {
  * Routes are defined in three places:
  * 1. The `routes` array (RouteDefinition[]) — matched by the router
  * 2. Pre-router paths in the `fetch()` handler (healthz, readyz, schema, WS upgrades)
- * 3. The contact-family route table spread into the array (imported directly)
+ * 3. Shared control-plane route tables spread into the array (imported directly)
  *
  * We parse the source text rather than importing index.ts because it calls
  * `main()` at module scope which starts the server.
@@ -113,14 +116,18 @@ function extractRoutesFromSource(): ExtractedRoute[] {
       "index.ts no longer spreads buildContactsControlPlaneRoutes — update this guard",
     );
   }
-  routes.push(...extractContactTableRoutes());
+  routes.push(...extractTableRoutes(buildMarkedContactRoutes()));
+  if (!src.includes("...createDesktopControlRoutes(")) {
+    throw new Error("index.ts must register createDesktopControlRoutes");
+  }
+  routes.push(...extractTableRoutes(createDesktopControlRoutes(makeConfig())));
 
   return routes;
 }
 
-/** Contact-family routes from the builder index.ts spreads. */
-function extractContactTableRoutes(): ExtractedRoute[] {
-  return buildMarkedContactRoutes().flatMap((route) => {
+/** Routes from the builders index.ts spreads. */
+function extractTableRoutes(table: RouteDefinition[]): ExtractedRoute[] {
+  return table.flatMap((route) => {
     const method = route.method ?? null;
     if (typeof route.path === "string") {
       return [{ path: route.path, method }];
