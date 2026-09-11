@@ -33,6 +33,7 @@ import type {
   DictationOfferAnswer,
   DictationPartialsResult,
   DictationTranscribeResult,
+  FnKeyState,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -75,6 +76,8 @@ import {
   HELPER_HOTKEY_SET_MODIFIER_HOLD,
   HELPER_INPUT_ACTIVITY_EVENT,
   HELPER_INPUT_SET_ACTIVITY_WATCH,
+  HELPER_KEYBOARD_FN_STATE,
+  HELPER_KEYBOARD_OPEN_SETTINGS,
 } from "@vellumai/ipc-contract";
 import {
   createBundleConfirmBridge,
@@ -235,6 +238,14 @@ const bridge: VellumBridge = {
         ipcRenderer.invoke(HELPER_APPS_QUIT, bundleId) as Promise<boolean>,
       frontmost: (): Promise<string | null> =>
         ipcRenderer.invoke(HELPER_APPS_FRONTMOST) as Promise<string | null>,
+    },
+    keyboard: {
+      fnState: (): Promise<FnKeyState | null> =>
+        ipcRenderer.invoke(
+          HELPER_KEYBOARD_FN_STATE,
+        ) as Promise<FnKeyState | null>,
+      openSettings: (): Promise<void> =>
+        ipcRenderer.invoke(HELPER_KEYBOARD_OPEN_SETTINGS) as Promise<void>,
     },
     input: {
       setActivityWatch: (enable: boolean): Promise<boolean> =>

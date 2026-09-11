@@ -90,6 +90,8 @@ const MACOS_ONLY_SURFACE = [
   "helper.hotkey.setModifierHold",
   "helper.input.onActivity",
   "helper.input.setActivityWatch",
+  "helper.keyboard.fnState",
+  "helper.keyboard.openSettings",
   "text.undoInFrontApp",
 ];
 

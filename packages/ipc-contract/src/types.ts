@@ -323,6 +323,26 @@ export interface HotkeySelection {
   editable: boolean;
 }
 
+/**
+ * The two macOS keyboard settings that decide what the Globe (Fn) key does
+ * before any app hears it, read from the helper on request.
+ *
+ * `fnRemappedToNoAction` is the Modifier Keys table sending Globe to "No
+ * Action": the driver drops the key upstream of every event tap, so Input
+ * Monitoring reads granted and the voice key never arrives. `fnRemappedTo`
+ * names any other destination the table offers (`"control"`, `"caps lock"`),
+ * `null` when the key is left alone or sent somewhere unnamed.
+ *
+ * `fnUsageType` is `AppleFnUsageType`: 0 nothing, 1 change input source, 2
+ * show emoji and symbols, 3 start dictation. 3 fires on the same double press
+ * that starts a call. `null` when the user has never set it.
+ */
+export interface FnKeyState {
+  fnRemappedToNoAction: boolean;
+  fnRemappedTo: string | null;
+  fnUsageType: number | null;
+}
+
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
   state: HotkeyEventState;

@@ -28,7 +28,13 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import { DetailCard } from "@/components/detail-card";
 import { ActivationKeyOption } from "@/domains/settings/pages/activation-key-option";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useTranslation } from "@/i18n";
+import {
+  openKeyboardSettings,
+  readFnKeyState,
+  type FnKeyState,
+} from "@/runtime/hotkey";
 import {
   getSystemPermissionsState,
   requestSystemPermission,
@@ -54,6 +60,9 @@ const warningClasses =
  * for each of those would be a key nobody kept.
  */
 const MIN_CUSTOM_MODIFIERS = 2;
+
+/** `AppleFnUsageType` for "Start Dictation (press Globe twice)". */
+const FN_USAGE_START_DICTATION = 3;
 
 function heldModifiers(
   event: ReactKeyboardEvent<HTMLElement>,
@@ -107,6 +116,28 @@ export function VoiceKeyCard() {
   const askForInputMonitoring = useCallback(() => {
     void requestSystemPermission("inputMonitoring").then(refreshPermission);
   }, [refreshPermission]);
+
+  // What macOS has the Globe key doing before any app hears it. A Globe key
+  // sent to No Action never reaches the helper, so everything above reads
+  // green while the key stays dead; this is the one read that can say why.
+  const [fnState, setFnState] = useState<FnKeyState | null>(null);
+  const refreshFnState = useCallback(async () => {
+    setFnState(await readFnKeyState());
+  }, []);
+  useEffect(() => {
+    void refreshFnState();
+  }, [refreshFnState]);
+  // Both settings are changed in System Settings, which sends nothing back.
+  // The window getting the user's attention again is the moment they are
+  // back from it.
+  useBusSubscription("app.attention", ({ attended }) => {
+    if (attended) {
+      void refreshFnState();
+    }
+  });
+  const openKeyboard = useCallback(() => {
+    void openKeyboardSettings();
+  }, []);
 
   const choose = useCallback(
     (next: VoiceKey) => {
@@ -192,6 +223,9 @@ export function VoiceKeyCard() {
     key.modifiers.includes("control") &&
     key.modifiers.includes("option");
   const granted = inputMonitoring === "granted";
+  const fnSentToNoAction = isFn && fnState?.fnRemappedToNoAction === true;
+  const fnStartsDictation =
+    isFn && fnState?.fnUsageType === FN_USAGE_START_DICTATION;
 
   return (
     <DetailCard
@@ -266,10 +300,27 @@ export function VoiceKeyCard() {
           </div>
         )}
 
-        {isFn && (
-          <div className={noteClasses}>
-            <Info className="mt-0.5 h-3 w-3 shrink-0" />
-            <span>{t("voiceKeyCard.fnDictationNote")}</span>
+        {fnSentToNoAction && (
+          <div className="flex flex-col items-start gap-2 pt-1">
+            <div className={warningClasses}>
+              <Info className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>{t("voiceKeyCard.fnNoActionNote")}</span>
+            </div>
+            <Button variant="outlined" onClick={openKeyboard}>
+              {t("voiceKeyCard.openKeyboardSettings")}
+            </Button>
+          </div>
+        )}
+
+        {fnStartsDictation && (
+          <div className="flex flex-col items-start gap-2 pt-1">
+            <div className={noteClasses}>
+              <Info className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>{t("voiceKeyCard.fnDictationNote")}</span>
+            </div>
+            <Button variant="outlined" onClick={openKeyboard}>
+              {t("voiceKeyCard.openKeyboardSettings")}
+            </Button>
           </div>
         )}
 

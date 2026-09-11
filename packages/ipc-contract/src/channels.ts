@@ -61,6 +61,9 @@ export const HELPER_HOTKEY_READ_FRONT_SELECTION =
 export const HELPER_APPS_RUNNING = "vellum:helper:apps:running";
 export const HELPER_APPS_QUIT = "vellum:helper:apps:quit";
 export const HELPER_APPS_FRONTMOST = "vellum:helper:apps:frontmost";
+export const HELPER_KEYBOARD_FN_STATE = "vellum:helper:keyboard:fnState";
+export const HELPER_KEYBOARD_OPEN_SETTINGS =
+  "vellum:helper:keyboard:openSettings";
 export const HELPER_INPUT_SET_ACTIVITY_WATCH =
   "vellum:helper:input:setActivityWatch";
 export const HELPER_INPUT_ACTIVITY_EVENT = "vellum:helper:input:activity";

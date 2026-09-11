@@ -44,6 +44,7 @@ import type {
   DictationTranscribeResult,
   DownloadDoneEvent,
   ElectronHostOS,
+  FnKeyState,
   ModifierHold,
   ModifierHoldRegistrationResult,
   HelperRestartResult,
@@ -178,6 +179,10 @@ declare global {
         input?: {
           setActivityWatch(enable: boolean): Promise<boolean>;
           onActivity(callback: () => void): () => void;
+        };
+        keyboard?: {
+          fnState(): Promise<FnKeyState | null>;
+          openSettings(): Promise<void>;
         };
         hotkey?: {
           setVoiceModeChord?(

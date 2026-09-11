@@ -1,4 +1,4 @@
-import { BrowserWindow, app, ipcMain, type WebContents } from "electron";
+import { BrowserWindow, app, ipcMain, shell, type WebContents } from "electron";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +12,8 @@ import {
   HELPER_APPS_RUNNING,
   HELPER_INPUT_ACTIVITY_EVENT,
   HELPER_INPUT_SET_ACTIVITY_WATCH,
+  HELPER_KEYBOARD_FN_STATE,
+  HELPER_KEYBOARD_OPEN_SETTINGS,
   HELPER_DICTATION_FINALIZED_EVENT,
   HELPER_DICTATION_PARTIAL_EVENT,
   HELPER_DICTATION_SET_PARTIALS,
@@ -33,6 +35,7 @@ import type {
   ChordRegistrationResult,
   DictationPartialEvent,
   DictationPartialsResult,
+  FnKeyState,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -129,6 +132,16 @@ const FRONT_FOCUS_SCHEMA = z.object({
   focused: z.boolean(),
   takesText: z.boolean(),
 });
+
+const FN_KEY_STATE_SCHEMA = z.object({
+  fnRemappedToNoAction: z.boolean(),
+  fnRemappedTo: z.string().nullable(),
+  fnUsageType: z.number().int().nullable(),
+});
+
+/** The Keyboard pane of System Settings, where both Fn settings live. */
+const KEYBOARD_SETTINGS_URL =
+  "x-apple.systempreferences:com.apple.Keyboard-Settings.extension";
 
 const HOTKEY_RESULT_SCHEMA = z.object({
   enabled: z.boolean(),
@@ -521,6 +534,31 @@ export const frontAppTakesText = async (): Promise<boolean> => {
     return true;
   }
 };
+
+/**
+ * What macOS has the Globe key doing, or `null` when the helper cannot say.
+ * `null` rather than a guess: the card that asks names a setting by name, and
+ * a note naming one that is not set is worse than no note.
+ */
+const readFnKeyState = async (): Promise<FnKeyState | null> => {
+  try {
+    const result = await client.call("keyboard.fnState");
+    const parsed = FN_KEY_STATE_SCHEMA.safeParse(result);
+    if (!parsed.success) {
+      log.warn("[mac-helper] keyboard fn state returned an invalid result");
+      return null;
+    }
+    return parsed.data;
+  } catch (err) {
+    log.warn(
+      `[mac-helper] keyboard fn state failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  }
+};
+
+const openKeyboardSettings = (): Promise<void> =>
+  shell.openExternal(KEYBOARD_SETTINGS_URL);
 
 const ping = async (): Promise<"pong"> => {
   const result = await client.call("ping");
@@ -1119,6 +1157,10 @@ export const installHotkeyHelper = (): void => {
     quitApp(bundleId),
   );
   handle(HELPER_APPS_FRONTMOST, z.tuple([]), () => frontmostApp());
+  handle(HELPER_KEYBOARD_FN_STATE, z.tuple([]), () => readFnKeyState());
+  handle(HELPER_KEYBOARD_OPEN_SETTINGS, z.tuple([]), () =>
+    openKeyboardSettings(),
+  );
   handle(HELPER_INPUT_SET_ACTIVITY_WATCH, z.tuple([z.boolean()]), ([enable]) =>
     setInputActivityWatch(enable),
   );

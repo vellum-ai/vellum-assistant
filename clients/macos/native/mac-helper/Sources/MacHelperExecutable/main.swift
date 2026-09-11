@@ -320,6 +320,16 @@ final class MacHelper: @unchecked Sendable {
             let kind = try self.parsePermissionKind(params)
             return ["status": self.permissionStatus(kind: kind)]
         }
+        // The two macOS keyboard settings that decide whether the Globe key
+        // reaches this helper at all, and what else a double press of it
+        // starts. Read on demand: neither is pushed, and a grant that looks
+        // complete with the key sent to No Action is a key that stays dead.
+        router.register("keyboard.fnState") { [weak self] _ in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            return self.keyboardFnState()
+        }
         router.register("dictation.setPartials") { [weak self] params in
             guard let self else {
                 throw JsonRpcDispatchError.internalError("Helper is shutting down")
@@ -439,6 +449,60 @@ final class MacHelper: @unchecked Sendable {
         return [
             "focused": focus.focused,
             "takesText": focus.takesText,
+        ]
+    }
+
+    /// The Modifier Keys tables live in the per-host global domain, one key
+    /// per keyboard; the double-press action is a per-user HIToolbox value.
+    private static let modifierMappingKeyPrefix = "com.apple.keyboard.modifiermapping."
+    private static let hiToolboxDomain = "com.apple.HIToolbox"
+    private static let fnUsageTypeKey = "AppleFnUsageType"
+
+    /// Where the Globe key goes and what a double press of it does.
+    ///
+    /// `fnRemappedToNoAction` is the case the card has to name: the driver
+    /// drops the key upstream of every tap, so Input Monitoring reads granted
+    /// and the key never arrives. `fnRemappedTo` names any other destination
+    /// where the table's own names cover it. `fnUsageType` is the raw
+    /// `AppleFnUsageType` (0 nothing, 1 input source, 2 emoji, 3 dictation),
+    /// or null when unset.
+    private func keyboardFnState() -> [String: Any] {
+        var tables: [[[String: Any]]] = []
+        let keys = CFPreferencesCopyKeyList(
+            kCFPreferencesAnyApplication,
+            kCFPreferencesCurrentUser,
+            kCFPreferencesCurrentHost
+        ) as? [String] ?? []
+        for key in keys where key.hasPrefix(Self.modifierMappingKeyPrefix) {
+            let value = CFPreferencesCopyValue(
+                key as CFString,
+                kCFPreferencesAnyApplication,
+                kCFPreferencesCurrentUser,
+                kCFPreferencesCurrentHost
+            )
+            if let pairs = value as? [[String: Any]] {
+                tables.append(pairs)
+            }
+        }
+        let destination = FnKeyMapping.globeDestination(inTables: tables)
+        let usageType = CFPreferencesCopyValue(
+            Self.fnUsageTypeKey as CFString,
+            Self.hiToolboxDomain as CFString,
+            kCFPreferencesCurrentUser,
+            kCFPreferencesAnyHost
+        ) as? NSNumber
+
+        var remappedTo: Any = NSNull()
+        if case .key(let name?) = destination {
+            remappedTo = name
+        }
+        log(
+            "keyboard fn state: tables=\(tables.count) destination=\(String(describing: destination)) usageType=\(usageType.map { String(describing: $0) } ?? "unset")"
+        )
+        return [
+            "fnRemappedToNoAction": destination == .noAction,
+            "fnRemappedTo": remappedTo,
+            "fnUsageType": usageType.map { $0.intValue as Any } ?? NSNull(),
         ]
     }
 

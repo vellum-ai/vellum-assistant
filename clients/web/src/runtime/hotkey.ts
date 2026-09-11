@@ -1,6 +1,7 @@
 import type {
   ChordBinding,
   ChordRegistrationResult,
+  FnKeyState,
   HotkeySelection,
   ModifierHold,
   ModifierHoldRegistrationResult,
@@ -9,7 +10,7 @@ import type {
 
 import { isElectron, type HotkeyEvent } from "@/runtime/is-electron";
 
-export type { HotkeyEvent };
+export type { FnKeyState, HotkeyEvent };
 
 export function supportsVoiceModeChord(): boolean {
   return (
@@ -110,6 +111,32 @@ export async function setChordBinding(
     return { ok: false, reason: "host cannot watch a chord" };
   }
   return set(binding);
+}
+
+/**
+ * What macOS has the Globe key doing before any app hears it, or `null` off a
+ * host that cannot say. A card names these settings by name, so no answer is
+ * no note rather than a guess.
+ */
+export async function readFnKeyState(): Promise<FnKeyState | null> {
+  const read = window.vellum?.helper?.keyboard?.fnState;
+  if (!isElectron() || typeof read !== "function") {
+    return null;
+  }
+  try {
+    return await read();
+  } catch {
+    return null;
+  }
+}
+
+/** Open the Keyboard pane of System Settings. A no-op off a host without one. */
+export async function openKeyboardSettings(): Promise<void> {
+  const open = window.vellum?.helper?.keyboard?.openSettings;
+  if (!isElectron() || typeof open !== "function") {
+    return;
+  }
+  await open();
 }
 
 export function subscribeToHotkeyEvents(
