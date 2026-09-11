@@ -123,7 +123,7 @@ public class SafeMessagingService extends FirebaseMessagingService {
                     ),
                     CompletableFuture.completedFuture(null)
                 ),
-                (notificationId, avatar) -> NativeFailureGuard.getAllocating(
+                (ownedNotificationId, avatar) -> NativeFailureGuard.getAllocating(
                     "Unable to post the Android push notification",
                     () -> {
                         String blockReason = NativePushRenderer.postBlockReason(
