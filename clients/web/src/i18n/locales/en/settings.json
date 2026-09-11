@@ -2417,6 +2417,12 @@
     "unavailable": "The integration catalog could not be loaded. Your saved connections are still available.",
     "disconnectTitle": "Disconnect integration?",
     "disconnectMessage": "Disconnect {serverId}? This removes its saved connection and credentials from Vellum and stops its tools.",
-    "instanceName": "{name} ({id})"
+    "instanceName": "{name} ({id})",
+    "callbackUrlLabel": "OAuth callback URL",
+    "loadCallbackUrl": "Get callback URL",
+    "copyCallbackUrl": "Copy callback URL",
+    "callbackCopied": "Copied",
+    "callbackUrlFailed": "Could not load the callback URL. Check that your assistant has a public callback address, then try again.",
+    "callbackCopyFailed": "Could not copy the URL. Select it and copy it manually."
   }
 }

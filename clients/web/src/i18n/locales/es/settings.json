@@ -2359,6 +2359,12 @@
     "unavailable": "No se pudo cargar el catálogo de integraciones. Tus conexiones guardadas siguen disponibles.",
     "disconnectTitle": "¿Desconectar integración?",
     "disconnectMessage": "¿Desconectar {serverId}? Se eliminarán su conexión guardada y sus credenciales de Vellum y se detendrán sus herramientas.",
-    "instanceName": "{name} ({id})"
+    "instanceName": "{name} ({id})",
+    "callbackUrlLabel": "URL de retorno de OAuth",
+    "loadCallbackUrl": "Obtener URL de retorno",
+    "copyCallbackUrl": "Copiar URL de retorno",
+    "callbackCopied": "Copiado",
+    "callbackUrlFailed": "No se pudo cargar la URL de retorno. Comprueba que tu asistente tenga una dirección pública de retorno e inténtalo de nuevo.",
+    "callbackCopyFailed": "No se pudo copiar la URL. Selecciónala y cópiala manualmente."
   }
 }

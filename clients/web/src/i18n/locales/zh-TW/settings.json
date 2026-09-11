@@ -2407,6 +2407,12 @@
     "unavailable": "無法載入整合目錄。已儲存的連線仍可使用。",
     "disconnectTitle": "中斷整合連線？",
     "disconnectMessage": "中斷 {serverId} 的連線？這會從 Vellum 刪除其已儲存的連線與憑證，並停止其工具。",
-    "instanceName": "{name} ({id})"
+    "instanceName": "{name} ({id})",
+    "callbackUrlLabel": "OAuth 回呼網址",
+    "loadCallbackUrl": "取得回呼網址",
+    "copyCallbackUrl": "複製回呼網址",
+    "callbackCopied": "已複製",
+    "callbackUrlFailed": "無法載入回呼網址。請確認助理具有公開的回呼地址，然後再試一次。",
+    "callbackCopyFailed": "無法複製網址。請選取網址並手動複製。"
   }
 }

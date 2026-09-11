@@ -2407,6 +2407,12 @@
     "unavailable": "无法加载集成目录。已保存的连接仍然可用。",
     "disconnectTitle": "断开集成连接？",
     "disconnectMessage": "断开 {serverId} 的连接？这会从 Vellum 中删除其已保存的连接和凭据，并停止其工具。",
-    "instanceName": "{name} ({id})"
+    "instanceName": "{name} ({id})",
+    "callbackUrlLabel": "OAuth 回调网址",
+    "loadCallbackUrl": "获取回调网址",
+    "copyCallbackUrl": "复制回调网址",
+    "callbackCopied": "已复制",
+    "callbackUrlFailed": "无法加载回调网址。请确认助手具有公开的回调地址，然后重试。",
+    "callbackCopyFailed": "无法复制网址。请选择网址并手动复制。"
   }
 }

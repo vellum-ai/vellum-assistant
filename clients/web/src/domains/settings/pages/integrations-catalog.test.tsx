@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+} from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -80,6 +84,15 @@ const create = mock(
   },
 );
 const disconnectOAuth = mock(() => {});
+const callbackUrl = "https://assistant.example.com/webhooks/oauth/callback";
+const resolveCallback = mock(async (_request: unknown) => ({ callbackUrl }));
+const copiedCallback = mock((_text: string) => {});
+mock.module("@/lib/copy-to-clipboard", () => ({
+  copyToClipboard: (text: string, options: { onCopied?: () => void }) => {
+    copiedCallback(text);
+    options.onCopied?.();
+  },
+}));
 
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "assistant-123",
@@ -105,19 +118,19 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
     use: { mcpAddServer: () => true, hasHydrated: () => true },
   },
 }));
-const actualDaemonQueries = await import(
-  "@/generated/daemon/@tanstack/react-query.gen"
-);
+const actualDaemonQueries =
+  await import("@/generated/daemon/@tanstack/react-query.gen");
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ...actualDaemonQueries,
   oauthProvidersGetOptions: () => ({
     queryKey: ["catalog-test-providers"],
     queryFn: async () => ({ providers: [oauthProvider()] }),
   }),
+  useWebhooksRegisterPostMutation: () =>
+    useMutation({ mutationFn: resolveCallback }),
 }));
-const actualApiQueries = await import(
-  "@/generated/api/@tanstack/react-query.gen"
-);
+const actualApiQueries =
+  await import("@/generated/api/@tanstack/react-query.gen");
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   ...actualApiQueries,
   assistantsOauthConnectionsListOptions: () => ({
@@ -201,6 +214,9 @@ beforeEach(() => {
   remove.mockClear();
   toolsSummary.mockClear();
   disconnectOAuth.mockClear();
+  resolveCallback.mockReset();
+  resolveCallback.mockImplementation(async () => ({ callbackUrl }));
+  copiedCallback.mockClear();
   window.open = openPopup as unknown as typeof window.open;
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 });
@@ -257,7 +273,12 @@ async function openDisconnect(name: string) {
 
 describe("catalog discovery and connection UI", () => {
   test("Configure receives optional diagnostics and tool limits without fetching details for the list", async () => {
-    servers = [mcpServer({ lifecycleState: "error", diagnostic: "tools-discovery-failed" })];
+    servers = [
+      mcpServer({
+        lifecycleState: "error",
+        diagnostic: "tools-discovery-failed",
+      }),
+    ];
     toolsSummary.mockImplementationOnce(async () => ({
       servers: [],
       limits: { perServer: 20, global: 50 },
@@ -266,21 +287,29 @@ describe("catalog discovery and connection UI", () => {
     await screen.findByText("example-integration");
     expect(toolsSummary).not.toHaveBeenCalled();
     expect(screen.queryByText(/its tools could not be loaded/)).toBeNull();
-    fireEvent.click(row("example-integration").getByRole("button", { name: "Configure" }));
-    await screen.findByText("Up to 20 tools per integration and 50 tools across all integrations can be registered.");
-    screen.getByText("The integration connected, but its tools could not be loaded. Refresh integrations to try again.");
+    fireEvent.click(
+      row("example-integration").getByRole("button", { name: "Configure" }),
+    );
+    await screen.findByText(
+      "Up to 20 tools per integration and 50 tools across all integrations can be registered.",
+    );
+    screen.getByText(
+      "The integration connected, but its tools could not be loaded. Refresh integrations to try again.",
+    );
   });
 
   test("duplicate saved instances have distinct rows and exact disconnect confirmations", async () => {
     const definition = mcpCatalogEntry();
-    servers = ["saved-one", "saved-two"].map((id) => mcpServer({
-      id,
-      catalog: {
-        id: definition.id,
-        serverKey: definition.serverKey,
-        definitionDigest: definition.definitionDigest,
-      },
-    }));
+    servers = ["saved-one", "saved-two"].map((id) =>
+      mcpServer({
+        id,
+        catalog: {
+          id: definition.id,
+          serverKey: definition.serverKey,
+          definitionDigest: definition.definitionDigest,
+        },
+      }),
+    );
     showPage();
     await screen.findByText("Fathom");
     fireEvent.click(row("Fathom").getByRole("button", { name: "Configure" }));
@@ -290,9 +319,15 @@ describe("catalog discovery and connection UI", () => {
     const confirmation = screen.getByRole("dialog", { name: /Disconnect/ });
     expect(confirmation.textContent).toContain("Fathom (saved-two)");
     expect(confirmation.textContent).not.toContain("saved-one");
-    fireEvent.click(within(confirmation).getByRole("button", { name: "Disconnect" }));
-    await waitFor(() => expect(remove).toHaveBeenCalledWith("assistant-123", "saved-two"));
-    await waitFor(() => expect(screen.queryByText("Fathom (saved-one)")).toBeNull());
+    fireEvent.click(
+      within(confirmation).getByRole("button", { name: "Disconnect" }),
+    );
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledWith("assistant-123", "saved-two"),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText("Fathom (saved-one)")).toBeNull(),
+    );
     expect(servers.map((server) => server.id)).toEqual(["saved-one"]);
     expect(screen.queryByText("Fathom (saved-two)")).toBeNull();
   });
@@ -507,10 +542,42 @@ describe("catalog discovery and connection UI", () => {
         .disabled,
     ).toBe(true);
     expect(create).not.toHaveBeenCalled();
+    expect(resolveCallback).not.toHaveBeenCalled();
+    expect(screen.getByRole<HTMLInputElement>("checkbox").disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Get callback URL" }));
+    await screen.findByText(callbackUrl);
+    expect(resolveCallback.mock.calls[0]?.[0]).toEqual({
+      path: { assistant_id: "assistant-123" },
+      body: { type: "oauth", path: "webhooks/oauth/callback" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Copy callback URL" }));
+    expect(copiedCallback).toHaveBeenCalledWith(callbackUrl);
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(create.mock.calls[0]?.[1]?.setupAcknowledged).toBe(true);
+  });
+
+  test("manual setup cannot connect when callback URL resolution fails", async () => {
+    resolveCallback.mockImplementationOnce(async () => {
+      throw new Error("Callback unavailable");
+    });
+    catalog.entries = [mcpCatalogEntry({ setup: { mode: "manual" } })];
+    showPage();
+    await screen.findByText("Fathom");
+    fireEvent.click(row("Fathom").getByRole("button", { name: "Set up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Get callback URL" }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole<HTMLInputElement>("checkbox").disabled).toBe(true);
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Connect" })
+        .disabled,
+    ).toBe(true);
+    expect(create).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Get callback URL" }));
+    await screen.findByText(callbackUrl);
+    expect(screen.getByRole<HTMLInputElement>("checkbox").disabled).toBe(false);
   });
 
   test("cleanup failure keeps the connection and confirmation available for retry", async () => {

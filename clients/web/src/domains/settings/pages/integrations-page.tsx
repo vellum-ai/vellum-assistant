@@ -330,7 +330,8 @@ function IntegrationsPanelInner({ assistantId }: { assistantId: string }) {
       ) : null}
       {setupEntry ? (
         <McpCatalogSetupModal
-          key={`${setupEntry.id}:${setupEntry.serverKey}`}
+          key={`${assistantId}:${setupEntry.id}:${setupEntry.serverKey}`}
+          assistantId={assistantId}
           entry={setupEntry}
           onClose={() => setSetupEntryKey(null)}
           onConnect={(acknowledged) => {
