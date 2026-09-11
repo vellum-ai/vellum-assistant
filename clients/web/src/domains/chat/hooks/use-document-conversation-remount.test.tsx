@@ -16,7 +16,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -29,6 +29,7 @@ import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 import type * as Editor from "../components/tiptap-document-editor";
 import type { DocumentViewerContainerHandle } from "../components/document-viewer-container";
+import { useOpenDocumentFromChat } from "./use-open-app-from-chat";
 
 const original: DocumentContent = {
   success: true,
@@ -83,14 +84,23 @@ mock.module(
 mock.module(
   "../components/tiptap-document-editor",
   (): Partial<typeof Editor> => ({
-    TiptapDocumentEditor: ({ content, editable, onContentChange }) => (
-      <textarea
-        aria-label="Document body"
-        defaultValue={content}
-        disabled={!editable}
-        onChange={(event) => onContentChange?.(event.target.value)}
-      />
-    ),
+    TiptapDocumentEditor: ({ content, editable, onContentChange }) => {
+      const input = useRef<HTMLTextAreaElement>(null);
+      useEffect(() => {
+        if (input.current) {
+          input.current.value = content;
+        }
+      }, [content]);
+      return (
+        <textarea
+          ref={input}
+          aria-label="Document body"
+          defaultValue={content}
+          disabled={!editable}
+          onChange={(event) => onContentChange?.(event.target.value)}
+        />
+      );
+    },
   }),
 );
 const { useDocumentConversationRoute } =
@@ -103,6 +113,10 @@ let entryMode: "conversation" | "recovery" | "standalone";
 
 function DocumentSession() {
   const route = useDocumentConversationRoute();
+  const openDocument = useOpenDocumentFromChat(
+    "assistant-1",
+    useViewerStore.getState().closeChatInfo,
+  );
   const document = useViewerStore.use.openedDocumentState();
   const editorRef = useRef<DocumentViewerContainerHandle>(null);
   const navigate = useNavigate();
@@ -110,6 +124,20 @@ function DocumentSession() {
     <>
       <button onClick={() => navigate("/assistant/library")}>
         Leave session
+      </button>
+      <button onClick={route.viewConversation}>View conversation</button>
+      <button
+        onClick={() => {
+          useViewerStore
+            .getState()
+            .openChatInfo({
+              assistantId: "assistant-1",
+              conversationId: "conv-1",
+            });
+          void openDocument("surface-1");
+        }}
+      >
+        Open from Chat Info
       </button>
       <DocumentChatContent
         assistantId="assistant-1"
@@ -221,6 +249,52 @@ function renderSession(mode: typeof entryMode = "conversation") {
 }
 
 describe("document editor history remount", () => {
+  test.each(["debouncing", "in flight"])(
+    "Chat Info reopens the same mounted editor with a %s save without loading stale content",
+    async (stage) => {
+      const { resolve: finishWrite } = holdWrite();
+      const page = renderSession();
+      const input = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      fireEvent.change(input, { target: { value: "Latest local body" } });
+      if (stage === "in flight") {
+        await waitFor(() => expect(write).toHaveBeenCalledTimes(1), {
+          timeout: 2000,
+        });
+      }
+      fireEvent.click(
+        screen.getByRole("button", { name: "View conversation" }),
+      );
+      const snapshot = useViewerStore.getState().openedDocumentState;
+      fireEvent.click(
+        screen.getByRole("button", { name: "Open from Chat Info" }),
+      );
+      await act(async () => {});
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(useViewerStore.getState().openedDocumentState).toBe(snapshot);
+      expect(useViewerStore.getState().mainView).toBe("document");
+      expect(useViewerStore.getState().activeChatInfo).toBeNull();
+      expect(screen.getByRole("textbox", { name: "Document body" })).toBe(
+        input,
+      );
+      await act(async () => finishWrite());
+      await waitFor(() => expect(saved.content).toBe("Latest local body"), {
+        timeout: 2000,
+      });
+      expect((input as HTMLTextAreaElement).value).toBe("Latest local body");
+      fireEvent.change(input, {
+        target: {
+          value: `${(input as HTMLTextAreaElement).value} with another edit`,
+        },
+      });
+      page.unmount();
+      await waitFor(() =>
+        expect(saved.content).toBe("Latest local body with another edit"),
+      );
+    },
+  );
+
   test.each(["recovery", "standalone"] as const)(
     "%s close and reopen waits for the detached save before editing again",
     async (mode) => {

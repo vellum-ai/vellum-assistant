@@ -17,7 +17,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
@@ -80,7 +80,7 @@ function PanelHost() {
   );
 }
 
-function renderPanel() {
+function renderPanel(search = "") {
   const client = makeChatInfoQueryClient();
   seedChatInfoConversation(client, {
     assistantId: "assistant-1",
@@ -93,9 +93,18 @@ function renderPanel() {
     conversationId: "conv-1",
   });
   return render(
-    <MemoryRouter initialEntries={["/assistant/conversations/conv-1"]}>
+    <MemoryRouter initialEntries={[`/assistant/conversations/conv-1${search}`]}>
       <QueryClientProvider client={client}>
-        <PanelHost />
+        <Routes>
+          <Route
+            path="/assistant/conversations/:conversationId"
+            element={<PanelHost />}
+          />
+          <Route
+            path="/assistant/documents/:surfaceId"
+            element={<PanelHost />}
+          />
+        </Routes>
       </QueryClientProvider>
     </MemoryRouter>,
   );
@@ -162,6 +171,34 @@ afterEach(() => {
 afterAll(restoreDomStubs);
 
 describe("mobile Chat Info document entry", () => {
+  test("reopening the associated document closes Chat Info without reading another snapshot", async () => {
+    const opened = {
+      source: "document" as const,
+      assistantId: "assistant-1",
+      surfaceId: "surface-1",
+      conversationId: "conv-1",
+      documentName: "Notes",
+      content: "Mounted document body",
+    };
+    useViewerStore.setState({ openedDocumentState: opened });
+    renderPanel(
+      "?document=surface-1&documentView=chat&documentReturn=%2Fassistant%2Flibrary",
+    );
+    fireEvent.click(screen.getByLabelText("Open Notes"));
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Close chat info")).toBeNull(),
+    );
+    expect(daemonClient.get).not.toHaveBeenCalled();
+    expect(useViewerStore.getState().openedDocumentState).toBe(opened);
+    expect(useViewerStore.getState().mainView).toBe("document");
+    expect(screen.getByTestId("url").textContent).not.toContain(
+      "documentView=chat",
+    );
+    expect(screen.getByTestId("url").textContent).toContain(
+      "documentReturn=%2Fassistant%2Flibrary",
+    );
+  });
+
   test.each([true, false])(
     "keeps the panel mounted until document entry is ready (linked: %s)",
     async (linked) => {

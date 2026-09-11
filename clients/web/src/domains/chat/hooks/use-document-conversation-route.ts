@@ -15,28 +15,14 @@ import {
 } from "../document-conversation";
 import {
   DOCUMENT_RETURN_PARAM,
-  documentConversationUrl,
   getDocumentConversationRoute,
+  markOpenedDocumentViewed,
+  setDocumentConversationPresentation,
   showDocumentInConversation,
   returnFromDocument,
 } from "../document-conversation-navigation";
-import { useUnseenDocumentChangesStore } from "../unseen-document-changes-store";
 import { loadDocumentContent } from "../api/document-load";
 import { useOverlayEscape } from "./use-overlay-escape";
-
-function markOpenedDocumentViewed(
-  assistantId: string | null,
-  surfaceId: string,
-) {
-  const opened = useViewerStore.getState().openedDocumentState;
-  if (
-    opened?.source === "document" &&
-    opened.assistantId === assistantId &&
-    opened.surfaceId === surfaceId
-  ) {
-    useUnseenDocumentChangesStore.getState().clearDocumentEverywhere(surfaceId);
-  }
-}
 
 /** Owns document URL intent inside the existing conversation session. */
 export function useDocumentConversationRoute() {
@@ -175,14 +161,14 @@ export function useDocumentConversationRoute() {
       if (!conversationId || !surfaceId) {
         return;
       }
-      useViewerStore.getState().setMainView(view);
-      if (view === "document") {
-        markOpenedDocumentViewed(assistantId, surfaceId);
-      }
-      void navigate(
-        documentConversationUrl(conversationId, surfaceId, returnTo, view),
-        { replace: true, state: navigationState },
-      );
+      setDocumentConversationPresentation(navigate, {
+        assistantId,
+        conversationId,
+        surfaceId,
+        returnTo,
+        state: navigationState,
+        view,
+      });
     },
     [
       conversationId,

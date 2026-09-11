@@ -30,6 +30,8 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import type * as Library from "@/domains/library/library-view";
 import {
   documentEntryState,
@@ -81,7 +83,8 @@ mock.module(
 );
 
 const { LibraryPage } = await import("@/domains/library/library-page");
-const { DocumentViewerPage } = await import("@/domains/chat/document-viewer-page");
+const { DocumentViewerPage } =
+  await import("@/domains/chat/document-viewer-page");
 
 function Conversation() {
   const entry = useOpenDocumentFromChat();
@@ -108,6 +111,9 @@ function Conversation() {
       />
       <button onClick={session.viewConversation}>View conversation</button>
       <button onClick={session.reopenDocument}>Reopen document</button>
+      <button onClick={() => void entry("surface-1")}>
+        Open from Chat Info
+      </button>
     </>
   );
 }
@@ -244,6 +250,15 @@ describe("document navigation history", () => {
       fireEvent.click(screen.getByRole("button", { name: "Reopen document" }));
       expect(router.state.location.state).toEqual(state);
       expect(documentLoads).toBe(loads);
+      fireEvent.click(
+        screen.getByRole("button", { name: "View conversation" }),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Open from Chat Info" }),
+      );
+      await act(async () => {});
+      expect(router.state.location.state).toEqual(state);
+      expect(documentLoads).toBe(loads);
       fireEvent.click(screen.getByRole("button", { name: "Close document" }));
       await waitFor(() => expect(router.state.location.pathname).toBe(origin));
       expect(router.state.location.search).toBe("");
@@ -286,6 +301,39 @@ describe("document navigation history", () => {
         expect(router.state.location.pathname).toBe("/assistant/library"),
       );
       expect(router.state.historyAction).toBe(NavigationType.Replace);
+      router.dispose();
+    },
+  );
+
+  test.each([
+    "/assistant/documents/surface-1",
+    "/assistant/conversations/conv-linked?document=surface-1",
+  ])(
+    "a cold link %s returns to a trailing-slash conversation without resetting its live state",
+    async (entry) => {
+      const returnTo = "/assistant/conversations/conv-linked/";
+      const query = `${entry.includes("?") ? "&" : "?"}documentReturn=${encodeURIComponent(returnTo)}`;
+      const router = renderHistory([`${entry}${query}`]);
+      await waitFor(() =>
+        expect(useViewerStore.getState().openedDocumentState).not.toBeNull(),
+      );
+      useConversationStore.getState().setActiveConversationId("conv-linked");
+      const resetSubagents = spyOn(useSubagentStore.getState(), "reset");
+      const resetWorkflows = spyOn(useWorkflowStore.getState(), "reset");
+      const clearPanels = spyOn(
+        useViewerStore.getState(),
+        "clearTranscriptPanelPayloads",
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Close document" }));
+      await waitFor(() =>
+        expect(router.state.location.pathname).toBe(returnTo),
+      );
+      expect(useConversationStore.getState().activeConversationId).toBe(
+        "conv-linked",
+      );
+      expect(resetSubagents).not.toHaveBeenCalled();
+      expect(resetWorkflows).not.toHaveBeenCalled();
+      expect(clearPanels).not.toHaveBeenCalled();
       router.dispose();
     },
   );

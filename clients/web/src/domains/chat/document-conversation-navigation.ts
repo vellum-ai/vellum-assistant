@@ -68,8 +68,8 @@ export function returnFromDocument(
   } else if (returnTo.startsWith(`${routes.conversations}/`)) {
     navigateToConversation(
       navigate,
-      returnTo.slice(`${routes.conversations}/`.length),
-      { silent: true, replace: true },
+      returnTo.slice(`${routes.conversations}/`.length).replace(/\/$/, ""),
+      { silent: true, replace: true, destination: returnTo },
     );
   } else {
     void navigate(returnTo, { replace: true });
@@ -94,6 +94,49 @@ export function documentConversationUrl(
     params.set("prompt", prompt);
   }
   return `${routes.conversation(conversationId)}?${params}`;
+}
+
+export function markOpenedDocumentViewed(
+  assistantId: string | null,
+  surfaceId: string,
+): void {
+  const opened = useViewerStore.getState().openedDocumentState;
+  if (
+    opened?.source === "document" &&
+    opened.assistantId === assistantId &&
+    opened.surfaceId === surfaceId
+  ) {
+    useUnseenDocumentChangesStore.getState().clearDocumentEverywhere(surfaceId);
+  }
+}
+
+/** Changes the presentation of an existing session without loading its document. */
+export function setDocumentConversationPresentation(
+  navigate: NavigateFunction,
+  {
+    assistantId,
+    conversationId,
+    surfaceId,
+    returnTo,
+    state,
+    view,
+  }: {
+    assistantId: string | null;
+    conversationId: string;
+    surfaceId: string;
+    returnTo: string;
+    state: unknown;
+    view: "document" | "chat";
+  },
+): void {
+  useViewerStore.getState().setMainView(view);
+  if (view === "document") {
+    markOpenedDocumentViewed(assistantId, surfaceId);
+  }
+  void navigate(
+    documentConversationUrl(conversationId, surfaceId, returnTo, view),
+    { replace: true, state },
+  );
 }
 
 export function showDocumentInConversation(

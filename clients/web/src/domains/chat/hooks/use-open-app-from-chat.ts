@@ -7,10 +7,9 @@
  */
 
 import { useCallback, useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -27,8 +26,11 @@ import {
 import {
   DOCUMENT_RETURN_PARAM,
   documentReturnPath,
+  getDocumentConversationRoute,
   navigateToDocumentConversation,
+  setDocumentConversationPresentation,
 } from "../document-conversation-navigation";
+import { loadDocumentContent } from "../api/document-load";
 
 /** Opens `appId` under `assistantId` in the viewer panel. */
 export async function openAppFromChat(
@@ -61,6 +63,7 @@ export function useOpenDocumentFromChat(
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
+  const { conversationId } = useParams<{ conversationId: string }>();
   const { t } = useTranslation("chat");
   const requestRef = useRef<ReturnType<typeof documentRequestScope> | null>(
     null,
@@ -90,11 +93,26 @@ export function useOpenDocumentFromChat(
       }
       haptic.light();
       try {
-        const { data } = await documentsByIdGet({
-          path: { assistant_id: assistantId, id: surfaceId },
-          throwOnError: true,
+        const route = getDocumentConversationRoute(location.search);
+        // The route owns this document, including any pending load or edits.
+        if (conversationId && route.surfaceId === surfaceId) {
+          beforeOpen?.();
+          setDocumentConversationPresentation(navigate, {
+            assistantId,
+            conversationId,
+            surfaceId,
+            returnTo: route.returnTo,
+            state: location.state,
+            view: "document",
+          });
+          return;
+        }
+        const data = await loadDocumentContent({
+          assistantId,
+          surfaceId,
+          isCurrent: scope.isCurrent,
         });
-        if (!scope.isCurrent()) {
+        if (!data || !scope.isCurrent()) {
           return;
         }
         const linkedId = await resolveDocumentConversation({
@@ -133,7 +151,7 @@ export function useOpenDocumentFromChat(
         scope.dispose();
       }
     },
-    [assistantId, isMobile, navigate, location, t, beforeOpen],
+    [assistantId, conversationId, isMobile, navigate, location, t, beforeOpen],
   );
 }
 

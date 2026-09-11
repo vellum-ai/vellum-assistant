@@ -15,14 +15,20 @@ Library, chat cards and direct document links use the shared document-conversati
 entry helpers. The conversation URL records the document surface, its return
 destination and whether the document or conversation is visible. This intent
 survives refresh without a second chat page, event connection or composer store.
-Both the document session and standalone recovery page read through
+Fresh chat entry, the document session and standalone recovery page read through
 `loadDocumentContent`, which refetches after pending local save drains settle
 and checks request ownership before and after fetching. The retained viewer
 snapshot is not a freshness signal. Save waits are scoped by assistant and surface
 and retain no document content; presentation switches within the mounted session
 keep the existing editor without refetching.
+Reopening the associated document from Chat Info or a chat card uses that same
+presentation action, retaining the editor, original return destination and history
+state. An in-progress session load remains owned by the route.
 The return destination accepts only supported in-app Library/chat paths,
 including the chat router's optional trailing slash.
+Return navigation strips that optional slash from the selected conversation ID
+while preserving the destination URL, so returning to the current chat keeps its
+live subagent, workflow and transcript-panel state.
 Click-opened documents carry history state for their surface and safe origin.
 Closing pops that entry; cold links replace themselves with the safe return
 route. Adapter redirects, recovery and presentation changes replace the document
