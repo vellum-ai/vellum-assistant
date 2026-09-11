@@ -18,17 +18,15 @@ import { invalidateEdgeIndex } from "../plugins/defaults/memory/substrate/edge-i
 import { invalidatePageIndex } from "../plugins/defaults/memory/substrate/page-index.js";
 import { getConceptsDir } from "../plugins/defaults/memory/substrate/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
-import {
-  publishAppsChanged,
-  publishDocumentsChanged,
-} from "../runtime/sync/resource-sync-events.js";
-import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
+import { publishDocumentsChanged } from "../runtime/sync/resource-sync-events.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
-import { ensureAppSourceWatcher } from "./app-source-watcher.js";
+import {
+  broadcastAppFilesChanged,
+  notifyAppSurfacesChanged,
+} from "./app-change-notify.js";
 import type { Conversation } from "./conversation.js";
-import { refreshSurfacesForApp } from "./conversation-surfaces.js";
 import { isDoordashCommand, updateDoordashProgress } from "./doordash-steps.js";
 
 const log = getLogger("tool-side-effects");
@@ -54,7 +52,7 @@ export type PostExecutionHook = (
  * Compilation is the responsibility of the tool executor (see
  * `executeAppCreate`, `executeAppRefresh`): executors own the source→dist
  * transform and surface `compile_errors` in their result when it fails.
- * Post-execution hooks only observe the outcome and notify — they must
+ * Post-execution hooks only observe the outcome and notify. They must
  * not re-run a compile because `compileApp()` begins with `rm -rf dist/`
  * and would race with the executor's own output (LUM-1153).
  */
@@ -63,14 +61,7 @@ function notifyAppChanged(
   appId: string,
   opts?: { fileChange?: boolean; status?: string },
 ): void {
-  refreshSurfacesForApp(ctx, appId, opts);
-  broadcastAppFilesChanged(appId);
-  void updatePublishedAppDeployment(appId);
-}
-
-function broadcastAppFilesChanged(appId: string): void {
-  broadcastMessage({ type: "app_files_changed", appId });
-  publishAppsChanged();
+  notifyAppSurfacesChanged(appId, opts, ctx);
 }
 
 /**
@@ -127,8 +118,6 @@ registerHook("app_create", (_name, _input, result, { ctx }) => {
   } catch (err) {
     log.warn({ err, appId }, "Failed to track conversation ID on app_create");
   }
-
-  ensureAppSourceWatcher();
 
   notifyAppChanged(ctx, appId);
 

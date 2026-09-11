@@ -391,6 +391,16 @@ describe("command-registry", () => {
       expect(assistantSpec.baseRisk).toBe("low");
     });
 
+    describe("apps", () => {
+      test("assistant apps inspect is low risk", () => {
+        expect(getAssistantPath("apps inspect").baseRisk).toBe("low");
+      });
+
+      test("assistant apps refresh is medium risk", () => {
+        expect(getAssistantPath("apps refresh").baseRisk).toBe("medium");
+      });
+    });
+
     // ── oauth subcommand ──────────────────────────────────────────────────
     describe("oauth", () => {
       const oauthSpec = assistantSubs.oauth;

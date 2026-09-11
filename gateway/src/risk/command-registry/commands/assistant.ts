@@ -16,6 +16,8 @@ import type {
 const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "apps",
   "apps list",
+  "apps inspect",
+  "apps refresh",
   "attachment",
   "attachment register",
   "attachment lookup",
@@ -458,6 +460,11 @@ const riskOverrides: AssistantRiskOverride[] = [
 
   // Mutating assistant state / external side effects
   { path: "attachment register", risk: "medium" },
+  {
+    path: "apps refresh",
+    risk: "medium",
+    reason: "Compiles workspace app source and refreshes open surfaces",
+  },
   { path: "avatar generate", risk: "low" },
   { path: "avatar set", risk: "low" },
   { path: "avatar remove", risk: "low" },

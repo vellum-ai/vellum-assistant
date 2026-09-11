@@ -1,7 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 
-import { isChannelId } from "../../../../channels/types.js";
 import type { OutboundAttachment } from "../../../../messaging/provider-types.js";
 import {
   createDraft,
@@ -16,11 +15,10 @@ import {
   toOutlookFileAttachments,
 } from "../../../../messaging/providers/outlook/client.js";
 import type { OutlookDraftMessage } from "../../../../messaging/providers/outlook/types.js";
-import { resolveProactiveHomeConversation } from "../../../../notifications/conversation-pairing.js";
-import { recordDeliveredChannelPost } from "../../../../notifications/delivered-post-record.js";
-import { getConversation } from "../../../../persistence/conversation-crud.js";
-import { syncMessageToDisk } from "../../../../persistence/conversation-disk-view.js";
-import { normalizeExternalThreadId } from "../../../../persistence/external-conversation-store.js";
+import {
+  isProactivelyAddressable,
+  sendChannelText,
+} from "../../../../runtime/channel-send.js";
 import {
   isAbortLikeError,
   throwIfCancelled,
@@ -29,7 +27,6 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { getLogger } from "../../../../util/logger.js";
 import { guessMimeType } from "../../../../util/mime-type.js";
 import {
   err,
@@ -41,8 +38,6 @@ import {
   parseAddressList,
   resolveProvider,
 } from "./shared.js";
-
-const log = getLogger("messaging-send");
 
 /** Read attachment files from disk into in-memory parts for outbound sending. */
 async function readAttachments(paths: string[]): Promise<OutboundAttachment[]> {
@@ -57,123 +52,6 @@ async function readAttachments(paths: string[]): Promise<OutboundAttachment[]> {
 
 /** Email providers that accept file attachments on outbound sends. */
 const ATTACHMENT_CAPABLE_PLATFORMS = new Set(["gmail", "outlook"]);
-
-/**
- * Record a message the provider just accepted where the chat's proactive
- * posts live, so the chat's own conversation and `recall` can see what was
- * sent from elsewhere (a scheduled run, another conversation).
- *
- * Only channel providers have such a home; an email send is tool-mediated
- * and has no chat conversation. The row is written after the provider
- * returned the message id, never before, and carries that id on its
- * envelope and in `channel_outbound_posts` like every other post the daemon
- * makes.
- *
- * A send into the sending turn's own chat writes no row: its tool call and
- * result already sit in that conversation's history, and a second assistant
- * row beside the tool pair would break history repair. Whether the send is
- * "its own" is decided by the delivered target against the turn, not by the
- * home: the turn arrived on a channel, in a chat, in a thread (the turn-local
- * snapshot on the tool context), and a post the provider delivered to exactly
- * that place is a same-conversation send even when the chat's home resolves
- * elsewhere. The delivered thread is the one the provider reports, not the
- * one requested: a provider that ignores the request lands the post in the
- * thread-less chat, and the record must say so; a post into a thread is
- * recorded in the thread's own conversation, where its replies arrive. The home
- * comparison stays as the second test, for a sender that arrived through no
- * channel but is the home. The post is then in the outbound index only
- * through no path, which is the same class as a raw API send and is deferred
- * with it.
- *
- * Failures here never fail the send: the message is already out.
- */
-async function recordSentChannelPost(params: {
-  providerId: string;
-  externalChatId: string;
-  /** The thread the provider delivered into, as it reported it. */
-  deliveredThreadId: string | undefined;
-  text: string;
-  providerMessageId: string;
-  sender: ToolContext;
-}): Promise<void> {
-  const { providerId, externalChatId, sender } = params;
-  if (!isChannelId(providerId) || !params.providerMessageId) {
-    return;
-  }
-  try {
-    if (
-      isSendIntoOwnChat(
-        sender,
-        providerId,
-        externalChatId,
-        params.deliveredThreadId,
-      )
-    ) {
-      return;
-    }
-    const home = await resolveProactiveHomeConversation({
-      sourceChannel: providerId,
-      externalChatId,
-      threadId: params.deliveredThreadId,
-      source: "notification",
-      conversationType: "background",
-      title: `Messages to ${externalChatId}`,
-    });
-    if (home.conversationId === sender.conversationId) {
-      return;
-    }
-    const recorded = await recordDeliveredChannelPost({
-      conversationId: home.conversationId,
-      channel: providerId,
-      externalChatId,
-      ...(params.deliveredThreadId
-        ? { threadId: params.deliveredThreadId }
-        : {}),
-      text: params.text,
-      providerMessageId: params.providerMessageId,
-      crossPostedFrom: sender.conversationId,
-    });
-    const homeConversation = getConversation(home.conversationId);
-    if (homeConversation) {
-      syncMessageToDisk(
-        home.conversationId,
-        recorded.messageId,
-        homeConversation.createdAt,
-      );
-    }
-  } catch (e) {
-    log.warn(
-      { err: e, provider: providerId, externalChatId },
-      "Failed to record the sent message in the chat's conversation",
-    );
-  }
-}
-
-/**
- * True when the delivered chat and thread are the ones the sending turn
- * arrived in. Reads the turn-local snapshot the tool context carries
- * (`executionChannel`, `requesterChatId`, `sourceThreadId`), never the live
- * binding, which a concurrent inbound can rewrite while this call runs.
- * Thread ids compare in the binding store's normalized form, so an absent
- * thread on both sides matches and a thread-less delivery never matches a
- * turn that arrived in a thread.
- */
-function isSendIntoOwnChat(
-  sender: ToolContext,
-  channel: string,
-  externalChatId: string,
-  deliveredThreadId: string | undefined,
-): boolean {
-  if (!sender.executionChannel || !sender.requesterChatId) {
-    return false;
-  }
-  return (
-    sender.executionChannel === channel &&
-    sender.requesterChatId === externalChatId &&
-    normalizeExternalThreadId(sender.sourceThreadId) ===
-      normalizeExternalThreadId(deliveredThreadId)
-  );
-}
 
 export async function run(
   input: Record<string, unknown>,
@@ -197,9 +75,62 @@ export async function run(
   throwIfCancelled(context);
 
   try {
-    const provider = await resolveProvider(platform);
+    // A channel whose transport can be addressed from a named chat is sent
+    // through the transport, which is the one send implementation for that
+    // channel, records what it sent, and reaches channels with no messaging
+    // provider at all. A platform named outright is checked first; one
+    // auto-detected from the connected providers is checked the same way.
+    const namedChannel =
+      platform && isProactivelyAddressable(platform) ? platform : undefined;
+    const provider = namedChannel ? undefined : await resolveProvider(platform);
+    const channel =
+      namedChannel ??
+      (provider && isProactivelyAddressable(provider.id)
+        ? provider.id
+        : undefined);
 
-    // Reject attachments on platforms that can't carry them (e.g. Telegram, WhatsApp).
+    if (channel) {
+      if (attachmentPaths?.length) {
+        return err("Attachments are only supported on Gmail and Outlook.");
+      }
+      // A channel's transport sends as the channel's one bot identity, so an
+      // account cannot select where the send goes out from. Refusing is
+      // safer than silently sending from the default account.
+      if (input.account) {
+        return err(
+          `account does not apply to ${channel}: a channel send goes out as the channel's own bot.`,
+        );
+      }
+      // Recheck: provider resolution above is an await, and this posts to
+      // the channel.
+      throwIfCancelled(context);
+      const sent = await sendChannelText({
+        channel,
+        target: {
+          kind: "chat",
+          chatId: conversationId,
+          ...(threadId ? { threadId } : {}),
+        },
+        text,
+        renderRichly: true,
+        assistantId: context.assistantId,
+        sender: {
+          conversationId: context.conversationId,
+          executionChannel: context.executionChannel,
+          requesterChatId: context.requesterChatId,
+          sourceThreadId: context.sourceThreadId,
+        },
+      });
+      const threadSuffix = sent.threadId
+        ? `, "thread_id": "${sent.threadId}"`
+        : "";
+      return ok(`Message sent (ID: ${sent.lastMessageId}${threadSuffix}).`);
+    }
+    if (!provider) {
+      throw new Error(`Messaging provider "${platform}" not found.`);
+    }
+
+    // Reject attachments on platforms that can't carry them.
     if (
       attachmentPaths?.length &&
       !ATTACHMENT_CAPABLE_PLATFORMS.has(provider.id)
@@ -426,7 +357,14 @@ export async function run(
       );
     }
 
-    // Non-email platforms
+    // A provider with a send of its own and no direct transport (a plugin's,
+    // for instance). Its send is tool-mediated and has no chat conversation
+    // to record in.
+    if (!provider.sendMessage) {
+      return err(
+        `${provider.displayName} cannot send from here: it has no send of its own and no channel transport to address.`,
+      );
+    }
     const attachments = attachmentPaths?.length
       ? await readAttachments(attachmentPaths)
       : undefined;
@@ -442,16 +380,6 @@ export async function run(
     const threadSuffix = result.threadId
       ? `, "thread_id": "${result.threadId}"`
       : "";
-
-    await recordSentChannelPost({
-      providerId: provider.id,
-      externalChatId: conversationId,
-      deliveredThreadId: result.threadId,
-      text,
-      providerMessageId: result.id,
-      sender: context,
-    });
-
     return ok(`Message sent (ID: ${result.id}${threadSuffix}).`);
   } catch (e) {
     // A cancelled turn is not a send failure: let it reach the executor's

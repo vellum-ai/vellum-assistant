@@ -39,6 +39,7 @@ import { ROUTES as CALL_ROUTES } from "./call-routes.js";
 import { ROUTES as CHANNEL_AVAILABILITY_ROUTES } from "./channel-availability-routes.js";
 import { ROUTES as CHANNEL_READINESS_ROUTES } from "./channel-readiness-routes.js";
 import { CHANNEL_ROUTES } from "./channel-route-definitions.js";
+import { ROUTES as CHANNEL_SEND_ROUTES } from "./channel-send-routes.js";
 import { ROUTES as CHANNEL_VERIFICATION_ROUTES } from "./channel-verification-routes.js";
 import { ROUTES as CHATGPT_SUBSCRIPTION_AUTH_ROUTES } from "./chatgpt-subscription-auth-routes.js";
 import { ROUTES as CLIENT_ROUTES } from "./client-routes.js";
@@ -191,6 +192,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CHANNEL_VERIFICATION_ROUTES,
   ...CHANNEL_AVAILABILITY_ROUTES,
   ...CHANNEL_READINESS_ROUTES,
+  ...CHANNEL_SEND_ROUTES,
   ...BROWSER_ROUTES,
   ...BROWSER_TABS_ROUTES,
   ...BTW_ROUTES,

@@ -866,7 +866,9 @@
     "verificationFailed": "驗證失敗",
     "verifiedTitle": "DNS 記錄已驗證。您的網域已準備好傳送和接收電子郵件。",
     "verifyingDomain": "正在驗證網域…",
-    "verifyingTitle": "DNS 記錄已佈建。正在等待電子郵件提供者驗證它們 - 這通常需要幾分鐘。"
+    "verifyingTitle": "DNS 記錄已佈建。正在等待電子郵件提供者驗證它們 - 這通常需要幾分鐘。",
+    "setupRequired": "需要設定網域",
+    "setupRequiredTitle": "此網域尚未在電子郵件提供者完成佈建。在完成設定前，它無法傳送或接收電子郵件。"
   },
   "managedServicesBanner": {
     "body": "受管服務按用量計費，並從您的 Vellum 帳戶餘額中扣除。<link>檢視定價</link>"

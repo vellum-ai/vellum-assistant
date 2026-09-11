@@ -1130,23 +1130,17 @@ export function TranscriptMessageBody({
   // truncates inside the card instead of overflowing the message column.
   const columnClass = `flex w-full min-w-0 flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
-  // See `TranscriptMessageBodyProps.isLatestMessage` for why only the latest
-  // message collapses this row instead of reserving its height. `-mt-2`
-  // cancels the column's `gap-2` slot while collapsed — a zero-height flex
-  // item still incurs the parent gap — and animates back to `mt-0` on reveal.
-  const trailerHeightClass = isLatestMessage
-    ? "h-0 -mt-2 overflow-hidden group-hover/msg:h-8 group-hover/msg:mt-0 has-[:focus-visible]:h-8 has-[:focus-visible]:mt-0 group-data-[revealed=true]/msg:h-8 group-data-[revealed=true]/msg:mt-0"
-    : "h-6 overflow-hidden";
-
+  // Copy and Read aloud stay visible on every copyable row, including the
+  // latest turn sitting above the parked avatar. Secondary actions (retry,
+  // bookmark, Slack, fork, summarize, inspect) stay hover/tap-revealed inside
+  // `MessageHoverActions`.
   const trailer = (
     <>
       <SlackMessageAttribution
         message={message}
         assistantDisplayName={assistantDisplayName}
       />
-      <div
-        className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
-      >
+      <div className="h-6">
         <MessageHoverActions
           message={message}
           conversationId={conversationId}

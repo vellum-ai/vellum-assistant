@@ -28,8 +28,6 @@ import type {
   Message,
   SearchOptions,
   SearchResult,
-  SendOptions,
-  SendResult,
 } from "../../provider-types.js";
 import { resolveSlackAuth } from "./auth.js";
 import * as slack from "./client.js";
@@ -144,24 +142,12 @@ function getReadAuth(connection?: OAuthConnection): OAuthConnection | string {
   return getSlackAuth(connection);
 }
 
-// SAFETY: content-creating writes (postMessage, updateMessage, deleteMessage,
-// reactions) MUST use the bot token. Using the user token would post as the
-// user, not as the bot. State-changing methods that target the authenticated
-// identity's own state (e.g. conversations.mark) should use the read auth so
-// the cursor matches the perspective the adapter exposes.
-/**
- * Resolve auth for content-creating write operations (postMessage and any
- * future reactions, joins, leaves, updates, or deletes).
- */
-function getWriteAuth(connection?: OAuthConnection): OAuthConnection | string {
-  if (connection) {
-    return connection;
-  }
-  if (_cachedSlackWriteAuth) {
-    return _cachedSlackWriteAuth;
-  }
-  return getSlackAuth(connection);
-}
+// SAFETY: content-creating writes (posts, updates, deletes, reactions) go
+// through the channel transport's senders, which authenticate with the bot
+// token so posts come from the bot identity. State-changing methods that
+// target the authenticated identity's own state (e.g. conversations.mark)
+// use the read auth so the cursor matches the perspective the adapter
+// exposes.
 
 /**
  * Resolve the bot token (raw string) and pass it to `fn`. Returns the
@@ -171,7 +157,7 @@ function getWriteAuth(connection?: OAuthConnection): OAuthConnection | string {
  * (`OAuthConnection.withToken`) for callers that need a raw token to hand
  * to a non-Slack-client API call — currently `downloadSlackFile` for inline
  * file/image fetches. Slack-client method calls should keep going through
- * `getReadAuth` / `getWriteAuth` and pass the union through.
+ * `getReadAuth` and pass the union through.
  */
 export async function withSlackBotToken<T>(
   account: string | undefined,
@@ -827,29 +813,6 @@ export const slackProvider: MessagingProvider = {
       total: resp.messages.total,
       messages: await mapSearchMatches(auth, resp.messages.matches),
       hasMore: resp.messages.paging.page < resp.messages.paging.pages,
-    };
-  },
-
-  async sendMessage(
-    connection: OAuthConnection | undefined,
-    conversationId: string,
-    text: string,
-    options?: SendOptions,
-  ): Promise<SendResult> {
-    const auth = getWriteAuth(connection);
-    const resp = await slack.postMessage(
-      auth,
-      conversationId,
-      text,
-      options?.threadId,
-    );
-    // The thread reported is the one the post landed in, which is the one
-    // requested, since chat.postMessage threads exactly where it is told.
-    return {
-      id: resp.ts,
-      timestamp: parseFloat(resp.ts) * 1000,
-      conversationId: resp.channel,
-      ...(options?.threadId ? { threadId: options.threadId } : {}),
     };
   },
 

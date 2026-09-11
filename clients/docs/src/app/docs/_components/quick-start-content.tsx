@@ -7,6 +7,7 @@ import { DocsContent } from "@/app/docs/_components/docs-content";
 import { DocsVideo } from "@/app/docs/_components/docs-video";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
+import { routes } from "@/lib/routes";
 
 const TOC_ITEMS = [
   { id: "your-assistant-is-ready", label: "Your assistant is ready", level: 2 },
@@ -96,7 +97,7 @@ export function QuickStartContent() {
               <strong>iPhone or iPad</strong>: install the Vellum
               Assistant app from the{" "}
               <a
-                href="https://apps.apple.com/us/app/vellum-assistant/id6759934423"
+                href={routes.iosAppStore}
                 className={linkClass}
               >
                 App Store
@@ -104,12 +105,37 @@ export function QuickStartContent() {
               and sign in.
             </li>
             <li>
+              <strong>Android</strong>: install the app from{" "}
+              <a href={routes.androidPlayStore} className={linkClass}>
+                Google Play
+              </a>{" "}
+              and sign in.
+            </li>
+            <li>
               <strong>Mac</strong>: install the{" "}
-              <Link href="https://www.vellum.ai/downloads" className={linkClass}>
+              <Link href={routes.downloads} className={linkClass}>
                 desktop app
               </Link>
               . Same assistant, with the added ability to read your
               local files and control your Mac when you ask it to.
+            </li>
+            <li>
+              <strong>Windows</strong>: install the{" "}
+              <Link href={routes.downloads} className={linkClass}>
+                desktop app
+              </Link>
+              , or use the{" "}
+              <a href={routes.chromeWebStore} className={linkClass}>
+                Chrome extension
+              </a>
+              .
+            </li>
+            <li>
+              <strong>Linux</strong>: use the web app, or the{" "}
+              <a href={routes.chromeWebStore} className={linkClass}>
+                Chrome extension
+              </a>
+              . There is no shipped Linux desktop client.
             </li>
           </ul>
           <p className="mb-0 text-zinc-600">
