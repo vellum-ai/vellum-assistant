@@ -15,6 +15,7 @@ import {
 export const NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT = 32;
 
 const GENERATION_GUARD_LIMIT = NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT * 2;
+const SCOPE_GENERATION_LIMIT = GENERATION_GUARD_LIMIT;
 const BASE64_PATTERN =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const VERIFIED_NAME_PROVENANCES = new Set<VerifiedNotificationNameProvenance>(
@@ -33,6 +34,7 @@ export interface NotificationIdentitySnapshot {
 
 interface ScopeGenerationGuard {
   latestEpoch: number;
+  sealedEpoch?: number;
 }
 
 interface IdentityGenerationGuard {
@@ -44,10 +46,7 @@ interface IdentityGenerationGuard {
 
 const snapshots = new Map<string, NotificationIdentitySnapshot>();
 const scopeGenerationGuards = new Map<string, ScopeGenerationGuard>();
-const identityGenerationGuards = new Map<
-  string,
-  IdentityGenerationGuard
->();
+const identityGenerationGuards = new Map<string, IdentityGenerationGuard>();
 
 /** Stable, collision-free key for a scope and its assistant-local id. */
 export function notificationIdentityKey(
@@ -171,7 +170,10 @@ function normalizePublishedAvatar(
   return { ...avatar };
 }
 
-function validGeneration(scopeEpoch: number, identityRevision: number): boolean {
+function validGeneration(
+  scopeEpoch: number,
+  identityRevision: number,
+): boolean {
   return (
     Number.isSafeInteger(scopeEpoch) &&
     scopeEpoch >= 0 &&
@@ -197,26 +199,89 @@ function setBounded<K, V>(
   }
 }
 
-function acceptScopeEpoch(scopeId: string, scopeEpoch: number): boolean {
+function clearScopeIdentityState(scopeId: string): void {
+  for (const [key, snapshot] of snapshots) {
+    if (snapshot.identity.scopeId === scopeId) {
+      snapshots.delete(key);
+    }
+  }
+  for (const [key, guard] of identityGenerationGuards) {
+    if (guard.scopeId === scopeId) {
+      identityGenerationGuards.delete(key);
+    }
+  }
+}
+
+function sealScope(scopeId: string): void {
+  const scope = scopeGenerationGuards.get(scopeId);
+  if (!scope) {
+    return;
+  }
+  clearScopeIdentityState(scopeId);
+  scopeGenerationGuards.set(scopeId, {
+    latestEpoch: scope.latestEpoch,
+    sealedEpoch: Math.max(scope.sealedEpoch ?? -1, scope.latestEpoch),
+  });
+}
+
+function updateScopeEpoch(
+  scopeId: string,
+  scopeEpoch: number,
+): { state: ScopeGenerationGuard; advanced: boolean } | null {
   const guard = scopeGenerationGuards.get(scopeId);
-  if (guard && scopeEpoch < guard.latestEpoch) {
+  if (!guard) {
+    if (scopeGenerationGuards.size >= SCOPE_GENERATION_LIMIT) {
+      return null;
+    }
+    const state = { latestEpoch: scopeEpoch };
+    scopeGenerationGuards.set(scopeId, state);
+    return { state, advanced: true };
+  }
+  if (scopeEpoch < guard.latestEpoch) {
+    return null;
+  }
+  if (scopeEpoch > guard.latestEpoch) {
+    clearScopeIdentityState(scopeId);
+    const state = { latestEpoch: scopeEpoch };
+    scopeGenerationGuards.set(scopeId, state);
+    return { state, advanced: true };
+  }
+  return { state: guard, advanced: false };
+}
+
+function acceptScopeEpoch(scopeId: string, scopeEpoch: number): boolean {
+  const update = updateScopeEpoch(scopeId, scopeEpoch);
+  return Boolean(
+    update &&
+    (update.state.sealedEpoch === undefined ||
+      scopeEpoch > update.state.sealedEpoch),
+  );
+}
+
+function setIdentityGenerationGuard(
+  key: string,
+  generation: IdentityGenerationGuard,
+): boolean {
+  if (!identityGenerationGuards.has(key)) {
+    while (identityGenerationGuards.size >= GENERATION_GUARD_LIMIT) {
+      const oldest = identityGenerationGuards.values().next().value as
+        IdentityGenerationGuard | undefined;
+      if (!oldest) {
+        break;
+      }
+      sealScope(oldest.scopeId);
+    }
+  }
+  const scope = scopeGenerationGuards.get(generation.scopeId);
+  if (
+    !scope ||
+    (scope.sealedEpoch !== undefined &&
+      generation.scopeEpoch <= scope.sealedEpoch)
+  ) {
     return false;
   }
-  if (!guard || scopeEpoch > guard.latestEpoch) {
-    setBounded(
-      scopeGenerationGuards,
-      scopeId,
-      { latestEpoch: scopeEpoch },
-      GENERATION_GUARD_LIMIT,
-    );
-  } else {
-    setBounded(
-      scopeGenerationGuards,
-      scopeId,
-      guard,
-      GENERATION_GUARD_LIMIT,
-    );
-  }
+  identityGenerationGuards.delete(key);
+  identityGenerationGuards.set(key, generation);
   return true;
 }
 
@@ -280,22 +345,15 @@ export function publishNotificationIdentitySnapshot(
     ...(avatar ? { avatar } : {}),
   };
 
-  setBounded(
-    identityGenerationGuards,
-    key,
-    {
-      scopeId: identity.scopeId,
-      scopeEpoch: payload.scopeEpoch,
-      identityRevision: payload.identityRevision,
-    },
-    GENERATION_GUARD_LIMIT,
-  );
-  setBounded(
-    snapshots,
-    key,
-    snapshot,
-    NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT,
-  );
+  const nextGeneration = {
+    scopeId: identity.scopeId,
+    scopeEpoch: payload.scopeEpoch,
+    identityRevision: payload.identityRevision,
+  };
+  if (!setIdentityGenerationGuard(key, nextGeneration)) {
+    return false;
+  }
+  setBounded(snapshots, key, snapshot, NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT);
   return true;
 }
 
@@ -323,10 +381,7 @@ export function getNotificationIdentitySnapshot(
     return null;
   }
   const scopeGeneration = scopeGenerationGuards.get(normalized.scopeId);
-  if (
-    scopeGeneration &&
-    snapshot.scopeEpoch < scopeGeneration.latestEpoch
-  ) {
+  if (scopeGeneration && snapshot.scopeEpoch < scopeGeneration.latestEpoch) {
     snapshots.delete(key);
     return null;
   }
@@ -339,12 +394,7 @@ export function getNotificationIdentitySnapshot(
       GENERATION_GUARD_LIMIT,
     );
   }
-  setBounded(
-    snapshots,
-    key,
-    snapshot,
-    NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT,
-  );
+  setBounded(snapshots, key, snapshot, NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT);
   return copySnapshot(snapshot);
 }
 
@@ -372,11 +422,17 @@ export function resetNotificationIdentitySnapshots(
     return false;
   }
 
-  const scopeGuard = scopeGenerationGuards.get(scopeId);
-  if (scopeGuard && payload.scopeEpoch < scopeGuard.latestEpoch) {
+  const scopeUpdate = updateScopeEpoch(scopeId, payload.scopeEpoch);
+  if (!scopeUpdate) {
     return false;
   }
   if (assistantId) {
+    if (
+      scopeUpdate.state.sealedEpoch !== undefined &&
+      payload.scopeEpoch <= scopeUpdate.state.sealedEpoch
+    ) {
+      return true;
+    }
     const key = notificationIdentityKey({ scopeId, assistantId });
     const priorGeneration = identityGenerationGuards.get(key);
     const priorSnapshot = snapshots.get(key);
@@ -388,46 +444,33 @@ export function resetNotificationIdentitySnapshots(
         ? priorSnapshot.identityRevision
         : -1,
     );
+    if (
+      payload.identityRevision !== undefined &&
+      payload.identityRevision < latestKnownRevision
+    ) {
+      return false;
+    }
     snapshots.delete(key);
-    setBounded(
-      identityGenerationGuards,
-      key,
-      {
-        scopeId,
-        scopeEpoch: payload.scopeEpoch,
-        identityRevision: Math.max(
-          payload.identityRevision ?? -1,
-          latestKnownRevision,
-        ),
-        revisionTombstone: true,
-      },
-      GENERATION_GUARD_LIMIT,
-    );
-    setBounded(
-      scopeGenerationGuards,
+    const nextGeneration = {
       scopeId,
-      { latestEpoch: payload.scopeEpoch },
-      GENERATION_GUARD_LIMIT,
-    );
+      scopeEpoch: payload.scopeEpoch,
+      identityRevision: Math.max(
+        payload.identityRevision ?? -1,
+        latestKnownRevision,
+      ),
+      revisionTombstone: true,
+    };
+    setIdentityGenerationGuard(key, nextGeneration);
     return true;
   }
 
-  for (const [key, snapshot] of snapshots) {
-    if (snapshot.identity.scopeId === scopeId) {
-      snapshots.delete(key);
-    }
+  clearScopeIdentityState(scopeId);
+  if (!scopeUpdate.advanced) {
+    scopeGenerationGuards.set(scopeId, {
+      latestEpoch: payload.scopeEpoch,
+      sealedEpoch: payload.scopeEpoch,
+    });
   }
-  for (const [key, guard] of identityGenerationGuards) {
-    if (guard.scopeId === scopeId) {
-      identityGenerationGuards.delete(key);
-    }
-  }
-  setBounded(
-    scopeGenerationGuards,
-    scopeId,
-    { latestEpoch: payload.scopeEpoch },
-    GENERATION_GUARD_LIMIT,
-  );
   return true;
 }
 

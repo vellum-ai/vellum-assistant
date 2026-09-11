@@ -248,7 +248,10 @@ describe("notification identities", () => {
         avatar: AVATAR,
       });
     }
-    resetNotificationIdentitySnapshots({ scopeId: owner.scopeId, scopeEpoch: 4 });
+    resetNotificationIdentitySnapshots({
+      scopeId: owner.scopeId,
+      scopeEpoch: 4,
+    });
 
     expect(getNotificationIdentitySnapshot(owner)).toBeNull();
     expect(getNotificationIdentitySnapshot(sibling)).toBeNull();
@@ -323,6 +326,27 @@ describe("notification identities", () => {
     ).toBe(true);
   });
 
+  test("rejects a targeted reset older than the current identity", () => {
+    const owner = identity("assistant-a");
+    publishNotificationIdentitySnapshot({
+      identity: owner,
+      scopeEpoch: 2,
+      identityRevision: 10,
+      name: "Current",
+      nameProvenance: "identity-store",
+    });
+
+    expect(
+      resetNotificationIdentitySnapshots({
+        scopeId: owner.scopeId,
+        assistantId: owner.assistantId,
+        scopeEpoch: 2,
+        identityRevision: 5,
+      }),
+    ).toBe(false);
+    expect(getNotificationIdentitySnapshot(owner)?.name).toBe("Current");
+  });
+
   test("starts the revision floor over when a targeted reset advances the scope epoch", () => {
     const owner = identity("assistant-a");
     publishNotificationIdentitySnapshot({
@@ -379,6 +403,108 @@ describe("notification identities", () => {
     expect(getNotificationIdentitySnapshot(owners[0]!)).not.toBeNull();
     expect(getNotificationIdentitySnapshot(owners[1]!)).toBeNull();
     expect(getNotificationIdentitySnapshot(owners.at(-1)!)).not.toBeNull();
+  });
+
+  test("seals a scope instead of forgetting identity generation floors", () => {
+    const resetOwner = identity("assistant-a", "scope:sealed");
+    const retainedOwner = identity("assistant-b", "scope:sealed");
+    publishNotificationIdentitySnapshot({
+      identity: retainedOwner,
+      scopeEpoch: 2,
+      identityRevision: 1,
+      avatar: AVATAR,
+    });
+    resetNotificationIdentitySnapshots({
+      scopeId: resetOwner.scopeId,
+      assistantId: resetOwner.assistantId,
+      scopeEpoch: 2,
+      identityRevision: 10,
+    });
+
+    const churnScope = "scope:active";
+    for (
+      let index = 0;
+      index < NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT * 2 - 1;
+      index++
+    ) {
+      publishNotificationIdentitySnapshot({
+        identity: identity(`assistant-${index}`, churnScope),
+        scopeEpoch: 0,
+        identityRevision: 0,
+        avatar: AVATAR,
+      });
+    }
+
+    expect(getNotificationIdentitySnapshot(retainedOwner)).toBeNull();
+    expect(
+      publishNotificationIdentitySnapshot({
+        identity: resetOwner,
+        scopeEpoch: 2,
+        identityRevision: 5,
+        avatar: AVATAR,
+      }),
+    ).toBe(false);
+    expect(
+      publishNotificationIdentitySnapshot({
+        identity: resetOwner,
+        scopeEpoch: 3,
+        identityRevision: 0,
+        avatar: AVATAR,
+      }),
+    ).toBe(true);
+    expect(
+      publishNotificationIdentitySnapshot({
+        identity: identity("assistant-0", churnScope),
+        scopeEpoch: 0,
+        identityRevision: 1,
+        avatar: AVATAR,
+      }),
+    ).toBe(true);
+  });
+
+  test("fails closed when the scope generation budget is exhausted", () => {
+    for (
+      let index = 0;
+      index < NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT * 2;
+      index++
+    ) {
+      expect(
+        publishNotificationIdentitySnapshot({
+          identity: identity("assistant-a", `scope:${index}`),
+          scopeEpoch: 1,
+          identityRevision: 0,
+          avatar: AVATAR,
+        }),
+      ).toBe(true);
+    }
+
+    const rejected = identity("assistant-a", "scope:overflow");
+    expect(
+      publishNotificationIdentitySnapshot({
+        identity: rejected,
+        scopeEpoch: 1,
+        identityRevision: 0,
+        avatar: AVATAR,
+      }),
+    ).toBe(false);
+    expect(
+      publishNotificationIdentitySnapshot({
+        identity: identity("assistant-a", "scope:0"),
+        scopeEpoch: 1,
+        identityRevision: 1,
+        avatar: AVATAR,
+      }),
+    ).toBe(true);
+
+    __clearNotificationIdentitySnapshotsForTests();
+    expect(
+      publishNotificationIdentitySnapshot({
+        identity: rejected,
+        scopeEpoch: 1,
+        identityRevision: 0,
+        avatar: AVATAR,
+      }),
+    ).toBe(true);
   });
 });
 
