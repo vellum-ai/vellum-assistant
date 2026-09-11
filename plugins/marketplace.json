@@ -451,7 +451,7 @@
     {
       "name": "restaurant-invoice-auditor",
       "description": "Audits restaurant food delivery slips in 14 seconds, flags silent price hikes and pack-size shrinkage, and stages approved bills in QuickBooks.",
-      "category": "operations",
+      "category": "commerce",
       "icon": "\ud83e\uddfe",
       "license": "MIT",
       "homepage": "https://github.com/ZeebBoyBlue/restaurant-invoice-auditor",
