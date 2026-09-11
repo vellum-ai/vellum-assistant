@@ -253,6 +253,60 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
 
+  test("queued history retracts a claimed recovery but retains the send", async () => {
+    isOrgReady = true;
+    fetchConversationMessagesMock = mock(
+      async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+        messages: [
+          {
+            id: "msg-1",
+            clientMessageId: "nonce-1",
+            role: "user",
+            timestamp: new Date().toISOString(),
+            attachments: [],
+            queueStatus: "queued",
+          },
+        ],
+        processing: true,
+      }),
+    );
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    useConversationStore.getState().setActiveConversationId("conv-left");
+    recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore.getState().stashFailedSend(
+      "assistant-1",
+      "conv-left",
+      {
+        content: "parked behind the running turn",
+        attachments: [attachment],
+      },
+      "nonce-1",
+    );
+    const recovered = useComposerStore
+      .getState()
+      .takeFailedSend("assistant-1", "conv-left");
+    if (recovered === null) {
+      throw new Error("expected a recovered queued send");
+    }
+    useComposerStore.getState().setInput(recovered.content);
+    useComposerStore
+      .getState()
+      .restoreAttachmentsIfEmpty(recovered.attachments);
+    render(<QueuedSendRecoveryWatcher />);
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    });
+
+    await waitFor(() => expect(useComposerStore.getState().input).toBe(""));
+    expect(useComposerStore.getState().attachments).toEqual([]);
+    expect(isClaimedQueuedSend(useComposerStore.getState(), "nonce-1")).toBe(
+      false,
+    );
+    expect(heldFor("conv-left")).toBeUndefined();
+    expect(stillQueued("nonce-1")).toBe(true);
+  });
+
   test("switching back recognizes a persisted send without a client nonce", async () => {
     isOrgReady = true;
     let resolveSnapshot: (snapshot: ConversationSnapshot) => void = () => {};

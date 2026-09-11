@@ -14,8 +14,8 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useTranslation } from "@/i18n";
 
-/** Settle every local recovery copy after history or the stream finds the row. */
-function acceptQueuedSend(clientMessageId: string): void {
+/** Retract every local recovery copy after history or the stream finds the row. */
+function retractQueuedSendRecovery(clientMessageId: string): void {
   const composer = useComposerStore.getState();
   const held = composer.queuedSends.get(clientMessageId);
   if (held === undefined) {
@@ -25,7 +25,6 @@ function acceptQueuedSend(clientMessageId: string): void {
     clientMessageId,
     "accepted",
   );
-  composer.takeQueuedSend(clientMessageId);
   const payload = {
     content: held.content,
     attachments: held.attachments,
@@ -48,6 +47,12 @@ function acceptQueuedSend(clientMessageId: string): void {
       claimed.after ?? undefined,
     );
   }
+}
+
+/** Settle a retained send after its row is no longer awaiting persistence. */
+function acceptQueuedSend(clientMessageId: string): void {
+  retractQueuedSendRecovery(clientMessageId);
+  useComposerStore.getState().takeQueuedSend(clientMessageId);
 }
 
 /** Find the local nonce for an event that may only carry a durable server id. */
@@ -148,6 +153,9 @@ export function QueuedSendRecoveryWatcher() {
                 candidate.id === current.serverMessageId),
           );
           if (message?.queueStatus === "queued") {
+            // The row exists, so any provisional recovery is a duplicate. The
+            // retained send stays until its later echo, deletion, or failure.
+            retractQueuedSendRecovery(clientMessageId);
             continue;
           }
           if (message !== undefined) {

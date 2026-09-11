@@ -2297,6 +2297,52 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(toastSuccessMock).toHaveBeenCalledTimes(1);
     });
 
+    test("a newer active turn does not revive an already answered send", async () => {
+      fetchConversationMessagesMock = mock(
+        async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+          messages: [
+            {
+              id: "msg-1",
+              clientMessageId: "cm-1",
+              role: "user",
+              timestamp: "2026-01-01T00:00:00.000Z",
+              attachments: [],
+            },
+            {
+              id: "msg-2",
+              role: "assistant",
+              timestamp: "2026-01-01T00:00:01.000Z",
+              attachments: [],
+            },
+            {
+              id: "msg-3",
+              role: "user",
+              timestamp: "2026-01-01T00:00:02.000Z",
+              attachments: [],
+            },
+          ],
+          processing: true,
+        }),
+      );
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+
+      await waitFor(() => expect(detachedQueuedFor("cm-1")).toBeUndefined());
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+
+      publishMessageComplete("conv-1");
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+    });
+
     test("leaving every assistant drops held messages and a send's own", () => {
       useDocumentComposerReplyStore
         .getState()

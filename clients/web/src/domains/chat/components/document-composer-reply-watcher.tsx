@@ -255,7 +255,8 @@ export function DocumentComposerReplyWatcher() {
           const currentPending = replyStore.pendingReplies
             .get(conversationId)
             ?.find((pending) => pending.clientMessageId === clientMessageId);
-          const message = snapshot?.messages.find(
+          const messages = snapshot?.messages ?? [];
+          const messageIndex = messages.findIndex(
             (candidate) =>
               candidate.clientMessageId === clientMessageId ||
               (currentPending?.serverMessageId !== undefined &&
@@ -263,11 +264,22 @@ export function DocumentComposerReplyWatcher() {
               (stillDetached.serverMessageId !== undefined &&
                 candidate.id === stillDetached.serverMessageId),
           );
+          const message = messages[messageIndex];
+          const hasSubsequentAssistantReply =
+            messageIndex >= 0 &&
+            messages
+              .slice(messageIndex + 1)
+              .some((candidate) => candidate.role === "assistant");
           if (message !== undefined) {
             acceptCorrelatedRecovery(
               clientMessageId,
               message.queueStatus !== "queued",
             );
+          }
+          if (message !== undefined && hasSubsequentAssistantReply) {
+            replyStore.stopAwaitingReply(conversationId, clientMessageId);
+            clearProcessingWhenSettled(conversationId);
+            continue;
           }
           if (message?.queueStatus === "queued") {
             replyStore.markReplyQueued(conversationId, clientMessageId);

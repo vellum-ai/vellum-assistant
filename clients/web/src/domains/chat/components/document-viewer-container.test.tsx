@@ -37,8 +37,12 @@ mock.module("@/domains/chat/api/document-comments", () => ({
   createComment: mock(async () => ({})),
 }));
 
+let commentPanelProps: Record<string, unknown> = {};
 mock.module("./document-comment-panel", () => ({
-  DocumentCommentPanel: () => <div data-testid="comment-panel" />,
+  DocumentCommentPanel: (props: Record<string, unknown>) => {
+    commentPanelProps = props;
+    return <div data-testid="comment-panel" />;
+  },
 }));
 
 // The editor is a lazy chunk. The stub gives the test a way to emit the update
@@ -66,6 +70,7 @@ interface RenderResult {
 function renderViewer(
   props: {
     onRenamed?: (documentName: string) => void;
+    onSubmitFeedback?: () => void;
     handleRef?: Ref<DocumentViewerContainerHandle>;
   } = {},
 ): RenderResult {
@@ -83,6 +88,7 @@ function renderViewer(
       surfaceId="surf-1"
       conversationId="conv-1"
       onRenamed={props.onRenamed}
+      onSubmitFeedback={props.onSubmitFeedback}
       handleRef={props.handleRef}
     />,
     {
@@ -109,6 +115,7 @@ afterEach(() => {
   cleanup();
   saveDocumentContent.mockClear();
   editorMarkdown = "edited body";
+  commentPanelProps = {};
   // Radix locks body pointer events while a menu is open; a test that leaves
   // one open must not disable pointers for the next one.
   document.body.style.pointerEvents = "";
@@ -126,7 +133,44 @@ async function renameTo(name: string): Promise<void> {
   await user.click(screen.getByRole("button", { name: "Save" }));
 }
 
+async function openComments(): Promise<void> {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Document options" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Comments" }));
+  await screen.findByTestId("comment-panel");
+}
+
 describe("DocumentViewerContainer autosave", () => {
+  test("flushes document edits before launching feedback", async () => {
+    let finishSave: () => void = () => {};
+    saveDocumentContent.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = () => resolve({ success: true } as unknown);
+        }),
+    );
+    const onSubmitFeedback = mock(() => {});
+    renderViewer({ onSubmitFeedback });
+    await typeIntoEditor("latest body");
+    await openComments();
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = (
+        commentPanelProps.onSubmitFeedback as () => Promise<void>
+      )();
+    });
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    expect(onSubmitFeedback).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishSave();
+      await submitted;
+    });
+
+    expect(onSubmitFeedback).toHaveBeenCalledTimes(1);
+  });
+
   test("flushes and awaits the latest edit before a sibling action continues", async () => {
     let finishSave: () => void = () => {};
     saveDocumentContent.mockImplementationOnce(
@@ -270,6 +314,40 @@ describe("DocumentViewerContainer rename", () => {
       title: "meeting notes",
     });
     expect(saveDocumentContent.mock.calls[0]![1]).toBe("latest body");
+  });
+
+  test("an autosave queued behind a failed rename uses the restored title", async () => {
+    let failRename: () => void = () => {};
+    saveDocumentContent.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          failRename = () => reject(new Error("rename failed"));
+        }),
+    );
+    renderViewer();
+    await typeIntoEditor("body at rename");
+    await renameTo("meeting notes");
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+
+    await typeIntoEditor("edited during rename");
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    expect(saveDocumentContent).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      failRename();
+    });
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(2));
+
+    expect(saveDocumentContent.mock.calls[1]![0]).toEqual({
+      source: "document",
+      assistantId: "asst-1",
+      surfaceId: "surf-1",
+      conversationId: "conv-1",
+      title: "notes.md",
+    });
+    expect(saveDocumentContent.mock.calls[1]![1]).toBe(
+      "edited during rename",
+    );
   });
 
   test("the rename writes the new title with the body the editor holds", async () => {

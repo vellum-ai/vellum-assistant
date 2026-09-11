@@ -197,10 +197,13 @@ export function DocumentViewerContainer({
   });
 
   const queueDocumentSave = useCallback(
-    (target: DocumentSaveTarget, markdown: string): Promise<void> => {
+    (
+      resolveTarget: () => DocumentSaveTarget,
+      markdown: string,
+    ): Promise<void> => {
       const previousSave = saveChainRef.current.catch(() => {});
       const queuedSave = previousSave.then(() =>
-        saveDocumentContent(target, markdown),
+        saveDocumentContent(resolveTarget(), markdown),
       );
       saveChainRef.current = queuedSave;
       return queuedSave;
@@ -219,10 +222,12 @@ export function DocumentViewerContainer({
       return;
     }
     pendingMarkdownRef.current = null;
-    const target = saveTargetRef.current;
     // Serialize saves so a slow older write cannot land after the version a
     // document-scoped message is about to reference.
-    const queuedSave = queueDocumentSave(target, pending.markdown);
+    const queuedSave = queueDocumentSave(
+      () => saveTargetRef.current,
+      pending.markdown,
+    );
     await queuedSave.then(
       () => {
         setSaveStatus("saved");
@@ -401,6 +406,19 @@ export function DocumentViewerContainer({
     setCommentsPanelOpen((prev) => !prev);
   }, []);
 
+  const handleSubmitFeedback = useCallback(async () => {
+    if (onSubmitFeedback === undefined) {
+      return;
+    }
+    try {
+      await flushPendingSave();
+    } catch {
+      toast.error(t("documentComposer.sendFailed"));
+      return;
+    }
+    onSubmitFeedback();
+  }, [flushPendingSave, onSubmitFeedback, t]);
+
   // -------------------------------------------------------------------------
   // Rename
   // -------------------------------------------------------------------------
@@ -436,13 +454,12 @@ export function DocumentViewerContainer({
       const renameRevision = markdownRevisionRef.current;
       pendingMarkdownRef.current = null;
 
+      const renameTarget = { ...saveTargetRef.current, title };
+      saveTargetRef.current = renameTarget;
       onRenamed?.(title);
       setSaveStatus("saving");
       const markdown = latestMarkdownRef.current ?? content;
-      void queueDocumentSave(
-        { ...saveTargetRef.current, title },
-        markdown,
-      ).then(
+      void queueDocumentSave(() => renameTarget, markdown).then(
         () => {
           const pending = pendingMarkdownRef.current;
           if (pending !== null && pending.revision <= renameRevision) {
@@ -466,6 +483,10 @@ export function DocumentViewerContainer({
           });
         },
         (err: unknown) => {
+          saveTargetRef.current = {
+            ...saveTargetRef.current,
+            title: previousTitle,
+          };
           if (
             pendingAtRename !== null &&
             pendingMarkdownRef.current === null &&
@@ -675,7 +696,9 @@ export function DocumentViewerContainer({
             conversationId={conversationId}
             onClose={() => setCommentsPanelOpen(false)}
             onCommentSelect={handleCommentSelect}
-            onSubmitFeedback={onSubmitFeedback}
+            onSubmitFeedback={
+              onSubmitFeedback === undefined ? undefined : handleSubmitFeedback
+            }
             handleRef={commentPanelRef}
           />
         ) : null}
