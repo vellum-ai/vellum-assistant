@@ -87,6 +87,25 @@ enum HostCuActionRunner {
                 return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
             }
 
+            // Stand down while the person at the machine is using it. This runs
+            // before the verifier so a refusal the model is told to retry never
+            // reaches ActionVerifier.actionHistory: recording it would let three
+            // waits in a row trip the repeat detector and block the action for
+            // good, long after the user went idle. Checking it here also skips
+            // the AX walk that coordinate resolution would otherwise do.
+            if ActionExecutor.takesOverFromUser(agentAction.type), ActionExecutor.userIsCurrentlyActive() {
+                log.info("[\(stepNumber)] Standing down: the user is using the machine")
+                let obs = await buildObservation(
+                    enumerator: enumerator,
+                    screenCapture: screenCapture,
+                    executionResult: nil,
+                    executionError: ExecutorError.userIsActive.errorDescription,
+                    stepNumber: stepNumber,
+                    conversationId: conversationId
+                )
+                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+            }
+
             // Resolve element IDs to coordinates if needed
             guard let resolvedAction = await resolveCoordinatesIfNeeded(for: agentAction, enumerator: enumerator, stepNumber: stepNumber) else {
                 let obs = await buildObservation(

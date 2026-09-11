@@ -70,17 +70,32 @@ final class ActionExecutor {
     private static let anyInputEventType = CGEventType(rawValue: ~UInt32(0))!
 
     /// True when the person at the machine is typing or moving the mouse right
-    /// now, which is when we should stand down rather than fight for the pointer.
-    private func userIsCurrentlyActive() -> Bool {
+    /// now, which is when we should stand down rather than fight them for it.
+    static func userIsCurrentlyActive() -> Bool {
         let secondsSinceLastInput = CGEventSource.secondsSinceLastEventType(
             .combinedSessionState,
-            eventType: Self.anyInputEventType
+            eventType: anyInputEventType
         )
         return UserActivityGate.userIsActive(
             now: Date(),
-            lastSyntheticPostAt: Self.lastSyntheticPostAt,
+            lastSyntheticPostAt: lastSyntheticPostAt,
             secondsSinceLastInput: secondsSinceLastInput
         )
+    }
+
+    /// Whether running `type` takes the machine away from whoever is using it.
+    /// Posting to the global tap does, and so does activating an app: it moves
+    /// keyboard focus, so the next thing the user types lands somewhere they
+    /// were not looking. `runAppleScript` stays out because it is the one path
+    /// that asks an app to do something instead of seizing the input devices,
+    /// and gating it would leave the polite route as blocked as the rude one.
+    static func takesOverFromUser(_ type: ActionType) -> Bool {
+        switch type {
+        case .click, .doubleClick, .rightClick, .type, .key, .scroll, .drag, .openApp:
+            return true
+        case .runAppleScript, .wait, .done, .respond:
+            return false
+        }
     }
 
     /// Runs `body` and puts the pointer back where the user left it, whether or
@@ -281,16 +296,10 @@ final class ActionExecutor {
 
     @discardableResult
     func execute(_ action: AgentAction) async throws -> String? {
-        switch action.type {
-        case .click, .doubleClick, .rightClick, .type, .key, .scroll, .drag:
-            // These all post to the global event tap, so they take the pointer
-            // and the keyboard away from whoever is using them.
-            if userIsCurrentlyActive() { throw ExecutorError.userIsActive }
-        case .openApp, .runAppleScript, .wait, .done, .respond:
-            // None of these fight the user for the pointer.
-            break
-        }
-
+        // The activity gate deliberately does not live here. HostCuActionRunner
+        // checks it before ActionVerifier records the step, so a refusal the
+        // model is told to retry cannot fill the verifier's history with
+        // actions that never ran and trip its repeat detector.
         switch action.type {
         case .click:
             guard let x = action.x, let y = action.y else { throw ExecutorError.missingCoordinates }
