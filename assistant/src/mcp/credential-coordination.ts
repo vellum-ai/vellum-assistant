@@ -1,5 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
@@ -10,6 +11,62 @@ interface CredentialLock {
   generation: string;
   owner_pid: number | null;
   owner_token: string | null;
+  owner_instance: string | null;
+}
+
+function processInstance(pid: number): string | null {
+  if (!Number.isSafeInteger(pid) || pid <= 0) {
+    return null;
+  }
+  try {
+    if (process.platform === "linux") {
+      const boot = readFileSync(
+        "/proc/sys/kernel/random/boot_id",
+        "utf8",
+      ).trim();
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const started = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+      return started ? `${boot}:${started}` : null;
+    }
+    const started =
+      process.platform === "win32"
+        ? execFileSync(
+            "powershell.exe",
+            [
+              "-NoProfile",
+              "-NonInteractive",
+              "-Command",
+              `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`,
+            ],
+            {
+              encoding: "utf8",
+              windowsHide: true,
+              timeout: 2_000,
+              stdio: ["ignore", "pipe", "ignore"],
+            },
+          )
+        : execFileSync("ps", ["-p", String(pid), "-o", "lstart="], {
+            encoding: "utf8",
+            windowsHide: true,
+            timeout: 2_000,
+            env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
+            stdio: ["ignore", "pipe", "ignore"],
+          });
+    return started.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+let ownInstance: string | undefined;
+
+function currentProcessInstance(): string {
+  if (!ownInstance) {
+    const instance = processInstance(process.pid);
+    ownInstance =
+      instance === null ? `local:${randomUUID()}` : `os:${instance}`;
+  }
+  return ownInstance;
 }
 
 function openCoordination(): Database {
@@ -24,8 +81,17 @@ function openCoordination(): Database {
     server_key TEXT PRIMARY KEY,
     generation TEXT NOT NULL,
     owner_pid INTEGER,
-    owner_token TEXT
+    owner_token TEXT,
+    owner_instance TEXT
   )`);
+    db.transaction(() => {
+      const columns = db
+        .query<{ name: string }, []>("PRAGMA table_info(credential_locks)")
+        .all();
+      if (!columns.some((column) => column.name === "owner_instance")) {
+        db.exec("ALTER TABLE credential_locks ADD COLUMN owner_instance TEXT");
+      }
+    }).immediate();
     return db;
   } catch (err) {
     db.close();
@@ -45,17 +111,28 @@ function ensureLock(db: Database, key: string): CredentialLock {
     .query<
       CredentialLock,
       [string]
-    >("SELECT generation, owner_pid, owner_token FROM credential_locks WHERE server_key = ?")
+    >("SELECT generation, owner_pid, owner_token, owner_instance FROM credential_locks WHERE server_key = ?")
     .get(key)!;
 }
 
-function ownerIsAlive(pid: number): boolean {
+function ownerIsAlive(owner: CredentialLock): boolean {
+  const pid = owner.owner_pid;
+  if (pid === null) {
+    return false;
+  }
+  if (pid === process.pid) {
+    return owner.owner_instance === currentProcessInstance();
+  }
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
+  if (!owner.owner_instance?.startsWith("os:")) {
+    return true;
+  }
+  const instance = processInstance(pid);
+  return instance === null || `os:${instance}` === owner.owner_instance;
 }
 
 export function readMcpCredentialGeneration(serverId: string): string {
@@ -81,22 +158,29 @@ export async function withMcpCredentialLock<T>(
   const db = openCoordination();
   const key = keyFor(serverId);
   const token = randomUUID();
+  const instance = currentProcessInstance();
   const deadline = Date.now() + timeoutMs;
   let acquired = false;
   try {
     ensureLock(db, key);
-    const acquire = db.transaction(() => {
-      const current = ensureLock(db, key);
-      if (current.owner_pid !== null && ownerIsAlive(current.owner_pid)) {
-        return false;
-      }
-      db.query(
-        "UPDATE credential_locks SET owner_pid = ?, owner_token = ? WHERE server_key = ?",
-      ).run(process.pid, token, key);
-      return true;
-    });
     while (!acquired) {
-      acquired = acquire.immediate();
+      const current = ensureLock(db, key);
+      if (!ownerIsAlive(current)) {
+        acquired =
+          db
+            .query(
+              "UPDATE credential_locks SET owner_pid = ?, owner_token = ?, owner_instance = ? WHERE server_key = ? AND owner_pid IS ? AND owner_token IS ? AND owner_instance IS ?",
+            )
+            .run(
+              process.pid,
+              token,
+              instance,
+              key,
+              current.owner_pid,
+              current.owner_token,
+              current.owner_instance,
+            ).changes === 1;
+      }
       if (acquired) {
         break;
       }
@@ -119,7 +203,7 @@ export async function withMcpCredentialLock<T>(
     try {
       if (acquired) {
         db.query(
-          "UPDATE credential_locks SET owner_pid = NULL, owner_token = NULL WHERE server_key = ? AND owner_token = ?",
+          "UPDATE credential_locks SET owner_pid = NULL, owner_token = NULL, owner_instance = NULL WHERE server_key = ? AND owner_token = ?",
         ).run(key, token);
       }
     } finally {

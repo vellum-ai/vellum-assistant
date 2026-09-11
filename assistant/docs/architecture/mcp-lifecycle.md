@@ -45,14 +45,15 @@ refresh in the schedule worker as well as browser authorization in the main
 process.
 
 The coordination file is `signals/mcp-credential-coordination.sqlite`. It holds
-only hashed server IDs, random generations, and lock owner PID/token metadata.
+only hashed server IDs, random generations, and lock owner PID/token/process-start metadata.
 It contains no credentials, server definitions, or enable/disable state. Its
 local schema is initialized idempotently; no application database migration or
-existing plugin conversion is required. SQLite transactions arbitrate lock
-ownership without holding a SQL transaction across network I/O. A dead PID can
-be reclaimed atomically; a live owner is never stolen on timeout. PID reuse can
-conservatively block an operation, which fails with a retryable error. Handles
-are closed after each operation.
+existing plugin conversion is required. A compare-and-swap update arbitrates
+ownership without holding a SQL transaction across process inspection or network
+I/O. A dead owner or changed process-start identity can be reclaimed atomically;
+a live owner is never stolen on timeout. Linux identity includes the boot ID.
+If another process's identity cannot be read, PID liveness remains the conservative
+fallback. Handles are closed after each operation.
 
 This is coordination among cooperating assistant processes, not an access-control
 boundary. Workspace writers can change or delete the file, defeating the ordering

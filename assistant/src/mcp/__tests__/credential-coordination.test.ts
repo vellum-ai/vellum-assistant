@@ -1,5 +1,9 @@
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
+import { getSignalsDir } from "../../util/platform.js";
 import {
   createMcpCredentialFence,
   withMcpCredentialLock,
@@ -46,6 +50,84 @@ async function readLine(reader: ReadableStreamDefaultReader<Uint8Array>) {
 }
 
 describe("MCP credential coordination", () => {
+  test("upgrades the legacy coordination schema without changing generations", async () => {
+    const serverId = "legacy-lock-schema";
+    await withMcpCredentialLock(serverId, async () => {});
+    const db = new Database(
+      join(getSignalsDir(), "mcp-credential-coordination.sqlite"),
+    );
+    try {
+      db.exec("ALTER TABLE credential_locks DROP COLUMN owner_instance");
+      const before = db
+        .query(
+          "SELECT server_key, generation FROM credential_locks ORDER BY server_key",
+        )
+        .all();
+      await withMcpCredentialLock(serverId, async () => {});
+      await withMcpCredentialLock(serverId, async () => {});
+      expect(
+        db
+          .query(
+            "SELECT server_key, generation FROM credential_locks ORDER BY server_key",
+          )
+          .all(),
+      ).toEqual(before);
+      expect(
+        db
+          .query<{ name: string }, []>("PRAGMA table_info(credential_locks)")
+          .all()
+          .filter((column) => column.name === "owner_instance"),
+      ).toHaveLength(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a replacement process reclaims a stale lock with its reused PID", async () => {
+    const serverId = "reused-owner-pid";
+    await withMcpCredentialLock(serverId, async () => {});
+    const db = new Database(
+      join(getSignalsDir(), "mcp-credential-coordination.sqlite"),
+    );
+    try {
+      db.query(
+        "UPDATE credential_locks SET owner_pid = ?, owner_token = ?, owner_instance = ? WHERE server_key = ?",
+      ).run(
+        process.pid,
+        "previous-lease",
+        "previous-process-instance",
+        createHash("sha256").update(serverId).digest("hex"),
+      );
+      expect(
+        await withMcpCredentialLock(serverId, async () => "recovered", 0),
+      ).toBe("recovered");
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a legacy lock owned by the replacement process is reclaimed", async () => {
+    const serverId = "legacy-owner-pid";
+    await withMcpCredentialLock(serverId, async () => {});
+    const db = new Database(
+      join(getSignalsDir(), "mcp-credential-coordination.sqlite"),
+    );
+    try {
+      db.query(
+        "UPDATE credential_locks SET owner_pid = ?, owner_token = ?, owner_instance = NULL WHERE server_key = ?",
+      ).run(
+        process.pid,
+        "legacy-lease",
+        createHash("sha256").update(serverId).digest("hex"),
+      );
+      expect(
+        await withMcpCredentialLock(serverId, async () => "recovered", 0),
+      ).toBe("recovered");
+    } finally {
+      db.close();
+    }
+  });
+
   test("a live writer is never stolen even when the acquisition deadline expires", async () => {
     const worker =
       child(`await withMcpCredentialLock("live-owner", async () => {
