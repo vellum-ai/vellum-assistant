@@ -12,6 +12,10 @@ on:
       - 'gateway/**'
       - 'packages/**'
       - 'scripts/skills/**'
+      - 'scripts/plugins/generate-mcp-catalog.ts'
+      - 'plugins/mcp-catalog.json'
+      - 'plugins/mcp-catalog/**'
+      - 'plugins/marketplace.json'
       - 'meta/feature-flags/**'
       - 'meta/sync-bundled-copies.ts'
       # The daemon LLM catalog parity test reads these files, so hand edits to
@@ -54,6 +58,9 @@ jobs:
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/sync-bundled-copies.ts
+
+      - name: Check MCP catalog bundle
+        run: bun ../scripts/plugins/generate-mcp-catalog.ts --check
 
       - name: Lint
         run: bun run lint

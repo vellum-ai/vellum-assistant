@@ -10,7 +10,14 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { McpConfigSchema } from "../config/schemas/mcp.js";
-import { mcpCatalogProvenanceMigration as migration } from "../workspace/migrations/155-mcp-catalog-provenance.js";
+import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
+
+const migration = WORKSPACE_MIGRATIONS.find(
+  (entry) => entry.id === "155-mcp-catalog-provenance",
+);
+if (!migration) {
+  throw new Error("MCP catalog provenance migration is not registered");
+}
 
 describe("catalog provenance migration", () => {
   test("preserves legacy IDs/transports and existing provenance on repeated runs", () => {
