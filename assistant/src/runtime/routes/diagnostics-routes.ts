@@ -22,6 +22,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { isMaxTokensStopReason } from "../../providers/stop-reasons.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
@@ -178,60 +179,40 @@ function buildCommandPrompt(body: DictationBody, stylePrompt?: string): string {
 
 export function computeMaxTokens(inputLength: number): number {
   const estimatedInputTokens = Math.ceil(inputLength / 3);
-  // The cleanup tool call has to carry the whole transcript back in its `text`
+  // The cleanup tool call carries the whole transcript back in its `text`
   // argument, plus a `reasoning` string and the JSON scaffolding around both,
-  // so the budget has to cover well more than the input. The old
-  // `estimatedInputTokens + 128` left roughly 128 tokens for reasoning and
-  // scaffolding combined, and a `max_tokens` stop cuts the tool JSON mid-`text`
-  // -- which used to be accepted verbatim as the cleaned text (LUM-3432).
-  // `max_tokens` is a ceiling rather than a target, so raising it costs no
-  // latency on a call that stops well short of it.
+  // so the budget has to cover well more than the input alone. `max_tokens` is
+  // a ceiling rather than a target: a call that stops short of it costs no
+  // extra latency.
   return Math.max(512, estimatedInputTokens * 2 + 256);
 }
 
-/**
- * Smallest transcript the length-ratio check below applies to. Short
- * utterances legitimately shrink a long way once fillers go ("um yeah okay
- * so" -> "Okay"), so the ratio is noise below this length.
- */
-const CLEANUP_RATIO_MIN_LENGTH = 40;
-
-/**
- * How much of the spoken transcript the cleanup pass is allowed to drop.
- * Cleanup removes fillers and tightens phrasing, so some shrink is expected;
- * losing more than this is a truncated tool call or a summary, not a cleanup.
- */
-const CLEANUP_MIN_LENGTH_RATIO = 0.6;
-
-export type CleanupRejection = "truncated" | "too-short";
+export type CleanupRejection = "truncated";
 
 /**
  * Decide whether the cleanup model's rewrite is safe to use as the payload.
  *
- * The rewrite replaces what the user actually said, so it only wins when it
- * is plausibly the same utterance. A `max_tokens` stop means the tool JSON
- * was cut mid-argument, and a rewrite that lost most of the transcript is a
- * summary; both used to be inserted verbatim, silently sending a fragment of
- * a request the user had spoken in full (LUM-3432). In either case the raw
- * transcript is the safer payload: unpolished beats wrong.
+ * The rewrite replaces what the user actually said. A token-cap stop means the
+ * tool JSON was cut mid-argument, so however complete the `text` argument
+ * happens to look, it is a fragment; the raw transcript is the safer payload
+ * then. Unpolished beats wrong.
+ *
+ * Whether a shorter rewrite still preserved the meaning is the model's call
+ * (the prompt asks it to drop fillers and tighten phrasing), so there is no
+ * length check here: a deterministic ratio cannot tell a concise cleanup from
+ * a summary.
  */
 export function resolveCleanedDictation(
   raw: string,
   cleaned: string,
-  stopReason: string,
+  stopReason: string | null | undefined,
 ): { text: string; rejected: CleanupRejection | null } {
   const trimmed = cleaned.trim();
   if (!trimmed) {
     return { text: raw, rejected: null };
   }
-  if (stopReason === "max_tokens") {
+  if (isMaxTokensStopReason(stopReason)) {
     return { text: raw, rejected: "truncated" };
-  }
-  if (
-    raw.length >= CLEANUP_RATIO_MIN_LENGTH &&
-    trimmed.length < raw.length * CLEANUP_MIN_LENGTH_RATIO
-  ) {
-    return { text: raw, rejected: "too-short" };
   }
   return { text: trimmed, rejected: null };
 }

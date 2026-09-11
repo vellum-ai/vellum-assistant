@@ -1,11 +1,7 @@
 /**
- * The dictation cleanup pass rewrites what the user actually said, so the
- * rewrite only becomes the payload when it is plausibly the same utterance.
- *
- * LUM-3432: a rewrite cut short by a `max_tokens` stop, or one that dropped
- * most of the transcript, used to be inserted verbatim -- the user sent a
- * fragment of a request they had spoken in full, with no indication anything
- * was missing.
+ * The dictation cleanup pass rewrites what the user actually said, so a
+ * rewrite the provider cut off at the token cap must never become the
+ * payload: the raw transcript is sent instead.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -59,18 +55,31 @@ describe("resolveCleanedDictation", () => {
     expect(rejected).toBe("truncated");
   });
 
-  test("rejects a summary that dropped most of the transcript", () => {
-    expect(
-      resolveCleanedDictation(SPOKEN, "Can you create a list?", "end_turn"),
-    ).toEqual({ text: SPOKEN, rejected: "too-short" });
+  test("rejects the token-cap stop under every provider's name for it", () => {
+    for (const stopReason of ["length", "max_output_tokens", "MAX_TOKENS "]) {
+      expect(
+        resolveCleanedDictation(SPOKEN, "Hello Quill, can you", stopReason)
+          .rejected,
+      ).toBe("truncated");
+    }
   });
 
-  test("short utterances are exempt from the length ratio", () => {
-    // Filler removal legitimately guts a short phrase, so the ratio would
-    // reject a correct cleanup here.
+  test("a missing stop reason is not treated as a truncation", () => {
+    const cleaned = "Hello Quill, can you generate a list?";
+    expect(resolveCleanedDictation(SPOKEN, cleaned, undefined)).toEqual({
+      text: cleaned,
+      rejected: null,
+    });
+  });
+
+  test("a much shorter rewrite is the model's call, not a rejection", () => {
+    // The prompt asks for fillers and vague phrasing to go, so a concise
+    // rewrite of a rambling utterance is a correct cleanup.
+    const spoken =
+      "um you know I just kind of wanted to say like thank you so much you know";
     expect(
-      resolveCleanedDictation("um yeah okay so", "Okay.", "end_turn"),
-    ).toEqual({ text: "Okay.", rejected: null });
+      resolveCleanedDictation(spoken, "Thank you so much.", "end_turn"),
+    ).toEqual({ text: "Thank you so much.", rejected: null });
   });
 
   test("an empty rewrite falls back to raw without flagging a rejection", () => {
@@ -84,9 +93,8 @@ describe("resolveCleanedDictation", () => {
 
 describe("computeMaxTokens", () => {
   test("budgets room for the transcript, reasoning, and JSON scaffolding", () => {
-    // The tool call carries the whole transcript back in `text`, so a budget
-    // at or near the input's own token count is what let a rewrite get cut
-    // mid-argument.
+    // The tool call carries the whole transcript back in `text`, so the
+    // budget has to clear the input's own token count with room to spare.
     const estimatedInputTokens = Math.ceil(SPOKEN.length / 3);
     expect(computeMaxTokens(SPOKEN.length)).toBeGreaterThan(
       estimatedInputTokens * 2,
