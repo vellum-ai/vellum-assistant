@@ -273,9 +273,35 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(stillQueued("nonce-1")).toBe(false);
   });
 
-  test("a late echo clears the exact payload already restored on screen", () => {
+  test("a late echo leaves matching text that was not restored by this send", () => {
     useConversationStore.getState().setActiveConversationId("conv-left");
     recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore.getState().setInput("parked behind the running turn");
+    useComposerStore.getState().restoreAttachmentsIfEmpty([attachment]);
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishUserMessageEcho("conv-left", "nonce-1");
+
+    expect(useComposerStore.getState().input).toBe(
+      "parked behind the running turn",
+    );
+    expect(useComposerStore.getState().attachments).toHaveLength(1);
+    expect(stillQueued("nonce-1")).toBe(false);
+  });
+
+  test("a late echo clears the recovery this send restored on screen", () => {
+    useConversationStore.getState().setActiveConversationId("conv-left");
+    recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore.getState().stashFailedSend(
+      "assistant-1",
+      "conv-left",
+      {
+        content: "parked behind the running turn",
+        attachments: [attachment],
+      },
+      "nonce-1",
+    );
+    useComposerStore.getState().takeFailedSend("assistant-1", "conv-left");
     useComposerStore.getState().setInput("parked behind the running turn");
     useComposerStore.getState().restoreAttachmentsIfEmpty([attachment]);
     render(<QueuedSendRecoveryWatcher />);
@@ -285,6 +311,35 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(useComposerStore.getState().input).toBe("");
     expect(useComposerStore.getState().attachments).toEqual([]);
     expect(stillQueued("nonce-1")).toBe(false);
+  });
+
+  test("leaving every assistant clears all held chat sends", () => {
+    recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore.getState().stashFailedSend(
+      "assistant-1",
+      "conv-left",
+      {
+        content: "parked behind the running turn",
+        attachments: [attachment],
+      },
+      "nonce-1",
+    );
+    useComposerStore.getState().takeFailedSend("assistant-1", "conv-left");
+    useComposerStore.getState().stashFailedSend(
+      "assistant-1",
+      "conv-other",
+      { content: "another failed send", attachments: [] },
+    );
+    render(<QueuedSendRecoveryWatcher />);
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    });
+
+    const composer = useComposerStore.getState();
+    expect(composer.queuedSends).toEqual(new Map());
+    expect(composer.failedSendsByConversation).toEqual(new Map());
+    expect(composer.claimedQueuedSendIds).toEqual(new Set());
   });
 
   test("an assistant switch keeps recovery scoped to its originating assistant", () => {

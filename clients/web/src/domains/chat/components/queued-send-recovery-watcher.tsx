@@ -14,6 +14,8 @@ import { useTranslation } from "@/i18n";
 /** Settle every local recovery copy after history or the stream finds the row. */
 function acceptQueuedSend(clientMessageId: string): void {
   const composer = useComposerStore.getState();
+  const recoveryWasClaimed =
+    composer.claimedQueuedSendIds.has(clientMessageId);
   const held = composer.takeQueuedSend(clientMessageId);
   if (held === null) {
     return;
@@ -35,6 +37,7 @@ function acceptQueuedSend(clientMessageId: string): void {
   const activeConversationId =
     useConversationStore.getState().activeConversationId;
   if (
+    recoveryWasClaimed &&
     activeAssistantId === held.assistantId &&
     activeConversationId === held.conversationId
   ) {
@@ -163,9 +166,11 @@ export function QueuedSendRecoveryWatcher() {
         return;
       }
       ownerAssistantId = activeAssistantId;
-      if (activeAssistantId !== null) {
-        void reconcileQueuedSends(activeAssistantId);
+      if (activeAssistantId === null) {
+        useComposerStore.getState().clearHeldSends();
+        return;
       }
+      void reconcileQueuedSends(activeAssistantId);
     });
   }, [reconcileQueuedSends]);
 

@@ -458,6 +458,8 @@ export interface ComposerActions {
   takeQueuedSend: (clientMessageId: string) => QueuedSendPayload | null;
   /** Forget the queued send `clientMessageId` names, its message with it. */
   dropQueuedSend: (clientMessageId: string) => void;
+  /** Drop every held and accepted send when no assistant context remains. */
+  clearHeldSends: () => void;
 }
 
 type ComposerStore = ComposerState & ComposerActions;
@@ -1077,6 +1079,23 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       const claimed = new Set(s.claimedQueuedSendIds);
       claimed.delete(clientMessageId);
       return { queuedSends: next, claimedQueuedSendIds: claimed };
+    });
+  },
+
+  clearHeldSends: () => {
+    set((s) => {
+      if (
+        s.failedSendsByConversation.size === 0 &&
+        s.queuedSends.size === 0 &&
+        s.claimedQueuedSendIds.size === 0
+      ) {
+        return s;
+      }
+      return {
+        failedSendsByConversation: new Map(),
+        queuedSends: new Map(),
+        claimedQueuedSendIds: new Set(),
+      };
     });
   },
 }));
