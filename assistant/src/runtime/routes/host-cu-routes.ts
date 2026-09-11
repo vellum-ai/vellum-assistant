@@ -36,6 +36,10 @@ const HostCuResultBodySchema = z.object({
   executionError: z.string().optional(),
   secondaryWindows: z.string().optional(),
   userGuidance: z.string().optional(),
+  timings: z
+    .record(z.string(), z.number())
+    .describe("Per-phase helper timings in milliseconds")
+    .optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -56,6 +60,7 @@ async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     executionError,
     secondaryWindows,
     userGuidance,
+    timings,
   } = parseBody(HostCuResultBodySchema, body);
 
   const peeked = pendingInteractions.get(requestId);
@@ -119,6 +124,7 @@ async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     executionError,
     secondaryWindows,
     userGuidance,
+    timings,
   });
 
   return { accepted: true };

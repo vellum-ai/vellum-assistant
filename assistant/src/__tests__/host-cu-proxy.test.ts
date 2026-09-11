@@ -36,9 +36,35 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+// Captured `log.info` payloads, so the step-timings line can be asserted on.
+const infoLogs: { payload: Record<string, unknown>; message: string }[] = [];
+
+const realLogger = await import("../util/logger.js");
+mock.module("../util/logger.js", () => ({
+  ...realLogger,
+  getLogger: () => ({
+    info: (payload: unknown, message: unknown) => {
+      infoLogs.push({
+        payload: (payload ?? {}) as Record<string, unknown>,
+        message: String(message),
+      });
+    },
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+  }),
+}));
+
 // Use the REAL pending-interactions module — the proxy self-registers here.
 const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostCuProxy } = await import("../daemon/host-cu-proxy.js");
+
+function stepTimingsLogs(): Record<string, unknown>[] {
+  return infoLogs
+    .filter((entry) => entry.message === "Host CU step timings")
+    .map((entry) => entry.payload);
+}
 
 describe("HostCuProxy", () => {
   let proxy: InstanceType<typeof HostCuProxy>;
@@ -48,6 +74,7 @@ describe("HostCuProxy", () => {
     sentOptions.length = 0;
     mockHasClient = false;
     mockClients = [];
+    infoLogs.length = 0;
     pendingInteractions.clear();
     proxy = new HostCuProxy(maxSteps);
   }
@@ -161,6 +188,124 @@ describe("HostCuProxy", () => {
       setup();
       // Should not throw
       proxy.processObservation("unknown-id", { axTree: "something" });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Step timings
+  // -------------------------------------------------------------------------
+
+  describe("step timings", () => {
+    test("logs helper timings alongside the proxy round trip", async () => {
+      setup();
+      proxy.recordAction("computer_use_click", { element_id: 42 });
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 42 },
+        "session-1",
+        1,
+      );
+      const sent = sentMessages[0] as Record<string, unknown>;
+
+      proxy.processObservation(sent.requestId as string, {
+        axTree: "Button [1]",
+        executionResult: "Clicked element 42",
+        timings: { total: 420, axWalk: 120, capture: 240 },
+      });
+
+      const result = await resultPromise;
+      const logs = stepTimingsLogs();
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({
+        requestId: sent.requestId,
+        toolName: "computer_use_click",
+        step: 1,
+        helper: { total: 420, axWalk: 120, capture: 240 },
+      });
+      expect(typeof logs[0].roundTripMs).toBe("number");
+
+      // The timings are observability only: nothing reaches the model.
+      expect(result.content).not.toContain("420");
+      expect(result.content).not.toContain("roundTripMs");
+    });
+
+    test("labels each line with its own request, not the latest dispatch", async () => {
+      setup();
+
+      // One model response can dispatch several CU tools, and the agent loop
+      // runs them concurrently. Dispatch two, then answer the first one last.
+      proxy.recordAction("computer_use_click", { element_id: 42 });
+      const firstPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 42 },
+        "session-1",
+        proxy.stepCount,
+      );
+      proxy.recordAction("computer_use_type_text", { text: "hello" });
+      const secondPromise = proxy.request(
+        "computer_use_type_text",
+        { text: "hello" },
+        "session-1",
+        proxy.stepCount,
+      );
+
+      const first = sentMessages[0] as Record<string, unknown>;
+      const second = sentMessages[1] as Record<string, unknown>;
+
+      proxy.processObservation(second.requestId as string, {
+        axTree: "Field [2]",
+        timings: { total: 200 },
+      });
+      proxy.processObservation(first.requestId as string, {
+        axTree: "Button [1]",
+        timings: { total: 400 },
+      });
+      await Promise.all([firstPromise, secondPromise]);
+
+      const logs = stepTimingsLogs();
+      const firstLog = logs.find((l) => l.requestId === first.requestId);
+      const secondLog = logs.find((l) => l.requestId === second.requestId);
+
+      // The click landed after the type_text, so reading current proxy state
+      // would have filed it under computer_use_type_text at step 2.
+      expect(firstLog).toMatchObject({
+        toolName: "computer_use_click",
+        step: 1,
+        helper: { total: 400 },
+      });
+      expect(secondLog).toMatchObject({
+        toolName: "computer_use_type_text",
+        step: 2,
+        helper: { total: 200 },
+      });
+    });
+
+    test("an observation without timings resolves normally", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 7 },
+        "session-1",
+        1,
+      );
+      const sent = sentMessages[0] as Record<string, unknown>;
+
+      proxy.processObservation(sent.requestId as string, {
+        axTree: "Button [1]",
+        executionResult: "Clicked element 7",
+      });
+
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Clicked element 7");
+      expect(result.content).toContain("<ax-tree>");
+
+      const logs = stepTimingsLogs();
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).not.toHaveProperty("helper");
+      expect(typeof logs[0].roundTripMs).toBe("number");
     });
   });
 

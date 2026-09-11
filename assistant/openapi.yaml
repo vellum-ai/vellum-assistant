@@ -15956,6 +15956,13 @@ paths:
                   type: string
                 userGuidance:
                   type: string
+                timings:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: number
+                  description: Per-phase helper timings in milliseconds
               required:
                 - requestId
       responses:
