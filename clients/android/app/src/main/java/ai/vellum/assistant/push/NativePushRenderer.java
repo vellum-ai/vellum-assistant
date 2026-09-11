@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Renders a data-only push. With a sender the notification is a
@@ -75,11 +76,32 @@ public final class NativePushRenderer {
         PushDataMessage message,
         @Nullable Bitmap avatar
     ) {
+        show(
+            context,
+            remoteMessage.getData(),
+            remoteMessage.getMessageId(),
+            message,
+            avatar
+        );
+    }
+
+    /**
+     * Posts from resolved data and message-id inputs so local and FCM callers
+     * share the same notification construction.
+     */
+    @SuppressLint("MissingPermission")
+    public static void show(
+        Context context,
+        @Nullable Map<String, String> data,
+        @Nullable String messageId,
+        PushDataMessage message,
+        @Nullable Bitmap avatar
+    ) {
         AndroidNotificationChannelsPlugin.ensureAlertsChannel(context, message.channelId);
         NotificationManagerCompat manager = NotificationManagerCompat.from(context);
 
         int notificationId = message.notificationId();
-        Intent launchIntent = PushTapIntents.launchIntent(context, remoteMessage);
+        Intent launchIntent = PushTapIntents.launchIntent(context, data, messageId);
         PendingIntent contentIntent = launchIntent == null
             ? null
             : PushTapIntents.pendingIntent(context, launchIntent, notificationId);

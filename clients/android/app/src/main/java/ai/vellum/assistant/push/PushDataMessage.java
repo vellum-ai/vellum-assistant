@@ -13,6 +13,7 @@ public final class PushDataMessage {
 
     private static final String DEFAULT_SOURCE_EVENT_NAME = "remote_push";
     private static final String DEFAULT_TITLE = "Vellum";
+    private static final String LOCAL_MESSAGE_ID_PREFIX = "vellum-local:";
 
     private static final String KEY_TITLE = "title";
     private static final String KEY_BODY = "body";
@@ -60,12 +61,15 @@ public final class PushDataMessage {
     private final String sourceEventName;
     @Nullable
     private final String messageId;
+    @Nullable
+    private final String deliveryKey;
     private final boolean hasNotificationBlock;
 
     private PushDataMessage(
         Map<String, String> data,
         boolean hasNotificationBlock,
-        @Nullable String messageId
+        @Nullable String messageId,
+        @Nullable String deliveryKey
     ) {
         this.hasNotificationBlock = hasNotificationBlock;
         this.messageId = trimmed(messageId);
@@ -78,6 +82,7 @@ public final class PushDataMessage {
         String source = trimmed(data.get(KEY_SOURCE_EVENT_NAME));
         sourceEventName = source == null ? DEFAULT_SOURCE_EVENT_NAME : source;
         deliveryId = trimmed(data.get(KEY_DELIVERY_ID));
+        this.deliveryKey = trimmed(deliveryKey);
         conversationId = trimmed(data.get(KEY_CONVERSATION_ID));
         unreadCount = count(data.get(KEY_UNREAD_COUNT));
         sender = sender(data);
@@ -91,6 +96,37 @@ public final class PushDataMessage {
         );
     }
 
+    /**
+     * Builds the same parsed data shape for an app-local request. The stable
+     * request key is generated once by the caller and retained across retries.
+     */
+    public static PushDataMessage fromLocalData(
+        @Nullable Map<String, String> data,
+        @Nullable String correlationId,
+        @Nullable String deliveryId,
+        @Nullable String stableRequestKey
+    ) {
+        Map<String, String> resolvedData = data == null ? Collections.emptyMap() : data;
+        String resolvedDeliveryId = trimmed(deliveryId);
+        if (resolvedDeliveryId == null) {
+            resolvedDeliveryId = trimmed(resolvedData.get(KEY_DELIVERY_ID));
+        }
+        String resolvedDeliveryKey = deliveryKey(
+            correlationId,
+            resolvedDeliveryId,
+            stableRequestKey
+        );
+        if (resolvedDeliveryKey == null) {
+            throw new IllegalArgumentException("A local notification needs a stable request key");
+        }
+        return new PushDataMessage(
+            resolvedData,
+            false,
+            tapMessageId(correlationId, resolvedDeliveryId, stableRequestKey),
+            resolvedDeliveryKey
+        );
+    }
+
     static PushDataMessage of(
         @Nullable Map<String, String> data,
         boolean hasNotificationBlock,
@@ -99,8 +135,21 @@ public final class PushDataMessage {
         return new PushDataMessage(
             data == null ? Collections.emptyMap() : data,
             hasNotificationBlock,
-            messageId
+            messageId,
+            null
         );
+    }
+
+    /** Full process-local key shared by the local and FCM delivery routes. */
+    @Nullable
+    public String deliveryKey() {
+        return deliveryKey == null ? deliveryId : deliveryKey;
+    }
+
+    /** Message id carried into Capacitor's push-tap callback. */
+    @Nullable
+    public String tapMessageId() {
+        return messageId;
     }
 
     /** True when Firebase rendered nothing and this process owns the notification. */
@@ -134,6 +183,42 @@ public final class PushDataMessage {
     }
 
     /**
+     * Selects the full canonical key without hashing it down to an Android
+     * notification id. Inputs are already resolved by the caller.
+     */
+    @Nullable
+    public static String deliveryKey(
+        @Nullable String correlationId,
+        @Nullable String deliveryId,
+        @Nullable String stableRequestKey
+    ) {
+        String key = trimmed(correlationId);
+        if (key != null) {
+            return key;
+        }
+        key = trimmed(deliveryId);
+        return key == null ? trimmed(stableRequestKey) : key;
+    }
+
+    /**
+     * Gives a local request a push-compatible tap id. Existing delivery keys
+     * keep their current value; only an id-less request receives the prefix.
+     */
+    @Nullable
+    public static String tapMessageId(
+        @Nullable String correlationId,
+        @Nullable String deliveryId,
+        @Nullable String stableRequestKey
+    ) {
+        String existingId = deliveryKey(correlationId, deliveryId, null);
+        if (existingId != null) {
+            return existingId;
+        }
+        String request = trimmed(stableRequestKey);
+        return request == null ? null : LOCAL_MESSAGE_ID_PREFIX + request;
+    }
+
+    /**
      * The same id the web layer derives in {@code toNotificationId}
      * (clients/web/src/runtime/notifications.ts), so a delivery rendered by
      * both paths lands on one notification rather than two.
@@ -153,6 +238,9 @@ public final class PushDataMessage {
      * sides, so padded copy hashes to the same id here and there.
      */
     private String seed() {
+        if (deliveryKey != null) {
+            return deliveryKey;
+        }
         if (deliveryId != null) {
             return deliveryId;
         }
