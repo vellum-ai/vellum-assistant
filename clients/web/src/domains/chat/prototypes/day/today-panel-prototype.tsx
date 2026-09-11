@@ -63,7 +63,9 @@ export interface TodayPanelOptions {
   emphasizeNeedsYou: boolean;
   /** A running task shows a quiet pulse in place of its time. */
   showAssistantWorking: boolean;
-  /** A running task finishes a few seconds after load and leaves the list. */
+  /** Demo only: the seeded running task (the row with the pulse) finishes a
+   *  few seconds after load and leaves the list, standing in for the
+   *  assistant completing work on its own. */
   autoCloseDemo: boolean;
   /** The Yesterday / This week / Earlier folds of past chats. */
   pastFolds: boolean;
@@ -75,7 +77,7 @@ export const DEFAULT_TODAY_PANEL_OPTIONS: TodayPanelOptions = {
   nowHour: 15.5,
   closeAffordance: "hover-check",
   timeChip: "always",
-  progress: "count",
+  progress: "line",
   done: "fold",
   emphasizeNeedsYou: true,
   showAssistantWorking: true,

@@ -50,7 +50,7 @@ const meta: Meta<typeof TodayPanelPrototype> = {
     autoCloseDemo: {
       control: "boolean",
       description:
-        "The running task finishes 4.5s after load and leaves the list.",
+        "Demo only: the seeded running task (the row with the pulse) finishes ~4s after load and leaves the list, standing in for the assistant completing work on its own.",
       table: { category: "Progression" },
     },
     timeChip: {
