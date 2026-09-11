@@ -2461,6 +2461,22 @@ export async function handleSendMessage(
    * handover it waits on is bounded by the abort budget plus the turn-boundary
    * commit wait, which is far too long to hold a request open.
    */
+  const reportAcceptedSendFailure = (failure: {
+    code: string;
+    message: string;
+    category?: string;
+    errorCategory?: string;
+  }): void => {
+    broadcastMessage({
+      type: "error",
+      conversationId: mapping.conversationId,
+      requestId: sendRequestId,
+      scope: "message",
+      ...(clientMessageId ? { clientMessageId } : {}),
+      ...failure,
+    });
+  };
+
   /**
    * Tell the sender that a queue fallback was refused, for a send this request
    * has already answered `202` for.
@@ -2484,12 +2500,7 @@ export async function handleSendMessage(
       },
       "Queue fallback for an accepted send was rejected; telling the sender",
     );
-    broadcastMessage({
-      type: "error",
-      conversationId: mapping.conversationId,
-      requestId: sendRequestId,
-      scope: "message",
-      ...(clientMessageId ? { clientMessageId } : {}),
+    reportAcceptedSendFailure({
       code: "QUEUE_FULL",
       category: "queue_drain_failed",
       message:
@@ -3251,11 +3262,7 @@ export async function handleSendMessage(
           );
           // One message's failure, like the refused queue above: the turn
           // this send tried to interrupt runs on.
-          broadcastMessage({
-            type: "message_failed",
-            conversationId: mapping.conversationId,
-            requestId: sendRequestId,
-            ...(clientMessageId ? { clientMessageId } : {}),
+          reportAcceptedSendFailure({
             code: "SEND_FAILED",
             message:
               "Your message could not be delivered. Please send it again.",

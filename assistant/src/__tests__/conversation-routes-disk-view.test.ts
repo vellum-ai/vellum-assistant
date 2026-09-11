@@ -952,6 +952,60 @@ describe("host-proxy preactivation across an interrupt", () => {
     conv.owner = 0;
   });
 
+  test("reports when a detached send and its queue recovery both fail", async () => {
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-double-failure-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
+      processing: boolean;
+      owner: number;
+      abortController: AbortController | null;
+      enqueueMessage: Conversation["enqueueMessage"];
+    };
+    conv.processing = true;
+    conv.owner = 1;
+    conv.abortController = new AbortController();
+    conv.enqueueMessage = (() => {
+      throw new Error("queue unavailable");
+    }) as Conversation["enqueueMessage"];
+
+    const events: Array<Record<string, unknown>> = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "client",
+      clientId: `double-failure-watcher-${crypto.randomUUID()}`,
+      interfaceId: "macos",
+      capabilities: [],
+      callback: (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    });
+
+    const clientMessageId = `cmid-${crypto.randomUUID()}`;
+    const response = await sendMacosMessage(
+      conversationKey,
+      "please answer",
+      clientMessageId,
+    );
+    const accepted = (await response.json()) as { requestId?: string };
+    const reported = await waitFor(() => {
+      for (const envelope of events) {
+        const message = envelope.message as Record<string, unknown> | undefined;
+        if (message?.type === "error" && message.code === "SEND_FAILED") {
+          return message;
+        }
+      }
+      return undefined;
+    });
+
+    expect(reported.requestId).toBe(accepted.requestId);
+    expect(reported.scope).toBe("message");
+    expect(reported.clientMessageId).toBe(clientMessageId);
+
+    subscription.dispose();
+    conv.processing = false;
+    conv.owner = 0;
+  });
+
   test("disarms the activity bridge when the send starts no turn", async () => {
     // A deduplicated persist answers without starting a loop, and several slash
     // commands do the same. Nothing would consume the armed

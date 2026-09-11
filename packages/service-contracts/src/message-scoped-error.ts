@@ -1,11 +1,7 @@
 /**
- * Whether a compatibility `error` stream event belongs to one message rather
- * than to the turn. An explicit `scope` decides. An event from a build that
- * predates the field falls back to its `clientMessageId`, which those builds
- * set only on a message's own error.
- *
- * Current assistants emit `message_failed` instead. This predicate lets a new
- * client preserve the same nonterminal behavior with older assistants.
+ * Whether an `error` stream event belongs to one message rather than to the
+ * turn. An explicit `scope` decides. When the scope is absent, a
+ * `clientMessageId` still identifies an error belonging to that one message.
  */
 export function isMessageScopedError(event: {
   scope?: "turn" | "message";

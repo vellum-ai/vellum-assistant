@@ -28,14 +28,12 @@ export const ErrorEventSchema = z.object({
   requestId: z.string().optional(),
   conversationId: z.string().optional(),
   /**
-   * Compatibility field accepted from assistant builds that represented a
-   * message failure as an error. Current emitters use `message_failed`, while
-   * absent or `"turn"` remains a terminal turn error.
+   * Marks an error that belongs to one message. Absent or `"turn"` remains a
+   * terminal turn error.
    */
   scope: z.enum(["turn", "message"]).optional(),
   /**
-   * Compatibility nonce for a message-scoped error. Current emitters carry
-   * this correlation handle on `message_failed`.
+   * Correlation nonce for a message-scoped error.
    */
   clientMessageId: z.string().optional(),
 });

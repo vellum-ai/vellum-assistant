@@ -1,10 +1,9 @@
 /**
  * `message_failed` SSE event.
  *
- * Reports that one accepted or queued user message could not be delivered or
- * persisted while the conversation's current turn may continue. Older clients
- * safely ignore this distinct discriminator instead of mistaking the failure
- * for a terminal turn error.
+ * Compatibility event for an accepted or queued user message that could not
+ * be delivered or persisted while the conversation's current turn may
+ * continue.
  */
 
 import { z } from "zod";
