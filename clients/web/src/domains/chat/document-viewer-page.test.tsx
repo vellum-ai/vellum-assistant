@@ -166,6 +166,42 @@ describe("DocumentViewerPage", () => {
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
   });
 
+  test("abandons feedback after the assistant switches away and back", async () => {
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+    let resolveVersion: () => void = () => {};
+    whenAssistantVersionKnownForMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveVersion = resolve;
+        }),
+    );
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+    const submitFeedback = viewerProps?.onSubmitFeedback;
+    expect(typeof submitFeedback).toBe("function");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = (submitFeedback as () => Promise<void>)();
+    });
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    });
+    await waitFor(() => expect(viewerProps?.assistantId).toBe("asst-2"));
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+    });
+    await waitFor(() => expect(viewerProps?.assistantId).toBe("asst-1"));
+
+    await act(async () => {
+      resolveVersion();
+      await submitted;
+    });
+
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+  });
+
   test("clears the unseen change for the document it loaded", async () => {
     useUnseenDocumentChangesStore
       .getState()

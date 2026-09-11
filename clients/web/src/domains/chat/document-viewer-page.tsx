@@ -71,17 +71,21 @@ export function DocumentViewerPage() {
   // link and the navigation, so the action runs one at a time per document:
   // the ref names the surface whose action is out. This page instance is
   // reused across route parameter changes, so the route's current surface is
-  // mirrored into a ref for the in-flight action to check against.
+  // mirrored into a ref for the in-flight action to check against. The owner
+  // generation permanently invalidates an action after any intervening route
+  // or assistant switch, including a switch away and back to the same pair.
   const feedbackInFlightRef = useRef<string | null>(null);
+  const feedbackOwnerGenerationRef = useRef(0);
   const routeSurfaceIdRef = useRef<string | undefined>(surfaceId);
   useEffect(() => {
+    feedbackOwnerGenerationRef.current += 1;
     routeSurfaceIdRef.current = surfaceId;
     // Leaving the document route is leaving every document, so an action
     // still out reads its surface as gone and writes nothing.
     return () => {
       routeSurfaceIdRef.current = undefined;
     };
-  }, [surfaceId]);
+  }, [assistantId, surfaceId]);
 
   useEffect(() => {
     if (!surfaceId) {
@@ -170,6 +174,7 @@ export function DocumentViewerPage() {
     ) {
       return;
     }
+    const ownerGeneration = feedbackOwnerGenerationRef.current;
     feedbackInFlightRef.current = surfaceId;
     try {
       // Every await below is a window the user can switch assistants or move
@@ -179,9 +184,11 @@ export function DocumentViewerPage() {
       // navigate: that would point the incoming assistant at the outgoing
       // one's conversation, or pull the newer document's route back to this
       // one's.
-      const assistantChanged = () =>
+      const ownerChanged = () =>
+        feedbackOwnerGenerationRef.current !== ownerGeneration ||
         useResolvedAssistantsStore.getState().activeAssistantId !==
-          assistantId || routeSurfaceIdRef.current !== surfaceId;
+          assistantId ||
+        routeSurfaceIdRef.current !== surfaceId;
 
       // Prefer the document's original conversation: it is already linked
       // there, so the injector will surface the comments automatically. Fall
@@ -200,7 +207,7 @@ export function DocumentViewerPage() {
       // with nothing here to observe whether the eventual send that
       // materializes a legacy draft actually succeeds.
       await whenAssistantVersionKnownFor(assistantId);
-      if (assistantChanged()) {
+      if (ownerChanged()) {
         return;
       }
       if (!assistantVersionKnownFor(assistantId)) {
@@ -228,7 +235,7 @@ export function DocumentViewerPage() {
           toast.error(t("documentComposer.sendFailed"));
           return;
         }
-        if (assistantChanged()) {
+        if (ownerChanged()) {
           return;
         }
         resolveEditChatDraftConversationId(resolvedId, conversationId);
@@ -240,7 +247,7 @@ export function DocumentViewerPage() {
         assistantId,
         conversationId,
       );
-      if (assistantChanged()) {
+      if (ownerChanged()) {
         return;
       }
       // The turn this navigates into reads the link when it assembles its
