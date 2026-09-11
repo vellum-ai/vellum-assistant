@@ -474,24 +474,26 @@ export const FALLBACK_WIDTHS: Record<
 };
 
 /**
- * The width of the activity line at the top of a column.
+ * How far the activity line runs down a column, in the units the layout is
+ * authored in.
  *
- * One width whatever the session is saying, for the reason
- * {@link CALL_LINE_WIDTH} is one: a column that grew with its words would
- * breathe on every phase. Narrower than the row's, since the column is one
- * control wide below it and a line the row's width would make the whole
- * column a slab; the words are centred and cut short where they run past.
+ * One length whatever the session is saying, for the reason
+ * {@link CALL_LINE_WIDTH} is one width: a column whose words came and went
+ * would move every control under them on each phase. Shorter than the row's,
+ * since the row spends its width on a line beside five controls and a column
+ * spends its length on one above them, and a longer line would be an empty
+ * stretch above the controls for most of what the session says.
  */
-const CALL_COLUMN_LINE_WIDTH = 96;
+const CALL_COLUMN_LINE_LENGTH = 84;
 
 /**
- * What a column is drawn at until its body has been measured: the line's
- * width, and the line and the five controls of the handlebar tall, with the
- * gaps between them.
+ * What a column is drawn at until its body has been measured: one control
+ * wide, and the line's length and the five controls of the handlebar tall,
+ * with the gaps between them.
  */
 const FALLBACK_COLUMN = {
-  width: CALL_COLUMN_LINE_WIDTH,
-  height: 16 + 5 * 28 + 5 * 4,
+  width: 28,
+  height: CALL_COLUMN_LINE_LENGTH + 5 * 28 + 5 * 4,
 };
 
 /**
@@ -2285,20 +2287,27 @@ function CallBody({
  *
  * On a row it is the first thing in the row, one width whatever it says (see
  * {@link CALL_LINE_WIDTH}). On a column it is the first thing down the
- * column, centred over the controls at its own one width (see
- * {@link CALL_COLUMN_LINE_WIDTH}), so the bar reads down from the creature:
- * what they are doing, then the controls. In the column rather than beside
- * it, because it is what the bar is saying and belongs in the bar; the
- * captions that stand beside a column are the controls' names, revealed by
- * the pointer, and a line that stood with them would read as one more of
- * those.
+ * column and runs along it, the way a title runs down a book's spine: the
+ * same words at one length of their own (see
+ * {@link CALL_COLUMN_LINE_LENGTH}), turned to lie with the controls, so the
+ * column stays one control wide. Written the other way, the line would be
+ * the widest thing in the column by a long way and the whole bar would
+ * widen to it. Top to bottom on either side, which is the way a spine reads.
+ *
+ * In the column rather than beside it, because it is what the bar is saying
+ * and belongs in the bar; the captions that stand beside a column are the
+ * controls' names, revealed by the pointer, and a line that stood with them
+ * would read as one more of those.
  */
 function CallLine({ vertical, text }: { vertical: boolean; text: string }) {
   if (vertical) {
     return (
       <span
-        className="shrink-0 truncate text-center text-[12px] text-white/85"
-        style={{ width: CALL_COLUMN_LINE_WIDTH }}
+        className="mt-1 shrink-0 truncate text-[12px] text-white/85"
+        style={{
+          height: CALL_COLUMN_LINE_LENGTH,
+          writingMode: "vertical-rl",
+        }}
         data-label="line"
       >
         {text}

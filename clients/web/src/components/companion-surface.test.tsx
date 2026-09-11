@@ -1319,10 +1319,11 @@ describe("the companion surface's call bar docked to a side", () => {
   });
 
   /**
-   * In the column, not beside it: the line is what the bar is saying, and the
-   * captions that stand beside a column are the controls' names.
+   * In the column, not beside it, and running along it: the line is what the
+   * bar is saying, and a line written across would be the widest thing in a
+   * column of icons.
    */
-  test("keeps the activity line in the column, centred over the controls", () => {
+  test("runs the activity line down the column at the row's one length", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
@@ -1333,9 +1334,9 @@ describe("the companion surface's call bar docked to a side", () => {
     const line = lineOf(container);
     expect(line?.textContent).toContain("Thinking\u2026");
     expect(columnOf(container).contains(line)).toBe(true);
-    expect(line?.className).toContain("text-center");
-    expect(line?.className).not.toContain("translate-x-");
-    expect(line?.style.width).toBe("96px");
+    expect(line?.style.writingMode).toBe("vertical-rl");
+    expect(line?.style.height).toBe("84px");
+    expect(line?.style.width).toBe("");
   });
 
   test("keeps the activity line in the row on the top and bottom", () => {
