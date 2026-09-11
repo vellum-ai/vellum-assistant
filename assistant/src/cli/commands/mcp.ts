@@ -14,6 +14,7 @@ import { mcpHelp } from "./mcp.help.js";
 interface McpServerEntry {
   id: string;
   status: string;
+  lifecycleState?: string;
   transport: {
     type: string;
     url?: string;
@@ -89,9 +90,21 @@ async function pollMcpAuthStatus(
 // Display helper for list output
 // ---------------------------------------------------------------------------
 
+const MCP_LIFECYCLE_STATES = new Set([
+  "not-started",
+  "connecting",
+  "connected",
+  "needs-auth",
+  "error",
+  "declared",
+]);
+
 function printServerEntry(entry: McpServerEntry): void {
+  const status = MCP_LIFECYCLE_STATES.has(entry.lifecycleState ?? "")
+    ? entry.lifecycleState
+    : entry.status;
   log.info(`  ${entry.id}`);
-  log.info(`    Status:    ${entry.status}`);
+  log.info(`    Status:    ${status}`);
   // Only plugin-declared servers name a source. A workspace server is the
   // default case and printing "workspace" on every one of them is noise.
   if (entry.source === "plugin") {

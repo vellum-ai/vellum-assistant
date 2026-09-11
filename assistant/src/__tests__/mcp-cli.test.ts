@@ -207,26 +207,63 @@ describe("assistant mcp list", () => {
     expect(stdout).toContain("https://example.com/mcp");
   });
 
-  test("prints the status string from the list response", async () => {
-    mockCliIpcCallFn = mock(() =>
-      Promise.resolve({
-        ok: true,
-        result: {
-          servers: [
-            {
-              id: "error-server",
-              status: "error",
-              transport: { type: "sse", url: "https://example.com/sse" },
-            },
-          ],
-        },
-      }),
-    );
+  test.each([undefined, "future-state"])(
+    "falls back to legacy status for lifecycle state %s",
+    async (lifecycleState) => {
+      mockCliIpcCallFn = mock(() =>
+        Promise.resolve({
+          ok: true,
+          result: {
+            servers: [
+              {
+                id: "error-server",
+                status: "error",
+                lifecycleState,
+                transport: { type: "sse", url: "https://example.com/sse" },
+              },
+            ],
+          },
+        }),
+      );
 
-    const { stdout, exitCode } = await runMcpList();
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("error");
-  });
+      const { stdout, exitCode } = await runMcpList();
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("Status:    error");
+    },
+  );
+
+  test.each([
+    "not-started",
+    "connecting",
+    "connected",
+    "needs-auth",
+    "error",
+    "declared",
+  ])(
+    "prefers known lifecycle state %s in human output",
+    async (lifecycleState) => {
+      mockCliIpcCallFn = mock(() =>
+        Promise.resolve({
+          ok: true,
+          result: {
+            servers: [
+              {
+                id: "test-server",
+                status: "legacy-status",
+                lifecycleState,
+                transport: { type: "sse", url: "https://example.com/sse" },
+              },
+            ],
+          },
+        }),
+      );
+
+      const { stdout, exitCode } = await runMcpList();
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain(`Status:    ${lifecycleState}`);
+      expect(stdout).not.toContain("legacy-status");
+    },
+  );
 
   test("shows stdio command info", async () => {
     mockCliIpcCallFn = mock(() =>
@@ -263,7 +300,8 @@ describe("assistant mcp list", () => {
           servers: [
             {
               id: "json-server",
-              status: "✓ Connected",
+              status: "error",
+              lifecycleState: "connecting",
               transport: {
                 type: "streamable-http",
                 url: "https://example.com/mcp",
@@ -280,6 +318,8 @@ describe("assistant mcp list", () => {
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(1);
     expect(parsed[0].id).toBe("json-server");
+    expect(parsed[0].status).toBe("error");
+    expect(parsed[0].lifecycleState).toBe("connecting");
     expect(parsed[0].transport.url).toBe("https://example.com/mcp");
   });
 
