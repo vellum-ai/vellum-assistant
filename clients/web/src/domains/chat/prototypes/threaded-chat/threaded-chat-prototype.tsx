@@ -188,7 +188,7 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
-function clock(at: number): string {
+export function clock(at: number): string {
   return new Date(at).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -196,7 +196,7 @@ function clock(at: number): string {
   });
 }
 
-function relative(at: number, now: number): string {
+export function relative(at: number, now: number): string {
   const delta = Math.max(0, now - at);
   if (delta < MIN) {
     return "just now";
@@ -235,7 +235,7 @@ function sameDay(a: number, b: number): boolean {
  * One-line plain-text preview of a markdown body: the first prose line,
  * skipping table rows, quotes, and list markers, with emphasis stripped.
  */
-function snippet(markdown: string): string {
+export function snippet(markdown: string): string {
   const lines = markdown.split("\n").map((l) => l.trim());
   const prose = lines.find((l) => l.length > 0 && !/^[|>#]/.test(l));
   const line = prose ?? lines.find((l) => l.length > 0) ?? "";
@@ -371,7 +371,7 @@ function useProtoChat(
 // Small parts
 // ---------------------------------------------------------------------------
 
-function Avatar({ author, size }: { author: ProtoAuthor; size: number }) {
+export function Avatar({ author, size }: { author: ProtoAuthor; size: number }) {
   if (author === "assistant") {
     return (
       <ChatAvatar
@@ -409,11 +409,11 @@ function AvatarStack({ authors, size }: { authors: ProtoAuthor[]; size: number }
   );
 }
 
-function authorName(author: ProtoAuthor): string {
+export function authorName(author: ProtoAuthor): string {
   return author === "assistant" ? PROTO_ASSISTANT_NAME : PROTO_USER_NAME;
 }
 
-function DateDivider({ label }: { label: string }) {
+export function DateDivider({ label }: { label: string }) {
   return (
     <div className="my-3 flex items-center gap-3" role="separator">
       <div className="h-px flex-1 bg-[var(--border-subtle)]" />
@@ -425,7 +425,7 @@ function DateDivider({ label }: { label: string }) {
   );
 }
 
-function ThinkingRow({
+export function ThinkingRow({
   options,
   compactGutter,
 }: {
@@ -454,7 +454,7 @@ function ThinkingRow({
 // Composer
 // ---------------------------------------------------------------------------
 
-interface ComposerProps {
+export interface ComposerProps {
   placeholder: string;
   onSend: (text: string) => void;
   options: ThreadedChatOptions;
@@ -469,7 +469,7 @@ interface ComposerProps {
   context?: { label: string; onClear: () => void } | null;
 }
 
-function Composer({
+export function Composer({
   placeholder,
   onSend,
   options,
