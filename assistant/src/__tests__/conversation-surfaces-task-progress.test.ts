@@ -21,6 +21,7 @@ import {
 function makeContext(
   sent: AssistantEvent[] = [],
   channelCapabilities?: { channel: string; supportsDynamicUi: boolean },
+  opts?: { hasNoClient?: boolean },
 ): Conversation {
   return asConversation({
     conversationId: "session-1",
@@ -37,6 +38,7 @@ function makeContext(
     accumulatedSurfaceState: new Map<string, Record<string, unknown>>(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
+    hasNoClient: opts?.hasNoClient ?? false,
     isProcessing: () => false,
     enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
     getQueueDepth: () => 0,
@@ -63,6 +65,71 @@ describe("task_progress surface compatibility", () => {
       'ui_show is unavailable on channel "phone"',
     );
     expect(sent).toHaveLength(0);
+  });
+
+  test("persists a clientless choice from a non-rendering channel without waiting", async () => {
+    const sent: AssistantEvent[] = [];
+    const ctx = makeContext(
+      sent,
+      {
+        channel: "phone",
+        supportsDynamicUi: false,
+      },
+      { hasNoClient: true },
+    );
+
+    const result = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "choice",
+      title: "Choose a focus",
+      data: {
+        options: [
+          { id: "inbox", title: "Inbox" },
+          { id: "calendar", title: "Calendar" },
+        ],
+      },
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.yieldToUser).toBeUndefined();
+    const { surfaceId } = JSON.parse(result.content) as { surfaceId: string };
+    expect(ctx.currentTurnSurfaces.some((s) => s.surfaceId === surfaceId)).toBe(
+      true,
+    );
+    expect(ctx.pendingSurfaceActions.has(surfaceId)).toBe(false);
+    expect(sent.some((msg) => msg.type === "ui_surface_show")).toBe(true);
+  });
+
+  test("persists a clientless update in the current-turn surface snapshot", async () => {
+    const sent: AssistantEvent[] = [];
+    const ctx = makeContext(
+      sent,
+      {
+        channel: "phone",
+        supportsDynamicUi: false,
+      },
+      { hasNoClient: true },
+    );
+    const shown = await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "card",
+      title: "Background work",
+      data: {
+        template: "task_progress",
+        templateData: { status: "in_progress", steps: [] },
+      },
+    });
+    const { surfaceId } = JSON.parse(shown.content) as { surfaceId: string };
+
+    const result = await surfaceProxyResolver(ctx, "ui_update", {
+      surface_id: surfaceId,
+      data: { templateData: { status: "completed" } },
+    });
+
+    expect(result.isError).toBe(false);
+    const data = ctx.currentTurnSurfaces.find((s) => s.surfaceId === surfaceId)
+      ?.data as CardSurfaceData;
+    expect((data.templateData as Record<string, unknown>).status).toBe(
+      "completed",
+    );
   });
 
   test("blocks ui_update when channel lacks dynamic UI support", async () => {

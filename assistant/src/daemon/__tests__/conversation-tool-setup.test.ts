@@ -260,7 +260,7 @@ describe("isToolActiveForContext - Slack task_progress UI exception", () => {
     expect(isToolActiveForContext("ui_update", ctx)).toBe(true);
   });
 
-  test("ui_dismiss remains hidden for Slack without dynamic UI support", () => {
+  test("ui_dismiss stays active for Slack without dynamic UI support", () => {
     expect(
       isToolActiveForContext(
         "ui_dismiss",
@@ -272,37 +272,41 @@ describe("isToolActiveForContext - Slack task_progress UI exception", () => {
           },
         }),
       ),
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  test("Slack task_progress UI tools still require a connected client path", () => {
-    expect(
-      isToolActiveForContext(
-        "ui_show",
-        makeCtx({
-          hasNoClient: true,
-          channelCapabilities: {
-            channel: "slack",
-            supportsDynamicUi: false,
-          },
-        }),
-      ),
-    ).toBe(false);
+  test("Slack UI tools stay active for a clientless turn", () => {
+    for (const name of ["ui_show", "ui_update", "ui_dismiss"]) {
+      expect(
+        isToolActiveForContext(
+          name,
+          makeCtx({
+            hasNoClient: true,
+            channelCapabilities: {
+              channel: "slack",
+              supportsDynamicUi: false,
+            },
+          }),
+        ),
+      ).toBe(true);
+    }
   });
 
-  test("other non-dynamic channels still hide UI surface tools", () => {
-    expect(
-      isToolActiveForContext(
-        "ui_show",
-        makeCtx({
-          hasNoClient: false,
-          channelCapabilities: {
-            channel: "telegram",
-            supportsDynamicUi: false,
-          },
-        }),
-      ),
-    ).toBe(false);
+  test("other non-dynamic channels keep UI surface tools on the wire", () => {
+    for (const name of ["ui_show", "ui_update", "ui_dismiss"]) {
+      expect(
+        isToolActiveForContext(
+          name,
+          makeCtx({
+            hasNoClient: false,
+            channelCapabilities: {
+              channel: "telegram",
+              supportsDynamicUi: false,
+            },
+          }),
+        ),
+      ).toBe(true);
+    }
   });
 });
 
