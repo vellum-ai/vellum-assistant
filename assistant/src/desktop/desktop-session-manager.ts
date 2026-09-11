@@ -21,6 +21,7 @@ import {
 } from "./desktop-dependencies.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
+import { writeDesktopWindowTheme } from "./desktop-window-theme.js";
 
 const log = getLogger("desktop-session");
 
@@ -330,7 +331,16 @@ export class DesktopSessionManager {
           `Desktop VNC server not ready on port ${DESKTOP_VNC_PORT} after ${this.readyDeadlineMs}ms`,
         );
       }
-      this.launch("window-manager", [this.binaries.windowManager], env);
+      const windowManagerCommand = [this.binaries.windowManager];
+      try {
+        windowManagerCommand.push(
+          "--config-file",
+          writeDesktopWindowTheme(this.panelConfigDir, env.HOME),
+        );
+      } catch (err) {
+        log.warn({ err }, "Desktop window theme could not be applied");
+      }
+      this.launch("window-manager", windowManagerCommand, env);
       // Before the dock, which only gets the ARGB visual its rounded corners
       // and translucency need if a compositor is already running.
       this.launchCosmetic("compositor", [this.binaries.compositor], env);
