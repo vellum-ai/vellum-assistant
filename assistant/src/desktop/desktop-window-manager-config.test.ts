@@ -12,6 +12,7 @@ import { afterEach, expect, test } from "bun:test";
 import { DOMParser } from "@xmldom/xmldom";
 
 import { writeDesktopWindowManagerConfig } from "./desktop-window-manager-config.js";
+import { writeDesktopWindowTheme } from "./desktop-window-theme.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -85,4 +86,19 @@ test("adapts existing settings without removing window controls, application men
   expect(readFileSync(join(sourceDir, "menu.xml"), "utf8")).toBe(menu);
   writeDesktopWindowManagerConfig(configDir, home);
   expect(readFileSync(path, "utf8")).toBe(first);
+  const themed = writeDesktopWindowTheme(configDir, home);
+  writeDesktopWindowManagerConfig(configDir, home, themed);
+  const composed = new DOMParser().parseFromString(
+    readFileSync(path, "utf8"),
+    "application/xml",
+  );
+  expect(
+    composed.getElementsByTagName("theme")[0]?.getElementsByTagName("name")[0]
+      ?.textContent,
+  ).toBe(join(configDir, "window-theme"));
+  expect(composed.documentElement?.getAttribute("xml:base")).toContain(
+    "/.config/openbox/rc.xml",
+  );
+  expect(composed.getElementsByTagName("action").length).toBe(actions.length);
+  expect(readFileSync(join(sourceDir, "rc.xml"), "utf8")).toBe(source);
 });

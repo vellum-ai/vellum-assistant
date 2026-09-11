@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import {
   type Document,
@@ -19,13 +20,14 @@ const WORKSPACE_ACTION =
 export function writeDesktopWindowManagerConfig(
   configDir: string,
   home = homedir(),
+  sourcePath?: string,
 ): string {
   const searchDirs = [join(home, ".config", "openbox"), "/etc/xdg/openbox"];
-  const source = readConfig("rc.xml", searchDirs);
+  const source = readConfig(sourcePath ?? "rc.xml", searchDirs);
   if (!source) {
     throw new Error("Desktop window manager config is missing: rc.xml");
   }
-  const config = parseXml(source);
+  const config = parseXml(source.contents, source.path);
   const root = config.documentElement!;
   const desktops = child(root, "desktops");
   child(desktops, "number").textContent = "1";
@@ -58,7 +60,7 @@ export function writeDesktopWindowManagerConfig(
     if (!menuSource) {
       continue;
     }
-    const menu = parseXml(menuSource);
+    const menu = parseXml(menuSource.contents, menuSource.path);
     removeWorkspaceControls(menu);
     const menuPath = join(configDir, `openbox-menu-${index}.xml`);
     writeFileSync(menuPath, new XMLSerializer().serializeToString(menu));
@@ -74,7 +76,7 @@ function readConfig(name: string, directories: string[]) {
     ? [name]
     : directories.map((dir) => join(dir, name))) {
     try {
-      return readFileSync(path, "utf8");
+      return { path, contents: readFileSync(path, "utf8") };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         throw err;
@@ -84,14 +86,25 @@ function readConfig(name: string, directories: string[]) {
   return null;
 }
 
-function parseXml(contents: string): Document {
-  return new DOMParser({
+function parseXml(contents: string, sourcePath: string): Document {
+  const document = new DOMParser({
     onError: (level, message) => {
       if (level !== "warning") {
         throw new Error(message);
       }
     },
   }).parseFromString(contents, "application/xml");
+  const root = document.documentElement!;
+  const xmlNamespace = "http://www.w3.org/XML/1998/namespace";
+  root.setAttributeNS(
+    xmlNamespace,
+    "xml:base",
+    new URL(
+      root.getAttributeNS(xmlNamespace, "base") ?? "",
+      pathToFileURL(sourcePath),
+    ).href,
+  );
+  return document;
 }
 
 function child(parent: Element, name: string): Element {

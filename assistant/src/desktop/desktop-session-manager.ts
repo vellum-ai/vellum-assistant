@@ -9,6 +9,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readAvatarState } from "../avatar/avatar-manifest.js";
+import { resolveNotificationAccentHex } from "../avatar/notification-avatar.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
@@ -22,6 +24,7 @@ import {
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
 import { writeDesktopWindowManagerConfig } from "./desktop-window-manager-config.js";
+import { writeDesktopWindowTheme } from "./desktop-window-theme.js";
 
 const log = getLogger("desktop-session");
 
@@ -251,8 +254,23 @@ export class DesktopSessionManager {
     this.sourceEnv = options.sourceEnv ?? process.env;
     this.writeWindowManagerConfig =
       options.writeWindowManagerConfig ??
-      ((configDir) =>
-        writeDesktopWindowManagerConfig(configDir, this.sourceEnv.HOME));
+      ((configDir) => {
+        let sourcePath: string | undefined;
+        try {
+          sourcePath = writeDesktopWindowTheme(
+            configDir,
+            this.sourceEnv.HOME,
+            resolveNotificationAccentHex(readAvatarState()),
+          );
+        } catch (err) {
+          log.warn({ err }, "Desktop window theme could not be applied");
+        }
+        return writeDesktopWindowManagerConfig(
+          configDir,
+          this.sourceEnv.HOME,
+          sourcePath,
+        );
+      });
     this.renderWallpaper =
       options.renderWallpaper ?? renderCurrentDesktopWallpaper;
   }
@@ -350,6 +368,7 @@ export class DesktopSessionManager {
         ],
         env,
       );
+
       // Before the dock, which only gets the ARGB visual its rounded corners
       // and translucency need if a compositor is already running.
       this.launchCosmetic("compositor", [this.binaries.compositor], env);

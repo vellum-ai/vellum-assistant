@@ -225,6 +225,7 @@ describe("DesktopSessionManager process tree", () => {
       "--config-file",
       join(panelConfigDir, "openbox.xml"),
     ]);
+
     // The compositor precedes the dock so it has an ARGB visual.
     expect(h.child("compositor").request.cmd).toEqual(["/usr/bin/xcompmgr"]);
     expect(h.child("panel").request.cmd).toEqual([
