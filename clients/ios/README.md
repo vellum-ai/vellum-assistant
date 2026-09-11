@@ -44,11 +44,12 @@ which URL is baked into the build.
   process. With `server.url`, only native shell changes (Swift code,
   entitlements, Capacitor plugin updates) require a store submission.
 - **Thin native surface** - the IPC bridge between the WKWebView and
-  native code is minimal (nine app-local plugins: `NativeAuthPlugin`,
+  native code is minimal (eleven app-local plugins: `NativeAuthPlugin`,
   `NativeBiometricPlugin`, `VoiceAudioSessionPlugin`,
   `VoiceLiveActivityPlugin`, `ApnsEnvironmentPlugin`,
   `SelfHostedServersPlugin`, `RecentChatsPlugin`,
-  `WidgetSnapshotPlugin`, and `AppIconPlugin`, plus the auto-discovered
+  `WidgetSnapshotPlugin`, `AppIconPlugin`, `ShareInboxPlugin`, and
+  `SenderNotificationPlugin`, plus the auto-discovered
   community camera preview dependency), so version skew risk between the
   web app and native shell is low. Every plugin call from the web side
   must still have a working missing-plugin fallback because a new web
@@ -154,7 +155,7 @@ Apple's reference for the toolbar controls:
 
 The app has two layers: the **WKWebView contents** (the React app loaded
 from the configured server URL) and the **native Swift shell** (Capacitor
-bridge, `MyViewController`, the nine app-local plugins, and linked package
+bridge, `MyViewController`, the eleven app-local plugins, and linked package
 plugins such as `CameraPreview`). Each has its own
 debugger.
 
@@ -740,6 +741,31 @@ the appex speculatively: a target declaring an entitlement its profile does not 
 fails to sign, so it would break every environment's release until the NSE App
 IDs carried the capability too.
 
+#### Local notification owner and remote extension
+
+The app has two native notification routes with different owners. APNs invokes
+the `NotificationService` extension, which may rewrite the remote push before
+its one-shot content handler returns. App-originated notifications do not pass
+through that extension. Under `local-notification-avatar`, the app-local
+`SenderNotificationPlugin` owns them after a versioned capability check. An
+exact prepared scope, assistant, and native sender identity match gates the
+sender rewrite, not native ownership. Missing or stale prepared identity makes
+the same native owner submit plain content.
+
+The local plugin keeps bounded prepared generations and completed full-key
+results in app-process RAM. Once `post` accepts a delivery key, native code
+alone races the Communication Notification rewrite against its deadline and
+submits rewritten or plain content once. A blocked, failed, unknown, or late
+bridge result does not authorize a second Capacitor notification. A process
+restart clears those results. Validated PNG bytes may remain in the existing
+App Group cache, but the cache does not establish identity or delivery
+ownership.
+
+`push-avatar-sender` independently controls whether the platform gives the APNs
+route sender metadata. `local-notification-avatar` controls the app-local route.
+Both default off. The signed-device cases and current rollout status are in the
+[notification avatar and local delivery QA ledger](../../docs/notification-avatar-local-qa.md).
+
 #### The push payload the extension reads
 
 APNs carries JSON, so the sender arrives as a nested object beside `aps`:
@@ -897,19 +923,76 @@ track that releases hourly, so it is the fastest way to prove the setup):
    its host app's record — it gets no app record and no
    `APPLE_APP_ID_*` of its own.
 
-Once all three rows are done, verify end to end by dispatching
-`dev-release.yaml`, downloading the `ios-ipa-dev` artifact, and checking
-that the appex is signed with the *extension* profile and that both
-binaries carry the App Group:
+Once all three extension types are done for dev, verify end to end by
+dispatching `dev-release.yaml`, downloading the `ios-ipa-dev` artifact, and
+checking that every appex embeds its expected extension profile and that the
+app and all three appexes carry the App Group. Decode
+`embedded.mobileprovision` directly to verify a profile. `codesign -dvvv` does
+not prove which profile was embedded.
 
 ```bash
-unzip -q ios-ipa-dev.zip && unzip -q *.ipa
-codesign -dvvv "Payload/App Dev.app/PlugIns/VoiceActivity Dev.appex" 2>&1 | grep -i profile
-codesign -d --entitlements - "Payload/App Dev.app" 2>&1 | grep -A2 application-groups
-codesign -d --entitlements - "Payload/App Dev.app/PlugIns/VoiceActivity Dev.appex" 2>&1 | grep -A2 application-groups
-# Communication Notifications reached the signed app, not just its entitlements
-# file. An empty result means the profile predates the capability.
-codesign -d --entitlements - "Payload/App Dev.app" 2>&1 | grep usernotifications.communication
+(
+set -euo pipefail
+verification_dir=$(mktemp -d)
+trap 'rm -rf "$verification_dir"' EXIT
+unzip -q ios-ipa-dev.zip -d "$verification_dir"
+shopt -s nullglob
+ipa_paths=("$verification_dir"/*.ipa)
+test "${#ipa_paths[@]}" -eq 1
+mkdir -p "$verification_dir/ipa" "$verification_dir/profiles"
+unzip -q "${ipa_paths[0]}" -d "$verification_dir/ipa"
+app_path="$verification_dir/ipa/Payload/App Dev.app"
+profile_dir="$verification_dir/profiles"
+
+inspect_profile() {
+  appex_path=$1
+  profile_key=$2
+  expected_name=$3
+  expected_application_identifier=$4
+  profile_plist="$profile_dir/$profile_key.plist"
+
+  security cms -D -i "$appex_path/embedded.mobileprovision" > "$profile_plist"
+  actual_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$profile_plist")
+  actual_application_identifier=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$profile_plist")
+  printf 'Name: %s\napplication-identifier: %s\n' "$actual_name" "$actual_application_identifier"
+  test "$actual_name" = "$expected_name"
+  test "$actual_application_identifier" = "$expected_application_identifier"
+}
+
+inspect_profile \
+  "$app_path/PlugIns/VoiceActivity Dev.appex" \
+  voice-activity \
+  "Vellum Assistant iOS Dev VoiceActivity Distribution" \
+  "7FZDXZR8P5.ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity"
+inspect_profile \
+  "$app_path/PlugIns/Share Dev.appex" \
+  share \
+  "Vellum Assistant iOS Dev Share Distribution" \
+  "7FZDXZR8P5.ai.vocify-inc.vellum-assistant-ios.dev.Share"
+inspect_profile \
+  "$app_path/PlugIns/NotificationService Dev.appex" \
+  notification-service \
+  "Vellum Assistant iOS Dev NotificationService Distribution" \
+  "7FZDXZR8P5.ai.vocify-inc.vellum-assistant-ios.dev.NotificationService"
+
+# Verify signature integrity separately from embedded profile contents.
+codesign --verify --strict --verbose=2 "$app_path"
+codesign --verify --strict --verbose=2 "$app_path/PlugIns/VoiceActivity Dev.appex"
+codesign --verify --strict --verbose=2 "$app_path/PlugIns/Share Dev.appex"
+codesign --verify --strict --verbose=2 "$app_path/PlugIns/NotificationService Dev.appex"
+
+codesign -d --entitlements - "$app_path" 2>&1 | grep -A2 application-groups
+codesign -d --entitlements - "$app_path/PlugIns/VoiceActivity Dev.appex" 2>&1 | grep -A2 application-groups
+codesign -d --entitlements - "$app_path/PlugIns/Share Dev.appex" 2>&1 | grep -A2 application-groups
+codesign -d --entitlements - "$app_path/PlugIns/NotificationService Dev.appex" 2>&1 | grep -A2 application-groups
+# Communication Notifications belongs to the app target only. An empty app
+# result means its profile predates the capability.
+codesign -d --entitlements - "$app_path" 2>&1 | grep usernotifications.communication
+if codesign -d --entitlements - "$app_path/PlugIns/NotificationService Dev.appex" 2>&1 | grep -q usernotifications.communication; then
+  echo "NotificationService must not carry the Communication Notifications entitlement"
+  exit 1
+fi
+)
 ```
 
 Then check the notification avatar itself on a device: send a push while the
@@ -1025,6 +1108,7 @@ clients/
     │   │   ├── WidgetSnapshotPlugin.swift # App Group snapshot the Home Screen widgets render
     │   │   ├── AppIconPlugin.swift   # Alternate app icon state + selection bridge
     │   │   ├── ShareInboxPlugin.swift # Drain the App Group share inbox
+    │   │   ├── SenderNotificationPlugin.swift # Process-local notification owner
     │   │   ├── Intents/              # App Intents + AppShortcutsProvider
     │   │   ├── Shared/               # Compiled into app + widget extension
     │   │   └── Info.plist
