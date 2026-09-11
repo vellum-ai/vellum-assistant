@@ -96,7 +96,7 @@ export interface SkillProjectionCache {
     entries: ActiveSkillEntry[];
   };
   /** Cached skill catalog. Invalidated when the conversation is marked stale
-   *  (e.g. skill directories changed on disk while a run is in progress). */
+   *  (e.g. config or prompt files changed on disk while a run is in progress). */
   catalog?: SkillSummary[];
 }
 
@@ -313,8 +313,8 @@ function getCachedActiveSkills(
 /**
  * Return the skill catalog, caching it across agent turns.
  *
- * The cache is invalidated when the conversation is marked stale (e.g. skill
- * directories changed on disk while the conversation is still processing).
+ * The cache is invalidated when the conversation is marked stale (e.g. config
+ * or prompt files changed on disk while the conversation is still processing).
  */
 function getCachedCatalog(cache?: SkillProjectionCache): SkillSummary[] {
   if (!cache) {

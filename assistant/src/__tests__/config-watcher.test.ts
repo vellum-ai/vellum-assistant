@@ -154,10 +154,6 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
   },
 }));
 
-mock.module("../daemon/skill-memory-refresh.js", () => ({
-  refreshSkillCapabilityMemories: () => {},
-}));
-
 mock.module("../platform/sync-identity.js", () => ({
   syncIdentityNameToPlatform: () => {},
 }));
@@ -330,6 +326,12 @@ describe("ConfigWatcher watcher lifecycle", () => {
     expect(findFileWatch(join(WORKSPACE_DIR, "config.json"))).toBeDefined();
     expect(findFileWatch(join(WORKSPACE_DIR, "SOUL.md"))).toBeDefined();
     expect(findFileWatch(join(WORKSPACE_DIR, "IDENTITY.md"))).toBeDefined();
+  });
+
+  test("start does not watch the skills directory", () => {
+    mkdirSync(join(WORKSPACE_DIR, "skills"), { recursive: true });
+    watcher.start();
+    expect(findWatcher(join(WORKSPACE_DIR, "skills"))).toBeUndefined();
   });
 
   test("stop cancels pending debounce work, no eviction fires after", async () => {

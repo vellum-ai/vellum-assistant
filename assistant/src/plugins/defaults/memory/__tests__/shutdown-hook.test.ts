@@ -14,6 +14,10 @@ mock.module("../worker-control.js", () => ({
   },
 }));
 
+mock.module("../../../../daemon/skill-memory-refresh.js", () => ({
+  stopWorkspaceSkillMdMtimePoll: () => {},
+}));
+
 const memoryShutdown = (await import("../hooks/shutdown.js")).default;
 
 describe("memory shutdown hook", () => {

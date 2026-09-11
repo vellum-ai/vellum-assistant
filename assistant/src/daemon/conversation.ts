@@ -2367,7 +2367,8 @@ export class Conversation {
   markStale(): void {
     this.stale = true;
     // Invalidate the cached skill catalog so the next projection picks up
-    // filesystem changes (e.g. a skill created during this run).
+    // catalog membership changes after a config/prompt reload marked this
+    // conversation stale.
     this.skillProjectionCache.catalog = undefined;
   }
 

@@ -1,19 +1,19 @@
 /**
  * File watchers and config reload logic extracted from DaemonServer.
- * Watches workspace files (config, prompts) and skills directories
- * for changes.
+ * Watches workspace files (config, prompts, signals, avatar, sounds).
+ * Skill capability cards reseed from SKILL.md mtimes in the memory worker
+ * and the assistant process, not from this watcher.
  */
 import {
   existsSync,
   type FSWatcher,
   mkdirSync,
-  readdirSync,
   readFileSync,
   unwatchFile,
   watch,
   watchFile,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 
 import { AVATAR_IMAGE_FILENAME } from "@vellumai/avatar-manifest";
 
@@ -44,49 +44,12 @@ import {
   getSoundsDir,
   getWorkspaceDir,
   getWorkspacePromptPath,
-  getWorkspaceSkillsDir,
 } from "../util/platform.js";
 import { evictConversationsForReload } from "./conversation-store.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import { reloadMcpServers } from "./mcp-reload-service.js";
-import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("config-watcher");
-
-const SKILL_WATCH_SKIPPED_DIRS = new Set([
-  "node_modules",
-  ".git",
-  "__pycache__",
-  ".install-staging",
-  ".cache",
-  ".next",
-  ".turbo",
-  ".venv",
-  "coverage",
-]);
-
-function isSkippedSkillWatchPath(relativePath: string): boolean {
-  if (relativePath === "(unknown)") {
-    return false;
-  }
-
-  const segments = relativePath.split(/[\\/]+/).filter(Boolean);
-  return segments.some((segment) => SKILL_WATCH_SKIPPED_DIRS.has(segment));
-}
-
-/**
- * Files whose contents feed the skill catalog: `SKILL.md` carries a skill's
- * metadata and body, `TOOLS.json` its tool manifest. Both live at the top
- * level of a skill directory. Every other file (scripts, reference docs, build
- * output) is read fresh on demand or irrelevant to the catalog, so changes to
- * them do not require a catalog reload.
- */
-const SKILL_CATALOG_FILENAMES = new Set(["SKILL.md", "TOOLS.json"]);
-
-/** True when a changed path's basename is a skill-catalog file. */
-function isSkillCatalogFile(filename: string): boolean {
-  return SKILL_CATALOG_FILENAMES.has(basename(filename));
-}
 
 /**
  * Attach a resilient error handler to an FSWatcher so that async errors
@@ -270,7 +233,6 @@ export class ConfigWatcher {
     this.startAvatarWatcher();
     this.startSignalsWatcher();
     this.startUsersWatcher();
-    this.startSkillsWatchers();
   }
 
   stop(): void {
@@ -484,150 +446,6 @@ export class ConfigWatcher {
         "Failed to watch signals directory. Signal-based reload will be unavailable.",
       );
     }
-  }
-
-  private startSkillsWatchers(): void {
-    const skillsDir = getWorkspaceSkillsDir();
-    if (!existsSync(skillsDir)) {
-      return;
-    }
-
-    const scheduleSkillsReload = (file: string): void => {
-      if (isSkippedSkillWatchPath(file)) {
-        return;
-      }
-
-      this.debounceTimers.schedule("skills:catalog", () => {
-        log.info({ file }, "Skill catalog changed, reloading");
-        evictConversationsForReload();
-        refreshSkillCapabilityMemories(getConfig());
-      });
-    };
-
-    // Only SKILL.md and TOOLS.json feed the skill catalog, and both live at the
-    // top level of a skill directory. Changes to any other file (scripts,
-    // reference docs, build output) never alter the catalog, so the watchers
-    // react only to those two files — plus skill directories appearing or
-    // disappearing, which is an install or removal.
-    try {
-      const recursiveWatcher = watch(
-        skillsDir,
-        { recursive: true },
-        (_eventType, filename) => {
-          if (!filename || isSkillCatalogFile(String(filename))) {
-            scheduleSkillsReload(filename ? String(filename) : "(unknown)");
-          }
-        },
-      );
-      attachWatcherErrorHandler(recursiveWatcher, skillsDir);
-      this.watchers.push(recursiveWatcher);
-      log.info({ dir: skillsDir }, "Watching skills catalog recursively");
-      return;
-    } catch (err) {
-      log.info(
-        { err, dir: skillsDir },
-        "Recursive skills watch unavailable; using per-skill-directory watchers",
-      );
-    }
-
-    // Fallback when recursive watches are unavailable: watch the skills root
-    // (to detect a skill being installed or removed) plus each immediate skill
-    // directory (to detect SKILL.md / TOOLS.json edits). Nested subdirectories
-    // are deliberately not watched, bounding the descriptor count to one per
-    // skill rather than one per subdirectory.
-    const skillDirWatchers = new Map<string, FSWatcher>();
-
-    const watchDir = (
-      dirPath: string,
-      onChange: (filename: string | null) => void,
-    ): FSWatcher | null => {
-      try {
-        const watcher = watch(dirPath, (_eventType, filename) => {
-          onChange(filename ? String(filename) : null);
-        });
-        attachWatcherErrorHandler(watcher, dirPath);
-        this.watchers.push(watcher);
-        return watcher;
-      } catch (err) {
-        log.warn({ err, dirPath }, "Failed to watch skill directory");
-        return null;
-      }
-    };
-
-    const removeWatcher = (watcher: FSWatcher): void => {
-      const idx = this.watchers.indexOf(watcher);
-      if (idx !== -1) {
-        this.watchers.splice(idx, 1);
-      }
-    };
-
-    const listSkillDirs = (): string[] => {
-      try {
-        return readdirSync(skillsDir, { withFileTypes: true })
-          .filter(
-            (entry) =>
-              entry.isDirectory() && !SKILL_WATCH_SKIPPED_DIRS.has(entry.name),
-          )
-          .map((entry) => join(skillsDir, entry.name));
-      } catch (err) {
-        log.warn({ err, skillsDir }, "Failed to enumerate skill directories");
-        return [];
-      }
-    };
-
-    // Reconcile the per-skill-directory watchers against what is on disk.
-    // Returns true when the set of watched directories changed — i.e. a skill
-    // was installed or removed — so the caller can reload the catalog.
-    const refreshSkillDirWatchers = (): boolean => {
-      const nextDirs = new Set(listSkillDirs());
-      let changed = false;
-
-      for (const [dirPath, watcher] of skillDirWatchers.entries()) {
-        if (nextDirs.has(dirPath)) {
-          continue;
-        }
-        watcher.close();
-        skillDirWatchers.delete(dirPath);
-        removeWatcher(watcher);
-        changed = true;
-      }
-
-      for (const dirPath of nextDirs) {
-        if (skillDirWatchers.has(dirPath)) {
-          continue;
-        }
-        const watcher = watchDir(dirPath, (filename) => {
-          if (!filename || isSkillCatalogFile(filename)) {
-            scheduleSkillsReload(filename ?? "(unknown)");
-          }
-        });
-        if (watcher) {
-          skillDirWatchers.set(dirPath, watcher);
-          changed = true;
-        }
-      }
-
-      return changed;
-    };
-
-    const rootWatcher = watchDir(skillsDir, () => {
-      // A change directly under the skills root means a skill directory was
-      // added, removed, or renamed. Re-sync the per-skill watchers and reload
-      // the catalog when the set actually changed.
-      if (refreshSkillDirWatchers()) {
-        scheduleSkillsReload("(skill installed or removed)");
-      }
-    });
-
-    if (!rootWatcher) {
-      return;
-    }
-
-    refreshSkillDirWatchers();
-    log.info(
-      { dir: skillsDir },
-      "Watching skills catalog with per-skill-directory fallback",
-    );
   }
 }
 
