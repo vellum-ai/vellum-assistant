@@ -23,6 +23,7 @@ import {
 } from "./desktop-dependencies.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
+import { writeDesktopWindowManagerConfig } from "./desktop-window-manager-config.js";
 import { writeDesktopWindowTheme } from "./desktop-window-theme.js";
 
 const log = getLogger("desktop-session");
@@ -177,6 +178,7 @@ interface DesktopSessionManagerOptions {
   ) => Promise<Buffer | null>;
   /** Where the children's allowlisted env is read from. */
   readonly sourceEnv?: NodeJS.ProcessEnv;
+  readonly writeWindowManagerConfig?: (configDir: string) => string;
 }
 
 type DesktopBinaries = ReturnType<typeof resolveDesktopBinaries>;
@@ -222,6 +224,7 @@ export class DesktopSessionManager {
     DesktopSessionManagerOptions["renderWallpaper"]
   >;
   private readonly sourceEnv: NodeJS.ProcessEnv;
+  private readonly writeWindowManagerConfig: (configDir: string) => string;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
     this.spawn = options.spawn ?? spawnDetached;
@@ -249,6 +252,25 @@ export class DesktopSessionManager {
     this.panelConfigDir =
       options.panelConfigDir ?? join(getDataDir(), "desktop-panel");
     this.sourceEnv = options.sourceEnv ?? process.env;
+    this.writeWindowManagerConfig =
+      options.writeWindowManagerConfig ??
+      ((configDir) => {
+        let sourcePath: string | undefined;
+        try {
+          sourcePath = writeDesktopWindowTheme(
+            configDir,
+            this.sourceEnv.HOME,
+            resolveNotificationAccentHex(readAvatarState()),
+          );
+        } catch (err) {
+          log.warn({ err }, "Desktop window theme could not be applied");
+        }
+        return writeDesktopWindowManagerConfig(
+          configDir,
+          this.sourceEnv.HOME,
+          sourcePath,
+        );
+      });
     this.renderWallpaper =
       options.renderWallpaper ?? renderCurrentDesktopWallpaper;
   }
@@ -333,20 +355,20 @@ export class DesktopSessionManager {
           `Desktop VNC server not ready on port ${DESKTOP_VNC_PORT} after ${this.readyDeadlineMs}ms`,
         );
       }
-      const windowManagerCommand = [this.binaries.windowManager];
-      try {
-        windowManagerCommand.push(
+      const windowManagerConfig = this.writeWindowManagerConfig(
+        this.panelConfigDir,
+      );
+      this.launch(
+        "window-manager",
+        [
+          this.binaries.windowManager,
+          "--sm-disable",
           "--config-file",
-          writeDesktopWindowTheme(
-            this.panelConfigDir,
-            env.HOME,
-            resolveNotificationAccentHex(readAvatarState()),
-          ),
-        );
-      } catch (err) {
-        log.warn({ err }, "Desktop window theme could not be applied");
-      }
-      this.launch("window-manager", windowManagerCommand, env);
+          windowManagerConfig,
+        ],
+        env,
+      );
+
       // Before the dock, which only gets the ARGB visual its rounded corners
       // and translucency need if a compositor is already running.
       this.launchCosmetic("compositor", [this.binaries.compositor], env);

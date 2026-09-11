@@ -56,6 +56,7 @@
     "@vellumai/service-contracts": "workspace:*",
     "@vellumai/slack-text": "workspace:*",
     "@vellumai/twilio-client": "workspace:*",
+    "@xmldom/xmldom": "0.9.10",
     "commander": "13.1.0",
     "croner": "10.0.1",
     "diff": "8.0.4",
