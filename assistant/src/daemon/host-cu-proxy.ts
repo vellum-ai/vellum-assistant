@@ -181,7 +181,7 @@ export class HostCuProxy {
    */
   private _ownedRequests = new Map<
     string,
-    { scoped: boolean; dispatchedAt: number }
+    { scoped: boolean; dispatchedAt: number; toolName: string; step: number }
   >();
 
   constructor(maxSteps = loadConfig().maxStepsPerSession) {
@@ -363,6 +363,8 @@ export class HostCuProxy {
       this._ownedRequests.set(requestId, {
         scoped: scopedObservation,
         dispatchedAt: Date.now(),
+        toolName,
+        step: stepNumber,
       });
 
       pendingInteractions.register(requestId, {
@@ -424,16 +426,25 @@ export class HostCuProxy {
       return undefined;
     }
 
-    log.info(
-      {
-        requestId,
-        toolName: this._actionHistory.at(-1)?.toolName,
-        step: this._stepCount,
-        ...(owned ? { roundTripMs: Date.now() - owned.dispatchedAt } : {}),
-        ...(observation.timings ? { helper: observation.timings } : {}),
-      },
-      "Host CU step timings",
-    );
+    // Label the line from what this request was dispatched with, never from
+    // current proxy state. One model response can dispatch several CU tools,
+    // and the agent loop runs them concurrently, so a later call can advance
+    // the history and the step count before an earlier observation lands.
+    // Reading them here would file each measurement under whichever tool was
+    // dispatched last, and would mislabel computer_use_point_at, which never
+    // records an action at all.
+    if (owned) {
+      log.info(
+        {
+          requestId,
+          toolName: owned.toolName,
+          step: owned.step,
+          roundTripMs: Date.now() - owned.dispatchedAt,
+          ...(observation.timings ? { helper: observation.timings } : {}),
+        },
+        "Host CU step timings",
+      );
+    }
 
     // A targeted snapshot has no comparable action/diff baseline; neither it
     // nor the first desktop observation after it can imply "no visible effect".

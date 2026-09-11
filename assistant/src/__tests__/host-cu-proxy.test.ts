@@ -230,6 +230,57 @@ describe("HostCuProxy", () => {
       expect(result.content).not.toContain("roundTripMs");
     });
 
+    test("labels each line with its own request, not the latest dispatch", async () => {
+      setup();
+
+      // One model response can dispatch several CU tools, and the agent loop
+      // runs them concurrently. Dispatch two, then answer the first one last.
+      proxy.recordAction("computer_use_click", { element_id: 42 });
+      const firstPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 42 },
+        "session-1",
+        proxy.stepCount,
+      );
+      proxy.recordAction("computer_use_type_text", { text: "hello" });
+      const secondPromise = proxy.request(
+        "computer_use_type_text",
+        { text: "hello" },
+        "session-1",
+        proxy.stepCount,
+      );
+
+      const first = sentMessages[0] as Record<string, unknown>;
+      const second = sentMessages[1] as Record<string, unknown>;
+
+      proxy.processObservation(second.requestId as string, {
+        axTree: "Field [2]",
+        timings: { total: 200 },
+      });
+      proxy.processObservation(first.requestId as string, {
+        axTree: "Button [1]",
+        timings: { total: 400 },
+      });
+      await Promise.all([firstPromise, secondPromise]);
+
+      const logs = stepTimingsLogs();
+      const firstLog = logs.find((l) => l.requestId === first.requestId);
+      const secondLog = logs.find((l) => l.requestId === second.requestId);
+
+      // The click landed after the type_text, so reading current proxy state
+      // would have filed it under computer_use_type_text at step 2.
+      expect(firstLog).toMatchObject({
+        toolName: "computer_use_click",
+        step: 1,
+        helper: { total: 400 },
+      });
+      expect(secondLog).toMatchObject({
+        toolName: "computer_use_type_text",
+        step: 2,
+        helper: { total: 200 },
+      });
+    });
+
     test("an observation without timings resolves normally", async () => {
       setup();
 
