@@ -38,7 +38,9 @@ function fixture() {
     releaseInput: mock(async () => {}),
     setViewerInput: mock(async (_enabled: boolean) => {}),
   };
+  const browserRelease = mock(async () => {});
   const manager = {
+    browser: { release: browserRelease },
     acquireAutomationSlot: (owner: DesktopViewer) => {
       holder = owner;
       return { ok: true };
@@ -56,6 +58,7 @@ function fixture() {
   cleanups.push(() => control.takeControl());
   return {
     control,
+    browserRelease,
     input,
     started,
     released,
@@ -254,4 +257,72 @@ test("rejects clicks and drag destinations outside the observed image before sen
     expect(f.input.perform).not.toHaveBeenCalled();
     expect(f.released).toHaveBeenCalledTimes(1);
   }
+});
+
+test("browser commands share ownership and invalidate X11 observations", async () => {
+  const f = fixture();
+  const id = await observe(f.control);
+  const operation = mock(async () => ({ content: "clicked", isError: false }));
+  await expect(
+    f.control.runBrowser(
+      { ...context(), conversationId: "conv-other" },
+      operation,
+    ),
+  ).rejects.toThrow("Another conversation");
+  expect(operation).not.toHaveBeenCalled();
+  await f.control.runBrowser(context(), operation);
+  expect(f.started).toHaveBeenCalledTimes(1);
+  await expect(
+    f.control.execute(
+      { action: "click", observation_id: id, x: 10, y: 10 },
+      context(),
+    ),
+  ).rejects.toThrow("Stale");
+  expect(f.input.perform).not.toHaveBeenCalled();
+});
+
+test("takeover cancels active and queued browser commands", async () => {
+  const f = fixture();
+  const started = Promise.withResolvers<void>();
+  const running = f.control
+    .runBrowser(context(), async (signal) => {
+      started.resolve();
+      await new Promise((_, reject) =>
+        signal.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        }),
+      );
+      return { content: "unexpected", isError: false };
+    })
+    .catch((error: Error) => error);
+  await started.promise;
+  const operation = mock(async () => ({
+    content: "unexpected",
+    isError: false,
+  }));
+  const queued = f.control.runBrowser(context(), operation);
+  await f.control.takeControl();
+  expect(await running).toBeInstanceOf(Error);
+  expect((await queued).yieldToUser).toBe(true);
+  expect(operation).not.toHaveBeenCalled();
+  expect(f.control.getStatus().state).toBe("human");
+  await f.control.allowAssistant();
+  await f.control.runBrowser(context(), operation);
+  expect(operation).toHaveBeenCalledTimes(1);
+});
+
+test("browser cleanup failure keeps its slot and still releases X11 input", async () => {
+  const f = fixture();
+  await f.control.runBrowser(context(), async () => ({
+    content: "ok",
+    isError: false,
+  }));
+  f.browserRelease.mockRejectedValueOnce(new Error("Chrome busy"));
+  await expect(f.control.takeControl()).rejects.toThrow("Chrome busy");
+  expect(f.released).not.toHaveBeenCalled();
+  expect(f.input.releaseInput).toHaveBeenCalledTimes(2);
+  expect(f.control.getStatus().state).toBe("assistant");
+  await f.control.takeControl();
+  expect(f.released).toHaveBeenCalledTimes(1);
+  expect(f.control.getStatus().state).toBe("human");
 });

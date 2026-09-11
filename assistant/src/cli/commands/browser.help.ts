@@ -97,6 +97,11 @@ export const browserHelp: CliCommandHelp = {
   description: "Control the browser via the running assistant.",
   options: [
     {
+      flags: "--desktop",
+      description:
+        "Use Chrome in the streamed assistant desktop with visible cursor feedback.",
+    },
+    {
       flags: "--session <id>",
       description: "Session ID to preserve browser state across invocations.",
       defaultValue: "default",
@@ -118,6 +123,9 @@ export const browserHelp: CliCommandHelp = {
   ],
   helpText: `
 Browser operations are executed through the running assistant.
+Use --desktop for the Chrome window in the Desktop modal. This requires
+an identified guardian conversation and shares Take control with desktop input.
+Run assistant browser --desktop detach when finished.
 Each subcommand maps to a browser operation and communicates
 with the assistant process.
 

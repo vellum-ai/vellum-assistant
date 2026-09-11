@@ -102,6 +102,14 @@ export class DesktopControl {
     });
   }
 
+  private async releaseInput(): Promise<void> {
+    try {
+      await this.deps.manager().browser?.release();
+    } finally {
+      await this.deps.input.releaseInput();
+    }
+  }
+
   private async release(): Promise<void> {
     const owner = this.owner;
     if (!owner && !this.inputCleanupPending) {
@@ -114,16 +122,18 @@ export class DesktopControl {
     this.watchdog = undefined;
     try {
       try {
-        await this.deps.input.releaseInput();
+        await this.releaseInput();
       } finally {
         await this.deps.input.setViewerInput(true);
       }
       this.inputCleanupPending = false;
     } finally {
-      if (owner) {
-        this.deps.manager().releaseAutomationSlot(owner.holder);
+      if (!this.inputCleanupPending) {
+        if (owner) {
+          this.deps.manager().releaseAutomationSlot(owner.holder);
+        }
+        this.owner = null;
       }
-      this.owner = null;
       this.notify();
     }
   }
@@ -177,7 +187,7 @@ export class DesktopControl {
       await this.deps.manager().ensureDesktopRunning();
       owner.abort.signal.throwIfAborted();
       await this.deps.input.setViewerInput(false);
-      await this.deps.input.releaseInput();
+      await this.releaseInput();
       this.inputCleanupPending = false;
       this.notify();
       return owner;
@@ -192,6 +202,22 @@ export class DesktopControl {
   execute(
     input: Record<string, unknown>,
     context: ToolContext,
+  ): Promise<ToolExecutionResult> {
+    return this.run(input, context);
+  }
+
+  runBrowser(
+    context: ToolContext,
+    operation: (signal: AbortSignal) => Promise<ToolExecutionResult>,
+    done = false,
+  ): Promise<ToolExecutionResult> {
+    return this.run({ action: done ? "done" : "observe" }, context, operation);
+  }
+
+  private run(
+    input: Record<string, unknown>,
+    context: ToolContext,
+    browserOperation?: (signal: AbortSignal) => Promise<ToolExecutionResult>,
   ): Promise<ToolExecutionResult> {
     const generation = this.generation;
     return this.exclusive(async () => {
@@ -244,6 +270,21 @@ export class DesktopControl {
       owner.lastActivity = Date.now();
       signal.throwIfAborted();
       try {
+        if (browserOperation) {
+          owner.observation = undefined;
+          if (++owner.actions > MAX_ACTIONS) {
+            throw new Error(
+              "Desktop action limit reached. Finish this session before continuing.",
+            );
+          }
+          const result = await browserOperation(signal);
+          signal.throwIfAborted();
+          if (result.isError) {
+            await this.release();
+          }
+          return result;
+        }
+        await this.deps.manager().browser?.release();
         if (action.action !== "observe") {
           if (action.observation_id !== owner.observation?.id) {
             throw new Error(

@@ -4101,6 +4101,8 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
               required:
                 - operation
       responses:
@@ -4136,7 +4138,7 @@ paths:
     post:
       operationId: browser_tabs_post
       summary: Manage browser tabs
-      description: List, create, select, or close browser tabs via the Chrome extension backend.
+      description: List, create, select, or close browser tabs in the Chrome extension or streamed desktop browser.
       tags:
         - browser
       requestBody:
@@ -4160,6 +4162,8 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
                 tabId:
                   type: number
                 url:

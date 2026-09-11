@@ -2,22 +2,21 @@
  * Routes for browser tab management commands.
  *
  * Exposes `browser_tabs` so CLI commands can list, create, select, and
- * close browser tabs via the Chrome extension backend.
+ * close browser tabs in the Chrome extension or streamed desktop browser.
  */
 
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-registry.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
+import { executeDesktopBrowserTabs } from "../../desktop/desktop-browser-operations.js";
 import { getCdpClient } from "../../tools/browser/cdp-client/factory.js";
 import {
   clearPinnedTab,
   clearPinnedTabByTabId,
   setPinnedTab,
 } from "../../tools/browser/pinned-tabs.js";
-import type { ToolContext } from "../../tools/types.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
-import { browserCliConversationKey } from "./browser-routes.js";
+import { resolveBrowserContext } from "./browser-context.js";
 import { BadRequestError } from "./errors.js";
 import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -26,6 +25,7 @@ const BrowserTabsParams = z.object({
   command: z.enum(["list", "select", "new", "close"]),
   sessionId: z.string().min(1).default("default"),
   conversationId: z.string().min(1).optional(),
+  desktop: z.boolean().optional(),
   tabId: z.number().optional(),
   url: z.string().optional(),
   // Route tab operations to a specific extension client in multi-client
@@ -33,23 +33,43 @@ const BrowserTabsParams = z.object({
   targetClientId: z.string().min(1).optional(),
 });
 
-async function handleBrowserTabs({ body = {} }: RouteHandlerArgs) {
-  const { command, sessionId, conversationId, tabId, url, targetClientId } =
-    parseBody(BrowserTabsParams, body);
+async function handleBrowserTabs({
+  body = {},
+  headers = {},
+  abortSignal,
+}: RouteHandlerArgs) {
+  const {
+    command,
+    sessionId,
+    conversationId,
+    tabId,
+    url,
+    targetClientId,
+    desktop,
+  } = parseBody(BrowserTabsParams, body);
 
-  const conversation = conversationId
-    ? findConversation(conversationId)
-    : undefined;
-  const resolvedConversationId = conversation
-    ? conversationId!
-    : browserCliConversationKey(sessionId);
-
-  const context = {
-    workingDir: process.cwd(),
-    conversationId: resolvedConversationId,
-    trustClass: conversation?.trustContext?.trustClass ?? "unknown",
-    transportInterface: conversation?.transportInterface,
-  } as unknown as ToolContext;
+  const context = await resolveBrowserContext(
+    conversationId,
+    sessionId,
+    headers,
+    abortSignal,
+  );
+  const resolvedConversationId = context.conversationId;
+  if (desktop) {
+    if (targetClientId) {
+      throw new BadRequestError(
+        "--desktop cannot target a personal browser client",
+      );
+    }
+    const result = await executeDesktopBrowserTabs(
+      { command, tabId, url },
+      context,
+    );
+    if (result.isError) {
+      throw new BadRequestError(result.content);
+    }
+    return JSON.parse(result.content);
+  }
 
   const cdpOptions = { mode: "extension" as const, targetClientId };
 
@@ -185,7 +205,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleBrowserTabs,
     summary: "Manage browser tabs",
     description:
-      "List, create, select, or close browser tabs via the Chrome extension backend.",
+      "List, create, select, or close browser tabs in the Chrome extension or streamed desktop browser.",
     tags: ["browser"],
     requestBody: BrowserTabsParams,
     responseBody: z.object({

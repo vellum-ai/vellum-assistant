@@ -116,6 +116,7 @@ function attachOperationAction(
 
   subcmd.action(async (opts: Record<string, unknown>) => {
     const parentOpts = browser.opts() as {
+      desktop?: boolean;
       session?: string;
       json?: boolean;
       browserMode?: string;
@@ -130,6 +131,7 @@ function attachOperationAction(
     // targetClientId) and screenshot ergonomics (output).
     const input: Record<string, unknown> = {};
     const excludeKeys = new Set([
+      "desktop",
       "session",
       "json",
       "output",
@@ -173,6 +175,7 @@ function attachOperationAction(
           operation: meta.operation,
           input,
           sessionId,
+          ...(parentOpts.desktop ? { desktop: true } : {}),
           ...(conversationId ? { conversationId } : {}),
         },
       },
@@ -328,6 +331,19 @@ export function registerBrowserCommand(program: Command): void {
     description: browserHelp.description,
     build: (browser) => {
       applyCommandHelp(browser, browserHelp);
+      browser.hook("preAction", () => {
+        const options = browser.opts();
+        if (
+          options.desktop &&
+          (options.targetClientId ||
+            (options.browserMode &&
+              !["auto", "cdp-inspect"].includes(options.browserMode)))
+        ) {
+          throw new Error(
+            "--desktop cannot be combined with a personal browser target or another browser mode",
+          );
+        }
+      });
 
       // Attach one action per browser operation
       for (const meta of BROWSER_OPERATION_META) {
@@ -339,6 +355,7 @@ export function registerBrowserCommand(program: Command): void {
 
       subcommand(tabs, "list").action(async (opts: { pretty?: boolean }) => {
         const parentOpts = browser.opts() as {
+          desktop?: boolean;
           session?: string;
           json?: boolean;
           targetClientId?: string;
@@ -364,6 +381,7 @@ export function registerBrowserCommand(program: Command): void {
             body: {
               command: "list",
               sessionId,
+              ...(parentOpts.desktop ? { desktop: true } : {}),
               ...(conversationId ? { conversationId } : {}),
               ...(targetClientId ? { targetClientId } : {}),
             },
@@ -409,6 +427,7 @@ export function registerBrowserCommand(program: Command): void {
 
       subcommand(tabs, "select").action(async (opts: { tabId: string }) => {
         const parentOpts = browser.opts() as {
+          desktop?: boolean;
           session?: string;
           json?: boolean;
           targetClientId?: string;
@@ -425,6 +444,7 @@ export function registerBrowserCommand(program: Command): void {
             body: {
               command: "select",
               sessionId,
+              ...(parentOpts.desktop ? { desktop: true } : {}),
               tabId,
               ...(conversationId ? { conversationId } : {}),
               ...(targetClientId ? { targetClientId } : {}),
@@ -456,6 +476,7 @@ export function registerBrowserCommand(program: Command): void {
 
       subcommand(tabs, "new").action(async (opts: { url?: string }) => {
         const parentOpts = browser.opts() as {
+          desktop?: boolean;
           session?: string;
           json?: boolean;
           targetClientId?: string;
@@ -475,6 +496,7 @@ export function registerBrowserCommand(program: Command): void {
             body: {
               command: "new",
               sessionId,
+              ...(parentOpts.desktop ? { desktop: true } : {}),
               ...(opts.url ? { url: opts.url } : {}),
               ...(conversationId ? { conversationId } : {}),
               ...(targetClientId ? { targetClientId } : {}),
@@ -512,6 +534,7 @@ export function registerBrowserCommand(program: Command): void {
 
       subcommand(tabs, "close").action(async (opts: { tabId: string }) => {
         const parentOpts = browser.opts() as {
+          desktop?: boolean;
           session?: string;
           json?: boolean;
           targetClientId?: string;
@@ -532,6 +555,7 @@ export function registerBrowserCommand(program: Command): void {
             body: {
               command: "close",
               sessionId,
+              ...(parentOpts.desktop ? { desktop: true } : {}),
               tabId,
               ...(conversationId ? { conversationId } : {}),
               ...(targetClientId ? { targetClientId } : {}),
