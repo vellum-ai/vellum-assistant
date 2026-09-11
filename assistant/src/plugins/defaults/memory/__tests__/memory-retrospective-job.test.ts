@@ -594,7 +594,7 @@ describe("memoryRetrospectiveJob", () => {
       {
         checkName: "memory_retrospective_run",
         value: 1,
-        detail: { outcome: "no_new_messages" },
+        detail: { outcome: "no_new_messages", skill_improvement_active: false },
       },
     ]);
   });
@@ -631,7 +631,10 @@ describe("memoryRetrospectiveJob", () => {
       {
         checkName: "memory_retrospective_run",
         value: 1,
-        detail: { outcome: "no_user_activity" },
+        detail: {
+          outcome: "no_user_activity",
+          skill_improvement_active: false,
+        },
       },
     ]);
   });
@@ -819,7 +822,11 @@ describe("memoryRetrospectiveJob", () => {
       {
         checkName: "memory_retrospective_run",
         value: 1,
-        detail: { outcome: "wake_failed", reason: "timeout" },
+        detail: {
+          outcome: "wake_failed",
+          skill_improvement_active: false,
+          reason: "timeout",
+        },
       },
     ]);
     if (outcome.kind === "wake_failed") {
@@ -860,6 +867,7 @@ describe("memoryRetrospectiveJob", () => {
         value: 1,
         detail: {
           outcome: "no_usable_output",
+          skill_improvement_active: false,
           // The failure reason names what was missing, so an operator reading
           // the job row can tell a lost write from an unfinished review.
           reason: "run committed neither a memory write nor a concluding reply",
@@ -1109,7 +1117,11 @@ describe("memoryRetrospectiveJob", () => {
         {
           checkName: "memory_retrospective_run",
           value: 1,
-          detail: { outcome: "invoked", noFindings: true },
+          detail: {
+            outcome: "invoked",
+            skill_improvement_active: false,
+            noFindings: true,
+          },
         },
       ]);
     },
@@ -1300,7 +1312,11 @@ describe("memoryRetrospectiveJob", () => {
       {
         checkName: "memory_retrospective_run",
         value: 1,
-        detail: { outcome: "error", reason: "LLM provider 503" },
+        detail: {
+          outcome: "error",
+          skill_improvement_active: false,
+          reason: "LLM provider 503",
+        },
       },
     ]);
   });
@@ -1350,6 +1366,118 @@ describe("memoryRetrospectiveJob", () => {
     expect(wakeCalls[0]!.opts.allowedTools).toEqual(["remember"]);
     // And skill-management is not preactivated, so its tools never go active.
     expect(wakeCalls[0]!.opts.preactivateSkillIds).toBeUndefined();
+  });
+
+  test("reports aggregate skill activity without recording tool input or skill identity", async () => {
+    mockV3TierActive = true;
+    mockSkillImprovementActive = true;
+    messagesByConversationId["fork-conv-1"] = [
+      {
+        role: "assistant",
+        content: JSON.stringify([
+          {
+            type: "tool_use",
+            id: "tu-similar-ok",
+            name: "find_similar_skills",
+            input: { goal: "sensitive procedure text" },
+          },
+          {
+            type: "tool_use",
+            id: "tu-similar-failed",
+            name: "find_similar_skills",
+            input: { goal: "other sensitive procedure text" },
+          },
+          {
+            type: "tool_use",
+            id: "tu-load-ok",
+            name: "skill_load",
+            input: { skill_id: "sensitive-skill-id" },
+          },
+          {
+            type: "tool_use",
+            id: "tu-scaffold-ok",
+            name: "scaffold_managed_skill",
+            input: { skill_id: "another-sensitive-skill-id" },
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:00Z"),
+        metadata: null,
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "tool_result", tool_use_id: "tu-similar-ok", content: "[]" },
+          {
+            type: "tool_result",
+            tool_use_id: "tu-similar-failed",
+            content: "search failed",
+            is_error: true,
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "tu-load-ok",
+            content: "Loaded.",
+          },
+          {
+            type: "tool_result",
+            tool_use_id: "tu-scaffold-ok",
+            content: "Created.",
+          },
+        ]),
+        createdAt: Date.parse("2026-05-11T10:20:01Z"),
+        metadata: null,
+      },
+    ];
+
+    const outcome = await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(outcome.kind).toBe("invoked");
+    expect(
+      watchdogEvents.filter(
+        (event) => event.checkName === "memory_retrospective_skill_activity",
+      ),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_skill_activity",
+        value: 1,
+        detail: {
+          skill_improvement_active: true,
+          find_similar_skills_attempt_count: 2,
+          find_similar_skills_success_count: 1,
+          skill_load_attempt_count: 1,
+          skill_load_success_count: 1,
+          scaffold_managed_skill_attempt_count: 1,
+          scaffold_managed_skill_success_count: 1,
+        },
+      },
+    ]);
+  });
+
+  test("reports zero skill activity when skill improvement is disabled", async () => {
+    mockV3TierActive = true;
+    mockSkillImprovementActive = false;
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(
+      watchdogEvents.filter(
+        (event) => event.checkName === "memory_retrospective_skill_activity",
+      ),
+    ).toEqual([
+      {
+        checkName: "memory_retrospective_skill_activity",
+        value: 0,
+        detail: {
+          skill_improvement_active: false,
+          find_similar_skills_attempt_count: 0,
+          find_similar_skills_success_count: 0,
+          skill_load_attempt_count: 0,
+          skill_load_success_count: 0,
+          scaffold_managed_skill_attempt_count: 0,
+          scaffold_managed_skill_success_count: 0,
+        },
+      },
+    ]);
   });
 
   test("wake pins the memory_retrospective origin on the tool-context pin so the checker's grant can fire", async () => {

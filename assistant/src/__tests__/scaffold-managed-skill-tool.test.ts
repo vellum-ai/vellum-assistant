@@ -1123,11 +1123,18 @@ describe("scaffold_managed_skill tool", () => {
       ),
     ).toBe(true);
 
-    // Only the V1 create counts toward authoring — the V2 refinement of an
-    // existing skill emits no second event.
     expect(
       watchdogEvents.filter((e) => e.checkName === "skill_authored"),
     ).toHaveLength(1);
+    expect(
+      watchdogEvents.filter((e) => e.checkName === "skill_refined"),
+    ).toEqual([
+      {
+        checkName: "skill_refined",
+        value: 1,
+        detail: { refined_by: "retrospective" },
+      },
+    ]);
   });
 
   // ── Conversation lineage (retrospective-authored skills) ───────────────────

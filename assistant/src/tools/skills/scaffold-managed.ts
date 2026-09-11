@@ -23,6 +23,9 @@ const log = getLogger("scaffold-managed-skill");
 /** Watchdog check_name for the per-creation skill-authoring counter. */
 const SKILL_AUTHORED_CHECK_NAME = "skill_authored";
 
+/** Watchdog check_name for a retrospective refinement of an owned skill. */
+const SKILL_REFINED_CHECK_NAME = "skill_refined";
+
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim();
@@ -440,6 +443,16 @@ export async function executeScaffoldManagedSkill(
     } catch {
       // recordWatchdogEvent already no-ops on opt-out and a missing
       // telemetry DB; anything past that is not worth surfacing here.
+    }
+  } else if (fromRetrospective) {
+    try {
+      recordWatchdogEvent({
+        checkName: SKILL_REFINED_CHECK_NAME,
+        value: 1,
+        detail: { refined_by: "retrospective" },
+      });
+    } catch {
+      // Telemetry must not affect a completed refinement.
     }
   }
 
