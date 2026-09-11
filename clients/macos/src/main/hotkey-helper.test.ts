@@ -46,8 +46,14 @@ const makeWebContents = (): FakeWebContents => {
 };
 
 let defaultSender = makeWebContents();
+const openedExternally: string[] = [];
 
 mock.module("electron", () => ({
+  shell: {
+    openExternal: async (url: string) => {
+      openedExternally.push(url);
+    },
+  },
   app: {
     get isPackaged() {
       return appState.isPackaged;
@@ -251,6 +257,7 @@ beforeEach(() => {
   appState.appPath = "/repo/clients/macos";
   nextWebContentsId = 1;
   defaultSender = makeWebContents();
+  openedExternally.length = 0;
   setPointerOnCompanion(false);
   logMock.info.mockClear();
   logMock.warn.mockClear();
@@ -376,6 +383,8 @@ describe("installHotkeyHelper", () => {
     expect(handlers["vellum:helper:restart"]).toBeDefined();
     expect(handlers["vellum:helper:hotkey:setModifierHold"]).toBeDefined();
     expect(handlers["vellum:helper:hotkey:readFrontSelection"]).toBeDefined();
+    expect(handlers["vellum:helper:keyboard:fnState"]).toBeDefined();
+    expect(handlers["vellum:helper:keyboard:openSettings"]).toBeDefined();
   });
 
   test("pings the helper process", async () => {
@@ -856,6 +865,66 @@ describe("installHotkeyHelper", () => {
         "com.example.editor",
       ]) as Promise<unknown>),
     ).toEqual([]);
+    expect(lastChild).toBeNull();
+  });
+
+  test("reads what macOS has the Globe key doing from the helper", async () => {
+    installHotkeyHelper();
+
+    const pending = handlers["vellum:helper:keyboard:fnState"]({
+      sender: defaultSender,
+    }) as Promise<unknown>;
+    expect(lastChild?.stdin.writes[0]).toContain('"method":"keyboard.fnState"');
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"result":{"fnRemappedToNoAction":true,"fnRemappedTo":null,"fnUsageType":3}}\n',
+      ),
+    );
+
+    expect(await pending).toEqual({
+      fnRemappedToNoAction: true,
+      fnRemappedTo: null,
+      fnUsageType: 3,
+    });
+  });
+
+  test("reads a helper that cannot say the Globe key's state as no answer", async () => {
+    installHotkeyHelper();
+
+    const failed = handlers["vellum:helper:keyboard:fnState"]({
+      sender: defaultSender,
+    }) as Promise<unknown>;
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}\n',
+      ),
+    );
+    expect(await failed).toBeNull();
+
+    const malformed = handlers["vellum:helper:keyboard:fnState"]({
+      sender: defaultSender,
+    }) as Promise<unknown>;
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":2,"result":{"fnRemappedToNoAction":"yes"}}\n',
+      ),
+    );
+    expect(await malformed).toBeNull();
+  });
+
+  test("opens the Keyboard pane of System Settings without asking the helper", async () => {
+    installHotkeyHelper();
+
+    await (handlers["vellum:helper:keyboard:openSettings"]({
+      sender: defaultSender,
+    }) as Promise<unknown>);
+
+    expect(openedExternally).toEqual([
+      "x-apple.systempreferences:com.apple.Keyboard-Settings.extension",
+    ]);
     expect(lastChild).toBeNull();
   });
 

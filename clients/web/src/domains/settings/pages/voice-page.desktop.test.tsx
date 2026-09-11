@@ -1,3 +1,5 @@
+import type { FnKeyState } from "@vellumai/ipc-contract";
+
 import type { UseManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import type { UseSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 /**
@@ -47,9 +49,19 @@ mock.module("@/components/speech/use-stt-language-selection", () => ({
 mock.module("@/runtime/is-electron", () => ({
   isElectron: () => true,
 }));
+let fnKeyState: FnKeyState | null = null;
+let fnKeyStateReads = 0;
+let keyboardSettingsOpens = 0;
 mock.module("@/runtime/hotkey", () => ({
   supportsModifierHold: () => true,
   subscribeToHotkeyEvents: () => () => {},
+  readFnKeyState: async () => {
+    fnKeyStateReads += 1;
+    return fnKeyState;
+  },
+  openKeyboardSettings: async () => {
+    keyboardSettingsOpens += 1;
+  },
 }));
 
 let inputMonitoringStatus = "granted";
@@ -104,6 +116,9 @@ beforeEach(() => {
   localStorage.clear();
   inputMonitoringStatus = "granted";
   permissionRequests.length = 0;
+  fnKeyState = null;
+  fnKeyStateReads = 0;
+  keyboardSettingsOpens = 0;
 });
 
 describe("VoiceSections voice key on the desktop host", () => {
@@ -188,5 +203,68 @@ describe("VoiceSections voice key on the desktop host", () => {
     await waitFor(() =>
       expect(permissionRequests).toContain("inputMonitoring"),
     );
+  });
+
+  /**
+   * A Globe key sent to No Action is dropped before any app hears it, so the
+   * grant reads green while the key stays dead. The card names the setting
+   * and opens the pane it lives in.
+   */
+  test("names a Globe key sent to No Action and opens Keyboard settings", async () => {
+    fnKeyState = {
+      fnRemappedToNoAction: true,
+      fnRemappedTo: null,
+      fnUsageType: 0,
+    };
+    renderPage();
+
+    await screen.findByText(
+      "Fn is set to No Action under Modifier Keys in Keyboard settings, so Vellum cannot see it.",
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Keyboard Settings" }),
+    );
+
+    await waitFor(() => expect(keyboardSettingsOpens).toBe(1));
+  });
+
+  test("notes the dictation double press only when Fn is set to start it", async () => {
+    fnKeyState = {
+      fnRemappedToNoAction: false,
+      fnRemappedTo: null,
+      fnUsageType: 3,
+    };
+    const { unmount } = renderPage();
+
+    await screen.findByText(
+      "Pressing Fn twice starts macOS Dictation, the same press that starts a call.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Open Keyboard Settings" }),
+    ).toBeTruthy();
+    unmount();
+
+    fnKeyState = { ...fnKeyState, fnUsageType: 0 };
+    fnKeyStateReads = 0;
+    renderPage();
+
+    await waitFor(() => expect(fnKeyStateReads).toBe(1));
+    expect(
+      screen.queryByText(
+        "Pressing Fn twice starts macOS Dictation, the same press that starts a call.",
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Open Keyboard Settings" }),
+    ).toBeNull();
+  });
+
+  test("says nothing about Fn when the host cannot read its settings", async () => {
+    renderPage();
+
+    await waitFor(() => expect(fnKeyStateReads).toBe(1));
+    expect(
+      screen.queryByRole("button", { name: "Open Keyboard Settings" }),
+    ).toBeNull();
   });
 });

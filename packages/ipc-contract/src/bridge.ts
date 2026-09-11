@@ -48,6 +48,7 @@ import type {
   DictationOfferAnswer,
   DictationTranscribeResult,
   DownloadDoneEvent,
+  FnKeyState,
   ModifierHold,
   ModifierHoldRegistrationResult,
   HelperRestartResult,
@@ -288,6 +289,17 @@ export interface VellumBridge {
       quit(bundleId: string): Promise<boolean>;
       /** The bundle identifier of the application in front, or `null`. */
       frontmost(): Promise<string | null>;
+    };
+    /**
+     * The macOS keyboard settings that decide whether the Globe key reaches
+     * the helper at all, and the pane they are changed in. Absent on shells
+     * with no Globe key to read.
+     */
+    keyboard?: {
+      /** `null` when the helper cannot say. */
+      fnState(): Promise<FnKeyState | null>;
+      /** Open the Keyboard pane of System Settings. */
+      openSettings(): Promise<void>;
     };
     /**
      * Whether the user is typing or clicking anywhere, without which keys or
