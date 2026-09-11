@@ -13,6 +13,7 @@ import {
 import { getMcpServerManager } from "../mcp/manager.js";
 import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
 import { signalMcpReloaded } from "../mcp/reload-signal.js";
+import { publishMcpChanged } from "../mcp/sync.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -54,16 +55,18 @@ export function reloadMcpServers(
     return reloadInProgress;
   }
   reloadInProgress = (async () => {
-    let result: McpReloadResult;
-    do {
-      reloadQueued = false;
-      result = await doReload(requireCleanup);
-    } while (reloadQueued);
-    return result;
-  })().finally(() => {
-    reloadInProgress = null;
-    requireCleanup = false;
-  });
+    try {
+      let result: McpReloadResult;
+      do {
+        reloadQueued = false;
+        result = await doReload(requireCleanup);
+      } while (reloadQueued);
+      return result;
+    } finally {
+      reloadInProgress = null;
+      requireCleanup = false;
+    }
+  })();
   return reloadInProgress;
 }
 
@@ -91,6 +94,7 @@ export async function reconcilePluginMcpServers(): Promise<void> {
 }
 
 async function doReload(requireCleanup: boolean): Promise<McpReloadResult> {
+  let teardownStarted = false;
   try {
     const manager = getMcpServerManager();
 
@@ -110,6 +114,7 @@ async function doReload(requireCleanup: boolean): Promise<McpReloadResult> {
     const config = getConfig();
 
     // 2. Stop existing MCP servers + unregister their tools
+    teardownStarted = true;
     try {
       await manager.stop({ requireCleanup });
     } finally {
@@ -175,5 +180,9 @@ async function doReload(requireCleanup: boolean): Promise<McpReloadResult> {
     const error = err instanceof Error ? err.message : String(err);
     log.error({ err }, "MCP reload failed");
     return { success: false, error };
+  } finally {
+    if (teardownStarted) {
+      await publishMcpChanged();
+    }
   }
 }

@@ -25,6 +25,9 @@ mock.module("../config/env-registry.js", () => ({
   checkUnrecognizedEnvVars: () => [],
 }));
 
+const publishMcpChanged = mock(async () => {});
+mock.module("../mcp/sync.js", () => ({ publishMcpChanged }));
+
 const { McpClient } = await import("../mcp/client.js");
 const { McpOAuthProvider } = await import("../mcp/mcp-oauth-provider.js");
 
@@ -171,4 +174,26 @@ describe("McpClient cleanup failures", () => {
     fails = false;
     await client.disconnect({ requireCleanup: true });
   });
+});
+
+test("an unexpected SDK close invalidates the connected row and closes its credential fence", async () => {
+  const client = new McpClient("example");
+  const internal = client as unknown as {
+    client: { connect: () => Promise<void>; onclose: () => void };
+    createTransport: () => unknown;
+    oauthProvider?: { close: () => void };
+  };
+  internal.client.connect = async () => {};
+  internal.createTransport = () => ({});
+  await client.connect(httpTransport);
+  expect(client.isConnected).toBe(true);
+  const close = mock(() => {});
+  internal.oauthProvider = { close };
+  publishMcpChanged.mockClear();
+  internal.client.onclose();
+  expect(client.isConnected).toBe(false);
+  expect(close).toHaveBeenCalledTimes(1);
+  expect(publishMcpChanged).toHaveBeenCalledTimes(1);
+  internal.client.onclose();
+  expect(publishMcpChanged).toHaveBeenCalledTimes(1);
 });

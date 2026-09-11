@@ -55,9 +55,7 @@ const McpSseTransportSchema = z
       .optional()
       .describe("Custom HTTP headers sent with SSE requests"),
   })
-  .describe(
-    "SSE transport: connects to an MCP server over Server-Sent Events",
-  );
+  .describe("SSE transport: connects to an MCP server over Server-Sent Events");
 
 const McpStreamableHttpTransportSchema = z
   .object({
@@ -83,6 +81,14 @@ export const McpTransportSchema = z.discriminatedUnion("type", [
 export const McpServerConfigSchema = z
   .object({
     transport: McpTransportSchema,
+    catalog: z
+      .object({
+        id: z.string().min(1),
+        serverKey: z.string().min(1),
+        definitionDigest: z.string().regex(/^[0-9a-f]{64}$/),
+      })
+      .nullable()
+      .optional(),
   })
   .describe("Configuration for an individual MCP server");
 

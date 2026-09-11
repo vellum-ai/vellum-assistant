@@ -3,6 +3,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 
 const credentials = new Map<string, string>();
+const publishedCredentials: string[][] = [];
+mock.module("../sync.js", () => ({
+  publishMcpChanged: async () => {
+    publishedCredentials.push([...credentials.keys()].sort());
+  },
+}));
 let failedKeys = new Set<string>();
 let saveHook: (() => Promise<void>) | undefined;
 let deleteHook: ((key: string) => Promise<void>) | undefined;
@@ -107,6 +113,7 @@ beforeEach(() => {
   reloadResult = { success: true, error: undefined };
   reload.mockClear();
   seed();
+  publishedCredentials.length = 0;
 });
 
 describe("MCP connection teardown", () => {
@@ -258,6 +265,45 @@ describe("MCP connection teardown", () => {
     expect(savedServers()).toHaveProperty("example");
     expect([...credentials.keys()]).toEqual(["mcp:example:headers"]);
   });
+  test.each([false, true])(
+    "cancellation publishes settled credential cleanup, including partial failure: %s",
+    async (partialFailure) => {
+      const entered = deferred();
+      const release = deferred();
+      deleteHook = async (key) => {
+        if (key.endsWith(":tokens")) {
+          entered.resolve();
+          await release.promise;
+        }
+      };
+      if (partialFailure) {
+        failedKeys.add("mcp:example:client_binding");
+      }
+      setMcpAuthPending(
+        "example",
+        "https://auth.example.com",
+        "cancel-attempt",
+      );
+      publishedCredentials.length = 0;
+      const cancellation = handler("internal_mcp_auth_cancel", {
+        serverId: "example",
+        attemptId: "cancel-attempt",
+      });
+      await entered.promise;
+      expect(publishedCredentials.at(-1)).toContain("mcp:example:tokens");
+      release.resolve();
+      if (partialFailure) {
+        await expect(cancellation).rejects.toThrow("credential cleanup failed");
+      } else {
+        expect(await cancellation).toEqual({ cancelled: true });
+      }
+      expect(publishedCredentials.at(-1)).toEqual(
+        partialFailure
+          ? ["mcp:example:client_binding", "mcp:example:headers"]
+          : ["mcp:example:headers"],
+      );
+    },
+  );
   test("concurrent add and remove preserve unrelated configuration writes", async () => {
     const entered = deferred();
     const release = deferred();

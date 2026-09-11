@@ -64,6 +64,24 @@ const ROUTE_SCHEMA = [
     },
   },
   {
+    operationId: "internal_mcp_catalog",
+    endpoint: "internal/mcp/catalog",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+    },
+  },
+  {
+    operationId: "internal_mcp_catalog_connect",
+    endpoint: "internal/mcp/catalog/connect",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+    },
+  },
+  {
     operationId: "calls_start",
     endpoint: "calls/start",
     method: "POST",
@@ -323,6 +341,73 @@ describe("tryIpcProxy", () => {
     expect(opId).toBe("acp_steer");
     expect(params.pathParams).toEqual({ id: "test-id" });
     expect(params.body).toEqual({ message: "hello" });
+  });
+
+  test.each([
+    ["GET", "internal/mcp/catalog", "internal_mcp_catalog"],
+    ["POST", "internal/mcp/catalog/connect", "internal_mcp_catalog_connect"],
+  ])(
+    "proxies %s %s through the catalog IPC schema",
+    async (method, endpoint, operationId) => {
+      const body =
+        method === "POST"
+          ? {
+              catalogId: "example",
+              serverKey: "primary",
+              definitionDigest: "a".repeat(64),
+            }
+          : undefined;
+      const handler = createRuntimeProxyHandler(
+        makeConfig({ runtimeProxyRequireAuth: true }),
+      );
+      const response = await handler(
+        makeRequest(`/v1/${endpoint}`, {
+          method,
+          headers: {
+            authorization: "Bearer valid",
+            "content-type": "application/json",
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(ipcCallAssistantMock).toHaveBeenCalledTimes(1);
+      const [actualOperation, params] = ipcCallAssistantMock.mock.calls[0];
+      expect(actualOperation).toBe(operationId);
+      expect(params?.body).toEqual(body);
+      expect(params?.pathParams).toEqual({});
+    },
+  );
+
+  test("a read-only client can browse the catalog but cannot connect", async () => {
+    validateEdgeTokenMock.mockImplementation(() => ({
+      ok: true,
+      claims: { sub: "actor:asst_1:user_1", scope_profile: "ui_page_v1" },
+    }));
+    const handler = createRuntimeProxyHandler(
+      makeConfig({ runtimeProxyRequireAuth: true }),
+    );
+    const headers = { authorization: "Bearer valid" };
+    const readResponse = await handler(
+      makeRequest("/v1/internal/mcp/catalog", { headers }),
+    );
+    expect(readResponse.status).toBe(200);
+    ipcCallAssistantMock.mockClear();
+
+    const writeResponse = await handler(
+      makeRequest("/v1/internal/mcp/catalog/connect", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          catalogId: "example",
+          serverKey: "primary",
+          definitionDigest: "a".repeat(64),
+        }),
+      }),
+    );
+    expect(writeResponse.status).toBe(403);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
   });
 
   test("falls back to HTTP (returns null) on BINARY_UNSUPPORTED_OVER_IPC", async () => {

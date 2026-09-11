@@ -1,6 +1,28 @@
 # Integrations Architecture
 
-OAuth, messaging adapters, script proxy, and conversation disk view architecture.
+OAuth, MCP connections, messaging adapters, script proxy, and conversation disk view architecture.
+
+## MCP catalog and connection identity
+
+The assistant serves a bundled, reviewed catalog through the existing gateway route table. `plugin.json` and `mcp.json` use the Agent Plugins 1.0.0 schemas; the supplemental index supplies display metadata and setup prerequisites. Listing catalog or configured entries performs no connection probes or package execution.
+
+```mermaid
+flowchart LR
+    Packages[Standard plugin.json and mcp.json] --> Bundle[Validated bundled catalog]
+    Bundle --> Read[GET internal/mcp/catalog]
+    Read --> UI[Integrations list]
+    UI --> Connect[POST internal/mcp/catalog/connect]
+    Connect --> Config[Workspace instance and provenance]
+    Config --> Runtime[MCP manager]
+    Runtime --> Sync[sync_changed mcp:list]
+    Sync --> UI
+```
+
+Connect accepts a reviewed catalog ID, server key, and definition digest. A serialized config write creates one stable instance with provenance or returns the existing instance for that catalog selection. A catalog refresh never substitutes the endpoint of an existing connection. Migration 155 marks existing workspace entries with null provenance without inferring provider identity or rewriting transports. A definition removed from the catalog leaves its saved connection configurable and removable.
+
+The catalog path is separate from installed plugins. Existing plugin loading, installation, update reconciliation, credentials, and storage retain their current behavior. Plugin-owned MCP rows remain managed by their owning plugin and do not borrow workspace credentials. [MCP lifecycle](mcp-lifecycle.md) describes cleanup, cancellation, ownership, and the limits of cross-process coordination.
+
+The `mcp:list` invalidation tag refreshes assistant-scoped rows and open tool details. Config/plugin changes and reconnect catch-up invalidate the same keys; unopened tool details are marked stale without fetching their schemas.
 
 ## Integrations — OAuth2 + Unified Messaging
 

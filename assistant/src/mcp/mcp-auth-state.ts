@@ -14,6 +14,8 @@
  * the polling CLI can render progress without holding a long-lived IPC
  * connection.
  */
+import { publishMcpChanged } from "./sync.js";
+
 type McpAuthState =
   | { status: "pending"; authUrl: string; attemptId: string; expiresAt: number }
   | {
@@ -79,6 +81,7 @@ export function setMcpAuthPending(
     attemptId,
     expiresAt: Date.now() + PENDING_TTL_MS,
   });
+  void publishMcpChanged();
 }
 
 /**
@@ -101,6 +104,7 @@ export function setMcpAuthComplete(
     attemptId,
     completedAt: Date.now(),
   });
+  void publishMcpChanged();
   return true;
 }
 
@@ -123,6 +127,7 @@ export function setMcpAuthError(
     attemptId,
     failedAt: Date.now(),
   });
+  void publishMcpChanged();
   return true;
 }
 

@@ -32,6 +32,8 @@ mock.module("../../plugins/mcp-servers.js", () => ({
   readPluginMcpServers: () => ({ servers: [], issues: [] }),
 }));
 const signal = mock(() => {});
+const publishMcpChanged = mock(async () => {});
+mock.module("../../mcp/sync.js", () => ({ publishMcpChanged }));
 mock.module("../../mcp/reload-signal.js", () => ({
   signalMcpReloaded: signal,
 }));
@@ -58,6 +60,7 @@ beforeEach(() => {
   strictStops.length = 0;
   stopHook = undefined;
   signal.mockClear();
+  publishMcpChanged.mockClear();
 });
 
 describe("MCP reload convergence", () => {
@@ -99,6 +102,51 @@ describe("MCP reload convergence", () => {
     const result = await reloadMcpServers();
     expect(result.success).toBe(true);
     expect(signal).toHaveBeenCalledTimes(1);
+    expect(publishMcpChanged).toHaveBeenCalledTimes(1);
     expect(result).not.toHaveProperty("workersStopped");
+  });
+
+  test("failed strict cleanup invalidates rows after runtime teardown settles", async () => {
+    configure(["example"]);
+    const stopped = deferred();
+    const release = deferred();
+    stopHook = async () => {
+      stopped.resolve();
+      await release.promise;
+      throw new Error("connection close failed");
+    };
+    const reload = reloadMcpServers({ requireCleanup: true });
+    await stopped.promise;
+    expect(publishMcpChanged).not.toHaveBeenCalled();
+    release.resolve();
+    expect(await reload).toEqual({
+      success: false,
+      error: "connection close failed",
+    });
+    expect(publishMcpChanged).toHaveBeenCalledTimes(1);
+    expect(signal).not.toHaveBeenCalled();
+    expect(starts).toEqual([]);
+  });
+
+  test("a request during completion starts a reload for the latest configuration", async () => {
+    configure(["initial"]);
+    let queued: Promise<unknown> | undefined;
+    const requested = deferred();
+    publishMcpChanged.mockImplementationOnce(async () => {
+      // Arrive between the final loop check and a separately chained cleanup.
+      queueMicrotask(() =>
+        queueMicrotask(() =>
+          queueMicrotask(() => {
+            configure(["latest"]);
+            queued = reloadMcpServers();
+            requested.resolve();
+          }),
+        ),
+      );
+    });
+    const initial = reloadMcpServers();
+    await requested.promise;
+    await Promise.all([initial, queued]);
+    expect(starts).toEqual([["initial"], ["latest"]]);
   });
 });

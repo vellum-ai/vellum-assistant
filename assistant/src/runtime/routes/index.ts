@@ -112,6 +112,7 @@ import { ROUTES as LIVE_VOICE_ROUTES } from "./live-voice-routes.js";
 import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
+import { ROUTES as MCP_CATALOG_ROUTES } from "./mcp-catalog-routes.js";
 import { ROUTES as MESSAGES_LEXICAL_ROUTES } from "./messages-lexical-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
@@ -255,6 +256,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INTERNAL_OAUTH_ROUTES,
   ...INTERNAL_TELEMETRY_ROUTES,
   ...MCP_AUTH_ROUTES,
+  ...MCP_CATALOG_ROUTES,
   ...OAUTH_CONNECT_ROUTES,
   ...INTERNAL_TWILIO_ROUTES,
   ...LIFECYCLE_ROUTES,

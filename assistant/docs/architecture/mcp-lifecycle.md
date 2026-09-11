@@ -54,6 +54,18 @@ be reclaimed atomically; a live owner is never stolen on timeout. PID reuse can
 conservatively block an operation, which fails with a retryable error. Handles
 are closed after each operation.
 
+This is coordination among cooperating assistant processes, not an access-control
+boundary. Workspace writers can change or delete the file, defeating the ordering
+guarantee or blocking operations. Credential access remains subject to CES policy;
+the coordination metadata neither grants access nor protects against a malicious
+workspace writer. The repository's trusted host/pod process model applies here.
+
+The file is local runtime metadata and remains across ordinary restarts so live
+workers share the same generations. Workspace exports exclude `signals`, and a
+fresh instance creates fresh metadata. No existing user data or schema is
+converted. Do not delete or replace the file while the assistant or its workers
+are running; maintenance cleanup requires stopping all of them first.
+
 A scoped credential-completion context prevents the secure-key wrapper's outer
 deadline from releasing a mutation lock while its underlying promise still
 runs. Lock acquisition is bounded, so a blocked writer prevents a later remove
@@ -64,6 +76,8 @@ pending/complete/error vocabulary and also returns `attempt_id`. Cancel takes
 `{serverId, attemptId}` and only cancels a matching pending attempt. It closes
 the callback, fences writes, clears that attempt's OAuth records, and keeps
 configuration for retry. A stale cancellation returns `{cancelled: false}`.
+CLI polling requires a matching status ID when start advertised an attempt ID;
+older assistants that omit it retain their existing polling behavior.
 
 ## Acknowledgement boundaries
 

@@ -516,7 +516,7 @@ describe("assistant mcp reload", () => {
   });
 });
 
-describe("assistant mcp auth — IPC path", () => {
+describe("assistant mcp auth - IPC path", () => {
   beforeAll(() => {
     testDataDir = join(
       tmpdir(),
@@ -636,6 +636,56 @@ describe("assistant mcp auth — IPC path", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Authentication successful");
+  });
+
+  test("polling completes when status matches the advertised attempt", async () => {
+    mockCliIpcCallFn = mock((method) =>
+      Promise.resolve({
+        ok: true,
+        result:
+          method === "internal_mcp_auth_start"
+            ? {
+                auth_url: "https://auth.example.com",
+                state: "srv",
+                attempt_id: "attempt-1",
+              }
+            : { status: "complete", attempt_id: "attempt-1" },
+      }),
+    );
+
+    const { exitCode, stdout } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Authentication successful");
+  });
+
+  test.each([
+    { status: "pending", attempt_id: "attempt-2" },
+    { status: "complete", attempt_id: "attempt-2" },
+    { status: "error", attempt_id: "attempt-2", error: "access_denied" },
+    { status: "complete" },
+  ])("does not adopt status from an unverified attempt: %j", async (status) => {
+    mockCliIpcCallFn = mock((method) =>
+      Promise.resolve({
+        ok: true,
+        result:
+          method === "internal_mcp_auth_start"
+            ? {
+                auth_url: "https://auth.example.com",
+                state: "srv",
+                attempt_id: "attempt-1",
+              }
+            : status,
+      }),
+    );
+
+    const { exitCode, stdout, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stdout).not.toContain("Authentication successful");
+    expect(stderr).toContain("OAuth attempt changed or could not be verified");
+    expect(stderr).toContain("assistant mcp auth srv");
+    expect(mockCliIpcCallFn).toHaveBeenCalledTimes(2);
   });
 
   test("polling error → exits 1 with error message", async () => {

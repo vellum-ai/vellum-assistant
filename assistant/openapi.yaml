@@ -18473,6 +18473,144 @@ paths:
                 type: object
         "404":
           description: No active OAuth flow for the given serverId
+  /v1/internal/mcp/catalog:
+    get:
+      operationId: internal_mcp_catalog_get
+      summary: List known MCP integrations
+      description: Reads bundled standard integration definitions without connecting servers or installing plugins.
+      tags:
+        - internal
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  supportsConnect:
+                    type: boolean
+                    const: true
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                        serverKey:
+                          type: string
+                          minLength: 1
+                        displayName:
+                          type: string
+                          minLength: 1
+                        description:
+                          type: string
+                          minLength: 1
+                        documentationUrl:
+                          type: string
+                          format: uri
+                        verifiedAt:
+                          type: string
+                          format: date
+                          pattern: ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$
+                        verification:
+                          type: string
+                          enum:
+                            - documentation-only
+                            - tested
+                        setup:
+                          type: object
+                          properties:
+                            mode:
+                              type: string
+                              enum:
+                                - oauth
+                                - manual
+                            instructions:
+                              type: string
+                          required:
+                            - mode
+                          additionalProperties: false
+                        oauthProvider:
+                          type: string
+                          minLength: 1
+                        icon:
+                          type: string
+                          pattern: ^[a-z0-9-]+$
+                        definitionDigest:
+                          type: string
+                        documents:
+                          type: object
+                          properties:
+                            plugin: {}
+                            mcp: {}
+                          required:
+                            - plugin
+                          additionalProperties: false
+                      required:
+                        - id
+                        - serverKey
+                        - displayName
+                        - description
+                        - documentationUrl
+                        - verifiedAt
+                        - verification
+                        - setup
+                        - definitionDigest
+                        - documents
+                      additionalProperties: false
+                required:
+                  - supportsConnect
+                  - entries
+                additionalProperties: false
+  /v1/internal/mcp/catalog/connect:
+    post:
+      operationId: internal_mcp_catalog_connect_post
+      summary: Create a connection from a known MCP definition
+      description: Reuses a saved catalog connection or creates one with stable identity and separate credentials.
+      tags:
+        - internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                catalogId:
+                  type: string
+                  minLength: 1
+                serverKey:
+                  type: string
+                  minLength: 1
+                definitionDigest:
+                  type: string
+                  pattern: ^[0-9a-f]{64}$
+                setupAcknowledged:
+                  type: boolean
+              required:
+                - catalogId
+                - serverKey
+                - definitionDigest
+              additionalProperties: false
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  serverId:
+                    type: string
+                  created:
+                    type: boolean
+                required:
+                  - serverId
+                  - created
+                additionalProperties: false
   /v1/internal/mcp/list:
     get:
       operationId: internal_mcp_list_get
@@ -18546,6 +18684,25 @@ paths:
                           additionalProperties: {}
                         hasOAuth:
                           type: boolean
+                        catalog:
+                          anyOf:
+                            - type: object
+                              properties:
+                                id:
+                                  type: string
+                                  minLength: 1
+                                serverKey:
+                                  type: string
+                                  minLength: 1
+                                definitionDigest:
+                                  type: string
+                                  pattern: ^[0-9a-f]{64}$
+                              required:
+                                - id
+                                - serverKey
+                                - definitionDigest
+                              additionalProperties: false
+                            - type: "null"
                       required:
                         - id
                         - status

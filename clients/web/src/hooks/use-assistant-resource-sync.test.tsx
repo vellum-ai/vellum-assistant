@@ -31,6 +31,7 @@ import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
 import { platformAvatarUrlsQueryKey } from "@/hooks/use-platform-avatar-urls";
+import { mcpQueryKeys } from "@/domains/settings/mcp/mcp-query-keys";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
@@ -388,6 +389,43 @@ describe("useAssistantResourceSync", () => {
         ]) as never,
       );
     });
+  });
+
+  for (const tag of [SYNC_TAGS.mcpList, SYNC_TAGS.assistantConfig, SYNC_TAGS.pluginsList]) {
+    test(`invalidates only the active assistant MCP caches for ${tag}`, async () => {
+      const queryClient = freshQueryClient();
+      for (const assistantId of ["asst-1", "asst-2"]) {
+        queryClient.setQueryData(mcpQueryKeys.list(assistantId), []);
+        queryClient.setQueryData(mcpQueryKeys.details(assistantId), []);
+      }
+      renderHook(() => useAssistantResourceSync("asst-1", true), { wrapper: createWrapper(queryClient) });
+      emit(syncEvent([tag]) as unknown as AssistantEvent);
+      await waitFor(() => {
+        expect(queryClient.getQueryState(mcpQueryKeys.list("asst-1"))?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(mcpQueryKeys.details("asst-1"))?.isInvalidated).toBe(true);
+      });
+      expect(queryClient.getQueryState(mcpQueryKeys.list("asst-2"))?.isInvalidated).toBe(false);
+      expect(queryClient.getQueryState(mcpQueryKeys.details("asst-2"))?.isInvalidated).toBe(false);
+    });
+  }
+
+  test("reconnect refetches mounted MCP rows without fetching unopened tool details", async () => {
+    const queryClient = freshQueryClient();
+    const fetchRows = mock(async () => []);
+    const observer = new QueryObserver(queryClient, { queryKey: mcpQueryKeys.list("asst-1"), queryFn: fetchRows, staleTime: Infinity });
+    queryClient.setQueryData(mcpQueryKeys.details("asst-1"), []);
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await waitFor(() => expect(fetchRows).toHaveBeenCalledTimes(1));
+      renderHook(() => useAssistantResourceSync("asst-1", true), { wrapper: createWrapper(queryClient) });
+      publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+      await flushReconnectSweep();
+      await waitFor(() => expect(fetchRows).toHaveBeenCalledTimes(2));
+      expect(queryClient.getQueryState(mcpQueryKeys.details("asst-1"))?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(mcpQueryKeys.details("asst-1"))?.fetchStatus).toBe("idle");
+    } finally {
+      unsubscribe();
+    }
   });
 
   test("invalidates plugin list / catalog / open-detail queries on plugins:list sync tag", async () => {

@@ -10,6 +10,7 @@ import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { getMcpHeaders } from "./mcp-header-store.js";
 import { McpOAuthProvider } from "./mcp-oauth-provider.js";
+import { publishMcpChanged } from "./sync.js";
 
 const log = getLogger("mcp-client");
 
@@ -97,8 +98,12 @@ export class McpClient {
       );
     };
     this.client.onclose = () => {
+      const wasConnected = this.connected;
       this.connected = false;
       this.oauthProvider?.close();
+      if (wasConnected) {
+        void publishMcpChanged();
+      }
     };
   }
 

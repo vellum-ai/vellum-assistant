@@ -6,6 +6,7 @@ import { withMcpConfigWrite } from "./config-write-lock.js";
 import { withMcpCredentialLock } from "./credential-coordination.js";
 import { cancelCurrentMcpAuth, getMcpAuthState } from "./mcp-auth-state.js";
 import { deleteMcpHeaders } from "./mcp-header-store.js";
+import { publishMcpChanged } from "./sync.js";
 
 export { withMcpConfigWrite } from "./config-write-lock.js";
 
@@ -69,6 +70,7 @@ export async function cancelMcpConnectionAttempt(
       return true;
     } finally {
       lease.advance();
+      await publishMcpChanged();
     }
   });
 }
@@ -126,6 +128,8 @@ export async function teardownMcpConnection(
       );
     }
     throw err;
+  } finally {
+    await publishMcpChanged();
   }
   try {
     const result = await reloadMcpServers({ requireCleanup: true });

@@ -15,7 +15,11 @@
 import { z } from "zod";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
+import {
+  type McpConfig,
+  type McpServerConfig,
+  McpServerConfigSchema,
+} from "../../config/schemas/mcp.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import {
@@ -35,6 +39,7 @@ import {
   setMcpHeaders,
 } from "../../mcp/mcp-header-store.js";
 import { hasMcpOAuthTokens } from "../../mcp/mcp-oauth-provider.js";
+import { publishMcpChanged } from "../../mcp/sync.js";
 import { readPluginMcpServers } from "../../plugins/mcp-servers.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
@@ -195,6 +200,7 @@ interface McpServerEntry {
   >;
   transport: Omit<McpServerConfig["transport"], "headers"> & { type: string };
   hasOAuth: boolean;
+  catalog?: McpServerConfig["catalog"];
   hasStaticAuth: boolean;
   authType: "none" | "bearer" | "api-key";
   authHeaderName?: string;
@@ -279,6 +285,7 @@ async function handleMcpList(_args: {
         authType,
         ...(authHeaderName && { authHeaderName }),
         source: "workspace" as const,
+        catalog: config.catalog ?? null,
       };
     }),
   );
@@ -460,6 +467,7 @@ async function handleMcpUpdate({
       }
 
       saveRawConfig(raw);
+      await publishMcpChanged();
       triggerReload("internal_mcp_update");
 
       return { updated: true };
@@ -538,6 +546,7 @@ async function handleMcpAdd({
       }
 
       saveRawConfig(raw);
+      await publishMcpChanged();
       triggerReload("internal_mcp_add");
 
       return { added: true };
@@ -759,6 +768,7 @@ export const ROUTES: RouteDefinition[] = [
             })
             .passthrough(),
           hasOAuth: z.boolean(),
+          catalog: McpServerConfigSchema.shape.catalog,
         }),
       ),
     }),

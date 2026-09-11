@@ -126,4 +126,28 @@ describe("passive runtime state (via internal_mcp_list route)", () => {
       lifecycleState: "connecting",
     });
   });
+  test("returns saved catalog provenance without inferring identity for custom entries", async () => {
+    const catalog = {
+      id: "example",
+      serverKey: "example",
+      definitionDigest: "a".repeat(64),
+    };
+    const transport = {
+      type: "streamable-http",
+      url: "https://example.com/mcp",
+    };
+    setConfig("mcp", {
+      servers: { saved: { transport, catalog }, custom: { transport } },
+    });
+    const result = (await listHandler({})) as {
+      servers: { id: string; catalog: unknown }[];
+    };
+    expect(
+      result.servers.find((server) => server.id === "saved")?.catalog,
+    ).toEqual(catalog);
+    expect(
+      result.servers.find((server) => server.id === "custom")?.catalog,
+    ).toBeNull();
+    expect(mockConnect).not.toHaveBeenCalled();
+  });
 });
