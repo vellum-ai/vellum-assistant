@@ -8,15 +8,14 @@ import {
 import { invalidateBillingQueries } from "@/domains/settings/billing/invalidate-billing-queries";
 import {
   organizationsBillingPlansRetrieveOptions,
-  organizationsBillingSubscriptionChangeCreditTierCreateMutation,
-  organizationsBillingSubscriptionChangeMachineTierCreateMutation,
-  organizationsBillingSubscriptionChangeStorageTierCreateMutation,
+  organizationsBillingSubscriptionChangePackageCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type {
   CreditTierEnum,
   MachineTierEnum,
+  PackageChangeResponse,
   ProPlan,
   StorageTierEnum,
 } from "@/generated/api/types.gen";
@@ -32,6 +31,13 @@ export interface CurrentTiers {
   storageTier: StorageTierEnum | null;
   storageGib: number | null;
   creditTier: CreditTierEnum | null;
+  /**
+   * Whether the sub bills the base platform fee. Only the Mighty package is
+   * sold without it, and a custom plan always carries it, so a fee-less sub
+   * submitting its own tiers as a custom plan is a real change (the fee is
+   * added and billed). Read as true when the server omits the field.
+   */
+  hasPlatformFee: boolean;
 }
 
 /** A three-dimension custom selection to apply (mirrors `CustomPlanSelection`). */
@@ -101,13 +107,14 @@ export interface UseChangeTiersResult {
 
 /**
  * Shared wiring for applying a custom tier configuration to an active Pro
- * subscription. Posts ONLY the changed dimensions to the three change-tier
- * endpoints in parallel (mirrors `adjust-plan-modal`'s `submitTierChanges`),
- * awaits them as one batch, invalidates the three billing queries, and surfaces
- * any error as a toast.
+ * subscription. Posts the whole selection as ONE change-package call with
+ * explicit tiers (the server diffs it against the subscription and applies
+ * every dimension, plus the platform fee a custom plan always carries, in one
+ * payment-gated change), invalidates the billing queries, and surfaces any
+ * error as a toast.
  *
  * `eligible` is true only for an active, non-cancelling Pro sub in an
- * entitlement-bearing status — the change-tier endpoints 4xx otherwise. A
+ * entitlement-bearing status — change-package 4xxs otherwise. A
  * customized sub qualifies: editing a custom tier config is exactly what this
  * flow does. This mirrors `isPackageSwitchEligible`, which also admits
  * customized (and unpinned) Pro subs; the difference is that this flow edits
@@ -149,14 +156,8 @@ export function useChangeTiers({
   const machinePriceCents = (tier: MachineTierEnum | null): number | null =>
     machineTiers.find((t) => t.tier === tier)?.price_cents ?? null;
 
-  const changeMachineTierMutation = useMutation(
-    organizationsBillingSubscriptionChangeMachineTierCreateMutation(),
-  );
-  const changeStorageTierMutation = useMutation(
-    organizationsBillingSubscriptionChangeStorageTierCreateMutation(),
-  );
-  const changeCreditTierMutation = useMutation(
-    organizationsBillingSubscriptionChangeCreditTierCreateMutation(),
+  const changePackageMutation = useMutation(
+    organizationsBillingSubscriptionChangePackageCreateMutation(),
   );
 
   const current: CurrentTiers = {
@@ -169,6 +170,7 @@ export function useChangeTiers({
     storageGib: onboardingQuery.data?.selected_storage_gib ?? null,
     creditTier:
       (subscription?.selected_credit_tier as CreditTierEnum | null) ?? null,
+    hasPlatformFee: subscription?.has_platform_fee ?? true,
   };
 
   const eligible =
@@ -213,10 +215,7 @@ export function useChangeTiers({
       !onboardingQuery.isFetching &&
       onboardingQuery.dataUpdatedAt >= subscriptionQuery.dataUpdatedAt);
 
-  const isPending =
-    changeMachineTierMutation.isPending ||
-    changeStorageTierMutation.isPending ||
-    changeCreditTierMutation.isPending;
+  const isPending = changePackageMutation.isPending;
 
   const changeTiers = async (
     selection: ChangeTiersSelection,
@@ -236,107 +235,53 @@ export function useChangeTiers({
       currentMachinePrice != null &&
       nextMachinePrice < currentMachinePrice;
 
-    type DimensionResult = {
-      dimension: "machine" | "storage" | "credit";
-      ok: boolean;
-      error?: unknown;
-    };
-    const pending: Promise<DimensionResult>[] = [];
-
-    if (machineChanged) {
-      pending.push(
-        new Promise<DimensionResult>((resolve) => {
-          changeMachineTierMutation.mutate(
-            { body: { machine_tier: selection.machineTier } },
-            {
-              onSuccess: () => resolve({ dimension: "machine", ok: true }),
-              onError: (error) =>
-                resolve({ dimension: "machine", ok: false, error }),
-            },
-          );
-        }),
-      );
-    }
-
-    if (storageChanged) {
-      pending.push(
-        new Promise<DimensionResult>((resolve) => {
-          changeStorageTierMutation.mutate(
-            { body: { storage_tier: selection.storageTier } },
-            {
-              onSuccess: () => resolve({ dimension: "storage", ok: true }),
-              onError: (error) =>
-                resolve({ dimension: "storage", ok: false, error }),
-            },
-          );
-        }),
-      );
-    }
-
-    if (creditChanged) {
-      pending.push(
-        new Promise<DimensionResult>((resolve) => {
-          changeCreditTierMutation.mutate(
-            { body: { credit_tier: selection.creditTier } },
-            {
-              onSuccess: () => resolve({ dimension: "credit", ok: true }),
-              onError: (error) =>
-                resolve({ dimension: "credit", ok: false, error }),
-            },
-          );
-        }),
-      );
-    }
+    // A custom plan always carries the platform fee, so a fee-less (Mighty)
+    // sub re-submitting its own tiers is still a change: the fee is added.
+    const feeAdded = !current.hasPlatformFee;
 
     // Nothing diverged from the current config — treat as a successful no-op so
     // the caller closes the modal without opening the resize takeover.
-    if (pending.length === 0) {
+    if (!machineChanged && !storageChanged && !creditChanged && !feeAdded) {
       return { needsResize: false, creditChanged: false };
     }
 
-    const results = await Promise.all(pending);
+    let status: PackageChangeResponse["status"];
+    try {
+      const result = await changePackageMutation.mutateAsync({
+        body: {
+          machine_tier: selection.machineTier,
+          storage_tier: selection.storageTier,
+          credit_tier: selection.creditTier,
+        },
+      });
+      status = result.status;
+    } catch (error) {
+      // The change is atomic server-side (a declined card rolls it back), so
+      // nothing landed; the caller holds the modal open for a retry.
+      toast.error(
+        extractMutationError(
+          error,
+          "Failed to change your plan. Please try again.",
+        ),
+      );
+      return null;
+    }
     // Await the refetches so a resize-needed result resolves only once the
     // takeover can read the new ceiling instead of the stale cache.
     await invalidateBillingQueries(queryClient);
+    if (status === "no_op") {
+      return { needsResize: false, creditChanged: false };
+    }
 
     // Storage is always an upgrade (the modal disables downgrades). A machine
     // change needs a resize only when it grows the ceiling — a downgrade is
-    // capped server-side with no provisioning step. Either succeeded resource
-    // grow means the assistant must provision.
-    const machineUpgradeSucceeded =
-      results.some((r) => r.ok && r.dimension === "machine") &&
-      !machineIsDowngrade;
-    const storageSucceeded = results.some(
-      (r) => r.ok && r.dimension === "storage",
-    );
-    const needsResize = machineUpgradeSucceeded || storageSucceeded;
+    // capped server-side with no provisioning step. Either resource grow means
+    // the assistant must provision.
+    const needsResize =
+      storageChanged || (machineChanged && !machineIsDowngrade);
     // A persisted credit-bundle change surfaces the takeover without owing any
     // compute/disk provisioning, so it is tracked apart from `needsResize`.
-    const creditSucceeded = results.some(
-      (r) => r.ok && r.dimension === "credit",
-    );
-
-    const failures = results.filter((r) => !r.ok);
-    if (failures.length > 0) {
-      const message = failures
-        .map((f) =>
-          extractMutationError(
-            f.error,
-            `Failed to update ${f.dimension} tier.`,
-          ),
-        )
-        .join(" ");
-      toast.error(message);
-      // A resource or credit dimension can persist server-side even when another
-      // one fails, so still surface the takeover for what landed; the caller
-      // closes the modal. Only when nothing landed do we return null to hold the
-      // modal open for a retry.
-      return needsResize || creditSucceeded
-        ? { needsResize, creditChanged: creditSucceeded }
-        : null;
-    }
-
-    return { needsResize, creditChanged: creditSucceeded };
+    return { needsResize, creditChanged };
   };
 
   return {

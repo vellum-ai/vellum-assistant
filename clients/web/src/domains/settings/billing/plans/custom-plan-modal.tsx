@@ -62,7 +62,7 @@ export interface CustomPlanModalProps {
   pending: boolean;
   /**
    * The Pro subscriber's current storage size, when reconfiguring an existing
-   * Pro plan. Storage is upgrade-only for Pro (the change-storage-tier endpoint
+   * Pro plan. Storage is upgrade-only for Pro (change-package
    * rejects downgrades), so tiers below this size render disabled. Leave
    * null/undefined for the base checkout path, where every tier is selectable.
    */
@@ -318,9 +318,12 @@ export function CustomPlanModal({
   // one dimension differs from the seed. Base checkout has no seed, so a
   // complete selection is always submittable. Compared against the raw seed
   // values (not the priced diff) so a seed tier the catalog dropped still reads
-  // as changed once the user picks a live replacement.
+  // as changed once the user picks a live replacement. A fee-less (Mighty) seed
+  // never matches: a custom plan always carries the platform fee, so keeping
+  // the tiers still adds — and bills — the fee.
   const matchesSeed =
     initialSelection != null &&
+    initialSelection.hasPlatformFee !== false &&
     machineTier === (initialSelection.machineTier ?? BASELINE_MACHINE) &&
     storageTier === initialSelection.storageTier &&
     creditChoice === (initialSelection.creditTier ?? NO_EXTRA_CREDITS);

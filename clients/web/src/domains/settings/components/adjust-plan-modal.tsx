@@ -17,9 +17,7 @@ import {
 import { invalidateBillingQueries } from "@/domains/settings/billing/invalidate-billing-queries";
 import {
   organizationsBillingPlansRetrieveOptions,
-  organizationsBillingSubscriptionChangeCreditTierCreateMutation,
-  organizationsBillingSubscriptionChangeMachineTierCreateMutation,
-  organizationsBillingSubscriptionChangeStorageTierCreateMutation,
+  organizationsBillingSubscriptionChangePackageCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionUpgradeCreateMutation,
@@ -85,14 +83,8 @@ function AdjustPlanModalContent({
   const upgradeMutation = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
-  const changeMachineTierMutation = useMutation(
-    organizationsBillingSubscriptionChangeMachineTierCreateMutation(),
-  );
-  const changeStorageTierMutation = useMutation(
-    organizationsBillingSubscriptionChangeStorageTierCreateMutation(),
-  );
-  const changeCreditTierMutation = useMutation(
-    organizationsBillingSubscriptionChangeCreditTierCreateMutation(),
+  const changePackageMutation = useMutation(
+    organizationsBillingSubscriptionChangePackageCreateMutation(),
   );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
   // "Keep your Plan" posts the reactivate endpoint and the cancellation posts
@@ -192,6 +184,7 @@ function AdjustPlanModalContent({
             storageTier: currentStorageTier,
             storageGib: currentStorageGib,
             creditTier: currentCreditTier,
+            hasPlatformFee: subscriptionQuery.data?.has_platform_fee ?? true,
           },
           proPlan,
         )
@@ -346,10 +339,7 @@ function AdjustPlanModalContent({
     }
   };
 
-  const tierChangePending =
-    changeMachineTierMutation.isPending ||
-    changeStorageTierMutation.isPending ||
-    changeCreditTierMutation.isPending;
+  const tierChangePending = changePackageMutation.isPending;
 
   const machineChanged =
     selectedMachineTier != null && selectedMachineTier !== currentMachineTier;
@@ -374,115 +364,62 @@ function AdjustPlanModalContent({
     currentMachinePrice != null &&
     nextMachinePrice < currentMachinePrice;
 
-  // Coordinated multi-dimension tier change: fires all changed dimensions,
-  // waits for all to settle, then handles completion as a single batch.
-  // Fixes the race condition where the first mutation to succeed would close
-  // the modal before others complete — potentially hiding later errors.
+  // One change-package call with the full explicit selection: the server
+  // diffs it against the subscription and applies every changed dimension
+  // (and the platform fee a custom plan always carries) as a single
+  // payment-gated change, so a declined card leaves nothing half-applied.
   const submitTierChanges = () => {
     if (tierChangePending) {
       return;
     }
-
-    type DimensionResult = { dimension: string; ok: boolean; error?: unknown };
-    const pending: Promise<DimensionResult>[] = [];
-
-    if (machineChanged && selectedMachineTier) {
-      pending.push(
-        new Promise<DimensionResult>((resolve) => {
-          changeMachineTierMutation.mutate(
-            { body: { machine_tier: selectedMachineTier } },
-            {
-              onSuccess: () => resolve({ dimension: "machine", ok: true }),
-              onError: (error) =>
-                resolve({ dimension: "machine", ok: false, error }),
-            },
-          );
-        }),
-      );
+    if (!selectedMachineTier || !selectedStorageTier) {
+      toast.error(t("adjustPlanModal.pickTiersError"), {
+        id: "pro-tier-change-error",
+      });
+      return;
     }
-
-    if (storageChanged && selectedStorageTier) {
-      pending.push(
-        new Promise<DimensionResult>((resolve) => {
-          changeStorageTierMutation.mutate(
-            { body: { storage_tier: selectedStorageTier } },
-            {
-              onSuccess: () => resolve({ dimension: "storage", ok: true }),
-              onError: (error) =>
-                resolve({ dimension: "storage", ok: false, error }),
-            },
+    changePackageMutation.mutate(
+      {
+        body: {
+          machine_tier: selectedMachineTier,
+          storage_tier: selectedStorageTier,
+          credit_tier: displayCreditTier,
+        },
+      },
+      {
+        onSuccess: (data) => {
+          void invalidateBillingQueries(queryClient);
+          // A storage change is always an upgrade (downgrades are disabled in
+          // the picker). A machine change needs the explicit downgrade check;
+          // machine downgrades don't need an immediate resize prompt.
+          const needsResize =
+            data.status === "ok" &&
+            (storageChanged || (machineChanged && !isMachineDowngrade)) &&
+            !!onTierUpgraded;
+          if (needsResize) {
+            onClose();
+            onTierUpgraded!();
+            return;
+          }
+          toast.success(
+            creditChanged && !machineChanged && !storageChanged
+              ? t("adjustPlanModal.creditBundleUpdated")
+              : t("adjustPlanModal.planUpdated"),
+            { id: "pro-tier-change" },
           );
-        }),
-      );
-    }
-
-    if (creditChanged) {
-      pending.push(
-        new Promise<DimensionResult>((resolve) => {
-          changeCreditTierMutation.mutate(
-            { body: { credit_tier: displayCreditTier } },
-            {
-              onSuccess: () => resolve({ dimension: "credit", ok: true }),
-              onError: (error) =>
-                resolve({ dimension: "credit", ok: false, error }),
-            },
-          );
-        }),
-      );
-    }
-
-    void Promise.all(pending).then((results) => {
-      void invalidateBillingQueries(queryClient);
-
-      // A storage change is always an upgrade (downgrades are disabled in the
-      // picker). A machine change needs the explicit downgrade check.
-      const storageSucceeded = results.some(
-        (r) => r.ok && r.dimension === "storage",
-      );
-      const machineUpgradeSucceeded =
-        results.some((r) => r.ok && r.dimension === "machine") &&
-        !isMachineDowngrade;
-      const needsResize =
-        (storageSucceeded || machineUpgradeSucceeded) && !!onTierUpgraded;
-
-      const failures = results.filter((r) => !r.ok);
-
-      if (failures.length > 0) {
-        const msg = failures
-          .map((f) =>
+        },
+        onError: (error) => {
+          void invalidateBillingQueries(queryClient);
+          toast.error(
             extractMutationError(
-              f.error,
-              `Failed to update ${f.dimension} tier.`,
+              error,
+              "Failed to change your plan. Please try again.",
             ),
-          )
-          .join(" ");
-        toast.error(msg, { id: "pro-tier-change-error" });
-
-        // A resource tier change persisted server-side even though another
-        // dimension failed — still open the resize flow so the assistant
-        // picks up the new entitlement.
-        if (needsResize) {
-          onClose();
-          onTierUpgraded!();
-        }
-        return;
-      }
-
-      // All succeeded — trigger the resize flow if a non-downgrade resource
-      // tier changed. Machine downgrades don't need an immediate resize
-      // prompt; storage changes are always upgrades (downgrades disabled).
-      if (needsResize) {
-        onClose();
-        onTierUpgraded!();
-      } else {
-        toast.success(
-          creditChanged && !machineChanged && !storageChanged
-            ? t("adjustPlanModal.creditBundleUpdated")
-            : t("adjustPlanModal.planUpdated"),
-          { id: "pro-tier-change" },
-        );
-      }
-    });
+            { id: "pro-tier-change-error" },
+          );
+        },
+      },
+    );
   };
 
   // When the machine tier is being lowered, defer the whole apply behind the
@@ -523,17 +460,12 @@ function AdjustPlanModalContent({
         currentCreditPriceCents
       : null;
 
-  const tierChangeError =
-    changeMachineTierMutation.isError ||
-    changeStorageTierMutation.isError ||
-    changeCreditTierMutation.isError
-      ? extractMutationError(
-          changeMachineTierMutation.error ??
-            changeStorageTierMutation.error ??
-            changeCreditTierMutation.error,
-          t("adjustPlanModal.updateFailed"),
-        )
-      : null;
+  const tierChangeError = changePackageMutation.isError
+    ? extractMutationError(
+        changePackageMutation.error,
+        t("adjustPlanModal.updateFailed"),
+      )
+    : null;
 
   // ---------------------------------------------------------------------------
   // Render

@@ -40,9 +40,7 @@ import * as platformDetection from "@/runtime/platform-detection";
 type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
 let upgradeResponse: Record<string, unknown> = { status: "ok" };
-let changeCreditTierCall: Captured | null = null;
-let changeMachineTierCall: Captured | null = null;
-let changeStorageTierCall: Captured | null = null;
+let changePackageCall: Captured | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -50,20 +48,12 @@ mock.module("@/generated/api/sdk.gen", () => ({
     upgradeCall = opts;
     return Promise.resolve({ data: upgradeResponse, response: { ok: true } });
   },
-  organizationsBillingSubscriptionChangeCreditTierCreate: (opts: Captured) => {
-    changeCreditTierCall = opts;
+  organizationsBillingSubscriptionChangePackageCreate: (opts: Captured) => {
+    changePackageCall = opts;
     return Promise.resolve({
-      data: { status: "ok", credit_tier: null },
+      data: { status: "ok", package: null },
       response: { ok: true },
     });
-  },
-  organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
-    changeMachineTierCall = opts;
-    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
-  },
-  organizationsBillingSubscriptionChangeStorageTierCreate: (opts: Captured) => {
-    changeStorageTierCall = opts;
-    return Promise.resolve({ data: { status: "ok" }, response: { ok: true } });
   },
   // The onboarding query carries the current tiers. Tests that need it pre-seed
   // the cache (so this never runs). When a test deliberately leaves it unseeded
@@ -288,9 +278,7 @@ function clickOption(label: string): void {
 beforeEach(() => {
   upgradeCall = null;
   upgradeResponse = { status: "ok" };
-  changeCreditTierCall = null;
-  changeMachineTierCall = null;
-  changeStorageTierCall = null;
+  changePackageCall = null;
   openedUrl = null;
   nativeAndroid = false;
   // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
@@ -443,7 +431,7 @@ describe("AdjustPlanModal upgrade — checkout intent stash", () => {
 });
 
 describe("AdjustPlanModal credit bundle — change mode", () => {
-  test("calls change-credit-tier with the newly selected value", async () => {
+  test("posts change-package with the newly selected credit tier", async () => {
     const { getByTestId } = renderModal(
       subscription("pro", null),
       proPlansResponse(CREDIT_TIERS),
@@ -455,16 +443,20 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) {
+      if (!changePackageCall) {
         throw new Error("change not called");
       }
     });
-    expect(
-      (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
-    ).toBe("credits_25");
+    // The whole selection travels: the unchanged machine and storage ride
+    // along as explicit tiers and the server diffs them.
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "machine_small",
+      storage_tier: "storage_10",
+      credit_tier: "credits_25",
+    });
   });
 
-  test("calls change-credit-tier with null when removing the bundle", async () => {
+  test("posts change-package with credit_tier null when removing the bundle", async () => {
     const { getByTestId } = renderModal(
       subscription("pro", "credits_50"),
       proPlansResponse(CREDIT_TIERS),
@@ -476,12 +468,12 @@ describe("AdjustPlanModal credit bundle — change mode", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) {
+      if (!changePackageCall) {
         throw new Error("change not called");
       }
     });
     expect(
-      (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
+      (changePackageCall!.body as Record<string, unknown>).credit_tier,
     ).toBeNull();
   });
 });
@@ -532,7 +524,7 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
 
     // Give any (erroneous) mutation a tick to fire.
     await new Promise((r) => setTimeout(r, 0));
-    expect(changeCreditTierCall).toBeNull();
+    expect(changePackageCall).toBeNull();
   });
 
   test("a current bundle absent from the catalog does not enable a spurious removal", async () => {
@@ -561,7 +553,7 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     fireEvent.click(button);
     // Give any (erroneous) mutation a tick to fire.
     await new Promise((r) => setTimeout(r, 0));
-    expect(changeCreditTierCall).toBeNull();
+    expect(changePackageCall).toBeNull();
   });
 
   test("preserves a held legacy bundle across a plans refetch when applying an unrelated change", async () => {
@@ -610,16 +602,17 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeMachineTierCall) {
+      if (!changePackageCall) {
         throw new Error("machine change not called");
       }
     });
-    expect(
-      (changeMachineTierCall!.body as Record<string, unknown>).machine_tier,
-    ).toBe("machine_large");
-    // The held legacy bundle must survive the refetch: no credit mutation fires.
-    await new Promise((r) => setTimeout(r, 0));
-    expect(changeCreditTierCall).toBeNull();
+    // The held legacy bundle must survive the refetch: it travels unchanged
+    // rather than being coerced to null and silently dropped.
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "machine_large",
+      storage_tier: "storage_10",
+      credit_tier: "credits_legacy",
+    });
   });
 
   test("preserves an explicit 'No bundle' choice across a plans refetch", async () => {
@@ -654,12 +647,12 @@ describe("AdjustPlanModal credit bundle — unseeded sentinel", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) {
+      if (!changePackageCall) {
         throw new Error("change not called");
       }
     });
     expect(
-      (changeCreditTierCall!.body as Record<string, unknown>).credit_tier,
+      (changePackageCall!.body as Record<string, unknown>).credit_tier,
     ).toBeNull();
   });
 });
@@ -681,14 +674,16 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeCreditTierCall) {
+      if (!changePackageCall) {
         throw new Error("change not called");
       }
     });
-    // The credit mutation fired (refresh path), but the resize flow must not.
+    // The change fired (refresh path), but the resize flow must not: only
+    // the bundle moved.
     expect(upgraded).toBe(false);
-    expect(changeMachineTierCall).toBeNull();
-    expect(changeStorageTierCall).toBeNull();
+    expect(
+      (changePackageCall!.body as Record<string, unknown>).credit_tier,
+    ).toBe("credits_25");
   });
 
   test("a machine tier change still invokes onTierUpgraded", async () => {
@@ -709,7 +704,7 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeMachineTierCall) {
+      if (!changePackageCall) {
         throw new Error("machine change not called");
       }
     });
@@ -718,7 +713,9 @@ describe("AdjustPlanModal credit bundle — resize flow", () => {
         throw new Error("onTierUpgraded not called");
       }
     });
-    expect(changeCreditTierCall).toBeNull();
+    expect(
+      (changePackageCall!.body as Record<string, unknown>).credit_tier,
+    ).toBeNull();
   });
 });
 
@@ -946,14 +943,16 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
       fireEvent.click(btn);
     });
 
-    // Both mutations should fire.
+    // One call carries both dimensions.
     await waitFor(() => {
-      if (!changeMachineTierCall) {
-        throw new Error("machine change not called");
+      if (!changePackageCall) {
+        throw new Error("change not called");
       }
-      if (!changeStorageTierCall) {
-        throw new Error("storage change not called");
-      }
+    });
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "machine_small",
+      storage_tier: "storage_20",
+      credit_tier: null,
     });
 
     // The storage upgrade must trigger the resize flow even though the machine
@@ -965,7 +964,7 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
     });
   });
 
-  test("machine upgrade + credit change fires both mutations, only machine triggers resize", async () => {
+  test("machine upgrade + credit change go out as one call, and the machine triggers resize", async () => {
     let upgraded = false;
     const { getByTestId } = renderModal(
       subscription("pro", null),
@@ -986,12 +985,14 @@ describe("AdjustPlanModal — multi-dimension tier coordination", () => {
     fireEvent.click(getByTestId("modal-change-tier-button"));
 
     await waitFor(() => {
-      if (!changeMachineTierCall) {
-        throw new Error("machine change not called");
+      if (!changePackageCall) {
+        throw new Error("change not called");
       }
-      if (!changeCreditTierCall) {
-        throw new Error("credit change not called");
-      }
+    });
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "machine_large",
+      storage_tier: "storage_10",
+      credit_tier: "credits_25",
     });
 
     // Machine upgrade triggers resize flow.

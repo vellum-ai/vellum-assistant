@@ -312,8 +312,15 @@ function PlansPageContent() {
       machineTier: current.machineTier,
       storageTier: current.storageTier,
       creditTier: current.creditTier,
+      hasPlatformFee: current.hasPlatformFee,
     };
-  }, [isProUser, current.machineTier, current.storageTier, current.creditTier]);
+  }, [
+    isProUser,
+    current.machineTier,
+    current.storageTier,
+    current.creditTier,
+    current.hasPlatformFee,
+  ]);
 
   // `?package=<key>` is the one-shot deep link; it is live until the effects
   // below strip it.
@@ -687,8 +694,9 @@ function PlansPageContent() {
         credit_tier: selection.creditTier,
       });
 
-    // Active Pro orgs edit their tiers in place via the change-tier endpoints;
-    // the upgrade/checkout endpoint no-ops for an active Pro sub.
+    // Active Pro orgs edit their tiers in place via change-package with
+    // explicit tiers; the upgrade/checkout endpoint no-ops for an active Pro
+    // sub.
     const applyCustomTierChange = async (selection: CustomPlanSelection) => {
       const before = capturePlanBefore();
       // The modal seeds from `current`, so the machine tier it is moving away
