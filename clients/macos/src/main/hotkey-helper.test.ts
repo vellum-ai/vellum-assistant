@@ -928,6 +928,38 @@ describe("installHotkeyHelper", () => {
     expect(lastChild).toBeNull();
   });
 
+  /**
+   * A keyboard tool that can hold the key is asked about, so a note can name
+   * it, but never asked to quit: it holds the key because the user set it to.
+   */
+  test("names a detection-only claimant but refuses to quit it", async () => {
+    installHotkeyHelper();
+
+    const pending = handlers["vellum:helper:apps:running"](
+      { sender: defaultSender },
+      ["com.raycast.macos"],
+    ) as Promise<unknown>;
+    expect(lastChild?.stdin.writes[0]).toContain('"method":"apps.running"');
+    expect(lastChild?.stdin.writes[0]).toContain('"com.raycast.macos"');
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"result":{"running":["com.raycast.macos"]}}\n',
+      ),
+    );
+    expect(await pending).toEqual(["com.raycast.macos"]);
+
+    expect(
+      await (handlers["vellum:helper:apps:quit"](
+        { sender: defaultSender },
+        "com.raycast.macos",
+      ) as Promise<unknown>),
+    ).toBe(false);
+    expect(
+      lastChild?.stdin.writes.some((write) => write.includes('"apps.quit"')),
+    ).toBe(false);
+  });
+
   test("reads the application in front from the helper", async () => {
     installHotkeyHelper();
 

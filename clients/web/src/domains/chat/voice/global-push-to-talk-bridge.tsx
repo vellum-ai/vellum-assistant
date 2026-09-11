@@ -26,10 +26,7 @@ import {
   setDictationOffer,
   setUnplacedDictationOffer,
 } from "@/domains/chat/voice/dictation-offer-store";
-import {
-  findRunningFnClaimant,
-  type FnClaimant,
-} from "@/domains/chat/voice/fn-claimants";
+import { findRunningFnClaimant, type FnClaimant } from "@/runtime/fn-claimants";
 import { useVoiceKey } from "@/domains/chat/voice/use-voice-key";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import {
