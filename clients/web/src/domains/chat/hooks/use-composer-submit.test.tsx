@@ -23,6 +23,7 @@ import type { DisplayAttachment } from "@/domains/chat/types/types";
 import {
   useComposerSubmit,
   type UseComposerSubmitParams,
+  type ComposerSendPreparation,
 } from "./use-composer-submit";
 
 const SYNTHETIC_PROJECT_KEY =
@@ -95,6 +96,68 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+describe("context preparation", () => {
+  test("flushes before clearing text and attachments, then uses the shared send once", async () => {
+    useComposerStore.getState().setInput("Revise the paragraph");
+    useComposerStore.setState({ attachments: [uploadedAttachment] });
+    let resolvePreparation!: (value: ComposerSendPreparation) => void;
+    const release = mock(() => {});
+    const prepareSend = mock(
+      () =>
+        new Promise<ComposerSendPreparation>((resolve) => {
+          resolvePreparation = resolve;
+        }),
+    );
+    const { result, sendMessage } = renderSubmit({ prepareSend });
+    const pending = result.current.submitMessage();
+    expect(useComposerStore.getState().input).toBe("Revise the paragraph");
+    expect(useComposerStore.getState().attachments).toHaveLength(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+    await result.current.submitMessage();
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    resolvePreparation({ isCurrent: () => true, release });
+    await pending;
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[1]?.[0]?.id).toBe(uploadedAttachment.id);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(useComposerStore.getState().input).toBe("");
+  });
+
+  test.each(["cancel", "close", "edit", "unmount"])(
+    "keeps the draft when preparation ends after %s",
+    async (reason) => {
+      useComposerStore.getState().setInput("Keep this message");
+      useComposerStore.setState({ attachments: [uploadedAttachment] });
+      let resolvePreparation!: (value: ComposerSendPreparation | null) => void;
+      const release = mock(() => {});
+      const { result, sendMessage } = renderSubmit({
+        prepareSend: () =>
+          new Promise((resolve) => {
+            resolvePreparation = resolve;
+          }),
+      });
+      const pending = result.current.submitMessage();
+      if (reason === "edit") {
+        useComposerStore.getState().setInput("A newer draft");
+      }
+      if (reason === "unmount") {
+        cleanup();
+      }
+      resolvePreparation(
+        reason === "cancel"
+          ? null
+          : { isCurrent: () => reason !== "close", release },
+      );
+      await pending;
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(useComposerStore.getState().input).toBe(
+        reason === "edit" ? "A newer draft" : "Keep this message",
+      );
+      expect(useComposerStore.getState().attachments).toHaveLength(1);
+    },
+  );
 });
 
 describe("useComposerSubmit beforeSend gate", () => {

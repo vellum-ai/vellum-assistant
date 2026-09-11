@@ -1,0 +1,69 @@
+# Mobile document chat
+
+The mobile document editor is a presentation of its linked conversation, not a
+second messaging session. `ChatPage` and `ActiveChatView` own the ordinary chat
+lifecycle. `ChatMainPanel` places `DocumentChatContent` in `ChatBody` above the
+existing `ChatComposer`. Both editor and transcript stay mounted while the
+document is associated with the route; the inactive region is hidden and inert.
+The composer stays at the same React-tree position across
+document/conversation presentation changes, preserving focus, uploads and voice
+controls.
+
+## Entry and ownership
+
+Library, chat cards and direct document links use the shared document-conversation
+entry helpers. The conversation URL records the document surface, its return
+destination and whether the document or conversation is visible. This intent
+survives refresh without a second chat page, event connection or composer store.
+The return destination accepts only supported in-app Library/chat paths.
+
+Documents normally have a conversation: the document upsert API requires a
+nonempty `conversationId`. Opening a document validates that existing link. A
+missing or deleted conversation offers an explicit repair action; opening the
+editor never silently creates a conversation. Repair caches the minted row before
+linking so a failed link can retry without creating another row. Assistant and
+surface identity scope the entry and editor, including assistants with copied
+surface IDs.
+
+## Prepare, then use normal chat
+
+`useDocumentEditorSave` serializes title and body writes for the mounted editor.
+`beginSendPreparation` takes a short editing lease, drains pending writes and
+returns the current saved title/content. The chat submit hook awaits preparation
+before clearing its ordinary draft and attachments, in either presentation.
+A failed save, changed owner,
+closed editor or changed draft cancels preparation without taking the message.
+Feedback uses the saved title. Live-voice entry awaits the same flush before
+starting the conversation session; dictation writes to the existing chat input.
+
+Once preparation succeeds, `useComposerSubmit` and `useSendMessage` own sending.
+There is no document delivery endpoint, pending-message store, reply watcher or
+parallel recovery lifecycle. Queue, error, connection, question and approval
+controls are the existing chat surfaces. The document navigation row reports
+working/needs-input status and offers View conversation or Reopen document.
+See [Conversation SSE](./CONVERSATION_SSE.md) for delivery and stream ownership.
+
+## Layout and compatibility
+
+The mobile editor lives inside the existing keyboard-aware app shell rather than
+moving the composer into an overlay portal. The document header replaces the chat
+header; the editor scrolls independently above the composer. The app shell remains
+the single owner of visual-viewport and safe-area geometry.
+
+Desktop uses its existing side drawer. Read-only workspace-file previews retain a
+separate mobile overlay and cannot send document feedback. Comment updates use the
+existing global event bus and document-comment event hook. Export, comments and
+rename remain owned by `DocumentViewerContainer`.
+
+## Verification boundaries
+
+The tests cover entry ownership and repair, save ordering and locks, preparation
+cancellation, and composer identity across presentation changes. Storybook uses
+production editor/composer components for mobile and desktop presentation states;
+its network fixtures are not proof of message delivery or native microphone use.
+Real-device keyboard, native picker and microphone checks remain a separate manual
+validation step.
+
+The [review disposition ledger](./DOCUMENT_CHAT_REVIEW_LEDGER.md) records relevant
+findings from the predecessor PR, including normal-chat baseline limitations that
+are independent of document presentation.

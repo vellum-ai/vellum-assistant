@@ -1,0 +1,137 @@
+import {
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+
+import { useConversationStore } from "@/stores/conversation-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import { t } from "@/i18n";
+import { captureError } from "@/lib/sentry/capture-error";
+
+import type { DocumentViewerContainerHandle } from "../components/document-viewer-container";
+import type { ComposerSendPreparation } from "./use-composer-submit";
+
+interface DocumentChatPreparationParams {
+  assistantId: string | null;
+  conversationId: string | null;
+  surfaceId: string | null;
+  editorRef: RefObject<DocumentViewerContainerHandle | null>;
+}
+
+interface DocumentSendPreparation extends ComposerSendPreparation {
+  snapshot: { title: string; content: string };
+}
+
+/** Flushes the visible editor before the ordinary chat send or voice entry. */
+export function useDocumentChatPreparation({
+  assistantId,
+  conversationId,
+  surfaceId,
+  editorRef,
+}: DocumentChatPreparationParams) {
+  const [status, setStatus] = useState<
+    | { kind: "idle" }
+    | { kind: "preparing" }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
+  const mountedRef = useRef(true);
+  const pendingRef = useRef<symbol | null>(null);
+  const ownerRef = useRef({});
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    ownerRef.current = {};
+    pendingRef.current = null;
+    setStatus({ kind: "idle" });
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [assistantId, conversationId, surfaceId]);
+
+  const prepareSend =
+    useCallback(async (): Promise<DocumentSendPreparation | null> => {
+      if (pendingRef.current || !assistantId || !conversationId || !surfaceId) {
+        return null;
+      }
+      const editor = editorRef.current;
+      const owner = ownerRef.current;
+      const isCurrent = () => {
+        const viewer = useViewerStore.getState();
+        const doc = viewer.openedDocumentState;
+        return (
+          mountedRef.current &&
+          ownerRef.current === owner &&
+          editorRef.current === editor &&
+          useResolvedAssistantsStore.getState().activeAssistantId ===
+            assistantId &&
+          useConversationStore.getState().activeConversationId ===
+            conversationId &&
+          (viewer.mainView === "document" || viewer.mainView === "chat") &&
+          doc?.source === "document" &&
+          doc.assistantId === assistantId &&
+          doc.surfaceId === surfaceId &&
+          doc.conversationId === conversationId
+        );
+      };
+      if (!editor || !isCurrent()) {
+        return null;
+      }
+      const attempt = Symbol();
+      pendingRef.current = attempt;
+      setStatus({ kind: "preparing" });
+      const lease = editor.beginSendPreparation();
+      const release = () => {
+        lease.release();
+        if (pendingRef.current === attempt) {
+          pendingRef.current = null;
+        }
+        if (isCurrent()) {
+          setStatus({ kind: "idle" });
+        }
+      };
+      try {
+        const snapshot = await lease.flush();
+        if (!isCurrent() || !lease.isCurrent()) {
+          release();
+          return null;
+        }
+        return {
+          snapshot,
+          isCurrent: () => isCurrent() && lease.isCurrent(),
+          release,
+        };
+      } catch (error) {
+        release();
+        captureError(error, { context: "prepare_document_chat" });
+        if (isCurrent()) {
+          setStatus({
+            kind: "error",
+            message: t("chat:documentChat.saveFailed"),
+          });
+        }
+        return null;
+      }
+    }, [assistantId, conversationId, surfaceId, editorRef]);
+
+  const prepareVoice = useCallback(async () => {
+    const preparation = await prepareSend();
+    if (!preparation) {
+      return false;
+    }
+    try {
+      return preparation.isCurrent();
+    } finally {
+      preparation.release();
+    }
+  }, [prepareSend]);
+
+  return {
+    prepareSend,
+    prepareVoice,
+    preparing: status.kind === "preparing",
+    error: status.kind === "error" ? status.message : null,
+  };
+}

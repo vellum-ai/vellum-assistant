@@ -45,6 +45,7 @@ import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
+import { getDocumentFeedbackPrompt } from "../document-conversation";
 import { skillDetailBackState } from "@/utils/skills";
 
 // Import thunks for the lazy panel chunks, shared by the React.lazy wrappers
@@ -506,8 +507,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // lightweight) right-pane subtree changes; the transcript keeps its DOM and
   // scroll position. The drawer eases its width 0 ⇄ target, so opening/closing
   // reflows the chat in lockstep; drag-to-resize + width persistence are
-  // built in. On mobile these panels render via portal overlays, so the
-  // drawer stays closed (`open=false`) and the chat fills the width.
+  // built in. On mobile the document fills the chat's transcript region;
+  // other panels use portal overlays. The drawer stays closed and chat fills
+  // the width.
   //
   // (app-editing and the full-width app viewer keep their own returns above:
   // they replace or split the chat differently and are entered far less often,
@@ -551,7 +553,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
                 )
             }
             onSubmitFeedback={() => {
-              const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
+              const prompt = getDocumentFeedbackPrompt(
+                openedDocumentState.documentName,
+              );
               navigate(
                 routes.conversationWithPrompt(
                   openedDocumentState.conversationId,

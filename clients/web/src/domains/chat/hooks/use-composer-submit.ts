@@ -19,6 +19,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
 } from "react";
 
@@ -68,6 +69,13 @@ export interface UseComposerSubmitParams {
    * are left fully intact. Omitted = always proceed.
    */
   beforeSend?: (content: string) => boolean;
+  /** Saves context before chat takes ownership of the message. Null cancels losslessly. */
+  prepareSend?: () => Promise<ComposerSendPreparation | null>;
+}
+
+export interface ComposerSendPreparation {
+  isCurrent: () => boolean;
+  release: () => void;
 }
 
 export interface ComposerSubmitResult {
@@ -107,6 +115,7 @@ export function useComposerSubmit({
   assistantId,
   activeConversationId,
   beforeSend,
+  prepareSend,
 }: UseComposerSubmitParams): ComposerSubmitResult {
   const shouldFocusInputRef = useRef(false);
   /**
@@ -114,6 +123,19 @@ export function useComposerSubmit({
    * were made. See where it is advanced in `submitMessage`.
    */
   const sendChainRef = useRef<Promise<void>>(Promise.resolve());
+  const preparingRef = useRef<symbol | null>(null);
+  const sendDisabledRef = useRef(sendDisabled);
+  useLayoutEffect(() => {
+    sendDisabledRef.current = sendDisabled;
+  }, [sendDisabled]);
+  const ownerRef = useRef({ assistantId, activeConversationId, mounted: true });
+  useLayoutEffect(() => {
+    ownerRef.current = { assistantId, activeConversationId, mounted: true };
+    preparingRef.current = null;
+    return () => {
+      ownerRef.current = { assistantId, activeConversationId, mounted: false };
+    };
+  }, [assistantId, activeConversationId, prepareSend]);
 
   // --- Focus effect -------------------------------------------------------
   useEffect(() => {
@@ -135,7 +157,7 @@ export function useComposerSubmit({
       const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
       const channelReference = useChannelReferenceStore.getState().reference;
       const trimmed = (inputOverride ?? input).trim();
-      if (sendDisabled) {
+      if (sendDisabled || preparingRef.current) {
         return;
       }
       // A staged channel reference is content in its own right: "look at this
@@ -169,6 +191,37 @@ export function useComposerSubmit({
       );
       if (beforeSend && !beforeSend(finalContent)) {
         return;
+      }
+
+      if (prepareSend) {
+        const attempt = Symbol();
+        const originatingOwner = ownerRef.current;
+        preparingRef.current = attempt;
+        let preparation: ComposerSendPreparation | null = null;
+        try {
+          preparation = await prepareSend();
+          const owner = ownerRef.current;
+          if (
+            !preparation ||
+            !preparation.isCurrent() ||
+            sendDisabledRef.current ||
+            owner !== originatingOwner ||
+            !owner.mounted ||
+            owner.assistantId !== assistantId ||
+            owner.activeConversationId !== activeConversationId ||
+            useComposerStore.getState().input !== input ||
+            useComposerStore.getState().attachments !== chatAttachments ||
+            useQuoteReplyStore.getState().stagedQuotes !== stagedQuotes ||
+            useChannelReferenceStore.getState().reference !== channelReference
+          ) {
+            return;
+          }
+        } finally {
+          preparation?.release();
+          if (preparingRef.current === attempt) {
+            preparingRef.current = null;
+          }
+        }
       }
 
       const attachmentsToSend: DisplayAttachment[] = chatAttachments
@@ -256,6 +309,7 @@ export function useComposerSubmit({
     [
       sendDisabled,
       beforeSend,
+      prepareSend,
       activeConversationId,
       inputRef,
       scrollToLatest,
