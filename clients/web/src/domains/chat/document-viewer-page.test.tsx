@@ -39,7 +39,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 
 const compatibilityUtils = await import("@/lib/backwards-compat/utils");
 let assistantVersionKnown = true;
-const whenAssistantVersionKnownForMock = mock(async (_assistantId: string) => {});
+const whenAssistantVersionKnownForMock = mock(
+  async (_assistantId: string) => {},
+);
 mock.module("@/lib/backwards-compat/utils", () => ({
   ...compatibilityUtils,
   assistantVersionKnownFor: () => assistantVersionKnown,
@@ -47,9 +49,7 @@ mock.module("@/lib/backwards-compat/utils", () => ({
     whenAssistantVersionKnownForMock(assistantId),
 }));
 
-const toastModule = await import(
-  "@vellumai/design-library/components/toast"
-);
+const toastModule = await import("@vellumai/design-library/components/toast");
 const toastErrorMock = mock((..._args: unknown[]) => {});
 mock.module("@vellumai/design-library/components/toast", () => ({
   ...toastModule,
@@ -80,9 +80,8 @@ mock.module("./components/document-viewer-container", () => ({
   },
 }));
 
-const { DocumentViewerPage } = await import(
-  "@/domains/chat/document-viewer-page"
-);
+const { DocumentViewerPage } =
+  await import("@/domains/chat/document-viewer-page");
 
 function documentSurface(
   overrides: Partial<DocumentsByIdGetResponse> = {},
@@ -240,9 +239,7 @@ describe("DocumentViewerPage", () => {
     await waitFor(() => expect(viewerProps?.assistantId).toBe("asst-2"));
     let secondAttempt: Promise<void> = Promise.resolve();
     await act(async () => {
-      secondAttempt = (
-        viewerProps?.onSubmitFeedback as () => Promise<void>
-      )();
+      secondAttempt = (viewerProps?.onSubmitFeedback as () => Promise<void>)();
     });
 
     act(() => {
@@ -347,6 +344,27 @@ describe("DocumentViewerPage: mobile composer", () => {
       surfaceId: "surf-1",
       conversationId: "conv-1",
     });
+  });
+
+  test("flushes the mobile viewer before the composer submits", async () => {
+    mockIsMobile = true;
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+    const flushPendingSave = mock(async () => {});
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+    await findByTestId("doc-composer-panel");
+
+    const handleRef = viewerProps?.handleRef as {
+      current: Record<string, unknown> | null;
+    };
+    handleRef.current = {
+      refreshComments: async () => {},
+      flushPendingSave,
+    };
+    await (composerPanelProps?.beforeSubmit as () => Promise<void>)();
+
+    expect(flushPendingSave).toHaveBeenCalledTimes(1);
   });
 });
 

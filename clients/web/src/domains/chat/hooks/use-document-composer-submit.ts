@@ -70,6 +70,8 @@ export type DocumentComposerSendStatus = "idle" | "sending" | "sent" | "error";
 export interface UseDocumentComposerSubmitParams {
   assistantId: string | null;
   doc: DocumentConversationRef | null;
+  /** Persists editor changes that the message is about to reference. */
+  beforeSubmit?: () => Promise<void>;
   /** Whether an image sent to the target conversation survives the turn on
    *  the model that conversation runs. `null` while the vision gate is active
    *  and that conversation's profile has not resolved yet. */
@@ -203,6 +205,7 @@ function hasStagedImage(attachments: ChatAttachment[]): boolean {
 export function useDocumentComposerSubmit({
   assistantId,
   doc,
+  beforeSubmit,
   imageAttachmentsAllowed,
 }: UseDocumentComposerSubmitParams): DocumentComposerSubmitResult {
   const { t } = useTranslation("chat");
@@ -360,6 +363,11 @@ export function useDocumentComposerSubmit({
 
     setStatus("sending");
     try {
+      await beforeSubmit?.();
+      if (assistantChanged()) {
+        holdAbandonedPreflight();
+        return;
+      }
       // Both gates below read `false` while the identity store has no version
       // yet, and the legacy branch that answers then sends a client-minted id
       // the daemon has never seen. Waiting for a resolved version keeps a cold
@@ -692,8 +700,7 @@ export function useDocumentComposerSubmit({
       // A switch away detaches the recovery copy from the stream immediately.
       // The user may return to this assistant before the POST answers, so the
       // current assistant id alone cannot prove this send stayed attached.
-      const sameAssistant =
-        !assistantChanged() && detachedPayload === null;
+      const sameAssistant = !assistantChanged() && detachedPayload === null;
       if (!sameAssistant) {
         const replyStore = useDocumentComposerReplyStore.getState();
         const retainedPayload =
@@ -859,7 +866,15 @@ export function useDocumentComposerSubmit({
       }
       toast.error(t("documentComposer.sendFailed"));
     }
-  }, [assistantId, doc, imageAttachmentsAllowed, navigate, queryClient, t]);
+  }, [
+    assistantId,
+    beforeSubmit,
+    doc,
+    imageAttachmentsAllowed,
+    navigate,
+    queryClient,
+    t,
+  ]);
 
   return { status, submit };
 }

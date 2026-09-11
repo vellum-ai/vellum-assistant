@@ -1,4 +1,3 @@
-
 import { useTranslation } from "@/i18n";
 /**
  * Document viewer with integrated comment panel.
@@ -26,7 +25,12 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { ActionMenu, Button, toast, Typography } from "@vellumai/design-library";
+import {
+  ActionMenu,
+  Button,
+  toast,
+  Typography,
+} from "@vellumai/design-library";
 import {
   Check,
   Download,
@@ -72,6 +76,8 @@ const TiptapDocumentEditor = lazy(() =>
 export interface DocumentViewerContainerHandle {
   /** Refresh the comment panel. Call when an SSE comment event arrives. */
   refreshComments: () => Promise<void>;
+  /** Persist editor changes before a document-scoped message is sent. */
+  flushPendingSave: () => Promise<void>;
 }
 
 /** A document surface: autosave writes through the documents API. */
@@ -175,7 +181,12 @@ export function DocumentViewerContainer({
   // the keystroke landed is no longer where the text belongs. The pending
   // markdown rides along so the unmount flush below has something to write.
   const saveTargetRef = useRef(saveTarget);
-  const pendingMarkdownRef = useRef<string | null>(null);
+  const pendingMarkdownRef = useRef<{
+    markdown: string;
+    revision: number;
+  } | null>(null);
+  const markdownRevisionRef = useRef(0);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   // The last markdown the editor produced, kept past the save that wrote it.
   // A rename posts the body along with the title, and the `content` prop is
   // the snapshot the document loaded with: it does not follow the user's
@@ -185,19 +196,42 @@ export function DocumentViewerContainer({
     saveTargetRef.current = saveTarget;
   });
 
-  const flushPendingSave = useCallback(() => {
-    const markdown = pendingMarkdownRef.current;
-    if (markdown === null) {
+  const flushPendingSave = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    const pending = pendingMarkdownRef.current;
+    if (pending === null) {
+      await saveChainRef.current;
       return;
     }
     pendingMarkdownRef.current = null;
     const target = saveTargetRef.current;
-    void saveDocumentContent(target, markdown).then(
+    // Serialize saves so a slow older write cannot land after the version a
+    // document-scoped message is about to reference.
+    const previousSave = saveChainRef.current.catch(() => {});
+    const queuedSave = previousSave.then(() =>
+      saveDocumentContent(target, pending.markdown),
+    );
+    saveChainRef.current = queuedSave;
+    await queuedSave.then(
       () => {
         setSaveStatus("saved");
         savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
       },
-      () => setSaveStatus("idle"),
+      (error: unknown) => {
+        // Keep the newest failed edit available for the next autosave flush or
+        // send attempt. A newer edit already supersedes this revision.
+        if (
+          pendingMarkdownRef.current === null &&
+          markdownRevisionRef.current === pending.revision
+        ) {
+          pendingMarkdownRef.current = pending;
+        }
+        setSaveStatus("idle");
+        throw error;
+      },
     );
   }, []);
 
@@ -209,13 +243,17 @@ export function DocumentViewerContainer({
       if (savedFadeRef.current) {
         clearTimeout(savedFadeRef.current);
       }
-      pendingMarkdownRef.current = markdown;
+      markdownRevisionRef.current += 1;
+      pendingMarkdownRef.current = {
+        markdown,
+        revision: markdownRevisionRef.current,
+      };
       latestMarkdownRef.current = markdown;
       setWordCount(markdownWordCount(markdown));
       setSaveStatus("saving");
       saveTimerRef.current = setTimeout(() => {
         saveTimerRef.current = null;
-        flushPendingSave();
+        void flushPendingSave().catch(() => {});
       }, 1000);
     },
     [flushPendingSave],
@@ -238,8 +276,8 @@ export function DocumentViewerContainer({
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
-        flushPendingSaveRef.current();
       }
+      void flushPendingSaveRef.current().catch(() => {});
     },
     [],
   );
@@ -312,10 +350,12 @@ export function DocumentViewerContainer({
     }
   }, [assistantId, surfaceId, updateCommentAnchors]);
 
-  // Expose refreshComments for external callers (e.g. SSE handler in page).
-  useImperativeHandle(handleRef, () => ({ refreshComments }), [
-    refreshComments,
-  ]);
+  // Expose refresh and save coordination for the viewer's sibling controls.
+  useImperativeHandle(
+    handleRef,
+    () => ({ refreshComments, flushPendingSave }),
+    [flushPendingSave, refreshComments],
+  );
 
   // -------------------------------------------------------------------------
   // Inline comment creation
@@ -489,7 +529,9 @@ export function DocumentViewerContainer({
             {saveStatus === "saving" ? (
               <Loader2 size={12} className="shrink-0 animate-spin" />
             ) : null}
-            {saveStatus === "saved" ? <Check size={12} className="shrink-0" /> : null}
+            {saveStatus === "saved" ? (
+              <Check size={12} className="shrink-0" />
+            ) : null}
             <Typography
               variant="label-small-default"
               className="truncate text-[var(--content-tertiary)]"
@@ -520,7 +562,11 @@ export function DocumentViewerContainer({
           >
             <ActionMenu.Item
               icon={MessageSquareText}
-              label={commentsPanelOpen ? t("documentViewerContainer.hideComments") : t("documentViewerContainer.comments")}
+              label={
+                commentsPanelOpen
+                  ? t("documentViewerContainer.hideComments")
+                  : t("documentViewerContainer.comments")
+              }
               onSelect={toggleComments}
             />
             <ActionMenu.Item

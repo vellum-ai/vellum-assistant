@@ -366,7 +366,13 @@ export function DocumentViewerPage() {
       {isMobile ? (
         <>
           <div className="min-h-0 flex-1">{viewer}</div>
-          <DocumentComposerPanel assistantId={assistantId} doc={composerDoc} />
+          <DocumentComposerPanel
+            assistantId={assistantId}
+            doc={composerDoc}
+            beforeSubmit={async () => {
+              await viewerRef.current?.flushPendingSave();
+            }}
+          />
         </>
       ) : (
         viewer

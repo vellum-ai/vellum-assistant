@@ -204,6 +204,7 @@ function wrapper({ children }: { children: ReactNode }) {
 function renderSubmit(
   conversationId: string,
   imageAttachmentsAllowed: boolean | null = true,
+  beforeSubmit?: () => Promise<void>,
 ) {
   return renderHook(
     () =>
@@ -211,6 +212,7 @@ function renderSubmit(
         assistantId: ASSISTANT_ID,
         doc: { surfaceId: SURFACE_ID, conversationId },
         imageAttachmentsAllowed,
+        beforeSubmit,
       }),
     { wrapper },
   );
@@ -490,6 +492,52 @@ afterEach(() => {
     detachedQueuedSends: new Map(),
   });
   useViewerStore.setState({ openedDocumentState: null });
+});
+
+describe("document save coordination", () => {
+  test("waits for pending document edits before posting the message", async () => {
+    let finishSave: () => void = () => {};
+    const beforeSubmit = mock(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve;
+        }),
+    );
+    const { result } = renderSubmit("conv-existing", true, beforeSubmit);
+    useComposerStore.getState().setInput("review this", "document");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+
+    expect(beforeSubmit).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(result.current.status).toBe("sending");
+
+    await act(async () => {
+      finishSave();
+      await submitted;
+    });
+
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps the message staged when saving the document fails", async () => {
+    const beforeSubmit = mock(async () => {
+      throw new Error("save failed");
+    });
+    const { result } = renderSubmit("conv-existing", true, beforeSubmit);
+    useComposerStore.getState().setInput("review this", "document");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().documentInput).toBe("review this");
+    expect(result.current.status).toBe("error");
+  });
 });
 
 describe("conversation id resolution", () => {

@@ -1,5 +1,10 @@
+import { useRef } from "react";
+
 import { DocumentComposerPanel } from "@/domains/chat/components/document-composer-panel";
-import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import {
+  DocumentViewerContainer,
+  type DocumentViewerContainerHandle,
+} from "@/domains/chat/components/document-viewer-container";
 import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
 import type { DocumentConversationRef } from "@/domains/chat/utils/document-conversation";
 import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
@@ -41,6 +46,7 @@ export function MobileDocumentOverlay({
   onSubmitFeedback,
 }: MobileDocumentOverlayProps) {
   const shellStyle = useMobileOverlayViewportStyle();
+  const viewerRef = useRef<DocumentViewerContainerHandle>(null);
 
   // Called before any early return (Rules of Hooks): narrowed to `null` for
   // the workspace-file-preview branch, which has no `conversationId` to send
@@ -89,6 +95,7 @@ export function MobileDocumentOverlay({
           assistantId={assistantId}
           surfaceId={openedDocumentState.surfaceId}
           conversationId={openedDocumentState.conversationId}
+          handleRef={viewerRef}
           onRenamed={(documentName) =>
             useViewerStore
               .getState()
@@ -101,6 +108,9 @@ export function MobileDocumentOverlay({
         key={`document-composer:${openedDocumentState.surfaceId}`}
         assistantId={assistantId}
         doc={docRef}
+        beforeSubmit={async () => {
+          await viewerRef.current?.flushPendingSave();
+        }}
       />
     </div>
   );

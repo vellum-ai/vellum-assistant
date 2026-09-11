@@ -8,6 +8,7 @@
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -16,7 +17,9 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { createRef, type ReactNode, type Ref } from "react";
+
+import type { DocumentViewerContainerHandle } from "@/domains/chat/components/document-viewer-container";
 
 const saveDocumentContent = mock(
   async (_target: unknown, _markdown: string) => ({ success: true }) as unknown,
@@ -40,28 +43,31 @@ mock.module("./document-comment-panel", () => ({
 
 // The editor is a lazy chunk. The stub gives the test a way to emit the update
 // the real editor emits on a keystroke.
+let editorMarkdown = "edited body";
 mock.module("./tiptap-document-editor", () => ({
   TiptapDocumentEditor: ({
     onContentChange,
   }: {
     onContentChange: (markdown: string) => void;
   }) => (
-    <button type="button" onClick={() => onContentChange("edited body")}>
+    <button type="button" onClick={() => onContentChange(editorMarkdown)}>
       type
     </button>
   ),
 }));
 
-const { DocumentViewerContainer } = await import(
-  "@/domains/chat/components/document-viewer-container"
-);
+const { DocumentViewerContainer } =
+  await import("@/domains/chat/components/document-viewer-container");
 
 interface RenderResult {
   unmount: () => void;
 }
 
 function renderViewer(
-  props: { onRenamed?: (documentName: string) => void } = {},
+  props: {
+    onRenamed?: (documentName: string) => void;
+    handleRef?: Ref<DocumentViewerContainerHandle>;
+  } = {},
 ): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -77,6 +83,7 @@ function renderViewer(
       surfaceId="surf-1"
       conversationId="conv-1"
       onRenamed={props.onRenamed}
+      handleRef={props.handleRef}
     />,
     {
       wrapper: ({ children }: { children: ReactNode }) => (
@@ -90,7 +97,8 @@ function renderViewer(
 }
 
 /** Emit one editor update and wait for the editor stub to have mounted. */
-async function typeIntoEditor(): Promise<void> {
+async function typeIntoEditor(markdown = "edited body"): Promise<void> {
+  editorMarkdown = markdown;
   const editor = await waitFor(() =>
     screen.getByRole("button", { name: "type" }),
   );
@@ -100,6 +108,7 @@ async function typeIntoEditor(): Promise<void> {
 afterEach(() => {
   cleanup();
   saveDocumentContent.mockClear();
+  editorMarkdown = "edited body";
   // Radix locks body pointer events while a menu is open; a test that leaves
   // one open must not disable pointers for the next one.
   document.body.style.pointerEvents = "";
@@ -118,6 +127,77 @@ async function renameTo(name: string): Promise<void> {
 }
 
 describe("DocumentViewerContainer autosave", () => {
+  test("flushes and awaits the latest edit before a sibling action continues", async () => {
+    let finishSave: () => void = () => {};
+    saveDocumentContent.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSave = () => resolve({ success: true } as unknown);
+        }),
+    );
+    const handleRef = createRef<DocumentViewerContainerHandle>();
+    renderViewer({ handleRef });
+    await typeIntoEditor("latest body");
+
+    let flushed = false;
+    const flush = handleRef.current!.flushPendingSave().then(() => {
+      flushed = true;
+    });
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    expect(flushed).toBe(false);
+    expect(saveDocumentContent.mock.calls[0]![1]).toBe("latest body");
+
+    await act(async () => {
+      finishSave();
+      await flush;
+    });
+    expect(flushed).toBe(true);
+  });
+
+  test("serializes a newer flush behind an autosave already in flight", async () => {
+    let finishFirst: () => void = () => {};
+    let finishSecond: () => void = () => {};
+    saveDocumentContent
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishFirst = () => resolve({ success: true } as unknown);
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishSecond = () => resolve({ success: true } as unknown);
+          }),
+      );
+    const handleRef = createRef<DocumentViewerContainerHandle>();
+    renderViewer({ handleRef });
+
+    await typeIntoEditor("older body");
+    const firstFlush = handleRef.current!.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+
+    await typeIntoEditor("latest body");
+    const latestFlush = handleRef.current!.flushPendingSave();
+    await act(async () => {});
+    expect(saveDocumentContent).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishFirst();
+      await firstFlush;
+    });
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(2));
+    expect(saveDocumentContent.mock.calls.map((call) => call[1])).toEqual([
+      "older body",
+      "latest body",
+    ]);
+
+    await act(async () => {
+      finishSecond();
+      await latestFlush;
+    });
+  });
+
   test("an edit still pending when the container goes away is flushed", async () => {
     const { unmount } = renderViewer();
     await typeIntoEditor();
@@ -127,7 +207,7 @@ describe("DocumentViewerContainer autosave", () => {
 
     unmount();
 
-    expect(saveDocumentContent).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
     expect(saveDocumentContent.mock.calls[0]![0]).toEqual({
       source: "document",
       assistantId: "asst-1",

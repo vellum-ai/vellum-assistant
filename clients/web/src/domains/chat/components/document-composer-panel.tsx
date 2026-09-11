@@ -22,6 +22,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 export interface DocumentComposerPanelProps {
   assistantId: string | null;
   doc: DocumentConversationRef | null;
+  beforeSubmit?: () => Promise<void>;
 }
 
 /**
@@ -35,6 +36,7 @@ export interface DocumentComposerPanelProps {
 export function DocumentComposerPanel({
   assistantId,
   doc,
+  beforeSubmit,
 }: DocumentComposerPanelProps) {
   const { t } = useTranslation("chat");
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -58,6 +60,7 @@ export function DocumentComposerPanel({
   const { status, submit } = useDocumentComposerSubmit({
     assistantId,
     doc,
+    beforeSubmit,
     imageAttachmentsAllowed,
   });
 

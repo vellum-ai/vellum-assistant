@@ -22,12 +22,16 @@ import type { OpenedDocumentState } from "@/stores/viewer-store";
 
 let hookStatus: DocumentComposerSendStatus = "idle";
 const submitMock = mock(async () => {});
+let lastSubmitParams: Record<string, unknown> = {};
 
 mock.module("@/domains/chat/hooks/use-document-composer-submit", () => ({
-  useDocumentComposerSubmit: () => ({
-    status: hookStatus,
-    submit: submitMock,
-  }),
+  useDocumentComposerSubmit: (params: Record<string, unknown>) => {
+    lastSubmitParams = params;
+    return {
+      status: hookStatus,
+      submit: submitMock,
+    };
+  },
 }));
 
 mock.module("@/hooks/use-mobile-overlay-viewport-style", () => ({
@@ -41,8 +45,12 @@ mock.module("@/domains/chat/hooks/use-image-attachments-allowed", () => ({
   useImageAttachmentsAllowed: () => true,
 }));
 
+let lastViewerProps: Record<string, unknown> = {};
 mock.module("@/domains/chat/components/document-viewer-container", () => ({
-  DocumentViewerContainer: () => <div data-testid="viewer" />,
+  DocumentViewerContainer: (props: Record<string, unknown>) => {
+    lastViewerProps = props;
+    return <div data-testid="viewer" />;
+  },
 }));
 
 mock.module(
@@ -68,6 +76,8 @@ afterEach(() => {
   cleanup();
   hookStatus = "idle";
   submitMock.mockClear();
+  lastSubmitParams = {};
+  lastViewerProps = {};
   lastComposerProps = {};
   useComposerStore.setState({
     documentInput: "",
@@ -126,6 +136,28 @@ describe("MobileDocumentOverlay", () => {
     expect(screen.getByTestId("composer")).toBeDefined();
     expect(lastComposerProps.slot).toBe("document");
     expect(lastComposerProps.assistantId).toBe("assistant-1");
+  });
+
+  test("flushes the overlay viewer before the composer submits", async () => {
+    const flushPendingSave = mock(async () => {});
+    render(
+      <MobileDocumentOverlay
+        openedDocumentState={documentState()}
+        assistantId="assistant-1"
+        onClose={noop}
+      />,
+    );
+    const handleRef = lastViewerProps.handleRef as {
+      current: Record<string, unknown> | null;
+    };
+    handleRef.current = {
+      refreshComments: async () => {},
+      flushPendingSave,
+    };
+
+    await (lastSubmitParams.beforeSubmit as () => Promise<void>)();
+
+    expect(flushPendingSave).toHaveBeenCalledTimes(1);
   });
 
   test("composer is enabled while idle", () => {
