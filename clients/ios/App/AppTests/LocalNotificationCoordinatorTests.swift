@@ -387,6 +387,181 @@ final class LocalNotificationCoordinatorTests: XCTestCase {
         XCTAssertNil(content.senderName)
     }
 
+    func testOlderTargetedResetDoesNotDeleteCurrentPreparedIdentity() async {
+        let writer = WriteRecorder(result: .posted)
+        let coordinator = makeCoordinator(writer: writer) { content, sender, _ in
+            var updated = content
+            updated.senderName = sender.name
+            return updated
+        }
+        let prepared = await coordinator.prepare(preparedUpdate(epoch: 4, revision: 5))
+
+        let reset = await coordinator.reset(
+            scopeId: identity.scopeId,
+            scopeEpoch: 4,
+            assistantId: identity.assistantId,
+            identityRevision: 4
+        )
+        let result = await coordinator.post(request(
+            key: "delivery-after-stale-reset",
+            senderName: "Assistant"
+        ))
+
+        XCTAssertTrue(prepared)
+        XCTAssertFalse(reset)
+        XCTAssertEqual(result, .posted)
+        let content = await writer.snapshot()[0].content
+        XCTAssertEqual(content.senderName, "Assistant")
+    }
+
+    func testGenerationPressureSealsOldestScopeWithoutForgettingItsFloor() async {
+        let writer = WriteRecorder(result: .posted)
+        let coordinator = makeCoordinator(writer: writer) { content, sender, _ in
+            var updated = content
+            updated.senderName = sender.name
+            return updated
+        }
+        let retainedOwner = makeIdentity(
+            scopeId: "scope-sealed",
+            assistantId: "assistant-retained"
+        )
+        let resetOwner = makeIdentity(
+            scopeId: retainedOwner.scopeId,
+            assistantId: "assistant-reset"
+        )
+        let churnScope = "scope-active"
+        let retained = await coordinator.prepare(preparedUpdate(
+            for: retainedOwner,
+            epoch: 2,
+            revision: 1
+        ))
+        let tombstoned = await coordinator.reset(
+            scopeId: resetOwner.scopeId,
+            scopeEpoch: 2,
+            assistantId: resetOwner.assistantId,
+            identityRevision: 10
+        )
+
+        for index in 0..<15 {
+            let churnOwner = makeIdentity(
+                scopeId: churnScope,
+                assistantId: "assistant-\(index)"
+            )
+            let reset = await coordinator.reset(
+                scopeId: churnScope,
+                scopeEpoch: 0,
+                assistantId: churnOwner.assistantId,
+                identityRevision: 0
+            )
+            XCTAssertTrue(reset)
+        }
+
+        let postAfterCompaction = await coordinator.post(request(
+            key: "delivery-after-scope-seal",
+            senderName: "Retained Assistant",
+            identity: retainedOwner
+        ))
+        let delayedPublication = await coordinator.prepare(preparedUpdate(
+            for: resetOwner,
+            epoch: 2,
+            revision: 5
+        ))
+        let reopenedPublication = await coordinator.prepare(preparedUpdate(
+            for: resetOwner,
+            epoch: 3,
+            revision: 0
+        ))
+        let retainedScopePublication = await coordinator.prepare(preparedUpdate(
+            for: makeIdentity(scopeId: churnScope, assistantId: "assistant-0"),
+            epoch: 0,
+            revision: 1
+        ))
+
+        XCTAssertTrue(retained)
+        XCTAssertTrue(tombstoned)
+        XCTAssertEqual(postAfterCompaction, .posted)
+        let content = await writer.snapshot()[0].content
+        XCTAssertNil(content.senderName)
+        XCTAssertFalse(delayedPublication)
+        XCTAssertTrue(reopenedPublication)
+        XCTAssertTrue(retainedScopePublication)
+    }
+
+    func testFullSameEpochResetSealsUntilAHigherEpochReopensTheScope() async {
+        let writer = WriteRecorder(result: .posted)
+        let coordinator = makeCoordinator(writer: writer) { content, _, _ in content }
+        let prepared = await coordinator.prepare(preparedUpdate(epoch: 4, revision: 1))
+
+        let sealed = await coordinator.reset(
+            scopeId: identity.scopeId,
+            scopeEpoch: 4,
+            assistantId: nil
+        )
+        let sameEpoch = await coordinator.prepare(preparedUpdate(epoch: 4, revision: 2))
+        let reopened = await coordinator.reset(
+            scopeId: identity.scopeId,
+            scopeEpoch: 5,
+            assistantId: nil
+        )
+        let nextEpoch = await coordinator.prepare(preparedUpdate(epoch: 5, revision: 0))
+
+        XCTAssertTrue(prepared)
+        XCTAssertTrue(sealed)
+        XCTAssertFalse(sameEpoch)
+        XCTAssertTrue(reopened)
+        XCTAssertTrue(nextEpoch)
+    }
+
+    func testScopeBudgetFailsClosedAndFreshCoordinatorStartsEmpty() async {
+        let writer = WriteRecorder(result: .posted)
+        let coordinator = makeCoordinator(writer: writer) { content, _, _ in content }
+
+        for index in 0..<LocalNotificationCoordinator<TestContent>.defaultScopeLimit {
+            let owner = makeIdentity(
+                scopeId: "scope-\(index)",
+                assistantId: "assistant-a"
+            )
+            let accepted = await coordinator.prepare(preparedUpdate(
+                for: owner,
+                epoch: 1,
+                revision: 0
+            ))
+            XCTAssertTrue(accepted)
+        }
+
+        let overflow = makeIdentity(
+            scopeId: "scope-overflow",
+            assistantId: "assistant-a"
+        )
+        let rejectedPrepare = await coordinator.prepare(preparedUpdate(
+            for: overflow,
+            epoch: 1,
+            revision: 0
+        ))
+        let rejectedReset = await coordinator.reset(
+            scopeId: overflow.scopeId,
+            scopeEpoch: 1,
+            assistantId: nil
+        )
+        let retainedScope = await coordinator.prepare(preparedUpdate(
+            for: makeIdentity(scopeId: "scope-0", assistantId: "assistant-a"),
+            epoch: 1,
+            revision: 1
+        ))
+
+        let freshCoordinator = makeCoordinator(writer: writer) { content, _, _ in content }
+        let acceptedAfterRestart = await freshCoordinator.prepare(preparedUpdate(
+            for: overflow,
+            epoch: 1,
+            revision: 0
+        ))
+
+        XCTAssertFalse(rejectedPrepare)
+        XCTAssertFalse(rejectedReset)
+        XCTAssertTrue(retainedScope)
+        XCTAssertTrue(acceptedAfterRestart)
+    }
+
     private func makeCoordinator(
         clock: any LocalNotificationClock = ContinuousLocalNotificationClock(),
         preparedIdentityLimit: Int = LocalNotificationCoordinator<TestContent>
@@ -445,12 +620,31 @@ final class LocalNotificationCoordinatorTests: XCTestCase {
         epoch: Int,
         revision: Int
     ) -> LocalNotificationPreparedIdentityUpdate {
+        preparedUpdate(for: identity, epoch: epoch, revision: revision)
+    }
+
+    private func preparedUpdate(
+        for identity: LocalNotificationIdentity,
+        epoch: Int,
+        revision: Int
+    ) -> LocalNotificationPreparedIdentityUpdate {
         LocalNotificationPreparedIdentityUpdate(
             identity: identity,
             scopeEpoch: epoch,
             identityRevision: revision,
             name: "Assistant",
             avatar: avatar
+        )
+    }
+
+    private func makeIdentity(
+        scopeId: String,
+        assistantId: String
+    ) -> LocalNotificationIdentity {
+        LocalNotificationIdentity(
+            scopeId: scopeId,
+            assistantId: assistantId,
+            nativeSenderId: "native-\(scopeId)-\(assistantId)"
         )
     }
 

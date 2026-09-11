@@ -177,7 +177,7 @@ actor LocalNotificationCoordinator<Content: Sendable> {
     static var defaultPreparationDeadline: Duration { .milliseconds(750) }
     static var defaultPreparedIdentityLimit: Int { 8 }
     static var defaultCompletedResultLimit: Int { 128 }
-    private static var resetRetentionLimit: Int { 16 }
+    static var defaultScopeLimit: Int { 16 }
 
     private struct IdentityKey: Hashable, Sendable {
         let scopeId: String
@@ -192,7 +192,8 @@ actor LocalNotificationCoordinator<Content: Sendable> {
     }
 
     private struct ScopeState: Sendable {
-        var epoch: Int
+        let epoch: Int
+        let sealedEpoch: Int?
     }
 
     private struct IdentityGeneration: Sendable {
@@ -204,6 +205,8 @@ actor LocalNotificationCoordinator<Content: Sendable> {
     private let clock: any LocalNotificationClock
     private let preparationDeadline: Duration
     private let preparedIdentityLimit: Int
+    private let identityGenerationLimit: Int
+    private let scopeLimit: Int
     private let completedResultLimit: Int
     private let contentPreparer: ContentPreparer
     private let notificationWriter: NotificationWriter
@@ -211,7 +214,6 @@ actor LocalNotificationCoordinator<Content: Sendable> {
     private var preparedIdentities: [IdentityKey: PreparedIdentity] = [:]
     private var preparedIdentityOrder: [IdentityKey] = []
     private var scopeStates: [String: ScopeState] = [:]
-    private var scopeOrder: [String] = []
     private var identityGenerations: [IdentityKey: IdentityGeneration] = [:]
     private var identityGenerationOrder: [IdentityKey] = []
     private var inFlight: [String: Task<LocalNotificationDeliveryResult, Never>] = [:]
@@ -222,6 +224,7 @@ actor LocalNotificationCoordinator<Content: Sendable> {
         clock: any LocalNotificationClock = ContinuousLocalNotificationClock(),
         preparationDeadline: Duration = LocalNotificationCoordinator.defaultPreparationDeadline,
         preparedIdentityLimit: Int = LocalNotificationCoordinator.defaultPreparedIdentityLimit,
+        scopeLimit: Int = LocalNotificationCoordinator.defaultScopeLimit,
         completedResultLimit: Int = LocalNotificationCoordinator.defaultCompletedResultLimit,
         contentPreparer: @escaping ContentPreparer,
         notificationWriter: @escaping NotificationWriter
@@ -229,6 +232,11 @@ actor LocalNotificationCoordinator<Content: Sendable> {
         self.clock = clock
         self.preparationDeadline = preparationDeadline
         self.preparedIdentityLimit = max(1, preparedIdentityLimit)
+        identityGenerationLimit = max(
+            self.preparedIdentityLimit * 2,
+            LocalNotificationCoordinator.defaultScopeLimit
+        )
+        self.scopeLimit = max(1, scopeLimit)
         self.completedResultLimit = max(1, completedResultLimit)
         self.contentPreparer = contentPreparer
         self.notificationWriter = notificationWriter
@@ -274,16 +282,17 @@ actor LocalNotificationCoordinator<Content: Sendable> {
         guard prepared.name != nil || prepared.avatar != nil else {
             return false
         }
-        preparedIdentities[key] = prepared
-        touch(key, in: &preparedIdentityOrder)
-        identityGenerations[key] = IdentityGeneration(
+        let generation = IdentityGeneration(
             scopeEpoch: update.scopeEpoch,
             identityRevision: update.identityRevision,
             revisionTombstone: false
         )
-        touch(key, in: &identityGenerationOrder)
+        guard setIdentityGeneration(generation, for: key) else {
+            return false
+        }
+        preparedIdentities[key] = prepared
+        touch(key, in: &preparedIdentityOrder)
         prunePreparedIdentities()
-        pruneIdentityGenerations()
         return true
     }
 
@@ -300,35 +309,39 @@ actor LocalNotificationCoordinator<Content: Sendable> {
         else {
             return false
         }
-        let current = scopeStates[scopeId]?.epoch
-        if let current, scopeEpoch < current {
+        guard let scopeUpdate = updateScopeEpoch(scopeEpoch, scopeId: scopeId) else {
             return false
         }
-        if current.map({ scopeEpoch > $0 }) ?? true {
-            clearIdentityState(scopeId: scopeId)
-            scopeStates[scopeId] = ScopeState(epoch: scopeEpoch)
-        }
-        touch(scopeId, in: &scopeOrder)
 
         if let assistantId {
+            if let sealedEpoch = scopeUpdate.state.sealedEpoch,
+               scopeEpoch <= sealedEpoch {
+                return true
+            }
             let key = IdentityKey(scopeId: scopeId, assistantId: assistantId)
             let knownRevision = identityGenerations[key]
                 .flatMap { $0.scopeEpoch == scopeEpoch ? $0.identityRevision : nil }
                 ?? -1
+            if let identityRevision, identityRevision < knownRevision {
+                return false
+            }
             preparedIdentities.removeValue(forKey: key)
             preparedIdentityOrder.removeAll { $0 == key }
-            identityGenerations[key] = IdentityGeneration(
+            let generation = IdentityGeneration(
                 scopeEpoch: scopeEpoch,
                 identityRevision: max(identityRevision ?? -1, knownRevision),
                 revisionTombstone: true
             )
-            touch(key, in: &identityGenerationOrder)
-            pruneIdentityGenerations()
+            _ = setIdentityGeneration(generation, for: key)
         } else {
             clearIdentityState(scopeId: scopeId)
-            scopeStates[scopeId] = ScopeState(epoch: scopeEpoch)
+            if !scopeUpdate.advanced {
+                scopeStates[scopeId] = ScopeState(
+                    epoch: scopeEpoch,
+                    sealedEpoch: scopeEpoch
+                )
+            }
         }
-        pruneScopeStates()
         return true
     }
 
@@ -454,19 +467,70 @@ actor LocalNotificationCoordinator<Content: Sendable> {
     }
 
     private func acceptScopeEpoch(_ epoch: Int, scopeId: String) -> Bool {
-        if let state = scopeStates[scopeId] {
-            if epoch < state.epoch {
-                return false
-            }
-            if epoch > state.epoch {
-                clearIdentityState(scopeId: scopeId)
-                scopeStates[scopeId] = ScopeState(epoch: epoch)
-            }
-        } else {
-            scopeStates[scopeId] = ScopeState(epoch: epoch)
+        guard let update = updateScopeEpoch(epoch, scopeId: scopeId) else {
+            return false
         }
-        touch(scopeId, in: &scopeOrder)
-        pruneScopeStates()
+        return update.state.sealedEpoch.map { epoch > $0 } ?? true
+    }
+
+    private func updateScopeEpoch(
+        _ epoch: Int,
+        scopeId: String
+    ) -> (state: ScopeState, advanced: Bool)? {
+        guard let state = scopeStates[scopeId] else {
+            guard scopeStates.count < scopeLimit else {
+                return nil
+            }
+            let admitted = ScopeState(epoch: epoch, sealedEpoch: nil)
+            scopeStates[scopeId] = admitted
+            return (admitted, true)
+        }
+        if epoch < state.epoch {
+            return nil
+        }
+        if epoch > state.epoch {
+            clearIdentityState(scopeId: scopeId)
+            let advanced = ScopeState(epoch: epoch, sealedEpoch: nil)
+            scopeStates[scopeId] = advanced
+            return (advanced, true)
+        }
+        return (state, false)
+    }
+
+    private func sealScope(_ scopeId: String) {
+        guard let state = scopeStates[scopeId] else {
+            return
+        }
+        clearIdentityState(scopeId: scopeId)
+        scopeStates[scopeId] = ScopeState(
+            epoch: state.epoch,
+            sealedEpoch: max(state.sealedEpoch ?? -1, state.epoch)
+        )
+    }
+
+    private func setIdentityGeneration(
+        _ generation: IdentityGeneration,
+        for key: IdentityKey
+    ) -> Bool {
+        if identityGenerations[key] == nil {
+            while identityGenerations.count >= identityGenerationLimit {
+                guard let oldest = identityGenerationOrder.first,
+                      identityGenerations[oldest] != nil else {
+                    return false
+                }
+                sealScope(oldest.scopeId)
+                if identityGenerations[oldest] != nil {
+                    return false
+                }
+            }
+        }
+        guard let scope = scopeStates[key.scopeId],
+              scope.sealedEpoch.map({ generation.scopeEpoch > $0 }) ?? true
+        else {
+            return false
+        }
+        identityGenerations[key] = generation
+        touch(key, in: &identityGenerationOrder)
         return true
     }
 
@@ -488,22 +552,6 @@ actor LocalNotificationCoordinator<Content: Sendable> {
         while preparedIdentityOrder.count > preparedIdentityLimit {
             let evicted = preparedIdentityOrder.removeFirst()
             preparedIdentities.removeValue(forKey: evicted)
-        }
-    }
-
-    private func pruneIdentityGenerations() {
-        let limit = max(preparedIdentityLimit * 2, Self.resetRetentionLimit)
-        while identityGenerationOrder.count > limit {
-            let evicted = identityGenerationOrder.removeFirst()
-            identityGenerations.removeValue(forKey: evicted)
-        }
-    }
-
-    private func pruneScopeStates() {
-        while scopeOrder.count > Self.resetRetentionLimit {
-            let evicted = scopeOrder.removeFirst()
-            scopeStates.removeValue(forKey: evicted)
-            clearIdentityState(scopeId: evicted)
         }
     }
 
