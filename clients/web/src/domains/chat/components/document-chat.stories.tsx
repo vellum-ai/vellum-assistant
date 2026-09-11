@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useRef, useState } from "react";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 
 import {
   useComposerStore,
@@ -118,9 +118,8 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
           onSurfaceAction: () => {},
         },
       }}
-      documentSlot={
-        layout === "mobile" && showingDocument ? documentViewer : undefined
-      }
+      documentSlot={layout === "mobile" ? documentViewer : undefined}
+      documentPresentation={presentation}
       sessionNavigationSlot={
         layout === "mobile" ? (
           <DocumentChatNavigation
@@ -326,6 +325,16 @@ export const MobilePreservesComposer: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const textarea = await canvas.findByPlaceholderText(PLACEHOLDER);
+    const editor = await waitFor(() => {
+      const node = canvasElement.querySelector<HTMLElement>(
+        '[data-slot="document-content"] [contenteditable="true"]',
+      );
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    const edit = " Leave room for surprises.";
+    await userEvent.type(editor, edit);
+    await expect(editor).toHaveTextContent(edit.trim());
     await userEvent.type(textarea, " Keep the relaxed tone.");
     const expectedDraft = `${DRAFT} Keep the relaxed tone.`;
     await userEvent.click(
@@ -334,10 +343,16 @@ export const MobilePreservesComposer: Story = {
     await expect(canvas.getByPlaceholderText(PLACEHOLDER)).toBe(textarea);
     await expect(textarea).toHaveValue(expectedDraft);
     await expect(canvas.getByText(ATTACHMENT.filename)).toBeVisible();
+    await expect(editor).not.toBeVisible();
     await userEvent.click(canvas.getByRole("button", { name: "Reopen document" }));
     await expect(canvas.getByPlaceholderText(PLACEHOLDER)).toBe(textarea);
     await expect(textarea).toHaveValue(expectedDraft);
     await expect(canvas.getByText(ATTACHMENT.filename)).toBeVisible();
+    await expect(canvasElement.querySelector(
+      '[data-slot="document-content"] [contenteditable="true"]',
+    )).toBe(editor);
+    await expect(editor).toBeVisible();
+    await expect(editor).toHaveTextContent(edit.trim());
     await expect(canvasElement.querySelectorAll("textarea")).toHaveLength(1);
   },
 };

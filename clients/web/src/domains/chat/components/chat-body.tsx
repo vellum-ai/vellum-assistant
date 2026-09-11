@@ -82,6 +82,8 @@ export interface ChatBodyProps {
 
   /** Alternative content above the same mounted composer stack. */
   documentSlot?: ReactNode;
+  /** Selects the visible region while keeping both content trees mounted. */
+  documentPresentation?: "document" | "conversation";
   /** Session navigation/status, visible in either content presentation. */
   sessionNavigationSlot?: ReactNode;
 
@@ -216,6 +218,7 @@ export function ChatBody({
   scrollAreaProps,
   composerSlot,
   documentSlot,
+  documentPresentation = "document",
   sessionNavigationSlot,
   bottomInset,
   dragHandlers,
@@ -239,7 +242,8 @@ export function ChatBody({
   activeProcessOverlaysSlot,
 }: ChatBodyProps) {
   const { t } = useTranslation("chat");
-  const showingDocument = documentSlot != null;
+  const showingDocument =
+    documentSlot != null && documentPresentation === "document";
   const isEmptyState = !showingDocument && scrollAreaProps.showEmptyState;
   const keyboardOpen = useKeyboardOpen();
   // Banners (app-download nudge, GitHub star, Discord) show once the user
@@ -450,10 +454,17 @@ export function ChatBody({
           >
             <ChatScrollArea {...scrollAreaProps} />
           </div>
-          {showingDocument && (
+          {documentSlot != null && (
             <div
               key="document"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+              data-slot="document-content"
+              hidden={!showingDocument}
+              inert={!showingDocument || undefined}
+              className={
+                showingDocument
+                  ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+                  : "hidden"
+              }
             >
               {documentSlot}
             </div>

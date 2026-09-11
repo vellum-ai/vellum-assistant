@@ -13,7 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -176,6 +176,35 @@ function withEmptyState(overrides: Partial<ChatBodyProps> = {}): ChatBodyProps {
 }
 
 describe("shared document presentation", () => {
+  test("preserves the edited document and composer when only presentation changes", () => {
+    const props = baseProps({
+      scrollAreaProps: { ...baseProps().scrollAreaProps, messageCount: 1 },
+      composerSlot: <textarea aria-label="Message" defaultValue="Draft message" />,
+      documentSlot: <textarea aria-label="Document" defaultValue="Original text" />,
+    });
+    const view = render(<ChatBody {...props} />);
+    const editor = view.getByRole("textbox", { name: "Document" });
+    const composer = view.getByRole("textbox", { name: "Message" });
+    fireEvent.change(editor, { target: { value: "Locally edited text" } });
+    fireEvent.change(composer, { target: { value: "Unsaved message" } });
+    const transcript = view.getByTestId("transcript");
+    expect(transcript.closest("[hidden]")).not.toBeNull();
+
+    view.rerender(<ChatBody {...props} documentPresentation="conversation" />);
+    expect(view.queryByRole("textbox", { name: "Document" })).toBeNull();
+    expect(editor.closest("[inert]")).not.toBeNull();
+    expect(transcript.closest("[hidden]")).toBeNull();
+    expect(view.getByRole("textbox", { name: "Message" })).toBe(composer);
+
+    view.rerender(<ChatBody {...props} documentPresentation="document" />);
+    expect(view.getByRole("textbox", { name: "Document" })).toBe(editor);
+    expect(view.getByDisplayValue("Locally edited text")).toBe(editor);
+    expect(view.getByRole("textbox", { name: "Message" })).toBe(composer);
+    expect(view.getByDisplayValue("Unsaved message")).toBe(composer);
+    expect(editor.closest("[hidden]")).toBeNull();
+    expect(transcript.closest("[inert]")).not.toBeNull();
+  });
+
   test("preserves the same focused composer and transcript across presentation switches", () => {
     const props = baseProps({
       scrollAreaProps: { ...baseProps().scrollAreaProps, messageCount: 1 },
