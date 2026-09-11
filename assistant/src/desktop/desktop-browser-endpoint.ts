@@ -1,6 +1,8 @@
 import { readdir, readFile, readlink } from "node:fs/promises";
 import { createServer } from "node:net";
 
+import { DESKTOP_HEIGHT, DESKTOP_WIDTH } from "./desktop-display.js";
+
 export async function allocateDesktopDebugPort(): Promise<number> {
   const server = createServer();
   await new Promise<void>((resolve, reject) => {
@@ -95,7 +97,7 @@ export function desktopChromeArguments(
     "--disable-dev-shm-usage",
     "--start-maximized",
     "--window-position=0,0",
-    "--window-size=1440,900",
+    `--window-size=${DESKTOP_WIDTH},${DESKTOP_HEIGHT}`,
     `--user-data-dir=${profileDir}`,
     ...(debugPort
       ? [

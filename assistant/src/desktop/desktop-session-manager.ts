@@ -27,7 +27,9 @@ import {
 } from "./desktop-dependencies.js";
 import {
   DESKTOP_DISPLAY,
+  DESKTOP_HEIGHT,
   DESKTOP_OVERRIDABLE_PARAMETERS,
+  DESKTOP_WIDTH,
 } from "./desktop-display.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
@@ -35,8 +37,6 @@ import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
 const log = getLogger("desktop-session");
 
 export const DESKTOP_VNC_PORT = 5999;
-const DESKTOP_WIDTH = 1440;
-const DESKTOP_HEIGHT = 900;
 const DESKTOP_GEOMETRY = `${DESKTOP_WIDTH}x${DESKTOP_HEIGHT}`;
 const DESKTOP_LINGER_MS = 5 * 60_000;
 const VNC_READY_DEADLINE_MS = 10_000;

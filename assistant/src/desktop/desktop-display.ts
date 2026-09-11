@@ -1,4 +1,6 @@
 export const DESKTOP_DISPLAY = ":99";
+export const DESKTOP_WIDTH = 1440;
+export const DESKTOP_HEIGHT = 900;
 export const DESKTOP_INPUT_PARAMETERS = [
   "AcceptKeyEvents",
   "AcceptPointerEvents",
