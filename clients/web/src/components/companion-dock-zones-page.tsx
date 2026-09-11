@@ -21,7 +21,7 @@
  * one. Decoration on a desktop it does not own, like the watch frame.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import {
   companionAccentHexFor,
@@ -40,28 +40,65 @@ import {
 /**
  * How far in from the display's edge a zone reaches, in points.
  *
- * Deep enough to read as a place rather than a line, and shallow enough that
- * the four never meet in the middle of a small display: a zone is where the
- * bar is going, not where the drag is allowed.
+ * About the bar's own thickness: deep enough to read as a place rather than
+ * a line, and shallow enough to stay a rim of the display rather than a band
+ * across it. A zone is where the bar is going, not where the drag is
+ * allowed, and the drop snaps to the nearest edge from anywhere.
  */
-export const DOCK_ZONE_DEPTH = 88;
+export const DOCK_ZONE_DEPTH = 44;
 
-/** The room a zone keeps from the display's edge and from its neighbours. */
+/**
+ * How far a zone runs along its edge, in points.
+ *
+ * The middle of the edge and not the whole of it, because the middle is
+ * where the bar lands: a drop docks the bar to the centre of the nearest
+ * edge, and a zone running corner to corner would promise a whole side the
+ * bar never uses. About the length of the bar with the creature beside it,
+ * so the lit zone is the size of the thing about to land in it.
+ */
+export const DOCK_ZONE_LENGTH = 360;
+
+/** The room a zone keeps from the display's edge. */
 const DOCK_ZONE_INSET = 10;
 
-/** Where one edge's zone sits, as the CSS edges it is pinned to. */
-const zoneEdges = (dock: CompanionDock): Record<string, number> => {
+/** Where one edge's zone sits: centred on its edge, a rim's depth in. */
+const zoneEdges = (dock: CompanionDock): CSSProperties => {
   const inset = DOCK_ZONE_INSET;
   const depth = DOCK_ZONE_DEPTH;
+  const length = DOCK_ZONE_LENGTH;
   switch (dock) {
     case "top":
-      return { top: inset, left: inset, right: inset, height: depth };
+      return {
+        top: inset,
+        left: "50%",
+        translate: "-50% 0",
+        width: length,
+        height: depth,
+      };
     case "bottom":
-      return { bottom: inset, left: inset, right: inset, height: depth };
+      return {
+        bottom: inset,
+        left: "50%",
+        translate: "-50% 0",
+        width: length,
+        height: depth,
+      };
     case "left":
-      return { left: inset, top: inset, bottom: inset, width: depth };
+      return {
+        left: inset,
+        top: "50%",
+        translate: "0 -50%",
+        height: length,
+        width: depth,
+      };
     case "right":
-      return { right: inset, top: inset, bottom: inset, width: depth };
+      return {
+        right: inset,
+        top: "50%",
+        translate: "0 -50%",
+        height: length,
+        width: depth,
+      };
   }
 };
 

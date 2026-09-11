@@ -114,6 +114,22 @@ describe("the edges a call's bar can dock to", () => {
     );
   });
 
+  /**
+   * The middle of each edge, not the whole of it: the bar lands at the
+   * centre of the edge, and the zone is the size of what lands there.
+   */
+  test("sits at the centre of its edge rather than corner to corner", () => {
+    const { container } = render(<CompanionDockZonesPage />);
+    pushState({ ...STATE, call: LISTENING_CALL, docking: "top" });
+    const [bottom, top, left, right] = zonesOf(container);
+    expect(top?.style.left).toBe("50%");
+    expect(top?.style.width).toBe("360px");
+    expect(bottom?.style.left).toBe("50%");
+    expect(left?.style.top).toBe("50%");
+    expect(left?.style.height).toBe("360px");
+    expect(right?.style.top).toBe("50%");
+  });
+
   test("takes no pointer, so the drag underneath it goes on", () => {
     const { container } = render(<CompanionDockZonesPage />);
     pushState({ ...STATE, call: LISTENING_CALL, docking: "right" });
