@@ -24,7 +24,6 @@
     "machineDowngradeFeature": "Menos CPU y memoria para tu asistente: se redimensionará al perfil de cómputo más pequeño.",
     "pickTiersError": "Elige un nivel de máquina y de almacenamiento para continuar.",
     "planUpdated": "Plan actualizado.",
-    "updateFailed": "No se pudo actualizar el plan. Inténtalo de nuevo.",
     "upgradeFailed": "No se pudo iniciar la mejora. Inténtalo de nuevo.",
     "upgradePlanTitle": "Mejorar plan"
   },
@@ -597,6 +596,7 @@
   },
   "customPlanModal": {
     "cancel": "Cancelar",
+    "changeFailed": "No se pudo cambiar tu plan. Inténtalo de nuevo.",
     "comparedToPrevious": "{delta} en comparación con el anterior ({previous})",
     "continue": "Continuar",
     "learnMore": "Más información",
@@ -1850,11 +1850,6 @@
     "recordingHint": "Grabando… presiona un atajo, o Esc para cancelar",
     "removeBindingAriaLabel": "Eliminar asignación de {label}",
     "resetShortcutAriaLabel": "Restablecer {label} al valor predeterminado"
-  },
-  "showTipsRow": {
-    "ariaLabel": "Mostrar consejos",
-    "description": "Consejos ocasionales en la barra lateral que destacan funciones que aún no has probado.",
-    "label": "Mostrar consejos"
   },
   "soundsSections": {
     "addSound": "Agregar sonido",

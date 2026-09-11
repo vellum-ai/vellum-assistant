@@ -45,6 +45,18 @@ mock.module("../../security/secure-keys.js", () => ({
       : "test-key",
 }));
 
+// Managed-speech defaulting reaches the platform client and the credential
+// store. The controller tests drive the bridge mock on a microtask budget, so
+// the configured providers stand as the effective ones here.
+mock.module("../../config/managed-speech-defaults.js", () => ({
+  resolveEffectiveSpeechProviders: async (config?: {
+    services: { stt: { provider: string }; tts: { provider: string } };
+  }) => {
+    const services = (config ?? loadConfig()).services;
+    return { stt: services.stt.provider, tts: services.tts.provider };
+  },
+}));
+
 mock.module("../../security/credential-key.js", () => ({
   credentialKey: (...args: string[]) => args.join("/"),
 }));
@@ -213,6 +225,7 @@ import { resetDbForTesting } from "../../__tests__/db-test-helpers.js";
 import { createGuardianBinding } from "../../__tests__/helpers/create-guardian-binding.js";
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 import { loadConfig } from "../../config/loader.js";
+import type { VoiceProgressConfig } from "../../config/schemas/voice.js";
 import { getMessages } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
@@ -228,7 +241,13 @@ import {
   updateCallSession,
 } from "../call-store.js";
 import type { CallTransport } from "../call-transport.js";
+import type { VoiceProgressNarrator } from "../progress-narration.js";
 import { resolveCallTtsProvider } from "../resolve-call-tts-provider.js";
+import {
+  ESCALATION_CONTINUATION_CONTENT,
+  FALLBACK_ESCALATION_BRIDGE,
+  FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+} from "../voice-triage-escalate.js";
 
 // Disable memory so persisted call messages skip background indexing, and
 // seed the ingress base URL used for synthesized-audio play URLs.
@@ -248,6 +267,8 @@ afterAll(() => {
 
 interface MockTransport extends CallTransport {
   sentTokens: Array<{ token: string; last: boolean }>;
+  /** Tokens sent with the system-copy flag (no caller-language hint). */
+  systemCopyTokens: string[];
   sentPlayUrls: string[];
   endCalled: boolean;
   endReason: string | undefined;
@@ -257,6 +278,7 @@ interface MockTransport extends CallTransport {
 function createMockTransport(): MockTransport {
   const state = {
     sentTokens: [] as Array<{ token: string; last: boolean }>,
+    systemCopyTokens: [] as string[],
     sentPlayUrls: [] as string[],
     _endCalled: false,
     _endReason: undefined as string | undefined,
@@ -266,6 +288,9 @@ function createMockTransport(): MockTransport {
   return {
     get sentTokens() {
       return state.sentTokens;
+    },
+    get systemCopyTokens() {
+      return state.systemCopyTokens;
     },
     get sentPlayUrls() {
       return state.sentPlayUrls;
@@ -279,8 +304,15 @@ function createMockTransport(): MockTransport {
     get cancelPendingSpeechCount() {
       return state._cancelPendingSpeechCount;
     },
-    sendTextToken(token: string, last: boolean) {
+    sendTextToken(
+      token: string,
+      last: boolean,
+      opts?: { systemCopy?: boolean },
+    ) {
       state.sentTokens.push({ token, last });
+      if (opts?.systemCopy === true) {
+        state.systemCopyTokens.push(token);
+      }
     },
     sendPlayUrl(url: string) {
       state.sentPlayUrls.push(url);
@@ -382,6 +414,9 @@ function setupController(
     awaitPlaybackDrained?: () => Promise<void>;
     /** Synthesis-language resolver, as the media-stream server wires it. */
     resolveSynthesisLanguage?: () => string | undefined;
+    /** Progress narration seam; an explicit null keeps the call silent. */
+    progressNarrator?: VoiceProgressNarrator | null;
+    progressConfig?: VoiceProgressConfig;
   },
 ) {
   ensureConversation("conv-ctrl-test");
@@ -406,6 +441,11 @@ function setupController(
     assistantId: opts?.assistantId,
     trustContext: opts?.trustContext,
     resolveSynthesisLanguage: opts?.resolveSynthesisLanguage,
+    // Tests that do not exercise narration keep the default narrator out of
+    // the way: a null narrator never generates or speaks.
+    progressNarrator:
+      opts?.progressNarrator === undefined ? null : opts.progressNarrator,
+    progressConfig: opts?.progressConfig,
   });
   return { session, relay: transport, controller };
 }
@@ -3061,7 +3101,7 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("synthesized provider: stays 'processing' during synthesis latency, so barge-in cannot abort an inaudible turn", async () => {
+  test("synthesized provider: stays 'processing' during synthesis latency until the play URL is sent", async () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
@@ -3102,11 +3142,11 @@ describe("call-controller", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     // No audio has reached the caller yet (play URL not sent), so the controller
-    // must stay in `processing` — a barge-in here would abort a turn the caller
-    // cannot hear. See JARVIS-1232.
+    // must stay in `processing`: the state tells the transport nothing is
+    // audible, and only sustained caller speech (the transport's guard) may
+    // cut the inaudible turn off. See JARVIS-1232.
     expect(relay.sentPlayUrls.length).toBe(0);
     expect(controller.getState()).toBe("processing");
-    expect(controller.handleBargeIn()).toBe(false);
 
     // Release audio → play URL sent → turn finishes and returns to idle.
     releaseChunk?.();
@@ -4194,6 +4234,415 @@ describe("call-controller", () => {
     });
   });
 
+  // ── Triage-and-escalate routing ─────────────────────────────────────
+
+  describe("triage-and-escalate routing", () => {
+    interface LegOpts {
+      content: string;
+      routingLeg?: string;
+      spokenEscalationBridge?: string;
+      launchedAtMs?: number;
+      voiceTelemetry?: { sessionId: string; entry?: string };
+      callbacks?: {
+        persisted_user_message_id?: (id: string) => void;
+        persisted_assistant_message_id?: (id: string) => void;
+        tool_use_start?: (
+          toolName: string,
+          detail?: { toolUseId?: string },
+        ) => void;
+        tool_result?: (event: {
+          toolName: string;
+          toolUseId?: string;
+          isError?: boolean;
+          resultPreview: string;
+        }) => void;
+      };
+      onTextDelta: (t: string) => void;
+      onComplete: () => void;
+      signal?: AbortSignal;
+    }
+
+    /**
+     * Script the bridge one leg per call: the front-door leg's tokens first,
+     * then the escalated leg's. Records every call's options and which legs
+     * the controller aborted.
+     */
+    function scriptLegs(
+      legs: string[][],
+      beforeComplete?: (opts: LegOpts, index: number) => void,
+    ) {
+      const calls: LegOpts[] = [];
+      const aborted: number[] = [];
+      mockStartVoiceTurn.mockImplementation(async (opts: LegOpts) => {
+        const index = calls.length;
+        calls.push(opts);
+        for (const token of legs[index] ?? []) {
+          opts.onTextDelta(token);
+        }
+        beforeComplete?.(opts, index);
+        opts.onComplete();
+        return { turnId: `run-${index}`, abort: () => aborted.push(index) };
+      });
+      return { calls, aborted };
+    }
+
+    function spokenText(relay: MockTransport): string {
+      return relay.sentTokens
+        .filter((t) => !t.last)
+        .map((t) => t.token)
+        .join("");
+    }
+
+    function assistantSpokePayload(sessionId: string): Record<string, unknown> {
+      const spoke = getCallEvents(sessionId).filter(
+        (e) => e.eventType === "assistant_spoke",
+      );
+      expect(spoke.length).toBe(1);
+      return JSON.parse(spoke[0].payloadJson) as Record<string, unknown>;
+    }
+
+    test("a front-door answer runs one leg and is spoken verbatim", async () => {
+      const { calls, aborted } = scriptLegs([["Hello", " there."]]);
+      const { session, relay, controller } = setupController();
+
+      await controller.handleCallerUtterance("Hi");
+
+      expect(calls.length).toBe(1);
+      expect(calls[0].routingLeg).toBe("front-door");
+      expect(calls[0].content).toBe("Hi");
+      expect(calls[0].spokenEscalationBridge).toBeUndefined();
+      expect(aborted).toEqual([]);
+      expect(spokenText(relay)).toContain("Hello there.");
+      expect(assistantSpokePayload(session.id).text).toBe("Hello there.");
+
+      controller.destroy();
+    });
+
+    test("an escalate verdict speaks the holding phrase, aborts the front-door leg, and continues on the escalated leg", async () => {
+      const { calls, aborted } = scriptLegs([
+        // The verdict token may arrive split across deltas; the leading
+        // "[" is held until it classifies.
+        ["[", "1] Let me check", " that.", " Ignored past the cap."],
+        ["The answer is 42."],
+      ]);
+      const { session, relay, controller } = setupController();
+
+      await controller.handleCallerUtterance("What is six times seven?");
+
+      expect(calls.length).toBe(2);
+      expect(calls[0].routingLeg).toBe("front-door");
+      expect(calls[1].routingLeg).toBe("escalated");
+      expect(calls[1].content).toBe(ESCALATION_CONTINUATION_CONTENT);
+      expect(calls[1].spokenEscalationBridge).toBe("Let me check that.");
+      expect(aborted).toEqual([0]);
+
+      const spoken = spokenText(relay);
+      expect(spoken).toContain("Let me check that.");
+      expect(spoken).toContain("The answer is 42.");
+      expect(spoken.indexOf("Let me check that.")).toBeLessThan(
+        spoken.indexOf("The answer is 42."),
+      );
+      expect(spoken).not.toContain("[1]");
+      expect(spoken).not.toContain("Ignored past the cap.");
+      expect(assistantSpokePayload(session.id).text).toBe(
+        "Let me check that. The answer is 42.",
+      );
+      // One end-of-turn signal for the whole turn, after the escalated leg.
+      expect(relay.sentTokens.filter((t) => t.last).length).toBe(1);
+
+      controller.destroy();
+    });
+
+    test("a bare escalate verdict speaks the canned bridge, audio-only", async () => {
+      const { calls } = scriptLegs([["[1]"], ["Forty-two."]]);
+      const { session, relay, controller } = setupController();
+
+      await controller.handleCallerUtterance("What is six times seven?");
+
+      expect(calls.length).toBe(2);
+      expect(calls[1].spokenEscalationBridge).toBe(FALLBACK_ESCALATION_BRIDGE);
+      expect(spokenText(relay)).toContain(FALLBACK_ESCALATION_BRIDGE);
+      // The canned bridge is not the model's speech: the turn's text (and the
+      // transcript row the bridge keeps) carry only the escalated answer.
+      expect(assistantSpokePayload(session.id).text).toBe("Forty-two.");
+
+      controller.destroy();
+    });
+
+    test("a leg cancelled mid-bridge never spawns the escalated leg", async () => {
+      const calls: LegOpts[] = [];
+      let releaseLeg: () => void = () => {};
+      mockStartVoiceTurn.mockImplementation(async (opts: LegOpts) => {
+        calls.push(opts);
+        opts.onTextDelta("[1] Let me");
+        await new Promise<void>((resolve) => {
+          releaseLeg = resolve;
+          opts.signal?.addEventListener("abort", () => resolve());
+        });
+        // The bridge reports a cancelled leg's completion too.
+        opts.onComplete();
+        return { turnId: "run-cancelled", abort: () => releaseLeg() };
+      });
+      const { relay, controller } = setupController();
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) {
+        await Promise.resolve();
+      }
+      expect(calls.length).toBe(1);
+
+      controller.handleInterrupt();
+      await turnPromise;
+
+      expect(calls.length).toBe(1);
+      expect(spokenText(relay)).toBe("");
+
+      controller.destroy();
+    });
+
+    test("passes the launch time, phone telemetry, and callbacks to the bridge", async () => {
+      const before = Date.now();
+      const { calls } = scriptLegs([["Done."]], (opts) => {
+        opts.callbacks?.persisted_user_message_id?.("user-row-1");
+        opts.callbacks?.tool_use_start?.("web_search", { toolUseId: "tu-1" });
+        opts.callbacks?.tool_result?.({
+          toolName: "web_search",
+          toolUseId: "tu-1",
+          isError: false,
+          resultPreview: "three results",
+        });
+        opts.callbacks?.persisted_assistant_message_id?.("assistant-row-1");
+      });
+      const { session, controller } = setupController();
+
+      await controller.handleCallerUtterance("Look that up");
+
+      expect(calls.length).toBe(1);
+      expect(calls[0].launchedAtMs).toBeGreaterThanOrEqual(before);
+      expect(calls[0].launchedAtMs).toBeLessThanOrEqual(Date.now());
+      expect(calls[0].voiceTelemetry).toEqual({
+        sessionId: session.id,
+        entry: "phone_inbound",
+      });
+
+      const events = getCallEvents(session.id);
+      const started = events.filter((e) => e.eventType === "tool_use_started");
+      expect(started.length).toBe(1);
+      expect(JSON.parse(started[0].payloadJson)).toEqual({
+        toolName: "web_search",
+        toolUseId: "tu-1",
+      });
+      const completed = events.filter(
+        (e) => e.eventType === "tool_use_completed",
+      );
+      expect(completed.length).toBe(1);
+      expect(JSON.parse(completed[0].payloadJson)).toEqual({
+        toolName: "web_search",
+        toolUseId: "tu-1",
+        isError: false,
+        resultPreview: "three results",
+      });
+      expect(assistantSpokePayload(session.id)).toEqual({
+        text: "Done.",
+        userMessageId: "user-row-1",
+        assistantMessageId: "assistant-row-1",
+      });
+
+      controller.destroy();
+    });
+
+    test("the escalated leg's hidden continuation row is not the caller's utterance", async () => {
+      const { calls } = scriptLegs(
+        [["[1] One moment."], ["Here you go."]],
+        (opts, index) => {
+          opts.callbacks?.persisted_user_message_id?.(`user-row-${index}`);
+          opts.callbacks?.persisted_assistant_message_id?.(
+            `assistant-row-${index}`,
+          );
+        },
+      );
+      const { session, controller } = setupController();
+
+      await controller.handleCallerUtterance("Hi");
+
+      expect(calls.length).toBe(2);
+      expect(assistantSpokePayload(session.id)).toEqual({
+        text: "One moment. Here you go.",
+        userMessageId: "user-row-0",
+        assistantMessageId: "assistant-row-1",
+      });
+
+      controller.destroy();
+    });
+
+    test("native route: a canned bridge in a language the table lacks goes out as system copy", async () => {
+      scriptLegs([["[1]"], ["Forty-two."]]);
+      const { relay, controller } = setupController(undefined, {
+        resolveSynthesisLanguage: () => "ko",
+      });
+
+      await controller.handleCallerUtterance("What is six times seven?");
+
+      // The English fallback must not ride the caller's Korean hint.
+      expect(relay.systemCopyTokens).toEqual([
+        `${FALLBACK_ESCALATION_BRIDGE} `,
+      ]);
+      expect(spokenText(relay)).toContain("Forty-two.");
+
+      controller.destroy();
+    });
+
+    test("native route: a localized canned bridge rides the caller's language like model text", async () => {
+      scriptLegs([["[1]"], ["Cuarenta y dos."]]);
+      const { relay, controller } = setupController(undefined, {
+        resolveSynthesisLanguage: () => "es",
+      });
+
+      await controller.handleCallerUtterance("¿Cuánto es seis por siete?");
+
+      expect(relay.systemCopyTokens).toEqual([]);
+      expect(spokenText(relay)).toContain(
+        FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE.es,
+      );
+
+      controller.destroy();
+    });
+
+    test("synthesized route: the canned bridge carries its own language hint, the answer the caller's", async () => {
+      const requests: Array<{ text: string; language: string | undefined }> =
+        [];
+      registerFishAudioSegmentRecorder({
+        onSynthesizeStream: async (text, request) => {
+          requests.push({ text, language: request.language });
+        },
+      });
+      scriptLegs([["[1]"], ["Forty-two."]]);
+      const { controller } = setupController(undefined, {
+        resolveSynthesisLanguage: () => "ko",
+      });
+
+      await controller.handleCallerUtterance("What is six times seven?");
+
+      expect(requests).toEqual([
+        { text: FALLBACK_ESCALATION_BRIDGE, language: "en" },
+        { text: "Forty-two.", language: "ko" },
+      ]);
+
+      controller.destroy();
+    });
+
+    test("progress narration speaks into the escalated leg's tool loop, audio-only", async () => {
+      const narrationConfig: VoiceProgressConfig = {
+        enabled: true,
+        opsThreshold: 1,
+        idleIntervalMs: 60_000,
+        maxSilenceMs: 60_000,
+        longOpMs: 15_000,
+        minGapMs: 10,
+        generationTimeoutMs: 1_500,
+      };
+      const narrator: VoiceProgressNarrator = {
+        generateProgressText: async (input) => {
+          expect(input.transcriptSoFar).toBe("What is on my calendar?");
+          expect(input.currentOp?.toolName).toBe("calendar_list");
+          return "Pulling up your calendar now.";
+        },
+      };
+      const { session, relay, controller } = setupController(undefined, {
+        progressNarrator: narrator,
+        progressConfig: narrationConfig,
+      });
+      const calls: LegOpts[] = [];
+      mockStartVoiceTurn.mockImplementation(async (opts: LegOpts) => {
+        const index = calls.length;
+        calls.push(opts);
+        if (index === 0) {
+          opts.onTextDelta("[1] One moment.");
+          opts.onComplete();
+          return { turnId: "run-front", abort: () => {} };
+        }
+        // The escalated leg runs a tool; narration must land while it runs.
+        // The bridge just spoken is a floor holder, so the tool starts after
+        // the (test-short) minimum gap.
+        await new Promise((r) => setTimeout(r, 25));
+        opts.callbacks?.tool_use_start?.("calendar_list", { toolUseId: "c1" });
+        await pollUntil(() =>
+          relay.sentTokens.some((t) =>
+            t.token.includes("Pulling up your calendar now."),
+          ),
+        );
+        opts.callbacks?.tool_result?.({
+          toolName: "calendar_list",
+          toolUseId: "c1",
+          resultPreview: "two events",
+        });
+        opts.onTextDelta("You have two events today.");
+        opts.onComplete();
+        return { turnId: "run-escalated", abort: () => {} };
+      });
+
+      await controller.handleCallerUtterance("What is on my calendar?");
+
+      const spoken = spokenText(relay);
+      expect(spoken.indexOf("One moment.")).toBeLessThan(
+        spoken.indexOf("Pulling up your calendar now."),
+      );
+      expect(spoken.indexOf("Pulling up your calendar now.")).toBeLessThan(
+        spoken.indexOf("You have two events today."),
+      );
+      // Narration is audio-only: the turn's recorded text is the model's.
+      expect(assistantSpokePayload(session.id).text).toBe(
+        "One moment. You have two events today.",
+      );
+
+      controller.destroy();
+    });
+
+    test("no narration without a narrator", async () => {
+      const { relay, controller } = setupController(undefined, {
+        progressNarrator: null,
+        progressConfig: {
+          enabled: true,
+          opsThreshold: 1,
+          idleIntervalMs: 60_000,
+          maxSilenceMs: 60_000,
+          longOpMs: 15_000,
+          minGapMs: 10,
+          generationTimeoutMs: 1_500,
+        },
+      });
+      scriptLegs([["Done."]], (opts) => {
+        opts.callbacks?.tool_use_start?.("web_search", { toolUseId: "t1" });
+        opts.callbacks?.tool_result?.({
+          toolName: "web_search",
+          toolUseId: "t1",
+          resultPreview: "ok",
+        });
+      });
+
+      await controller.handleCallerUtterance("Look it up");
+
+      expect(spokenText(relay)).toBe("Done.");
+
+      controller.destroy();
+    });
+
+    test("an outbound call reports the outbound entry", async () => {
+      const { calls } = scriptLegs([["Hello, this is Ava."]]);
+      const { session, controller } = setupController("Book a table for two");
+
+      await controller.startInitialGreeting();
+
+      expect(calls.length).toBe(1);
+      expect(calls[0].voiceTelemetry).toEqual({
+        sessionId: session.id,
+        entry: "phone_outbound",
+      });
+
+      controller.destroy();
+    });
+  });
+
   // ── handleBargeIn ───────────────────────────────────────────────────
 
   describe("handleBargeIn", () => {
@@ -4216,10 +4665,11 @@ describe("call-controller", () => {
       controller.destroy();
     });
 
-    test("handleBargeIn returns false and does not abort while still processing (no output yet)", async () => {
+    test("handleBargeIn accepts a barge-in while still processing and aborts the silent turn", async () => {
       // Simulate a turn stuck waiting for the processing lock: no tokens
-      // emitted, no completion. The controller must stay in `processing` and
-      // NOT flip to `speaking`, so barge-in can't abort a silent turn.
+      // emitted, no completion. The controller stays in `processing`, and a
+      // sustained caller barge-in (the transport's guard has already
+      // vouched for it) cuts the thinking turn off before it speaks.
       mockStartVoiceTurn.mockImplementation(
         async (opts: {
           onTextDelta: (t: string) => void;
@@ -4244,18 +4694,17 @@ describe("call-controller", () => {
 
       const onAccepted = mock(() => {});
       const bargeResult = controller.handleBargeIn(onAccepted);
-      expect(bargeResult).toBe(false);
-      expect(onAccepted).not.toHaveBeenCalled();
-      // Still processing (not aborted), and no interrupt/end-of-turn token sent.
-      expect(controller.getState()).toBe("processing");
+      expect(bargeResult).toBe(true);
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+      // The turn is aborted; nothing was spoken, so no end-of-turn token.
+      expect(controller.getState()).toBe("idle");
       const endTokens = relay.sentTokens.filter(
         (t) => t.last === true && t.token === "",
       );
       expect(endTokens.length).toBe(0);
 
-      // Cleanup: abort the pending turn
-      controller.destroy();
       await turnPromise.catch(() => {});
+      controller.destroy();
     });
 
     test("stays in processing until first token, then flips to speaking and barge-in is accepted", async () => {
@@ -4297,9 +4746,7 @@ describe("call-controller", () => {
         await Promise.resolve();
       }
 
-      // Before any token: processing, barge-in ignored (turn not aborted).
-      expect(controller.getState()).toBe("processing");
-      expect(controller.handleBargeIn()).toBe(false);
+      // Before any token: processing (no audio out yet).
       expect(controller.getState()).toBe("processing");
 
       // Release the first token → controller flips to speaking.
@@ -4317,7 +4764,7 @@ describe("call-controller", () => {
       await turnPromise.catch(() => {});
     });
 
-    test("buffering transport (media-stream): streamed tokens do not flip to speaking; barge-in is rejected and the turn still delivers", async () => {
+    test("buffering transport (media-stream): streamed tokens do not flip to speaking; a barge-in still cuts the thinking turn off", async () => {
       // Simulates the media-stream transport: sendTextToken(.., false)
       // only buffers; audio starts later. The controller must stay in
       // `processing` until the transport's audio-start signal fires, so
@@ -4361,17 +4808,17 @@ describe("call-controller", () => {
       expect(controller.getState()).toBe("processing");
       expect(audioStartCallback).not.toBeNull();
 
-      // VAD speech-start mid-generation → barge-in rejected, turn intact.
-      expect(controller.handleBargeIn()).toBe(false);
-      expect(controller.getState()).toBe("processing");
+      // Sustained caller speech mid-generation: the buffered, unspoken turn
+      // is cut off like a spoken one would be, and its text is discarded.
+      expect(controller.handleBargeIn()).toBe(true);
+      expect(controller.getState()).toBe("idle");
 
-      // The turn completes and delivers its end-of-turn signal.
-      releaseTurn();
-      await turnPromise;
+      await turnPromise.catch(() => {});
+      // No end-of-turn token: nothing had been spoken.
       const endTokens = relay.sentTokens.filter(
         (t) => t.last === true && t.token === "",
       );
-      expect(endTokens.length).toBe(1);
+      expect(endTokens.length).toBe(0);
 
       controller.destroy();
     });

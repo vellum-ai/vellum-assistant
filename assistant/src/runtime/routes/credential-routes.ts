@@ -43,7 +43,7 @@ import {
   deleteCredentialMetadata,
   getCredentialMetadata,
   getCredentialMetadataById,
-  listCredentialMetadata,
+  listCredentialRecordsLive,
 } from "../../tools/credentials/metadata-store.js";
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import {
@@ -228,6 +228,9 @@ function assertNotPlatformManaged(
   }
 }
 
+const CREDENTIAL_STORE_UNREACHABLE =
+  "Credential store is unreachable. Retry in a moment, or check that the credential vault is running.";
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -235,9 +238,14 @@ function assertNotPlatformManaged(
 async function handleCredentialsList({ body }: RouteHandlerArgs) {
   const search = (body as { search?: string } | undefined)?.search;
 
+  const live = await listCredentialRecordsLive();
+  if (live.unreachable) {
+    throw new InternalError(CREDENTIAL_STORE_UNREACHABLE);
+  }
+
   // Platform-provisioned credentials are not the user's to act on, so they
   // never become a Settings row (and never a click-to-reveal).
-  let allMetadata = listCredentialMetadata().filter(
+  let allMetadata = live.records.filter(
     (m) => !isPlatformManagedCredential(m.service, m.field),
   );
 
@@ -272,7 +280,12 @@ async function handleCredentialsList({ body }: RouteHandlerArgs) {
 
   const credentials = await Promise.all(
     allMetadata.map(async (m) => {
-      const secret = await getSecureKeyAsync(credentialKey(m.service, m.field));
+      const { value: secret, unreachable } = await getSecureKeyResultAsync(
+        credentialKey(m.service, m.field),
+      );
+      if (unreachable) {
+        throw new InternalError(CREDENTIAL_STORE_UNREACHABLE);
+      }
       const connection = connectionsByProvider.get(m.service);
       return buildCredentialOutput(m, secret, connection);
     }),
@@ -310,9 +323,7 @@ async function handleCredentialsInspect({ body }: RouteHandlerArgs) {
 
   if (!lookup.metadata && (secret == null || secret.length === 0)) {
     if (unreachable) {
-      throw new InternalError(
-        "Credential store is unreachable — ensure the assistant is running",
-      );
+      throw new InternalError(CREDENTIAL_STORE_UNREACHABLE);
     }
     throw new BadRequestError("Credential not found");
   }
@@ -374,9 +385,7 @@ async function handleCredentialsReveal({ body, headers }: RouteHandlerArgs) {
 
   if (secret == null || secret.length === 0) {
     if (unreachable) {
-      throw new InternalError(
-        "Credential store is unreachable — ensure the assistant is running",
-      );
+      throw new InternalError(CREDENTIAL_STORE_UNREACHABLE);
     }
     throw new BadRequestError("Credential not found");
   }
@@ -620,7 +629,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List all credentials with metadata",
     description:
-      "Return all stored credentials with metadata, OAuth connection info, and platform-managed credentials.",
+      "Return credentials from the live credential vault, with OAuth connection info and platform-managed credentials. Fails if the vault is unreachable.",
     tags: ["credentials"],
     requestBody: z.object({
       search: z.string().optional().describe("Filter by substring match"),

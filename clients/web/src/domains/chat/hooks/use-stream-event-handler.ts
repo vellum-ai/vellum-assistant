@@ -74,6 +74,7 @@ import {
   handleAcpSessionSpawned,
   handleAcpSessionUpdate,
   handleAcpSessionUsage,
+  handleAcpSessionModelUpdate,
   handleAcpSessionCompleted,
   handleAcpAuthRequired,
   handleAcpSessionError,
@@ -437,6 +438,9 @@ export function useStreamEventHandler(
           break;
         case "acp_session_usage":
           handleAcpSessionUsage(event);
+          break;
+        case "acp_session_model_update":
+          handleAcpSessionModelUpdate(event);
           break;
         case "acp_session_completed":
           handleAcpSessionCompleted(event);

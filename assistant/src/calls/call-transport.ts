@@ -98,4 +98,20 @@ export interface CallTransport {
    * this — the controller then treats playback as already drained.
    */
   awaitPlaybackDrained?(): Promise<void>;
+
+  /**
+   * Whether no assistant speech is buffered, queued, in flight, or
+   * (estimatedly) still playing to the caller. Progress narration speaks
+   * only into audible silence, so it asks before every update. Transports
+   * that play speech synchronously may omit this; the controller then
+   * treats the transport as idle.
+   */
+  isPlaybackIdle?(): boolean;
+
+  /**
+   * Wall-clock estimate of when audio already sent finishes playing to the
+   * caller, 0 when nothing is playing. Anchors the dead-air countdown for
+   * progress narration to when the caller last heard something.
+   */
+  playbackTailUntilMs?(): number;
 }

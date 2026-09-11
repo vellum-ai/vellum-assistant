@@ -13,7 +13,8 @@
     "logIn": "登录",
     "logOut": "注销",
     "loginToUse": "登录以使用",
-    "downloadMacApp": "下载 macOS 应用",
+    "downloadMacOSApp": "下载 macOS 应用",
+    "downloadWindowsApp": "下载 Windows 应用",
     "claim": "认领",
     "skipForNow": "暂时跳过",
     "starting": "正在启动…"
@@ -287,5 +288,8 @@
     "title": "您已准备就绪",
     "setupNote": "我已根据您的信息设置了插件。",
     "letsChat": "开始聊天"
+  },
+  "googleCalendar": {
+    "providerLabel": "Google 日历"
   }
 }

@@ -19,6 +19,7 @@ import { describe, expect, test } from "bun:test";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import {
   pathBBox,
+  pathSpanAt,
   tightPathBBox,
   unionBBox,
   type BBox,
@@ -125,5 +126,28 @@ describe("tightPathBBox", () => {
     // control-point box is the one that disagrees with the sampled truth.
     expect(control.h / tight.h).toBeGreaterThan(1.5);
     expect(Math.abs(control.h - SAMPLED_BOUNDS.angry.h)).toBeGreaterThan(1);
+  });
+});
+
+describe("pathSpanAt", () => {
+  test("spans a square across its full width at any interior height", () => {
+    expect(pathSpanAt("M0 0 H10 V10 H0 Z", 5)).toEqual({ x0: 0, x1: 10 });
+  });
+
+  test("narrows a circle away from its middle", () => {
+    // A unit circle of radius 10 about (10, 10), as four cubic arcs.
+    const k = 5.5228;
+    const circle = `M20 10 C20 ${10 + k} ${10 + k} 20 10 20 C${10 - k} 20 0 ${10 + k} 0 10 C0 ${10 - k} ${10 - k} 0 10 0 C${10 + k} 0 20 ${10 - k} 20 10 Z`;
+    const middle = pathSpanAt(circle, 10)!;
+    expect(middle.x0).toBeCloseTo(0, 1);
+    expect(middle.x1).toBeCloseTo(20, 1);
+    const low = pathSpanAt(circle, 16)!;
+    expect(low.x0).toBeGreaterThan(1);
+    expect(low.x1).toBeLessThan(19);
+    expect(low.x1 - low.x0).toBeCloseTo(16, 0);
+  });
+
+  test("is null where the line misses the path", () => {
+    expect(pathSpanAt("M0 0 H10 V10 H0 Z", 12)).toBeNull();
   });
 });

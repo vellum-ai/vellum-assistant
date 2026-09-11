@@ -27,7 +27,6 @@ import { PreviewReleaseChannel } from "@/domains/settings/components/preview-rel
 import { PreviewUiChannel } from "@/domains/settings/components/preview-ui-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
-import { ShowTipsRow } from "@/domains/settings/components/show-tips-row";
 import { TimezoneSection } from "@/domains/settings/components/timezone-section";
 import { UpdateWindowModal } from "@/domains/settings/components/update-window-modal";
 import { TwoFactorSection } from "@/domains/settings/security/two-factor-section";
@@ -61,6 +60,7 @@ export function GeneralPage() {
     assistant,
     healthz,
     healthzLoading,
+    healthzFetching,
     healthzPolling,
     refetch,
     refetchUntilResized,
@@ -293,6 +293,7 @@ export function GeneralPage() {
           assistant={assistant}
           healthz={healthz}
           healthzLoading={healthzLoading}
+          healthzFetching={healthzFetching}
           healthzPolling={healthzPolling}
           refetch={refetch}
           refetchUntilResized={refetchUntilResized}
@@ -321,7 +322,6 @@ export function GeneralPage() {
       >
         <div className="flex flex-col gap-5">
           <ThemePicker />
-          <ShowTipsRow />
           <AppIconRow />
         </div>
       </DetailCard>

@@ -309,3 +309,34 @@ describe("Activity route compatibility", () => {
     );
   });
 });
+
+describe("Settings route prefetching", () => {
+  // What `prefetchRoute` warms is every `lazy` on the matched branch, so the
+  // number of lazy properties on this branch is the number of round trips a
+  // cold tap on Settings pays before the router will commit. The layout and
+  // its index page are separate chunks, and warming the root has to cover
+  // both: warming only the layout would still leave the page to fetch on tap.
+  test("the Settings root carries the layout chunk and its index page chunk", async () => {
+    const matches =
+      matchRoutes(routeTree as never, "/assistant/settings") ?? [];
+    const lazyRoutes = matches.filter(
+      (m) => (m.route as { lazy?: unknown }).lazy !== undefined,
+    );
+
+    expect(lazyRoutes).toHaveLength(2);
+
+    const loaded = await Promise.all(
+      lazyRoutes.map(async (m) =>
+        (
+          m.route as { lazy: { Component: () => Promise<unknown> } }
+        ).lazy.Component(),
+      ),
+    );
+    expect(loaded).toContain(
+      (await import("@/domains/settings/settings-layout")).SettingsLayout,
+    );
+    expect(loaded).toContain(
+      (await import("@/domains/settings/pages/general-page")).GeneralPage,
+    );
+  });
+});

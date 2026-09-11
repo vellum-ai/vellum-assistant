@@ -1,1 +1,533 @@
-{}
+{
+  "tasks": {
+    "pdf-car-report": {
+      "category": "documents",
+      "icon": "FileText",
+      "color": "blue",
+      "title": "產生 PDF 報告",
+      "description": "根據你駕駛（或停在車庫裡）的愛車產生一份經典的車輛估值報告。",
+      "chip": "為我的愛車產生報告",
+      "prompt": "為我開的汽車製作一份一頁紙的 PDF 價值評估報告。如果你不知道車型，請先詢問我品牌、型號和年份。"
+    },
+    "pdf-proposal": {
+      "category": "documents",
+      "icon": "FileText",
+      "color": "blue",
+      "title": "製作提案 PDF",
+      "description": "一份隨時可以向客戶發送的一頁紙提案或報價單。",
+      "chip": "為新客戶起草報價",
+      "prompt": "為新客戶製作一份一頁紙的 PDF 提案。請先詢問我們銷售的產品或服務、客戶姓名和價格，然後產生 PDF。"
+    },
+    "pdf-chore-chart": {
+      "category": "documents",
+      "icon": "FileText",
+      "color": "blue",
+      "title": "製作家務清單",
+      "description": "一份可列印並貼在冰箱上的每週家務圖表。",
+      "chip": "兩個孩子的家務表",
+      "prompt": "製作一份可列印的每週家務 PDF 圖表。請先詢問孩子的姓名和年齡，然後推薦適合相應年齡的家務項目。"
+    },
+    "draft-doc": {
+      "category": "documents",
+      "icon": "PenLine",
+      "color": "purple",
+      "title": "起草文件",
+      "description": "在編輯器中起草單頁內容：公告、備忘錄或任何你需要的材料。",
+      "chip": "起草發布公告",
+      "prompt": "開啟一份新文件並起草一份單頁內容。請先詢問我是需要撰寫公告、備忘錄還是其他內容。"
+    },
+    "edit-my-doc": {
+      "category": "documents",
+      "icon": "SpellCheck",
+      "color": "purple",
+      "title": "潤色文稿",
+      "description": "貼上任何文字，取得可逐項採納的修改建議。",
+      "chip": "精煉這封郵件",
+      "prompt": "我會貼上一段自己寫的內容。請將其放入文件中，並逐條給出修改建議，使其更簡練、更清晰。"
+    },
+    "meeting-notes": {
+      "category": "documents",
+      "icon": "ListChecks",
+      "color": "purple",
+      "title": "將筆記整理為摘要",
+      "description": "貼上零散筆記，自動梳理決議與行動項。",
+      "chip": "總結會議紀要",
+      "prompt": "我會貼上粗略的會議筆記。請將其整理為包含會議決議、責任人明確的待辦事項以及待決問題的摘要。"
+    },
+    "sop-doc": {
+      "category": "documents",
+      "icon": "ClipboardList",
+      "color": "purple",
+      "title": "為團隊撰寫作業指南",
+      "description": "將腦海中的工作流程轉化為任何人都能照做執行的清單。",
+      "chip": "記錄客戶入職流程",
+      "prompt": "協助我為團隊的一項日常重複流程編寫逐步操作指南。對我進行五分鐘簡短提問，然後在文件中整理成清晰的檢查清單。"
+    },
+    "school-letter": {
+      "category": "documents",
+      "icon": "Mail",
+      "color": "purple",
+      "title": "給學校寫請假條",
+      "description": "以你的語氣撰寫請假條或致老師的信函。",
+      "chip": "明天的請假條",
+      "prompt": "為我孩子明天的學校請假寫一封簡短便條。請先詢問孩子的姓名、班級和請假原因。"
+    },
+    "campaign-tracker": {
+      "category": "apps",
+      "icon": "Megaphone",
+      "color": "orange",
+      "title": "建立行銷活動追蹤器",
+      "description": "用於追蹤行銷活動、負責人與進度的輕量應用程式。",
+      "chip": "活動追蹤應用程式",
+      "prompt": "幫我建構一個簡單的行銷活動追蹤應用程式，包含活動名稱、渠道、負責人、狀態和啟動日期等欄位。"
+    },
+    "analytics-dashboard": {
+      "category": "apps",
+      "icon": "BarChart3",
+      "color": "orange",
+      "title": "從 CSV 產生儀表板",
+      "description": "拖入試算表，即刻產生統計圖表。",
+      "chip": "基於 CSV 的儀表板",
+      "prompt": "根據我上傳的 CSV 檔案建立一個儀表板應用程式，為每個數值欄位產生一個圖表，並在頂部展示總結。"
+    },
+    "content-calendar": {
+      "category": "apps",
+      "icon": "CalendarDays",
+      "color": "orange",
+      "title": "規劃內容日曆",
+      "description": "一目了然縱覽整月發布排期。",
+      "chip": "30 天內容日曆",
+      "prompt": "製作一個未來 30 天的內容日曆應用程式，包含部落格、社群媒體和電子報的版塊，並允許我按天拖曳調整文章。"
+    },
+    "idea-tree": {
+      "category": "apps",
+      "icon": "GitBranch",
+      "color": "orange",
+      "title": "樹狀思維導圖腦暴",
+      "description": "層層分支擴展創意，支援無限發散。",
+      "chip": "副業專案創意樹",
+      "prompt": "製作一個創意樹應用程式：我給出一個主題，你向下拆解三層分支，並允許我繼續展開任意節點。"
+    },
+    "invoice-tracker": {
+      "category": "apps",
+      "icon": "Receipt",
+      "color": "orange",
+      "title": "追蹤未付發票",
+      "description": "清楚記錄欠款對象、金額及截止日期。",
+      "chip": "發票追蹤器",
+      "prompt": "建構一個追蹤發票的小應用程式：包含客戶、金額、發送日期、到期日、付款狀態，並醒目提示逾期列。"
+    },
+    "inventory-app": {
+      "category": "apps",
+      "icon": "Boxes",
+      "color": "orange",
+      "title": "盤點庫存",
+      "description": "帶有低庫存預警提示的輕便庫存表。",
+      "chip": "庫存清單",
+      "prompt": "建構一個庫存管理應用程式：記錄物品、現有數量、補貨閾值和供應商。低於補貨閾值的物品自動標出。"
+    },
+    "family-board": {
+      "category": "apps",
+      "icon": "LayoutGrid",
+      "color": "orange",
+      "title": "製作家庭週看板",
+      "description": "在一個螢幕上清晰掌握全家本週動向。",
+      "chip": "每週家庭看板",
+      "prompt": "建構一個家庭週日程看板應用程式，每人一列，每天一行。請先詢問我的家庭成員構成。"
+    },
+    "allowance-tracker": {
+      "category": "apps",
+      "icon": "PiggyBank",
+      "color": "orange",
+      "title": "記錄零用錢與家務",
+      "description": "為孩子追蹤積分、獎勵與連續打卡記錄。",
+      "chip": "零用錢追蹤器",
+      "prompt": "建構一個零用錢應用程式：家務對應積分、每個孩子的累計積分、連續打卡天數以及每週結算摘要。"
+    },
+    "meal-planner": {
+      "category": "apps",
+      "icon": "UtensilsCrossed",
+      "color": "orange",
+      "title": "規劃本週食譜",
+      "description": "制定晚餐菜單並自動產生可勾選的採買清單。",
+      "chip": "本週飲食計劃",
+      "prompt": "幫我為本週建構一個膳食規劃應用程式，安排每晚的晚餐，並自動產生可打勾的食材購物清單。請先詢問忌口或過敏原。"
+    },
+    "habit-tracker": {
+      "category": "apps",
+      "icon": "Flame",
+      "color": "orange",
+      "title": "習慣打卡追蹤",
+      "description": "每天一鍵打卡，自動統計堅持天數。",
+      "chip": "習慣打卡器",
+      "prompt": "建構一個支援最多追蹤 5 個習慣的打卡應用程式，支援一鍵點擊打卡並記錄連續完成天數。"
+    },
+    "price-quote-calc": {
+      "category": "apps",
+      "icon": "Calculator",
+      "color": "orange",
+      "title": "建構報價計算器",
+      "description": "輸入參數即刻得出報價，方便與客戶共享。",
+      "chip": "報價計算器",
+      "prompt": "為我銷售的產品或服務建構一個價格計算器應用程式。先向我了解影響價格的各項輸入因素，然後製作計算器。"
+    },
+    "connect-email": {
+      "category": "inbox",
+      "icon": "Inbox",
+      "color": "teal",
+      "title": "連接電子郵箱",
+      "description": "讓助理為你閱讀並起草電子郵件。",
+      "chip": "連接我的信箱",
+      "prompt": "幫我連接信箱帳號，以便你能為我閱讀郵件和起草回覆。請引導我逐步完成設定。"
+    },
+    "inbox-sweep": {
+      "category": "inbox",
+      "icon": "MailX",
+      "color": "teal",
+      "title": "信箱大掃除",
+      "description": "退訂非必要郵件、封存舊郵件並提煉重要內容。",
+      "chip": "清理我的收件匣",
+      "prompt": "幫我梳理收件匣：建議可以退訂的電子報、可封存的舊會話，並挑出今天應該回覆的 5 封重要郵件。在執行變更前先徵得我的同意。",
+      "requires": [
+        "email"
+      ]
+    },
+    "daily-briefing": {
+      "category": "automations",
+      "icon": "Sunrise",
+      "color": "teal",
+      "title": "取得每日早報",
+      "description": "每天早晨一條訊息匯集行事曆日程、重要郵件與天氣預報。",
+      "chip": "每天早晨 7 點向我匯報",
+      "prompt": "設定每天早晨 7 點的每日早報，內容涵蓋我的日程安排、重要郵件和天氣情況。請詢問我希望發送到哪個通知渠道。"
+    },
+    "calendar-find-time": {
+      "category": "inbox",
+      "icon": "CalendarClock",
+      "color": "teal",
+      "title": "協調會議時間",
+      "description": "檢查日程空檔並智慧提議合適的時間段。",
+      "chip": "尋找本週的 30 分鐘空檔",
+      "prompt": "查看我的行事曆，提議本週 3 個適合開會的 30 分鐘空檔。同時幫我起草會議邀請函文字。",
+      "requires": [
+        "calendar"
+      ]
+    },
+    "draft-replies": {
+      "category": "inbox",
+      "icon": "Reply",
+      "color": "teal",
+      "title": "起草客戶回覆郵件",
+      "description": "為等待你答覆的郵件預先寫好得體的回覆。",
+      "chip": "起草今日郵件回覆",
+      "prompt": "找出正在等待我回覆的客戶郵件，並以我的口吻為每封郵件起草回覆草稿。發送前先給我確認。",
+      "requires": [
+        "email"
+      ]
+    },
+    "school-emails": {
+      "category": "inbox",
+      "icon": "GraduationCap",
+      "color": "teal",
+      "title": "監控學校郵件",
+      "description": "再也不會錯過學校的回執單或通知。",
+      "chip": "留意學校郵件",
+      "prompt": "監控我的收件匣中來自孩子學校的郵件，當天向我發送簡短摘要並標註截止日期。請先向我詢問學校的郵箱網域名稱。",
+      "requires": [
+        "email"
+      ]
+    },
+    "set-schedule": {
+      "category": "automations",
+      "icon": "Calendar",
+      "color": "teal",
+      "title": "設定定時提醒",
+      "description": "早晨簡報、信箱清理或任何週期性事務。",
+      "chip": "每個工作日早 9 點提醒我",
+      "prompt": "為我設定一個週期性提醒。向我推薦早晨簡報、收件匣清理或其他實用的日常流程，然後設定我選擇的那項。"
+    },
+    "weekly-report": {
+      "category": "automations",
+      "icon": "CalendarCheck",
+      "color": "teal",
+      "title": "取得每週業務回顧",
+      "description": "每週五彙總本週進展及下週待辦事項。",
+      "chip": "週五下午 4 點回顧",
+      "prompt": "設定每週五下午 4 點的定期週報，根據你能讀取的資訊彙總本週完成的工作以及下週待辦，先詢問我需要包含哪些內容。"
+    },
+    "sunday-ping": {
+      "category": "automations",
+      "icon": "CalendarCheck",
+      "color": "teal",
+      "title": "週日規劃提醒",
+      "description": "每週日發送一條訊息，提前預告下週安排。",
+      "chip": "週日晚預覽下週日程",
+      "prompt": "設定每週日晚 6 點的提醒訊息，預覽全家下週的安排：包括預約、學校活動以及我曾交代你記住的所有事項。"
+    },
+    "watcher": {
+      "category": "automations",
+      "icon": "Eye",
+      "color": "teal",
+      "title": "監控網頁變動",
+      "description": "頁面內容發生變化時及時通知你。",
+      "chip": "降價時通知我",
+      "prompt": "幫我監控一個網頁，並在頁面內容發生變化時給我發訊息。請詢問我目標網址以及我關心的具體變化。"
+    },
+    "bill-reminders": {
+      "category": "automations",
+      "icon": "BellRing",
+      "color": "teal",
+      "title": "帳單到期提醒",
+      "description": "在每個還款截止日期前提早提醒。",
+      "chip": "提醒我支付帳單",
+      "prompt": "在每個週期性帳單到期前 3 天為我設定提醒。請向我詢問有哪些帳單及其截止日期。"
+    },
+    "blog-post": {
+      "category": "content",
+      "icon": "Newspaper",
+      "color": "pink",
+      "title": "撰寫部落格文章",
+      "description": "構思大綱、起草正文並潤色成文。",
+      "chip": "700 字部落格文章",
+      "prompt": "寫一篇 700 字左右的部落格文章。請先向我詢問主題與目標讀者，展示大綱，然後在文件中起草正文。"
+    },
+    "social-posts": {
+      "category": "content",
+      "icon": "Share2",
+      "color": "pink",
+      "title": "發布社群動態",
+      "description": "將一個核心創意轉化為三套針對不同平台的文案。",
+      "chip": "一靈感衍生三篇文案",
+      "prompt": "將一條發布公告分別改寫為 LinkedIn 貼文、X 貼文以及電子報短訊。請先問我要發布什麼。"
+    },
+    "newsletter": {
+      "category": "content",
+      "icon": "MailOpen",
+      "color": "pink",
+      "title": "起草電子報",
+      "description": "包含標題、引言及三個核心版塊。",
+      "chip": "本週電子報",
+      "prompt": "起草本週的電子報，包含標題、簡要引言和三個主要版塊。請先詢問我本週發生了哪些要事。"
+    },
+    "image-asset": {
+      "category": "content",
+      "icon": "Image",
+      "color": "pink",
+      "title": "製作社群宣傳圖",
+      "description": "符合你品牌色調的精美分享配圖。",
+      "chip": "發布宣傳圖",
+      "prompt": "為一項發布活動產生一張 1200x630 的社群媒體分享圖片。請詢問我的大標題和品牌主色調。",
+      "requires": [
+        "image-generation"
+      ]
+    },
+    "seo-audit": {
+      "category": "content",
+      "icon": "SearchCheck",
+      "color": "pink",
+      "title": "網站 SEO 審計",
+      "description": "快速診斷並列出最關鍵的五項優化建議。",
+      "chip": "審計我的網站",
+      "prompt": "對我的網站進行搜尋引擎最佳化（SEO）和 AI 搜尋可見性審計，給出效果最顯著的五項改進建議。請向我索取網站 URL。"
+    },
+    "google-review-replies": {
+      "category": "content",
+      "icon": "Star",
+      "color": "pink",
+      "title": "回覆客戶評價",
+      "description": "為最新的客戶評價撰寫真誠熱情的回覆。",
+      "chip": "回覆三條評價",
+      "prompt": "我會貼上三條客戶評價。請以符合我企業風格的口吻，為每條評價寫出溫和且具針對性的回覆。"
+    },
+    "meme-generator": {
+      "category": "content",
+      "icon": "Laugh",
+      "color": "pink",
+      "title": "製作迷因梗圖",
+      "description": "群組聊天必備。",
+      "chip": "週一主題迷因",
+      "prompt": "幫我製作一張迷因梗圖。請向我詢問主題並選擇合適的模版。",
+      "requires": [
+        "image-generation"
+      ]
+    },
+    "research-competitors": {
+      "category": "research",
+      "icon": "Telescope",
+      "color": "green",
+      "title": "評估競爭對手",
+      "description": "掌握對方定價、宣傳主張及你的致勝優勢。",
+      "chip": "對比競品與我方優勢",
+      "prompt": "調研一家競爭對手，並提供單頁對比分析：包括定價模式、市場定位以及我方可以勝出的三個切入點。請向我索取雙方網站。"
+    },
+    "compare-products": {
+      "category": "research",
+      "icon": "Scale",
+      "color": "green",
+      "title": "選品對比決策",
+      "description": "三項備選、一張清單、一份明確建議。",
+      "chip": "200 美元內最佳安全座椅",
+      "prompt": "幫我挑選商品。先詢問我打算買什麼和預算範圍，然後在表格中對比三個候選產品並推薦一款。"
+    },
+    "plan-a-trip": {
+      "category": "research",
+      "icon": "Plane",
+      "color": "green",
+      "title": "規劃家庭旅行",
+      "description": "涵蓋行程規劃、行李清單與預算安排。",
+      "chip": "帶孩子度過小長假",
+      "prompt": "幫我規劃一次家庭旅行。先詢問目的地、出發時間、出行人員和預算，然後提供按天排期的詳細行程單與行李清單。"
+    },
+    "restaurant-reservation": {
+      "category": "research",
+      "icon": "ChefHat",
+      "color": "green",
+      "title": "餐廳預訂安排",
+      "description": "尋找心儀餐廳並協助訂位。",
+      "chip": "週五四人晚餐訂位",
+      "prompt": "尋找一家合適的餐廳並協助預訂座位。請先詢問城市、用餐日期、人數以及我們想品嘗的菜系偏好。"
+    },
+    "weather-plan": {
+      "category": "research",
+      "icon": "CloudSun",
+      "color": "green",
+      "title": "依據天氣安排週末",
+      "description": "結合天氣預報推薦適合親子出行的活動。",
+      "chip": "這個週末去哪玩？",
+      "prompt": "查詢我所在地區本週末的天氣，並根據天氣推薦三套適合親子出遊的計劃。請先詢問我所在的城市和孩子的年齡。"
+    },
+    "reorder-essentials": {
+      "category": "research",
+      "icon": "ShoppingCart",
+      "color": "green",
+      "title": "補購生活必需品",
+      "description": "一鍵告知，自動送貨上門。",
+      "chip": "補購尿布和咖啡",
+      "prompt": "幫我設定家庭必需品的定期補貨流程。請先詢問我平時消耗最快、最常缺貨的物品有哪些。",
+      "requires": [
+        "shopping"
+      ]
+    },
+    "expense-summary": {
+      "category": "money",
+      "icon": "Wallet",
+      "color": "green",
+      "title": "彙總分類開銷",
+      "description": "匯入對帳單，自動按類別彙總並核算總額。",
+      "chip": "上月開銷分類統計",
+      "prompt": "我會上傳銀行或信用卡的對帳單匯出檔案。請幫我對各項費用進行分類統計、計算各類總和，並指出任何異常交易。"
+    },
+    "budget-plan": {
+      "category": "money",
+      "icon": "Wallet",
+      "color": "green",
+      "title": "制定家庭預算",
+      "description": "按月梳理收入、固定支出及結餘資金。",
+      "chip": "每月家庭預算表",
+      "prompt": "和我一起制定一份家庭月度預算。請先詢問收入和各項固定開銷，然後展示結餘資金並提議三條省錢方案。"
+    },
+    "teach-memory": {
+      "category": "setup",
+      "icon": "Brain",
+      "color": "yellow",
+      "title": "讓 {name} 認識你",
+      "description": "告訴 {name} 你的生活習慣、偏好與雷區，{name} 會牢牢記住。",
+      "chip": "關於我，你應該知道這些",
+      "prompt": "向我提出十個關於我的生活和工作的簡短問題，以便你記住關鍵細節。請一次只提一個問題，等我回答後再提下一個，並將了解到的內容妥善保存。"
+    },
+    "add-contacts": {
+      "category": "setup",
+      "icon": "Users",
+      "color": "yellow",
+      "title": "新增重要聯絡人",
+      "description": "保存助理需要知曉姓名的人物資訊。",
+      "chip": "新增我的團隊成員",
+      "prompt": "幫我把經常提到的人新增為聯絡人，以便日後你能清楚我指代的是誰。請向我詢問他們的名字以及我們之間的關係。"
+    },
+    "voice-mode": {
+      "category": "setup",
+      "icon": "Mic",
+      "color": "yellow",
+      "title": "開啟語音對話模式",
+      "description": "解放雙手，體驗自然流暢的口語暢聊。",
+      "chip": "設定語音模式",
+      "prompt": "幫我設定語音功能，這樣我就可以直接和你語音交流而不是打字，然後我們來進行一次簡短的語音對話吧。"
+    },
+    "connect-telegram": {
+      "category": "setup",
+      "icon": "MessageCircle",
+      "color": "yellow",
+      "title": "在手機上與助理聊天",
+      "description": "透過 Telegram、WhatsApp 或簡訊隨時連接你的助理。",
+      "chip": "設定 Telegram",
+      "prompt": "幫我連接通訊渠道，方便我用手機給你發訊息。向我展示支援的選項，並協助我設定所選渠道。"
+    },
+    "connect-slack": {
+      "category": "setup",
+      "icon": "Hash",
+      "color": "yellow",
+      "title": "接入團隊 Slack",
+      "description": "在團隊熟悉的日常溝通工作區隨時提問。",
+      "chip": "設定 Slack",
+      "prompt": "幫我把你新增到團隊的 Slack 工作區，這樣我們就能在公共頻道裡直接向你提問。"
+    },
+    "connect-notion": {
+      "category": "setup",
+      "icon": "BookOpen",
+      "color": "yellow",
+      "title": "連接 Notion",
+      "description": "閱讀並更新團隊的 Notion 頁面。",
+      "chip": "連接 Notion",
+      "prompt": "幫我連接 Notion，以便你能閱讀和更新我們的知識庫頁面，然後幫我總結我指定的一個頁面。"
+    },
+    "import-chatgpt": {
+      "category": "setup",
+      "icon": "Download",
+      "color": "yellow",
+      "title": "匯入 ChatGPT 歷史記錄",
+      "description": "匯入以往的對話歷史，讓助理直接掌握背景脈絡。",
+      "chip": "匯入 ChatGPT 匯出資料",
+      "prompt": "幫我匯入 ChatGPT 的歷史聊天記錄，這樣你就能清楚我之前一直在處理哪些事情。"
+    },
+    "faq-page": {
+      "category": "content",
+      "icon": "MessageCircleQuestion",
+      "color": "pink",
+      "title": "編寫常見問題解答",
+      "description": "針對客戶反覆提問的十個核心問題，一次性給出權威解答。",
+      "chip": "企業常見問題 FAQ",
+      "prompt": "為我的業務編寫一份常見問題解答（FAQ）頁面。請先詢問我的產品服務以及最常遇到的諮詢，然後在文件中起草十個解答。"
+    },
+    "birthday-tracker": {
+      "category": "automations",
+      "icon": "Cake",
+      "color": "teal",
+      "title": "生日提醒備忘",
+      "description": "提前一週溫馨提醒，並附贈貼心送禮靈感。",
+      "chip": "提醒重要生日",
+      "prompt": "為我設定提前一週的生日提醒，並針對每個人推薦三個禮物建議。請向我詢問人員名單和具體日期。"
+    },
+    "weekly-review": {
+      "category": "automations",
+      "icon": "NotebookPen",
+      "color": "teal",
+      "title": "每週複盤反思",
+      "description": "每週五三個簡短啟發問題，自動彙編成日誌文件。",
+      "chip": "週五反思複盤",
+      "prompt": "每週五下午 5 點向我提出三個簡短的反思問題，並將我的回答記錄保存到日誌文件中。"
+    },
+    "try-computer-use": {
+      "category": "setup",
+      "icon": "MonitorSmartphone",
+      "color": "yellow",
+      "title": "體驗電腦控制功能",
+      "description": "讓助理查看你的螢幕並替你點擊操作。需要桌面端應用程式支援。",
+      "chip": "展示電腦控制能力",
+      "prompt": "向我展示你在我電腦上能實現的電腦操作功能。首先擷取一張螢幕截圖並描述目前畫面，然後提議兩件你可以幫我完成的事情。",
+      "link": {
+        "label": "下載桌面端應用程式",
+        "url": "https://www.vellum.ai/downloads"
+      }
+    }
+  }
+}

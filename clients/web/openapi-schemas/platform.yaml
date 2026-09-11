@@ -4899,20 +4899,22 @@ paths:
   /v1/organizations/billing/subscription/change-credit-tier/:
     post:
       operationId: organizations_billing_subscription_change_credit_tier_create
-      description: 'Add, swap, or remove the included-credit bundle on the org''s
-        active Pro subscription without re-checkout. A null ``credit_tier`` removes
-        the bundle (back to the $0 default); a set value adds (when none today) or
-        swaps the existing bundle. UPGRADES (the credit value strictly increases;
-        adding a bundle counts) charge the full price difference between the two tiers
-        immediately — a flat difference, not a time-based Stripe proration — and grant
-        the credit difference immediately; the renewal then bills the full new price.
-        A declined difference charge returns HTTP 402 and reverts the change. Subscriptions
-        carrying an active discount defer upgrades to the next cycle instead (the
-        flat difference would ignore the coupon). DOWNGRADES and removals still use
-        proration_behavior=none: the change — and the smaller monthly grant — take
-        effect at the next cycle boundary, with no immediate charge or refund. Rejected
-        with HTTP 409 while a cancellation is pending. Requires an active Pro subscription
-        with a provisioned Stripe subscription.'
+      description: 'DEPRECATED: use change-package with explicit tiers, which applies
+        every dimension — and the platform fee every non-Mighty plan carries — in
+        one call. Add, swap, or remove the included-credit bundle on the org''s active
+        Pro subscription without re-checkout. A null ``credit_tier`` removes the bundle
+        (back to the $0 default); a set value adds (when none today) or swaps the
+        existing bundle. UPGRADES (the credit value strictly increases; adding a bundle
+        counts) charge the full price difference between the two tiers immediately
+        — a flat difference, not a time-based Stripe proration — and grant the credit
+        difference immediately; the renewal then bills the full new price. A declined
+        difference charge returns HTTP 402 and reverts the change. Subscriptions carrying
+        an active discount defer upgrades to the next cycle instead (the flat difference
+        would ignore the coupon). DOWNGRADES and removals still use proration_behavior=none:
+        the change — and the smaller monthly grant — take effect at the next cycle
+        boundary, with no immediate charge or refund. Rejected with HTTP 409 while
+        a cancellation is pending. Requires an active Pro subscription with a provisioned
+        Stripe subscription.'
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -4938,6 +4940,7 @@ paths:
       security:
       - cookieAuth: []
       - XSessionTokenAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -4950,17 +4953,19 @@ paths:
   /v1/organizations/billing/subscription/change-machine-tier/:
     post:
       operationId: organizations_billing_subscription_change_machine_tier_create
-      description: Add, switch, or remove the compute (machine) tier on the org's
+      description: 'DEPRECATED: use change-package with explicit tiers, which applies
+        every dimension — and the platform fee every non-Mighty plan carries — in
+        one call. Add, switch, or remove the compute (machine) tier on the org''s
         active Pro subscription. A set value swaps the Stripe subscription item in
         place (or adds one when the subscription has no machine item); a null ``machine_tier``
         removes the item entirely (back to the small baseline). Upgrades — including
-        adding a tier — invoice immediately (always_invoice) and grow the org's assistants
+        adding a tier — invoice immediately (always_invoice) and grow the org''s assistants
         up to the new ceiling asynchronously, the same way a Base→Pro subscribe does;
         the response does not wait on that rollout. Downgrades and removals net onto
         the next invoice (create_prorations, no refund) and cap any pods above the
         new ceiling via vembda. Rejected with HTTP 409 while a cancellation is pending.
         Requires an active Pro subscription with the multi-item structure; legacy
-        single-price subscriptions get HTTP 409 until they are migrated.
+        single-price subscriptions get HTTP 409 until they are migrated.'
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -4986,6 +4991,7 @@ paths:
       security:
       - cookieAuth: []
       - XSessionTokenAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -4998,24 +5004,35 @@ paths:
   /v1/organizations/billing/subscription/change-package/:
     post:
       operationId: organizations_billing_subscription_change_package_create
-      description: 'Switch the org''s active Pro subscription to a named package (e.g.
-        mighty/super/ultra). Diffs the package''s machine, storage, credit, and base-platform-fee
-        line items against the current subscription and applies them as one or two
-        atomic Stripe updates: the machine/storage/fee items (adding, swapping, or
-        removing — including the ``vellum_pro_base`` fee) settle in a first ``Subscription.modify``
-        that bills immediately, while any included-credit bundle change settles in
-        a separate ``proration_behavior=none`` modify. A credit-tier INCREASE additionally
-        charges the flat price difference between the two bundles immediately and
-        grants the credit difference immediately (mirroring change-credit-tier); when
-        that difference cannot be charged (active discount, no chargeable payment
-        method, or a declined charge) the credits simply apply at the next cycle and
-        the package switch stands. Credit decreases settle at the next cycle. A net
-        price increase on the primary items invoices immediately and gates on payment
-        success (HTTP 402 on a declined card, leaving the plan unchanged); a net decrease
-        nets onto the next invoice. Machines above the new package''s ceiling are
-        capped via vembda and lower ceilings grow asynchronously; PVCs are never shrunk.
-        Rejected with HTTP 409 while a cancellation is pending, and gated on the ``pro-packages``
-        flag (an unknown or gated package returns the same HTTP 400).'
+      description: 'Change the org''s active Pro subscription to another Pro plan:
+        a named package (e.g. mighty/super/ultra) or a custom plan given as explicit
+        machine/storage/credit tiers. This is the one endpoint for every Pro → Pro
+        change (named ↔ named, named ↔ custom, custom ↔ custom). Diffs the target''s
+        machine, storage, credit, and base-platform-fee line items against the current
+        subscription and applies them as one or two atomic Stripe updates: the machine/storage/fee
+        items (adding, swapping, or removing — including the ``vellum_pro_base`` fee)
+        settle in a first ``Subscription.modify`` that bills immediately, while any
+        included-credit bundle change settles in a separate ``proration_behavior=none``
+        modify. A credit-tier INCREASE additionally charges the flat price difference
+        between the two bundles immediately and grants the credit difference immediately
+        (mirroring change-credit-tier); when that difference cannot be charged (active
+        discount, no chargeable payment method, or a declined charge) the credits
+        simply apply at the next cycle and the package switch stands. Credit decreases
+        settle at the next cycle. A net price increase on the primary items invoices
+        immediately and gates on payment success (HTTP 402 on a declined card, leaving
+        the plan unchanged); a net decrease nets onto the next invoice. Machines above
+        the new package''s ceiling are capped via vembda and lower ceilings grow asynchronously;
+        PVCs are never shrunk. Rejected with HTTP 409 while a cancellation is pending.
+        A named package is gated on the ``pro-packages`` flag (an unknown or gated
+        package returns the same HTTP 400); a custom target is not gated, like the
+        per-dimension tier endpoints it replaces. A custom plan ALWAYS carries the
+        base platform fee and clears the package pin (``package`` is null in the response);
+        only the Mighty package is sold without the fee, so leaving Mighty for any
+        other plan adds the fee (invoiced immediately with the rest of the net increase)
+        and grants the fee-backed managed-email / phone-number entitlements, while
+        moving to Mighty removes it. Custom targets follow the per-dimension rules:
+        storage is upgrade-or-keep, and retired credit bundles / legacy storage tiers
+        are rejected unless unchanged.'
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -5053,16 +5070,18 @@ paths:
   /v1/organizations/billing/subscription/change-storage-tier/:
     post:
       operationId: organizations_billing_subscription_change_storage_tier_create
-      description: Upgrade the storage tier on the org's active Pro subscription.
+      description: 'DEPRECATED: use change-package with explicit tiers, which applies
+        every dimension — and the platform fee every non-Mighty plan carries — in
+        one call. Upgrade the storage tier on the org''s active Pro subscription.
         Modifies the Stripe subscription item in place and invoices immediately (always_invoice).
         Storage is upgrade-only — equal-tier requests are a no-op and smaller-tier
         requests are rejected with HTTP 400 before any Stripe call. Legacy (no-longer-offered)
         tiers are rejected with HTTP 400 unless they equal the current tier (which
-        no-ops). On a successful change the org's assistants grow up to the new ceiling
+        no-ops). On a successful change the org''s assistants grow up to the new ceiling
         asynchronously, the same way a Base→Pro subscribe does; the response does
         not wait on that rollout. PVCs are never shrunk. Rejected with HTTP 409 while
         a cancellation is pending. Requires an active Pro subscription with storage_tier
-        metadata; legacy subscriptions get HTTP 409 until they are migrated.
+        metadata; legacy subscriptions get HTTP 409 until they are migrated.'
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -5088,6 +5107,7 @@ paths:
       security:
       - cookieAuth: []
       - XSessionTokenAuth: []
+      deprecated: true
       responses:
         '200':
           content:
@@ -7244,6 +7264,34 @@ components:
         * `credits_100` - credits_100
         * `credits_115` - credits_115
         * `credits_200` - credits_200
+    CustomPlanChangeRequestRequest:
+      type: object
+      description: |-
+        The custom-plan arm of the ``change-package`` request: explicit tiers.
+
+        ``machine_tier`` / ``credit_tier`` ``None`` mean no line item for that
+        dimension (the small baseline machine; no credit bundle). The
+        ChoiceFields keep the FULL tier dicts (OpenAPI enum stability); the view
+        rejects retired/legacy targets that differ from the current tier,
+        mirroring the per-dimension tier endpoints. A custom plan always carries
+        the base platform fee; the fee-less configuration is only sold as the
+        Mighty package.
+      properties:
+        machine_tier:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/MachineTierEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        storage_tier:
+          $ref: '#/components/schemas/StorageTierEnum'
+        credit_tier:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/CreditTierEnum'
+          - $ref: '#/components/schemas/NullEnum'
+      required:
+      - storage_tier
+      additionalProperties: false
     DailyCreditLimitRequestRequest:
       type: object
       description: PUT /…/daily-credit-limit/ request body. ``null`` clears the limit.
@@ -8477,6 +8525,17 @@ components:
       - referrer_credit_amount
       - total_earned
       - total_earned_usd
+    NamedPackageChangeRequestRequest:
+      type: object
+      description: The named-package arm of the ``change-package`` request.
+      properties:
+        package:
+          type: string
+          minLength: 1
+          pattern: ^[-a-zA-Z0-9_]+$
+      required:
+      - package
+      additionalProperties: false
     NotificationList:
       type: object
       description: Read serializer for listing notifications.
@@ -9017,21 +9076,18 @@ components:
       - share_diagnostics_accepted_version
       - share_diagnostics_chosen
     PackageChangeRequestRequest:
-      type: object
-      properties:
-        package:
-          type: string
-          minLength: 1
-          pattern: ^[-a-zA-Z0-9_]+$
-      required:
-      - package
+      oneOf:
+      - $ref: '#/components/schemas/NamedPackageChangeRequestRequest'
+      - $ref: '#/components/schemas/CustomPlanChangeRequestRequest'
     PackageChangeResponse:
       type: object
       properties:
         status:
           $ref: '#/components/schemas/TierChangeStatusEnum'
         package:
-          $ref: '#/components/schemas/SubscriptionPackage'
+          allOf:
+          - $ref: '#/components/schemas/SubscriptionPackage'
+          nullable: true
         credit_charged_usd:
           type: string
           nullable: true
@@ -9928,6 +9984,8 @@ components:
           allOf:
           - $ref: '#/components/schemas/SubscriptionPackage'
           nullable: true
+        has_platform_fee:
+          type: boolean
         entitlements:
           $ref: '#/components/schemas/SubscriptionEntitlements'
       required:

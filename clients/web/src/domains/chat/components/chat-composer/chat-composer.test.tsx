@@ -185,11 +185,13 @@ mock.module("@/domains/chat/voice/voice-room/voice-first-run-card", () => ({
 // `.use.phase()` and `.use.setAudioLevel()` selectors are consumed by the
 // composer.
 let mockVoicePhase = "idle";
+let mockVoiceHold = false;
 const setAudioLevelSpy = mock((_level: number) => undefined);
 mock.module("@/domains/chat/voice/voice-recording-store", () => ({
   useVoiceRecordingStore: {
     use: {
       phase: () => mockVoicePhase,
+      hold: () => mockVoiceHold,
       setAudioLevel: () => setAudioLevelSpy,
     },
   },
@@ -328,6 +330,7 @@ function resetLiveVoiceMocks() {
   mockNativePickersAvailable = false;
   mockIsNativePlatform = false;
   mockVoicePhase = "idle";
+  mockVoiceHold = false;
   mockPreflightVerdict = { status: "ready" };
   preflightSpy.mockClear();
   navigateSpy.mockClear();
@@ -472,6 +475,51 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
         cmdEnterMode: false,
       }),
     ).toBe("submit");
+  });
+});
+
+describe("shouldSubmitOnEnter — dictation in flight", () => {
+  const DICTATING_POLICY = {
+    input: "",
+    canSendAttachments: false,
+    dictationInFlight: true,
+    sendDisabled: false,
+    attachmentsUploadingCount: 0,
+    cmdEnterMode: false,
+  };
+
+  test("Enter with an empty draft submits while dictating", () => {
+    // Words already spoken are content the composer does not hold yet, so
+    // Enter has to reach onSubmit, which finishes dictation before it sends
+    // (LUM-3432).
+    expect(shouldSubmitOnEnter(ENTER, false, DICTATING_POLICY)).toBe("submit");
+  });
+
+  test("Enter with an empty draft and no dictation still prevents", () => {
+    expect(
+      shouldSubmitOnEnter(ENTER, false, {
+        ...DICTATING_POLICY,
+        dictationInFlight: false,
+      }),
+    ).toBe("prevent");
+  });
+
+  test("dictation does not override sendDisabled", () => {
+    expect(
+      shouldSubmitOnEnter(ENTER, false, {
+        ...DICTATING_POLICY,
+        sendDisabled: true,
+      }),
+    ).toBe("prevent");
+  });
+
+  test("dictation does not override an uploading attachment", () => {
+    expect(
+      shouldSubmitOnEnter(ENTER, false, {
+        ...DICTATING_POLICY,
+        attachmentsUploadingCount: 1,
+      }),
+    ).toBe("prevent");
   });
 });
 
@@ -2945,10 +2993,44 @@ describe("ChatComposer — live-voice integration", () => {
     // WHEN the composer renders
     const { queryByLabelText } = renderVoiceComposer();
 
-    // THEN the send slot (which holds the voice-mode entry point while idle) is
-    // hidden entirely during dictation, so no second mic/voice session can open
-    // alongside the recorder — mutual exclusion by absence.
+    // THEN the voice-mode entry point is gone from the send slot: dictation
+    // counts as something to send, so the send arrow takes the slot and no
+    // second mic/voice session can open alongside the recorder.
     expect(queryByLabelText("Start voice mode")).toBeNull();
+  });
+
+  test("dictation keeps a live send button so Send can finish the session", () => {
+    // GIVEN dictation is in flight with an empty draft. The send arrow used
+    // to be hidden for the whole session, which left no gesture for ending
+    // dictation and sending in one move (LUM-3432).
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoicePhase = "processing";
+
+    // WHEN the composer renders
+    const { getByLabelText } = renderVoiceComposer();
+
+    // THEN the send arrow is mounted and pressable, even with nothing in the
+    // draft: the words the user spoke are the payload, and `submitMessage`
+    // waits for them before it reads the composer.
+    const send = getByLabelText("Send message") as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+  });
+
+  test("a held key's dictation into another app does not light Send", () => {
+    // GIVEN the bridge's hidden recorder is running a hold. The store is
+    // window-global, so this composer sees the phase, but the session is
+    // not its content and its target cannot stop that recorder.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoicePhase = "recording";
+    mockVoiceHold = true;
+
+    // WHEN the composer renders with an empty draft
+    const { queryByLabelText } = renderVoiceComposer();
+
+    // THEN there is nothing to send: the slot holds the voice-mode entry
+    // point exactly as it does with no microphone open at all.
+    expect(queryByLabelText("Send message")).toBeNull();
+    expect(queryByLabelText("Start voice mode")).not.toBeNull();
   });
 
   test("electron dictation uses the system overlay instead of the inline composer preview", () => {
@@ -2961,8 +3043,8 @@ describe("ChatComposer — live-voice integration", () => {
     const { queryByLabelText } = renderVoiceComposer();
 
     // THEN the shared top-center dictation overlay owns the visual treatment,
-    // so the composer-specific preview is absent; and the send slot (voice-mode
-    // entry point) stays hidden during dictation — mutual exclusion by absence.
+    // so the composer-specific preview is absent; and the voice-mode entry
+    // point has given the send slot up to the send arrow for the session.
     expect(queryByLabelText("Transcribing")).toBeNull();
     expect(queryByLabelText("Start voice mode")).toBeNull();
   });

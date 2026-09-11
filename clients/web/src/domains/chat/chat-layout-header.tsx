@@ -9,6 +9,7 @@ import {
 import { useCallback, useEffect, type ReactNode } from "react";
 
 import { WindowsMenuBar } from "@/components/windows-menu-bar";
+import type { MobileTopBarSlot } from "@/components/layout/chat-layout-slots-store";
 import { NATIVE_MOBILE_BARE_ICON_BUTTON } from "@/domains/chat/utils/native-mobile-button-constants";
 import { WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX } from "@/runtime/electron-window-chrome";
 import {
@@ -32,6 +33,7 @@ import { useTranslation } from "@/i18n";
 // (≈ button left edge at 96px, leaving a ~25px gap past the green control).
 // Off Electron the inset is 0.
 const ELECTRON_TRAFFIC_LIGHT_CLEARANCE = 80;
+const ELECTRON_TITLE_BAR_HEIGHT_PX = 44;
 
 /**
  * The `data-slot` this header publishes, and the selector that finds it.
@@ -62,6 +64,8 @@ export interface ChatLayoutHeaderProps {
    *  them visible for context but pulls them out of the attention field. */
   controlsDimmed?: boolean;
   topBarCenter?: ReactNode;
+  /** Replaces the standard mobile navigation clusters for section-specific chrome. */
+  mobileTopBar?: MobileTopBarSlot | null;
   /**
    * Leads the right cluster, ahead of the mobile search button. The
    * voice-session pill sits here so a live session reads as the leftmost
@@ -86,6 +90,7 @@ export function ChatLayoutHeader({
   centerHidden = false,
   controlsDimmed = false,
   topBarCenter,
+  mobileTopBar,
   topBarRightLeading,
   topBarRightSlot,
   canGoBack,
@@ -147,6 +152,25 @@ export function ChatLayoutHeader({
     pageSurface,
     isNativeMobile(),
   );
+  const customMobileTopBar = isMobile ? mobileTopBar : null;
+  const macosTrafficLightStyle =
+    electronHostOS === "macos"
+      ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
+      : {};
+  const customMobileGridColumns =
+    electronHostOS === "windows"
+      ? "grid-cols-[max-content_minmax(0,1fr)_max-content]"
+      : "grid-cols-[1fr_auto_1fr]";
+  const windowsMenuRowStyle =
+    electronHostOS === "windows"
+      ? {
+          width: `calc(100% + ${WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX}px)`,
+        }
+      : undefined;
+  const customMobileActionRowStyle =
+    electronHostOS === "windows"
+      ? { minHeight: ELECTRON_TITLE_BAR_HEIGHT_PX }
+      : undefined;
 
   return (
     <header
@@ -158,7 +182,9 @@ export function ChatLayoutHeader({
       }`}
       style={{
         background: headerBackground,
-        minHeight: usesCustomTitleBar ? "44px" : "40px",
+        minHeight: usesCustomTitleBar
+          ? `${ELECTRON_TITLE_BAR_HEIGHT_PX}px`
+          : "40px",
         paddingTop: usesCustomTitleBar ? 0 : undefined,
         paddingRight:
           electronHostOS === "windows"
@@ -166,104 +192,135 @@ export function ChatLayoutHeader({
             : undefined,
       }}
     >
-      <div
-        // `inert` (not just opacity/pointer-events) so the faded-out
-        // controls also leave the tab order and accessibility tree.
-        inert={controlsHidden || undefined}
-        className={`flex items-center gap-2 transition-[min-width,opacity] duration-300 ease-in-out max-md:shrink-0${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
-        style={{
-          // `minWidth` reserves the sidebar column on desktop only. The Electron
-          // inset clears the inline traffic lights regardless of `isMobile` —
-          // they stay put even in the narrow mobile layout.
-          ...(isMobile
-            ? {}
-            : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
-          ...(electronHostOS === "macos"
-            ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
-            : {}),
-        }}
-      >
-        {isMobile ? (
-          <Button
-            variant="ghost"
-            iconOnly={<MenuIcon />}
-            aria-label={t("chatLayoutHeader.openNavigationAria")}
-            aria-expanded={drawerOpen}
-            aria-controls="chat-side-menu"
-            tooltip={t("chatLayoutHeader.openNavigationAria")}
-            onClick={toggleSidebar}
-          />
-        ) : (
-          <Button
-            variant="ghost"
-            iconOnly={<PanelLeft />}
-            aria-label={t("chatLayoutHeader.toggleSidebarAria")}
-            aria-expanded={!collapsed}
-            aria-controls="chat-side-menu"
-            tooltip={t("chatLayoutHeader.toggleSidebarAria")}
-            onClick={toggleSidebar}
-          />
-        )}
-        {!isMobile ? (
-          <>
-            <Button
-              variant="ghost"
-              iconOnly={<Search />}
-              aria-label={t("chatLayoutHeader.searchAria")}
-              tooltip={t("chatLayoutHeader.searchAria")}
-              onClick={handleSearchClick}
-            />
-            <Button
-              variant="ghost"
-              iconOnly={<ChevronLeft />}
-              aria-label={t("chatLayoutHeader.backAria")}
-              tooltip={t("chatLayoutHeader.backAria")}
-              disabled={!canGoBack}
-              className={!canGoBack ? "opacity-35" : undefined}
-              onClick={onGoBack}
-            />
-            <Button
-              variant="ghost"
-              iconOnly={<ChevronRight />}
-              aria-label={t("chatLayoutHeader.forwardAria")}
-              tooltip={t("chatLayoutHeader.forwardAria")}
-              disabled={!canGoForward}
-              className={!canGoForward ? "opacity-35" : undefined}
-              onClick={onGoForward}
-            />
-          </>
-        ) : null}
-        {/* Outside the isMobile branch: while this header is mounted the
-            fallback strip yields, so a narrow (zoomed) Windows window would
-            otherwise lose the menus entirely. Self-gates to the Windows
-            shell (renders nothing elsewhere), so no `electronHostOS`
-            branch here. */}
-        <WindowsMenuBar />
-      </div>
+      {customMobileTopBar ? (
+        <div
+          inert={controlsHidden || undefined}
+          className={`flex w-full min-w-0 flex-col transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
+        >
+          <div
+            className={`grid w-full items-center ${customMobileGridColumns}`}
+            style={customMobileActionRowStyle}
+          >
+            <div
+              className="flex min-w-0 items-center justify-start gap-2"
+              style={macosTrafficLightStyle}
+            >
+              {customMobileTopBar.leading}
+            </div>
+            <div
+              inert={centerHidden || undefined}
+              className={`min-w-0 overflow-hidden text-center transition-opacity duration-300${centerHidden ? " pointer-events-none opacity-0" : ""}`}
+            >
+              {customMobileTopBar.center}
+            </div>
+            <div className="flex min-w-0 items-center justify-end">
+              {customMobileTopBar.trailing}
+            </div>
+          </div>
+          {electronHostOS === "windows" ? (
+            <div
+              className="flex min-w-0 items-center"
+              style={windowsMenuRowStyle}
+            >
+              <WindowsMenuBar />
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <div
+            // `inert` (not just opacity/pointer-events) so the faded-out
+            // controls also leave the tab order and accessibility tree.
+            inert={controlsHidden || undefined}
+            className={`flex items-center gap-2 transition-[min-width,opacity] duration-300 ease-in-out max-md:shrink-0${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
+            style={{
+              // `minWidth` reserves the sidebar column on desktop only. The
+              // Electron inset clears the inline traffic lights at any width.
+              ...(isMobile
+                ? {}
+                : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
+              ...macosTrafficLightStyle,
+            }}
+          >
+            {isMobile ? (
+              <Button
+                variant="ghost"
+                iconOnly={<MenuIcon />}
+                aria-label={t("chatLayoutHeader.openNavigationAria")}
+                aria-expanded={drawerOpen}
+                aria-controls="chat-side-menu"
+                tooltip={t("chatLayoutHeader.openNavigationAria")}
+                onClick={toggleSidebar}
+              />
+            ) : (
+              <Button
+                variant="ghost"
+                iconOnly={<PanelLeft />}
+                aria-label={t("chatLayoutHeader.toggleSidebarAria")}
+                aria-expanded={!collapsed}
+                aria-controls="chat-side-menu"
+                tooltip={t("chatLayoutHeader.toggleSidebarAria")}
+                onClick={toggleSidebar}
+              />
+            )}
+            {!isMobile ? (
+              <>
+                <Button
+                  variant="ghost"
+                  iconOnly={<Search />}
+                  aria-label={t("chatLayoutHeader.searchAria")}
+                  tooltip={t("chatLayoutHeader.searchAria")}
+                  onClick={handleSearchClick}
+                />
+                <Button
+                  variant="ghost"
+                  iconOnly={<ChevronLeft />}
+                  aria-label={t("chatLayoutHeader.backAria")}
+                  tooltip={t("chatLayoutHeader.backAria")}
+                  disabled={!canGoBack}
+                  className={!canGoBack ? "opacity-35" : undefined}
+                  onClick={onGoBack}
+                />
+                <Button
+                  variant="ghost"
+                  iconOnly={<ChevronRight />}
+                  aria-label={t("chatLayoutHeader.forwardAria")}
+                  tooltip={t("chatLayoutHeader.forwardAria")}
+                  disabled={!canGoForward}
+                  className={!canGoForward ? "opacity-35" : undefined}
+                  onClick={onGoForward}
+                />
+              </>
+            ) : null}
+            {/* Outside the isMobile branch: while this header is mounted the
+                fallback strip yields, so a narrow Windows window keeps its
+                menus. The component renders nothing outside Windows. */}
+            <WindowsMenuBar />
+          </div>
 
-      <div
-        inert={controlsHidden || centerHidden || undefined}
-        // Left-aligned on mobile, pulled in 12px past the header's own
-        // `gap-4` (16px) to sit closer to the menu button, 4px total.
-        // Desktop keeps the title centered in the remaining space.
-        className={`flex min-w-0 flex-1 items-center max-md:-ml-3 max-md:justify-start justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
-      >
-        {topBarCenter}
-      </div>
+          <div
+            inert={controlsHidden || centerHidden || undefined}
+            // Left-aligned on mobile, pulled in 12px past the header's own
+            // `gap-4` (16px) to sit closer to the menu button, 4px total.
+            // Desktop keeps the title centered in the remaining space.
+            className={`flex min-w-0 flex-1 items-center max-md:-ml-3 max-md:justify-start justify-center transition-opacity duration-300${controlsHidden || centerHidden ? " pointer-events-none opacity-0" : ""}`}
+          >
+            {topBarCenter}
+          </div>
 
-      {/* `shrink-0`, not `flex-1`: these are fixed-size controls, and a wide
-          occupant (the voice-session pill) would otherwise either squash them
-          into each other or hold the row at its intrinsic width and push the
-          trailing ones off-screen. The centre slot is the only zone that
-          gives. */}
-      <div
-        inert={controlsHidden || undefined}
-        className={`flex shrink-0 items-center gap-2 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
-      >
-        {topBarRightLeading}
-        {searchButton}
-        {topBarRightSlot}
-      </div>
+          {/* `shrink-0`, not `flex-1`: these are fixed-size controls, and a
+              wide occupant (the voice-session pill) would otherwise squash
+              them or push the trailing controls off-screen. */}
+          <div
+            inert={controlsHidden || undefined}
+            className={`flex shrink-0 items-center gap-2 max-md:justify-end transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
+          >
+            {topBarRightLeading}
+            {searchButton}
+            {topBarRightSlot}
+          </div>
+        </>
+      )}
     </header>
   );
 }

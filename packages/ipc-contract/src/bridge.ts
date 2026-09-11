@@ -605,6 +605,14 @@ export interface VellumBridge {
     /** Nudge the window, for dragging the surface around the desktop. */
     moveBy(dx: number, dy: number): void;
     /**
+     * The hand has let go of the surface.
+     *
+     * Sent after every press ends, whether or not it moved anything: main
+     * knows whether a drag was in flight and what, if anything, the release
+     * settles. Mid-call, it is the drop that docks the bar to an edge.
+     */
+    release(): void;
+    /**
      * Ask for a live-voice session, which is what Talk does.
      *
      * The surface is its own renderer and holds no session, so the press is

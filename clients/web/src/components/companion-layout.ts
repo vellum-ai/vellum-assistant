@@ -46,6 +46,10 @@ export const containsPoint = (
  * a larger creature's height would hand the window the dead corners beside the
  * pill to swallow presses in.
  *
+ * A call docked to a side of the display stands the pill up under the
+ * creature, and the strip turns with it: the pill's own column wide, and as
+ * tall as the gap between the creature's bottom and the pill's top.
+ *
  * Degenerate when the two overlap, which reads as no bridge at all: the strip's
  * left edge lands past its right, and no point is inside it.
  */
@@ -53,6 +57,14 @@ export const bridgeRect = (
   avatar: SurfaceRect,
   pill: SurfaceRect,
 ): SurfaceRect => {
+  if (pill.top >= avatar.bottom) {
+    return {
+      left: pill.left,
+      right: pill.right,
+      top: avatar.bottom,
+      bottom: pill.top,
+    };
+  }
   const row = { top: pill.top, bottom: pill.bottom };
   return pill.left >= avatar.right
     ? { left: avatar.right, right: pill.left, ...row }

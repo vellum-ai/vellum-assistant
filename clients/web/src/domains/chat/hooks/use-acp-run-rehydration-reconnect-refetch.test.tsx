@@ -63,6 +63,8 @@ beforeEach(() => {
   mockOk = true;
   mockSessions = [];
   lastQuery = undefined;
+  mockGetImpl = undefined;
+  __resetAcpSnapshotGenerationsForTests();
   useAcpRunStore.getState().reset();
 });
 
@@ -398,5 +400,192 @@ describe("useAcpRunRehydration: re-reading once a Connect flow settles", () => {
     await flush();
 
     expect(getCalls).toBe(0);
+  });
+});
+
+describe("useAcpRunRehydration: a snapshot in flight cannot roll back a model", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 5));
+
+  test("a superseded response cannot veto the newer process snapshot", async () => {
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "run-A",
+      agent: "claude",
+      parentConversationId: "conv-A",
+      startedAt: 0,
+    });
+    useAcpRunStore.getState().setModel({
+      acpSessionId: "run-A",
+      modelRevisionEpoch: "old-process",
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    let releaseOlder = () => {};
+    const olderHeld = new Promise<void>((resolve) => {
+      releaseOlder = resolve;
+    });
+    let releaseNewer = () => {};
+    const newerHeld = new Promise<void>((resolve) => {
+      releaseNewer = resolve;
+    });
+    const response = (
+      model: string,
+      modelRevisionEpoch: string,
+      modelRevision: number,
+    ) => ({
+      data: {
+        sessions: [
+          {
+            id: "run-A",
+            agentId: "claude",
+            acpSessionId: "run-A",
+            parentConversationId: "conv-A",
+            status: "running",
+            startedAt: 0,
+            model,
+            modelRevisionEpoch,
+            modelRevision,
+            availableModels: [{ value: model, label: model }],
+          },
+        ],
+      },
+      response: { ok: true },
+    });
+    let call = 0;
+    mockGetImpl = async () => {
+      call += 1;
+      if (call === 1) {
+        await olderHeld;
+        return response("haiku", "old-process", 11);
+      }
+      await newerHeld;
+      return response("sonnet", "new-process", 1);
+    };
+
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+    await waitFor(() => expect(getCalls).toBe(1));
+    publish("sse.event", {
+      assistantId: "asst-1",
+      message: { type: "sync_changed", tags: [SYNC_TAGS.acpAuthRecovery] },
+    } as never);
+    await waitFor(() => expect(getCalls).toBe(2));
+
+    releaseOlder();
+    await flush();
+    expect(useAcpRunStore.getState().byId["run-A"]!.model).toBe("opus");
+
+    releaseNewer();
+    await waitFor(() => {
+      expect(useAcpRunStore.getState().byId["run-A"]!.model).toBe("sonnet");
+    });
+    expect(
+      useAcpRunStore.getState().byId["run-A"]!.modelRevisionEpoch,
+    ).toBe("new-process");
+  });
+
+  test("accepts a new process epoch even when its UUID sorts lower", async () => {
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "run-A",
+      agent: "claude",
+      parentConversationId: "conv-A",
+      startedAt: 0,
+    });
+    useAcpRunStore.getState().setModel({
+      acpSessionId: "run-A",
+      modelRevisionEpoch: "01910000-0000-7000-8000-000000000001",
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    mockSessions = [
+      {
+        id: "run-A",
+        agentId: "claude",
+        acpSessionId: "run-A",
+        parentConversationId: "conv-A",
+        status: "running",
+        startedAt: 0,
+        model: "sonnet",
+        modelRevisionEpoch: "018f0000-0000-7000-8000-000000000001",
+        modelRevision: 1,
+        availableModels: [{ value: "sonnet", label: "Sonnet" }],
+      },
+    ];
+
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+
+    await waitFor(() => {
+      expect(useAcpRunStore.getState().byId["run-A"]!.model).toBe("sonnet");
+    });
+    expect(
+      useAcpRunStore.getState().byId["run-A"]!.modelRevisionEpoch,
+    ).toBe("018f0000-0000-7000-8000-000000000001");
+  });
+
+  test("keeps a live model update that landed while the fetch was open", async () => {
+    // The request read the prior process's `opus`; a live event from the new
+    // process moved the session to `sonnet` before the response arrived.
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "run-A",
+      agent: "claude",
+      parentConversationId: "conv-A",
+      startedAt: 0,
+    });
+    useAcpRunStore.getState().setModel({
+      acpSessionId: "run-A",
+      modelRevisionEpoch: "01910000-0000-7000-8000-000000000001",
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    let releaseSnapshot = (_v: unknown) => {};
+    const held = new Promise((resolve) => {
+      releaseSnapshot = resolve;
+    });
+    mockGetImpl = async () => {
+      await held;
+      return {
+        data: {
+          sessions: [
+            {
+              id: "run-A",
+              agentId: "claude",
+              acpSessionId: "run-A",
+              parentConversationId: "conv-A",
+              status: "running",
+              startedAt: 0,
+              model: "opus",
+              modelRevisionEpoch: "01910000-0000-7000-8000-000000000001",
+              modelRevision: 10,
+              availableModels: [{ value: "opus", label: "Opus" }],
+            },
+          ],
+        },
+        response: { ok: true },
+      };
+    };
+
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+    await flush();
+
+    useAcpRunStore.getState().setModel({
+      acpSessionId: "run-A",
+      modelRevisionEpoch: "018f0000-0000-7000-8000-000000000001",
+      modelRevision: 1,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    releaseSnapshot(undefined);
+    await flush();
+
+    const entry = useAcpRunStore.getState().byId["run-A"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+    mockGetImpl = undefined;
   });
 });

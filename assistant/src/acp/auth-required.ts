@@ -8,7 +8,8 @@
  * 2. Credentials present but rejected (the expired/revoked case): the CLI
  *    surfaces the API 401 as an error message it authors, and the adapter
  *    relays it as a generic -32603 internal error, NOT as `auth_required`.
- *    {@link isClaudeAuthFailureMessage}.
+ *    {@link isClaudeAuthFailureMessage}, over the text
+ *    {@link requestErrorReason} decodes out of the rejection.
  *
  * A positive detection becomes {@link ACP_CLAUDE_AUTH_REQUIRED_CODE} on the
  * `acp_auth_required` event, which the client turns into the inline
@@ -79,6 +80,54 @@ export function isClaudeAuthFailureMessage(
     message != null &&
     CLAUDE_AUTH_FAILURE_PATTERNS.some((pattern) => pattern.test(message))
   );
+}
+
+/** Messages the SDK's `RequestError` factories build when given no text. */
+const GENERIC_RPC_MESSAGES: ReadonlySet<string> = new Set([
+  "Parse error",
+  "Invalid request",
+  "Invalid params",
+  "Internal error",
+  "Request cancelled",
+  "Authentication required",
+  "Resource not found",
+]);
+
+/**
+ * The sentence behind a JSON-RPC rejection. An adapter that throws a plain
+ * Error reaches the client as a bare "Internal error" whose real text the
+ * agent-side SDK moved into `data.details`. An adapter that raises
+ * `RequestError.internalError(data, text)` keeps its words in the message and
+ * only supplemental context in `data`, so a specific message wins. Behind a
+ * generic message such as "Invalid params", `data.details` or the serialized
+ * payload supplies the reason instead. Duck-typed like
+ * {@link isAcpAuthRequired}:
+ * `message` is read as a property, so a rejection that arrives as a plain
+ * object off the wire decodes the same as an `Error` instance.
+ */
+export function requestErrorReason(err: unknown): string {
+  if (typeof err !== "object" || err === null) {
+    return String(err);
+  }
+  const { data, message } = err as { data?: unknown; message?: unknown };
+  const own = typeof message === "string" ? message : String(err);
+  if (data == null) {
+    return own;
+  }
+  if (
+    typeof message === "string" &&
+    message.length > 0 &&
+    !GENERIC_RPC_MESSAGES.has(message)
+  ) {
+    return message;
+  }
+  const details = (data as { details?: unknown }).details;
+  if (typeof details === "string" && details.length > 0) {
+    return details;
+  }
+  // JSON.stringify answers undefined for a value it cannot represent.
+  const serialized: string | undefined = JSON.stringify(data);
+  return serialized ?? own;
 }
 
 /** The adapter whose auth failures the Connect Claude flow can repair. */

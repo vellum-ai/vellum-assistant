@@ -404,3 +404,90 @@ describe("AcpRunChatView", () => {
     expect(screen.queryByTestId("acp-chat-agent-streaming")).toBeNull();
   });
 });
+
+describe("AcpRunChatView metrics grid", () => {
+  /** The assistant the panel says owns the run. */
+  const OWNER_ASSISTANT_ID = "asst-owner";
+
+  function renderView(e: AcpRunEntry) {
+    seed(e, []);
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
+    return screen.getByTestId("acp-run-metrics");
+  }
+
+  // The panel is a 400px drawer, so the model tile takes a row of its own
+  // beside the token tiles rather than a third column. No viewport breakpoint
+  // decides that: `sm:` would report the window, not the panel.
+  test("gives the MODEL tile a row of its own beside the token tiles", () => {
+    const metrics = renderView(
+      entry({ inputTokens: 1000, outputTokens: 200, model: "opus" }),
+    );
+
+    expect(metrics.className).toContain("grid-cols-2");
+    expect(metrics.className).not.toContain("sm:");
+    expect(metrics.children).toHaveLength(3);
+    expect(metrics.children[2]!.textContent).toContain("opus");
+    expect(metrics.children[2]!.className).toBe("col-span-2");
+  });
+
+  test("keeps two columns for a run with no model", () => {
+    const metrics = renderView(entry({ inputTokens: 1000, outputTokens: 200 }));
+
+    expect(metrics.className).toContain("grid-cols-2");
+    expect(metrics.children).toHaveLength(2);
+  });
+
+  // A run reports tokens from its first usage event, so a just-spawned run has
+  // none. Token tiles reading zero would be a number nobody measured.
+  test("shows only the MODEL tile for a run with no usage yet", () => {
+    const metrics = renderView(entry({ model: "opus" }));
+
+    expect(metrics.className).toContain("grid-cols-1");
+    expect(metrics.children).toHaveLength(1);
+    expect(metrics.textContent).toContain("opus");
+    expect(metrics.textContent).not.toContain("Input");
+    expect(metrics.textContent).not.toContain("Output");
+  });
+
+  // The tile reports what the daemon said and offers nothing to press, so an
+  // adapter with no selector to advertise still gets its model named.
+  test("names the model of a run whose adapter lists no options", () => {
+    const metrics = renderView(entry({ model: "opus", availableModels: [] }));
+
+    expect(metrics.textContent).toContain("opus");
+    expect(screen.queryByRole("button", { name: /model/i })).toBeNull();
+  });
+
+  test("shows a terminal run's model", () => {
+    const metrics = renderView(
+      entry({
+        status: "completed",
+        completedAt: 1,
+        model: "claude-opus-4-1-20250805",
+      }),
+    );
+
+    expect(metrics.textContent).toContain("claude-opus-4-1-20250805");
+  });
+
+  test("renders no grid at all for a run with neither stat", () => {
+    const e = entry();
+    seed(e, []);
+
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
+
+    expect(screen.queryByTestId("acp-run-metrics")).toBeNull();
+  });
+});

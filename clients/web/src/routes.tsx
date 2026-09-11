@@ -406,6 +406,21 @@ export const routeTree = [
         ),
     },
   },
+  // The four edges a call's bar can be dropped on, shown over the display
+  // while the bar is being dragged mid-call. Its own click-through window the
+  // size of the work area, opened and closed by the shell with the drag;
+  // standalone for the reason the frame is.
+  {
+    path: "/assistant/floating/companion-dock-zones",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-dock-zones-page").then(
+          (m) => m.CompanionDockZonesPage,
+        ),
+    },
+  },
   // The frame's old URL. A shell that predates the rename still opens it,
   // and a renderer newer than its shell has to draw the frame there rather
   // than a not-found page over the desktop. Remove once no shipped shell
@@ -815,9 +830,9 @@ export const routeTree = [
                     path: "personality",
                     lazy: {
                       Component: () =>
-                        import(
-                          "@/domains/settings/pages/personality-page"
-                        ).then((m) => m.SettingsPersonalityPage),
+                        import("@/domains/settings/pages/personality-page").then(
+                          (m) => m.SettingsPersonalityPage,
+                        ),
                     },
                   },
                   { path: "advanced", Component: AdvancedSettingsRedirect },

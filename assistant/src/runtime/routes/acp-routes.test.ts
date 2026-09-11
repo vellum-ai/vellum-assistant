@@ -262,6 +262,21 @@ describe("POST /v1/acp/spawn", () => {
     // Guard runs before the approval gate — no prompt is surfaced.
     expect(confirmationRequests).toHaveLength(0);
   });
+
+  test("rejects a non-string model before the approval gate", async () => {
+    const handler = getSpawnHandler();
+    await expect(
+      handler({
+        body: {
+          agent: "claude",
+          task: "do a thing",
+          conversationId: "conv-1",
+          model: 42,
+        },
+      }),
+    ).rejects.toThrow("model must be a string when provided");
+    expect(confirmationRequests).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,7 @@
     "closeRunDetail": "Close run detail",
     "goToNewest": "Go to newest",
     "inputLabel": "Input",
+    "modelLabel": "Model",
     "objective": "Objective",
     "outputLabel": "Output",
     "sendSteerAria": "Send steering instruction",

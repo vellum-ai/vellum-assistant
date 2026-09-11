@@ -35,6 +35,7 @@
     "closeRunDetail": "Cerrar el detalle de la ejecución",
     "goToNewest": "Ir al más reciente",
     "inputLabel": "Entrada",
+    "modelLabel": "Modelo",
     "objective": "Objetivo",
     "outputLabel": "Salida",
     "sendSteerAria": "Enviar instrucción de orientación",

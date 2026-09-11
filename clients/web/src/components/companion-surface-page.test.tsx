@@ -18,6 +18,7 @@ import {
 import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
 
 const moveByMock = mock((_dx: number, _dy: number) => undefined);
+const releaseMock = mock(() => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
 const startVoiceMock = mock(() => undefined);
@@ -134,6 +135,7 @@ mock.module("@/runtime/companion-surface", () => ({
   },
   setCompanionInteractive: setInteractiveMock,
   moveCompanionBy: moveByMock,
+  releaseCompanionSurface: releaseMock,
   activateCompanionApp: activateMock,
   startCompanionVoice: startVoiceMock,
   toggleCompanionWatch: toggleWatchMock,
@@ -164,6 +166,7 @@ afterEach(() => {
   cleanup();
   resetState();
   moveByMock.mockClear();
+  releaseMock.mockClear();
   setInteractiveMock.mockClear();
   activateMock.mockClear();
   startVoiceMock.mockClear();
@@ -508,6 +511,101 @@ describe("the companion surface at two sizes", () => {
 });
 
 describe("dragging the companion surface", () => {
+  /**
+   * Main hears the hand let go after every press, moved or not: mid-call a
+   * drag's release is the drop that docks the bar to an edge, and main is
+   * the side that knows whether this press was one. A press that never
+   * moved lets go too, since a click on the creature is a press main may
+   * have been shown moves for that this window never saw as a drag.
+   */
+  test("tells main when the hand lets go", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 530,
+      screenY: 520,
+      buttons: 1,
+    });
+    expect(releaseMock).not.toHaveBeenCalled();
+    fireEvent.mouseUp(canvas);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+    // A release with no press behind it is nothing to tell main about.
+    fireEvent.mouseUp(canvas);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("tells main about a release this window never saw", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 530,
+      screenY: 520,
+      buttons: 0,
+    });
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("tells main when the host takes the pointer away mid-press", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.pointerCancel(canvas);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The edge the bar rests on arrives on the state, like the growths, and
+   * the surface draws the bar for it: a column against a side.
+   */
+  test("stands the call bar up on the side main docked it to", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    pushState({ ...STATE, call: LISTENING_CALL, dock: "left" });
+    await waitFor(() => {
+      if (
+        container.querySelector(".transition-\\[width\\,height\\]") === null
+      ) {
+        throw new Error("Expected the bar to stand up");
+      }
+    });
+    pushState({ ...STATE, call: LISTENING_CALL, dock: "top" });
+    await waitFor(() => {
+      if (container.querySelector(".transition-\\[width\\]") === null) {
+        throw new Error("Expected the bar to lie back down");
+      }
+    });
+  });
+
   /**
    * Both drawn halves are handles. The drag is a window move, so whichever the
    * hand happens to land on takes the whole surface with it, and a creature

@@ -16,8 +16,12 @@ import {
 } from "@testing-library/react";
 import { useEffect } from "react";
 
+let desktopEnabled: boolean | undefined = true;
+
 mock.module("@/stores/assistant-feature-flag-store", () => ({
-  useAssistantFeatureFlagStore: { use: { assistantDesktop: () => true } },
+  useAssistantFeatureFlagStore: {
+    use: { assistantDesktop: () => desktopEnabled },
+  },
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => ({
@@ -50,11 +54,34 @@ const openDesktop = async () => {
 
 beforeEach(() => {
   panelUnmounts = 0;
+  desktopEnabled = true;
 });
 
 afterEach(cleanup);
 
 describe("AssistantDesktopAffordance", () => {
+  for (const flag of [false, undefined]) {
+    test(`hides the desktop control and panel when the flag is ${flag}`, () => {
+      desktopEnabled = flag;
+      render(<AssistantDesktopAffordance />);
+      expect(screen.queryByRole("button", { name: "Open desktop" })).toBeNull();
+      expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    });
+  }
+
+  test("unmounts an open desktop when the flag is disabled", async () => {
+    const { rerender } = render(<AssistantDesktopAffordance />);
+    fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("desktop-panel")).not.toBeNull(),
+    );
+    desktopEnabled = false;
+    rerender(<AssistantDesktopAffordance />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    expect(panelUnmounts).toBe(1);
+  });
+
   test("Escape leaves the modal open and the panel mounted", async () => {
     await openDesktop();
 

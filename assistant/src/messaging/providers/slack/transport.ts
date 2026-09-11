@@ -5,7 +5,7 @@ import { extractThreadTsFromCallbackUrl } from "../../../channels/slack-callback
 import { getLogger } from "../../../util/logger.js";
 import { directDeliveryContext } from "../callback-routing.js";
 import type { ChannelTransport } from "../channel-transport.js";
-import { openSlackDmChannel, SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
+import { SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
 import {
   describeSlackReactionEmoji,
   sendSlackAgentSessionStatus,
@@ -28,17 +28,11 @@ export const slackTransport: ChannelTransport = {
 
   /**
    * A chat is a channel or DM id, with `threadTs` naming the thread to post
-   * under. A person is reached in their DM, opened here as the bot
-   * (`conversations.open`) so the address names the DM channel the post
-   * lands in, the id Slack's later events carry for it.
+   * under. Reaching a person who has not been named as a chat would mean
+   * opening the DM first (`conversations.open`), a platform call this
+   * resolution does not make.
    */
-  async addressFor(target) {
-    if (target.kind === "person") {
-      return {
-        ctx: directDeliveryContext("slack"),
-        chatId: await openSlackDmChannel(target.userId),
-      };
-    }
+  addressFor(target) {
     const threadTs = target.threadId?.trim();
     return {
       ctx: directDeliveryContext("slack", threadTs ? { threadTs } : {}),

@@ -23,7 +23,6 @@ import { conversationInfo } from "./client.js";
 import type {
   SlackApiResponse,
   SlackConversationInfoResponse,
-  SlackConversationsOpenResponse,
 } from "./types.js";
 import {
   SlackApiError,
@@ -82,19 +81,6 @@ export async function callSlackApi(
   body: Record<string, unknown>,
 ): Promise<SlackOutboundApiResponse> {
   return slackApiRequest<SlackOutboundApiResponse>("bot", method, { body });
-}
-
-/**
- * Open (or find) the bot's DM with a user and return its channel id, the id
- * Slack's later events carry for that conversation.
- */
-export async function openSlackDmChannel(userId: string): Promise<string> {
-  const opened = await slackApiRequest<SlackConversationsOpenResponse>(
-    "bot",
-    "conversations.open",
-    { body: { users: userId } },
-  );
-  return opened.channel.id;
 }
 
 /**
