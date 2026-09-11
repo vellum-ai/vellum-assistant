@@ -7,6 +7,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 
 import { useTranslation } from "@/i18n";
+import { mcpLifecycleState, supportsMcpAction } from "../integration-items";
 
 type AuthType = "none" | "bearer" | "api-key";
 
@@ -70,7 +71,7 @@ export function McpServerDetailModal({
   }, [server]);
 
   const handleSave = useCallback(() => {
-    if (!server) {
+    if (!server || !supportsMcpAction(server, "configure")) {
       return;
     }
 
@@ -139,14 +140,14 @@ export function McpServerDetailModal({
           <Modal.Description>
             {t("mcpServerDetailModal.description", {
               transport: server.transport.type,
-              status: server.status,
+              status: mcpLifecycleState(server),
             })}
           </Modal.Description>
         </Modal.Header>
 
         <Modal.Body>
           <div className="space-y-5">
-            {server.transport.type !== "stdio" ? (
+            {server.transport.type !== "stdio" && supportsMcpAction(server, "configure") ? (
               <>
                 {server.hasOAuth ? (
                   <div className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2">
@@ -318,11 +319,11 @@ export function McpServerDetailModal({
           <Button variant="ghost" onClick={handleClose} disabled={isPending}>
             {t("mcpServerDetailModal.cancel")}
           </Button>
-          <Button variant="primary" onClick={handleSave} disabled={isPending}>
+          {supportsMcpAction(server, "configure") ? <Button variant="primary" onClick={handleSave} disabled={isPending}>
             {isPending
               ? t("mcpServerDetailModal.saving")
               : t("mcpServerDetailModal.save")}
-          </Button>
+          </Button> : null}
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>

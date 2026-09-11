@@ -38,17 +38,23 @@ describe("McpServerCard", () => {
     expect(handlers.onConfigure).toHaveBeenCalledWith("example-meeting-notes");
     expect(screen.queryByText("Authenticated")).toBeNull();
     expect(screen.queryByText("streamable-http")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Authenticate|Re-auth|Revoke/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Authenticate|Re-auth|Revoke/ }),
+    ).toBeNull();
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.queryByText(/registered tools/i)).toBeNull();
   });
 
   test("a missing grant offers one labeled action to finish connecting", () => {
-    render(<McpServerCard {...handlers} server={server({ status: "needs-auth" })} />);
+    render(
+      <McpServerCard {...handlers} server={server({ status: "needs-auth" })} />,
+    );
 
     screen.getByText("Needs attention");
     fireEvent.click(screen.getByRole("button", { name: "Finish connecting" }));
-    expect(handlers.onAuthenticate).toHaveBeenCalledWith("example-meeting-notes");
+    expect(handlers.onAuthenticate).toHaveBeenCalledWith(
+      "example-meeting-notes",
+    );
   });
 
   test("a stale grant offers Reconnect", () => {
@@ -86,18 +92,76 @@ describe("McpServerCard", () => {
       />,
     );
 
-    expect((screen.getByRole("button", { name: "Connecting..." }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", {
+        name: "Connecting...",
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   test("the actions menu keeps Configure and removal reachable during recovery", async () => {
-    render(<McpServerCard {...handlers} server={server({ status: "needs-auth" })} />);
+    render(
+      <McpServerCard {...handlers} server={server({ status: "needs-auth" })} />,
+    );
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions for example-meeting-notes" }), { button: 0, ctrlKey: false });
+    fireEvent.pointerDown(
+      screen.getByRole("button", {
+        name: "More actions for example-meeting-notes",
+      }),
+      { button: 0, ctrlKey: false },
+    );
     fireEvent.click(await screen.findByRole("menuitem", { name: "Configure" }));
     expect(handlers.onConfigure).toHaveBeenCalledTimes(1);
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions for example-meeting-notes" }), { button: 0, ctrlKey: false });
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove integration" }));
+    fireEvent.pointerDown(
+      screen.getByRole("button", {
+        name: "More actions for example-meeting-notes",
+      }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Remove integration" }),
+    );
     expect(handlers.onRemove).toHaveBeenCalledWith("example-meeting-notes");
+  });
+  test("plugin ownership offers management and read-only details without workspace removal", async () => {
+    const onManagePlugin = mock(() => {});
+    render(
+      <McpServerCard
+        {...handlers}
+        onManagePlugin={onManagePlugin}
+        server={server({
+          source: "plugin",
+          pluginName: "example-plugin",
+          lifecycleState: "declared",
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Manage plugin" }));
+    expect(onManagePlugin).toHaveBeenCalledWith("example-plugin");
+    fireEvent.pointerDown(
+      screen.getByRole("button", {
+        name: "More actions for example-meeting-notes",
+      }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "View details" }),
+    );
+    expect(handlers.onConfigure).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("menuitem", { name: "Remove integration" }),
+    ).toBeNull();
+  });
+
+  test("a static credential error configures credentials without starting OAuth", () => {
+    render(
+      <McpServerCard
+        {...handlers}
+        server={server({ lifecycleState: "needs-auth", hasStaticAuth: true })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+    expect(handlers.onAuthenticate).not.toHaveBeenCalled();
   });
 });

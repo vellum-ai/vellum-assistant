@@ -31,6 +31,7 @@ export interface McpServerEntry {
     | "declared";
   source?: "workspace" | "plugin";
   pluginName?: string;
+  catalog?: { id: string; serverKey: string; definitionDigest: string } | null;
   supportedActions?: Array<
     "configure" | "authenticate" | "remove" | "manage-plugin"
   >;
@@ -153,6 +154,7 @@ export async function startMcpAuth(
   auth_url: string;
   state: string;
   already_authenticated?: boolean;
+  attempt_id?: string;
 }> {
   const { data, response } = await client.post({
     url: "/v1/assistants/{assistant_id}/internal/mcp/auth/start" as "/v1/assistants/{assistant_id}/config",
@@ -166,13 +168,19 @@ export async function startMcpAuth(
     auth_url: string;
     state: string;
     already_authenticated?: boolean;
+    attempt_id?: string;
   };
 }
 
 export async function pollMcpAuthStatus(
   assistantId: string,
   serverId: string,
-): Promise<{ status: string; auth_url?: string; error?: string }> {
+): Promise<{
+  status: string;
+  auth_url?: string;
+  error?: string;
+  attempt_id?: string;
+}> {
   const { data, response } = await client.get({
     url: `/v1/assistants/{assistant_id}/internal/mcp/auth/status/${encodeURIComponent(
       serverId,
@@ -184,6 +192,7 @@ export async function pollMcpAuthStatus(
   }
   return (data as unknown) as {
     status: string;
+    attempt_id?: string;
     auth_url?: string;
     error?: string;
   };
@@ -198,4 +207,20 @@ export async function reloadMcpServers(assistantId: string): Promise<void> {
   if (!response?.ok) {
     throw new Error(`Failed to reload MCP servers: ${response?.status}`);
   }
+}
+
+export async function cancelMcpAuth(
+  assistantId: string,
+  serverId: string,
+  attemptId: string,
+): Promise<{ cancelled: boolean }> {
+  const { data, response } = await client.post({
+    url: "/v1/assistants/{assistant_id}/internal/mcp/auth/cancel" as "/v1/assistants/{assistant_id}/config",
+    path: { assistant_id: assistantId },
+    body: { serverId, attemptId } as Record<string, unknown>,
+  });
+  if (!response?.ok) {
+    throw new Error(`Failed to cancel MCP auth: ${response?.status}`);
+  }
+  return (data as unknown) as { cancelled: boolean };
 }

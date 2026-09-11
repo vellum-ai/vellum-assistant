@@ -12,6 +12,7 @@ import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Modal } from "@vellumai/design-library/components/modal";
 import {
   SegmentControl,
   type SegmentControlItem,
@@ -20,7 +21,6 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
-import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useManagedOAuthConnect } from "@/hooks/use-managed-oauth-connect";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
@@ -99,7 +99,7 @@ export function IntegrationDetailModal({
   });
 
   const providerConnections: OAuthConnection[] = (allConnections ?? []).filter(
-    (c) => c.provider === providerKey && c.connected,
+    (c) => c.provider === providerKey,
   );
 
   const managedConnect = useManagedOAuthConnect({
@@ -171,22 +171,6 @@ export function IntegrationDetailModal({
       },
     });
 
-  useBodyScrollLock();
-
-  // Modal: Escape key
-  useEffect(() => {
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [onClose]);
-
   const handleDisconnect = (connection: OAuthConnection) => {
     setConnectionPendingDisconnect(connection);
   };
@@ -215,90 +199,92 @@ export function IntegrationDetailModal({
     : t("integrationDetailModal.subtitle", { name: displayName });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="integration-modal-title"
-        className="flex w-full max-w-[520px] flex-col overflow-hidden rounded-xl bg-white shadow-xl dark:bg-[var(--surface-lift)]"
+    <>
+      <Modal.Root
+        open
+        onOpenChange={(open) => {
+          if (!open) {
+            onClose();
+          }
+        }}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-[var(--border-base)] px-5 py-4 dark:border-[var(--border-base)]">
-          <div className="flex items-center gap-3">
-            <IntegrationIcon
-              providerKey={providerKey}
-              displayName={displayName}
-              logoUrl={logoUrl}
-              size={32}
-            />
-            <div>
-              <h2
-                id="integration-modal-title"
-                className="text-title-small text-[var(--content-default)]"
-              >
-                {t("integrationDetailModal.title", { name: displayName })}
-              </h2>
-              <p className="text-body-small-default text-[var(--content-tertiary)]">
-                {subtitle}
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="compact"
-            iconOnly={<X />}
-            aria-label={t("integrationDetailModal.close")}
-            onClick={onClose}
-          />
-        </div>
-
-        <div className="space-y-4 px-5 py-4">
-          {platformGate !== "gated" && yourOwnAvailable && (
-            <SegmentControl
-              ariaLabel={t("integrationDetailModal.oauthModeAriaLabel")}
-              items={modeSegments}
-              value={activeTab}
-              onChange={setActiveTab}
-            />
-          )}
-
-          {activeTab === "managed" && platformGate !== "gated" ? (
-            platformGate === "disabled" ? (
-              <PlatformLoginNotice>
-                {t("integrationDetailModal.loginNotice")}
-              </PlatformLoginNotice>
-            ) : (
-              <ManagedTab
-                displayName={displayName}
+        <Modal.Content
+          hideCloseButton
+          className="max-h-full"
+          overlayClassName="pt-[max(1rem,var(--safe-area-inset-top,env(safe-area-inset-top,0px)))] pb-[max(1rem,var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))]"
+        >
+          <Modal.Header className="pr-14">
+            <div className="flex min-w-0 items-center gap-3">
+              <IntegrationIcon
                 providerKey={providerKey}
+                displayName={displayName}
                 logoUrl={logoUrl}
-                connections={providerConnections}
-                connectionsLoading={connectionsLoading}
-                oauthInProgress={managedConnect.status === "attempting"}
-                onCancelConnect={managedConnect.dismiss}
-                disconnectingId={
-                  disconnectOAuth.isPending ? pendingDisconnectId : null
-                }
-                onConnect={handleConnect}
-                onDisconnect={handleDisconnect}
-                connectPresets={getConnectPresets(providerKey)}
+                size={32}
               />
-            )
-          ) : yourOwnAvailable ? (
-            <YourOwnTab
-              assistantId={assistantId}
-              providerKey={providerKey}
-              displayName={displayName}
-              logoUrl={logoUrl}
+              <div className="min-w-0">
+                <Modal.Title className="[overflow-wrap:anywhere] [&>span]:whitespace-normal">
+                  {t("integrationDetailModal.title", { name: displayName })}
+                </Modal.Title>
+                <Modal.Description>{subtitle}</Modal.Description>
+              </div>
+            </div>
+          </Modal.Header>
+          <Modal.Close asChild>
+            <Button
+              variant="ghost"
+              iconOnly={<X />}
+              className="absolute right-2 top-2 min-h-11 min-w-11"
+              aria-label={t("integrationDetailModal.close")}
             />
-          ) : null}
-        </div>
+          </Modal.Close>
+          <Modal.Body className="min-h-0 space-y-4">
+            {platformGate !== "gated" && yourOwnAvailable && (
+              <SegmentControl
+                ariaLabel={t("integrationDetailModal.oauthModeAriaLabel")}
+                items={modeSegments}
+                value={activeTab}
+                onChange={setActiveTab}
+              />
+            )}
 
-        <div className="flex justify-end border-t border-[var(--border-base)] px-5 py-3 dark:border-[var(--border-base)]">
-          <Button variant="outlined" size="compact" onClick={onClose}>
-            {t("integrationDetailModal.confirm")}
-          </Button>
-        </div>
-      </div>
+            {activeTab === "managed" && platformGate !== "gated" ? (
+              platformGate === "disabled" ? (
+                <PlatformLoginNotice>
+                  {t("integrationDetailModal.loginNotice")}
+                </PlatformLoginNotice>
+              ) : (
+                <ManagedTab
+                  displayName={displayName}
+                  providerKey={providerKey}
+                  logoUrl={logoUrl}
+                  connections={providerConnections}
+                  connectionsLoading={connectionsLoading}
+                  oauthInProgress={managedConnect.status === "attempting"}
+                  onCancelConnect={managedConnect.dismiss}
+                  disconnectingId={
+                    disconnectOAuth.isPending ? pendingDisconnectId : null
+                  }
+                  onConnect={handleConnect}
+                  onDisconnect={handleDisconnect}
+                  connectPresets={getConnectPresets(providerKey)}
+                />
+              )
+            ) : yourOwnAvailable ? (
+              <YourOwnTab
+                assistantId={assistantId}
+                providerKey={providerKey}
+                displayName={displayName}
+                logoUrl={logoUrl}
+              />
+            ) : null}
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="outlined" className="min-h-11" onClick={onClose}>
+              {t("integrationDetailModal.confirm")}
+            </Button>
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
       <ConfirmDialog
         open={connectionPendingDisconnect !== null}
         title={t("integrationDetailModal.disconnectTitle", {
@@ -316,6 +302,6 @@ export function IntegrationDetailModal({
         onConfirm={confirmDisconnect}
         onCancel={() => setConnectionPendingDisconnect(null)}
       />
-    </div>
+    </>
   );
 }
