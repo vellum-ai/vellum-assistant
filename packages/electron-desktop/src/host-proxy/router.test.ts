@@ -60,8 +60,7 @@ const unavailableExecutor = {
 };
 const testRuntime: HostProxyRuntime = {
   acquireGuardianToken: async (assistantId) => {
-    const result = await mockGetGuardianAccessToken(assistantId);
-    return result.ok ? result.accessToken : null;
+    return mockGetGuardianAccessToken(assistantId);
   },
   getSessionToken: () => mockSessionToken,
   getLockfile: () => mockCurrentLockfile,
@@ -506,6 +505,57 @@ describe("host-proxy-router", () => {
       });
       await flush();
 
+      expect(__testing.connections.has("a1")).toBe(false);
+    });
+
+    test("rides out a guardian refresh 503, then connects", async () => {
+      let attempts = 0;
+      mockGetGuardianAccessToken.mockImplementation(async () => {
+        attempts++;
+        if (attempts < 3) {
+          return {
+            ok: false,
+            status: 503,
+            error: "Assistant gateway is unreachable",
+          };
+        }
+        return { ok: true, accessToken: "test-token" };
+      });
+      installHostProxyBridge(testRuntime);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+        ],
+        activeAssistant: "a1",
+      });
+      await flush();
+
+      expect(attempts).toBe(3);
+      expect(__testing.connections.has("a1")).toBe(true);
+    });
+
+    test("a guardian 500 is terminal and does not retry", async () => {
+      let attempts = 0;
+      mockGetGuardianAccessToken.mockImplementation(async () => {
+        attempts++;
+        return {
+          ok: false,
+          status: 500,
+          error: "Guardian token refresh timed out",
+        };
+      });
+      installHostProxyBridge(testRuntime);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+        ],
+        activeAssistant: "a1",
+      });
+      await flush();
+
+      expect(attempts).toBe(1);
       expect(__testing.connections.has("a1")).toBe(false);
     });
 

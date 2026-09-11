@@ -44,8 +44,20 @@ export interface HostProxyLogger {
   error(message: string, context?: unknown): void;
 }
 
+/**
+ * Guardian-token result for a local host-proxy connect. Mirrors the
+ * `TokenResult` from `@vellumai/local-mode` so the startup ride-out can
+ * retry a still-starting gateway (`503`) without stalling on a missing
+ * (`404`), spent (`401`), refused (`403`), or permanent (`500`) credential.
+ */
+export type HostProxyGuardianTokenResult =
+  | { ok: true; accessToken: string }
+  | { ok: false; status: number; error?: string };
+
 export interface HostProxyRuntime {
-  acquireGuardianToken: (assistantId: string) => Promise<string | null>;
+  acquireGuardianToken: (
+    assistantId: string,
+  ) => Promise<HostProxyGuardianTokenResult>;
   getSessionToken: () => string | null;
   getLockfile: () => Lockfile;
   onLockfileChange: (listener: (lockfile: Lockfile) => void) => () => void;
@@ -552,7 +564,7 @@ async function exchangeForGatewayToken(
 
 async function acquireGuardianToken(
   assistantId: string,
-): Promise<string | null> {
+): Promise<HostProxyGuardianTokenResult> {
   try {
     return await requireRuntime().acquireGuardianToken(assistantId);
   } catch (err) {
@@ -560,7 +572,7 @@ async function acquireGuardianToken(
       assistantId,
       err,
     });
-    return null;
+    return { ok: false, status: 500 };
   }
 }
 
@@ -569,18 +581,32 @@ async function acquireGatewayToken(
   gatewayPort: number,
 ): Promise<string | null> {
   const guardianToken = await acquireGuardianToken(assistantId);
-  if (!guardianToken) return null;
+  if (!guardianToken.ok) return null;
 
-  const exchanged = await exchangeForGatewayToken(gatewayPort, guardianToken);
+  const exchanged = await exchangeForGatewayToken(
+    gatewayPort,
+    guardianToken.accessToken,
+  );
   if (exchanged.kind !== "ok") return null;
 
   return exchanged.token;
 }
 
 /**
+ * `503` is the CLI's labeled "gateway unreachable / still starting" status
+ * (`parseGuardianRefreshCliFailure`). Missing (404), spent (401), refused
+ * (403), and permanent 500 failures (malformed file, spawn failure, refresh
+ * timeout) do not heal by waiting.
+ */
+function isTransientGuardianStatus(status: number): boolean {
+  return status === 503;
+}
+
+/**
  * Prime-time mint for a local connect. Rides out retryable mint failures
- * (port not bound yet, starting 503, transient 401) without skipping the
- * connection. A missing guardian token or a `403` falls through immediately.
+ * (port not bound yet, starting 503, transient 401) and a guardian refresh
+ * `503` without skipping the connection. A missing or spent guardian token
+ * or a `403` falls through immediately.
  * `isCurrentAttempt` aborts when lockfile reconcile cancels this connect.
  */
 async function acquireGatewayTokenRidingStartup(
@@ -594,10 +620,17 @@ async function acquireGatewayTokenRidingStartup(
       return null;
     }
     const guardianToken = await acquireGuardianToken(assistantId);
-    if (!guardianToken) {
-      return null;
+    if (!guardianToken.ok) {
+      if (!isTransientGuardianStatus(guardianToken.status) || attempt >= attempts) {
+        return null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      continue;
     }
-    const exchanged = await exchangeForGatewayToken(gatewayPort, guardianToken);
+    const exchanged = await exchangeForGatewayToken(
+      gatewayPort,
+      guardianToken.accessToken,
+    );
     if (exchanged.kind === "ok") {
       return exchanged.token;
     }

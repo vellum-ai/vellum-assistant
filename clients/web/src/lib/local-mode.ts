@@ -1093,19 +1093,26 @@ export const LOCAL_GATEWAY_STARTUP_RETRY = {
   intervalMs: 1_000,
 };
 
+/** Guardian refresh `503`: the loopback gateway is unreachable or still starting. */
+function isTransientGuardianTokenError(error: unknown): boolean {
+  return error instanceof GuardianTokenError && error.status === 503;
+}
+
 /**
  * A local loopback gateway that is still coming up: a thrown transport error
  * (Login Item has not bound the port yet), a `503`/`5xx` "starting" mint, a
  * repairable mint `401` after traffic opens but before the guardian-binding
- * backfill lands, or a guardian refresh `5xx` while the host cannot reach a
+ * backfill lands, or a guardian refresh `503` while the host cannot reach a
  * gateway that is still binding its port. These heal on their own, so boot
  * and the pre-wake connect path ride them out instead of spawning `wake`.
  *
  * A `403` loopback-boundary refusal is terminal. A missing (`404`) or
  * rejected (`401`) guardian token will not heal by waiting (the credential
- * is missing or spent on disk). An unresolved local gateway (no recorded
- * port) needs `wake` to establish one. Paired/remote failures are never
- * ridden out: waiting cannot fix a machine this device does not start.
+ * is missing or spent on disk). A guardian `500` is a malformed file, CLI
+ * spawn failure, or refresh timeout, not a starting gateway. An unresolved
+ * local gateway (no recorded port) needs `wake` to establish one.
+ * Paired/remote failures are never ridden out: waiting cannot fix a machine
+ * this device does not start.
  */
 function isGatewayStillStarting(
   error: unknown,
@@ -1119,7 +1126,7 @@ function isGatewayStillStarting(
     return false;
   }
   if (error instanceof GuardianTokenError) {
-    return error.status >= 500;
+    return isTransientGuardianTokenError(error);
   }
   if (error instanceof GatewayTokenError) {
     return error.status !== 403;
@@ -1133,16 +1140,17 @@ function isGatewayStillStarting(
  * A `wake`-restarted gateway that hasn't finished coming back up: it refuses
  * connections (a thrown transport error), answers `503`/`5xx`, or rejects the
  * mint with a repairable `401` while it re-provisions its guardian binding.
- * A guardian refresh `5xx` is the same window: the host shells out to
+ * A guardian refresh `503` is the same window: the host shells out to
  * `vellum gateway token refresh`, which cannot reach a gateway that is still
- * binding its port. A `403` loopback-boundary refusal is terminal, and a
- * missing (`404`) or rejected (`401`) guardian token will not heal by
+ * binding its port. A `403` loopback-boundary refusal is terminal. A missing
+ * (`404`) or rejected (`401`) guardian token, or a guardian `500`
+ * (malformed file, CLI spawn failure, refresh timeout), will not heal by
  * waiting (the just-run `wake` already re-seeded the token and recorded the
  * port), so those fall through.
  */
 function isGatewayRestartTransient(error: unknown): boolean {
   if (error instanceof GuardianTokenError) {
-    return error.status >= 500;
+    return isTransientGuardianTokenError(error);
   }
   if (error instanceof UnresolvedLocalGatewayError) {
     return false;

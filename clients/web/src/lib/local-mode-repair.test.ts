@@ -477,6 +477,22 @@ describe("primeLocalGatewayConnectionWithStartupRetry", () => {
     expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
   });
 
+  test("does not ride out a guardian 500 (malformed file, spawn, or timeout)", async () => {
+    process.env.VITE_PLATFORM_MODE = "";
+    fetchGuardianTokenHost = mock(async () => {
+      throw new GuardianTokenError(500, "Guardian token refresh timed out");
+    });
+
+    const err = await primeLocalGatewayConnectionWithStartupRetry().catch(
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(GuardianTokenError);
+    expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(500);
+    expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
+  });
+
   test("rides out a guardian refresh 503 without waking, then connects", async () => {
     process.env.VITE_PLATFORM_MODE = "";
     let fetches = 0;
