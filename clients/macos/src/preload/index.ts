@@ -646,6 +646,9 @@ const bridge: VellumBridge = {
     advanceIntro: (action: CompanionIntroAction): void => {
       ipcRenderer.send("vellum:companion:advanceIntro", action);
     },
+    openKeyboardSettings: (): void => {
+      ipcRenderer.send("vellum:companion:openKeyboardSettings");
+    },
     showContextMenu: (): void => {
       ipcRenderer.send("vellum:companion:contextMenu");
     },

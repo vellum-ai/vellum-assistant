@@ -6,10 +6,14 @@ import type {
   CompanionIntroAction,
   CompanionIntroBeat,
 } from "@vellumai/ipc-contract";
-import type { CSSProperties, Ref } from "react";
+import { useEffect, type CSSProperties, type Ref } from "react";
 
 import { useTranslation } from "@/i18n";
+import { useHoldProofDeadline } from "@/hooks/use-hold-proof-deadline";
+import { modifierLabel } from "@/utils/ptt-activator";
+import { useVoiceKey } from "@/utils/voice-key";
 
+import { CompanionIntroHoldHelp } from "@/components/companion-intro-hold-help";
 import { companionLayoutFor } from "@/components/companion-layout";
 import type {
   CompanionSurfaceCardGrowth,
@@ -69,6 +73,10 @@ const CARD_WIDTH = 244;
  * spotlights, so it is not free copy: it moves with that label, in the same
  * edit and to the same words. A card reading "Hablar" beside a button reading
  * "Talk" points at nothing.
+ *
+ * **`hold` names the key.** Its title carries the label of whatever key the
+ * user has the voice bound to, Fn out of the box, and it has a second reading
+ * for when the wait runs out (see `CompanionIntroHoldHelp`).
  */
 const INTRO_COPY_KEYS = {
   meet: {
@@ -78,6 +86,10 @@ const INTRO_COPY_KEYS = {
   talk: {
     title: "companionIntro.talk.title",
     body: "companionIntro.talk.body",
+  },
+  hold: {
+    title: "companionIntro.hold.title",
+    body: "companionIntro.hold.body",
   },
   menu: {
     title: "companionIntro.menu.title",
@@ -160,6 +172,8 @@ export interface CompanionIntroProps {
   /** Advance or end the run. Absent leaves the controls inert, which is what
    *  Storybook wants. */
   onAdvance?: (action: CompanionIntroAction) => void;
+  /** Open macOS's Keyboard settings, offered when the voice key never came. */
+  onOpenKeyboardSettings?: () => void;
 }
 
 export function CompanionIntro({
@@ -172,11 +186,47 @@ export function CompanionIntro({
   assistantName,
   cardRef,
   onAdvance,
+  onOpenKeyboardSettings,
 }: CompanionIntroProps) {
   const { t } = useTranslation();
   const index = COMPANION_INTRO_BEATS.indexOf(beat);
   const isLast = index === COMPANION_INTRO_BEATS.length - 1;
   const copy = INTRO_COPY_KEYS[beat];
+
+  // The `hold` beat is proof by doing: it has no Next, and is walked past only
+  // when a real edge of the voice key reaches the app's window, which reports
+  // it to main (see `useCompanionIntroHoldProof`). What this side holds is the
+  // wait, and the reading the card takes once the wait runs out.
+  const voiceKey = useVoiceKey();
+  const asksForHold = beat === "hold" && voiceKey.kind !== "off";
+  const { unproven, tryAgain } = useHoldProofDeadline({ active: asksForHold });
+  // A key switched off has nothing to prove and nothing that could prove it,
+  // so the beat is walked past rather than waited on. Main resolves the press
+  // against its own beat, so a stale one cannot walk anything else.
+  useEffect(() => {
+    if (beat === "hold" && voiceKey.kind === "off") {
+      onAdvance?.("next");
+    }
+  }, [beat, voiceKey.kind, onAdvance]);
+  const keyLabel =
+    voiceKey.kind === "off" ? "" : modifierLabel(voiceKey.modifiers);
+
+  const title = (): string => {
+    // The first beat is the introduction proper, so it is the one that says
+    // the name. Two keys rather than one with an empty argument: a sentence
+    // built around a name that is not there reads as a bug, and the unnamed
+    // version is a different sentence rather than the same one with a hole in
+    // it.
+    if (beat === "meet" && assistantName !== undefined) {
+      return t("companionIntro.meet.titleNamed", { name: assistantName });
+    }
+    if (beat === "hold") {
+      return unproven
+        ? t("companionIntro.hold.unreachedTitle", { key: keyLabel })
+        : t("companionIntro.hold.title", { key: keyLabel });
+    }
+    return t(copy.title);
+  };
 
   // The same derivation `CompanionSurface` places the pill by, so the card and
   // the pill are arranged around one creature rather than two readings of it.
@@ -228,16 +278,17 @@ export function CompanionIntro({
           title free to wrap is a title free to grow the card past what it was
           drawn into. Two lines holds every name worth reading. */}
       <p className="line-clamp-2 text-[13px] leading-tight font-medium text-white">
-        {/* The first beat is the introduction proper, so it is the one that
-            says the name. Two keys rather than one with an empty argument: a
-            sentence built around a name that is not there reads as a bug, and
-            the unnamed version is a different sentence rather than the same one
-            with a hole in it. */}
-        {beat === "meet" && assistantName !== undefined
-          ? t("companionIntro.meet.titleNamed", { name: assistantName })
-          : t(copy.title)}
+        {title()}
       </p>
-      <p className="text-[12px] leading-[1.45] text-white/70">{t(copy.body)}</p>
+      {beat === "hold" && unproven ? (
+        <CompanionIntroHoldHelp
+          onOpenKeyboardSettings={onOpenKeyboardSettings}
+        />
+      ) : (
+        <p className="text-[12px] leading-[1.45] text-white/70">
+          {t(copy.body)}
+        </p>
+      )}
       <div className="flex items-center justify-between pt-0.5">
         {/* Where the run is, as dots rather than "2 of 3". The count is not
             information anyone acts on; that it is nearly over is. */}
@@ -269,13 +320,27 @@ export function CompanionIntro({
               {t("companionIntro.skip")}
             </button>
           )}
-          <button
-            type="button"
-            className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
-            onClick={() => onAdvance?.("next")}
-          >
-            {isLast ? t("companionIntro.done") : t("companionIntro.next")}
-          </button>
+          {/* The hold beat has no Next: the key is the way past it. What it
+              offers instead, once the wait has run out, is another wait. */}
+          {beat === "hold" ? (
+            unproven && (
+              <button
+                type="button"
+                className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+                onClick={tryAgain}
+              >
+                {t("companionIntro.hold.tryAgain")}
+              </button>
+            )
+          ) : (
+            <button
+              type="button"
+              className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+              onClick={() => onAdvance?.("next")}
+            >
+              {isLast ? t("companionIntro.done") : t("companionIntro.next")}
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -33,6 +33,7 @@ import {
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
+  openCompanionKeyboardSettings,
   setCompanionAnnotating,
   setCompanionAnnotationTool,
   setCompanionInteractive,
@@ -818,6 +819,7 @@ export function CompanionSurfacePage() {
               assistantName={assistantName === "" ? undefined : assistantName}
               cardRef={introRef}
               onAdvance={advanceCompanionIntro}
+              onOpenKeyboardSettings={openCompanionKeyboardSettings}
             />
           )
         }

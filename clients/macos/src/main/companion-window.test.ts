@@ -1913,7 +1913,18 @@ describe("the session main holds", () => {
 describe("introOnAdvance", () => {
   test("walks to the next beat", () => {
     expect(introOnAdvance("meet", "next")).toBe("talk");
-    expect(introOnAdvance("talk", "next")).toBe("menu");
+    expect(introOnAdvance("talk", "next")).toBe("hold");
+    expect(introOnAdvance("hold", "next")).toBe("menu");
+  });
+
+  // The window owning the voice key reports every edge without knowing which
+  // beat is up, so the edge has to be a no-op everywhere but the beat that
+  // asked for it, and there it is the only thing that moves the run on.
+  test("a proven hold walks past the hold beat and no other", () => {
+    expect(introOnAdvance("hold", "holdProven")).toBe("menu");
+    expect(introOnAdvance("meet", "holdProven")).toBe("meet");
+    expect(introOnAdvance("talk", "holdProven")).toBe("talk");
+    expect(introOnAdvance("menu", "holdProven")).toBe("menu");
   });
 
   // Past the last beat there is no next one, and `null` is what main reads as
@@ -1925,6 +1936,7 @@ describe("introOnAdvance", () => {
   test("dismiss ends the run from any beat", () => {
     expect(introOnAdvance("meet", "dismiss")).toBe(null);
     expect(introOnAdvance("talk", "dismiss")).toBe(null);
+    expect(introOnAdvance("hold", "dismiss")).toBe(null);
   });
 
   // A press that arrives after the run is already over. The renderer can be a
@@ -1933,6 +1945,7 @@ describe("introOnAdvance", () => {
   test("stays over once it is over", () => {
     expect(introOnAdvance(null, "next")).toBe(null);
     expect(introOnAdvance(null, "dismiss")).toBe(null);
+    expect(introOnAdvance(null, "holdProven")).toBe(null);
   });
 });
 

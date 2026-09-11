@@ -138,6 +138,14 @@
   "companionIntro": {
     "ariaLabel": "介紹您的助理",
     "done": "知道了",
+    "hold": {
+      "body": "現在試試。按鍵傳到我這裡就會繼續。",
+      "openKeyboardSettings": "打開鍵盤設定",
+      "title": "按住 {key} 開始聽寫",
+      "tryAgain": "重試",
+      "unreachedBody": "可能已被重新對應、被其他 App 佔用，或未授予輸入監控權限。",
+      "unreachedTitle": "{key} 沒有傳到我這裡"
+    },
     "meet": {
       "body": "我會留在您的桌面上，即使 Vellum 沒有顯示。",
       "title": "這就是我",

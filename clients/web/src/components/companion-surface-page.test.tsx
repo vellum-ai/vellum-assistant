@@ -151,6 +151,7 @@ mock.module("@/runtime/companion-surface", () => ({
   answerCompanionDictationOffer: answerOfferMock,
   setCompanionContext: () => undefined,
   advanceCompanionIntro: advanceIntroMock,
+  openCompanionKeyboardSettings: () => undefined,
   showCompanionContextMenu: contextMenuMock,
 }));
 

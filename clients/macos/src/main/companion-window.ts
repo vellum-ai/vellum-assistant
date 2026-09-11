@@ -4,6 +4,7 @@ import {
   app,
   clipboard,
   screen,
+  shell,
   systemPreferences,
   type Display,
   type MenuItemConstructorOptions,
@@ -358,10 +359,24 @@ export const introOnAdvance = (
   if (current === null || action === "dismiss") {
     return null;
   }
+  // A proven hold walks past the beat that asked for it and no other. The
+  // window owning the key reports every edge, since it cannot see the run,
+  // so an edge on any other beat leaves the run where it is.
+  if (action === "holdProven" && current !== "hold") {
+    return current;
+  }
   const next =
     COMPANION_INTRO_BEATS[COMPANION_INTRO_BEATS.indexOf(current) + 1];
   return next ?? null;
 };
+
+/**
+ * Where a voice key that never reaches the app is most often remapped: the
+ * Modifier Keys sheet under Keyboard, which is where macOS lets the Globe key
+ * be set to do nothing at all.
+ */
+const KEYBOARD_SETTINGS_URL =
+  "x-apple.systempreferences:com.apple.Keyboard-Settings.extension";
 
 /**
  * End the introduction and record that it happened.
@@ -2657,6 +2672,9 @@ export const installCompanionWindow = (): void => {
         return;
       }
       const next = introOnAdvance(intro, action);
+      if (next === intro) {
+        return;
+      }
       if (next === null) {
         finishIntro();
       } else {
@@ -2665,6 +2683,14 @@ export const installCompanionWindow = (): void => {
       pushState();
     },
   );
+
+  // The introduction's one way out to the system: the beat that waits on the
+  // voice key sends the user to where the key is most likely remapped. Opened
+  // here because the surface's window opens nothing itself (see
+  // `createFloatingWindow`), and by the same call the permission panes are.
+  on("vellum:companion:openKeyboardSettings", z.tuple([]), () => {
+    void shell.openExternal(KEYBOARD_SETTINGS_URL);
+  });
 
   on("vellum:companion:contextMenu", z.tuple([]), () => {
     const win = getFloatingWindow(COMPANION_KIND);

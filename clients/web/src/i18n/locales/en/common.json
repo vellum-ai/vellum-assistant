@@ -138,6 +138,14 @@
   "companionIntro": {
     "ariaLabel": "Introducing your companion",
     "done": "Got it",
+    "hold": {
+      "body": "Try it now. I’ll move on when it reaches me.",
+      "openKeyboardSettings": "Open Keyboard settings",
+      "title": "Hold {key} to dictate",
+      "tryAgain": "Try again",
+      "unreachedBody": "Remapped, claimed by another app, or Input Monitoring is off.",
+      "unreachedTitle": "{key} never reached me"
+    },
     "meet": {
       "body": "I stay on your desktop, even when Vellum isn’t visible.",
       "title": "This is me",

@@ -397,6 +397,17 @@ export function advanceCompanionIntro(action: CompanionIntroAction): void {
 }
 
 /**
+ * Ask main to open macOS's Keyboard settings.
+ *
+ * Main opens it because the surface's window opens nothing itself: it is
+ * click-through and navigates nowhere, so a `window.open` from it is denied
+ * at the shell. No-op off a host with no voice key.
+ */
+export function openCompanionKeyboardSettings(): void {
+  bridge()?.openKeyboardSettings?.();
+}
+
+/**
  * Ask main to open the surface's own menu at the pointer.
  *
  * The renderer knows a right-click happened and nothing else: the menu is a

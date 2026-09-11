@@ -808,10 +808,22 @@ export interface VellumBridge {
      * Move the one-time introduction on, or end it early.
      *
      * `next` walks to the following beat and finishes past the last one;
-     * `dismiss` is the Skip affordance. Either way main is what records that it
-     * has been seen, so the run never comes back.
+     * `dismiss` is the Skip affordance; `holdProven` is the app's window
+     * reporting a real edge of the voice key, which walks past the `hold`
+     * beat and nothing else. Either way main is what records that it has
+     * been seen, so the run never comes back.
      */
     advanceIntro(action: CompanionIntroAction): void;
+    /**
+     * Open macOS's Keyboard settings, where a voice key that never reaches
+     * the app is most often remapped.
+     *
+     * Opened by main rather than the renderer because the surface's window
+     * opens nothing itself: it is click-through and navigates nowhere, so a
+     * `window.open` from it is denied at the shell. Absent on shells with no
+     * voice key, which have nothing to send the user there for.
+     */
+    openKeyboardSettings?(): void;
     /**
      * Open the surface's own menu, at the pointer.
      *
