@@ -15,6 +15,7 @@ let getVersionInfo: FeedbackDependencies["getVersionInfo"];
 let getLogFilePaths: FeedbackDependencies["getLogFilePaths"];
 let readSetting: () => Record<string, boolean> | null;
 let hasSession: FeedbackDependencies["hasSession"];
+let getHostDiagnostics: FeedbackDependencies["getHostDiagnostics"];
 let handle: FeedbackIpc["handle"];
 
 export const configureFeedback = (dependencies: FeedbackDependencies): void => {
@@ -22,6 +23,7 @@ export const configureFeedback = (dependencies: FeedbackDependencies): void => {
     dependencies);
   fs = { readFile: dependencies.readFile };
   readSetting = dependencies.getFeatureFlags;
+  getHostDiagnostics = dependencies.getHostDiagnostics;
   handle = dependencies.ipc.handle;
 };
 
@@ -52,6 +54,8 @@ export interface ElectronDiagnostics {
   featureFlags: Record<string, boolean> | null;
   session: { authenticated: boolean };
   redactionVersion: number;
+  /** Shell-specific facts, present only when the shell supplies them. */
+  host?: Record<string, unknown>;
 }
 
 export function collectDiagnostics(): ElectronDiagnostics {
@@ -83,6 +87,7 @@ export function collectDiagnostics(): ElectronDiagnostics {
     featureFlags: readSetting(),
     session: { authenticated: hasSession() },
     redactionVersion: REDACTION_VERSION,
+    ...(getHostDiagnostics ? { host: getHostDiagnostics() } : {}),
   };
 }
 
