@@ -208,6 +208,16 @@ describe("DocumentViewerContainer autosave", () => {
     expect(flushed).toBe(true);
   });
 
+  test("returns the latest editor content after flushing it", async () => {
+    const handleRef = createRef<DocumentViewerContainerHandle>();
+    renderViewer({ handleRef });
+    await typeIntoEditor("latest body");
+
+    const markdown = await handleRef.current!.flushPendingSave();
+
+    expect(markdown).toBe("latest body");
+  });
+
   test("serializes a newer flush behind an autosave already in flight", async () => {
     let finishFirst: () => void = () => {};
     let finishSecond: () => void = () => {};

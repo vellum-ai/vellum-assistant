@@ -267,8 +267,10 @@ export function DocumentViewerPage() {
         toast.error(t("documentComposer.sendFailed"));
         return;
       }
+      let latestContent: string;
       try {
-        await viewerRef.current?.flushPendingSave();
+        latestContent =
+          (await viewerRef.current?.flushPendingSave()) ?? doc.content;
       } catch {
         toast.error(t("documentComposer.sendFailed"));
         return;
@@ -283,7 +285,7 @@ export function DocumentViewerPage() {
         surfaceId: doc.surfaceId,
         conversationId,
         documentName: doc.title,
-        content: doc.content,
+        content: latestContent,
       });
 
       const prompt = `Please review and address my comments on "${doc.title}".`;

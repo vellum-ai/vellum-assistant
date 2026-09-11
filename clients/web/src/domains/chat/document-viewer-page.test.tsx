@@ -174,7 +174,7 @@ describe("DocumentViewerPage", () => {
           resolveVersion = resolve;
         }),
     );
-    const flushPendingSave = mock(async () => {});
+    const flushPendingSave = mock(async () => "edited during preflight");
 
     const { findByTestId } = renderPage("surf-1");
     await findByTestId("viewer");
@@ -200,7 +200,9 @@ describe("DocumentViewerPage", () => {
     });
 
     expect(flushPendingSave).toHaveBeenCalledTimes(1);
-    expect(useViewerStore.getState().openedDocumentState).not.toBeNull();
+    expect(useViewerStore.getState().openedDocumentState).toMatchObject({
+      content: "edited during preflight",
+    });
   });
 
   test("abandons feedback after the assistant switches away and back", async () => {

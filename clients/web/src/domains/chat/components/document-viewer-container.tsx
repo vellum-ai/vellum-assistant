@@ -76,8 +76,8 @@ const TiptapDocumentEditor = lazy(() =>
 export interface DocumentViewerContainerHandle {
   /** Refresh the comment panel. Call when an SSE comment event arrives. */
   refreshComments: () => Promise<void>;
-  /** Persist editor changes before a document-scoped message is sent. */
-  flushPendingSave: () => Promise<void>;
+  /** Persist editor changes and return the latest markdown in the editor. */
+  flushPendingSave: () => Promise<string>;
 }
 
 /** A document surface: autosave writes through the documents API. */
@@ -220,7 +220,7 @@ export function DocumentViewerContainer({
     const pending = pendingMarkdownRef.current;
     if (pending === null) {
       await saveChainRef.current;
-      return;
+      return latestMarkdownRef.current ?? content;
     }
     pendingMarkdownRef.current = null;
     // Serialize saves so a slow older write cannot land after the version a
@@ -247,7 +247,8 @@ export function DocumentViewerContainer({
         throw error;
       },
     );
-  }, [queueDocumentSave]);
+    return latestMarkdownRef.current ?? content;
+  }, [content, queueDocumentSave]);
 
   const handleContentChange = useCallback(
     (markdown: string) => {
