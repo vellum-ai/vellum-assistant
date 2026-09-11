@@ -1182,6 +1182,53 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/desktop/control": {
+        get: {
+          summary: "Get desktop control status",
+          operationId: "desktopControlStatus",
+          security: [
+            {
+              BearerAuth: [],
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Desktop control status",
+            },
+          },
+        },
+        post: {
+          summary: "Hand desktop control between the user and assistant",
+          operationId: "desktopControlUpdate",
+          security: [
+            {
+              BearerAuth: [],
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Desktop control status",
+            },
+          },
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["action"],
+                  properties: {
+                    action: {
+                      type: "string",
+                      enum: ["take", "allow"],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/desktop/stream": {
         get: {
           summary: "Assistant desktop stream WebSocket",
