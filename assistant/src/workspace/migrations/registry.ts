@@ -152,6 +152,7 @@ import { repairRenamedFireworksDeepseekProModelIdMigration } from "./151-repair-
 import { repairRetiredFireworksMinimaxM2p7ModelIdMigration } from "./152-repair-retired-fireworks-minimax-m2p7-model-id.js";
 import { stripMcpPolicyFieldsMigration } from "./153-strip-mcp-policy-fields.js";
 import { migrateDesktopDockMigration } from "./154-migrate-desktop-dock.js";
+import { addMinesDockPinMigration } from "./155-add-mines-dock-pin.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -319,4 +320,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairRetiredFireworksMinimaxM2p7ModelIdMigration,
   stripMcpPolicyFieldsMigration,
   migrateDesktopDockMigration,
+  addMinesDockPinMigration,
 ];
