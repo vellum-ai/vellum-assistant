@@ -121,6 +121,16 @@ export interface MediaStreamSttSessionCallbacks {
   onSpeechStart?: () => void;
 
   /**
+   * Called for every inbound frame with the local VAD's verdict on it and
+   * the frame's duration. Drives the sustained-speech barge-in guard, which
+   * needs the silence frames inside a detector turn as well as the speech.
+   */
+  onMediaFrame?: (hasSpeech: boolean, durationMs: number) => void;
+
+  /** Called when the turn detector ends the caller's turn (silence or cap). */
+  onSpeechEnd?: () => void;
+
+  /**
    * Called when a completed caller utterance has been transcribed.
    *
    * Batch mode: fires per detected turn; text may be empty for silence
@@ -255,6 +265,7 @@ export class MediaStreamSttSession {
         this.callbacks.onSpeechStart?.();
       },
       onTurnEnd: (reason, durationMs) => {
+        this.callbacks.onSpeechEnd?.();
         void this.handleTurnEnd(reason, durationMs);
       },
     });
@@ -377,6 +388,10 @@ export class MediaStreamSttSession {
     const raw = Buffer.from(event.media.payload, "base64");
     const hasSpeech = detectSpeechActivity(raw);
     this.turnDetector.onMediaChunk(hasSpeech);
+    this.callbacks.onMediaFrame?.(
+      hasSpeech,
+      raw.length / (TELEPHONY_SOURCE_SAMPLE_RATE / 1000),
+    );
 
     if (this.mode === "batch") {
       this.currentTurnChunks.push(event.media.payload);

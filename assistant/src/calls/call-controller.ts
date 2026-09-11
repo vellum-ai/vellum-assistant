@@ -488,37 +488,35 @@ export class CallController {
   }
 
   /**
-   * Handle a barge-in attempt from inbound caller audio.
+   * Handle a barge-in from sustained inbound caller speech.
    *
-   * Only interrupts the in-flight turn when the assistant is actively
-   * speaking. When the controller is idle or still processing (no TTS
-   * output yet), the barge-in is ignored — this prevents false
-   * interruption on initial inbound media frames that arrive before
-   * the assistant has had a chance to produce its first response.
+   * Interrupts the in-flight turn whether the assistant is audibly speaking
+   * or still thinking (processing, no audio yet), so a caller can cut in
+   * before the assistant starts talking. With no turn in flight the
+   * barge-in is ignored. The transport's sustained-speech guard is what
+   * keeps a stray frame from cancelling a still-starting turn; the state
+   * gate only says whether there is anything to cancel.
    *
-   * @param onAccepted Invoked synchronously after the speaking gate
-   *   passes but before {@link handleInterrupt} runs. Transports use this
-   *   to flush queued outbound audio without wiping the end-of-turn mark
-   *   that handleInterrupt enqueues — and without flushing at all when
-   *   the barge-in is ignored.
-   * @returns `true` if the barge-in was accepted (assistant was speaking),
-   *   `false` if it was ignored (assistant idle or processing).
+   * @param onAccepted Invoked synchronously after the gate passes but
+   *   before {@link handleInterrupt} runs. Transports use this to flush
+   *   queued outbound audio without wiping the end-of-turn mark that
+   *   handleInterrupt enqueues, and without flushing at all when the
+   *   barge-in is ignored.
+   * @returns `true` if the barge-in was accepted (a turn was in flight),
+   *   `false` if it was ignored (assistant idle).
    */
   handleBargeIn(onAccepted?: () => void): boolean {
-    if (this.state !== "speaking") {
+    if (this.state === "idle") {
       log.debug(
-        {
-          callSessionId: this.callSessionId,
-          state: this.state,
-        },
-        "Barge-in ignored — assistant not speaking",
+        { callSessionId: this.callSessionId },
+        "Barge-in ignored: no turn in flight",
       );
       return false;
     }
 
     log.info(
-      { callSessionId: this.callSessionId },
-      "Barge-in accepted — interrupting assistant speech",
+      { callSessionId: this.callSessionId, state: this.state },
+      "Barge-in accepted: interrupting the assistant's turn",
     );
     onAccepted?.();
     this.handleInterrupt();

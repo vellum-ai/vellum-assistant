@@ -1311,18 +1311,22 @@ describe("media-stream setup outcome scenarios", () => {
       await session.whenSetupSettled();
       expect(mockStartInitialGreeting).toHaveBeenCalled();
 
-      // Immediate inbound audio (speech-like payloads) — before the
-      // assistant has spoken. The speech detector classifies these as
-      // speech, so onSpeechStart fires and calls handleBargeIn. Since
-      // the controller mock returns false (not speaking), handleInterrupt
-      // should NOT be called.
+      // Immediate inbound audio (speech-like payloads) before the assistant
+      // has spoken. Three frames (60 ms) arm the sustained-speech guard but
+      // do not trip it: nothing reaches the controller yet.
       const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
       session.handleMessage(makeMediaMessage(speechPayload, "1"));
       session.handleMessage(makeMediaMessage(speechPayload, "2"));
       session.handleMessage(makeMediaMessage(speechPayload, "3"));
+      expect(mockHandleBargeIn).not.toHaveBeenCalled();
 
-      // handleBargeIn was called but returned false
-      expect(mockHandleBargeIn).toHaveBeenCalled();
+      // Sustained speech past the guard reaches handleBargeIn, which the
+      // controller mock rejects (no turn in flight), so handleInterrupt is
+      // not called.
+      for (let i = 4; i <= 16; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload, String(i)));
+      }
+      expect(mockHandleBargeIn).toHaveBeenCalledTimes(1);
       expect(mockHandleInterrupt).not.toHaveBeenCalled();
 
       // An ignored barge-in flushes only Twilio's buffered audio (to
@@ -1367,18 +1371,66 @@ describe("media-stream setup outcome scenarios", () => {
       session.handleMessage(makeStartMessage());
       await session.whenSetupSettled();
 
-      // Simulate inbound speech audio while assistant is speaking.
-      // Use a high-amplitude mu-law payload so speech detection triggers.
+      // Sustained inbound speech while the assistant is speaking. A
+      // high-amplitude mu-law payload trips speech detection on every
+      // 20 ms frame; the guard fires once 250 ms have accumulated.
       const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
-      session.handleMessage(makeMediaMessage(speechPayload, "1"));
+      for (let i = 1; i <= 13; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload, String(i)));
+      }
 
-      // handleBargeIn should have been called (returning true), and the
-      // accepted barge-in flushes outbound audio via the onAccepted hook.
-      expect(mockHandleBargeIn).toHaveBeenCalled();
+      // handleBargeIn was called once (returning true), and the accepted
+      // barge-in flushed outbound audio via the onAccepted hook.
+      expect(mockHandleBargeIn).toHaveBeenCalledTimes(1);
       const clearCommands = mockWs.sent.filter(
         (s) => JSON.parse(s).event === "clear",
       );
       expect(clearCommands.length).toBe(1);
+
+      session.destroy();
+    });
+
+    test("speech that stops short of the guard never reaches the controller", async () => {
+      mockHandleBargeIn.mockImplementation((onAccepted?: () => void) => {
+        onAccepted?.();
+        return true;
+      });
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-bargein-3", {
+        id: "call-bargein-3",
+        conversationId: "conv-bargein-3",
+        status: "in_progress",
+        task: null,
+        startedAt: Date.now() - 5000,
+        toNumber: "+15555550199",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-bargein-3");
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // 100 ms of speech, then a silence gap past the tolerance: the run
+      // resets, and another 100 ms of speech is still short of the guard.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      const silencePayload = Buffer.alloc(160, 0xff).toString("base64");
+      let chunk = 1;
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload, String(chunk++)));
+      }
+      for (let i = 0; i < 15; i++) {
+        session.handleMessage(
+          makeMediaMessage(silencePayload, String(chunk++)),
+        );
+      }
+      for (let i = 0; i < 5; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload, String(chunk++)));
+      }
+
+      expect(mockHandleBargeIn).not.toHaveBeenCalled();
+      expect(
+        mockWs.sent.filter((s) => JSON.parse(s).event === "clear").length,
+      ).toBe(0);
 
       session.destroy();
     });
