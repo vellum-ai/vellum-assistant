@@ -244,7 +244,7 @@ export function DocumentComposerReplyWatcher() {
           return;
         }
 
-        for (const [clientMessageId, send] of entries) {
+        for (const [clientMessageId] of entries) {
           const replyStore = useDocumentComposerReplyStore.getState();
           const stillDetached = replyStore.detachedQueuedSends.get(
             clientMessageId,
@@ -252,11 +252,16 @@ export function DocumentComposerReplyWatcher() {
           if (stillDetached === undefined) {
             continue;
           }
+          const currentPending = replyStore.pendingReplies
+            .get(conversationId)
+            ?.find((pending) => pending.clientMessageId === clientMessageId);
           const message = snapshot?.messages.find(
             (candidate) =>
               candidate.clientMessageId === clientMessageId ||
-              (send.serverMessageId !== undefined &&
-                candidate.id === send.serverMessageId),
+              (currentPending?.serverMessageId !== undefined &&
+                candidate.id === currentPending.serverMessageId) ||
+              (stillDetached.serverMessageId !== undefined &&
+                candidate.id === stillDetached.serverMessageId),
           );
           if (message !== undefined) {
             acceptCorrelatedRecovery(
@@ -286,7 +291,7 @@ export function DocumentComposerReplyWatcher() {
             // later echo retracts that exact copy.
             if (snapshot?.processing === false) {
               const stashed = replyStore.stashFailedSend(
-                send.payload,
+                stillDetached.payload,
                 clientMessageId,
               );
               replyStore.markAcceptedReplyRecovering(

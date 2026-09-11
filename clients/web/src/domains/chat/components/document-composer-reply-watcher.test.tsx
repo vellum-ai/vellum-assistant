@@ -2167,6 +2167,54 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(toastErrorMock).not.toHaveBeenCalled();
     });
 
+    test("switching back uses a server id recorded while history is loading", async () => {
+      let finishHistory: (snapshot: ConversationSnapshot) => void = () => {};
+      fetchConversationMessagesMock = mock(
+        (..._args: unknown[]) =>
+          new Promise<ConversationSnapshot>((resolve) => {
+            finishHistory = resolve;
+          }),
+      );
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+      await waitFor(() =>
+        expect(fetchConversationMessagesMock).toHaveBeenCalledWith(
+          "assistant-1",
+          "conv-1",
+        ),
+      );
+
+      // The POST response can attach the durable id after reconciliation has
+      // captured the detached entry but before its history request resolves.
+      useDocumentComposerReplyStore
+        .getState()
+        .recordReplyServerMessageId("conv-1", "cm-1", "req-1");
+      finishHistory({
+        messages: [
+          {
+            id: "req-1",
+            role: "user",
+            timestamp: new Date().toISOString(),
+            attachments: [],
+          },
+        ],
+        processing: false,
+      });
+
+      await waitFor(() => expect(detachedQueuedFor("cm-1")).toBeUndefined());
+      expect(awaiting("conv-1")).toBe(false);
+      expect(heldFor("surf-1")).toBeUndefined();
+      expect(toastErrorMock).not.toHaveBeenCalled();
+    });
+
     test("switching back keeps a send that the snapshot still lists as queued", async () => {
       fetchConversationMessagesMock = mock(
         async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
