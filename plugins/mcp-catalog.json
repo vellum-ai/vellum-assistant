@@ -530,23 +530,6 @@
       }
     },
     {
-      "id": "outreach",
-      "packagePath": "plugins/mcp-catalog/outreach",
-      "serverKey": "outreach",
-      "source": {
-        "kind": "local"
-      },
-      "displayName": "Outreach",
-      "description": "Search prospects, accounts, sequences, and sales activity.",
-      "documentationUrl": "https://developers.outreach.io/mcp-server",
-      "verifiedAt": "2026-09-10",
-      "verification": "documentation-only",
-      "setup": {
-        "mode": "oauth",
-        "instructions": "An Outreach admin must enable MCP Server in organization AI settings."
-      }
-    },
-    {
       "id": "profound",
       "packagePath": "plugins/mcp-catalog/profound",
       "serverKey": "profound",

@@ -91,7 +91,7 @@ Packages without a provider-published standard source are minimal Vellum-authore
 
 ### Coverage boundaries
 
-The inventory contains 61 MCP options. The catalog includes 32 of them plus the six original providers absent from that inventory: Atlassian, Linear, Notion, Ramp, Sentry, and Stripe, for 38 entries in total. The expansion adds 30 presets through the existing OAuth connection flow. The remaining 29 are deferred for validation or architecture review:
+The inventory contains 61 MCP options. The catalog includes 31 of them plus the six original providers absent from that inventory: Atlassian, Linear, Notion, Ramp, Sentry, and Stripe, for 37 entries in total. The expansion adds 29 presets through the existing OAuth connection flow. The remaining 30 are deferred for validation or architecture review:
 
 | Options | Required work |
 | --- | --- |
@@ -99,7 +99,7 @@ The inventory contains 61 MCP options. The catalog includes 32 of them plus the 
 | Brevo, GitHub, Hunter, Similarweb, Smartsheet, Wrike | Decide how catalog setup should collect and securely bind static tokens already supported by custom MCP connections. |
 | Excalidraw, GoDaddy | Decide how unauthenticated providers should be represented in catalog setup; the current modes describe OAuth flows. |
 | [Gmail, Google Calendar, Google Drive](https://developers.google.com/workspace/guides/configure-mcp-servers) | Provision a Vellum OAuth client and support Google's client authentication. Discovery does not advertise dynamic registration or public-client token authentication. |
-| [Coda](https://help.superhuman.com/hc/en-us/articles/46210076980365-Connect-to-the-Coda-MCP), [S&P Global](https://docs.kensho.com/llmreadyapi/overview) | Support confidential-client token authentication. Their discovery metadata advertises registration but requires client-secret authentication. |
+| [Coda](https://help.superhuman.com/hc/en-us/articles/46210076980365-Connect-to-the-Coda-MCP), [S&P Global](https://docs.kensho.com/llmreadyapi/overview), [Outreach](https://developers.outreach.io/mcp-server) | Support confidential-client token authentication. Their discovery metadata advertises registration but requires client-secret authentication. |
 | [Docusign](https://developers.docusign.com/platform/mcp-server/), [Gong](https://help.gong.io/docs/about-gong-mcp-server), [HubSpot](https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server), [Zoom](https://developers.zoom.us/docs/mcp/) | Support provider client registration, callback setup, and securely stored OAuth client credentials. |
 | [X](https://docs.x.com/tools/mcp), [X Ads](https://docs.x.com/x-ads-api/introduction) | Obtain Vellum-owned client registrations and configure their scopes; another application's client IDs cannot be reused. |
 | [Salesforce](https://developer.salesforce.com/docs/platform/hosted-mcp-servers/guide/cursor.html) | Collect the organization's MCP URL, External Client App consumer key, and scopes. |

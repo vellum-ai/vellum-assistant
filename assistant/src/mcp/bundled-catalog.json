@@ -1036,43 +1036,6 @@
       }
     },
     {
-      "id": "outreach",
-      "packagePath": "plugins/mcp-catalog/outreach",
-      "serverKey": "outreach",
-      "source": {
-        "kind": "local"
-      },
-      "displayName": "Outreach",
-      "description": "Search prospects, accounts, sequences, and sales activity.",
-      "documentationUrl": "https://developers.outreach.io/mcp-server",
-      "verifiedAt": "2026-09-10",
-      "verification": "documentation-only",
-      "setup": {
-        "mode": "oauth",
-        "instructions": "An Outreach admin must enable MCP Server in organization AI settings."
-      },
-      "definitionDigest": "308b62ff7061c9739706cd69e46bb2dcbb4b0ef3373f28485e07800de752d2ab",
-      "documents": {
-        "plugin": {
-          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-          "name": "outreach",
-          "version": "1.0.0",
-          "description": "Search prospects, accounts, sequences, and sales activity.",
-          "homepage": "https://developers.outreach.io/mcp-server",
-          "license": "MIT"
-        },
-        "mcp": {
-          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
-          "mcpServers": {
-            "outreach": {
-              "type": "streamable-http",
-              "url": "https://api.outreach.io/mcp"
-            }
-          }
-        }
-      }
-    },
-    {
       "id": "profound",
       "packagePath": "plugins/mcp-catalog/profound",
       "serverKey": "profound",

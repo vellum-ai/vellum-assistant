@@ -40,7 +40,6 @@ describe("reviewed starter MCP catalog", () => {
       "navan",
       "notion",
       "otter",
-      "outreach",
       "profound",
       "ramp",
       "readwise",
