@@ -1,7 +1,10 @@
 // Persist the sidebar conversation group expand/collapse state to localStorage
 // so that the user's last-known toggle state for each collapsible group
 // (per-channel sections and custom groups) survives
-// page reloads.
+// page reloads. The same file keeps a fourth bucket, the sections the user
+// has expanded from their mid height to their full height (see
+// `expandable` on `ConversationRowList`), so that choice survives a reload
+// too.
 //
 // Primary sections (Pinned / Chats), built-in sections (the per-channel
 // sections), and custom groups are stored under SEPARATE keys, chiefly
@@ -101,6 +104,17 @@ const primaryStorage = createKeyedStorageAccessor<string[]>({
   fallback: [...PRIMARY_SECTION_KEYS],
 });
 
+/* Sections expanded past their mid height. Defaults to none: a section rests
+   at its cap until the user asks for the rest. Keys are section keys from the
+   same namespace as the buckets above (`recents`, `channel:slack`, ...). */
+const expandedStorage = createKeyedStorageAccessor<string[]>({
+  keyFn: (assistantId) => `vellum:sidebar-expanded-sections:${assistantId}`,
+  scope: "user",
+  parse: parseStringArray,
+  serialize: JSON.stringify,
+  fallback: [],
+});
+
 /** Load open built-in sidebar category keys, filtering stale values. */
 export function loadOpenCategories(assistantId: string): string[] {
   return categoriesStorage.load(assistantId).filter(isKnownCategoryKey);
@@ -134,4 +148,16 @@ export function saveOpenPrimary(
   openPrimary: string[],
 ): void {
   primaryStorage.save(assistantId, openPrimary);
+}
+
+/** Load the sections the user has expanded past their mid height. */
+export function loadExpandedSections(assistantId: string): string[] {
+  return expandedStorage.load(assistantId);
+}
+
+export function saveExpandedSections(
+  assistantId: string,
+  expandedSections: string[],
+): void {
+  expandedStorage.save(assistantId, expandedSections);
 }

@@ -11,6 +11,8 @@
  * mounts them, so `defaultValue` decides which cards start open.
  */
 
+import { useState } from "react";
+
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
@@ -21,7 +23,10 @@ import {
   GroupActionsMenu,
   type GroupMenuItemsProps,
 } from "@/domains/chat/components/group-actions-menu";
-import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
+import {
+  SidebarSectionCard,
+  type SidebarSectionCardProps,
+} from "@/domains/chat/components/sidebar-section-card";
 import type { Conversation } from "@/types/conversation-types";
 
 function conversation(
@@ -199,6 +204,111 @@ export const Chats: Story = {
       <SidebarSectionCard {...args} />
     </CollapsibleNavSection.Root>
   ),
+};
+
+/**
+ * Thirty-plus threads: the case the expand control exists for. As the
+ * rail's bottom-most section, Chats rests at the same mid height every
+ * non-last section caps at, scrolling within itself, with "Expand" pinned
+ * at the card's foot. Expanded, the card grows to whatever height the rail
+ * has left (here, the frame) and the rows keep scrolling the same way;
+ * "Collapse" brings it back. The choice persists per section in the real
+ * sidebar; the story keeps it in local state.
+ *
+ * Mounted inside a frame the height of a small laptop's rail, because that
+ * is where the geometry matters: the card hugs its rows rather than
+ * stretching to the frame, and past thirty rows the list windows
+ * (virtualizes) with the control still in place.
+ */
+const LONG_TITLES = [
+  "Wait Interaction",
+  "ESP32 Power Wiring",
+  "Foot Pain & Pace Plan",
+  "Burry Substack Commentary",
+  "Emp Reservation Planning",
+  "Upper-Body Session Notes",
+  "Tech Adoption Ladder",
+  "Milestone Run Victory",
+  "Pancake Recipe Substitutions",
+  "Getting Started Plans",
+  "Run Schedule Shift",
+  "Columbus Weekend Itinerary",
+  "I-70 Eyeball Confusion",
+  "Soldering Tools for Tiny Boards",
+  "Columbus Climbing Gyms",
+  "ChatGPT Memory Star",
+  "ai eng + design",
+  "Weekend Running Plan",
+];
+
+const MANY_CHATS: Conversation[] = Array.from({ length: 36 }, (_, index) =>
+  conversation(`t${index + 1}`, LONG_TITLES[index % LONG_TITLES.length]!, {
+    hasUnseenLatestAssistantMessage: index === 2 || index === 14,
+  }),
+);
+
+function railFrame(Story: () => React.ReactElement) {
+  return (
+    <div className="flex h-[640px] w-[272px] flex-col gap-2">
+      <Story />
+    </div>
+  );
+}
+
+/**
+ * The real sidebar keeps `expanded` in the layout store; the story holds
+ * it here so the control is live in the Canvas.
+ */
+function ExpandableChats({
+  initiallyExpanded = false,
+  ...args
+}: SidebarSectionCardProps & { initiallyExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(initiallyExpanded);
+  return (
+    <CollapsibleNavSection.Root
+      type="multiple"
+      defaultValue={["chats"]}
+      className="min-h-0 flex-1"
+    >
+      <SidebarSectionCard
+        {...args}
+        expanded={expanded}
+        onExpandedChange={setExpanded}
+      />
+    </CollapsibleNavSection.Root>
+  );
+}
+
+export const ChatsThirtyPlus: Story = {
+  name: "Chats · thirty-plus threads",
+  args: {
+    value: "chats",
+    label: "Chats",
+    items: MANY_CHATS,
+    isLast: true,
+    expandable: true,
+    groupMenu: CHATS_MENU,
+    trailing: <GroupActionsMenu label="Chats" {...CHATS_MENU} />,
+  },
+  decorators: [railFrame],
+  render: (args) => <ExpandableChats {...args} />,
+};
+
+/** The same section already expanded to the frame's full height. */
+export const ChatsThirtyPlusExpanded: Story = {
+  ...ChatsThirtyPlus,
+  name: "Chats · thirty-plus threads, expanded",
+  render: (args) => <ExpandableChats {...args} initiallyExpanded />,
+};
+
+/**
+ * Twelve threads: past the cap, so the control shows, but short enough
+ * that expanding hugs the rows rather than filling the frame.
+ */
+export const ChatsJustPastTheCap: Story = {
+  ...ChatsThirtyPlus,
+  name: "Chats · just past the cap",
+  args: { ...ChatsThirtyPlus.args, items: MANY_CHATS.slice(0, 12) },
 };
 
 /**

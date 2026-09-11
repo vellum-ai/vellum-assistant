@@ -1930,5 +1930,9 @@
   "assistantSection": {
     "emptyBody": "我随时都在思考。当有值得您关注的事情时，我会在这里发起对话。",
     "emptyTitle": "目前还没有任何想法。"
+  },
+  "sidebarExpandRow": {
+    "expand": "展开",
+    "collapse": "收起"
   }
 }

@@ -9,19 +9,31 @@
  *
  * A windowed section paginates: `onEndReached` fires at the bottom of the
  * rows and pages more in (LUM-2444). What differs per section is where the
- * rows scroll. On the rail, only the bottom-most section (`isLast`) grows
- * to fill whatever space the sidebar has left above the pinned footer, then
- * scrolls within itself once its rows outgrow that: flex-grow has no notion
- * of "this section needs the room," so letting every open section claim a
- * share stretched a two-row group into a mostly-empty box the same size as
- * a busy one beside it. Every section above the last one caps at a fixed
- * height and scrolls within itself instead, since an uncapped busy section
- * would otherwise push its neighbours off screen - unless it opts out via
- * `unbounded` (Pinned: expected to stay short, and grows to fit its rows
- * instead). The overlay drawer and the flat list instead scroll against the
- * sidebar body (`scrollParent` / `overlayCards`), which keeps those
- * surfaces to a single scrollbar so nested lists cannot trap rows behind
- * the floating action pills.
+ * rows scroll. On the rail, only the bottom-most section (`isLast`) may
+ * take whatever space the sidebar has left above the pinned footer: it hugs
+ * its rows until they outgrow that space, then scrolls within itself. It
+ * hugs rather than fills because a short list stretched into a card the
+ * height of the rail is mostly empty surface. The one exception is a
+ * windowed list, which fills: a virtualized list needs a definite height to
+ * know what to render, and a list long enough to window has outgrown the
+ * rail anyway.
+ *
+ * An expandable last section (`expandable`: Chats and the channel sections,
+ * the two that accumulate without bound) rests at the same mid height every
+ * non-last section caps at, so a hundred threads do not run the rail's
+ * whole height by default, and grows to the full height on request (see
+ * {@link SidebarExpandRow}). Either way the rows scroll inside it the same
+ * way; only how much of the list is in view changes.
+ *
+ * Every section above the last one caps at a fixed height and scrolls
+ * within itself instead, since an uncapped busy section would otherwise
+ * push its neighbours off screen - unless it opts out via `unbounded`
+ * (Pinned: expected to stay short, and grows to fit its rows instead). The
+ * overlay drawer and the flat list instead scroll against the sidebar body
+ * (`scrollParent` / `overlayCards`), which keeps those surfaces to a single
+ * scrollbar so nested lists cannot trap rows behind the floating action
+ * pills; neither has a height of its own to expand, so the control is the
+ * rail's alone.
  *
  * Either way a list past {@link CONVERSATION_LIST_VIRTUALIZE_THRESHOLD} rows
  * windows rather than mounting every one, because an assistant accumulates
@@ -43,10 +55,14 @@ import {
   CollapsibleNavSection,
   type CollapsibleNavSectionDrag,
 } from "@/components/collapsible-nav-section";
-import { SIDEBAR_SECTION_MAX_HEIGHT } from "@/components/sidebar-nav-geometry";
+import {
+  SIDEBAR_SECTION_MAX_HEIGHT,
+  SIDEBAR_SECTION_ROWS_WITHIN_CAP,
+} from "@/components/sidebar-nav-geometry";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { ConversationRow } from "@/domains/chat/components/conversation-row";
 import { LoadMoreSentinel } from "@/domains/chat/components/load-more-sentinel";
+import { SidebarExpandRow } from "@/domains/chat/components/sidebar-expand-row";
 import {
   hasAnyGroupMenuAction,
   renderGroupMenuItems,
@@ -62,6 +78,14 @@ import type { Conversation } from "@/types/conversation-types";
  * case and skips virtuoso's measuring pass.
  */
 export const CONVERSATION_LIST_VIRTUALIZE_THRESHOLD = 30;
+
+/**
+ * Marks the windowed list's box so the section chain above it
+ * (`SidebarSectionCard`, `CollapsibleNavSection.Section`) can switch the
+ * last section from hugging its rows to filling the rail: a virtualized
+ * list needs a definite height, and only the list knows which path it took.
+ */
+export const CONVERSATION_LIST_WINDOWED_SLOT = "conversation-list-windowed";
 
 export interface ConversationRowListProps {
   items: Conversation[];
@@ -101,6 +125,17 @@ export interface ConversationRowListProps {
    * ancestor-scrolled lists, which have no cap of their own to shrink.
    */
   maxHeight?: number;
+  /**
+   * Lets the section rest at {@link SIDEBAR_SECTION_MAX_HEIGHT} when it is
+   * the rail's bottom-most (`isLast`) and offer an Expand control to take
+   * the rail's full leftover height instead. Chats and the channel sections
+   * pass it; a curated section (Pinned, a group) or one already capped (the
+   * assistant's) does not. Inert off the rail and for `unbounded`.
+   */
+  expandable?: boolean;
+  /** Whether an `expandable` section is at its full height. */
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }
 
 export function ConversationRowList({
@@ -110,6 +145,9 @@ export function ConversationRowList({
   isLast,
   onEndReached,
   maxHeight,
+  expandable,
+  expanded = false,
+  onExpandedChange,
 }: ConversationRowListProps) {
   const { overlayCards, scrollParent: contextScrollParent } =
     useConversationListContext();
@@ -119,6 +157,24 @@ export function ConversationRowList({
      last rows behind the floating pills: the inner list cannot move those
      rows into the body's reserved padding. */
   const scrollWithBody = overlayCards === true || listScrollParent != null;
+
+  /* The control appears only where there is a height to change and rows
+     enough to need it: the rail's last section, with more rows than its
+     mid height shows (or more still on the server). A section within its
+     cap has nothing to expand into, and an expanded section that has since
+     shrunk to fit keeps the control so it can be put back. */
+  const canExpand =
+    expandable === true && isLast === true && !unbounded && !scrollWithBody;
+  const overflowsCap =
+    items.length > SIDEBAR_SECTION_ROWS_WITHIN_CAP || onEndReached !== undefined;
+  const expandRow =
+    canExpand && (overflowsCap || expanded) ? (
+      <SidebarExpandRow
+        expanded={expanded}
+        onToggle={() => onExpandedChange?.(!expanded)}
+      />
+    ) : null;
+  const atMidHeight = canExpand && !expanded;
 
   const renderRow = (conversation: Conversation) => (
     <ConversationRow
@@ -141,8 +197,25 @@ export function ConversationRowList({
     if (unbounded || scrollWithBody) {
       return rows;
     }
+    /* The last section's list hugs its rows and shrinks under the rail's
+       leftover space (no `flex-1`: the chain above only fills for a
+       windowed list, see `CONVERSATION_LIST_WINDOWED_SLOT`), scrolling
+       within itself once it is squeezed below its content. At its mid
+       height it takes the same cap every non-last section does. The expand
+       control is a sibling of the scroller, so it never scrolls out of
+       reach. */
     return isLast ? (
-      <div className="min-h-0 flex-1 overflow-y-auto">{rows}</div>
+      <>
+        <div
+          className="min-h-0 overflow-y-auto"
+          style={
+            atMidHeight ? { maxHeight: SIDEBAR_SECTION_MAX_HEIGHT } : undefined
+          }
+        >
+          {rows}
+        </div>
+        {expandRow}
+      </>
     ) : (
       <div
         className="overflow-y-auto"
@@ -181,7 +254,8 @@ export function ConversationRowList({
      virtuoso's scroller sizes to 100%: the last section fills whatever
      height its own flex-fill sizing (see `CollapsibleNavSection.Section`)
      gives it, every other section gets a fixed height so a busy non-last
-     section still can't push its neighbours off screen.
+     section still can't push its neighbours off screen. A last section at
+     its mid height takes the fixed height too: it is not filling anything.
 
      The last section's fill only resolves while every ancestor between the
      sidebar body and this box forwards the body's height (flex column with
@@ -190,19 +264,27 @@ export function ConversationRowList({
      not degrade to a tall list, it degrades to an empty one. The min-height
      floor caps that failure at "a section-sized scrollable box": rows stay
      reachable even if a layout change above drops the chain. */
-  return isLast ? (
-    <div
-      className="h-full flex-1"
-      style={{ minHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
-    >
-      {windowed}
-    </div>
+  return isLast && !atMidHeight ? (
+    <>
+      <div
+        data-slot={CONVERSATION_LIST_WINDOWED_SLOT}
+        className="h-full min-h-0 flex-1"
+        style={{ minHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
+      >
+        {windowed}
+      </div>
+      {expandRow}
+    </>
   ) : (
-    <div style={{ height: maxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}>
-      {windowed}
-    </div>
+    <>
+      <div style={{ height: maxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}>
+        {windowed}
+      </div>
+      {expandRow}
+    </>
   );
 }
+
 export interface ConversationNavSectionProps extends ConversationRowListProps {
   /** Collapse/expand key (matches the controlling `CollapsibleNavSection.Root`). */
   value: string;
