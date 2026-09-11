@@ -11933,6 +11933,8 @@ paths:
   /v1/desktop/browser/bridge:
     post:
       operationId: desktop_browser_bridge_post
+      tags:
+        - desktop
       requestBody:
         required: true
         content:
@@ -11974,12 +11976,16 @@ paths:
   /v1/desktop/browser/package:
     get:
       operationId: desktop_browser_package_get
+      tags:
+        - desktop
       responses:
         "200":
           description: Successful response
   /v1/desktop/browser/update:
     get:
       operationId: desktop_browser_update_get
+      tags:
+        - desktop
       responses:
         "200":
           description: Successful response

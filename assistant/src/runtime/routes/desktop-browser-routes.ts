@@ -21,6 +21,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "desktop_browser_bridge",
     endpoint: "desktop/browser/bridge",
     method: "POST",
+    tags: ["desktop"],
     policy: { requiredScopes: [], allowedPrincipalTypes: GATEWAY_PRINCIPALS },
     requestBody: request,
     handler: ({ body }) => {
@@ -36,6 +37,7 @@ export const ROUTES: RouteDefinition[] = [
       operationId: `desktop_browser_${kind}`,
       endpoint: `desktop/browser/${kind}`,
       method: "GET",
+      tags: ["desktop"],
       policy: { requiredScopes: [], allowedPrincipalTypes: GATEWAY_PRINCIPALS },
       handler: () => {
         if (!isAssistantDesktopEnabled(getConfig())) {
