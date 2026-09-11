@@ -675,6 +675,7 @@ async function main() {
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
   const desktopSetupProxy = createDesktopSetupProxyHandler(config);
+  const desktopControlProxy = createDesktopSetupProxyHandler(config, "control");
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleLogExport = createLogExportHandler(config);
   const handleLogTail = createLogTailHandler(config);
@@ -1961,6 +1962,18 @@ async function main() {
     routes.push(
       { path: /^\/v1\/desktop\/setup\/?$/, ...setupRoute },
       { path: /^\/v1\/assistants\/[^/]+\/desktop\/setup\/?$/, ...setupRoute },
+      {
+        path: /^\/v1\/desktop\/control\/?$/,
+        method,
+        auth: "edge-guardian",
+        handler: desktopControlProxy,
+      },
+      {
+        path: /^\/v1\/assistants\/[^/]+\/desktop\/control\/?$/,
+        method,
+        auth: "edge-guardian",
+        handler: desktopControlProxy,
+      },
     );
   }
 

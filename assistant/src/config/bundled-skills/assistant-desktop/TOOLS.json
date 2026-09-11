@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "desktop_control",
+      "description": "Observe or control the assistant's own desktop, visible in the desktop modal. Start with observe. Every input action requires the latest observation_id and returns a screenshot. Click and scroll require x/y; drag additionally requires to_x/to_y; type requires text; key requires key. Call done when finished. Never controls the user's personal computer.",
+      "category": "computer-use",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "observe",
+              "click",
+              "type",
+              "key",
+              "scroll",
+              "drag",
+              "done"
+            ]
+          },
+          "observation_id": {
+            "type": "string",
+            "description": "Latest observation_id. Required for input actions."
+          },
+          "x": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "y": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "to_x": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "to_y": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "button": {
+            "type": "string",
+            "enum": ["left", "right", "middle", "double"]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 10000
+          },
+          "key": {
+            "type": "string",
+            "description": "X11 key combination, for example ctrl+l or Return."
+          },
+          "direction": {
+            "type": "string",
+            "enum": ["up", "down", "left", "right"]
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        },
+        "required": ["action"]
+      },
+      "executor": "tools/desktop-control.ts",
+      "execution_target": "sandbox"
+    }
+  ]
+}

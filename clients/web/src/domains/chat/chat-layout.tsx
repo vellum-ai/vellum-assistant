@@ -355,6 +355,7 @@ export function ChatLayout({
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
+  const mobileTopBar = useChatLayoutSlotsStore.use.mobileTopBar();
   const showInternalActions = useCanUseInternalThreadActions();
   const isNative = useIsNativePlatform();
   const electron = isElectron();
@@ -1155,6 +1156,7 @@ export function ChatLayout({
           // the tour runs, so it doubles as the dim signal.)
           controlsDimmed={headerCenterHidden}
           topBarCenter={topBarCenter}
+          mobileTopBar={mobileTopBar}
           // The voice-session pill is composed here — NOT registered through
           // useChatLayoutSlotsStore — because slot registration is owned by
           // per-route hooks that unmount on navigation, exactly when the pill

@@ -152,6 +152,7 @@ import { repairRenamedFireworksDeepseekProModelIdMigration } from "./151-repair-
 import { repairRetiredFireworksMinimaxM2p7ModelIdMigration } from "./152-repair-retired-fireworks-minimax-m2p7-model-id.js";
 import { stripMcpPolicyFieldsMigration } from "./153-strip-mcp-policy-fields.js";
 import { migrateDesktopDockMigration } from "./154-migrate-desktop-dock.js";
+import { repairRetiredCodexGpt54ModelIdsMigration } from "./154-repair-retired-codex-gpt-5-4-model-ids.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -318,5 +319,6 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairRenamedFireworksDeepseekProModelIdMigration,
   repairRetiredFireworksMinimaxM2p7ModelIdMigration,
   stripMcpPolicyFieldsMigration,
+  repairRetiredCodexGpt54ModelIdsMigration,
   migrateDesktopDockMigration,
 ];
