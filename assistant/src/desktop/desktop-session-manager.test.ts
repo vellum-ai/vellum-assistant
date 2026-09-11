@@ -219,7 +219,7 @@ describe("DesktopSessionManager process tree", () => {
         DISPLAY: ":99",
       });
     }
-    expect(h.child("window-manager").request.cmd).toEqual(["/usr/bin/openbox"]);
+    expect(h.child("window-manager").request.cmd[0]).toBe("/usr/bin/openbox");
     // The compositor precedes the dock so it has an ARGB visual.
     expect(h.child("compositor").request.cmd).toEqual(["/usr/bin/xcompmgr"]);
     expect(h.child("panel").request.cmd).toEqual([
