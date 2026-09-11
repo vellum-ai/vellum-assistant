@@ -50,6 +50,7 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 import { cn } from "@/utils/misc";
 
 import {
+  ASSISTANT_IN_THREAD_SEED,
   MOCK_REPLIES,
   PROTO_ASSISTANT_NAME,
   PROTO_NOW,
@@ -124,6 +125,27 @@ export interface ThreadedChatOptions {
   accentThreads: boolean;
   /** Reply with a canned assistant message a moment after each send. */
   mockAssistantReplies: boolean;
+  /**
+   * Where the assistant answers a top-level message. `thread` puts every
+   * answer in a thread on the user's message, so the main feed holds only
+   * what the user sent. Switching this swaps the seed conversation.
+   */
+  assistantRepliesIn: "main" | "thread";
+  /**
+   * In `thread` mode, how the answer shows in the main feed under the
+   * user's message. `snippet` clamps the answer to {@link previewLines};
+   * `expanded-latest` shows the newest exchange in full and clamps older
+   * ones; `none` leaves only the thread indicator.
+   */
+  replyPreview: "none" | "snippet" | "expanded-latest";
+  /** Lines of the answer shown by a clamped preview. */
+  previewLines: number;
+  /**
+   * In `thread` mode, once the assistant has answered, the main composer
+   * continues that thread by default. The user backs out to a new topic
+   * from the chip above the composer or with Escape.
+   */
+  followUpDefault: "thread" | "new-topic";
 }
 
 export const DEFAULT_THREADED_CHAT_OPTIONS: ThreadedChatOptions = {
@@ -145,6 +167,10 @@ export const DEFAULT_THREADED_CHAT_OPTIONS: ThreadedChatOptions = {
   animationMs: 260,
   accentThreads: false,
   mockAssistantReplies: true,
+  assistantRepliesIn: "main",
+  replyPreview: "snippet",
+  previewLines: 3,
+  followUpDefault: "thread",
 };
 
 export interface ThreadedChatPrototypeProps extends ThreadedChatOptions {
@@ -237,25 +263,33 @@ function newId(prefix: string): string {
   return `${prefix}-${nextId}`;
 }
 
-function useProtoChat(seed: ProtoState, mockReplies: boolean) {
+function useProtoChat(
+  seed: ProtoState,
+  mockReplies: boolean,
+  /** Answer a top-level message inside a thread on it, not in the main feed. */
+  repliesInThread: boolean,
+) {
   const [state, setState] = useState<ProtoState>(seed);
   const [pending, setPending] = useState<PendingReply | null>(null);
+  // The thread the assistant most recently answered in, so the composer can
+  // follow the exchange. Cleared by the caller once consumed.
+  const [lastAnswered, setLastAnswered] = useState<string | null>(null);
   // A fixture clock that moves only when the user acts, so relative times
   // stay stable while the story is idle.
   const [now, setNow] = useState(PROTO_NOW);
   const replyIndex = useRef(0);
 
   const append = useCallback(
-    (parentMessageId: string | null, author: ProtoAuthor, text: string) => {
+    (
+      parentMessageId: string | null,
+      author: ProtoAuthor,
+      text: string,
+    ): string => {
       const at = now + (author === "user" ? 15_000 : 30_000);
+      const id = newId(parentMessageId ?? "m");
       setNow(at);
       setState((prev) => {
-        const message: ProtoMessage = {
-          id: newId(parentMessageId ?? "m"),
-          author,
-          text,
-          at,
-        };
+        const message: ProtoMessage = { id, author, text, at };
         if (parentMessageId == null) {
           return { ...prev, main: [...prev.main, message] };
         }
@@ -273,18 +307,21 @@ function useProtoChat(seed: ProtoState, mockReplies: boolean) {
           threads: { ...prev.threads, [parentMessageId]: thread },
         };
       });
+      return id;
     },
     [now],
   );
 
   const send = useCallback(
     (parentMessageId: string | null, text: string) => {
-      append(parentMessageId, "user", text);
+      const id = append(parentMessageId, "user", text);
       if (mockReplies) {
-        setPending({ parentMessageId });
+        const target =
+          parentMessageId == null && repliesInThread ? id : parentMessageId;
+        setPending({ parentMessageId: target });
       }
     },
-    [append, mockReplies],
+    [append, mockReplies, repliesInThread],
   );
 
   useEffect(() => {
@@ -296,9 +333,12 @@ function useProtoChat(seed: ProtoState, mockReplies: boolean) {
       replyIndex.current += 1;
       append(pending.parentMessageId, "assistant", text);
       setPending(null);
+      setLastAnswered(pending.parentMessageId);
     }, 1100);
     return () => window.clearTimeout(timer);
   }, [pending, append]);
+
+  const clearLastAnswered = useCallback(() => setLastAnswered(null), []);
 
   const markRead = useCallback((parentMessageId: string) => {
     setState((prev) => {
@@ -316,7 +356,15 @@ function useProtoChat(seed: ProtoState, mockReplies: boolean) {
     });
   }, []);
 
-  return { state, pending, now, send, markRead };
+  return {
+    state,
+    pending,
+    now,
+    send,
+    markRead,
+    lastAnswered,
+    clearLastAnswered,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +461,12 @@ interface ComposerProps {
   autoFocus?: boolean;
   /** Smaller chrome for the thread composer. */
   compact?: boolean;
+  /**
+   * The thread this composer continues, shown as a chip above the text.
+   * Dismissing the chip (or pressing Escape on an empty field) returns the
+   * composer to a new top-level message.
+   */
+  context?: { label: string; onClear: () => void } | null;
 }
 
 function Composer({
@@ -421,6 +475,7 @@ function Composer({
   options,
   autoFocus,
   compact,
+  context,
 }: ComposerProps) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -440,6 +495,10 @@ function Composer({
       event.preventDefault();
       submit();
     }
+    if (event.key === "Escape" && context && value.length === 0) {
+      event.preventDefault();
+      context.onClear();
+    }
   };
 
   const shape: CSSProperties = {
@@ -457,6 +516,28 @@ function Composer({
       )}
       style={shape}
     >
+      {context ? (
+        <div
+          data-slot="proto-composer-context"
+          className="flex items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--surface-sunken)] py-1.5 pl-3 pr-1.5 text-body-small-default text-[var(--content-secondary)]"
+        >
+          <Reply className="size-3.5 shrink-0 text-[var(--content-tertiary)]" />
+          <span className="shrink-0 text-[var(--content-tertiary)]">
+            Continuing thread
+          </span>
+          <span className="min-w-0 flex-1 truncate text-[var(--content-default)]">
+            {context.label}
+          </span>
+          <Button
+            variant="ghost"
+            size="compact"
+            onClick={context.onClear}
+            className="shrink-0"
+          >
+            New topic
+          </Button>
+        </div>
+      ) : null}
       <textarea
         ref={ref}
         rows={compact ? 1 : 2}
@@ -624,6 +705,140 @@ function ThreadIndicator({
 }
 
 // ---------------------------------------------------------------------------
+// Reply preview: the assistant's threaded answer peeking into the main feed
+// ---------------------------------------------------------------------------
+
+interface ReplyPreviewProps {
+  thread: ProtoThread;
+  /** Show every reply unclamped instead of the first answer clamped. */
+  expanded: boolean;
+  open: boolean;
+  now: number;
+  options: ThreadedChatOptions;
+  onOpen: () => void;
+}
+
+/**
+ * Under a user message the assistant answered in-thread. Draws the answer the
+ * way an assistant message row looks, so the main feed still reads as a
+ * conversation, then a footer that names the rest of the thread. Clamped to
+ * `previewLines` unless `expanded`.
+ */
+function ReplyPreview({
+  thread,
+  expanded,
+  open,
+  now,
+  options,
+  onOpen,
+}: ReplyPreviewProps) {
+  const compact = options.density === "compact";
+  const avatarSize = compact ? 24 : 28;
+  const answer = thread.replies.find((r) => r.author === "assistant");
+  const shown = expanded ? thread.replies : answer ? [answer] : [];
+  const rest = thread.replies.length - shown.length;
+  const last = thread.replies[thread.replies.length - 1];
+  const unread = thread.unread > 0;
+  const accent = options.accentThreads;
+  // A height clamp rather than `-webkit-line-clamp`: the answer is block
+  // markdown (tables, lists, quotes), which line-clamp does not count. The
+  // mask fades the cut edge so a clipped table reads as "more below".
+  const lineHeight = compact ? 22 : 24;
+  const clamp: CSSProperties = expanded
+    ? {}
+    : {
+        maxHeight: options.previewLines * lineHeight,
+        overflow: "hidden",
+        maskImage:
+          "linear-gradient(to bottom, black 55%, rgba(0, 0, 0, 0.35) 85%, transparent 100%)",
+      };
+
+  return (
+    <div
+      data-slot="proto-reply-preview"
+      className={cn("flex w-full flex-col", compact ? "mt-1" : "mt-2")}
+    >
+      {shown.map((reply, i) => {
+        const isUser = reply.author === "user";
+        return (
+          <div
+            key={reply.id}
+            className={cn("flex gap-3", i > 0 && (compact ? "mt-1.5" : "mt-2.5"))}
+          >
+            {options.showAvatars ? (
+              <div className="mt-0.5 shrink-0">
+                <Avatar author={reply.author} size={avatarSize} />
+              </div>
+            ) : null}
+            <div className="min-w-0 flex-1">
+              {options.showTimestamps ? (
+                <div className="mb-0.5 flex items-baseline gap-2">
+                  <span className="text-body-medium-default text-[var(--content-default)]">
+                    {authorName(reply.author)}
+                  </span>
+                  <span className="text-label-medium-default text-[var(--content-tertiary)]">
+                    {clock(reply.at)}
+                  </span>
+                </div>
+              ) : null}
+              <div style={clamp} className={cn(isUser && "text-[var(--content-secondary)]")}>
+                <MarkdownMessage
+                  content={reply.text}
+                  className={cn(
+                    "text-chat [&_p]:my-0 [&_table]:my-2",
+                    compact && "[&_p]:leading-[22px]",
+                  )}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-expanded={open}
+        className={cn(
+          "group/thread mt-1.5 inline-flex items-center gap-2 self-start rounded-md py-1 pr-2 text-body-small-default transition-colors",
+          options.showAvatars ? "ml-10 pl-1" : "pl-1",
+          open ? "bg-[var(--surface-active)]" : "hover:bg-[var(--surface-hover)]",
+          unread
+            ? "font-medium text-[var(--content-default)]"
+            : accent
+              ? "text-[var(--accent-purple-strong)]"
+              : "text-[var(--content-secondary)] hover:text-[var(--content-default)]",
+        )}
+      >
+        {unread ? (
+          <span
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              accent
+                ? "bg-[var(--accent-purple-strong)]"
+                : "bg-[var(--content-default)]",
+            )}
+            aria-label="Unread replies"
+          />
+        ) : null}
+        <span>
+          {rest > 0
+            ? `${rest} more ${rest === 1 ? "reply" : "replies"}`
+            : expanded
+              ? "Reply in thread"
+              : "Open thread"}
+        </span>
+        {options.showTimestamps && last && rest > 0 ? (
+          <span className="font-normal text-[var(--content-tertiary)]">
+            Last reply {relative(last.at, now)}
+          </span>
+        ) : null}
+        <ChevronRight className="size-3.5 text-[var(--content-tertiary)]" />
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Message row
 // ---------------------------------------------------------------------------
 
@@ -640,6 +855,11 @@ interface MessageRowProps {
   onOpenThread?: () => void;
   /** Slot rendered under the message, used by the inline presentation. */
   below?: ReactNode;
+  /**
+   * Replaces the thread indicator: the assistant's in-thread answer (or a
+   * thinking row) drawn under the user's message.
+   */
+  preview?: ReactNode;
   /** Draw the row as the parent of an open inline thread. */
   highlighted?: boolean;
   /** A reply inside a thread. Uses its own hover group so a hovered parent
@@ -697,6 +917,7 @@ function MessageRow({
   onReply,
   onOpenThread,
   below,
+  preview,
   highlighted,
   nested = false,
 }: MessageRowProps) {
@@ -710,8 +931,9 @@ function MessageRow({
   const showHeader = linearLayout && !continued;
   const gutter = options.showAvatars ? avatarSize + 12 : 0;
 
-  const indicator =
-    thread && onOpenThread ? (
+  const indicator = preview ? (
+    preview
+  ) : thread && onOpenThread ? (
       <ThreadIndicator
         thread={thread}
         open={threadOpen}
@@ -792,8 +1014,12 @@ function MessageRow({
         ) : null}
         {indicator ? (
           <div
-            className={cn("flex flex-col", !isUser && options.showAvatars && "pl-10")}
-            style={{ alignSelf: isUser ? "flex-end" : "stretch" }}
+            className={cn(
+              "flex flex-col",
+              !isUser && options.showAvatars && !preview && "pl-10",
+              preview && "w-full",
+            )}
+            style={{ alignSelf: isUser && !preview ? "flex-end" : "stretch" }}
           >
             {indicator}
           </div>
@@ -884,6 +1110,8 @@ interface TranscriptProps {
   onReply?: (messageId: string) => void;
   onOpenThread?: (messageId: string) => void;
   renderBelow?: (message: ProtoMessage) => ReactNode;
+  /** The assistant's in-thread answer under a user message, when it has one. */
+  renderPreview?: (message: ProtoMessage, thread?: ProtoThread) => ReactNode;
   pending: boolean;
   /** Thread transcripts skip date dividers and never nest. */
   inThread?: boolean;
@@ -899,6 +1127,7 @@ function Transcript({
   onReply,
   onOpenThread,
   renderBelow,
+  renderPreview,
   pending,
   inThread,
   compactGutter,
@@ -931,6 +1160,7 @@ function Transcript({
               onReply={onReply ? () => onReply(message.id) : undefined}
               onOpenThread={onOpenThread ? () => onOpenThread(message.id) : undefined}
               below={renderBelow?.(message)}
+              preview={renderPreview?.(message, thread)}
               highlighted={
                 options.threadPresentation === "inline" && openThreadId === message.id
               }
@@ -1289,28 +1519,58 @@ function TopBar({
 // The prototype
 // ---------------------------------------------------------------------------
 
-export function ThreadedChatPrototype({
+/**
+ * Picks the seed for the reply mode and remounts the chat when the mode
+ * changes, since the conversation state is seeded once.
+ */
+export function ThreadedChatPrototype(props: ThreadedChatPrototypeProps) {
+  const repliesInThread = props.assistantRepliesIn === "thread";
+  const seed =
+    props.seed ?? (repliesInThread ? ASSISTANT_IN_THREAD_SEED : SEED_STATE);
+  return (
+    <ThreadedChat key={props.assistantRepliesIn} {...props} seed={seed} />
+  );
+}
+
+function ThreadedChat({
   initialOpenThreadId = null,
   seed = SEED_STATE,
   ...options
 }: ThreadedChatPrototypeProps) {
-  const { state, pending, now, send, markRead } = useProtoChat(
-    seed,
-    options.mockAssistantReplies,
-  );
+  const repliesInThread = options.assistantRepliesIn === "thread";
+  const { state, pending, now, send, markRead, lastAnswered, clearLastAnswered } =
+    useProtoChat(seed, options.mockAssistantReplies, repliesInThread);
   const [view, setView] = useState<View>("main");
   const [openThreadId, setOpenThreadId] = useState<string | null>(initialOpenThreadId);
+  // The thread the main composer continues, in `thread` reply mode. `null`
+  // sends a new top-level message.
+  const [composerTarget, setComposerTarget] = useState<string | null>(null);
   const reduce = useReducedMotion();
   const duration = reduce ? 0 : options.animationMs / 1000;
   const mainScrollRef = useRef<HTMLDivElement>(null);
   const mainCount = state.main.length;
+  const replyCount = Object.values(state.threads).reduce(
+    (sum, t) => sum + t.replies.length,
+    0,
+  );
 
   useEffect(() => {
     const el = mainScrollRef.current;
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [mainCount, pending]);
+  }, [mainCount, replyCount, pending]);
+
+  // After the assistant answers in a thread, the composer follows it.
+  useEffect(() => {
+    if (lastAnswered == null) {
+      return;
+    }
+    if (repliesInThread && options.followUpDefault === "thread") {
+      setComposerTarget(lastAnswered);
+    }
+    clearLastAnswered();
+  }, [lastAnswered, repliesInThread, options.followUpDefault, clearLastAnswered]);
 
   const openThread = useCallback(
     (id: string) => {
@@ -1350,6 +1610,50 @@ export function ThreadedChatPrototype({
 
   const contentStyle: CSSProperties = { maxWidth: options.maxContentWidth };
 
+  // In `thread` reply mode the answer peeks into the main feed under the
+  // user's message. The newest exchange is the one the user is in the middle
+  // of, so `expanded-latest` shows it whole.
+  const latestMainId = state.main[state.main.length - 1]?.id ?? null;
+  const renderPreview =
+    repliesInThread && options.replyPreview !== "none"
+      ? (message: ProtoMessage, thread?: ProtoThread): ReactNode => {
+          if (pending?.parentMessageId === message.id && !thread) {
+            return <ThinkingRow options={options} compactGutter={false} />;
+          }
+          if (!thread) {
+            return undefined;
+          }
+          return (
+            <>
+              <ReplyPreview
+                thread={thread}
+                expanded={
+                  options.replyPreview === "expanded-latest" &&
+                  message.id === latestMainId
+                }
+                open={openThreadId === message.id}
+                now={now}
+                options={options}
+                onOpen={() => openThread(message.id)}
+              />
+              {pending?.parentMessageId === message.id ? (
+                <ThinkingRow options={options} compactGutter={false} />
+              ) : null}
+            </>
+          );
+        }
+      : undefined;
+
+  const composerContext =
+    repliesInThread && composerTarget
+      ? {
+          label: snippet(
+            state.main.find((m) => m.id === composerTarget)?.text ?? "",
+          ),
+          onClear: () => setComposerTarget(null),
+        }
+      : null;
+
   const mainColumn = (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <TopBar
@@ -1374,6 +1678,7 @@ export function ThreadedChatPrototype({
                 onReply={openThread}
                 onOpenThread={openThread}
                 pending={pendingInMain}
+                renderPreview={renderPreview}
                 renderBelow={
                   presentation === "inline"
                     ? (message) => (
@@ -1423,8 +1728,11 @@ export function ThreadedChatPrototype({
             <div className="mx-auto w-full" style={contentStyle}>
               <Composer
                 placeholder={`Message ${PROTO_ASSISTANT_NAME}`}
-                onSend={(text) => send(null, text)}
+                onSend={(text) =>
+                  send(composerContext ? composerTarget : null, text)
+                }
                 options={options}
+                context={composerContext}
               />
             </div>
           </div>

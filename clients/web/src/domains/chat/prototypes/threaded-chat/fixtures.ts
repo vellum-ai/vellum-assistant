@@ -220,6 +220,37 @@ export const SEED_STATE: ProtoState = {
   },
 };
 
+/**
+ * The same conversation arranged the way it would be if the assistant always
+ * answered inside a thread on the user's message: the main conversation holds
+ * only what the user sent, and each answer plus its follow-ups lives in that
+ * message's thread.
+ */
+export function toAssistantInThreadSeed(seed: ProtoState): ProtoState {
+  const main: ProtoMessage[] = [];
+  const threads: Record<string, ProtoThread> = {};
+  seed.main.forEach((message, i) => {
+    if (message.author !== "user") {
+      return;
+    }
+    main.push(message);
+    const next = seed.main[i + 1];
+    if (!next || next.author !== "assistant") {
+      return;
+    }
+    const followUps = seed.threads[next.id];
+    threads[message.id] = {
+      conversationId: `thread-${message.id}`,
+      parentMessageId: message.id,
+      replies: [next, ...(followUps?.replies ?? [])],
+      unread: followUps?.unread ?? 0,
+    };
+  });
+  return { main, threads };
+}
+
+export const ASSISTANT_IN_THREAD_SEED = toAssistantInThreadSeed(SEED_STATE);
+
 /** Canned assistant replies the prototype cycles through after a send. */
 export const MOCK_REPLIES: readonly string[] = [
   "On it. I will have that ready in a moment.",

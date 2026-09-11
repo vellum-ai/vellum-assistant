@@ -115,8 +115,35 @@ const meta: Meta<typeof ThreadedChatPrototype> = {
     initialOpenThreadId: {
       control: "select",
       options: [null, "m4", "m6", "m8"],
-      description: "Open this message's thread on load.",
+      description:
+        "Open this message's thread on load. In `thread` reply mode threads hang off the user messages (m1, m3, m5, m7, m9).",
       table: { category: "Behavior" },
+    },
+    assistantRepliesIn: {
+      control: "radio",
+      options: ["main", "thread"],
+      description:
+        "Where the assistant answers a top-level message. `thread` puts every answer in a thread on the user's message and swaps the seed.",
+      table: { category: "Reply mode" },
+    },
+    replyPreview: {
+      control: "radio",
+      options: ["none", "snippet", "expanded-latest"],
+      description:
+        "In `thread` mode, how the answer shows under the user's message in the main feed.",
+      table: { category: "Reply mode" },
+    },
+    previewLines: {
+      control: { type: "range", min: 1, max: 8, step: 1 },
+      description: "Lines of the answer a clamped preview shows.",
+      table: { category: "Reply mode" },
+    },
+    followUpDefault: {
+      control: "radio",
+      options: ["thread", "new-topic"],
+      description:
+        "In `thread` mode, whether the main composer continues the thread the assistant just answered in.",
+      table: { category: "Reply mode" },
     },
     seed: { table: { disable: true } },
   },
@@ -209,6 +236,51 @@ export const Compact: Story = {
     showDateDividers: false,
     threadIndicator: "minimal",
     maxContentWidth: 900,
+  },
+};
+
+/**
+ * The assistant answers every top-level message inside a thread on it, so
+ * the main feed is only what the user sent. To keep that from reading as a
+ * list of unanswered questions, the answer peeks into the feed under the
+ * message, clamped, drawn the way an assistant row normally looks, and the
+ * composer follows the thread the assistant just answered in (the chip above
+ * it backs out to a new topic).
+ */
+export const AssistantRepliesInThreadClamped: Story = {
+  args: {
+    assistantRepliesIn: "thread",
+    replyPreview: "snippet",
+    previewLines: 3,
+    followUpDefault: "thread",
+  },
+};
+
+/**
+ * Same mode, but the newest exchange shows in full in the feed while older
+ * ones clamp. The current turn reads exactly like chat; history folds up
+ * behind it.
+ */
+export const AssistantRepliesInThread: Story = {
+  args: {
+    assistantRepliesIn: "thread",
+    replyPreview: "expanded-latest",
+    previewLines: 2,
+    followUpDefault: "thread",
+    threadIndicator: "minimal",
+  },
+};
+
+/**
+ * The bare version of the mode, without previews: what the feed looks like
+ * when answers are only reachable through the thread pill. Kept as the
+ * control for the two stories above.
+ */
+export const AssistantRepliesInThreadBare: Story = {
+  args: {
+    assistantRepliesIn: "thread",
+    replyPreview: "none",
+    followUpDefault: "new-topic",
   },
 };
 
