@@ -326,3 +326,18 @@ test("browser cleanup failure keeps its slot and still releases X11 input", asyn
   expect(f.released).toHaveBeenCalledTimes(1);
   expect(f.control.getStatus().state).toBe("human");
 });
+
+test("desktop loss clears a failed cleanup lease so the next session can restart", async () => {
+  const f = fixture();
+  await f.control.runBrowser(context(), async () => ({
+    content: "ok",
+    isError: false,
+  }));
+  f.input.releaseInput.mockRejectedValueOnce(new Error("X server unavailable"));
+  await expect(f.control.takeControl()).rejects.toThrow("X server unavailable");
+  f.lose();
+  await f.control.allowAssistant();
+  expect(f.control.getStatus().state).toBe("idle");
+  await observe(f.control);
+  expect(f.started).toHaveBeenCalledTimes(2);
+});

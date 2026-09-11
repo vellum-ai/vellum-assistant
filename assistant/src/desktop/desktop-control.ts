@@ -30,6 +30,7 @@ type Owner = {
   observation?: { id: string; width: number; height: number };
   actions: number;
   lastActivity: number;
+  desktopLost: boolean;
 };
 
 export class DesktopControl {
@@ -121,10 +122,12 @@ export class DesktopControl {
     clearInterval(this.watchdog);
     this.watchdog = undefined;
     try {
-      try {
-        await this.releaseInput();
-      } finally {
-        await this.deps.input.setViewerInput(true);
+      if (!owner?.desktopLost) {
+        try {
+          await this.releaseInput();
+        } finally {
+          await this.deps.input.setViewerInput(true);
+        }
       }
       this.inputCleanupPending = false;
     } finally {
@@ -150,7 +153,12 @@ export class DesktopControl {
   }
 
   private async claim(context: ToolContext): Promise<Owner> {
-    const holder: DesktopViewer = { onDesktopLost: () => this.cancel(owner) };
+    const holder: DesktopViewer = {
+      onDesktopLost: () => {
+        owner.desktopLost = true;
+        this.cancel(owner);
+      },
+    };
     const owner: Owner = {
       conversationId: context.conversationId,
       actorId: context.sourceActorPrincipalId!,
@@ -158,6 +166,7 @@ export class DesktopControl {
       holder,
       actions: 0,
       lastActivity: Date.now(),
+      desktopLost: false,
       removeAbortListener: () => {},
     };
     const slot = this.deps.manager().acquireAutomationSlot(holder);
