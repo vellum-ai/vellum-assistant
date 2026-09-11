@@ -21,6 +21,8 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
+import type * as Surfaces from "./api/surfaces";
+
 const daemonSdk = await import("@/generated/daemon/sdk.gen");
 
 type DocumentResult = { data: DocumentsByIdGetResponse | null };
@@ -33,6 +35,19 @@ const createConversation = mock(async () => ({ data: { id: "conv-created" } }));
 const linkConversation = mock(async () => ({}));
 const savedDocument = { title: "Saved title", content: "Saved body" };
 const release = mock(() => {});
+const downloadDocumentPdf = mock(
+  async (
+    _assistantId: string,
+    _surfaceId: string,
+    _title: string | null | undefined,
+  ) => {},
+);
+mock.module(
+  "./api/surfaces",
+  (): Partial<typeof Surfaces> => ({
+    downloadDocumentPdf,
+  }),
+);
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
@@ -63,10 +78,12 @@ mock.module("./components/document-viewer-container", () => ({
     handleRef,
     onSubmitFeedback,
     onClose,
+    onExport,
   }: {
     handleRef: Ref<unknown>;
     onSubmitFeedback: () => void;
     onClose: () => void;
+    onExport?: () => void;
   }) => {
     useImperativeHandle(handleRef, () => ({
       beginSendPreparation: () => ({
@@ -80,14 +97,14 @@ mock.module("./components/document-viewer-container", () => ({
       <div data-testid="viewer">
         <button onClick={onSubmitFeedback}>Feedback</button>
         <button onClick={onClose}>Close</button>
+        {onExport && <button onClick={onExport}>Export</button>}
       </div>
     );
   },
 }));
 
-const { DocumentViewerPage } = await import(
-  "@/domains/chat/document-viewer-page"
-);
+const { DocumentViewerPage } =
+  await import("@/domains/chat/document-viewer-page");
 
 function documentSurface(
   overrides: Partial<DocumentsByIdGetResponse> = {},
@@ -153,6 +170,7 @@ beforeEach(() => {
   createConversation.mockClear();
   linkConversation.mockClear();
   release.mockClear();
+  downloadDocumentPdf.mockClear();
   window.sessionStorage.clear();
   useResolvedAssistantsStore.setState({
     activeAssistantId: "asst-1",
@@ -170,6 +188,19 @@ afterEach(() => {
 });
 
 describe("DocumentViewerPage", () => {
+  test("the standalone document retains its PDF export action", async () => {
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+    const page = renderPage("surf-1");
+    fireEvent.click(await page.findByRole("button", { name: "Export" }));
+    await waitFor(() =>
+      expect(downloadDocumentPdf).toHaveBeenCalledWith(
+        "asst-1",
+        "surf-1",
+        "Notes",
+      ),
+    );
+    expect(page.getByTestId("viewer")).toBeTruthy();
+  });
   test("crossing the mobile breakpoint keeps the mounted desktop editor and its edits", async () => {
     let fetches = 0;
     documentResult = () => {

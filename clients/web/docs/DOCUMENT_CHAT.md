@@ -16,6 +16,8 @@ entry helpers. The conversation URL records the document surface, its return
 destination and whether the document or conversation is visible. This intent
 survives refresh without a second chat page, event connection or composer store.
 The return destination accepts only supported in-app Library/chat paths.
+Conversation bootstrap leaves an explicit conversation URL intact, so it does not
+consume the document presentation or return parameters while selecting the chat.
 
 Documents normally have a conversation: the document upsert API requires a
 nonempty `conversationId`. Opening a document validates that existing link. A
@@ -54,6 +56,8 @@ Desktop uses its existing side drawer. Read-only workspace-file previews retain 
 separate mobile overlay and cannot send document feedback. Comment updates use the
 existing global event bus and document-comment event hook. Export, comments and
 rename remain owned by `DocumentViewerContainer`.
+Standalone and in-chat document hosts share `useDocumentPdfExport` for PDF download
+and failure feedback, using the existing per-platform file-saving path.
 
 ## Verification boundaries
 

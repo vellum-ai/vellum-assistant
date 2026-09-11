@@ -8,8 +8,9 @@ import {
   useViewerStore,
   type OpenedDocumentState,
 } from "@/stores/viewer-store";
-import { useDocumentCommentEvents } from "../hooks/use-document-comment-events";
 
+import { useDocumentCommentEvents } from "../hooks/use-document-comment-events";
+import { useDocumentPdfExport } from "../hooks/use-document-pdf-export";
 import {
   DocumentViewerContainer,
   type DocumentViewerContainerHandle,
@@ -40,6 +41,11 @@ export function DocumentChatContent({
   onSubmitFeedback,
 }: DocumentChatContentProps) {
   const { t } = useTranslation("chat");
+  const handleExport = useDocumentPdfExport(
+    assistantId,
+    surfaceId,
+    document?.documentName,
+  );
   const handleCommentEvent = useDocumentCommentEvents({
     surfaceId: surfaceId ?? "",
     enabled: !!surfaceId,
@@ -89,6 +95,7 @@ export function DocumentChatContent({
         useViewerStore.getState().renameOpenedDocument(document.surfaceId, name)
       }
       onSubmitFeedback={onSubmitFeedback}
+      onExport={handleExport}
     />
   );
 }

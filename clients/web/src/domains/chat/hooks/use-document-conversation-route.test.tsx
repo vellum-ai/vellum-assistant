@@ -6,12 +6,28 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useRef } from "react";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
+import type * as ConversationQueries from "@/hooks/conversation-queries";
 import type { DocumentContent } from "@/types/document-types";
+import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
+
+import { navigateToDocumentConversation } from "../document-conversation-navigation";
 import { useUnseenDocumentChangesStore } from "../unseen-document-changes-store";
+import type * as ConversationHistory from "./use-conversation-history";
+import type * as TurnTimeout from "./use-turn-timeout";
 
 const documentData: DocumentContent = {
   success: true,
@@ -39,11 +55,73 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 mock.module("@/lib/sentry/capture-error", () => ({
   captureError: mock(() => {}),
 }));
-const { useDocumentConversationRoute } = await import(
-  "./use-document-conversation-route"
+mock.module(
+  "@/hooks/conversation-queries",
+  (): Partial<typeof ConversationQueries> => ({
+    useCanQueryDaemon: () => false,
+    useConversationListQuery: () => ({
+      conversations: [],
+      isLoading: false,
+      isPending: true,
+      isError: false,
+      error: null,
+      hasData: false,
+      hasMore: false,
+      refetch: () => {},
+    }),
+  }),
 );
+mock.module(
+  "./use-conversation-history",
+  (): Partial<typeof ConversationHistory> => ({
+    useConversationHistory: () => ({
+      pagination: {
+        messages: [],
+        latestPage: undefined,
+        subagentNotifications: undefined,
+        backgroundToolCompletions: undefined,
+        isLoading: false,
+        isSuccess: false,
+        isError: false,
+        error: null,
+        hasMore: false,
+        isFetchingOlderPages: false,
+        isFetching: false,
+        fetchOlderPage: () => {},
+        invalidate: async () => {},
+        removeCache: () => {},
+        latestPageOldestTimestamp: null,
+        oldestLoadedTimestamp: null,
+        dataUpdatedAt: 0,
+      },
+    }),
+  }),
+);
+mock.module(
+  "./use-turn-timeout",
+  (): Partial<typeof TurnTimeout> => ({
+    useTurnTimeout: () => {},
+  }),
+);
+const { useConversationLoader } = await import("./use-conversation-loader");
+const { useDocumentConversationRoute } =
+  await import("./use-document-conversation-route");
 
 function Harness() {
+  const { conversationId } = useParams();
+  const [searchParams] = useSearchParams();
+  const onboardingDraftConversationIdRef = useRef<string | null>(null);
+  useConversationLoader({
+    assistantId: "assistant-1",
+    assistantStateKind: "active",
+    activeConversationId: useConversationStore.use.activeConversationId(),
+    urlConversationId: conversationId ?? null,
+    searchParams,
+    activeConversation: undefined,
+    refreshEpoch: 0,
+    reachabilityReadyEpoch: 0,
+    onboardingDraftConversationIdRef,
+  });
   const session = useDocumentConversationRoute();
   const location = useLocation();
   return (
@@ -63,11 +141,37 @@ function Harness() {
   );
 }
 
-function renderRoute(conversationId = "conv-1", showingDocument = true) {
+function LibraryEntry() {
+  const navigate = useNavigate();
+  return (
+    <button
+      data-testid="library"
+      onClick={() =>
+        navigateToDocumentConversation(
+          navigate,
+          documentData,
+          "conv-1",
+          "assistant-1",
+        )
+      }
+    >
+      Open document
+    </button>
+  );
+}
+
+function renderRoute(
+  conversationId = "conv-1",
+  showingDocument = true,
+  fromLibrary = false,
+) {
+  const queryClient = new QueryClient();
   return render(
     <MemoryRouter
       initialEntries={[
-        `/assistant/conversations/${conversationId}?document=surface-1&documentReturn=%2Fassistant%2Flibrary${showingDocument ? "" : "&documentView=chat"}`,
+        fromLibrary
+          ? "/assistant/library"
+          : `/assistant/conversations/${conversationId}?document=surface-1&documentReturn=%2Fassistant%2Flibrary${showingDocument ? "" : "&documentView=chat"}`,
       ]}
     >
       <Routes>
@@ -75,24 +179,31 @@ function renderRoute(conversationId = "conv-1", showingDocument = true) {
           path="/assistant/conversations/:conversationId"
           element={<Harness />}
         />
-        <Route
-          path="/assistant/library"
-          element={<div data-testid="library" />}
-        />
+        <Route path="/assistant/library" element={<LibraryEntry />} />
         <Route
           path="/assistant/documents/:surfaceId"
           element={<div data-testid="entry-adapter" />}
         />
       </Routes>
     </MemoryRouter>,
+    {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    },
   );
 }
 
 let selection: ReturnType<typeof useResolvedAssistantsStore.getState>;
 let viewer: ReturnType<typeof useViewerStore.getState>;
+let conversation: ReturnType<typeof useConversationStore.getState>;
 beforeEach(() => {
   selection = useResolvedAssistantsStore.getState();
   viewer = useViewerStore.getState();
+  conversation = useConversationStore.getState();
+  useConversationStore.setState({ activeConversationId: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   useViewerStore.setState({
@@ -107,9 +218,24 @@ afterEach(() => {
   cleanup();
   useResolvedAssistantsStore.setState(selection, true);
   useViewerStore.setState(viewer, true);
+  useConversationStore.setState(conversation, true);
 });
 
 describe("document conversation route", () => {
+  test("Library entry keeps its document intent when the chat loader mounts", async () => {
+    const page = renderRoute("conv-1", true, true);
+    fireEvent.click(page.getByText("Open document"));
+    await waitFor(() =>
+      expect(page.getByTestId("status").textContent).toBe("ready"),
+    );
+    expect(page.getByTestId("url").textContent).toContain("document=surface-1");
+    expect(page.getByTestId("url").textContent).toContain(
+      "documentReturn=%2Fassistant%2Flibrary",
+    );
+    expect(useConversationStore.getState().activeConversationId).toBe("conv-1");
+    expect(useViewerStore.getState().mainView).toBe("document");
+    expect(load).not.toHaveBeenCalled();
+  });
   test("loading a transcript with a reopen target does not mark the hidden document viewed", async () => {
     useUnseenDocumentChangesStore
       .getState()
@@ -118,6 +244,7 @@ describe("document conversation route", () => {
     await waitFor(() =>
       expect(page.getByTestId("status").textContent).toBe("ready"),
     );
+    expect(page.getByTestId("url").textContent).toContain("documentView=chat");
     expect(useViewerStore.getState().mainView).toBe("chat");
     expect(
       useUnseenDocumentChangesStore

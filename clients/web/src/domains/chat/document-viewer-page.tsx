@@ -17,7 +17,6 @@ import type { DocumentContent } from "@/types/document-types";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
-import { downloadDocumentPdf } from "./api/surfaces";
 import {
   DocumentViewerContainer,
   type DocumentViewerContainerHandle,
@@ -36,6 +35,7 @@ import {
   showDocumentInConversation,
 } from "./document-conversation-navigation";
 import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
+import { useDocumentPdfExport } from "./hooks/use-document-pdf-export";
 import { useUnseenDocumentChangesStore } from "./unseen-document-changes-store";
 
 type DocumentPageState =
@@ -69,6 +69,11 @@ export function DocumentViewerPage() {
   const [preparing, setPreparing] = useState(false);
   const preparingRef = useRef(false);
   const doc = state.kind === "ready" ? state.doc : null;
+  const handleExport = useDocumentPdfExport(
+    assistantId,
+    doc?.surfaceId ?? null,
+    doc?.title,
+  );
 
   useEffect(() => {
     setState({ kind: "loading" });
@@ -251,18 +256,6 @@ export function DocumentViewerPage() {
     () => prepareConversation(false),
     [prepareConversation],
   );
-
-  const handleExport = useCallback(async () => {
-    if (!doc || !assistantId) {
-      return;
-    }
-    try {
-      await downloadDocumentPdf(assistantId, doc.surfaceId, doc.title);
-    } catch (error) {
-      captureError(error, { context: "document_export" });
-      toast.error(t("documentViewerPage.exportFailed"));
-    }
-  }, [doc, assistantId, t]);
 
   if (state.kind === "loading") {
     return (

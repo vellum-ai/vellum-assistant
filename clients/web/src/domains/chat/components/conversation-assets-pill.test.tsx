@@ -32,6 +32,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import * as motionReact from "motion/react";
+import { MemoryRouter } from "react-router";
 
 import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import {
@@ -213,7 +214,11 @@ function ComposedChatInfo({ client }: { client: QueryClient }) {
 function renderComposed() {
   const client = makeChatInfoQueryClient();
   seedConversation(client, [makeDocument()], CONVERSATION_ID);
-  render(<ComposedChatInfo client={client} />);
+  render(
+    <MemoryRouter>
+      <ComposedChatInfo client={client} />
+    </MemoryRouter>,
+  );
 
   return {
     /** Drop the conversation's last asset, as a delete would. */
