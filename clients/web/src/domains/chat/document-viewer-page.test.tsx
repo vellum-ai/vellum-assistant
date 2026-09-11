@@ -20,6 +20,7 @@ import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-ch
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { setEditChatConversationId } from "@/utils/edit-chat-session";
 
 import type * as Surfaces from "./api/surfaces";
 
@@ -168,7 +169,8 @@ beforeEach(() => {
   mobile = false;
   conversationExists = true;
   createConversation.mockClear();
-  linkConversation.mockClear();
+  linkConversation.mockReset();
+  linkConversation.mockImplementation(async () => ({}));
   release.mockClear();
   downloadDocumentPdf.mockClear();
   window.sessionStorage.clear();
@@ -253,6 +255,25 @@ describe("DocumentViewerPage", () => {
       content: "Saved body",
     });
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  test("mobile legacy entry keeps its cached conversation without calling the missing link endpoint", async () => {
+    mobile = true;
+    useAssistantIdentityStore.setState({ version: "0.8.3" });
+    setEditChatConversationId("asst-1", "surf-1", "conv-cached");
+    documentResult = async () => ({
+      data: { ...documentSurface(), conversationId: "" },
+    });
+    linkConversation.mockImplementation(async () => {
+      throw new Error("Route not found");
+    });
+    const page = renderPage("surf-1");
+    const target = await page.findByTestId("chat-route");
+    expect(target.textContent).toContain(
+      "/assistant/conversations/conv-cached?document=surf-1",
+    );
+    expect(createConversation).not.toHaveBeenCalled();
+    expect(linkConversation).not.toHaveBeenCalled();
   });
 
   test("feedback flushes latest title and body before entering the normal send route", async () => {

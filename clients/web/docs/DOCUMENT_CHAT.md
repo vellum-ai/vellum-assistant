@@ -70,6 +70,11 @@ editor never silently creates a conversation. Repair caches the minted row befor
 linking so a failed link can retry without creating another row. Assistant and
 surface identity scope the entry and editor, including assistants with copied
 surface IDs.
+Assistants before 0.8.4 retain the validated cached edit conversation without
+calling the unsupported document-link endpoint. The link gate waits for the
+owning assistant's version and checks request ownership before writing. On
+supported versions, a failed link prevents navigation and remains retryable.
+Explicit conversation creation requires 0.8.6 or later.
 Updating an existing document's title and body does not require its original
 conversation row to exist. The save upsert preserves its owning ID, so edits can
 flush before the explicit repair action links a replacement conversation.

@@ -72,6 +72,18 @@ function missingConversation() {
   };
 }
 
+function cachedReplacement() {
+  setEditChatConversationId("assistant-1", "surface-1", "conv-replacement");
+  getConversation.mockImplementation(async ({ path }) =>
+    path.id === "conv-existing"
+      ? missingConversation()
+      : {
+          data: { conversation: { id: path.id } },
+          response: new Response(null, { status: 200 }),
+        },
+  );
+}
+
 describe("document conversation entry", () => {
   test("uses the document's existing conversation without creating or linking", async () => {
     expect(await resolveDocumentConversation(options)).toBe("conv-existing");
@@ -80,21 +92,69 @@ describe("document conversation entry", () => {
   });
 
   test("uses and links a cached valid replacement when the original is missing", async () => {
-    setEditChatConversationId("assistant-1", "surface-1", "conv-replacement");
-    getConversation.mockImplementation(async ({ path }) =>
-      path.id === "conv-existing"
-        ? missingConversation()
-        : {
-            data: { conversation: { id: path.id } },
-            response: new Response(null, { status: 200 }),
-          },
-    );
+    cachedReplacement();
     expect(await resolveDocumentConversation(options)).toBe("conv-replacement");
     expect(linkConversation.mock.calls[0]?.[0].body.conversationId).toBe(
       "conv-replacement",
     );
     expect(createConversation).not.toHaveBeenCalled();
   });
+
+  test("a legacy assistant reuses a valid cached conversation without the unsupported link write", async () => {
+    cachedReplacement();
+    useAssistantIdentityStore.setState({ version: "0.8.3" });
+    linkConversation.mockImplementation(async () => {
+      throw new Error("Route not found");
+    });
+    expect(await resolveDocumentConversation(options)).toBe("conv-replacement");
+    expect(linkConversation).not.toHaveBeenCalled();
+    expect(createConversation).not.toHaveBeenCalled();
+    expect(getEditChatConversationId("assistant-1", "surface-1")).toBe(
+      "conv-replacement",
+    );
+  });
+
+  test.each([false, true])(
+    "waits for the owning assistant version before linking, cancelled=%s",
+    async (cancelled) => {
+      cachedReplacement();
+      useAssistantIdentityStore.setState({ assistantId: "assistant-2" });
+      const scope = documentRequestScope("assistant-1");
+      const pending = resolveDocumentConversation({ ...options, ...scope });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const prematureLinks = linkConversation.mock.calls.length;
+      if (cancelled) {
+        useResolvedAssistantsStore.setState({
+          activeAssistantId: "assistant-2",
+        });
+        useResolvedAssistantsStore.setState({
+          activeAssistantId: "assistant-1",
+        });
+      }
+      useAssistantIdentityStore.setState({
+        assistantId: "assistant-1",
+        version: "0.8.4",
+      });
+      const result = await pending;
+      scope.dispose();
+      expect(prematureLinks).toBe(0);
+      expect(result).toBe(cancelled ? null : "conv-replacement");
+      expect(linkConversation).toHaveBeenCalledTimes(cancelled ? 0 : 1);
+    },
+  );
+
+  test.each([404, 403, 503])(
+    "a supported assistant's %s link failure cannot silently navigate",
+    async (status) => {
+      cachedReplacement();
+      const error = Object.assign(new Error("Link failed"), { status });
+      linkConversation.mockImplementation(async () => {
+        throw error;
+      });
+      await expect(resolveDocumentConversation(options)).rejects.toBe(error);
+      expect(createConversation).not.toHaveBeenCalled();
+    },
+  );
 
   test("missing conversation returns an explicit recovery state without mutation", async () => {
     getConversation.mockImplementation(async () => missingConversation());

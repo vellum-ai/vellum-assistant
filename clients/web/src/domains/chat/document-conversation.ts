@@ -9,6 +9,7 @@ import {
   whenAssistantVersionKnownFor,
 } from "@/lib/backwards-compat/utils";
 import { MIN_VERSION } from "@/lib/backwards-compat/server-minted-conversation";
+import { resolveSupportsDocumentConversationLink } from "@/lib/backwards-compat/document-conversation-link";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   getEditChatConversationId,
@@ -73,11 +74,18 @@ async function linkDocumentConversation(
     return null;
   }
   if (conversationId !== document.conversationId) {
-    await documentsByIdConversationsPost({
-      path: { assistant_id: assistantId, id: document.surfaceId },
-      body: { conversationId },
-      throwOnError: true,
-    });
+    const supportsLink =
+      await resolveSupportsDocumentConversationLink(assistantId);
+    if (!isCurrent()) {
+      return null;
+    }
+    if (supportsLink) {
+      await documentsByIdConversationsPost({
+        path: { assistant_id: assistantId, id: document.surfaceId },
+        body: { conversationId },
+        throwOnError: true,
+      });
+    }
   }
   return isCurrent() ? conversationId : null;
 }
