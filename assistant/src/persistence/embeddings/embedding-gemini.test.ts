@@ -26,7 +26,9 @@ describe("GeminiEmbeddingBackend", () => {
 
   describe("text inputs", () => {
     test("sends text as parts: [{ text }]", async () => {
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await backend.embed(["hello world"]);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -40,7 +42,9 @@ describe("GeminiEmbeddingBackend", () => {
     });
 
     test("handles TextEmbeddingInput objects", async () => {
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await backend.embed([{ type: "text", text: "structured text" }]);
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -52,7 +56,9 @@ describe("GeminiEmbeddingBackend", () => {
   describe("image inputs", () => {
     test("sends image as inline_data with base64", async () => {
       const imageData = Buffer.from("fake-png-data");
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await backend.embed([
         { type: "image", data: imageData, mimeType: "image/png" },
       ]);
@@ -76,7 +82,9 @@ describe("GeminiEmbeddingBackend", () => {
   describe("audio inputs", () => {
     test("sends audio as inline_data with base64", async () => {
       const audioData = Buffer.from("fake-audio-data");
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await backend.embed([
         { type: "audio", data: audioData, mimeType: "audio/mp3" },
       ]);
@@ -99,7 +107,9 @@ describe("GeminiEmbeddingBackend", () => {
   describe("video inputs", () => {
     test("sends video as inline_data with base64", async () => {
       const videoData = Buffer.from("fake-video-data");
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await backend.embed([
         { type: "video", data: videoData, mimeType: "video/mp4" },
       ]);
@@ -123,6 +133,7 @@ describe("GeminiEmbeddingBackend", () => {
     test("includes taskType in request body when configured", async () => {
       const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
         taskType: "RETRIEVAL_DOCUMENT",
+        bypassWorker: true,
       });
       await backend.embed(["hello"]);
 
@@ -134,6 +145,7 @@ describe("GeminiEmbeddingBackend", () => {
     test("includes outputDimensionality in request body when dimensions configured", async () => {
       const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
         dimensions: 256,
+        bypassWorker: true,
       });
       await backend.embed(["hello"]);
 
@@ -146,6 +158,7 @@ describe("GeminiEmbeddingBackend", () => {
       const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
         taskType: "SEMANTIC_SIMILARITY",
         dimensions: 512,
+        bypassWorker: true,
       });
       await backend.embed(["hello"]);
 
@@ -156,7 +169,9 @@ describe("GeminiEmbeddingBackend", () => {
     });
 
     test("omits taskType when not configured", async () => {
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await backend.embed(["hello"]);
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -165,7 +180,9 @@ describe("GeminiEmbeddingBackend", () => {
     });
 
     test("omits outputDimensionality when not configured", async () => {
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await backend.embed(["hello"]);
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -174,7 +191,9 @@ describe("GeminiEmbeddingBackend", () => {
     });
 
     test("omits both when options is undefined", async () => {
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await backend.embed(["hello"]);
 
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -192,7 +211,9 @@ describe("GeminiEmbeddingBackend", () => {
       );
       globalThis.fetch = mockFetch as unknown as typeof fetch;
 
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await expect(backend.embed(["hello"])).rejects.toThrow(
         "Gemini embeddings request failed (500): Internal Server Error",
       );
@@ -209,7 +230,9 @@ describe("GeminiEmbeddingBackend", () => {
       );
       globalThis.fetch = mockFetch as unknown as typeof fetch;
 
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await expect(backend.embed(["hello"])).rejects.toThrow(
         "Gemini embeddings response missing vector values",
       );
@@ -226,7 +249,9 @@ describe("GeminiEmbeddingBackend", () => {
       );
       globalThis.fetch = mockFetch as unknown as typeof fetch;
 
-      const backend = new GeminiEmbeddingBackend("test-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
+        bypassWorker: true,
+      });
       await expect(backend.embed(["hello"])).rejects.toThrow(
         "Gemini embeddings response missing vector values",
       );
@@ -234,7 +259,7 @@ describe("GeminiEmbeddingBackend", () => {
   });
 
   describe("multiple inputs", () => {
-    test("embeds multiple text inputs in one batch call", async () => {
+    test("embeds multiple text inputs in one batch call in bypass mode", async () => {
       mockFetch = mock(() =>
         Promise.resolve(
           new Response(
@@ -248,7 +273,7 @@ describe("GeminiEmbeddingBackend", () => {
       globalThis.fetch = mockFetch as unknown as typeof fetch;
 
       const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-        interCallDelayMs: 0,
+        bypassWorker: true,
       });
       const result = await backend.embed(["hello", "world"]);
 
@@ -267,6 +292,7 @@ describe("GeminiEmbeddingBackend", () => {
         {
           managedBaseUrl:
             "https://platform.example.com/v1/runtime-proxy/gemini",
+          bypassWorker: true,
         },
       );
       await backend.embed(["hello"]);
@@ -303,6 +329,7 @@ describe("GeminiEmbeddingBackend", () => {
             "https://platform.example.com/v1/runtime-proxy/gemini",
           taskType: "RETRIEVAL_DOCUMENT",
           dimensions: 3072,
+          bypassWorker: true,
         },
       );
       await managedBackend.embed(["hello"]);
@@ -310,6 +337,7 @@ describe("GeminiEmbeddingBackend", () => {
       const directBackend = new GeminiEmbeddingBackend(
         "direct-key",
         "test-model",
+        { bypassWorker: true },
       );
       await directBackend.embed(["hello"]);
 
@@ -323,7 +351,9 @@ describe("GeminiEmbeddingBackend", () => {
     });
 
     test("uses direct Google API URL when managedBaseUrl is not set", async () => {
-      const backend = new GeminiEmbeddingBackend("direct-key", "test-model");
+      const backend = new GeminiEmbeddingBackend("direct-key", "test-model", {
+        bypassWorker: true,
+      });
       await backend.embed(["hello"]);
 
       const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
@@ -342,6 +372,7 @@ describe("GeminiEmbeddingBackend", () => {
           managedBaseUrl:
             "https://platform.example.com/v1/runtime-proxy/gemini",
           dimensions: 3072,
+          bypassWorker: true,
         },
       );
       await backend.embed(["hello"]);
@@ -419,7 +450,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     const fetchMock = routedFetch();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const vectors = await backend.embed(texts(250));
@@ -443,7 +474,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     const fetchMock = routedFetch();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
       taskType: "RETRIEVAL_DOCUMENT",
       dimensions: 256,
     });
@@ -477,7 +508,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     const fetchMock = routedFetch();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const vectors = await backend.embed(["t7"]);
@@ -492,7 +523,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     const fetchMock = routedFetch();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const vectors = await backend.embed([
@@ -515,7 +546,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     const fetchMock = routedFetch({ status: 404 });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const first = await backend.embed(texts(3));
@@ -540,7 +571,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     const fetchMock = routedFetch({ statusOnFirstCall: 400 });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const vectors = await backend.embed(texts(150));
@@ -560,7 +591,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     const fetchMock = routedFetch({ status: 503 });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const vectors = await backend.embed(texts(3));
@@ -585,7 +616,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const vectors = await backend.embed(texts(2));
@@ -618,7 +649,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const vectors = await backend.embed(texts(2));
@@ -645,7 +676,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const vectors = await backend.embed(texts(3));
@@ -659,7 +690,7 @@ describe("GeminiEmbeddingBackend: batched text inputs", () => {
     const fetchMock = routedFetch({ body: [{ values: [0] }] });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
     const backend = new GeminiEmbeddingBackend("test-key", "test-model", {
-      interCallDelayMs: 0,
+      bypassWorker: true,
     });
 
     const vectors = await backend.embed(texts(3));
