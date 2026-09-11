@@ -132,7 +132,7 @@ enum HostCuActionRunner {
         // reports where its time went.
         func finish(_ observation: ObservationData) -> HostCuResultPayload {
             timer.recordTotal()
-            log.info("[\(stepNumber)] \(observation.treeSummary ?? "no AX tree") — total \(timer[.total])ms (axWalk \(timer[.axWalk])ms, capture \(timer[.capture])ms)")
+            log.info("[\(stepNumber)] \(observation.treeSummary ?? "no AX tree"): total \(timer[.total])ms (axWalk \(timer[.axWalk])ms, capture \(timer[.capture])ms)")
             return buildResultPayload(
                 requestId: requestId,
                 conversationId: conversationId,
@@ -501,7 +501,7 @@ enum HostCuActionRunner {
             let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
             currentElements = captureTarget == nil ? flat : nil
             let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
-            treeSummary = "AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)"
+            treeSummary = "AX tree: \(result.appName) \"\(result.windowTitle)\", \(flat.count) elements (\(interactiveCount) interactive)"
 
             // Compute AX diff against previous step's elements
             if captureTarget == nil, let previousFlat = previousAXElements[conversationId] {
