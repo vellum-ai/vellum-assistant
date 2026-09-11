@@ -72,6 +72,31 @@ describe("PluginIcon", () => {
     expect(container.textContent).toBe("🚀");
   });
 
+  test("renders an https icon as an <img> rather than as text", () => {
+    const url = "https://assets.example/coffee/icon.png?v=abc";
+    const { container } = render(<PluginIcon icon={url} external />);
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("src")).toBe(url);
+    expect(container.textContent).toBe("");
+  });
+
+  test("bundled iconSrc wins over an https icon", () => {
+    const { container } = render(
+      <PluginIcon iconSrc="/x.png" icon="https://assets.example/icon.png" />,
+    );
+    expect(container.querySelector("img")!.getAttribute("src")).toBe("/x.png");
+  });
+
+  test("falls back to the origin glyph, not the URL text, when an https icon errors", () => {
+    const { container } = render(
+      <PluginIcon icon="https://assets.example/icon.png" external />,
+    );
+    fireEvent.error(container.querySelector("img")!);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toBe(PACKAGE);
+  });
+
   test("defaults to 📦 when external", () => {
     const { container } = render(<PluginIcon external />);
     expect(container.textContent).toBe(PACKAGE);

@@ -97,8 +97,23 @@ describe("mergePlugins", () => {
     );
 
     expect(installedRow.icon).toBe("🚀");
-    // Catalog rows carry no icon (the search endpoint has none).
     expect(catalogRow.icon).toBeUndefined();
+  });
+
+  test("carries a catalog entry's icon onto the available row", () => {
+    const url = "https://assets.example/coffee/icon.png?v=abc";
+    const [emojiRow, urlRow] = mergePlugins(
+      [],
+      [
+        catalog({ name: "bones", icon: "🦴" }),
+        catalog({ name: "coffee", icon: url }),
+      ],
+    );
+
+    // The marketplace emoji and the platform-hosted image URL both pass
+    // through untouched; `PluginIcon` decides how to render each.
+    expect(emojiRow.icon).toBe("🦴");
+    expect(urlRow.icon).toBe(url);
   });
 
   test("carries hasIcon/iconVersion onto installed rows (not the catalog)", () => {

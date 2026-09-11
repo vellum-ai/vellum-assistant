@@ -45,6 +45,7 @@ export function mergePlugins(
       status: "available",
       external: true,
       path: m.path,
+      icon: m.icon,
     }));
 
   return [...installedItems, ...catalogItems];

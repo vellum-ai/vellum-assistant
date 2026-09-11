@@ -389,6 +389,34 @@ describe("PluginListRow", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
+  test("available row renders the catalog emoji icon", () => {
+    const { container } = renderRow(
+      <PluginListRow
+        assistantId={ASSISTANT_ID}
+        item={makeItem({ status: "available", external: true, icon: "🦴" })}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("🦴");
+  });
+
+  test("available row renders a platform-hosted icon URL as an <img> without the version gate", () => {
+    // Version stays null: the catalog icon is a plain URL, not the daemon's
+    // bundled-icon endpoint, so the gate must not suppress it.
+    const url = "https://assets.example/coffee/icon.png?v=abc";
+    const { container } = renderRow(
+      <PluginListRow
+        assistantId={ASSISTANT_ID}
+        item={makeItem({ status: "available", external: true, icon: url })}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(url);
+  });
+
   test("supporting daemon but no hasIcon renders no <img>", () => {
     useAssistantIdentityStore.setState({ version: MIN_VERSION });
 

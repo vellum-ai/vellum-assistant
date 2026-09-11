@@ -39,9 +39,10 @@ export interface PluginListItem {
    */
   enabled?: boolean;
   /**
-   * Author-declared emoji (`package.json` `vellum.icon`), shown in the row
-   * icon. Installed rows only — the catalog endpoint carries none. `undefined`
-   * when the plugin declares no icon; the row falls back to 📦/🧩.
+   * Icon shown in the row. Installed rows carry the author-declared emoji
+   * (`package.json` `vellum.icon`); catalog rows carry the curated marketplace
+   * emoji, or an https image URL when the platform catalog hosts the plugin's
+   * bundled icon. `undefined` when none is declared; the row falls back to 📦/🧩.
    */
   icon?: string;
   /**
@@ -89,6 +90,7 @@ interface CatalogPluginSource {
   name: string;
   description?: string;
   path: string;
+  icon?: string;
   source: { repo: string };
 }
 
