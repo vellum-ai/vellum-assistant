@@ -2341,7 +2341,19 @@ function ClearButton({
       onClick={() => {
         onClearMarks?.();
       }}
-    />
+    >
+      {tools.map((one) => (
+        <PillButton
+          key={one.tool}
+          icon={one.icon}
+          label={one.label}
+          pressed={tool === one.tool}
+          onClick={() => {
+            onTool?.(one.tool);
+          }}
+        />
+      ))}
+    </div>
   );
 }
 

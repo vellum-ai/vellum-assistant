@@ -143,6 +143,7 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     token,
     managed = true,
     upgrade = true,
+    velayBaseUrl,
   }: {
     userId?: string;
     actor?: string;
@@ -151,6 +152,7 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     token?: string;
     managed?: boolean;
     upgrade?: boolean;
+    velayBaseUrl?: string;
   }) => {
     if (managed) {
       process.env.IS_PLATFORM = "true";
@@ -173,7 +175,7 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     const query = token ? `?token=${token}` : "";
     return authorizeGuardianStream(
       new Request(`${STREAM_URL}${query}`, { headers }),
-      makeConfig(),
+      makeConfig(velayBaseUrl ? { velayBaseUrl } : {}),
       log,
     );
   };
@@ -241,10 +243,40 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     expect(res!.status).toBe(403);
   });
 
-  test("does not trust velay headers outside managed mode", async () => {
+  test("does not trust velay headers on a gateway with no velay tunnel", async () => {
     const res = await managedAuthorize({ managed: false });
 
     expect(res!.status).toBe(401);
+  });
+
+  test("admits the attested guardian on a locally hosted gateway with a velay tunnel", async () => {
+    const res = await managedAuthorize({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+    });
+
+    expect(res).toBeNull();
+  });
+
+  test("still pins the attested caller to the guardian on a locally hosted gateway", async () => {
+    const res = await managedAuthorize({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+      userId: "99999999-9999-9999-9999-999999999999",
+    });
+
+    expect(res!.status).toBe(403);
+  });
+
+  test("rejects locally hosted tunnel headers without bridge proof", async () => {
+    const res = await managedAuthorize({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+      bridgeProof: false,
+    });
+
+    expect(res!.status).toBe(401);
+    expect(mockReadCredential).not.toHaveBeenCalled();
   });
 
   /**

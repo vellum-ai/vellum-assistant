@@ -32,9 +32,9 @@ const DESKTOP_BINARIES = {
   panelSession: ["dbus-run-session"],
   clipboard: ["tigervncconfig", "vncconfig"],
   terminal: ["xterm"],
-  wallpaper: ["feh"],
   screenshot: ["xwd"],
   input: ["xdotool"],
+  wallpaper: ["feh"],
 } as const;
 
 const DESKTOP_PACKAGES = [

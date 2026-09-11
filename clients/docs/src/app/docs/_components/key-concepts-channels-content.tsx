@@ -3,11 +3,13 @@
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
+import { routes } from "@/lib/routes";
 
 const TOC_ITEMS = [
   { id: "web", label: "Web", level: 2 },
   { id: "desktop-app", label: "Desktop App", level: 2 },
   { id: "ios", label: "iOS", level: 2 },
+  { id: "android", label: "Android", level: 2 },
   { id: "cli", label: "CLI", level: 2 },
   { id: "telegram", label: "Telegram", level: 2 },
   { id: "slack", label: "Slack", level: 2 },
@@ -174,10 +176,29 @@ export function KeyConceptsChannelsContent() {
           </p>
           <p className="mb-0 text-zinc-600">
             Available on the{" "}
-            <a href="https://apps.apple.com/us/app/vellum-assistant/id6759934423">
+            <a href={routes.iosAppStore}>
               App Store
             </a>{" "}
             for iPhone and iPad.
+          </p>
+        </section>
+
+        <section id="android" className="mt-12">
+          <SectionHeading id="android" level={2}>
+            Android
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600">
+            The Android app is the same kind of pocket client as iOS: it signs
+            into your Vellum Cloud account and carries the same assistant,
+            memory, and conversations. Host file access, shell commands,
+            computer use, and screen watch stay on the desktop app.
+          </p>
+          <p className="mb-0 text-zinc-600">
+            Available on{" "}
+            <a href={routes.androidPlayStore}>
+              Google Play
+            </a>
+            .
           </p>
         </section>
 
