@@ -196,6 +196,18 @@ export function DocumentViewerContainer({
     saveTargetRef.current = saveTarget;
   });
 
+  const queueDocumentSave = useCallback(
+    (target: DocumentSaveTarget, markdown: string): Promise<void> => {
+      const previousSave = saveChainRef.current.catch(() => {});
+      const queuedSave = previousSave.then(() =>
+        saveDocumentContent(target, markdown),
+      );
+      saveChainRef.current = queuedSave;
+      return queuedSave;
+    },
+    [],
+  );
+
   const flushPendingSave = useCallback(async () => {
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
@@ -210,11 +222,7 @@ export function DocumentViewerContainer({
     const target = saveTargetRef.current;
     // Serialize saves so a slow older write cannot land after the version a
     // document-scoped message is about to reference.
-    const previousSave = saveChainRef.current.catch(() => {});
-    const queuedSave = previousSave.then(() =>
-      saveDocumentContent(target, pending.markdown),
-    );
-    saveChainRef.current = queuedSave;
+    const queuedSave = queueDocumentSave(target, pending.markdown);
     await queuedSave.then(
       () => {
         setSaveStatus("saved");
@@ -233,7 +241,7 @@ export function DocumentViewerContainer({
         throw error;
       },
     );
-  }, []);
+  }, [queueDocumentSave]);
 
   const handleContentChange = useCallback(
     (markdown: string) => {
@@ -424,15 +432,22 @@ export function DocumentViewerContainer({
       if (savedFadeRef.current) {
         clearTimeout(savedFadeRef.current);
       }
+      const pendingAtRename = pendingMarkdownRef.current;
+      const renameRevision = markdownRevisionRef.current;
       pendingMarkdownRef.current = null;
 
       onRenamed?.(title);
       setSaveStatus("saving");
-      void saveDocumentContent(
+      const markdown = latestMarkdownRef.current ?? content;
+      void queueDocumentSave(
         { ...saveTargetRef.current, title },
-        latestMarkdownRef.current ?? content,
+        markdown,
       ).then(
         () => {
+          const pending = pendingMarkdownRef.current;
+          if (pending !== null && pending.revision <= renameRevision) {
+            pendingMarkdownRef.current = null;
+          }
           setSaveStatus("saved");
           savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
           // The name is read from the documents list by the transcript card,
@@ -451,6 +466,13 @@ export function DocumentViewerContainer({
           });
         },
         (err: unknown) => {
+          if (
+            pendingAtRename !== null &&
+            pendingMarkdownRef.current === null &&
+            markdownRevisionRef.current === pendingAtRename.revision
+          ) {
+            pendingMarkdownRef.current = pendingAtRename;
+          }
           setSaveStatus("idle");
           onRenamed?.(previousTitle);
           toast.error(t("documentViewerContainer.renameFailed"));
@@ -464,6 +486,7 @@ export function DocumentViewerContainer({
       conversationId,
       documentName,
       onRenamed,
+      queueDocumentSave,
       queryClient,
       t,
     ],

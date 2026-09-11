@@ -236,6 +236,42 @@ describe("DocumentViewerContainer autosave", () => {
 });
 
 describe("DocumentViewerContainer rename", () => {
+  test("a sibling flush waits for the rename write containing the latest body", async () => {
+    let finishRename: () => void = () => {};
+    saveDocumentContent.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRename = () => resolve({ success: true } as unknown);
+        }),
+    );
+    const handleRef = createRef<DocumentViewerContainerHandle>();
+    renderViewer({ handleRef });
+    await typeIntoEditor("latest body");
+    await renameTo("meeting notes");
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+
+    let flushed = false;
+    const flush = handleRef.current!.flushPendingSave().then(() => {
+      flushed = true;
+    });
+    await act(async () => {});
+    expect(flushed).toBe(false);
+
+    await act(async () => {
+      finishRename();
+      await flush;
+    });
+    expect(flushed).toBe(true);
+    expect(saveDocumentContent.mock.calls[0]![0]).toEqual({
+      source: "document",
+      assistantId: "asst-1",
+      surfaceId: "surf-1",
+      conversationId: "conv-1",
+      title: "meeting notes",
+    });
+    expect(saveDocumentContent.mock.calls[0]![1]).toBe("latest body");
+  });
+
   test("the rename writes the new title with the body the editor holds", async () => {
     const onRenamed = mock((_documentName: string) => {});
     renderViewer({ onRenamed });
