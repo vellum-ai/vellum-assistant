@@ -10,7 +10,10 @@ import type {
   CharacterComponents,
   CharacterTraits,
 } from "@/types/avatar";
-import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
+import {
+  avatarQueryKey,
+  shouldRetainAvatarPlaceholder,
+} from "@/hooks/use-assistant-avatar";
 import { MIN_VERSION } from "@/lib/backwards-compat/avatar-state-manifest";
 import { chooserRowAvatarCacheQueryKey } from "@/lib/persist-last-seen-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -145,6 +148,103 @@ afterEach(() => {
 });
 
 describe("useAssistantAvatar", () => {
+  test("retains the previous avatar while the same assistant rekeys", async () => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
+    fetchCharacterTraitsResult.mockResolvedValueOnce(found(traits));
+
+    let resolveManifest: (state: AvatarState) => void = () => {};
+    fetchAvatarState.mockImplementationOnce(
+      () =>
+        new Promise<AvatarState>((resolve) => {
+          resolveManifest = resolve;
+        }),
+    );
+
+    const { result, rerender } = renderHook(
+      (supportsManifest: boolean) =>
+        useAssistantAvatar("asst-1", { supportsManifest }),
+      { wrapper: createWrapper(), initialProps: false },
+    );
+    await waitFor(() => {
+      expect(result.current.traits).toEqual(traits);
+    });
+
+    rerender(true);
+    expect(result.current.traits).toEqual(traits);
+
+    resolveManifest(noneState);
+    await waitFor(() => {
+      expect(result.current.state).toEqual(noneState);
+    });
+  });
+
+  test("does not retain assistant A while assistant B loads", async () => {
+    fetchAvatarState.mockResolvedValueOnce(characterState);
+    let resolveSecond: (state: AvatarState) => void = () => {};
+    fetchAvatarState.mockImplementationOnce(
+      () =>
+        new Promise<AvatarState>((resolve) => {
+          resolveSecond = resolve;
+        }),
+    );
+
+    const { result, rerender } = renderHook(
+      (assistantId: string) => useAssistantAvatar(assistantId),
+      { wrapper: createWrapper(), initialProps: "asst-1" },
+    );
+    await waitFor(() => {
+      expect(result.current.traits).toEqual(traits);
+    });
+
+    rerender("asst-2");
+    expect(result.current.traits).toBeNull();
+    expect(result.current.customImageUrl).toBeNull();
+
+    resolveSecond(noneState);
+    await waitFor(() => {
+      expect(result.current.state).toEqual(noneState);
+    });
+  });
+
+  test("does not retain the same local assistant ID across connection scopes", () => {
+    expect(
+      shouldRetainAvatarPlaceholder(
+        { assistantId: "local-assistant", scopeKey: "connection:one" },
+        { assistantId: "local-assistant", scopeKey: "connection:two" },
+      ),
+    ).toBe(false);
+  });
+
+  test("a late result from assistant A cannot replace assistant B", async () => {
+    let resolveFirst: (state: AvatarState) => void = () => {};
+    fetchAvatarState.mockImplementationOnce(
+      () =>
+        new Promise<AvatarState>((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    fetchAvatarState.mockResolvedValueOnce(imageState);
+    fetchAvatarImageUrlResult.mockResolvedValueOnce(found("blob:assistant-b"));
+
+    const { result, rerender } = renderHook(
+      (assistantId: string) => useAssistantAvatar(assistantId),
+      { wrapper: createWrapper(), initialProps: "asst-1" },
+    );
+    await waitFor(() => {
+      expect(fetchAvatarState).toHaveBeenCalledTimes(1);
+    });
+
+    rerender("asst-2");
+    await waitFor(() => {
+      expect(result.current.customImageUrl).toBe("blob:assistant-b");
+    });
+
+    resolveFirst(characterState);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current.customImageUrl).toBe("blob:assistant-b");
+    expect(result.current.traits).toBeNull();
+  });
+
   describe("last-seen cache", () => {
     test("a resolved character avatar is persisted for the chooser's fallback", async () => {
       fetchAvatarState.mockResolvedValueOnce(characterState);

@@ -11,6 +11,7 @@ import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-st
 import { trackBlobUrl } from "@/lib/blob-url-tracker";
 import { createGenerationGuard } from "@/lib/generation-guard";
 import { persistLastSeenAvatar } from "@/lib/persist-last-seen-avatar";
+import { useRequestScopeKey } from "@/stores/request-scope";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type {
   AvatarRead,
@@ -42,6 +43,21 @@ export interface AvatarData {
    * reads as unknown, which every consumer must treat as "not a character".
    */
   state?: AvatarState | null;
+}
+
+interface AvatarQueryIdentity {
+  assistantId: string | null;
+  scopeKey: string;
+}
+
+export function shouldRetainAvatarPlaceholder(
+  previousMeta: Record<string, unknown> | undefined,
+  current: AvatarQueryIdentity,
+): boolean {
+  return (
+    previousMeta?.assistantId === current.assistantId &&
+    previousMeta.scopeKey === current.scopeKey
+  );
 }
 
 const activeBlobUrls = new Map<string, string>();
@@ -242,9 +258,19 @@ export function useAssistantAvatar(
   const queryClient = useQueryClient();
   const activeSupportsManifest = useSupportsAvatarStateManifest();
   const supportsManifest = options?.supportsManifest ?? activeSupportsManifest;
+  const scopeKey = useRequestScopeKey();
 
   const { data, isLoading, isSuccess } = useQuery<AvatarData>({
     queryKey: [...avatarQueryKey(assistantId ?? ""), supportsManifest],
+    meta: { assistantId, scopeKey },
+    placeholderData: (previousData, previousQuery) => {
+      return shouldRetainAvatarPlaceholder(previousQuery?.meta, {
+        assistantId,
+        scopeKey,
+      })
+        ? previousData
+        : undefined;
+    },
     queryFn: async ({ client }) => {
       const id = assistantId!;
       // A re-key (manifest support flipping) starts a newer fetch while this
