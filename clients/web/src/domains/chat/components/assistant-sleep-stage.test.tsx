@@ -152,6 +152,15 @@ describe("AssistantSleepStage", () => {
     );
   });
 
+  test("is a dark surface whatever the app's theme", () => {
+    const { container } = renderAt("/assistant/conversations/c1");
+    // The eyes' whites are a near-white, as is the light surface: the stage
+    // re-declares the tokens dark so they never share a color.
+    expect(
+      container.querySelector("[data-scene]")?.getAttribute("data-theme"),
+    ).toBe("dark");
+  });
+
   test("falls back to unnamed copy before the identity resolves", () => {
     useAssistantIdentityStore.setState({ name: null, version: null });
 

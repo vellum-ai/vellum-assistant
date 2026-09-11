@@ -14,6 +14,14 @@
  *   lids from wherever they were, so the open is one movement out of the
  *   sleep rather than a cut to a new picture.
  *
+ * The stage is always dark. The catalog's sclera is a near-white and so is
+ * the light theme's surface, so eyes laid on the light page lose their whites
+ * and the pupils float on nothing. The stage re-declares the design tokens
+ * under `data-theme="dark"`, the treatment the voice room and the research
+ * overlay give their own surfaces, so in light mode the eyes sit on the dark
+ * ground they were drawn for and the copy and the close button take light
+ * values with it. In dark mode nothing changes.
+ *
  * The lid is a slab wearing the eyes' own silhouette (a `clipPath` of the eye
  * paths), so it closes each eye over its top and leaves the gap between them
  * empty. It is painted in the avatar's own color, with its lower edge banded
@@ -136,6 +144,7 @@ export function SleepStageView({
   return (
     <motion.div
       data-scene={scene}
+      data-theme="dark"
       className="group absolute inset-0 z-30 flex flex-col items-center justify-center gap-10 rounded-xl bg-[var(--surface-base)] px-6"
       initial={reduce ? false : { opacity: 0 }}
       // Waking runs the whole exit here: the eyes hold open for a beat and
