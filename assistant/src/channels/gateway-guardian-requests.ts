@@ -42,6 +42,7 @@ import {
   type GuardianRequestWire,
   type ListGuardianRequestsIpcParams,
   type ListPendingGuardianRequestsByDestinationIpcParams,
+  SweepPendingForRemindersIpcResponseSchema,
   type UpdateGuardianRequestDeliveryIpcParams,
 } from "@vellumai/gateway-client";
 import type { ZodType } from "zod";
@@ -239,6 +240,23 @@ export async function listExpiredPendingGuardianRequests(
     { limit },
     GuardianRequestListIpcResponseSchema,
   );
+}
+
+/**
+ * Return persistent pending requests older than `olderThanMs` with no
+ * followupState, so the daemon can send reminders. Throws on any failure
+ * (fail-closed).
+ */
+export async function sweepPendingGuardianRequestsForReminders(
+  olderThanMs?: number,
+  now?: number,
+): Promise<GuardianRequestWire[]> {
+  const response = await callGateway(
+    GUARDIAN_REQUESTS_IPC_METHODS.sweepPendingForReminders,
+    { olderThanMs, now },
+    SweepPendingForRemindersIpcResponseSchema,
+  );
+  return response.pending;
 }
 
 /**
