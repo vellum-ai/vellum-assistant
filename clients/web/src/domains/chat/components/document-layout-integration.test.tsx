@@ -74,9 +74,20 @@ mock.module(
 mock.module(
   "./chat-info-panel",
   (): Partial<typeof ChatInfo> => ({
-    ChatInfoPanel: ({ onClose }) => (
-      <button onClick={onClose}>Close chat info</button>
-    ),
+    ChatInfoPanel: ({ payload, onClose }) => {
+      const openDocument = useOpenDocumentFromChat(
+        payload.assistantId,
+        onClose,
+      );
+      return (
+        <>
+          <button onClick={onClose}>Close chat info</button>
+          <button onClick={() => void openDocument("surface-1")}>
+            Reopen from chat info
+          </button>
+        </>
+      );
+    },
   }),
 );
 const comments = await import("../api/document-comments");
@@ -284,25 +295,96 @@ function renderLayout(mobile: boolean, urlBacked = true) {
 }
 
 describe("document viewport handoff", () => {
-  test("reopening the same desktop route document retains its unsaved editor", async () => {
-    renderLayout(false);
-    const editor = await screen.findByRole("textbox", {
-      name: "Document body",
-    });
-    fireEvent.change(editor, {
-      target: { value: "Unsaved first document body" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Open document" }));
-    await act(async () => {});
-    expect(load).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("textbox", { name: "Document body" })).toBe(editor);
-    expect((editor as HTMLTextAreaElement).value).toBe(
-      "Unsaved first document body",
-    );
-    expect(screen.getByTestId("url").textContent).toContain(
-      "document=surface-1",
-    );
-  });
+  test.each([false, true])(
+    "reopening the same desktop document retains its unsaved editor (URL-backed: %s)",
+    async (urlBacked) => {
+      renderLayout(false, urlBacked);
+      if (!urlBacked) {
+        fireEvent.click(screen.getByRole("button", { name: "Open document" }));
+      }
+      const editor = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      fireEvent.change(editor, {
+        target: { value: "Unsaved first document body" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Open document" }));
+      await act(async () => {});
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("textbox", { name: "Document body" })).toBe(
+        editor,
+      );
+      expect((editor as HTMLTextAreaElement).value).toBe(
+        "Unsaved first document body",
+      );
+      if (urlBacked) {
+        expect(screen.getByTestId("url").textContent).toContain(
+          "document=surface-1",
+        );
+      } else {
+        expect(screen.getByTestId("url").textContent).toBe(
+          "/assistant/conversations/conv-1",
+        );
+      }
+    },
+  );
+
+  test.each(["success", "failure", "cancelled"])(
+    "ordinary desktop Chat Info reopening waits for its detached save: %s",
+    async (outcome) => {
+      const page = renderLayout(false, false);
+      fireEvent.click(screen.getByRole("button", { name: "Open document" }));
+      fireEvent.change(
+        await screen.findByRole("textbox", { name: "Document body" }),
+        { target: { value: "Latest drawer edit" } },
+      );
+      act(() =>
+        useViewerStore.getState().openChatInfo({
+          assistantId: "assistant-1",
+          conversationId: "conv-1",
+        }),
+      );
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Reopen from chat info",
+        }),
+      );
+      await act(async () => {});
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(
+        Boolean(screen.queryByRole("textbox", { name: "Document body" })),
+      ).toBe(false);
+      if (outcome === "cancelled") {
+        act(() => useViewerStore.getState().closeDocument());
+        await act(async () => finishWrite());
+        expect(load).toHaveBeenCalledTimes(1);
+        expect(useViewerStore.getState().openedDocumentState).toBeNull();
+        return;
+      }
+      if (outcome === "failure") {
+        await act(async () => failWrite(new Error("offline")));
+        expect(load).toHaveBeenCalledTimes(1);
+        expect(useViewerStore.getState().openedDocumentState).toBeNull();
+        pendingWrite = undefined;
+        fireEvent.click(screen.getByRole("button", { name: "Open document" }));
+      } else {
+        await act(async () => finishWrite());
+      }
+      const editor = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      expect((editor as HTMLTextAreaElement).value).toBe("Latest drawer edit");
+      expect(load).toHaveBeenCalledTimes(2);
+      fireEvent.change(editor, {
+        target: { value: "Latest drawer edit plus more" },
+      });
+      page.unmount();
+      await waitFor(() =>
+        expect(saved.content).toBe("Latest drawer edit plus more"),
+      );
+    },
+  );
 
   test("a transcript document replaces the URL-backed desktop document and preserves its pending save", async () => {
     renderLayout(false);

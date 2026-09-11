@@ -30,6 +30,10 @@ refetching.
 Reopening the associated document from Chat Info or a chat card uses that same
 presentation action, retaining the editor, original return destination and history
 state on both viewport layouts. An in-progress session load remains owned by the route.
+Ordinary desktop drawer entry also uses the save-aware loader. Clicking its
+already-open document keeps the mounted editor; reopening from Chat Info waits
+for the detached editor's save or retry before fetching. A replaced or cancelled
+drawer load cannot apply its result to a newer entry, including the same surface.
 The return destination accepts only supported in-app Library/chat paths,
 including the chat router's optional trailing slash.
 Library's optional trailing slash is also preserved, so click-opened document

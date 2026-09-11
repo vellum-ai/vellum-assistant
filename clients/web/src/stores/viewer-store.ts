@@ -41,7 +41,7 @@ import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
-import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
+import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { workspaceBasenameOf } from "@/utils/workspace-path-links";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
@@ -1407,11 +1407,24 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   },
 
   loadDocument: async (assistantId, documentSurfaceId) => {
+    const current = get();
+    const opened = current.openedDocumentState;
+    if (
+      current.mainView === "document" &&
+      current.activeDocumentTarget?.source === "document" &&
+      current.activeDocumentTarget.surfaceId === documentSurfaceId &&
+      opened?.source === "document" &&
+      opened.assistantId === assistantId &&
+      opened.surfaceId === documentSurfaceId
+    ) {
+      return;
+    }
     const viewBeforeDocument = resolveViewBefore(get(), "viewBeforeDocument");
     const target: DocumentTarget = {
       source: "document",
       surfaceId: documentSurfaceId,
     };
+    const isCurrent = () => get().activeDocumentTarget === target;
     set({
       mainView: "document",
       activeDocumentTarget: target,
@@ -1419,11 +1432,14 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       viewBeforeDocument,
     });
     try {
-      const { data: result } = await documentsByIdGet({
-        path: { assistant_id: assistantId, id: documentSurfaceId },
-        throwOnError: true,
+      const { loadDocumentContent } =
+        await import("@/domains/chat/api/document-load");
+      const result = await loadDocumentContent({
+        assistantId,
+        surfaceId: documentSurfaceId,
+        isCurrent,
       });
-      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
+      if (!isCurrent()) {
         return;
       }
       if (!result) {
@@ -1448,7 +1464,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         .getState()
         .clearDocumentEverywhere(result.surfaceId);
     } catch {
-      if (!sameDocumentTarget(get().activeDocumentTarget, target)) {
+      if (!isCurrent()) {
         return;
       }
       set({

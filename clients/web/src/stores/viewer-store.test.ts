@@ -1,4 +1,5 @@
 import { beforeEach, describe, it, expect, mock } from "bun:test";
+import { waitFor } from "@testing-library/react";
 
 import type {
   ActivityStepsPayload,
@@ -9,6 +10,7 @@ import type { DocumentsByIdGetResponse } from "@/generated/daemon/types.gen";
 import { ApiError } from "@/utils/api-errors";
 import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
+import { trackDocumentSave } from "@/domains/chat/api/document-save";
 
 // The store opens documents through the daemon SDK. Spread the real module so
 // the actions this file does not exercise keep their real bindings.
@@ -1174,13 +1176,14 @@ describe("openWorkspaceFilePreview", () => {
   });
 
   it("makes an in-flight document load stale", async () => {
-    let resolveLoad: (value: DocumentResult) => void = () => {};
+    let resolveLoad!: (value: DocumentResult) => void;
     documentResult = () =>
       new Promise<DocumentResult>((resolve) => {
         resolveLoad = resolve;
       });
 
     const load = getState().loadDocument("asst-1", "surf-1");
+    await waitFor(() => expect(resolveLoad).toBeFunction());
     getState().openWorkspaceFilePreview("rows.csv", "csv");
 
     resolveLoad({ data: documentSurface() });
@@ -1225,6 +1228,69 @@ function documentSurface(
 }
 
 describe("loadDocument", () => {
+  it.each(["success", "failure", "cancelled"])(
+    "waits for a matching document save before fetching: %s",
+    async (outcome) => {
+      const read = mock(async () => ({ data: documentSurface() }));
+      documentResult = read;
+      let finish!: () => void;
+      let fail!: (error: Error) => void;
+      trackDocumentSave(
+        { assistantId: "asst-1", surfaceId: "surf-1" },
+        new Promise<void>((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        }),
+      );
+      const opening = getState().loadDocument("asst-1", "surf-1");
+      await Promise.resolve();
+      expect(read).not.toHaveBeenCalled();
+      if (outcome === "cancelled") {
+        getState().closeDocument();
+      }
+      if (outcome === "failure") {
+        fail(new Error("offline"));
+      } else {
+        finish();
+      }
+      await opening;
+      expect(read).toHaveBeenCalledTimes(outcome === "success" ? 1 : 0);
+      if (outcome !== "success") {
+        expect(getState().openedDocumentState).toBeNull();
+        expect(getState().mainView).toBe("chat");
+      }
+    },
+  );
+
+  it.each(["success", "failure"])(
+    "an older same-surface load cannot replace or clear its newer owner: %s",
+    async (outcome) => {
+      let finish!: (value: DocumentResult) => void;
+      let fail!: (error: Error) => void;
+      documentResult = () =>
+        new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        });
+      const oldLoad = getState().loadDocument("asst-1", "surf-1");
+      await waitFor(() => expect(finish).toBeFunction());
+      documentResult = async () => ({
+        data: documentSurface({ content: "Latest body" }),
+      });
+      await getState().loadDocument("asst-1", "surf-1");
+      if (outcome === "failure") {
+        fail(new Error("late failure"));
+      } else {
+        finish({ data: documentSurface({ content: "Stale body" }) });
+      }
+      await oldLoad;
+      expect(getState().mainView).toBe("document");
+      expect(getState().openedDocumentState).toMatchObject({
+        content: "Latest body",
+      });
+    },
+  );
+
   it("clears the unseen change for the document it opened", async () => {
     useUnseenDocumentChangesStore
       .getState()
