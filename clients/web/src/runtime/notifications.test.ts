@@ -9,7 +9,17 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ShowNotificationPayload } from "@vellumai/ipc-contract";
+import type {
+  NotificationIdentity,
+  ShowNotificationPayload,
+} from "@vellumai/ipc-contract";
+
+import * as daemonSdk from "@/generated/daemon/sdk.gen";
+import * as i18nRuntime from "@/i18n";
+import * as androidNotificationChannels from "@/runtime/android-notification-channels";
+import * as nativeAuthRuntime from "@/runtime/native-auth";
+import * as platformDetection from "@/runtime/platform-detection";
+import * as pushRegistration from "@/runtime/push-registration";
 
 // ── host platform guards ─────────────────────────────────────────────────────
 //
@@ -17,15 +27,13 @@ import type { ShowNotificationPayload } from "@vellumai/ipc-contract";
 // under happy-dom, and the Electron branch would return before reaching
 // the code under test.
 
-let electronHost = false;
-mock.module("@/runtime/is-electron", () => ({
-  isElectron: () => electronHost,
-}));
 mock.module("@/runtime/native-auth", () => ({
+  ...nativeAuthRuntime,
   isNativePlatform: () => true,
 }));
 let nativeAndroid = false;
 mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
   isNativeAndroid: () => nativeAndroid,
 }));
 
@@ -36,6 +44,7 @@ mock.module("@/runtime/platform-detection", () => ({
 
 let sessionConfirmedAssistantId: string | null = null;
 mock.module("@/runtime/push-registration", () => ({
+  ...pushRegistration,
   hasSessionConfirmedRemotePushRegistration: (assistantId: string) =>
     sessionConfirmedAssistantId === assistantId,
   extractPushConversationId: (data: Record<string, unknown>) =>
@@ -44,10 +53,12 @@ mock.module("@/runtime/push-registration", () => ({
 
 const ensureAndroidAlertsChannelMock = mock(async () => {});
 mock.module("@/runtime/android-notification-channels", () => ({
+  ...androidNotificationChannels,
   ANDROID_ALERTS_CHANNEL_ID: "vellum-alerts",
   ensureAndroidAlertsChannel: ensureAndroidAlertsChannelMock,
 }));
 mock.module("@/i18n", () => ({
+  ...i18nRuntime,
   t: (key: string) =>
     key === "localNotification.goToConversation"
       ? "Go to Conversation"
@@ -63,6 +74,7 @@ interface ScheduleArg {
     body: string;
     channelId?: string;
     actionTypeId?: string;
+    extra?: Record<string, unknown>;
   }>;
 }
 interface RegisterActionTypesArg {
@@ -96,6 +108,7 @@ const ackMock = mock(async (arg: AckArg) => {
   return { data: undefined, error: undefined };
 });
 mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...daemonSdk,
   notificationintentresultPost: ackMock,
 }));
 
@@ -106,10 +119,13 @@ const {
   postLocalNotification,
   __resetNotificationsStateForTests,
 } = await import("@/runtime/notifications");
-const { clearNotificationAvatar, setNotificationAvatar } =
-  await import("@/runtime/notification-avatar");
-const { useAssistantIdentityStore } =
-  await import("@/stores/assistant-identity-store");
+const {
+  __clearNotificationIdentitySnapshotsForTests,
+  beginNotificationIdentityPublication,
+  createNotificationIdentity,
+  getNotificationIdentitySnapshot,
+  publishPreparedNotificationIdentity,
+} = await import("@/runtime/notification-avatar");
 const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
 
@@ -128,8 +144,22 @@ const baseArgs = {
   assistantId: "assistant-1",
 };
 
+function testIdentity(
+  scopeId = "notification:scope:test",
+  assistantId = "assistant-1",
+): NotificationIdentity {
+  const identity = createNotificationIdentity(
+    scopeId,
+    assistantId,
+    "123e4567-e89b-12d3-a456-426614174000",
+  );
+  if (!identity) {
+    throw new Error("Expected a notification identity");
+  }
+  return identity;
+}
+
 beforeEach(() => {
-  electronHost = false;
   nativeAndroid = false;
   sessionConfirmedAssistantId = null;
   scheduleMock.mockClear();
@@ -137,7 +167,13 @@ beforeEach(() => {
   ackMock.mockClear();
   ackArgs.length = 0;
   ensureAndroidAlertsChannelMock.mockClear();
+  __clearNotificationIdentitySnapshotsForTests();
+  useClientFeatureFlagStore.setState({
+    pushAvatarSender: false,
+    localNotificationAvatar: false,
+  });
   __resetNotificationsStateForTests();
+  delete (window as unknown as { vellum?: unknown }).vellum;
   setVisibility("visible");
 });
 
@@ -199,7 +235,11 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     sessionConfirmedAssistantId = "assistant-1";
     setVisibility("hidden");
 
-    await postLocalNotification({ ...baseArgs, remotePushDispatched: true, remotePushPlatforms: [] });
+    await postLocalNotification({
+      ...baseArgs,
+      remotePushDispatched: true,
+      remotePushPlatforms: [],
+    });
 
     expect(scheduleMock).toHaveBeenCalledTimes(1);
   });
@@ -395,103 +435,309 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
   });
 });
 
-// ── Electron branch: the assistant as the notification's sender ─────────────
+// ── Scoped presentation policy ──────────────────────────────────────────────
 
-describe("postLocalNotification sender (Electron branch)", () => {
-  const AVATAR = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+describe("postLocalNotification scoped presentation policy", () => {
   const AVATAR_HASH = "b".repeat(64);
+  const AVATAR = {
+    avatarBase64: "iVBORw==",
+    avatarHash: AVATAR_HASH,
+  };
   const showMock = mock(async (_payload: ShowNotificationPayload) => ({
     success: true,
   }));
 
+  function prepareIdentity(
+    identity: NotificationIdentity,
+    name?: string,
+    withAvatar = true,
+  ): void {
+    const publication = beginNotificationIdentityPublication(identity);
+    publishPreparedNotificationIdentity(publication, {
+      ...(name ? { name, nameProvenance: "identity-store" } : {}),
+      ...(withAvatar ? { avatar: AVATAR } : {}),
+    });
+  }
+
+  function electronArgs(identity = testIdentity()) {
+    return {
+      ...baseArgs,
+      identity,
+      identityStoreName: { identity, name: "Identity Store Name" },
+    };
+  }
+
   beforeEach(() => {
-    electronHost = true;
     showMock.mockClear();
-    clearNotificationAvatar();
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("Aria", "1.0.0", "assistant-1");
     useClientFeatureFlagStore.setState({ pushAvatarSender: true });
     (window as unknown as { vellum?: unknown }).vellum = {
+      platform: "electron",
       notifications: { show: showMock },
     };
   });
 
   afterEach(() => {
-    clearNotificationAvatar();
-    useAssistantIdentityStore.getState().clearIdentity();
-    useClientFeatureFlagStore.setState({ pushAvatarSender: false });
     delete (window as unknown as { vellum?: unknown }).vellum;
   });
 
-  test("attaches the held avatar, the assistant's name and its id", async () => {
-    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+  test("uses the event name before exact identity store and verified RAM", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity, "Verified RAM Name");
 
-    await postLocalNotification(baseArgs);
+    await postLocalNotification({
+      ...electronArgs(identity),
+      assistantName: "  Event Name  ",
+      sourceEventName: "activity.failed",
+    });
 
-    expect(showMock).toHaveBeenCalledTimes(1);
-    expect(showMock.mock.calls[0]?.[0].sender).toEqual({
-      id: "assistant-1",
-      name: "Aria",
-      avatarBase64: "iVBORw==",
-      avatarHash: AVATAR_HASH,
+    expect(showMock.mock.calls[0]?.[0]).toMatchObject({
+      presentation: "assistant",
+      identity,
+      nameProvenance: "event",
+      sender: {
+        id: identity.nativeSenderId,
+        name: "Event Name",
+        ...AVATAR,
+      },
     });
   });
 
-  test("sends no sender key at all when no avatar is held", async () => {
-    await postLocalNotification(baseArgs);
+  test("uses the exact scoped identity-store name when the optional event name is absent", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity, "Verified RAM Name");
+
+    await postLocalNotification(electronArgs(identity));
+
+    expect(showMock.mock.calls[0]?.[0]).toMatchObject({
+      presentation: "assistant",
+      identity,
+      nameProvenance: "identity-store",
+      sender: {
+        id: identity.nativeSenderId,
+        name: "Identity Store Name",
+        ...AVATAR,
+      },
+    });
+  });
+
+  test("falls back to verified same-key RAM", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity, "Verified RAM Name");
+
+    await postLocalNotification({
+      ...baseArgs,
+      identity,
+      assistantName: " ",
+    });
+
+    expect(showMock.mock.calls[0]?.[0]).toMatchObject({
+      presentation: "assistant",
+      identity,
+      nameProvenance: "verified-memory",
+      sender: {
+        id: identity.nativeSenderId,
+        name: "Verified RAM Name",
+        ...AVATAR,
+      },
+    });
+  });
+
+  test("uses title only for this display and suppresses duplicate group text", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity, undefined);
+
+    await postLocalNotification({ ...baseArgs, identity });
+
+    expect(showMock.mock.calls[0]?.[0]).toMatchObject({
+      presentation: "assistant",
+      identity,
+      nameProvenance: "title",
+      suppressGroupTitle: true,
+      sender: {
+        id: identity.nativeSenderId,
+        name: "Reminder",
+        ...AVATAR,
+      },
+    });
+    expect(getNotificationIdentitySnapshot(identity)?.name).toBeUndefined();
+  });
+
+  test("blank names and title degrade to app presentation without classifying sourceEventName", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity, undefined);
+
+    await postLocalNotification({
+      ...baseArgs,
+      identity,
+      assistantName: " ",
+      title: " ",
+      sourceEventName: "assistant.named.event",
+    });
+
+    const payload = showMock.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({ presentation: "app", identity });
+    expect(payload?.nameProvenance).toBeUndefined();
+    expect(payload?.suppressGroupTitle).toBeUndefined();
+    expect(payload?.sender).toBeUndefined();
+  });
+
+  test("sends explicit routing identity while avatar preparation is pending", async () => {
+    const identity = testIdentity();
+
+    await postLocalNotification({
+      ...baseArgs,
+      identity,
+      assistantName: "Event Name",
+    });
+
+    const payload = showMock.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      presentation: "assistant",
+      identity,
+      nameProvenance: "event",
+    });
+    expect(payload?.sender).toBeUndefined();
+  });
+
+  test("rejects name and avatar data owned by another scoped identity", async () => {
+    const identity = testIdentity();
+    const otherIdentity = testIdentity("notification:scope:other");
+    prepareIdentity(otherIdentity, "Other Name");
+
+    await postLocalNotification({
+      ...baseArgs,
+      identity,
+      identityStoreName: {
+        identity: otherIdentity,
+        name: "Other Store Name",
+      },
+      title: "Target Title",
+    });
+
+    const payload = showMock.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      presentation: "assistant",
+      identity,
+      nameProvenance: "title",
+      suppressGroupTitle: true,
+    });
+    expect(payload?.sender).toBeUndefined();
+  });
+
+  test("rejects a routing identity for a different ack assistant", async () => {
+    const identity = testIdentity(
+      "notification:scope:other-assistant",
+      "assistant-2",
+    );
+    prepareIdentity(identity, "Other Assistant");
+
+    await postLocalNotification({
+      ...baseArgs,
+      identity,
+      assistantName: "Other Assistant",
+    });
 
     const payload = showMock.mock.calls[0]?.[0] ?? {};
+    expect("identity" in payload).toBe(false);
+    expect("presentation" in payload).toBe(false);
     expect("sender" in payload).toBe(false);
   });
 
-  test("sends no sender when the assistant has no name yet", async () => {
-    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
-    useAssistantIdentityStore.getState().clearIdentity();
+  test("applies the same policy to health and failure pipeline events", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity, "Verified Name");
 
-    await postLocalNotification(baseArgs);
+    for (const sourceEventName of [
+      "credential.health_alert",
+      "telegram.webhook_health_alert",
+      "activity.failed",
+    ]) {
+      await postLocalNotification({
+        ...baseArgs,
+        deliveryId: `delivery-${sourceEventName}`,
+        identity,
+        assistantName: "Event Name",
+        sourceEventName,
+      });
+    }
 
-    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+    expect(showMock).toHaveBeenCalledTimes(3);
+    for (const [payload] of showMock.mock.calls) {
+      expect(payload).toMatchObject({
+        presentation: "assistant",
+        identity,
+        nameProvenance: "event",
+      });
+    }
   });
 
-  test("sends no sender when the held avatar belongs to another assistant", async () => {
-    setNotificationAvatar("assistant-2", AVATAR, AVATAR_HASH);
+  test("uses push-avatar-sender only for Electron across all flag combinations", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity, "Verified Name");
+    const combinations = [
+      { pushAvatarSender: false, localNotificationAvatar: false },
+      { pushAvatarSender: true, localNotificationAvatar: false },
+      { pushAvatarSender: false, localNotificationAvatar: true },
+      { pushAvatarSender: true, localNotificationAvatar: true },
+    ];
 
-    await postLocalNotification(baseArgs);
+    for (const combination of combinations) {
+      useClientFeatureFlagStore.setState(combination);
+      await postLocalNotification({
+        ...baseArgs,
+        deliveryId: `delivery-${combination.pushAvatarSender}-${combination.localNotificationAvatar}`,
+        identity,
+        assistantName: "Event Name",
+      });
+    }
 
-    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+    expect(
+      showMock.mock.calls.map(([payload]) => payload.presentation),
+    ).toEqual(["app", "assistant", "app", "assistant"]);
+    expect(showMock.mock.calls.map(([payload]) => Boolean(payload.sender))).toEqual(
+      [false, true, false, true],
+    );
   });
 
-  test("sends no sender when the hydrated identity belongs to another assistant", async () => {
-    // The name and the face come from stores written at different moments in
-    // an assistant switch, so a name that is not this assistant's is refused
-    // rather than paired with a face that is.
-    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
-    useAssistantIdentityStore
-      .getState()
-      .setIdentity("Nova", "1.0.0", "assistant-2");
-
-    await postLocalNotification(baseArgs);
-
-    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
-  });
-
-  test("sends no sender when the notification is for a different assistant", async () => {
-    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
-
-    await postLocalNotification({ ...baseArgs, assistantId: "assistant-9" });
-
-    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
-  });
-
-  test("sends no sender while push-avatar-sender is off", async () => {
-    // The holder outlives the flag, so the send path checks it again rather
-    // than trusting that the hook has emptied it.
-    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+  test("keeps a legacy flag-off Electron call shape compatible", async () => {
     useClientFeatureFlagStore.setState({ pushAvatarSender: false });
 
     await postLocalNotification(baseArgs);
 
-    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+    const payload = showMock.mock.calls[0]?.[0] ?? {};
+    expect("identity" in payload).toBe(false);
+    expect("presentation" in payload).toBe(false);
+    expect("sender" in payload).toBe(false);
+  });
+});
+
+describe("postLocalNotification local-surface presentation flags", () => {
+  test("uses local-notification-avatar only off Electron across all flag combinations", async () => {
+    const identity = testIdentity();
+    const combinations = [
+      { pushAvatarSender: false, localNotificationAvatar: false },
+      { pushAvatarSender: true, localNotificationAvatar: false },
+      { pushAvatarSender: false, localNotificationAvatar: true },
+      { pushAvatarSender: true, localNotificationAvatar: true },
+    ];
+
+    for (const combination of combinations) {
+      useClientFeatureFlagStore.setState(combination);
+      await postLocalNotification({
+        ...baseArgs,
+        deliveryId: `delivery-native-${combination.pushAvatarSender}-${combination.localNotificationAvatar}`,
+        identity,
+        assistantName: "Event Name",
+      });
+    }
+
+    expect(
+      scheduleMock.mock.calls.map(
+        ([request]) => request.notifications[0]?.extra?.presentation,
+      ),
+    ).toEqual(["app", "app", "assistant", "assistant"]);
+    for (const [request] of scheduleMock.mock.calls) {
+      expect(request.notifications[0]?.extra?.identity).toEqual(identity);
+    }
   });
 });

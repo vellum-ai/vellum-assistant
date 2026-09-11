@@ -17,14 +17,31 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 
+import { identityGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { resolveAssistantAvatarOwnerScopeId } from "@/hooks/use-assistant-avatar";
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import { useAuthStore } from "@/stores/auth-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { routes } from "@/utils/routes";
+import { useOrganizationStore } from "@/stores/organization-store";
+import {
+  useResolvedAssistantsStore,
+  type ResolvedAssistant,
+} from "@/stores/resolved-assistants-store";
 import type { PostLocalNotificationArgs } from "@/runtime/notifications";
+import { routes } from "@/utils/routes";
 
 const CONVERSATION_ID = "conv-1";
+const PLATFORM_ASSISTANT_ID = "123e4567-e89b-12d3-a456-426614174000";
+const PLATFORM_ASSISTANT: ResolvedAssistant = {
+  id: "assistant-1",
+  platformAssistantId: PLATFORM_ASSISTANT_ID,
+  isLocal: false,
+  isPlatformHosted: true,
+  isPaired: false,
+};
 
 const postedArgs: PostLocalNotificationArgs[] = [];
 const postLocalNotificationMock = mock(
@@ -93,6 +110,7 @@ function runInElectron(attended: boolean): void {
 }
 
 const originalHref = window.location.href;
+let queryClient: QueryClient;
 
 /**
  * Mount the hook on `pathname`, optionally behind an ingress basename. The
@@ -100,18 +118,30 @@ const originalHref = window.location.href;
  * serves it, so the router path and `window.location.pathname` disagree
  * exactly as they do there.
  */
-function mountAt(pathname: string, basename?: string): void {
+function mountAt(
+  pathname: string,
+  basename?: string,
+  initialAssistantId = "assistant-1",
+) {
   const entry = basename ? `${basename}${pathname}` : pathname;
   window.location.href = `http://localhost${entry}`;
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <MemoryRouter basename={basename} initialEntries={[entry]}>
-      {children}
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter basename={basename} initialEntries={[entry]}>
+        {children}
+      </MemoryRouter>
+    </QueryClientProvider>
   );
-  renderHook(() => useNotificationIntentSync("assistant-1"), { wrapper });
+  return renderHook(
+    ({ assistantId }) => useNotificationIntentSync(assistantId),
+    { wrapper, initialProps: { assistantId: initialAssistantId } },
+  );
 }
 
 function publishNotificationIntent(overrides: {
+  assistantName?: string;
+  sourceEventName?: string;
+  title?: string;
   remotePushDispatched?: boolean;
   remotePushPlatforms?: ("ios" | "android")[];
   deepLinkMetadata?: Record<string, unknown>;
@@ -155,8 +185,51 @@ function expectNotified() {
   expect(sendAckMock).not.toHaveBeenCalled();
 }
 
+function platformScopeId(): string {
+  const scopeId = resolveAssistantAvatarOwnerScopeId(
+    PLATFORM_ASSISTANT,
+    "account-1",
+    "org-1",
+    window.location.href,
+  );
+  if (!scopeId) {
+    throw new Error("Expected a platform notification scope");
+  }
+  return scopeId;
+}
+
+function identityQueryKey(assistantId: string, scopeId: string) {
+  return [
+    ...identityGetQueryKey({ path: { assistant_id: assistantId } }),
+    { notificationOwnerScopeId: scopeId },
+  ];
+}
+
 beforeEach(() => {
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   __resetForTesting();
+  useAuthStore.setState({
+    sessionStatus: "authenticated",
+    user: {
+      kind: "platform",
+      id: "account-1",
+      username: "user1",
+      email: "user@example.com",
+      isStaff: false,
+      firstName: "Example",
+      lastName: "User",
+    },
+  });
+  useOrganizationStore.setState({
+    currentOrganizationId: "org-1",
+    persistedOrganizationId: "org-1",
+  });
+  useResolvedAssistantsStore.setState({
+    assistants: [PLATFORM_ASSISTANT],
+    activeAssistantId: "assistant-1",
+  });
   useConversationStore.getState().reset();
   setVisibilityState("visible");
   postedArgs.length = 0;
@@ -166,6 +239,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  queryClient.clear();
   __resetForTesting();
   stopAttention?.();
   stopAttention = null;
@@ -187,7 +261,7 @@ describe("useNotificationIntentSync", () => {
     });
 
     expect(postedArgs).toEqual([
-      {
+      expect.objectContaining({
         title: "Reminder",
         body: "Stand up",
         sourceEventName: "reminder.fired",
@@ -197,8 +271,15 @@ describe("useNotificationIntentSync", () => {
         assistantId: "assistant-1",
         remotePushDispatched: true,
         remotePushPlatforms: ["android"],
-      },
+      }),
     ]);
+    expect(postedArgs[0]?.identity).toEqual({
+      scopeId: platformScopeId(),
+      assistantId: "assistant-1",
+      nativeSenderId: PLATFORM_ASSISTANT_ID,
+    });
+    expect(postedArgs[0]?.identity?.scopeId).not.toContain("account-1");
+    expect(postedArgs[0]?.identity?.scopeId).not.toContain("org-1");
   });
 
   test("leaves remotePushDispatched undefined when the daemon omits it", () => {
@@ -209,6 +290,101 @@ describe("useNotificationIntentSync", () => {
     expect(postedArgs).toHaveLength(1);
     expect(postedArgs[0]?.remotePushDispatched).toBeUndefined();
     expect(postedArgs[0]?.remotePushPlatforms).toBeUndefined();
+    expect(postedArgs[0]?.assistantName).toBeUndefined();
+  });
+
+  test("threads the optional event name and exact scoped identity query name", () => {
+    const scopeId = platformScopeId();
+    queryClient.setQueryData(identityQueryKey("assistant-1", scopeId), {
+      name: "Scoped Name",
+      version: "1.0.0",
+    });
+    mountAt(routes.assistant);
+
+    publishNotificationIntent({ assistantName: "Event Name" });
+
+    expect(postedArgs[0]?.assistantName).toBe("Event Name");
+    const identity = postedArgs[0]?.identity;
+    if (!identity) {
+      throw new Error("expected originating notification identity");
+    }
+    expect(postedArgs[0]?.identityStoreName).toEqual({
+      identity,
+      name: "Scoped Name",
+    });
+  });
+
+  test("does not relabel a name cached for the same assistant in another scope", () => {
+    const currentScopeId = platformScopeId();
+    queryClient.setQueryData(
+      identityQueryKey("assistant-1", "notification:scope:old"),
+      { name: "Old Scope Name", version: "1.0.0" },
+    );
+    mountAt(routes.assistant);
+
+    publishNotificationIntent({});
+
+    expect(postedArgs[0]?.identity?.scopeId).toBe(currentScopeId);
+    expect(postedArgs[0]?.identityStoreName).toBeNull();
+  });
+
+  test("keeps delayed work bound to self-hosted origin A after selecting B", () => {
+    const assistantA: ResolvedAssistant = {
+      id: "local-a",
+      isLocal: true,
+      isPlatformHosted: false,
+      isPaired: true,
+      runtimeUrl: "https://a.example.com/assistant",
+    };
+    const assistantB: ResolvedAssistant = {
+      id: "local-b",
+      isLocal: true,
+      isPlatformHosted: false,
+      isPaired: true,
+      runtimeUrl: "https://b.example.com/assistant",
+    };
+    useAuthStore.setState({
+      user: {
+        kind: "local",
+        id: "gateway-local",
+        username: null,
+        email: null,
+        isStaff: false,
+        firstName: "",
+        lastName: "",
+      },
+    });
+    useOrganizationStore.setState({
+      currentOrganizationId: null,
+      persistedOrganizationId: null,
+    });
+    useResolvedAssistantsStore.setState({
+      assistants: [assistantA, assistantB],
+      activeAssistantId: assistantA.id,
+    });
+    const mounted = mountAt(routes.assistant, undefined, assistantA.id);
+
+    publishNotificationIntent({ assistantName: "Origin A" });
+    const originA = postedArgs[0]?.identity;
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: assistantB.id });
+      mounted.rerender({ assistantId: assistantB.id });
+    });
+
+    expect(originA).toMatchObject({
+      scopeId: resolveAssistantAvatarOwnerScopeId(
+        assistantA,
+        null,
+        null,
+        window.location.href,
+      ),
+      assistantId: assistantA.id,
+    });
+    expect(originA?.nativeSenderId.startsWith("local:")).toBe(true);
+    expect(originA?.scopeId).not.toContain("a.example.com");
+    expect(postedArgs[0]?.assistantId).toBe(assistantA.id);
+    expect(postedArgs[0]?.assistantName).toBe("Origin A");
   });
 });
 

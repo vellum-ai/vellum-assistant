@@ -28,7 +28,12 @@ import {
   type LocalNotificationSchema,
 } from "@capacitor/local-notifications";
 import type { PushNotificationSchema } from "@capacitor/push-notifications";
-import type { NotificationSender } from "@vellumai/ipc-contract";
+import type {
+  NotificationIdentity,
+  NotificationNameProvenance,
+  NotificationPresentation,
+  ShowNotificationPayload,
+} from "@vellumai/ipc-contract";
 
 import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
@@ -39,13 +44,17 @@ import {
 } from "@/runtime/android-notification-channels";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { getNotificationAvatar } from "@/runtime/notification-avatar";
+import { getNotificationIdentitySnapshot } from "@/runtime/notification-avatar";
+import {
+  resolveNotificationSender,
+  type OwnedNotificationName,
+  type NotificationSenderResolution,
+} from "@/runtime/notification-sender";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 import {
   extractPushConversationId,
   hasSessionConfirmedRemotePushRegistration,
 } from "@/runtime/push-registration";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 /**
@@ -57,6 +66,10 @@ export interface NotificationTapPayload {
   conversationId?: string;
   sourceEventName: string;
   deliveryId?: string;
+  identity?: NotificationIdentity;
+  presentation?: NotificationPresentation;
+  nameProvenance?: NotificationNameProvenance;
+  suppressGroupTitle?: boolean;
 }
 
 /**
@@ -281,6 +294,7 @@ async function registerTapListeners(): Promise<void> {
         conversationId: event.conversationId,
         sourceEventName: `electron:${event.category}:${event.kind}`,
         deliveryId: event.deliveryId,
+        identity: event.identity,
       });
     });
     return;
@@ -394,9 +408,15 @@ export interface PostLocalNotificationArgs {
   title: string;
   body: string;
   sourceEventName: string;
+  /** Verified assistant name carried by this notification event. */
+  assistantName?: string;
   deliveryId?: string;
   correlationId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  /** Routing identity captured by the event subscriber before any await. */
+  identity?: NotificationIdentity;
+  /** Identity-store name captured for the same scoped routing identity. */
+  identityStoreName?: OwnedNotificationName | null;
   /**
    * When set alongside `deliveryId`, `postLocalNotification` sends a
    * `notification_intent_result` ack to the daemon after scheduling the
@@ -450,43 +470,60 @@ export async function sendNotificationIntentAck(
   }
 }
 
-/**
- * The assistant to post the Electron notification as, when there is one to
- * post as: `useNotificationAvatarSync` holds an avatar only on Electron with
- * `push-avatar-sender` on, so an empty holder is what keeps the payload
- * unchanged everywhere else. The flag is read again here because the holder
- * outlives the moment it is turned off.
- *
- * `assistantId` is the assistant this notification is for, and it is the only
- * id the payload carries. The name and the face are attached only when the
- * hydrated identity and the held avatar both say they belong to that
- * assistant: the identity store and the avatar holder are written at
- * different moments during a switch, so anything looser lets the sender wear
- * one assistant's name over another's face.
- */
-function senderPayload(assistantId: string | undefined): {
-  sender?: NotificationSender;
-} {
-  if (!assistantId || !useClientFeatureFlagStore.getState().pushAvatarSender) {
+type SenderPayload = Pick<
+  ShowNotificationPayload,
+  | "presentation"
+  | "identity"
+  | "nameProvenance"
+  | "suppressGroupTitle"
+  | "sender"
+>;
+
+function resolveSenderAtIntent(
+  args: PostLocalNotificationArgs,
+  electronHost: boolean,
+): NotificationSenderResolution | null {
+  if (
+    !args.identity ||
+    (args.assistantId !== undefined &&
+      args.identity.assistantId !== args.assistantId)
+  ) {
+    return null;
+  }
+  const flags = useClientFeatureFlagStore.getState();
+  const presentationEnabled = electronHost
+    ? flags.pushAvatarSender
+    : flags.localNotificationAvatar;
+  return resolveNotificationSender({
+    presentation: presentationEnabled ? "assistant" : "app",
+    identity: args.identity,
+    assistantName: args.assistantName,
+    identityStoreName: args.identityStoreName,
+    verifiedSnapshot: getNotificationIdentitySnapshot(args.identity),
+    title: args.title,
+  });
+}
+
+function senderPayload(
+  resolution: NotificationSenderResolution | null,
+): SenderPayload {
+  if (!resolution) {
     return {};
   }
-  const avatar = getNotificationAvatar();
-  const identity = useAssistantIdentityStore.getState();
-  if (
-    !avatar ||
-    !identity.name ||
-    avatar.assistantId !== assistantId ||
-    identity.assistantId !== assistantId
-  ) {
-    return {};
+  if (resolution.presentation === "app") {
+    return {
+      presentation: "app",
+      identity: resolution.identity,
+    };
   }
   return {
-    sender: {
-      id: assistantId,
-      name: identity.name,
-      avatarBase64: avatar.avatarBase64,
-      avatarHash: avatar.avatarHash,
-    },
+    presentation: "assistant",
+    identity: resolution.identity,
+    nameProvenance: resolution.nameProvenance,
+    ...(resolution.suppressGroupTitle
+      ? { suppressGroupTitle: resolution.suppressGroupTitle }
+      : {}),
+    ...(resolution.sender ? { sender: resolution.sender } : {}),
   };
 }
 
@@ -499,6 +536,11 @@ function senderPayload(assistantId: string | undefined): {
 export async function postLocalNotification(
   args: PostLocalNotificationArgs,
 ): Promise<void> {
+  const electronHost = isElectron();
+  const senderResolution = resolveSenderAtIntent(args, electronHost);
+  const presentationPayload = senderPayload(senderResolution);
+  const { sender: _sender, ...tapPresentationPayload } = presentationPayload;
+
   if (!isNotificationsSupported()) {
     if (args.assistantId && args.deliveryId) {
       await sendNotificationIntentAck(
@@ -515,7 +557,7 @@ export async function postLocalNotification(
   // `electron.Notification` (supports macOS action buttons). Permission
   // is handled by the main process — we skip the renderer permission
   // dance entirely.
-  if (isElectron() && window.vellum?.notifications) {
+  if (electronHost && window.vellum?.notifications) {
     let success = true;
     let errorMessage: string | undefined;
     try {
@@ -526,7 +568,7 @@ export async function postLocalNotification(
         deliveryId: args.deliveryId,
         conversationId: extractConversationId(args.deepLinkMetadata),
         deepLinkMetadata: args.deepLinkMetadata,
-        ...senderPayload(args.assistantId),
+        ...presentationPayload,
       });
       success = result.success;
       errorMessage = result.errorMessage;
@@ -567,6 +609,7 @@ export async function postLocalNotification(
     conversationId,
     sourceEventName: args.sourceEventName,
     deliveryId: args.deliveryId,
+    ...tapPresentationPayload,
   };
 
   let success = true;
