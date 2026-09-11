@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "fireflies",
+  "version": "1.0.0",
+  "description": "Search meeting transcripts, summaries, and conversation insights.",
+  "homepage": "https://docs.fireflies.ai/getting-started/mcp-configuration",
+  "license": "MIT"
+}

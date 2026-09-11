@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "navan",
+  "version": "1.0.0",
+  "description": "Search business travel, expenses, and company policy information.",
+  "homepage": "https://developer.navan.com/mcp/",
+  "license": "MIT"
+}

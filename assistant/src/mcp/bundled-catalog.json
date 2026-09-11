@@ -2,6 +2,80 @@
   "version": 1,
   "entries": [
     {
+      "id": "amplemarket",
+      "packagePath": "plugins/mcp-catalog/amplemarket",
+      "serverKey": "amplemarket",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Amplemarket",
+      "description": "Find and enrich prospects, then manage outreach sequences.",
+      "documentationUrl": "https://knowledge.amplemarket.com/articles/8022685319-connecting-to-the-amplemarket-mcp-server",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Sign in to the Amplemarket workspace you want to use."
+      },
+      "definitionDigest": "694fabd29eab8aaaa2ec459f1ffb46db6318ec07047746522c18f889bf45579a",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "amplemarket",
+          "version": "1.0.0",
+          "description": "Find and enrich prospects, then manage outreach sequences.",
+          "homepage": "https://knowledge.amplemarket.com/articles/8022685319-connecting-to-the-amplemarket-mcp-server",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "amplemarket": {
+              "type": "streamable-http",
+              "url": "https://mcp.amplemarket.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "ashby",
+      "packagePath": "plugins/mcp-catalog/ashby",
+      "serverKey": "ashby",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Ashby",
+      "description": "Search candidates, prepare interviews, and manage recruiting pipelines.",
+      "documentationUrl": "https://docs.ashbyhq.com/ashby-mcp-server-beta",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "An organization admin must enable MCP. Analytics-only organizations are not supported."
+      },
+      "definitionDigest": "1939a93a13d23a621a75f2fe5c303335120917337665387bbdcafbbac492a304",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "ashby",
+          "version": "1.0.0",
+          "description": "Search candidates, prepare interviews, and manage recruiting pipelines.",
+          "homepage": "https://docs.ashbyhq.com/ashby-mcp-server-beta",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "ashby": {
+              "type": "streamable-http",
+              "url": "https://mcp.ashbyhq.com/mcp/v1"
+            }
+          }
+        }
+      }
+    },
+    {
       "id": "atlassian",
       "packagePath": "plugins/mcp-catalog/atlassian",
       "serverKey": "atlassian",
@@ -66,6 +140,43 @@
       }
     },
     {
+      "id": "attio",
+      "packagePath": "plugins/mcp-catalog/attio",
+      "serverKey": "attio",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Attio",
+      "description": "Search and update CRM records, lists, notes, and tasks.",
+      "documentationUrl": "https://docs.attio.com/mcp/overview",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize the Attio workspace you want to use."
+      },
+      "definitionDigest": "0a913950a64dc5e215f038d7ff1eed791eaa15a6595ef7852e8c7e910ebddea5",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "attio",
+          "version": "1.0.0",
+          "description": "Search and update CRM records, lists, notes, and tasks.",
+          "homepage": "https://docs.attio.com/mcp/overview",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "attio": {
+              "type": "streamable-http",
+              "url": "https://mcp.attio.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
       "id": "brex",
       "packagePath": "plugins/mcp-catalog/brex",
       "serverKey": "brex",
@@ -104,6 +215,193 @@
       }
     },
     {
+      "id": "calendly",
+      "packagePath": "plugins/mcp-catalog/calendly",
+      "serverKey": "calendly",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Calendly",
+      "description": "Review availability, scheduling links, and planned events.",
+      "documentationUrl": "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Sign in to Calendly. Available actions depend on your plan and account permissions."
+      },
+      "oauthProvider": "calendly",
+      "icon": "calendly",
+      "definitionDigest": "b406343260d54f0217c409571cbcdffa683c5b2be28d390498959b1cdb1ff918",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "calendly",
+          "version": "1.0.0",
+          "description": "Review availability, scheduling links, and planned events.",
+          "homepage": "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "calendly": {
+              "type": "streamable-http",
+              "url": "https://mcp.calendly.com/"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "circleback",
+      "packagePath": "plugins/mcp-catalog/circleback",
+      "serverKey": "circleback",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Circleback",
+      "description": "Search meeting notes, transcripts, and action items.",
+      "documentationUrl": "https://support.circleback.ai/en/articles/13249081-circleback-mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Sign in with the Circleback account whose meetings you want to use."
+      },
+      "definitionDigest": "d837a5bb4afc769a264736c4abaa0bc8af3439234cf4d87cc54651d52bc0ee7a",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "circleback",
+          "version": "1.0.0",
+          "description": "Search meeting notes, transcripts, and action items.",
+          "homepage": "https://support.circleback.ai/en/articles/13249081-circleback-mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "circleback": {
+              "type": "streamable-http",
+              "url": "https://circleback.ai/api/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "clay",
+      "packagePath": "plugins/mcp-catalog/clay",
+      "serverKey": "clay",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Clay",
+      "description": "Research, enrich, and update people and company records.",
+      "documentationUrl": "https://university.clay.com/docs/connect-to-clay-mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Requires workspace access. A workspace admin may need to allow MCP connections."
+      },
+      "definitionDigest": "55720de0021f35d5577405f28ba7b3ae50197d74e8e9d73b681738ba066cf1e3",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "clay",
+          "version": "1.0.0",
+          "description": "Research, enrich, and update people and company records.",
+          "homepage": "https://university.clay.com/docs/connect-to-clay-mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "clay": {
+              "type": "streamable-http",
+              "url": "https://api.clay.com/v3/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "craft",
+      "packagePath": "plugins/mcp-catalog/craft",
+      "serverKey": "craft",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Craft",
+      "description": "Search and work with documents in your Craft workspace.",
+      "documentationUrl": "https://www.craft.do/imagine/guide/mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize the Craft workspace and documents you want to use."
+      },
+      "definitionDigest": "9c13d2a29deff221a311f94be025e7f5a1c920bca51dd27fd8341f74ef8ed31c",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "craft",
+          "version": "1.0.0",
+          "description": "Search and work with documents in your Craft workspace.",
+          "homepage": "https://www.craft.do/imagine/guide/mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "craft": {
+              "type": "streamable-http",
+              "url": "https://mcp.craft.do/my/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "customer-io",
+      "packagePath": "plugins/mcp-catalog/customer-io",
+      "serverKey": "customer-io",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Customer.io",
+      "description": "Explore campaigns, broadcasts, segments, and customer activity.",
+      "documentationUrl": "https://docs.customer.io/ai/mcp/get-started/",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "An account admin must enable MCP and choose permissions. This endpoint serves US-region accounts."
+      },
+      "definitionDigest": "9b80ab8292766a1e1295f55e8978b9714c535217b42086a125f3c5628aebd8bb",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "customer-io",
+          "version": "1.0.0",
+          "description": "Explore campaigns, broadcasts, segments, and customer activity.",
+          "homepage": "https://docs.customer.io/ai/mcp/get-started/",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "customer-io": {
+              "type": "streamable-http",
+              "url": "https://mcp.customer.io/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
       "id": "fathom",
       "packagePath": "plugins/mcp-catalog/fathom",
       "serverKey": "fathom",
@@ -136,6 +434,302 @@
             "fathom": {
               "type": "streamable-http",
               "url": "https://api.fathom.ai/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "fireflies",
+      "packagePath": "plugins/mcp-catalog/fireflies",
+      "serverKey": "fireflies",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Fireflies",
+      "description": "Search meeting transcripts, summaries, and conversation insights.",
+      "documentationUrl": "https://docs.fireflies.ai/getting-started/mcp-configuration",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Some tools are experimental or require an Enterprise plan."
+      },
+      "definitionDigest": "3500bbd6e5b682ffc132b8aed8775b8dd87633a39b9a708c7124060842f1c5fa",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "fireflies",
+          "version": "1.0.0",
+          "description": "Search meeting transcripts, summaries, and conversation insights.",
+          "homepage": "https://docs.fireflies.ai/getting-started/mcp-configuration",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "fireflies": {
+              "type": "streamable-http",
+              "url": "https://api.fireflies.ai/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "gamma",
+      "packagePath": "plugins/mcp-catalog/gamma",
+      "serverKey": "gamma",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Gamma",
+      "description": "Create presentations, documents, and social posts.",
+      "documentationUrl": "https://developers.gamma.app/mcp/gamma-mcp-server.md",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Requires a Gamma account. Generations consume account credits."
+      },
+      "definitionDigest": "7be3ae5373d353e872632f6f377903165f8c8584a9cd64907eaf53709807433e",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "gamma",
+          "version": "1.0.0",
+          "description": "Create presentations, documents, and social posts.",
+          "homepage": "https://developers.gamma.app/mcp/gamma-mcp-server.md",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "gamma": {
+              "type": "streamable-http",
+              "url": "https://mcp.gamma.app/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "guru",
+      "packagePath": "plugins/mcp-catalog/guru",
+      "serverKey": "guru",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Guru",
+      "description": "Search trusted company knowledge and source documents.",
+      "documentationUrl": "https://developer.getguru.com/docs/guru-mcp-server-overview",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Sign in to the Guru workspace you want to search."
+      },
+      "definitionDigest": "a49c21f282e2f8867d1fce1c1c8faa902bc1f548fc368482f40af3f71c8f27d5",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "guru",
+          "version": "1.0.0",
+          "description": "Search trusted company knowledge and source documents.",
+          "homepage": "https://developer.getguru.com/docs/guru-mcp-server-overview",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "guru": {
+              "type": "streamable-http",
+              "url": "https://mcp.api.getguru.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "interactive-brokers",
+      "packagePath": "plugins/mcp-catalog/interactive-brokers",
+      "serverKey": "interactive-brokers",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Interactive Brokers",
+      "description": "Review portfolios, market data, and brokerage account activity.",
+      "documentationUrl": "https://www.interactivebrokers.com/en/trading/ai-integrations.php",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize one Interactive Brokers account. This integration is unavailable to customers in India or Japan."
+      },
+      "definitionDigest": "81fe04b690e6b0d22072182682f17dd9b89f4deb0dd14729f170a757ba8de228",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "interactive-brokers",
+          "version": "1.0.0",
+          "description": "Review portfolios, market data, and brokerage account activity.",
+          "homepage": "https://www.interactivebrokers.com/en/trading/ai-integrations.php",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "interactive-brokers": {
+              "type": "streamable-http",
+              "url": "https://api.ibkr.com/v1/api/mcp-public"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "intercom",
+      "packagePath": "plugins/mcp-catalog/intercom",
+      "serverKey": "intercom",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Intercom",
+      "description": "Search conversations, contacts, tickets, and help center content.",
+      "documentationUrl": "https://developers.intercom.com/docs/guides/mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "This endpoint serves US-hosted Intercom workspaces. Australian workspaces are not supported."
+      },
+      "definitionDigest": "e61d899037e85720fcc3bb22cb43b88a0459a5890718f7fa9a6aba39ea123763",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "intercom",
+          "version": "1.0.0",
+          "description": "Search conversations, contacts, tickets, and help center content.",
+          "homepage": "https://developers.intercom.com/docs/guides/mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "intercom": {
+              "type": "streamable-http",
+              "url": "https://mcp.intercom.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "jotform",
+      "packagePath": "plugins/mcp-catalog/jotform",
+      "serverKey": "jotform",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Jotform",
+      "description": "Find forms, submissions, reports, and workspace data.",
+      "documentationUrl": "https://www.jotform.com/mcp/",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "A workspace admin must install the Jotform MCP app before individual authorization."
+      },
+      "definitionDigest": "52f4e3eb5e0ad9c50a73d5407b4ad9aba44fb8fd95e5584ab9b700baa9d1aa4f",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "jotform",
+          "version": "1.0.0",
+          "description": "Find forms, submissions, reports, and workspace data.",
+          "homepage": "https://www.jotform.com/mcp/",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "jotform": {
+              "type": "streamable-http",
+              "url": "https://mcp.jotform.com"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "juicebox",
+      "packagePath": "plugins/mcp-catalog/juicebox",
+      "serverKey": "juicebox",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Juicebox",
+      "description": "Search talent profiles and market intelligence.",
+      "documentationUrl": "https://docs.juicebox.ai/juicebox-mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Requires a paid Juicebox plan. Some exports count against plan limits."
+      },
+      "definitionDigest": "dede09b305b8b8c4c9bc0c8604192ca6605c83893ac2182652113d2f0dd1a80c",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "juicebox",
+          "version": "1.0.0",
+          "description": "Search talent profiles and market intelligence.",
+          "homepage": "https://docs.juicebox.ai/juicebox-mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "juicebox": {
+              "type": "streamable-http",
+              "url": "https://mcp.juicebox.ai/v1"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "klaviyo",
+      "packagePath": "plugins/mcp-catalog/klaviyo",
+      "serverKey": "klaviyo",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Klaviyo",
+      "description": "Analyze campaigns, profiles, segments, and marketing performance.",
+      "documentationUrl": "https://developers.klaviyo.com/en/docs/klaviyo_mcp_server",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Requires an Owner, Admin, or Manager role in Klaviyo."
+      },
+      "definitionDigest": "17e203554c19843c7acc6a8ee2d772c09cc7f0d95e1a9593d2bdb80e9761a438",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "klaviyo",
+          "version": "1.0.0",
+          "description": "Analyze campaigns, profiles, segments, and marketing performance.",
+          "homepage": "https://developers.klaviyo.com/en/docs/klaviyo_mcp_server",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "klaviyo": {
+              "type": "streamable-http",
+              "url": "https://mcp.klaviyo.com/mcp"
             }
           }
         }
@@ -181,6 +775,191 @@
       }
     },
     {
+      "id": "mailerlite",
+      "packagePath": "plugins/mcp-catalog/mailerlite",
+      "serverKey": "mailerlite",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "MailerLite",
+      "description": "Manage subscribers, groups, campaigns, and automations.",
+      "documentationUrl": "https://developers.mailerlite.com/mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize the MailerLite account you want to use."
+      },
+      "definitionDigest": "4fb78f45bf9a35bde9ef800ad5648a7c9b1365d17a1bd703b7049ecdc877b98a",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "mailerlite",
+          "version": "1.0.0",
+          "description": "Manage subscribers, groups, campaigns, and automations.",
+          "homepage": "https://developers.mailerlite.com/mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "mailerlite": {
+              "type": "streamable-http",
+              "url": "https://mcp.mailerlite.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "meltwater",
+      "packagePath": "plugins/mcp-catalog/meltwater",
+      "serverKey": "meltwater",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Meltwater",
+      "description": "Research media coverage, social conversations, and brand insights.",
+      "documentationUrl": "https://developer.meltwater.com/guides/meltwater-mcp/overview/",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Your Meltwater subscription must include the MCP package."
+      },
+      "definitionDigest": "33a650193bc5308cb85b53b289da077bd22421db473d8db3082732504b761e36",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "meltwater",
+          "version": "1.0.0",
+          "description": "Research media coverage, social conversations, and brand insights.",
+          "homepage": "https://developer.meltwater.com/guides/meltwater-mcp/overview/",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "meltwater": {
+              "type": "streamable-http",
+              "url": "https://api.meltwater.com/v2/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "mem",
+      "packagePath": "plugins/mcp-catalog/mem",
+      "serverKey": "mem",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Mem",
+      "description": "Search, create, and organize notes in Mem.",
+      "documentationUrl": "https://docs.mem.ai/mcp/overview",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize the Mem account and content you want to use."
+      },
+      "definitionDigest": "fde406a4d4c672b2603e87658c08472005a5a1248960ff60c376a0067178afb4",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "mem",
+          "version": "1.0.0",
+          "description": "Search, create, and organize notes in Mem.",
+          "homepage": "https://docs.mem.ai/mcp/overview",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "mem": {
+              "type": "streamable-http",
+              "url": "https://mcp.mem.ai/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "mercury",
+      "packagePath": "plugins/mcp-catalog/mercury",
+      "serverKey": "mercury",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Mercury",
+      "description": "Review accounts, transactions, payments, and company finances.",
+      "documentationUrl": "https://docs.mercury.com/docs/what-is-mercury-mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Sign in to the Mercury organization whose financial data you want to use."
+      },
+      "definitionDigest": "5312dfa5c0ae32c7007fe8021f2ab59c5a7c5f51d1bbce2308def22ec738edfb",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "mercury",
+          "version": "1.0.0",
+          "description": "Review accounts, transactions, payments, and company finances.",
+          "homepage": "https://docs.mercury.com/docs/what-is-mercury-mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "mercury": {
+              "type": "streamable-http",
+              "url": "https://mcp.mercury.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "navan",
+      "packagePath": "plugins/mcp-catalog/navan",
+      "serverKey": "navan",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Navan",
+      "description": "Search business travel, expenses, and company policy information.",
+      "documentationUrl": "https://developer.navan.com/mcp/",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "A Navan admin must enable MCP for your organization."
+      },
+      "definitionDigest": "820b277e1e1c35a75304777c2f57c4a0ae70432ce9b9f5e3f75ead2dbf3ce7d5",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "navan",
+          "version": "1.0.0",
+          "description": "Search business travel, expenses, and company policy information.",
+          "homepage": "https://developer.navan.com/mcp/",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "navan": {
+              "type": "streamable-http",
+              "url": "https://mcp.navan.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
       "id": "notion",
       "packagePath": "plugins/mcp-catalog/notion",
       "serverKey": "notion",
@@ -220,6 +999,117 @@
       }
     },
     {
+      "id": "otter",
+      "packagePath": "plugins/mcp-catalog/otter",
+      "serverKey": "otter",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Otter.ai",
+      "description": "Search meeting conversations and transcripts.",
+      "documentationUrl": "https://help.otter.ai/hc/en-us/articles/35287607569687-Otter-MCP-Server",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Sign in with the Otter account whose conversations you want to use."
+      },
+      "definitionDigest": "e06b2a6b696b485248d487e5d63d185deb6b5e71e020b4bde19d097fbb1bb092",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "otter",
+          "version": "1.0.0",
+          "description": "Search meeting conversations and transcripts.",
+          "homepage": "https://help.otter.ai/hc/en-us/articles/35287607569687-Otter-MCP-Server",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "otter": {
+              "type": "streamable-http",
+              "url": "https://mcp.otter.ai/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "outreach",
+      "packagePath": "plugins/mcp-catalog/outreach",
+      "serverKey": "outreach",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Outreach",
+      "description": "Search prospects, accounts, sequences, and sales activity.",
+      "documentationUrl": "https://developers.outreach.io/mcp-server",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "An Outreach admin must enable MCP Server in organization AI settings."
+      },
+      "definitionDigest": "308b62ff7061c9739706cd69e46bb2dcbb4b0ef3373f28485e07800de752d2ab",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "outreach",
+          "version": "1.0.0",
+          "description": "Search prospects, accounts, sequences, and sales activity.",
+          "homepage": "https://developers.outreach.io/mcp-server",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "outreach": {
+              "type": "streamable-http",
+              "url": "https://api.outreach.io/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "profound",
+      "packagePath": "plugins/mcp-catalog/profound",
+      "serverKey": "profound",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Profound",
+      "description": "Analyze brand visibility and performance in AI search.",
+      "documentationUrl": "https://docs.tryprofound.com/mcp/overview",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize the Profound workspace you want to analyze."
+      },
+      "definitionDigest": "03b4edf75e6d92ba391c171eb596ca6884a6ce49937ff63e8c635c94dd3b8118",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "profound",
+          "version": "1.0.0",
+          "description": "Analyze brand visibility and performance in AI search.",
+          "homepage": "https://docs.tryprofound.com/mcp/overview",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "profound": {
+              "type": "streamable-http",
+              "url": "https://mcp.tryprofound.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
       "id": "ramp",
       "packagePath": "plugins/mcp-catalog/ramp",
       "serverKey": "ramp",
@@ -252,6 +1142,80 @@
             "ramp": {
               "type": "streamable-http",
               "url": "https://mcp.ramp.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "readwise",
+      "packagePath": "plugins/mcp-catalog/readwise",
+      "serverKey": "readwise",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Readwise",
+      "description": "Search highlights, documents, and reading notes.",
+      "documentationUrl": "https://docs.readwise.io/tools/mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize the Readwise library you want to use."
+      },
+      "definitionDigest": "7ca2989af419cf15233cad83d753f48e53dcdca3c1d2167a324ab08f072a31e3",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "readwise",
+          "version": "1.0.0",
+          "description": "Search highlights, documents, and reading notes.",
+          "homepage": "https://docs.readwise.io/tools/mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "readwise": {
+              "type": "streamable-http",
+              "url": "https://mcp2.readwise.io/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "semrush",
+      "packagePath": "plugins/mcp-catalog/semrush",
+      "serverKey": "semrush",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Semrush",
+      "description": "Research keywords, competitors, backlinks, and site performance.",
+      "documentationUrl": "https://developer.semrush.com/api/v4/introduction/semrush-mcp/",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Your Semrush plan must include API units. Requests consume those units."
+      },
+      "definitionDigest": "67a7a9e5c2943fb56a3952d648afa74967812fa4a7ce4f1f40e62b8bb1faed4c",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "semrush",
+          "version": "1.0.0",
+          "description": "Research keywords, competitors, backlinks, and site performance.",
+          "homepage": "https://developer.semrush.com/api/v4/introduction/semrush-mcp/",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "semrush": {
+              "type": "streamable-http",
+              "url": "https://mcp.semrush.com/v2/mcp"
             }
           }
         }
@@ -328,6 +1292,156 @@
             "stripe": {
               "type": "streamable-http",
               "url": "https://mcp.stripe.com"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "todoist",
+      "packagePath": "plugins/mcp-catalog/todoist",
+      "serverKey": "todoist",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Todoist",
+      "description": "Find and manage tasks, projects, sections, and comments.",
+      "documentationUrl": "https://github.com/Doist/todoist-mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize the Todoist account whose tasks and projects you want to use."
+      },
+      "oauthProvider": "todoist",
+      "icon": "todoist",
+      "definitionDigest": "398bbf898891ed2d684fe2fb702808b8f098ca14c1deb91f06d303c3ece7adf0",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "todoist",
+          "version": "1.0.0",
+          "description": "Find and manage tasks, projects, sections, and comments.",
+          "homepage": "https://github.com/Doist/todoist-mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "todoist": {
+              "type": "streamable-http",
+              "url": "https://ai.todoist.net/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "typeform",
+      "packagePath": "plugins/mcp-catalog/typeform",
+      "serverKey": "typeform",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Typeform",
+      "description": "Create and analyze forms, responses, and workspaces.",
+      "documentationUrl": "https://developers.typeform.com/developers/get-started/mcp/",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "This endpoint serves standard Typeform accounts. EU-hosted accounts use a separate regional endpoint."
+      },
+      "definitionDigest": "6f56d0c2d2c42f1bc1004be0c8c98238d2c13215b0fd1c966ed8f85feaf69e98",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "typeform",
+          "version": "1.0.0",
+          "description": "Create and analyze forms, responses, and workspaces.",
+          "homepage": "https://developers.typeform.com/developers/get-started/mcp/",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "typeform": {
+              "type": "streamable-http",
+              "url": "https://api.typeform.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "upwork",
+      "packagePath": "plugins/mcp-catalog/upwork",
+      "serverKey": "upwork",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Upwork",
+      "description": "Search talent and manage hiring work on Upwork.",
+      "documentationUrl": "https://www.upwork.com/ai/mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Sign in to the Upwork account you want to use."
+      },
+      "definitionDigest": "263faefb7a1314cbfc9995898d8c67e127f6fd1d8ea532681878cfdbdeff38b6",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "upwork",
+          "version": "1.0.0",
+          "description": "Search talent and manage hiring work on Upwork.",
+          "homepage": "https://www.upwork.com/ai/mcp",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "upwork": {
+              "type": "streamable-http",
+              "url": "https://mcp.upwork.com/mcp"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "webull",
+      "packagePath": "plugins/mcp-catalog/webull",
+      "serverKey": "webull",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Webull",
+      "description": "Review brokerage accounts, orders, positions, and market data.",
+      "documentationUrl": "https://developer.webull.com/apis/docs/AI-friendly-Resources/mcp/",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize specific accounts and capabilities. Hong Kong accounts use a separate regional endpoint."
+      },
+      "definitionDigest": "d322af9b9dd71ac3d90d7b7c647a0c755a017910e37e906e66bbd9bd2d4d6881",
+      "documents": {
+        "plugin": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          "name": "webull",
+          "version": "1.0.0",
+          "description": "Review brokerage accounts, orders, positions, and market data.",
+          "homepage": "https://developer.webull.com/apis/docs/AI-friendly-Resources/mcp/",
+          "license": "MIT"
+        },
+        "mcp": {
+          "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          "mcpServers": {
+            "webull": {
+              "type": "streamable-http",
+              "url": "https://api.webull.com/mcp"
             }
           }
         }

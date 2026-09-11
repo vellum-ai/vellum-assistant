@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "typeform",
+  "version": "1.0.0",
+  "description": "Create and analyze forms, responses, and workspaces.",
+  "homepage": "https://developers.typeform.com/developers/get-started/mcp/",
+  "license": "MIT"
+}

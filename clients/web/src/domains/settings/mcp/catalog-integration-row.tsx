@@ -47,7 +47,14 @@ export function CatalogIntegrationRow({
     summarizeIntegrationConnections([], servers).connectedCount > 0;
   return (
     <IntegrationListRow
-      icon={<McpIntegrationIcon providerKey={definition.icon} />}
+      icon={
+        <McpIntegrationIcon
+          providerKey={definition.icon}
+          endpointUrl={
+            definition.documents.mcp?.mcpServers?.[definition.serverKey]?.url
+          }
+        />
+      }
       title={definition.displayName}
       subtitle={definition.description}
       status={

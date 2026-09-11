@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "jotform",
+  "version": "1.0.0",
+  "description": "Find forms, submissions, reports, and workspace data.",
+  "homepage": "https://www.jotform.com/mcp/",
+  "license": "MIT"
+}

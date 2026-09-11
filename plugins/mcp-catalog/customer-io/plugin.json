@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "customer-io",
+  "version": "1.0.0",
+  "description": "Explore campaigns, broadcasts, segments, and customer activity.",
+  "homepage": "https://docs.customer.io/ai/mcp/get-started/",
+  "license": "MIT"
+}

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "calendly",
+  "version": "1.0.0",
+  "description": "Review availability, scheduling links, and planned events.",
+  "homepage": "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
+  "license": "MIT"
+}

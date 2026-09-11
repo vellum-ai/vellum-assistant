@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "outreach",
+  "version": "1.0.0",
+  "description": "Search prospects, accounts, sequences, and sales activity.",
+  "homepage": "https://developers.outreach.io/mcp-server",
+  "license": "MIT"
+}

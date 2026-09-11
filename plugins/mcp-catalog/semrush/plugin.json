@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "semrush",
+  "version": "1.0.0",
+  "description": "Research keywords, competitors, backlinks, and site performance.",
+  "homepage": "https://developer.semrush.com/api/v4/introduction/semrush-mcp/",
+  "license": "MIT"
+}

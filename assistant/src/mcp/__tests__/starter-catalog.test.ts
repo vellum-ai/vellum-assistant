@@ -13,14 +13,44 @@ import {
 describe("reviewed starter MCP catalog", () => {
   test("bundles all requested providers with usable standard definitions and honest verification", () => {
     expect(bundledCatalog.entries.map((entry) => entry.id)).toEqual([
+      "amplemarket",
+      "ashby",
       "atlassian",
+      "attio",
       "brex",
+      "calendly",
+      "circleback",
+      "clay",
+      "craft",
+      "customer-io",
       "fathom",
+      "fireflies",
+      "gamma",
+      "guru",
+      "interactive-brokers",
+      "intercom",
+      "jotform",
+      "juicebox",
+      "klaviyo",
       "linear",
+      "mailerlite",
+      "meltwater",
+      "mem",
+      "mercury",
+      "navan",
       "notion",
+      "otter",
+      "outreach",
+      "profound",
       "ramp",
+      "readwise",
+      "semrush",
       "sentry",
       "stripe",
+      "todoist",
+      "typeform",
+      "upwork",
+      "webull",
     ]);
     for (const entry of bundledCatalog.entries) {
       const result = parseStandardDefinitions(
@@ -39,7 +69,9 @@ describe("reviewed starter MCP catalog", () => {
       );
       expect(entry.verification).toBe("documentation-only");
       expect(entry.setup.instructions.length).toBeGreaterThan(0);
-      expect(entry.icon).toBe(entry.id);
+      if ("icon" in entry) {
+        expect(entry.icon).toBe(entry.id);
+      }
     }
   });
 
@@ -53,7 +85,7 @@ describe("reviewed starter MCP catalog", () => {
           ? [entry.oauthProvider]
           : [],
       ),
-    ).toEqual(["linear", "notion"]);
+    ).toEqual(["calendly", "linear", "notion", "todoist"]);
     expect(
       bundledCatalog.entries.find((entry) => entry.id === "asana"),
     ).toBeUndefined();
