@@ -1944,6 +1944,48 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(processing("conv-1")).toBe(true);
     });
 
+    test("a later queued snapshot retracts the provisional recovery", async () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+
+      await waitFor(() => expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD));
+      expect(processing("conv-1")).toBe(false);
+
+      fetchConversationMessagesMock = mock(
+        async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+          messages: [
+            {
+              id: "req-1",
+              clientMessageId: "cm-1",
+              role: "user",
+              timestamp: new Date().toISOString(),
+              attachments: [],
+              queueStatus: "queued",
+              queuePosition: 1,
+            },
+          ],
+          processing: true,
+        }),
+      );
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+
+      await waitFor(() => expect(heldFor("surf-1")).toBeUndefined());
+      expect(detachedQueuedFor("cm-1")).toBeDefined();
+      expect(awaiting("conv-1")).toBe(true);
+      expect(queued("conv-1")).toBe(true);
+      expect(processing("conv-1")).toBe(true);
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    });
+
     test("a late failure from the detached stream recovers its queued send", () => {
       useDocumentComposerReplyStore
         .getState()

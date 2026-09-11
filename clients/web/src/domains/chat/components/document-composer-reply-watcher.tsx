@@ -227,12 +227,20 @@ export function DocumentComposerReplyWatcher() {
               (send.serverMessageId !== undefined &&
                 candidate.id === send.serverMessageId),
           );
+          if (message !== undefined) {
+            acceptCorrelatedRecovery(
+              clientMessageId,
+              message.queueStatus !== "queued",
+            );
+          }
           if (message?.queueStatus === "queued") {
+            replyStore.markReplyQueued(conversationId, clientMessageId);
+            markProcessingWhenPending(conversationId);
             continue;
           }
           if (message !== undefined && snapshot?.processing === true) {
-            replyStore.dropDetachedQueuedSend(clientMessageId);
             replyStore.markReplyRunning(conversationId, clientMessageId);
+            markProcessingWhenPending(conversationId);
             continue;
           }
           if (message === undefined) {
@@ -258,7 +266,6 @@ export function DocumentComposerReplyWatcher() {
             continue;
           }
 
-          replyStore.dropDetachedQueuedSend(clientMessageId);
           replyStore.stopAwaitingReply(conversationId, clientMessageId);
           clearProcessingWhenSettled(conversationId);
         }

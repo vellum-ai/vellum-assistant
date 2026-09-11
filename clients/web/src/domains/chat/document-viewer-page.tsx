@@ -74,7 +74,10 @@ export function DocumentViewerPage() {
   // mirrored into a ref for the in-flight action to check against. The owner
   // generation permanently invalidates an action after any intervening route
   // or assistant switch, including a switch away and back to the same pair.
-  const feedbackInFlightRef = useRef<string | null>(null);
+  const feedbackInFlightRef = useRef<{
+    surfaceId: string;
+    ownerGeneration: number;
+  } | null>(null);
   const feedbackOwnerGenerationRef = useRef(0);
   const routeSurfaceIdRef = useRef<string | undefined>(surfaceId);
   useEffect(() => {
@@ -166,16 +169,18 @@ export function DocumentViewerPage() {
   });
 
   const handleSubmitFeedback = useCallback(async () => {
+    const ownerGeneration = feedbackOwnerGenerationRef.current;
     if (
       !doc ||
       !assistantId ||
       !surfaceId ||
-      feedbackInFlightRef.current === surfaceId
+      (feedbackInFlightRef.current?.surfaceId === surfaceId &&
+        feedbackInFlightRef.current.ownerGeneration === ownerGeneration)
     ) {
       return;
     }
-    const ownerGeneration = feedbackOwnerGenerationRef.current;
-    feedbackInFlightRef.current = surfaceId;
+    const attempt = { surfaceId, ownerGeneration };
+    feedbackInFlightRef.current = attempt;
     try {
       // Every await below is a window the user can switch assistants or move
       // the route to another document inside. The row this mints and links
@@ -273,7 +278,7 @@ export function DocumentViewerPage() {
         `${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`,
       );
     } finally {
-      if (feedbackInFlightRef.current === surfaceId) {
+      if (feedbackInFlightRef.current === attempt) {
         feedbackInFlightRef.current = null;
       }
     }

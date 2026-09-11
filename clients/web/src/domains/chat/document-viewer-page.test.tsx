@@ -202,6 +202,77 @@ describe("DocumentViewerPage", () => {
     expect(useViewerStore.getState().openedDocumentState).toBeNull();
   });
 
+  test("a stale feedback attempt cannot unlock a newer attempt for the same document", async () => {
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+    let resolveFirstVersion: () => void = () => {};
+    let resolveSecondVersion: () => void = () => {};
+    let resolveThirdVersion: () => void = () => {};
+    whenAssistantVersionKnownForMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirstVersion = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveSecondVersion = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveThirdVersion = resolve;
+          }),
+      );
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+    let firstAttempt: Promise<void> = Promise.resolve();
+    await act(async () => {
+      firstAttempt = (viewerProps?.onSubmitFeedback as () => Promise<void>)();
+    });
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    });
+    await waitFor(() => expect(viewerProps?.assistantId).toBe("asst-2"));
+    let secondAttempt: Promise<void> = Promise.resolve();
+    await act(async () => {
+      secondAttempt = (
+        viewerProps?.onSubmitFeedback as () => Promise<void>
+      )();
+    });
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+    });
+    await waitFor(() => expect(viewerProps?.assistantId).toBe("asst-1"));
+    const currentSubmit = viewerProps?.onSubmitFeedback as () => Promise<void>;
+    let thirdAttempt: Promise<void> = Promise.resolve();
+    await act(async () => {
+      thirdAttempt = currentSubmit();
+    });
+
+    await act(async () => {
+      resolveFirstVersion();
+      await firstAttempt;
+    });
+    await act(async () => {
+      await currentSubmit();
+    });
+
+    expect(whenAssistantVersionKnownForMock).toHaveBeenCalledTimes(3);
+
+    assistantVersionKnown = false;
+    await act(async () => {
+      resolveSecondVersion();
+      resolveThirdVersion();
+      await Promise.all([secondAttempt, thirdAttempt]);
+    });
+  });
+
   test("clears the unseen change for the document it loaded", async () => {
     useUnseenDocumentChangesStore
       .getState()
