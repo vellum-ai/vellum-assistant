@@ -170,8 +170,9 @@ export interface GuardianFeedReceiptParams {
  * attention" treatment and becomes an ordinary clearable notification,
  * and an item still marked `new` is marked `seen`: a request settled on
  * any surface is no longer something the user has to review, and leaving
- * it unread is a false attention signal. Only `new` advances, so a
- * status the user set survives a caller that receipts twice.
+ * it unread is a false attention signal. That clear happens only on the
+ * edge into terminal, so a status the user set later (including marking
+ * the receipt unread again) survives a caller that receipts twice.
  *
  * Returns false only when the write itself failed, so the withdrawal
  * fan-out can hold its per-request receipt back and retry (same
@@ -202,7 +203,15 @@ export async function writeGuardianFeedReceipt(
     }
     const updated = await patchFeedItemContent(itemId, {
       urgency: "medium",
-      status: (existing) => (existing === "new" ? "seen" : existing),
+      // Only on the edge into terminal. A later receipt for the same
+      // request (the fan-out retries per surface, and reconciliation
+      // heals drift) must leave the status alone, or it would undo a
+      // user who deliberately marked the receipt unread again.
+      status: (existing) =>
+        existing.status === "new" &&
+        existing.guardianRequest?.status === "pending"
+          ? "seen"
+          : existing.status,
       guardianRequest: (existing) => ({
         ...existing,
         status: params.status,

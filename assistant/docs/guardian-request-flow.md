@@ -77,9 +77,10 @@ it end to end:
   `guardianRequest.status` withdraws every client affordance, urgency
   drops to `medium` to leave the "Needs attention" treatment, and a
   still-`new` item is marked `seen` (unread means the user has
-  something to review, which a resolved request is not). Only `new`
-  advances, so re-running the fan-out cannot pull a cleared receipt
-  back into the bell.
+  something to review, which a resolved request is not). That clear
+  runs only on the edge into terminal, so re-running the fan-out
+  neither pulls a cleared receipt back into the bell nor undoes a user
+  who marked the receipt unread again.
 - The feed writer's bulk-dismiss pass skips pending guardian items
   (`isPendingGuardianFeedItem`), so "Clear all" can never retire an
   unresolved request; only its receipt is clearable.

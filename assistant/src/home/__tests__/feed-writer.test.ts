@@ -472,8 +472,8 @@ describe("feed-writer", () => {
       const observed: string[] = [];
       const conditional = await patchFeedItemContent("item-1", {
         status: (existing) => {
-          observed.push(existing);
-          return existing === "new" ? "seen" : existing;
+          observed.push(existing.status);
+          return existing.status === "new" ? "seen" : existing.status;
         },
       });
       expect(observed).toEqual(["acted_on"]);

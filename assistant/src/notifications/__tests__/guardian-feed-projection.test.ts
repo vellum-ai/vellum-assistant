@@ -309,6 +309,21 @@ describe("writeGuardianFeedReceipt", () => {
     );
   });
 
+  test("a receipt the user marked unread again stays unread", async () => {
+    await appendFeedItem(pendingGuardianItem("req-9"));
+    const itemId = guardianFeedItemId("req-9");
+    await writeGuardianFeedReceipt({ requestId: "req-9", status: "approved" });
+    // The bell detail's read toggle writes `new` back onto a resolved
+    // receipt. The clear runs on the edge into terminal, which has
+    // already passed, so a later receipt must not take it back.
+    await patchFeedItemStatus(itemId, "new");
+    await writeGuardianFeedReceipt({ requestId: "req-9", status: "approved" });
+
+    expect(readHomeFeed().items.find((i) => i.id === itemId)?.status).toBe(
+      "new",
+    );
+  });
+
   test("a request with no item resolves true (nothing to retry)", async () => {
     expect(
       await writeGuardianFeedReceipt({ requestId: "ghost", status: "expired" }),

@@ -187,11 +187,11 @@ export interface FeedItemContentPatch {
   urgency?: FeedItemUrgency;
   /**
    * New status, or an updater applied inside the coalescing queue so it
-   * reads the status as of write time. Use the updater for a conditional
+   * reads the item as of write time. Use the updater for a conditional
    * transition: a plain value would overwrite a status another writer
    * set while the patch sat in the queue.
    */
-  status?: FeedItemStatus | ((existing: FeedItemStatus) => FeedItemStatus);
+  status?: FeedItemStatus | ((existing: FeedItem) => FeedItemStatus);
   /**
    * Updater for the item's guardian projection, applied inside the
    * coalescing queue so it reads the projection as of write time (a
@@ -407,7 +407,7 @@ async function runWrite(): Promise<void> {
     if (patch.status !== undefined) {
       updated.status =
         typeof patch.status === "function"
-          ? patch.status(existing.status)
+          ? patch.status(existing)
           : patch.status;
     }
     if (patch.guardianRequest !== undefined && existing.guardianRequest) {
