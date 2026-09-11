@@ -962,8 +962,9 @@ automatically through Vite and [npm lifecycle hooks](https://docs.npmjs.com/cli/
   never reproduce in CI.
 - **Vite development server**: regenerates before serving, including when
   Vite is launched directly. Changes to the committed OpenAPI specs or
-  generator configuration restart the server and regenerate clients before
-  the browser reloads. This keeps imports valid across branch switches.
+  generator configuration queue client regeneration. Changes received during
+  generation trigger another pass, and Vite watches the generated output for
+  browser updates. This keeps clients current across branch switches.
 - **`pretypecheck`**: runs before every `bun run typecheck`; regenerates
   for the same reason. A bare `bunx tsc --noEmit` bypasses this hook, so
   prefer `bun run typecheck`.
@@ -976,7 +977,7 @@ CLI also get codegen via `vel up --vite`.
 
 ```bash
 ./scripts/sync-openapi-specs.sh   # copies from sibling platform checkout
-bun run dev                       # predev regenerates automatically
+bun run dev                       # Vite regenerates automatically
 ```
 
 Plugins (configured in `openapi-ts.config.ts`):
