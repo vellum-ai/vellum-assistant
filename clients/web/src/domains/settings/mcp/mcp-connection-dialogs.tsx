@@ -47,7 +47,8 @@ export function McpConnectionDialogs({
             </p>
             <div className="flex flex-wrap gap-2">
               {auth.attempt.phase === "error" ||
-              auth.attempt.phase === "waiting" ? (
+              auth.attempt.phase === "waiting" ||
+              auth.attempt.phase === "cancellationCleanup" ? (
                 <Button
                   variant="outlined"
                   onClick={auth.retry}

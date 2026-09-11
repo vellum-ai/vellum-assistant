@@ -329,6 +329,48 @@ describe("useMcpConnect", () => {
     expect(popup.close).toHaveBeenCalledTimes(1);
   });
 
+  test("failed cancellation retries cleanup for the same attempt before reconnecting", async () => {
+    const retryCleanup = deferred<{ cancelled: boolean }>();
+    cancel.mockImplementationOnce(async () => {
+      throw new Error("Credential cleanup failed");
+    });
+    cancel.mockImplementationOnce(() => retryCleanup.promise);
+    const { result } = renderConnect();
+    act(() => result.current.connect("example-integration"));
+    await waitFor(() => expect(result.current.canCancel).toBe(true));
+
+    await act(() => result.current.dismiss());
+    expect(result.current.attempt?.phase).toBe("cancellationCleanup");
+    expect(result.current.isBusy).toBe(true);
+    expect(start).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.retry();
+      result.current.retry();
+      result.current.connect("another-integration");
+    });
+    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(cancel).toHaveBeenNthCalledWith(
+      1,
+      "assistant-1",
+      "example-integration",
+      "attempt-1",
+    );
+    expect(cancel).toHaveBeenNthCalledWith(
+      2,
+      "assistant-1",
+      "example-integration",
+      "attempt-1",
+    );
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(result.current.attempt?.serverId).toBe("example-integration");
+    expect(result.current.isCancelling).toBe(true);
+
+    act(() => retryCleanup.resolve({ cancelled: true }));
+    await waitFor(() => expect(result.current.attempt).toBeNull());
+    expect(popup.close).toHaveBeenCalledTimes(1);
+  });
+
   test("old assistants stop local waiting without calling cancellation", async () => {
     start.mockImplementationOnce(async () => ({
       state: "oauth-state",

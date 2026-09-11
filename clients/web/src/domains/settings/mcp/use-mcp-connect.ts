@@ -26,7 +26,13 @@ interface McpConnectAttempt {
   serverId: string;
   displayName: string;
   startedAt: number;
-  phase: "starting" | "authorizing" | "waiting" | "connecting" | "error";
+  phase:
+    | "starting"
+    | "authorizing"
+    | "waiting"
+    | "connecting"
+    | "cancellationCleanup"
+    | "error";
   attemptId?: string;
   error?: string;
 }
@@ -37,6 +43,7 @@ export function useMcpConnect(assistantId: string) {
   const [attempt, setAttempt] = useState<McpConnectAttempt | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const activeOperation = useRef<string | null>(null);
+  const cancellingOperation = useRef<string | null>(null);
   const ownedPopup = useRef<Window | null>(null);
   const pendingPreparation = useRef<{
     operationId: string;
@@ -45,6 +52,7 @@ export function useMcpConnect(assistantId: string) {
 
   const stopWaiting = useCallback(() => {
     activeOperation.current = null;
+    cancellingOperation.current = null;
     pendingPreparation.current = null;
     ownedPopup.current?.close();
     ownedPopup.current = null;
@@ -56,6 +64,7 @@ export function useMcpConnect(assistantId: string) {
     stopWaiting();
     return () => {
       activeOperation.current = null;
+      cancellingOperation.current = null;
       pendingPreparation.current = null;
       ownedPopup.current?.close();
       ownedPopup.current = null;
@@ -64,6 +73,8 @@ export function useMcpConnect(assistantId: string) {
 
   const awaitingAuthorization =
     attempt?.phase === "authorizing" || attempt?.phase === "waiting";
+  const attemptFailed =
+    attempt?.phase === "cancellationCleanup" || attempt?.phase === "error";
   const authStatus = useQuery({
     queryKey: mcpQueryKeys.auth(assistantId, attempt?.operationId ?? ""),
     queryFn: () => pollMcpAuthStatus(assistantId, attempt!.serverId),
@@ -160,7 +171,7 @@ export function useMcpConnect(assistantId: string) {
   ]);
 
   useEffect(() => {
-    if (!attempt || attempt.phase === "error") {
+    if (!attempt || attemptFailed) {
       return;
     }
     const error = awaitingAuthorization
@@ -176,10 +187,17 @@ export function useMcpConnect(assistantId: string) {
         error: t("mcpConnect.pollFailed"),
       });
     }
-  }, [attempt, authStatus.error, awaitingAuthorization, runtime.error, t]);
+  }, [
+    attempt,
+    attemptFailed,
+    authStatus.error,
+    awaitingAuthorization,
+    runtime.error,
+    t,
+  ]);
 
   useEffect(() => {
-    if (!attempt || attempt.phase === "error") {
+    if (!attempt || attemptFailed) {
       return;
     }
     const timer = setTimeout(
@@ -201,7 +219,7 @@ export function useMcpConnect(assistantId: string) {
       Math.max(0, attempt.startedAt + CONNECTION_POLL_WINDOW_MS - Date.now()),
     );
     return () => clearTimeout(timer);
-  }, [attempt, t]);
+  }, [attempt, attemptFailed, t]);
 
   const handleBrowserFinished = useCallback(
     (operationId: string) => {
@@ -254,6 +272,12 @@ export function useMcpConnect(assistantId: string) {
       prepare?: () => Promise<string | void>,
       displayName = serverId,
     ) => {
+      if (
+        attempt?.phase === "cancellationCleanup" ||
+        cancellingOperation.current !== null
+      ) {
+        return;
+      }
       if (
         activeOperation.current &&
         ((attempt?.phase !== "error" && attempt?.phase !== "waiting") ||
@@ -359,6 +383,10 @@ export function useMcpConnect(assistantId: string) {
       return;
     }
     const operationId = attempt.operationId;
+    if (cancellingOperation.current === operationId) {
+      return;
+    }
+    cancellingOperation.current = operationId;
     setIsCancelling(true);
     try {
       const result = await cancelMcpAuth(
@@ -385,10 +413,15 @@ export function useMcpConnect(assistantId: string) {
     } catch (error) {
       if (activeOperation.current === operationId) {
         captureError(error, { context: "mcp.connect.cancel" });
-        setAttempt({ ...attempt, error: t("mcpConnect.cancelFailed") });
+        setAttempt({
+          ...attempt,
+          phase: "cancellationCleanup",
+          error: t("mcpConnect.cancelFailed"),
+        });
       }
     } finally {
-      if (activeOperation.current === operationId) {
+      if (cancellingOperation.current === operationId) {
+        cancellingOperation.current = null;
         setIsCancelling(false);
       }
     }
@@ -400,6 +433,10 @@ export function useMcpConnect(assistantId: string) {
     connect,
     retry: () => {
       if (attempt) {
+        if (attempt.phase === "cancellationCleanup") {
+          void dismiss();
+          return;
+        }
         connect(
           attempt.serverId,
           pendingPreparation.current?.run,
