@@ -152,7 +152,7 @@ assistant oauth request --provider slack_channel \
 
 ### Send with blocks (rich formatting)
 
-The send command renders ordinary markdown the way a reply is rendered, which covers most formatting. Reach for Block Kit only for a structure markdown cannot express, such as headers or buttons, and know that a post made this way is not recorded.
+The send command renders ordinary markdown the way a reply is rendered, and that covers more than it sounds like: headings, lists, task lists, blockquotes, code with a language, tables with their alignment, images, and dividers all become their native Slack blocks. Write GFM and it arrives formatted. Reach for Block Kit only for something markdown has no way to say, such as buttons or a custom section layout, and know that a post made this way is not recorded.
 
 ```bash
 assistant oauth request --provider slack_channel \
@@ -254,6 +254,6 @@ If a Slack API call fails due to missing or invalid credentials -- for example, 
 ## Delivery Notes
 
 - For text, including digests, reports, and formatted summaries: the send command, which records what it posted. Markdown is rendered the way a reply is.
-- For a structure markdown cannot express (headers, buttons): `chat.postMessage` with blocks via `assistant oauth request --provider slack_channel`, knowing the post is not recorded.
+- For something markdown has no way to say (buttons, a custom section layout): `chat.postMessage` with blocks via `assistant oauth request --provider slack_channel`, knowing the post is not recorded. Headings, tables, lists, and code blocks do not need this; write them as markdown.
 - For short alerts: `assistant notifications send` via `bash` is fine -- it lets the notification router pick the best channel
 - For a task that runs on its own: the **schedule** skill's Delivering Results section covers how a scheduled run delivers what it produced
