@@ -79,8 +79,6 @@ function makeFakeConversation(
     getTurnInterfaceContext: () => null,
     setTurnInterfaceContext: () => {},
     setTransportHints: () => {},
-    setTrustContext: () => {},
-    ensureActorScopedHistory: async () => {},
     emitActivityState: () => {
       if (activityFailures > 0) {
         activityFailures -= 1;
