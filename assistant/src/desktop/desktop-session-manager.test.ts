@@ -70,7 +70,55 @@ describe("desktop wallpaper lifecycle", () => {
     await h.manager.destroy();
   });
 
-  test("a pending render neither delays Chrome nor applies after shutdown", async () => {
+  test.each(["success", "failure"] as const)(
+    "reconnects during a render queue the latest avatar after %s",
+    async (outcome) => {
+      let current = Buffer.from("first avatar");
+      const pending: { finish: () => void; fail: () => void }[] = [];
+      const h = newManager({
+        renderWallpaper: () => {
+          const snapshot = current;
+          return new Promise((resolve, reject) => {
+            pending.push({
+              finish: () => resolve(snapshot),
+              fail: () => reject(new Error("render failed")),
+            });
+          });
+        },
+        exitOnTerm: true,
+      });
+      try {
+        await h.manager.ensureDesktopRunning();
+        current = Buffer.from("second avatar");
+        await h.manager.ensureDesktopRunning();
+        current = Buffer.from("latest avatar");
+        await h.manager.ensureDesktopRunning();
+        expect(pending).toHaveLength(1);
+
+        if (outcome === "success") {
+          pending[0]!.finish();
+        } else {
+          pending[0]!.fail();
+        }
+        await settle();
+        expect(pending).toHaveLength(2);
+        expect(h.count("wallpaper")).toBe(0);
+
+        pending[1]!.finish();
+        await settle();
+        expect(readFileSync(join(panelConfigDir, "wallpaper.png"))).toEqual(
+          current,
+        );
+        expect(h.count("wallpaper")).toBe(1);
+        expect(h.count("x-server")).toBe(1);
+        expect(pending).toHaveLength(2);
+      } finally {
+        await h.manager.destroy();
+      }
+    },
+  );
+
+  test("pending and queued renders neither delay Chrome nor apply after shutdown", async () => {
     let finish!: (png: Buffer) => void;
     let renders = 0;
     const h = newManager({
@@ -91,6 +139,7 @@ describe("desktop wallpaper lifecycle", () => {
     finish(Buffer.from("stale render"));
     await settle();
     expect(h.count("wallpaper")).toBe(0);
+    expect(renders).toBe(1);
   });
 
   test.each(["render", "spawn", "exit"] as const)(

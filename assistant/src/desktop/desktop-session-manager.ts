@@ -192,7 +192,10 @@ export class DesktopSessionManager {
   private binaries: DesktopBinaries | null = null;
   /** Whether this tree has already had its one dock start attempted. */
   private panelStarted = false;
-  private wallpaperStarting: { generation: number } | null = null;
+  private wallpaperStarting: {
+    generation: number;
+    refreshQueued: boolean;
+  } | null = null;
 
   private readonly spawn: NonNullable<DesktopSessionManagerOptions["spawn"]>;
   private readonly which: NonNullable<DesktopSessionManagerOptions["which"]>;
@@ -336,13 +339,19 @@ export class DesktopSessionManager {
     generation: number,
   ): Promise<void> {
     if (this.wallpaperStarting?.generation === generation) {
+      this.wallpaperStarting.refreshQueued = true;
       return;
     }
-    const pending = { generation };
+    const pending = { generation, refreshQueued: false };
     this.wallpaperStarting = pending;
     try {
       const png = await this.renderWallpaper(DESKTOP_WIDTH, DESKTOP_HEIGHT);
-      if (!png || this.generation !== generation || !this.binaries) {
+      if (
+        !png ||
+        pending.refreshQueued ||
+        this.generation !== generation ||
+        !this.binaries
+      ) {
         return;
       }
       mkdirSync(this.panelConfigDir, { recursive: true });
@@ -358,6 +367,13 @@ export class DesktopSessionManager {
     } finally {
       if (this.wallpaperStarting === pending) {
         this.wallpaperStarting = null;
+        if (
+          pending.refreshQueued &&
+          this.generation === generation &&
+          this.running
+        ) {
+          void this.refreshWallpaper(env, generation);
+        }
       }
     }
   }
