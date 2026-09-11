@@ -24,7 +24,7 @@ and retain no document content; presentation switches within the mounted session
 keep the existing editor without refetching.
 Reopening the associated document from Chat Info or a chat card uses that same
 presentation action, retaining the editor, original return destination and history
-state. An in-progress session load remains owned by the route.
+state on both viewport layouts. An in-progress session load remains owned by the route.
 The return destination accepts only supported in-app Library/chat paths,
 including the chat router's optional trailing slash.
 Library's optional trailing slash is also preserved, so click-opened document
@@ -34,7 +34,9 @@ while preserving the destination URL, so returning to the current chat keeps its
 live subagent, workflow and transcript-panel state.
 Click-opened documents carry history state for their surface and safe origin.
 Closing pops that entry; cold links replace themselves with the safe return
-route. Adapter redirects, recovery and presentation changes replace the document
+route. Widening a click-opened session to desktop preserves this history return;
+cold desktop drawer links dismiss within the current conversation.
+Adapter redirects, recovery and presentation changes replace the document
 entry and retain its state. Prompt consumption also preserves the state. Origins
 with auto-send commands or another document association do not opt into history
 return, so closing cannot replay a command or reopen an unrelated document.
@@ -46,6 +48,8 @@ The desktop drawer's close button and Escape action remove document URL intent
 while preserving the current conversation, unrelated search parameters and
 fragment. Opening another desktop viewer replaces the document session, cancels
 its pending load and removes its URL intent without closing the replacement.
+This includes another document or workspace-file preview, even when the viewer
+stays in document mode or the route was showing the transcript.
 Pending editor saves still drain on unmount. Closing the replacement or refreshing
 does not reopen the document. Mobile overlays and transcript presentation retain
 their associated document session.
@@ -78,6 +82,10 @@ Explicit conversation creation requires 0.8.6 or later.
 Updating an existing document's title and body does not require its original
 conversation row to exist. The save upsert preserves its owning ID, so edits can
 flush before the explicit repair action links a replacement conversation.
+
+PDF export from either document host drains the mounted editor's pending saves
+and uses the saved title. Save failure, editor replacement or an assistant switch
+before the drain completes prevents the download.
 
 ## Prepare, then use normal chat
 

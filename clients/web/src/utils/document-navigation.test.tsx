@@ -24,7 +24,7 @@ import {
 } from "react-router";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
+import { liveViewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type * as OrgReadiness from "@/hooks/use-is-org-ready";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -118,7 +118,7 @@ function Conversation() {
   );
 }
 
-const viewport = viewportAxesStub();
+const viewport = liveViewportAxesStub();
 const selection = useResolvedAssistantsStore.getState();
 const viewer = useViewerStore.getState();
 const conversation = useConversationStore.getState();
@@ -228,6 +228,28 @@ function renderHistory(initialEntries: string[]) {
 }
 
 describe("document navigation history", () => {
+  test.each(["/assistant/library", "/assistant/conversations/conv-linked"])(
+    "closing after widening a click-opened mobile document pops its entry from %s",
+    async (origin) => {
+      const router = renderHistory(["/assistant", origin]);
+      fireEvent.click(screen.getByRole("button", { name: "Open document" }));
+      await waitFor(() =>
+        expect(useViewerStore.getState().openedDocumentState).not.toBeNull(),
+      );
+      act(() => viewport.set({ narrow: false, coarsePointer: true }));
+      await waitFor(() =>
+        expect(useViewerStore.getState().openedDocumentState).not.toBeNull(),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Close document" }));
+      await waitFor(() => expect(router.state.location.pathname).toBe(origin));
+      expect(router.state.location.search).toBe("");
+      expect(router.state.historyAction).toBe(NavigationType.Pop);
+      await act(async () => router.navigate(-1));
+      expect(router.state.location.pathname).toBe("/assistant");
+      router.dispose();
+    },
+  );
+
   test.each([
     "/assistant/library",
     "/assistant/library/",

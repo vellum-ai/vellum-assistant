@@ -87,6 +87,7 @@ mock.module("./components/document-viewer-container", () => ({
     onExport?: () => void;
   }) => {
     useImperativeHandle(handleRef, () => ({
+      flushPendingSave: async () => savedDocument,
       beginSendPreparation: () => ({
         flush: async () => savedDocument,
         release,
@@ -198,7 +199,7 @@ describe("DocumentViewerPage", () => {
       expect(downloadDocumentPdf).toHaveBeenCalledWith(
         "asst-1",
         "surf-1",
-        "Notes",
+        "Saved title",
       ),
     );
     expect(page.getByTestId("viewer")).toBeTruthy();

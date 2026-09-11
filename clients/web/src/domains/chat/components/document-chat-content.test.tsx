@@ -15,6 +15,7 @@ import { createRef } from "react";
 
 import type * as ErrorCapture from "@/lib/sentry/capture-error";
 import type { OpenedDocumentState } from "@/stores/viewer-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 import type * as Surfaces from "../api/surfaces";
 import type * as DocumentComments from "../api/document-comments";
@@ -30,6 +31,7 @@ const downloadDocumentPdf = mock(
   ) => {},
 );
 const captureError = mock(() => {});
+const selection = useResolvedAssistantsStore.getState();
 const documentComments = await import("../api/document-comments");
 mock.module(
   "../api/surfaces",
@@ -108,6 +110,7 @@ async function exportFromMenu() {
 }
 
 beforeEach(() => {
+  useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   downloadDocumentPdf.mockReset();
   downloadDocumentPdf.mockImplementation(async () => {});
   captureError.mockClear();
@@ -115,6 +118,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useResolvedAssistantsStore.setState(selection, true);
   mock.restore();
   document.body.style.pointerEvents = "";
 });

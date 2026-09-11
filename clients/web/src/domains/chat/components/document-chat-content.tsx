@@ -56,11 +56,7 @@ export function DocumentChatContent({
       return registerDocumentHeader(surfaceId);
     }
   }, [isMobile, surfaceId, hasCloseAction, registerDocumentHeader]);
-  const handleExport = useDocumentPdfExport(
-    assistantId,
-    surfaceId,
-    document?.documentName,
-  );
+  const handleExport = useDocumentPdfExport(assistantId, surfaceId, editorRef);
   const handleCommentEvent = useDocumentCommentEvents({
     surfaceId: surfaceId ?? "",
     enabled: !!surfaceId,

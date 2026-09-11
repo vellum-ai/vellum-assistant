@@ -80,7 +80,8 @@ export function useOpenDocumentFromChat(
       if (!assistantId) {
         return;
       }
-      if (!isMobile) {
+      const route = getDocumentConversationRoute(location.search);
+      if (!isMobile && (!conversationId || route.surfaceId !== surfaceId)) {
         beforeOpen?.();
         await openDocumentFromChat(assistantId, surfaceId);
         return;
@@ -94,7 +95,6 @@ export function useOpenDocumentFromChat(
       }
       haptic.light();
       try {
-        const route = getDocumentConversationRoute(location.search);
         // The route owns this document, including any pending load or edits.
         if (conversationId && route.surfaceId === surfaceId) {
           beforeOpen?.();

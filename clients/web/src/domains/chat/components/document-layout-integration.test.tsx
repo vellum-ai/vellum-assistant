@@ -24,7 +24,7 @@ import { create } from "zustand";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import type * as Readiness from "@/hooks/use-is-org-ready";
-import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
+import { liveViewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -36,12 +36,24 @@ import type * as Editor from "./tiptap-document-editor";
 import type * as Chat from "./chat-route-content";
 import type * as Progress from "./progress-stack";
 import type * as ChatInfo from "./chat-info-panel";
+import type * as Surfaces from "../api/surfaces";
 import type { DocumentViewerContainerHandle } from "./document-viewer-container";
 import { useOpenDocumentFromChat } from "../hooks/use-open-app-from-chat";
 
 const useReadiness = create<{ value: Readiness.OrgHeaderReadiness }>(() => ({
   value: "ready",
 }));
+const downloadDocumentPdf = mock(
+  async (
+    _assistantId: string,
+    _surfaceId: string,
+    _title: string | null | undefined,
+  ) => {},
+);
+mock.module(
+  "../api/surfaces",
+  (): Partial<typeof Surfaces> => ({ downloadDocumentPdf }),
+);
 
 mock.module(
   "@/hooks/use-is-org-ready",
@@ -135,6 +147,9 @@ mock.module(
           <button onClick={() => void openDocument("surface-1")}>
             Open document
           </button>
+          <button onClick={() => void openDocument("surface-2")}>
+            Open another document
+          </button>
           {isMobile && documentRoute.surfaceId && (
             <DocumentChatContent
               assistantId="assistant-1"
@@ -155,33 +170,11 @@ mock.module(
 );
 const { ChatContentLayout } = await import("./chat-content-layout");
 const { DocumentViewerPage } = await import("../document-viewer-page");
-const viewport = viewportAxesStub();
-const mediaTargets = new Map<string, EventTarget>();
+const viewport = liveViewportAxesStub();
 let pointerIsCoarse = false;
 
 function resizeViewport(mobile: boolean) {
   viewport.set({ narrow: mobile, coarsePointer: pointerIsCoarse });
-  const matchMedia = window.matchMedia;
-  window.matchMedia = (query) => {
-    let target = mediaTargets.get(query);
-    if (!target) {
-      target = new EventTarget();
-      mediaTargets.set(query, target);
-    }
-    return Object.assign(matchMedia(query), {
-      addEventListener: target.addEventListener.bind(target),
-      removeEventListener: target.removeEventListener.bind(target),
-      dispatchEvent: target.dispatchEvent.bind(target),
-    });
-  };
-  for (const [query, target] of mediaTargets) {
-    target.dispatchEvent(
-      Object.assign(new Event("change"), {
-        matches: matchMedia(query).matches,
-        media: query,
-      }),
-    );
-  }
 }
 const original: DocumentContent = {
   success: true,
@@ -212,6 +205,7 @@ const viewer = useViewerStore.getState();
 let queryClient: QueryClient;
 
 beforeEach(() => {
+  downloadDocumentPdf.mockClear();
   useReadiness.setState({ value: "ready" });
   saved = { ...original };
   linked = true;
@@ -256,7 +250,6 @@ afterEach(async () => {
   });
   queryClient.clear();
   viewport.restore();
-  mediaTargets.clear();
   document.body.style.pointerEvents = "";
   mock.restore();
   useResolvedAssistantsStore.setState(selection, true);
@@ -291,6 +284,68 @@ function renderLayout(mobile: boolean, urlBacked = true) {
 }
 
 describe("document viewport handoff", () => {
+  test("reopening the same desktop route document retains its unsaved editor", async () => {
+    renderLayout(false);
+    const editor = await screen.findByRole("textbox", {
+      name: "Document body",
+    });
+    fireEvent.change(editor, {
+      target: { value: "Unsaved first document body" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open document" }));
+    await act(async () => {});
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("textbox", { name: "Document body" })).toBe(editor);
+    expect((editor as HTMLTextAreaElement).value).toBe(
+      "Unsaved first document body",
+    );
+    expect(screen.getByTestId("url").textContent).toContain(
+      "document=surface-1",
+    );
+  });
+
+  test("a transcript document replaces the URL-backed desktop document and preserves its pending save", async () => {
+    renderLayout(false);
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: "Document body" }),
+      {
+        target: { value: "Latest first document body" },
+      },
+    );
+    load.mockImplementationOnce(async () => ({
+      data: {
+        ...original,
+        surfaceId: "surface-2",
+        title: "Second document",
+        content: "Second body",
+      },
+    }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open another document" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("url").textContent).toBe(
+        "/assistant/conversations/conv-1",
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("textbox", {
+            name: "Document body",
+          }) as HTMLTextAreaElement
+        ).value,
+      ).toBe("Second body"),
+    );
+    expect(useViewerStore.getState().openedDocumentState).toMatchObject({
+      source: "document",
+      surfaceId: "surface-2",
+    });
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    await act(async () => finishWrite());
+    expect(saved.content).toBe("Latest first document body");
+  });
+
   test.each(["unavailable", "resolving"] as const)(
     "desktop document readiness=%s exposes the error and close action",
     async (initialReadiness) => {
@@ -487,6 +542,89 @@ async function openFeedback() {
   return screen.findByRole("button", { name: /Submit feedback/i });
 }
 
+async function renameDocument(title: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Document options" }));
+  await user.click(await screen.findByText("Rename"));
+  const name = await screen.findByLabelText("Name");
+  await user.clear(name);
+  await user.type(name, title);
+  await user.click(screen.getByRole("button", { name: "Save" }));
+}
+
+async function exportDocument() {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Document options" }));
+  await user.click(await screen.findByText("Export"));
+}
+
+describe("document PDF export saves", () => {
+  test.each([
+    { mobile: true, rename: false, inFlight: false },
+    { mobile: false, rename: false, inFlight: true },
+    { mobile: true, rename: true, inFlight: false },
+  ])(
+    "export waits for edits: mobile=$mobile, rename=$rename, inFlight=$inFlight",
+    async ({ mobile, rename, inFlight }) => {
+      renderLayout(mobile);
+      fireEvent.change(
+        await screen.findByRole("textbox", { name: "Document body" }),
+        { target: { value: "Latest export body" } },
+      );
+      if (rename) {
+        await renameDocument("Latest export title");
+      }
+      if (inFlight) {
+        await waitFor(() => expect(write).toHaveBeenCalledTimes(1), {
+          timeout: 2000,
+        });
+      }
+      await exportDocument();
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      expect(downloadDocumentPdf).not.toHaveBeenCalled();
+      await act(async () => finishWrite());
+      await waitFor(() =>
+        expect(downloadDocumentPdf).toHaveBeenCalledWith(
+          "assistant-1",
+          "surface-1",
+          rename ? "Latest export title" : "Notes",
+        ),
+      );
+      expect(saved.content).toBe("Latest export body");
+    },
+  );
+
+  test.each(["save failure", "close", "assistant switch"])(
+    "export is cancelled on %s during the save",
+    async (action) => {
+      renderLayout(true);
+      fireEvent.change(
+        await screen.findByRole("textbox", { name: "Document body" }),
+        { target: { value: "Latest export body" } },
+      );
+      await exportDocument();
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      if (action === "save failure") {
+        await act(async () => failWrite(new Error("offline")));
+      } else {
+        if (action === "close") {
+          fireEvent.click(
+            screen.getByRole("button", { name: "Close document" }),
+          );
+        } else {
+          act(() =>
+            useResolvedAssistantsStore.setState({
+              activeAssistantId: "assistant-2",
+            }),
+          );
+        }
+        await act(async () => finishWrite());
+      }
+      expect(downloadDocumentPdf).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("desktop document feedback", () => {
   test.each([
     { urlBacked: true, rename: false, linkedConversation: "conv-1" },
@@ -507,17 +645,7 @@ describe("desktop document feedback", () => {
       });
       fireEvent.change(editor, { target: { value: "Latest local body" } });
       if (rename) {
-        const user = userEvent.setup();
-        await user.click(
-          screen.getByRole("button", { name: "Document options" }),
-        );
-        await user.click(
-          await screen.findByRole("menuitem", { name: "Rename" }),
-        );
-        const name = await screen.findByLabelText("Name");
-        await user.clear(name);
-        await user.type(name, "Latest title");
-        await user.click(screen.getByRole("button", { name: "Save" }));
+        await renameDocument("Latest title");
       }
       const feedback = await openFeedback();
       const previousUrl = screen.getByTestId("url").textContent;

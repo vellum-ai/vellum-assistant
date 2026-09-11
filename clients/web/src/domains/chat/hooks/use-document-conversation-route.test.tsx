@@ -300,12 +300,10 @@ describe("document conversation route", () => {
     {
       name: "chat-info",
       open: () =>
-        useViewerStore
-          .getState()
-          .openChatInfo({
-            assistantId: "assistant-1",
-            conversationId: "conv-1",
-          }),
+        useViewerStore.getState().openChatInfo({
+          assistantId: "assistant-1",
+          conversationId: "conv-1",
+        }),
       close: () => useViewerStore.getState().closeChatInfo(),
     },
     {
@@ -391,6 +389,61 @@ describe("document conversation route", () => {
       await act(async () => {});
       expect(page.getByTestId("url").textContent).toBe(url);
       expect(useViewerStore.getState().openedDocumentState).toBe(document);
+    },
+  );
+
+  test.each(["loading", "transcript", "workspace preview"])(
+    "a desktop target replacement clears route intent during %s",
+    async (stage) => {
+      viewport.set({ narrow: false, coarsePointer: false });
+      let finishLoad: ((value: { data: DocumentContent }) => void) | undefined;
+      if (stage === "loading") {
+        load.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishLoad = resolve;
+            }),
+        );
+      }
+      const page = renderRoute("conv-1", stage !== "transcript");
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+      if (stage !== "loading") {
+        await waitFor(() =>
+          expect(page.getByTestId("status").textContent).toBe("ready"),
+        );
+      }
+      if (stage === "workspace preview") {
+        act(() =>
+          useViewerStore
+            .getState()
+            .openWorkspaceFilePreview("notes.txt", "text"),
+        );
+      } else {
+        load.mockImplementationOnce(async () => ({
+          data: {
+            ...documentData,
+            surfaceId: "surface-2",
+            content: "Second body",
+          },
+        }));
+        await act(async () =>
+          useViewerStore.getState().loadDocument("assistant-1", "surface-2"),
+        );
+      }
+      await waitFor(() =>
+        expect(page.getByTestId("url").textContent).toBe(
+          "/assistant/conversations/conv-1",
+        ),
+      );
+      if (finishLoad) {
+        await act(async () => finishLoad!({ data: documentData }));
+      }
+      expect(useViewerStore.getState().mainView).toBe("document");
+      expect(useViewerStore.getState().activeDocumentTarget).toEqual(
+        stage === "workspace preview"
+          ? { source: "workspace-file-preview", workspacePath: "notes.txt" }
+          : { source: "document", surfaceId: "surface-2" },
+      );
     },
   );
 

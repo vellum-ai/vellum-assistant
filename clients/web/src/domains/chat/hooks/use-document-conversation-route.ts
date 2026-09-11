@@ -6,8 +6,15 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useViewerStore, type DocumentTarget } from "@/stores/viewer-store";
-import { documentEntryUrl } from "@/utils/document-navigation";
+import {
+  sameDocumentTarget,
+  useViewerStore,
+  type DocumentTarget,
+} from "@/stores/viewer-store";
+import {
+  documentEntryUrl,
+  hasDocumentReturnEntry,
+} from "@/utils/document-navigation";
 
 import {
   documentRequestScope,
@@ -74,18 +81,24 @@ export function useDocumentConversationRoute() {
   useEffect(() => clearOwnedDocument, [clearOwnedDocument]);
 
   useEffect(() => {
-    if (isMobile || !surfaceId || !showingDocument) {
+    if (isMobile || !surfaceId) {
       return;
     }
     return useViewerStore.subscribe((viewer, previous) => {
       const target = ownedTargetRef.current;
-      if (
-        previous.mainView !== "document" ||
-        viewer.mainView === "document" ||
-        viewer.mainView === "chat" ||
-        target === null ||
-        viewer.activeDocumentTarget !== target
-      ) {
+      if (target === null || previous.activeDocumentTarget !== target) {
+        return;
+      }
+      const replacesDocument =
+        viewer.activeDocumentTarget !== null &&
+        !sameDocumentTarget(viewer.activeDocumentTarget, target);
+      const replacesPanel =
+        showingDocument &&
+        previous.mainView === "document" &&
+        viewer.mainView !== "document" &&
+        viewer.mainView !== "chat" &&
+        viewer.activeDocumentTarget === target;
+      if (!replacesDocument && !replacesPanel) {
         return;
       }
       scopeRef.current?.dispose();
@@ -217,7 +230,10 @@ export function useDocumentConversationRoute() {
 
   const closeDocument = useCallback(() => {
     scopeRef.current?.dispose();
-    if (!isMobile) {
+    if (
+      !isMobile &&
+      !hasDocumentReturnEntry(navigationState, surfaceId ?? "", returnTo)
+    ) {
       closeDocumentInConversation(navigate, location);
       return;
     }

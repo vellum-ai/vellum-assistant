@@ -73,7 +73,7 @@ export function DocumentViewerPage() {
   const handleExport = useDocumentPdfExport(
     assistantId,
     doc?.surfaceId ?? null,
-    doc?.title,
+    viewerRef,
   );
 
   useEffect(() => {
