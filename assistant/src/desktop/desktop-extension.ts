@@ -1,4 +1,3 @@
-import { createPrivateKey, generateKeyPairSync } from "node:crypto";
 import {
   chmod,
   mkdir,
@@ -11,10 +10,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ProvisionDesktopExtensionResultSchema } from "@vellumai/gateway-client";
+
 import { getGatewayInternalBaseUrl } from "../config/env.js";
+import { ipcCallPersistentValidated } from "../ipc/gateway-validated-call.js";
 import { getProtectedDir } from "../util/platform.js";
 import { desktopBrowserBridge } from "./desktop-browser-bridge.js";
-import { packageDesktopExtension } from "./desktop-extension-package.js";
 
 export const DESKTOP_EXTENSION_VERSION = "1.0.0";
 let artifact: { id: string; crx: Buffer; gateway: string } | undefined;
@@ -60,19 +61,6 @@ async function install(browser: {
 }): Promise<void> {
   const root = join(getProtectedDir(), "desktop-extension");
   await mkdir(root, { recursive: true, mode: 0o700 });
-  const keyPath = join(root, "signing.pem");
-  let pem: string;
-  try {
-    pem = await readFile(keyPath, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw err;
-    }
-    pem = generateKeyPairSync("rsa", { modulusLength: 2048 })
-      .privateKey.export({ type: "pkcs8", format: "pem" })
-      .toString();
-    await writeFile(keyPath, pem, { mode: 0o600, flag: "wx" });
-  }
   const stage = await mkdtemp(join(tmpdir(), "vellum-desktop-extension-"));
   try {
     const source = fileURLToPath(
@@ -117,9 +105,10 @@ async function install(browser: {
     if ((await zip.exited) !== 0) {
       throw new Error("Could not package the managed desktop extension");
     }
-    const signed = packageDesktopExtension(
-      await readFile(zipPath),
-      createPrivateKey(pem),
+    const signed = await ipcCallPersistentValidated(
+      "provision_desktop_extension",
+      { zip: (await readFile(zipPath)).toString("base64") },
+      ProvisionDesktopExtensionResultSchema,
     );
     await rm(zipPath);
     const gateway = getGatewayInternalBaseUrl().replace(/\/$/, "");
@@ -133,7 +122,11 @@ async function install(browser: {
     ) {
       throw new Error("Invalid internal gateway URL for desktop browser");
     }
-    artifact = { ...signed, gateway };
+    artifact = {
+      id: signed.id,
+      crx: Buffer.from(signed.crx, "base64"),
+      gateway,
+    };
     const native = await Bun.build({
       entrypoints: [
         fileURLToPath(new URL("./desktop-native-host.ts", import.meta.url)),
@@ -150,7 +143,7 @@ async function install(browser: {
     await writeFile(
       config,
       JSON.stringify({
-        token: desktopBrowserBridge.start(),
+        token: desktopBrowserBridge.start(signed.token),
         gateway,
         extensionId: signed.id,
         version: DESKTOP_EXTENSION_VERSION,

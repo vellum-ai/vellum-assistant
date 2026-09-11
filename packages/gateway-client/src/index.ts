@@ -374,3 +374,8 @@ export {
 } from "./binding-strength-contract.js";
 
 export type { BindingStrength } from "./binding-strength-contract.js";
+
+export {
+  ProvisionDesktopExtensionParamsSchema,
+  ProvisionDesktopExtensionResultSchema,
+} from "./desktop-extension-contract.js";

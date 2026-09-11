@@ -138,3 +138,12 @@ test("the browser interface rejects arbitrary CDP and evaluation", async () => {
   ).rejects.toThrow();
   expect(f.calls).toHaveLength(0);
 });
+
+test("scroll without a direction is rejected before mouse input", async () => {
+  const f = fixture();
+  const observed = await f.execute({ action: "observe" });
+  await expect(
+    f.execute({ action: "scroll", observation_id: observed.observation_id }),
+  ).rejects.toThrow("direction");
+  expect(f.calls).not.toContain("Input.dispatchMouseEvent");
+});

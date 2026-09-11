@@ -17,6 +17,7 @@ function fixture() {
       },
       guardian: async () => "user-123",
       serviceToken: () => "test-service-token",
+      acceptsCapability: (token: unknown) => token === "capability",
     },
   );
   const request = (body: string, origin?: string) =>
@@ -58,5 +59,16 @@ test("browser callers and oversized messages cannot reach the bridge", async () 
     expect((await f.handler(f.request("{}", origin))).status).toBe(403);
   }
   expect((await f.handler(f.request("x".repeat(1025)))).status).toBe(413);
+  expect(f.forwarded).toHaveLength(0);
+});
+
+test("originless requests still require the native capability before forwarding", async () => {
+  const f = fixture();
+  for (const token of [undefined, "wrong", null, 123]) {
+    const response = await f.handler(
+      f.request(JSON.stringify({ token, kind: "connect" })),
+    );
+    expect(response.status).toBe(403);
+  }
   expect(f.forwarded).toHaveLength(0);
 });

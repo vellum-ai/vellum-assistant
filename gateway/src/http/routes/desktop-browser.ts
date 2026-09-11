@@ -1,6 +1,7 @@
 import type { GatewayConfig } from "../../config.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import { fetchImpl } from "../../fetch.js";
+import { desktopExtensionSecurity } from "../../desktop/desktop-extension-security.js";
 import { readLimitedBody } from "../read-limited-body.js";
 import { resolveLocalGuardianPrincipalId } from "./pair.js";
 
@@ -10,6 +11,8 @@ export function createDesktopBrowserHandler(
     fetch: fetchImpl,
     guardian: resolveLocalGuardianPrincipalId,
     serviceToken: mintServiceToken,
+    acceptsCapability: (token: unknown) =>
+      desktopExtensionSecurity.accepts(token),
   },
 ) {
   return async (req: Request): Promise<Response> => {
@@ -28,8 +31,14 @@ export function createDesktopBrowserHandler(
         return new Response("Invalid desktop message", { status: 413 });
       }
       try {
+        const message = JSON.parse(limited.text);
+        if (!deps.acceptsCapability(message?.token)) {
+          return new Response("Invalid desktop browser capability", {
+            status: 403,
+          });
+        }
         body = JSON.stringify({
-          ...JSON.parse(limited.text),
+          ...message,
           guardian: await deps.guardian(),
         });
       } catch {

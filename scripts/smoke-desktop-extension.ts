@@ -1,24 +1,50 @@
 import { strict as assert } from "node:assert";
 
-import { DesktopBrowser } from "../src/desktop/desktop-browser.js";
-import { desktopBrowserBridge } from "../src/desktop/desktop-browser-bridge.js";
+import type { GatewayConfig } from "../gateway/src/config.js";
+import { desktopExtensionSecurity } from "../gateway/src/desktop/desktop-extension-security.js";
+import { createDesktopBrowserHandler } from "../gateway/src/http/routes/desktop-browser.js";
+import { desktopExtensionRoutes } from "../gateway/src/ipc/desktop-extension-handlers.js";
+import { GatewayIpcServer } from "../gateway/src/ipc/server.js";
+
+import { DesktopBrowser } from "../assistant/src/desktop/desktop-browser.js";
+import { desktopBrowserBridge } from "../assistant/src/desktop/desktop-browser-bridge.js";
 import {
   desktopChromePath,
   desktopDependencyInstaller,
-} from "../src/desktop/desktop-dependencies.js";
+} from "../assistant/src/desktop/desktop-dependencies.js";
 import {
   desktopExtensionAsset,
   ensureDesktopExtension,
-} from "../src/desktop/desktop-extension.js";
+} from "../assistant/src/desktop/desktop-extension.js";
 
 if (
   process.platform !== "linux" ||
-  !process.env.VELLUM_WORKSPACE_DIR?.startsWith("/tmp/")
+  !process.env.VELLUM_WORKSPACE_DIR?.startsWith("/tmp/") ||
+  !process.env.GATEWAY_SECURITY_DIR?.startsWith("/tmp/")
 ) {
   throw new Error(
     "Run in an isolated Linux container with a temporary workspace",
   );
 }
+const ipc = new GatewayIpcServer(desktopExtensionRoutes);
+ipc.start();
+const bridgeHandler = createDesktopBrowserHandler(
+  {
+    assistantRuntimeBaseUrl: "http://runtime.example.com",
+    maxWebhookPayloadBytes: 4 * 1024 * 1024,
+  } as GatewayConfig,
+  {
+    guardian: async () => "user-123",
+    serviceToken: () => "test-service-token",
+    acceptsCapability: (token) => desktopExtensionSecurity.accepts(token),
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      return Response.json(
+        await desktopBrowserBridge.exchange(body, body.guardian),
+      );
+    },
+  },
+);
 const server = Bun.serve({
   port: 7830,
   async fetch(req) {
@@ -28,9 +54,7 @@ const server = Bun.serve({
     }
     if (path === "/v1/desktop/browser/bridge") {
       try {
-        return Response.json(
-          await desktopBrowserBridge.exchange(await req.json(), "user-123"),
-        );
+        return await bridgeHandler(req);
       } catch {
         return new Response("Rejected", { status: 403 });
       }
@@ -146,4 +170,5 @@ try {
     child.kill();
   }
   server.stop(true);
+  ipc.stop();
 }

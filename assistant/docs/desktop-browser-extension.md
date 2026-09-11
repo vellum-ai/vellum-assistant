@@ -11,13 +11,20 @@ Opening the desktop after Install desktop builds the managed extension from
 existing `host-browser-dispatcher` and `cdp-proxy`, with a distinct native
 transport and no general host-browser registration or personal-client fallback.
 
-The installer produces a CRX3 package signed by a persistent RSA key under
-`<Vellum root>/protected/desktop-extension`, outside the workspace. It verifies
-the signature before publishing the package. The public key determines the
-stable installation ID. The same protected directory contains the native host
-and its connection capability; neither is sent to page scripts or renderers.
-The capability rotates on assistant process restart. It authorizes only this
-managed browser transport, not guardian APIs or approval decisions.
+The installer sends its built ZIP over trusted gateway IPC. The gateway signs
+and verifies the CRX3 with a persistent RSA key under
+`$GATEWAY_SECURITY_DIR/desktop-extension/signing.pem`. This uses the existing
+gateway security volume, survives container replacement, and never exposes the
+private key to the assistant or workspace. The public key determines the stable
+installation ID.
+
+The gateway returns the signed package and a native connection capability. Only
+its hash is persisted in gateway security storage. The assistant keeps the native
+host and capability under its protected directory outside the workspace. The
+capability rotates on provisioning, survives gateway restart, and authorizes only
+this browser transport. The gateway validates it before guardian lookup or runtime
+forwarding; the runtime also validates it. It never authorizes guardian APIs or
+approval decisions and is not sent to page scripts or renderers.
 
 Chrome reads the system policy in
 `/etc/opt/chrome/policies/managed/vellum-desktop-extension.json` and the native
@@ -31,7 +38,7 @@ another profile cannot register this managed connection. Guardian identity comes
 the gateway's canonical active guardian binding, never a request-supplied actor.
 
 Bump `DESKTOP_EXTENSION_VERSION` when changing the packaged extension. Retain
-the installation signing key when upgrading the assistant; changing the key
+the gateway security volume when upgrading the assistant; changing the key
 changes the extension ID. The installed extension owns no durable task data.
 The Chrome profile, cookies, and signed-in state remain in the desktop profile.
 
@@ -61,11 +68,12 @@ page-authored movement cannot be eliminated entirely after validation.
 
 Scoped tests cover capability/guardian binding, callback connection binding,
 reconnect invalidation, queued cancellation, shared X11/browser ownership,
-actionability rejection, and input release. The Linux-only
-`scripts/smoke-desktop-extension.ts` uses a temporary workspace and real Chrome
+actionability rejection, input release, persistent signing identity, and capability rotation. The Linux-only
+the repository-root `scripts/smoke-desktop-extension.ts` uses a temporary workspace and real Chrome
 on `:99` to exercise signed policy installation, native bootstrap, AX reading,
-semantic click, and stale-reference rejection. Its gateway is a test stub;
-gateway guardian stamping and ingress bounds have separate tests.
+semantic click, and stale-reference rejection. It runs the real gateway signer IPC
+and capability ingress handler with a stub runtime forwarding hop and guardian
+lookup. Production Desktop modal integration remains a separate validation step.
 
 References: [Chrome external installation](https://developer.chrome.com/docs/extensions/how-to/distribute/install-extensions),
 [native messaging](https://developer.chrome.com/docs/extensions/develop/concepts/native-messaging),

@@ -16,9 +16,9 @@ export class DesktopBrowserBridge {
   private lastPoll = 0;
   generation = 0;
 
-  start(): string {
+  start(token = randomBytes(32).toString("hex")): string {
     this.stop();
-    this.token = randomBytes(32).toString("hex");
+    this.token = token;
     return this.token;
   }
 

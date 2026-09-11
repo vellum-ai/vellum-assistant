@@ -210,6 +210,9 @@ export class DesktopBrowser {
           }
           await dispatchKeyPress(client, action.key, signal);
         } else if (action.action === "scroll") {
+          if (!action.direction) {
+            throw new Error("scroll requires a direction");
+          }
           await send("Input.dispatchMouseEvent", {
             type: "mouseWheel",
             x: 300,
