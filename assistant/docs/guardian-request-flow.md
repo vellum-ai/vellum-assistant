@@ -81,6 +81,13 @@ it end to end:
   runs only on the edge into terminal, so re-running the fan-out
   neither pulls a cleared receipt back into the bell nor undoes a user
   who marked the receipt unread again.
+- Receipts that went terminal before the receipt learned to clear unread
+  are healed once per assistant by `healLegacyGuardianReceiptUnread`,
+  which the sweep calls ahead of its gateway read. One-shot rather than
+  recurring: a pre-upgrade `new` and a `new` the user set deliberately
+  are indistinguishable on the row, so a marker file under the data dir
+  records the boundary instead. The transition is re-evaluated inside
+  the writer queue and moves only `new`, exactly as the edge does.
 - The feed writer's bulk-dismiss pass skips pending guardian items
   (`isPendingGuardianFeedItem`), so "Clear all" can never retire an
   unresolved request; only its receipt is clearable.

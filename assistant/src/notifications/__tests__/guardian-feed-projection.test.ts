@@ -42,6 +42,7 @@ mock.module("../../channels/gateway-guardian-requests.js", () => ({
 const {
   buildPendingGuardianProjection,
   guardianFeedItemId,
+  healLegacyGuardianReceiptUnread,
   reconcileGuardianFeedProjections,
   requestIdFromGuardianFeedItemId,
   writeGuardianFeedReceipt,
@@ -108,6 +109,72 @@ function pendingGuardianItem(requestId: string): FeedItem {
     guardianRequest: projection,
   };
 }
+
+/**
+ * A receipt as it was persisted before the receipt writer cleared unread:
+ * terminal projection, urgency already dropped, still `new`.
+ */
+function legacyGuardianReceiptItem(requestId: string): FeedItem {
+  const item = pendingGuardianItem(requestId);
+  return {
+    ...item,
+    urgency: "medium",
+    status: "new",
+    guardianRequest: { ...item.guardianRequest!, status: "approved" },
+  };
+}
+
+describe("healLegacyGuardianReceiptUnread", () => {
+  test("clears unread on a receipt that predates the edge transition", async () => {
+    await appendFeedItem(legacyGuardianReceiptItem("legacy-1"));
+
+    await healLegacyGuardianReceiptUnread();
+
+    expect(
+      readHomeFeed().items.find((i) => i.id === guardianFeedItemId("legacy-1"))
+        ?.status,
+    ).toBe("seen");
+  });
+
+  test("runs once per assistant, so a later mark-unread stands", async () => {
+    await appendFeedItem(legacyGuardianReceiptItem("legacy-2"));
+    const itemId = guardianFeedItemId("legacy-2");
+    await healLegacyGuardianReceiptUnread();
+
+    // The user marks the resolved receipt unread again. The pass has
+    // already recorded completion, so a second round leaves it alone.
+    await patchFeedItemStatus(itemId, "new");
+    await healLegacyGuardianReceiptUnread();
+
+    expect(readHomeFeed().items.find((i) => i.id === itemId)?.status).toBe(
+      "new",
+    );
+  });
+
+  test("never revives a dismissed receipt", async () => {
+    const item = legacyGuardianReceiptItem("legacy-3");
+    await appendFeedItem({ ...item, status: "dismissed" });
+
+    await healLegacyGuardianReceiptUnread();
+
+    expect(
+      readHomeFeed().items.find((i) => i.id === guardianFeedItemId("legacy-3"))
+        ?.status,
+    ).toBe("dismissed");
+  });
+
+  test("leaves a still-pending request alone", async () => {
+    await appendFeedItem(pendingGuardianItem("still-pending"));
+
+    await healLegacyGuardianReceiptUnread();
+
+    const item = readHomeFeed().items.find(
+      (i) => i.id === guardianFeedItemId("still-pending"),
+    );
+    expect(item?.status).toBe("new");
+    expect(item && isPendingGuardianFeedItem(item)).toBe(true);
+  });
+});
 
 describe("buildPendingGuardianProjection", () => {
   test("tool approval projects as a pending approval with source facts", () => {
