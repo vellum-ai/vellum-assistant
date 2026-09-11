@@ -376,6 +376,12 @@ export function DocumentComposerReplyWatcher() {
         event.messageId,
         event.requestId,
       );
+      if (
+        clientMessageId === undefined &&
+        (event.messageId !== undefined || event.requestId !== undefined)
+      ) {
+        return;
+      }
       rekeyByNonce(event.conversationId, clientMessageId);
       if (clientMessageId !== undefined) {
         acceptCorrelatedRecovery(clientMessageId);

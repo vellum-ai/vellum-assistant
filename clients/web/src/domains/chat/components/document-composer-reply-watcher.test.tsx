@@ -931,6 +931,25 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(awaiting("conv-1")).toBe(true);
     });
 
+    test("an echo with another server id acknowledges nothing", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .recordReplyServerMessageId("conv-1", "cm-1", "req-local");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishUserMessageEcho("conv-1", undefined, "req-someone-else");
+
+      expect(acknowledgedFlags("conv-1")).toEqual([false]);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("conv-1")).toBe(true);
+    });
+
     test("an echo carrying no nonce acknowledges the oldest send only", () => {
       useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
       useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
