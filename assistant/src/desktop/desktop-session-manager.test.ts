@@ -441,8 +441,8 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.count("x-server")).toBe(2);
   });
 
-  test("a panel exit under a viewer leaves the desktop running", async () => {
-    const h = newManager();
+  test("a panel exit keeps applications alive until their group is cleaned up at teardown", async () => {
+    const h = newManager({ exitOnTerm: true });
     const { viewer, lost } = newViewer();
     h.manager.acquireViewerSlot(viewer);
     await h.manager.ensureDesktopRunning();
@@ -457,6 +457,12 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.count("panel")).toBe(1);
     await h.manager.ensureDesktopRunning();
     expect(h.count("x-server")).toBe(1);
+
+    await h.manager.destroy();
+    expect(h.killed.filter((k) => k.child === h.child("panel"))).toEqual([
+      { child: h.child("panel"), signal: "SIGTERM" },
+      { child: h.child("panel"), signal: "SIGKILL" },
+    ]);
   });
 
   test("a browser exit with nobody watching keeps the desktop and the next viewer gets a fresh one", async () => {
@@ -558,13 +564,16 @@ describe("DesktopSessionManager process tree", () => {
     });
   });
 
-  test("destroy skips the hard kill when every child exits on SIGTERM", async () => {
+  test("destroy still clears dock descendants when every direct child exits on SIGTERM", async () => {
     const h = newManager({ exitOnTerm: true });
     await h.manager.ensureDesktopRunning();
     await settle();
 
     await h.manager.destroy();
-    expect(h.killed.map((k) => k.signal)).toEqual(Array(6).fill("SIGTERM"));
+    expect(h.killed.filter((k) => k.signal === "SIGTERM")).toHaveLength(6);
+    expect(h.killed.filter((k) => k.signal === "SIGKILL")).toEqual([
+      { child: h.child("panel"), signal: "SIGKILL" },
+    ]);
   });
 });
 

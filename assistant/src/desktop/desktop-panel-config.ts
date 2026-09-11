@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -96,12 +103,17 @@ function dockItem(launcher: string): string {
 }
 
 function seedFile(path: string, contents: string): void {
+  const temporaryPath = `${path}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(path, contents, { flag: "wx" });
+    writeFileSync(temporaryPath, contents, { flush: true });
+    // Publish a complete file atomically without replacing user settings.
+    linkSync(temporaryPath, path);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
       throw err;
     }
+  } finally {
+    rmSync(temporaryPath, { force: true });
   }
 }
 

@@ -492,7 +492,10 @@ export class DesktopSessionManager {
     if (this.children.get(role) !== child) {
       return;
     }
-    this.children.delete(role);
+    // Dock-launched applications can outlive the panel's session wrapper.
+    if (role !== "panel") {
+      this.children.delete(role);
+    }
     if (role === "wallpaper" && outcome === 0) {
       return;
     }
@@ -589,12 +592,15 @@ export class DesktopSessionManager {
         return child.exited.catch(() => 0).then(() => alive.delete(role));
       }),
     );
-    await this.waitForExits(exits);
-    if (alive.size === 0) {
-      return;
-    }
-    for (const child of alive.values()) {
-      this.killProcessGroup(child, "SIGKILL");
+    const panel = children.get("panel");
+    await this.waitForExits(
+      panel ? Promise.all([exits, sleep(this.killGraceMs)]) : exits,
+    );
+    for (const [role, child] of children) {
+      // A reaped panel does not prove its application process group is empty.
+      if (role === "panel" || alive.has(role)) {
+        this.killProcessGroup(child, "SIGKILL");
+      }
     }
     await this.waitForExits(exits);
     if (alive.size > 0) {

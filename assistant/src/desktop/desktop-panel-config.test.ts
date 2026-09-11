@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import {
   mkdirSync,
   mkdtempSync,
@@ -7,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 
 import { migrateDesktopDockMigration } from "../workspace/migrations/154-migrate-desktop-dock.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
@@ -102,4 +103,36 @@ test("initialization recovers partial pin creation and a migration on a fresh wo
   expect(
     readFileSync(join(configDir, "glib-2.0", "settings", "keyfile"), "utf8"),
   ).not.toBeEmpty();
+});
+
+test("a failed settings write leaves initialization retryable", () => {
+  const workspace = mkdtempSync(join(tmpdir(), "desktop-dock-"));
+  workspaces.push(workspace);
+  const configDir = join(workspace, "data", "desktop-panel");
+  const settingsPath = join(configDir, "glib-2.0", "settings", "keyfile");
+  const request = {
+    configDir,
+    chromiumPath: "/opt/chrome/chrome",
+    chromiumProfileDir: join(workspace, "data", "desktop-profile"),
+    terminalPath: "/usr/bin/xterm",
+  };
+  const write = fs.writeFileSync;
+  const interrupted = spyOn(fs, "writeFileSync").mockImplementation(
+    (...args) => {
+      if (String(args[0]).startsWith(`${settingsPath}.`)) {
+        write(args[0], "partial settings");
+        throw new Error("interrupted write");
+      }
+      write(...args);
+    },
+  );
+  try {
+    expect(() => writeDesktopPanelConfig(request)).toThrow("interrupted write");
+  } finally {
+    interrupted.mockRestore();
+  }
+  expect(fs.existsSync(settingsPath)).toBe(false);
+  writeDesktopPanelConfig(request);
+  expect(readFileSync(settingsPath, "utf8")).not.toContain("partial settings");
+  expect(readFileSync(settingsPath, "utf8")).not.toBeEmpty();
 });
