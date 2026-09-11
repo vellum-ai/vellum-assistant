@@ -9,6 +9,8 @@ import {
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { desktopChromeArguments } from "./desktop-browser-endpoint.js";
+
 // Absolute icon paths work without an installed icon theme.
 const TERMINAL_ICON_BASE64 = [
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACBklEQVR42u2bP2vCQBjG/T",
@@ -32,6 +34,7 @@ export interface DesktopPanelConfigRequest {
   /** Profile the launcher shares with that browser, so it reuses the window. */
   readonly chromiumProfileDir: string;
   readonly terminalPath: string;
+  readonly debugPort?: number;
 }
 
 /** Generate managed launchers and seed the desktop dock on first use. */
@@ -59,7 +62,17 @@ export function writeDesktopPanelConfig(
       // Chrome includes its profile path in WM_CLASS.
       windowClass: `google-chrome (${request.chromiumProfileDir})`,
       icon: browserIcon,
-      exec: `"${request.chromiumPath}" --no-sandbox --no-first-run --disable-dev-shm-usage "--user-data-dir=${request.chromiumProfileDir}"`,
+      exec: [
+        request.chromiumPath,
+        ...desktopChromeArguments(
+          request.chromiumProfileDir,
+          request.debugPort,
+        ),
+      ]
+        .map(
+          (arg) => `"${arg.replace(/[\\"`$]/g, "\\$&").replace(/%/g, "%%")}"`,
+        )
+        .join(" "),
     }),
   );
   writeFileSync(

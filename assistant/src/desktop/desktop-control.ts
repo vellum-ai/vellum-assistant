@@ -3,6 +3,7 @@ import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
+import { desktopBrowserActionSchema } from "./desktop-browser.js";
 import { desktopDependencyInstaller } from "./desktop-dependencies.js";
 import { isAssistantDesktopEnabled } from "./desktop-feature.js";
 import {
@@ -114,7 +115,11 @@ export class DesktopControl {
     this.watchdog = undefined;
     try {
       try {
-        await this.deps.input.releaseInput();
+        try {
+          await this.deps.manager().browser?.release();
+        } finally {
+          await this.deps.input.releaseInput();
+        }
       } finally {
         await this.deps.input.setViewerInput(true);
       }
@@ -195,7 +200,11 @@ export class DesktopControl {
   ): Promise<ToolExecutionResult> {
     const generation = this.generation;
     return this.exclusive(async () => {
-      const action = desktopActionSchema.parse(input);
+      const browserAction =
+        input.scope === "browser" && input.action !== "done"
+          ? desktopBrowserActionSchema.parse(input)
+          : undefined;
+      const action = browserAction ?? desktopActionSchema.parse(input);
       if (
         context.trustClass !== "guardian" ||
         !context.sourceActorPrincipalId ||
@@ -234,7 +243,11 @@ export class DesktopControl {
           "Open the desktop modal and select Install desktop before using desktop control",
         );
       }
-      if (!this.owner && action.action !== "observe") {
+      if (
+        !this.owner &&
+        action.action !== "observe" &&
+        action.action !== "tabs"
+      ) {
         throw new Error("Observe the desktop before acting");
       }
       const owner = this.owner ?? (await this.claim(context));
@@ -244,6 +257,30 @@ export class DesktopControl {
       owner.lastActivity = Date.now();
       signal.throwIfAborted();
       try {
+        if (browserAction) {
+          owner.observation = undefined;
+          if (++owner.actions > MAX_ACTIONS) {
+            throw new Error(
+              "Desktop action limit reached. Finish this session before continuing.",
+            );
+          }
+          const result = await this.deps
+            .manager()
+            .browser.execute(browserAction, signal);
+          if (signal.aborted || result.error) {
+            await this.release();
+          }
+          return {
+            content: JSON.stringify(result),
+            isError: !!result.error,
+            ...(signal.aborted ? { yieldToUser: true } : {}),
+          };
+        }
+        this.deps.manager().browser?.invalidate();
+        const action = desktopActionSchema.parse(input);
+        if (action.action === "done") {
+          throw new Error("Desktop session already finished");
+        }
         if (action.action !== "observe") {
           if (action.observation_id !== owner.observation?.id) {
             throw new Error(

@@ -347,6 +347,24 @@ export async function dispatchKeyPress(
   );
 }
 
+/** Release a held key using the same descriptor as key presses. */
+export async function dispatchKeyRelease(
+  cdp: CdpClient,
+  key: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const descriptor = resolveKeyDescriptor(key);
+  await cdp.send(
+    "Input.dispatchKeyEvent",
+    {
+      ...(descriptor ?? { key }),
+      type: "keyUp",
+      text: undefined,
+    },
+    signal,
+  );
+}
+
 /** Dispatch a wheel scroll delta at the given viewport point. */
 export async function dispatchWheelScroll(
   cdp: CdpClient,
