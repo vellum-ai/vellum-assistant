@@ -459,6 +459,28 @@ describe("feed-writer", () => {
       expect(result!.summary).toBe("Fresh summary");
     });
 
+    test("a status value replaces, and a status updater reads write-time state", async () => {
+      await appendFeedItem(makeItem({ id: "item-1" }));
+
+      const replaced = await patchFeedItemContent("item-1", {
+        status: "acted_on",
+      });
+      expect(replaced!.status).toBe("acted_on");
+
+      // The updater sees the status as of the write, so a conditional
+      // transition cannot overwrite what another writer just set.
+      const seen: string[] = [];
+      const conditional = await patchFeedItemContent("item-1", {
+        status: (existing) => {
+          seen.push(existing);
+          return existing === "new" ? "seen" : existing;
+        },
+      });
+      expect(seen).toEqual(["acted_on"]);
+      expect(conditional!.status).toBe("acted_on");
+      expect(readFileJson().items[0]!.status).toBe("acted_on");
+    });
+
     test("returns null for an unknown id", async () => {
       await appendFeedItem(makeItem({ id: "known" }));
       expect(await patchFeedItemContent("unknown", { title: "x" })).toBeNull();

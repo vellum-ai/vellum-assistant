@@ -46,8 +46,13 @@ const {
   requestIdFromGuardianFeedItemId,
   writeGuardianFeedReceipt,
 } = await import("../guardian-feed-projection.js");
-const { appendFeedItem, bulkSetFeedItemStatus, getHomeFeedPath, readHomeFeed } =
-  await import("../../home/feed-writer.js");
+const {
+  appendFeedItem,
+  bulkSetFeedItemStatus,
+  getHomeFeedPath,
+  patchFeedItemStatus,
+  readHomeFeed,
+} = await import("../../home/feed-writer.js");
 const { GUARDIAN_TERMINAL_REASON_SUPERSEDED, isPendingGuardianFeedItem } =
   await import("../../api/responses/home.js");
 type FeedItem = import("../../api/responses/home.js").FeedItem;
@@ -262,6 +267,46 @@ describe("writeGuardianFeedReceipt", () => {
       GUARDIAN_TERMINAL_REASON_SUPERSEDED,
     );
     expect(item?.guardianRequest?.status).toBe("denied");
+  });
+
+  test("a receipt stops the item reading as unread", async () => {
+    await appendFeedItem(pendingGuardianItem("req-6"));
+    await writeGuardianFeedReceipt({
+      requestId: "req-6",
+      status: "approved",
+      decidedAction: "approve_once",
+    });
+
+    const item = readHomeFeed().items.find(
+      (i) => i.id === guardianFeedItemId("req-6"),
+    );
+    // The clients' unread test is `status === "new"`, so a receipt left
+    // at `new` keeps lighting the bell for work nobody can act on.
+    expect(item?.status).toBe("seen");
+  });
+
+  test("a terminal status nobody decided also clears unread", async () => {
+    await appendFeedItem(pendingGuardianItem("req-7"));
+    await writeGuardianFeedReceipt({ requestId: "req-7", status: "expired" });
+
+    expect(
+      readHomeFeed().items.find((i) => i.id === guardianFeedItemId("req-7"))
+        ?.status,
+    ).toBe("seen");
+  });
+
+  test("a status the user set survives a re-run of the fan-out", async () => {
+    await appendFeedItem(pendingGuardianItem("req-8"));
+    const itemId = guardianFeedItemId("req-8");
+    await writeGuardianFeedReceipt({ requestId: "req-8", status: "approved" });
+    // The user clears the receipt, then the withdrawal fan-out retries
+    // (its per-request receipt is held back until every surface settles).
+    await patchFeedItemStatus(itemId, "dismissed");
+    await writeGuardianFeedReceipt({ requestId: "req-8", status: "approved" });
+
+    expect(readHomeFeed().items.find((i) => i.id === itemId)?.status).toBe(
+      "dismissed",
+    );
   });
 
   test("a request with no item resolves true (nothing to retry)", async () => {
