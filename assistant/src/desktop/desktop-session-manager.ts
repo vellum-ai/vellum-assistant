@@ -9,6 +9,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readAvatarState } from "../avatar/avatar-manifest.js";
+import { resolveNotificationAccentHex } from "../avatar/notification-avatar.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
@@ -335,7 +337,11 @@ export class DesktopSessionManager {
       try {
         windowManagerCommand.push(
           "--config-file",
-          writeDesktopWindowTheme(this.panelConfigDir, env.HOME),
+          writeDesktopWindowTheme(
+            this.panelConfigDir,
+            env.HOME,
+            resolveNotificationAccentHex(readAvatarState()),
+          ),
         );
       } catch (err) {
         log.warn({ err }, "Desktop window theme could not be applied");
