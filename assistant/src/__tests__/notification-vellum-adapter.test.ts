@@ -3,6 +3,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // ── Mocks: declared before imports that depend on them ──────────────
 
 let updateMessageContentShouldThrow = false;
+let assistantName: string | null = null;
+
+mock.module("../daemon/identity-helpers.js", () => ({
+  getAssistantName: () => assistantName,
+}));
 
 const updateMessageContentMock = mock(
   (_messageId: string, _content: string) => {
@@ -55,11 +60,20 @@ function makeDestination(
 function captureBroadcast(): {
   adapter: VellumAdapter;
   sent: AssistantEvent[];
+  conversationIds: Array<string | undefined>;
 } {
   const sent: AssistantEvent[] = [];
-  const adapter = new VellumAdapter((msg) => sent.push(msg));
-  return { adapter, sent };
+  const conversationIds: Array<string | undefined> = [];
+  const adapter = new VellumAdapter((msg, conversationId) => {
+    sent.push(msg);
+    conversationIds.push(conversationId);
+  });
+  return { adapter, sent, conversationIds };
 }
+
+beforeEach(() => {
+  assistantName = null;
+});
 
 describe("VellumAdapter silent flag", () => {
   test("non-urgent (low) urgency broadcasts silent: true", async () => {
@@ -178,6 +192,75 @@ describe("VellumAdapter remotePushDispatched pass-through", () => {
       { type: "notification_intent" }
     >;
     expect(intent.remotePushDispatched).toBeUndefined();
+  });
+});
+
+describe("VellumAdapter assistant name", () => {
+  test("broadcasts the current verified assistant name after trimming it", async () => {
+    assistantName = "  Example Assistant  ";
+    const { adapter, sent } = captureBroadcast();
+
+    await adapter.send(makePayload(), makeDestination());
+
+    const intent = sent[0] as Extract<
+      AssistantEvent,
+      { type: "notification_intent" }
+    >;
+    expect(intent.assistantName).toBe("Example Assistant");
+  });
+
+  test("omits the assistant name when it is unavailable", async () => {
+    const { adapter, sent } = captureBroadcast();
+
+    await adapter.send(makePayload(), makeDestination());
+
+    const intent = sent[0] as Extract<
+      AssistantEvent,
+      { type: "notification_intent" }
+    >;
+    expect(intent.assistantName).toBeUndefined();
+    expect("assistantName" in intent).toBe(false);
+  });
+
+  test("omits a blank assistant name", async () => {
+    assistantName = " \t\n ";
+    const { adapter, sent } = captureBroadcast();
+
+    await adapter.send(makePayload(), makeDestination());
+
+    const intent = sent[0] as Extract<
+      AssistantEvent,
+      { type: "notification_intent" }
+    >;
+    expect(intent.assistantName).toBeUndefined();
+    expect("assistantName" in intent).toBe(false);
+  });
+
+  test("reflects a renamed assistant on the next intent", async () => {
+    assistantName = "Assistant A";
+    const { adapter, sent } = captureBroadcast();
+    await adapter.send(makePayload(), makeDestination());
+
+    assistantName = "Assistant B";
+    await adapter.send(makePayload(), makeDestination());
+
+    const intents = sent as Array<
+      Extract<AssistantEvent, { type: "notification_intent" }>
+    >;
+    expect(intents.map((intent) => intent.assistantName)).toEqual([
+      "Assistant A",
+      "Assistant B",
+    ]);
+  });
+
+  test("keeps notification intents outside conversation replay scope", async () => {
+    assistantName = "Example Assistant";
+    const { adapter, sent, conversationIds } = captureBroadcast();
+
+    await adapter.send(makePayload(), makeDestination());
+
+    expect(conversationIds).toEqual([undefined]);
+    expect("conversationId" in sent[0]!).toBe(false);
   });
 });
 
