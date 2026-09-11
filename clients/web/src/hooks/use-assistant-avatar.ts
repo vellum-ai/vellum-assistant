@@ -27,6 +27,7 @@ import type {
   CharacterTraits,
 } from "@/types/avatar";
 import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
+import { isUuid } from "@/utils/uuid";
 
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
 
@@ -113,6 +114,18 @@ export function resolveAssistantAvatarOwnerScopeId(
         url:
           assistant.runtimeUrl ?? assistant.ingressUrl ?? connectionFallback,
       });
+}
+
+/** Resolve the platform UUID shared by remote and local sender identities. */
+export function resolveAssistantNotificationPlatformId(
+  assistant: ResolvedAssistant | null | undefined,
+): string | null {
+  if (assistant?.platformAssistantId && isUuid(assistant.platformAssistantId)) {
+    return assistant.platformAssistantId;
+  }
+  return assistant?.isPlatformHosted && isUuid(assistant.id)
+    ? assistant.id
+    : null;
 }
 
 interface AvatarOwner {

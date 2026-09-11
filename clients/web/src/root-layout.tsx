@@ -73,6 +73,7 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import { useViewerStore } from "@/stores/viewer-store";
 import {
   resolveAssistantAvatarOwnerScopeId,
+  resolveAssistantNotificationPlatformId,
   useAssistantAvatar,
 } from "@/hooks/use-assistant-avatar";
 import { useAvatarAccentVar } from "@/hooks/use-avatar-accent-var";
@@ -113,7 +114,6 @@ import { answerDictationOffer } from "@/domains/chat/voice/dictation-offer-actio
 import { useRequestOrganizationId } from "@/stores/organization-store";
 import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import { reconcilePreparedNotificationIdentityOwners } from "@/runtime/notification-avatar";
-import { isUuid } from "@/utils/uuid";
 
 /**
  * App-level layout route. Owns four cross-route concerns:
@@ -202,12 +202,7 @@ export function RootLayout() {
         )
       : null;
   const notificationPlatformAssistantId =
-    activeAssistant?.platformAssistantId &&
-    isUuid(activeAssistant.platformAssistantId)
-      ? activeAssistant.platformAssistantId
-      : activeAssistant?.isPlatformHosted && isUuid(activeAssistant.id)
-        ? activeAssistant.id
-        : null;
+    resolveAssistantNotificationPlatformId(activeAssistant);
   const activeConversationId = useConversationStore.use.activeConversationId();
   const assistantStateKind = useAssistantLifecycleStore(
     (s) => s.assistantState.kind,

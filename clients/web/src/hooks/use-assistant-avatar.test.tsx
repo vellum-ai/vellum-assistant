@@ -13,6 +13,7 @@ import type {
 import {
   avatarQueryKey,
   resolveAssistantAvatarOwnerScopeId,
+  resolveAssistantNotificationPlatformId,
   shouldRetainAvatarPlaceholder,
   type AvatarData,
 } from "@/hooks/use-assistant-avatar";
@@ -177,6 +178,30 @@ afterEach(() => {
 });
 
 describe("useAssistantAvatar", () => {
+  test("resolves only verified platform UUIDs for notification senders", () => {
+    const platformId = "123e4567-e89b-12d3-a456-426614174000";
+    expect(
+      resolveAssistantNotificationPlatformId({
+        ...assistantOne,
+        platformAssistantId: platformId,
+      }),
+    ).toBe(platformId);
+    expect(
+      resolveAssistantNotificationPlatformId({
+        ...assistantOne,
+        id: platformId,
+        isLocal: false,
+        isPlatformHosted: true,
+      }),
+    ).toBe(platformId);
+    expect(
+      resolveAssistantNotificationPlatformId({
+        ...assistantOne,
+        platformAssistantId: "not-a-uuid",
+      }),
+    ).toBeNull();
+  });
+
   test("does not fetch before an explicit notification owner resolves", async () => {
     const { result } = renderHook(
       () => useAssistantAvatar("asst-1", { ownerScopeId: null }),

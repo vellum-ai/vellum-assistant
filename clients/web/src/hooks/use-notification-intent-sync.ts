@@ -26,7 +26,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router";
 
 import { identityGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import { resolveAssistantAvatarOwnerScopeId } from "@/hooks/use-assistant-avatar";
+import {
+  resolveAssistantAvatarOwnerScopeId,
+  resolveAssistantNotificationPlatformId,
+} from "@/hooks/use-assistant-avatar";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
@@ -43,7 +46,6 @@ import { useRequestOrganizationId } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import { isConversationChatPath } from "@/utils/routes";
-import { isUuid } from "@/utils/uuid";
 
 /**
  * Subscribes to `notification_intent` SSE events via the event bus
@@ -78,11 +80,7 @@ export function useNotificationIntentSync(assistantId: string | null): void {
         )
       : null;
   const platformAssistantId =
-    assistant?.platformAssistantId && isUuid(assistant.platformAssistantId)
-      ? assistant.platformAssistantId
-      : assistant?.isPlatformHosted && isUuid(assistant.id)
-        ? assistant.id
-        : null;
+    resolveAssistantNotificationPlatformId(assistant);
   const notificationIdentity = useMemo(
     () =>
       assistantId && scopeId
