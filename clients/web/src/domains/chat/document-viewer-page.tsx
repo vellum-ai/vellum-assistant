@@ -33,6 +33,7 @@ import {
   DOCUMENT_RETURN_PARAM,
   navigateToDocumentConversation,
   showDocumentInConversation,
+  returnFromDocument,
 } from "./document-conversation-navigation";
 import { useDocumentCommentEvents } from "./hooks/use-document-comment-events";
 import { useDocumentPdfExport } from "./hooks/use-document-pdf-export";
@@ -48,7 +49,7 @@ export function DocumentViewerPage() {
   const { t } = useTranslation("chat");
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
-  const { pathname, search } = useLocation();
+  const { pathname, search, state: navigationState } = useLocation();
   const isMobile = useIsMobile();
   // The route host stays stable while the user edits, even across a breakpoint.
   const [entryMode] = useState(isMobile ? "conversation" : "standalone");
@@ -119,6 +120,7 @@ export function DocumentViewerPage() {
               assistantId,
               returnTo,
               true,
+              navigationState,
             );
             return;
           }
@@ -148,6 +150,7 @@ export function DocumentViewerPage() {
     navigate,
     returnTo,
     attempt,
+    navigationState,
   ]);
 
   const handleCommentsChanged = useCallback(() => {
@@ -162,8 +165,8 @@ export function DocumentViewerPage() {
 
   const handleClose = useCallback(() => {
     requestRef.current?.dispose();
-    void navigate(returnTo, { replace: true });
-  }, [navigate, returnTo]);
+    returnFromDocument(navigate, surfaceId ?? "", returnTo, navigationState);
+  }, [navigate, surfaceId, returnTo, navigationState]);
   useEdgeSwipeBack({
     containerRef: swipeContainerRef,
     onBack: handleClose,
@@ -208,6 +211,7 @@ export function DocumentViewerPage() {
           );
           navigateToConversation(navigate, conversationId, {
             silent: true,
+            ...(isMobile ? { replace: true, state: navigationState } : {}),
             destination: isMobile
               ? documentConversationUrl(
                   conversationId,
@@ -232,6 +236,7 @@ export function DocumentViewerPage() {
             assistantId,
             returnTo,
             true,
+            navigationState,
           );
         }
       } catch (error) {
@@ -247,7 +252,7 @@ export function DocumentViewerPage() {
         }
       }
     },
-    [doc, assistantId, navigate, returnTo, isMobile, t],
+    [doc, assistantId, navigate, returnTo, isMobile, t, navigationState],
   );
   const handleSubmitFeedback = useCallback(
     () => prepareConversation(true),

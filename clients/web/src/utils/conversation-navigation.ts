@@ -17,6 +17,8 @@ export interface NavigateToConversationOptions {
   /** An explicit presentation URL for the same conversation. */
   destination?: string;
   replace?: boolean;
+  /** History state for an explicit presentation of this conversation. */
+  state?: unknown;
   /** Anchor the transcript to a specific message on load. */
   messageId?: string;
   /**
@@ -105,8 +107,11 @@ export function navigateToConversation(
     (options?.messageId
       ? routes.conversationAtMessage(conversationId, options.messageId)
       : routes.conversation(conversationId));
-  if (options?.replace) {
-    void navigate(destination, { replace: true });
+  if (options?.replace || options?.state !== undefined) {
+    void navigate(destination, {
+      ...(options.replace ? { replace: true } : {}),
+      ...(options.state !== undefined ? { state: options.state } : {}),
+    });
   } else {
     void navigate(destination);
   }

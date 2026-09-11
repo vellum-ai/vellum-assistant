@@ -9,7 +9,7 @@ import { useTranslation } from "@/i18n";
  */
 
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { useLocation, useParams, useSearchParams } from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
@@ -92,6 +92,7 @@ export function ActiveChatView() {
   const { t } = useTranslation("chat");
   const canUseInternalActions = useCanUseInternalThreadActions();
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const { conversationId: urlConversationId } = useParams<{
     conversationId?: string;
   }>();
@@ -332,6 +333,7 @@ export function ActiveChatView() {
     activeConversationId,
     searchParams,
     setSearchParams,
+    navigationState: location.state,
     sendMessage,
     reachabilityPhase: reachability.state.phase,
     reachabilityProbe: reachability.probe,

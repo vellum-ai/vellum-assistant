@@ -18,6 +18,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
+import { documentEntryState } from "@/utils/document-navigation";
 
 import {
   documentRequestScope,
@@ -59,13 +60,16 @@ export function useOpenDocumentFromChat(
   const assistantId = ownerAssistantId ?? activeAssistantId;
   const isMobile = useIsMobile();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const location = useLocation();
   const { t } = useTranslation("chat");
   const requestRef = useRef<ReturnType<typeof documentRequestScope> | null>(
     null,
   );
 
-  useEffect(() => () => requestRef.current?.dispose(), [assistantId, pathname]);
+  useEffect(
+    () => () => requestRef.current?.dispose(),
+    [assistantId, location.key],
+  );
 
   return useCallback(
     async (surfaceId) => {
@@ -101,7 +105,8 @@ export function useOpenDocumentFromChat(
         if (!scope.isCurrent()) {
           return;
         }
-        const returnTo = documentReturnPath(pathname);
+        const returnTo = documentReturnPath(location.pathname);
+        const state = documentEntryState(location, surfaceId);
         beforeOpen?.();
         if (linkedId) {
           navigateToDocumentConversation(
@@ -110,12 +115,14 @@ export function useOpenDocumentFromChat(
             linkedId,
             assistantId,
             returnTo,
+            false,
+            state,
           );
         } else {
           const params = new URLSearchParams({
             [DOCUMENT_RETURN_PARAM]: returnTo,
           });
-          void navigate(`${routes.document(surfaceId)}?${params}`);
+          void navigate(`${routes.document(surfaceId)}?${params}`, { state });
         }
       } catch (error) {
         if (scope.isCurrent()) {
@@ -126,7 +133,7 @@ export function useOpenDocumentFromChat(
         scope.dispose();
       }
     },
-    [assistantId, isMobile, navigate, pathname, t, beforeOpen],
+    [assistantId, isMobile, navigate, location, t, beforeOpen],
   );
 }
 

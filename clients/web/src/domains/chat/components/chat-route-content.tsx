@@ -1594,6 +1594,7 @@ export function ChatMainPanel({
             "chat",
             getDocumentFeedbackPrompt(preparation.snapshot.title),
           ),
+          { replace: true, state: location.state },
         );
       }
     } finally {

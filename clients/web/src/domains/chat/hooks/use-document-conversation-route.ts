@@ -7,7 +7,6 @@ import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
-import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 import {
@@ -19,6 +18,7 @@ import {
   documentConversationUrl,
   getDocumentConversationRoute,
   showDocumentInConversation,
+  returnFromDocument,
 } from "../document-conversation-navigation";
 import { useUnseenDocumentChangesStore } from "../unseen-document-changes-store";
 import { loadDocumentContent } from "../api/document-load";
@@ -43,7 +43,7 @@ export function useDocumentConversationRoute() {
   const { t } = useTranslation("chat");
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const { conversationId } = useParams<{ conversationId: string }>();
-  const { search } = useLocation();
+  const { search, state: navigationState } = useLocation();
   const navigate = useNavigate();
   const readiness = useOrgHeaderReadiness();
   const isMobile = useIsMobile();
@@ -106,6 +106,7 @@ export function useDocumentConversationRoute() {
           });
           void navigate(`${routes.document(surfaceId)}?${params}`, {
             replace: true,
+            state: navigationState,
           });
           return;
         }
@@ -138,6 +139,7 @@ export function useDocumentConversationRoute() {
     returnTo,
     attempt,
     t,
+    navigationState,
   ]);
 
   useEffect(() => {
@@ -157,16 +159,8 @@ export function useDocumentConversationRoute() {
   const closeDocument = useCallback(() => {
     scopeRef.current?.dispose();
     useViewerStore.getState().closeDocument();
-    if (returnTo.startsWith(`${routes.conversations}/`)) {
-      navigateToConversation(
-        navigate,
-        returnTo.slice(`${routes.conversations}/`.length),
-        { silent: true, replace: true },
-      );
-    } else {
-      void navigate(returnTo, { replace: true });
-    }
-  }, [navigate, returnTo]);
+    returnFromDocument(navigate, surfaceId ?? "", returnTo, navigationState);
+  }, [navigate, surfaceId, returnTo, navigationState]);
 
   useOverlayEscape(isMobile && !!surfaceId && showingDocument, () => {
     if (useViewerStore.getState().mainView !== "document") {
@@ -187,10 +181,17 @@ export function useDocumentConversationRoute() {
       }
       void navigate(
         documentConversationUrl(conversationId, surfaceId, returnTo, view),
-        { replace: true },
+        { replace: true, state: navigationState },
       );
     },
-    [conversationId, surfaceId, navigate, returnTo, assistantId],
+    [
+      conversationId,
+      surfaceId,
+      navigate,
+      returnTo,
+      assistantId,
+      navigationState,
+    ],
   );
   const viewConversation = useCallback(
     () => setPresentation("chat"),

@@ -23,6 +23,12 @@ and retain no document content; presentation switches within the mounted session
 keep the existing editor without refetching.
 The return destination accepts only supported in-app Library/chat paths,
 including the chat router's optional trailing slash.
+Click-opened documents carry history state for their surface and safe origin.
+Closing pops that entry; cold links replace themselves with the safe return
+route. Adapter redirects, recovery and presentation changes replace the document
+entry and retain its state. Prompt consumption also preserves the state. Origins
+with auto-send commands or another document association do not opt into history
+return, so closing cannot replay a command or reopen an unrelated document.
 Conversation bootstrap leaves an explicit conversation URL intact, so it does not
 consume the document presentation or return parameters while selecting the chat.
 Chat Info stays mounted while document entry resolves, then closes immediately

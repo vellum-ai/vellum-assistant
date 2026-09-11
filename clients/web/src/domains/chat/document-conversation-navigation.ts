@@ -4,8 +4,14 @@ import { useViewerStore } from "@/stores/viewer-store";
 import type { DocumentContent } from "@/types/document-types";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
+import {
+  documentReturnPath,
+  hasDocumentReturnEntry,
+} from "@/utils/document-navigation";
 
 import { useUnseenDocumentChangesStore } from "./unseen-document-changes-store";
+
+export { documentReturnPath } from "@/utils/document-navigation";
 
 export const DOCUMENT_PARAM = "document";
 export const DOCUMENT_RETURN_PARAM = "documentReturn";
@@ -50,15 +56,24 @@ export function closeDocumentInConversation(
   );
 }
 
-/** Only the two document entry surfaces are valid return destinations. */
-export function documentReturnPath(value?: string | null): string {
-  if (
-    value === routes.library.root ||
-    /^\/assistant\/conversations\/[^/?#\\]+\/?$/.test(value ?? "")
-  ) {
-    return value!;
+/** Pops a click-opened session, with a safe route fallback for direct links. */
+export function returnFromDocument(
+  navigate: NavigateFunction,
+  surfaceId: string,
+  returnTo: string,
+  state: unknown,
+): void {
+  if (hasDocumentReturnEntry(state, surfaceId, returnTo)) {
+    void navigate(-1);
+  } else if (returnTo.startsWith(`${routes.conversations}/`)) {
+    navigateToConversation(
+      navigate,
+      returnTo.slice(`${routes.conversations}/`.length),
+      { silent: true, replace: true },
+    );
+  } else {
+    void navigate(returnTo, { replace: true });
   }
-  return routes.library.root;
 }
 
 export function documentConversationUrl(
@@ -115,6 +130,7 @@ export function navigateToDocumentConversation(
   assistantId: string,
   returnTo?: string,
   replace = false,
+  state?: unknown,
 ): void {
   navigateToConversation(navigate, conversationId, {
     silent: true,
@@ -124,6 +140,7 @@ export function navigateToDocumentConversation(
       returnTo,
     ),
     replace,
+    state,
   });
   showDocumentInConversation(document, conversationId, assistantId);
 }
