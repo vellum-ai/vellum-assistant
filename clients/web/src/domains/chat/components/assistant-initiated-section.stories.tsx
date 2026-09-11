@@ -279,6 +279,21 @@ export const WithOpenThread: Story = {
 };
 
 /**
+ * The open thread under a custom-image avatar, where no accent is published.
+ * The raised wash is unset there, so the current row keeps the neutral
+ * `--surface-active` every other card's rows open in rather than dissolving
+ * into the card.
+ */
+export const WithOpenThreadCustomImageAvatar: Story = {
+  args: {
+    threads: THREADS,
+    assistantName: "Ada",
+    withCharacterAvatar: false,
+    activeConversationId: THREADS[1]!.conversationId,
+  },
+};
+
+/**
  * Before the assistant has a name. "From Your Assistant" reads as a settings
  * row rather than a byline, so the unnamed case falls back to a neutral
  * header.

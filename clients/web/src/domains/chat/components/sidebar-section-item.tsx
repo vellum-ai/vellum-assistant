@@ -178,12 +178,22 @@ export function SidebarSectionItem({
                  one tinted object under the pointer and around the open
                  thread as well as at rest. Every row is a `PanelItem`, and
                  these are the properties its hover and current-page states
-                 read. Active is stated alongside hover, as
+                 read; active is stated alongside hover, as
                  `panelItemWashStyle` does, because without it the current
                  row falls back to `--surface-active` and sits as a white
-                 cell on the tint. */
-              "[--panel-item-hover:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
-              "[--panel-item-active:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
+                 cell on the tint.
+
+                 The raised wash is derived from `--avatar-accent` with NO
+                 fallback, on purpose: when the accent is absent (custom
+                 image, still loading) the derived property is invalid at
+                 computed-value time and so counts as unset, and each
+                 consumer's own fallback stands - the neutral hover and
+                 active surfaces every other card's rows use. Mixing a
+                 fallback surface into itself would instead paint both
+                 states in the card's own colour and hide them. */
+              "[--assistant-row-raised:color-mix(in_srgb,var(--avatar-accent)_24%,var(--surface-lift))]",
+              "[--panel-item-hover:var(--assistant-row-raised,var(--surface-hover))]",
+              "[--panel-item-active:var(--assistant-row-raised,var(--surface-active))]",
             )
           : undefined
       }
