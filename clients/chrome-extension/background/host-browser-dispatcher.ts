@@ -104,6 +104,7 @@ export interface HostBrowserSessionInvalidatedEnvelope {
 }
 
 export interface HostBrowserDispatcherDeps {
+  releaseInput?: () => Promise<void>;
   /**
    * Target resolver. When `cdpSessionId` is provided it is treated as an
    * opaque `targetId` (matching how the CdpProxy addresses flat sessions via
@@ -118,7 +119,7 @@ export interface HostBrowserDispatcherDeps {
    * tab is on a privileged URL that chrome.debugger cannot attach to. Only
    * invoked by `Page.navigate` recovery — status probes never call this.
    */
-  createTab?(): Promise<{ tabId?: number; targetId?: string }>;
+  createTab?(signal?: AbortSignal): Promise<{ tabId?: number; targetId?: string }>;
   /** POST result envelope back to /v1/host-browser-result. */
   postResult(result: HostBrowserResultEnvelope): Promise<void>;
   /**
@@ -336,6 +337,13 @@ export function createHostBrowserDispatcher(
     const ownController = abort;
     inFlight.set(requestId, ownController);
     try {
+      if (envelope.cdpMethod === 'Vellum.releaseInput' && deps.releaseInput) {
+        await deps.releaseInput();
+        if (!abort.signal.aborted) {
+          await deps.postResult({ requestId, content: '{}', isError: false });
+        }
+        return;
+      }
       // Handle synthetic Vellum.* methods that use chrome extension APIs
       // directly instead of routing through chrome.debugger. These methods
       // do not require a resolved CDP target, so they must be dispatched
@@ -365,7 +373,7 @@ export function createHostBrowserDispatcher(
           return;
         }
         try {
-          const newTarget = await deps.createTab();
+          const newTarget = await deps.createTab(abort.signal);
           if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           if (newTarget.tabId === undefined) {
             await deps.postResult({
@@ -486,6 +494,10 @@ export function createHostBrowserDispatcher(
         }
         try {
           const updatedTab = await chrome.tabs.update(tabId, { active: true });
+          if (abort.signal.aborted) { return; }
+          if (updatedTab?.windowId !== undefined) {
+            await chrome.windows.update(updatedTab.windowId, { focused: true });
+          }
           if (abort.signal.aborted || cancelledRequestIds.has(requestId)) return;
           const clientId = deps.getClientId ? await deps.getClientId() : undefined;
           // Re-check after getClientId() — a cancel that arrived while it was
@@ -632,6 +644,7 @@ export function createHostBrowserDispatcher(
       }
 
       let target = await deps.resolveTarget(envelope.cdpSessionId);
+      if (abort.signal.aborted) { return; }
       let key = targetKey(target);
       if (!attachedTargets.has(key)) {
         try {
@@ -667,7 +680,7 @@ export function createHostBrowserDispatcher(
               (msg.includes('cannot access') ||
                 msg.includes('cannot be scripted'))
             ) {
-              const newTarget = await deps.createTab?.();
+              const newTarget = await deps.createTab?.(abort.signal);
               if (newTarget) {
                 target = newTarget;
                 key = targetKey(target);
@@ -682,6 +695,7 @@ export function createHostBrowserDispatcher(
           }
         }
       }
+      if (abort.signal.aborted) { return; }
       const frame = await proxy.send(target, {
         id: nextCdpId++,
         method: envelope.cdpMethod,

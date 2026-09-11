@@ -29,7 +29,14 @@
 clients/.build
 clients/docs/.next
 clients/ios
-clients/chrome-extension
+clients/chrome-extension/*
+!clients/chrome-extension/package.json
+!clients/chrome-extension/background/
+clients/chrome-extension/background/*
+!clients/chrome-extension/background/managed-desktop-worker.ts
+!clients/chrome-extension/background/managed-desktop-input.ts
+!clients/chrome-extension/background/host-browser-dispatcher.ts
+!clients/chrome-extension/background/cdp-proxy.ts
 clients/macos/apple-containers-runtime
 clients/macos/dist
 clients/macos/native

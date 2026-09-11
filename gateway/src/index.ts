@@ -1,3 +1,4 @@
+import { createDesktopBrowserHandler } from "./http/routes/desktop-browser.js";
 process.title = "vellum-gateway";
 
 import { eventRefersToAnotherMessage } from "./channels/inbound-event.js";
@@ -243,6 +244,7 @@ import { contactRoutes } from "./ipc/contact-handlers.js";
 import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
 import { guardianRequestRoutes } from "./ipc/guardian-request-handlers.js";
+import { desktopExtensionRoutes } from "./ipc/desktop-extension-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
@@ -674,7 +676,9 @@ async function main() {
   const migrationJobStatusProxy = createMigrationJobStatusProxyHandler(config);
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
+  const desktopBrowserHandler = createDesktopBrowserHandler(config);
   const desktopSetupProxy = createDesktopSetupProxyHandler(config);
+  const desktopControlProxy = createDesktopSetupProxyHandler(config, "control");
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleLogExport = createLogExportHandler(config);
   const handleLogTail = createLogTailHandler(config);
@@ -970,6 +974,13 @@ async function main() {
       handleContactPromptSubmit,
       handleContactRecordSubmit,
     }),
+
+    ...(["bridge", "update", "package"] as const).map((kind) => ({
+      path: `/v1/desktop/browser/${kind}`,
+      method: kind === "bridge" ? ("POST" as const) : ("GET" as const),
+      auth: "none" as const,
+      handler: desktopBrowserHandler,
+    })),
 
     // ── Generic loopback pairing (localhost-only, auth: none) ──
     {
@@ -1961,6 +1972,18 @@ async function main() {
     routes.push(
       { path: /^\/v1\/desktop\/setup\/?$/, ...setupRoute },
       { path: /^\/v1\/assistants\/[^/]+\/desktop\/setup\/?$/, ...setupRoute },
+      {
+        path: /^\/v1\/desktop\/control\/?$/,
+        method,
+        auth: "edge-guardian",
+        handler: desktopControlProxy,
+      },
+      {
+        path: /^\/v1\/assistants\/[^/]+\/desktop\/control\/?$/,
+        method,
+        auth: "edge-guardian",
+        handler: desktopControlProxy,
+      },
     );
   }
 
@@ -3054,6 +3077,7 @@ async function main() {
   // ── IPC server ──
   const ipcServer = new GatewayIpcServer([
     ...featureFlagRoutes,
+    ...desktopExtensionRoutes,
     ...contactRoutes,
     ...inviteRoutes,
     ...verificationSessionRoutes,

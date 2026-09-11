@@ -240,6 +240,7 @@ interface ChromeTabsNamespace {
 }
 
 interface ChromeWindowsNamespace {
+  update(windowId: number, options: { focused: boolean }): Promise<unknown>;
   readonly WINDOW_ID_CURRENT: number;
   readonly WINDOW_ID_NONE: number;
 }

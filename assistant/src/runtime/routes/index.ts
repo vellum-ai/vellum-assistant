@@ -7,7 +7,6 @@
  * Over time, routes will migrate from their HTTP-only or IPC-only homes
  * into this shared array.
  */
-
 import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/src/memory-eval-routes.js";
 import { ROUTES as MEMORY_GRAPH_ROUTES } from "../../plugins/defaults/memory/src/memory-graph-routes.js";
 import { ROUTES as MEMORY_INGEST_ROUTES } from "../../plugins/defaults/memory/src/memory-ingest-routes.js";
@@ -63,6 +62,8 @@ import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DEFAULT_PROVIDER_ROUTES } from "./default-provider-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
+import { ROUTES as desktopBrowserRoutes } from "./desktop-browser-routes.js";
+import { ROUTES as desktopControlRoutes } from "./desktop-control-routes.js";
 import { ROUTES as DESKTOP_SETUP_ROUTES } from "./desktop-setup-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
@@ -222,6 +223,8 @@ export const ROUTES: RouteDefinition[] = [
   ...DEBUG_ROUTES,
   ...DEFAULT_PROVIDER_ROUTES,
   ...DESKTOP_SETUP_ROUTES,
+  ...desktopControlRoutes,
+  ...desktopBrowserRoutes,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
   ...RESOURCE_PRESSURE_ROUTES,

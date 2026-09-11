@@ -105,7 +105,13 @@
     "installBackground": "關閉此視窗後，安裝仍會繼續。",
     "installFailed": "安裝失敗。請重試以完成設定。",
     "setupRequestFailed": "無法檢查桌面設定。請重新連線後再試。",
-    "setupUnsupported": "桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
+    "setupUnsupported": "桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。",
+    "assistantControlling": "助理正在控制此桌面",
+    "userControlling": "您已接管。準備好繼續時，請允許助理操作。",
+    "controlReady": "您可以在這裡觀看助理操作。",
+    "takeControl": "接管控制",
+    "allowAssistant": "允許助理操作",
+    "controlFailed": "無法更新桌面控制狀態。請重新連線後重試。"
   },
   "assistantNavItem": {
     "newChat": "新增聊天"

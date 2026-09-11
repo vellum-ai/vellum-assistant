@@ -4,6 +4,7 @@ await runIsolatedTests({
   cwd: import.meta.dir + "/..",
   patterns: [
     "src/**/*.test.{ts,tsx}",
+    "vite-plugin-openapi-codegen.test.ts",
     // Storybook's preview config carries logic of its own (route parameters,
     // the theme read off an untyped channel), so its suites run in CI too.
     ".storybook/**/*.test.{ts,tsx}",
