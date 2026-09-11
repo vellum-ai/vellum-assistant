@@ -62,7 +62,7 @@ The send command names the channel, the chat, and the text. It takes no provider
 assistant channels send slack C0123456789 --text "Hello from the assistant!"
 ```
 
-Add `--thread <ts>` to post inside a thread, `--plain` to send the text verbatim instead of the channel's rich rendering, and `--json` for a machine-readable result naming every message id Slack acknowledged and the conversation the post was recorded in.
+Add `--thread <ts>` to post inside a thread, `--plain` to send the text verbatim instead of the channel's rich rendering, and `--json` for a machine-readable result naming every message id Slack acknowledged, plus the conversation the post was recorded in when a record was written.
 
 The command refuses a channel it cannot address before anything is sent, and reports a failure rather than a success when Slack does not acknowledge the post. If it reports that the outcome is unknown, the message may still have gone out: check the chat before sending again.
 
