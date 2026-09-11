@@ -3,6 +3,7 @@ package ai.vellum.assistant.push;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.util.Base64;
 import androidx.annotation.Nullable;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -29,7 +30,8 @@ public final class AvatarCache {
     private static final String DIRECTORY = "notification-avatars";
     private static final String EXTENSION = ".png";
     private static final String TEMPORARY_EXTENSION = ".tmp";
-    private static final int MAX_BYTES = 512 * 1024;
+    static final int MAX_BYTES = 512 * 1024;
+    static final int MAX_BASE64_CHARACTERS = ((MAX_BYTES + 2) / 3) * 4;
     // The timeouts run inside onMessageReceived, whose window is far shorter
     // than the 8 s an iOS notification-service extension gets, and a cached
     // avatar is a handful of kilobytes, so a stalled host has to give up fast.
@@ -53,7 +55,7 @@ public final class AvatarCache {
     private static final long TEMPORARY_MAX_AGE_MILLIS = 60_000;
     // A notification large icon is displayed at well under 512 px, and a
     // decoded bitmap this size costs a megabyte of the Firebase callback's heap.
-    private static final int MAX_PIXELS = 512;
+    static final int MAX_PIXELS = 512;
 
     private final File directory;
 
@@ -92,6 +94,130 @@ public final class AvatarCache {
         }
         store(name, bytes);
         return bitmap;
+    }
+
+    /**
+     * Validates and decodes a bridge-provided PNG without permitting its
+     * metadata to allocate an oversized bitmap. A valid image also warms the
+     * same content-addressed cache used by remote pushes.
+     */
+    @Nullable
+    public Bitmap decodeInline(@Nullable String base64, @Nullable String hash) {
+        byte[] bytes = validatedInlineBytes(
+            base64,
+            hash,
+            value -> Base64.decode(value, Base64.DEFAULT)
+        );
+        if (bytes == null) {
+            return null;
+        }
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+        if (!supportedInlineBounds(bounds.outWidth, bounds.outHeight, bounds.outMimeType)) {
+            return null;
+        }
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight);
+        Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        if (
+            bitmap == null
+                || bitmap.getWidth() <= 0
+                || bitmap.getHeight() <= 0
+                || bitmap.getWidth() > MAX_PIXELS
+                || bitmap.getHeight() > MAX_PIXELS
+        ) {
+            return null;
+        }
+        store(hash, bytes);
+        return bitmap;
+    }
+
+    @FunctionalInterface
+    interface Base64Decoder {
+        byte[] decode(String value);
+    }
+
+    /** Byte-level validation that runs before Android is allowed to inspect pixels. */
+    @Nullable
+    static byte[] validatedInlineBytes(
+        @Nullable String base64,
+        @Nullable String expectedHash,
+        Base64Decoder decoder
+    ) {
+        if (
+            base64 == null
+                || base64.length() < 4
+                || base64.length() > MAX_BASE64_CHARACTERS
+                || !isCanonicalBase64(base64)
+                || validated(expectedHash) == null
+        ) {
+            return null;
+        }
+        final byte[] bytes;
+        try {
+            bytes = decoder.decode(base64);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+        if (
+            bytes == null
+                || bytes.length == 0
+                || bytes.length > MAX_BYTES
+                || !hasPngSignature(bytes)
+                || !expectedHash.equals(sha256Hex(bytes))
+        ) {
+            return null;
+        }
+        return bytes;
+    }
+
+    static boolean supportedInlineBounds(int width, int height, @Nullable String mimeType) {
+        return width > 0
+            && height > 0
+            && width <= MAX_PIXELS
+            && height <= MAX_PIXELS
+            && "image/png".equals(mimeType);
+    }
+
+    private static boolean hasPngSignature(byte[] bytes) {
+        return bytes.length >= 8
+            && (bytes[0] & 0xff) == 0x89
+            && bytes[1] == 0x50
+            && bytes[2] == 0x4e
+            && bytes[3] == 0x47
+            && bytes[4] == 0x0d
+            && bytes[5] == 0x0a
+            && bytes[6] == 0x1a
+            && bytes[7] == 0x0a;
+    }
+
+    private static boolean isCanonicalBase64(String value) {
+        if (value.length() % 4 != 0) {
+            return false;
+        }
+        int paddingStart = value.length();
+        if (value.endsWith("==")) {
+            paddingStart -= 2;
+        } else if (value.endsWith("=")) {
+            paddingStart -= 1;
+        }
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            boolean alphabet = character >= 'A' && character <= 'Z'
+                || character >= 'a' && character <= 'z'
+                || character >= '0' && character <= '9'
+                || character == '+'
+                || character == '/';
+            if (index < paddingStart) {
+                if (!alphabet) {
+                    return false;
+                }
+            } else if (character != '=') {
+                return false;
+            }
+        }
+        return paddingStart > 0;
     }
 
     /**

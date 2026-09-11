@@ -4,6 +4,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import android.app.NotificationManager;
+
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
@@ -85,5 +87,43 @@ public class NativePushRendererTest {
                 null
             )
         );
+    }
+
+    @Test
+    public void mapsPermissionApplicationAndChannelBlocks() {
+        assertEquals(
+            "authorization_denied",
+            NativePushRenderer.deliveryBlockReason(false, true, true, 3)
+        );
+        assertEquals(
+            "notifications_disabled",
+            NativePushRenderer.deliveryBlockReason(true, false, true, 3)
+        );
+        assertEquals(
+            "channel_unavailable",
+            NativePushRenderer.deliveryBlockReason(true, true, false, 0)
+        );
+        assertEquals(
+            "channel_disabled",
+            NativePushRenderer.deliveryBlockReason(
+                true,
+                true,
+                true,
+                NotificationManager.IMPORTANCE_NONE
+            )
+        );
+        assertEquals(null, NativePushRenderer.deliveryBlockReason(true, true, true, 3));
+    }
+
+    @Test
+    public void localOnlyOptionsDoNotChangeRemoteDefaults() {
+        assertFalse(NativePushRenderer.showsAction(null));
+        assertTrue(NativePushRenderer.showsAction("notificationIntent"));
+        assertFalse(NativePushRenderer.showsAction("unregistered"));
+        assertTrue(NativePushRenderer.showsConversationTitle(false));
+        assertFalse(NativePushRenderer.showsConversationTitle(true));
+        assertFalse(NativePushRenderer.hasSender(null, null));
+        assertFalse(NativePushRenderer.hasSender("native-1", " "));
+        assertTrue(NativePushRenderer.hasSender("native-1", "Alice"));
     }
 }
