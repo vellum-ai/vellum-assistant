@@ -301,6 +301,14 @@ describe("resolveSpokenEscalationBridge", () => {
       usesFallback: true,
     });
   });
+
+  test("a canned phrase the table lacks for the caller's language is English and says so", () => {
+    expect(resolveSpokenEscalationBridge("", "ko")).toEqual({
+      spokenBridge: FALLBACK_ESCALATION_BRIDGE,
+      usesFallback: true,
+      language: "en",
+    });
+  });
 });
 
 describe("capEscalationBridge", () => {

@@ -800,6 +800,7 @@ export class CallController {
     const speakSegmentViaPcmFallback = async (
       failedProviderId: string,
       segment: string,
+      language: string | undefined,
     ): Promise<void> => {
       if (pcmFallbackProvider === undefined) {
         pcmFallbackProvider =
@@ -831,6 +832,7 @@ export class CallController {
         segment,
         runVersion,
         audioFormat,
+        language,
       );
       if (fallbackStatus !== "ok") {
         // The fallback provider is failing too — stop retrying.
@@ -838,9 +840,12 @@ export class CallController {
       }
     };
 
+    // `language` overrides the turn's synthesis language for a fixed phrase
+    // whose text is not in the caller's language; undefined rides the turn's.
     const enqueueSynthesisSegments = (
       ttsProvider: TtsProvider,
       segments: string[],
+      language?: string,
     ): void => {
       for (const rawSegment of segments) {
         // Sanitized per segment (not per delta) so markdown spanning deltas
@@ -865,6 +870,7 @@ export class CallController {
                 segment,
                 runVersion,
                 audioFormat,
+                language,
               );
               if (status === "ok") {
                 return;
@@ -890,7 +896,7 @@ export class CallController {
               this.transport.sendTextToken(`${segment} `, false);
               return;
             }
-            await speakSegmentViaPcmFallback(ttsProvider.id, segment);
+            await speakSegmentViaPcmFallback(ttsProvider.id, segment, language);
           } catch (err) {
             synthesisFailure = { err };
           }
@@ -919,6 +925,29 @@ export class CallController {
         this.beginSpeakingOnAudioStart(runVersion);
         this.transport.sendTextToken(cleaned, false);
       }
+    };
+
+    /**
+     * Speak a fixed phrase from a localized table (already one complete
+     * sentence, no markers) outside the model-text stream. `language` is the
+     * hint the phrase must carry: "en" when the table lacked the caller's
+     * language, so the English text is not rendered under a ko/ar/ta hint
+     * (on the native route that is the transport's system-copy contract);
+     * undefined rides the turn's language like model text.
+     */
+    const speakFixedPhrase = (text: string, language: string | undefined) => {
+      const cleaned = sanitizeForTts(text).trim();
+      if (cleaned.length === 0) {
+        return;
+      }
+      if (synthProvider) {
+        enqueueSynthesisSegments(synthProvider, [cleaned], language);
+        return;
+      }
+      this.beginSpeakingOnAudioStart(runVersion);
+      this.transport.sendTextToken(`${cleaned} `, false, {
+        systemCopy: language !== undefined,
+      });
     };
 
     // Speech goes out through the shared control-marker holdback: text up to
@@ -1171,26 +1200,29 @@ export class CallController {
       // speech and stays in the turn's text, matching the row the bridge's
       // transcript hygiene keeps for it; the canned fallback is audio-only,
       // matching the row it deletes.
-      const { spokenBridge, usesFallback: usesFallbackBridge } =
-        resolveSpokenEscalationBridge(
-          escalationBridge,
-          this.resolveSynthesisLanguage(),
-        );
+      const {
+        spokenBridge,
+        usesFallback: usesFallbackBridge,
+        language: bridgeLanguage,
+      } = resolveSpokenEscalationBridge(
+        escalationBridge,
+        this.resolveSynthesisLanguage(),
+      );
       if (usesFallbackBridge) {
-        emitSafeChunk(`${spokenBridge} `);
+        speakFixedPhrase(spokenBridge, bridgeLanguage);
       } else {
         fullResponseText += `${spokenBridge} `;
         flushSafeText(fullResponseText, { force: true });
-      }
-      // Force-synthesize the bridge now. On the synthesized-TTS path text is
-      // held in pendingSynthText until a sentence boundary, so an
-      // unpunctuated bridge would otherwise sit unspoken until the post-leg
-      // drain, leaving the caller in silence during the escalated model's
-      // call: the exact gap the bridge exists to mask.
-      if (synthProvider) {
-        const { segments } = extractSpeakableSegments(pendingSynthText, true);
-        pendingSynthText = "";
-        enqueueSynthesisSegments(synthProvider, segments);
+        // Force-synthesize the bridge now. On the synthesized-TTS path text
+        // is held in pendingSynthText until a sentence boundary, so an
+        // unpunctuated bridge would otherwise sit unspoken until the
+        // post-leg drain, leaving the caller in silence during the escalated
+        // model's call: the exact gap the bridge exists to mask.
+        if (synthProvider) {
+          const { segments } = extractSpeakableSegments(pendingSynthText, true);
+          pendingSynthText = "";
+          enqueueSynthesisSegments(synthProvider, segments);
+        }
       }
       // The bridge phrase the caller just heard is handed along so the
       // escalated continuation rule can quote it and ban a re-announcing
@@ -1272,6 +1304,7 @@ export class CallController {
     text: string,
     runVersion: number,
     format: CallAudioFormat = "mp3",
+    languageOverride?: string,
   ): Promise<SegmentSynthesisStatus> {
     let sink: AudioStoreSink | null = null;
     let playUrlSent = false;
@@ -1293,7 +1326,9 @@ export class CallController {
 
       this.activeSynthesisAbort = abortController;
 
-      const language = this.resolveSynthesisLanguage();
+      // A fixed phrase whose text is not in the caller's language carries
+      // its own hint; model text rides the turn's resolved language.
+      const language = languageOverride ?? this.resolveSynthesisLanguage();
       // A language-known segment may select the synthesizing provider's
       // configured per-language voice; no entry keeps the provider default.
       const voiceId = resolveTelephonyLanguageVoice(provider.id, language);

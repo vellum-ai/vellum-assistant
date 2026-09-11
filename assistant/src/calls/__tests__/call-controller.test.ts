@@ -244,6 +244,7 @@ import { resolveCallTtsProvider } from "../resolve-call-tts-provider.js";
 import {
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE,
+  FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
 } from "../voice-triage-escalate.js";
 
 // Disable memory so persisted call messages skip background indexing, and
@@ -264,6 +265,8 @@ afterAll(() => {
 
 interface MockTransport extends CallTransport {
   sentTokens: Array<{ token: string; last: boolean }>;
+  /** Tokens sent with the system-copy flag (no caller-language hint). */
+  systemCopyTokens: string[];
   sentPlayUrls: string[];
   endCalled: boolean;
   endReason: string | undefined;
@@ -273,6 +276,7 @@ interface MockTransport extends CallTransport {
 function createMockTransport(): MockTransport {
   const state = {
     sentTokens: [] as Array<{ token: string; last: boolean }>,
+    systemCopyTokens: [] as string[],
     sentPlayUrls: [] as string[],
     _endCalled: false,
     _endReason: undefined as string | undefined,
@@ -282,6 +286,9 @@ function createMockTransport(): MockTransport {
   return {
     get sentTokens() {
       return state.sentTokens;
+    },
+    get systemCopyTokens() {
+      return state.systemCopyTokens;
     },
     get sentPlayUrls() {
       return state.sentPlayUrls;
@@ -295,8 +302,15 @@ function createMockTransport(): MockTransport {
     get cancelPendingSpeechCount() {
       return state._cancelPendingSpeechCount;
     },
-    sendTextToken(token: string, last: boolean) {
+    sendTextToken(
+      token: string,
+      last: boolean,
+      opts?: { systemCopy?: boolean },
+    ) {
       state.sentTokens.push({ token, last });
+      if (opts?.systemCopy === true) {
+        state.systemCopyTokens.push(token);
+      }
     },
     sendPlayUrl(url: string) {
       state.sentPlayUrls.push(url);
@@ -4447,6 +4461,62 @@ describe("call-controller", () => {
         userMessageId: "user-row-0",
         assistantMessageId: "assistant-row-1",
       });
+
+      controller.destroy();
+    });
+
+    test("native route: a canned bridge in a language the table lacks goes out as system copy", async () => {
+      scriptLegs([["[1]"], ["Forty-two."]]);
+      const { relay, controller } = setupController(undefined, {
+        resolveSynthesisLanguage: () => "ko",
+      });
+
+      await controller.handleCallerUtterance("What is six times seven?");
+
+      // The English fallback must not ride the caller's Korean hint.
+      expect(relay.systemCopyTokens).toEqual([
+        `${FALLBACK_ESCALATION_BRIDGE} `,
+      ]);
+      expect(spokenText(relay)).toContain("Forty-two.");
+
+      controller.destroy();
+    });
+
+    test("native route: a localized canned bridge rides the caller's language like model text", async () => {
+      scriptLegs([["[1]"], ["Cuarenta y dos."]]);
+      const { relay, controller } = setupController(undefined, {
+        resolveSynthesisLanguage: () => "es",
+      });
+
+      await controller.handleCallerUtterance("¿Cuánto es seis por siete?");
+
+      expect(relay.systemCopyTokens).toEqual([]);
+      expect(spokenText(relay)).toContain(
+        FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE.es,
+      );
+
+      controller.destroy();
+    });
+
+    test("synthesized route: the canned bridge carries its own language hint, the answer the caller's", async () => {
+      const requests: Array<{ text: string; language: string | undefined }> =
+        [];
+      registerFishAudioSegmentRecorder({
+        onSynthesizeStream: async (text, request) => {
+          requests.push({ text, language: request.language });
+        },
+      });
+      scriptLegs([["[1]"], ["Forty-two."]]);
+      const { controller } = setupController(undefined, {
+        resolveSynthesisLanguage: () => "ko",
+      });
+
+      await controller.handleCallerUtterance("What is six times seven?");
+
+      expect(requests).toEqual([
+        { text: FALLBACK_ESCALATION_BRIDGE, language: "en" },
+        { text: "Forty-two.", language: "ko" },
+      ]);
 
       controller.destroy();
     });

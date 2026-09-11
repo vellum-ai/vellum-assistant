@@ -23,7 +23,6 @@ import {
 import {
   createFrontDoorVerdictMachine,
   ESCALATION_CONTINUATION_CONTENT,
-  FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
   resolveSpokenEscalationBridge,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
@@ -86,7 +85,7 @@ import {
 } from "../tts/reasoning-tag-filter.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
-import { hasLocalizedEntry } from "../util/language-subtag.js";
+import { fixedPhraseLanguage } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
 import {
   activityLabelForTool,
@@ -5754,8 +5753,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // own bridge is real assistant speech (captions + TTS); the canned
     // fallback stays audio-only, matching the persisted-row hygiene (a
     // deleted row for a bridge the model never produced).
-    const { spokenBridge, usesFallback: usesFallbackBridge } =
-      resolveSpokenEscalationBridge(cappedBridge, activeTurn.language);
+    const {
+      spokenBridge,
+      usesFallback: usesFallbackBridge,
+      language: bridgeLanguage,
+    } = resolveSpokenEscalationBridge(cappedBridge, activeTurn.language);
     if (!usesFallbackBridge) {
       this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
       this.markAssistantDelta(activeTurn);
@@ -5775,10 +5777,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       const speakable = sanitizeForTts(spokenBridge).trim();
       if (speakable.length > 0) {
         this.enqueueTtsSegment(activeTurn.token, speakable, {
-          language: this.fixedPhraseLanguage(
-            activeTurn,
-            FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
-          ),
+          language: bridgeLanguage,
         });
       }
     }
@@ -6148,10 +6147,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn: ActiveAssistantTurn,
     table: Readonly<Record<string, unknown>>,
   ): string | undefined {
-    return turn.language !== undefined &&
-      !hasLocalizedEntry(table, turn.language)
-      ? "en"
-      : undefined;
+    return fixedPhraseLanguage(table, turn.language);
   }
 
   private bufferAssistantTextForTts(token: symbol, text: string): void {
