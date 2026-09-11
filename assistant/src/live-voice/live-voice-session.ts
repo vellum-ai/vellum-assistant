@@ -24,8 +24,7 @@ import {
   createFrontDoorVerdictMachine,
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
-  fallbackEscalationBridgeFor,
-  MIN_SPOKEN_BRIDGE_CHARS,
+  resolveSpokenEscalationBridge,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
 import { getConfig } from "../config/loader.js";
@@ -5755,10 +5754,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // own bridge is real assistant speech (captions + TTS); the canned
     // fallback stays audio-only, matching the persisted-row hygiene (a
     // deleted row for a bridge the model never produced).
-    const usesFallbackBridge = cappedBridge.length < MIN_SPOKEN_BRIDGE_CHARS;
-    const spokenBridge = usesFallbackBridge
-      ? fallbackEscalationBridgeFor(activeTurn.language)
-      : cappedBridge;
+    const { spokenBridge, usesFallback: usesFallbackBridge } =
+      resolveSpokenEscalationBridge(cappedBridge, activeTurn.language);
     if (!usesFallbackBridge) {
       this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
       this.markAssistantDelta(activeTurn);

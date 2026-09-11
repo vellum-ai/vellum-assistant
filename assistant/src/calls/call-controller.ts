@@ -92,8 +92,7 @@ import {
 import {
   createFrontDoorVerdictMachine,
   ESCALATION_CONTINUATION_CONTENT,
-  fallbackEscalationBridgeFor,
-  MIN_SPOKEN_BRIDGE_CHARS,
+  resolveSpokenEscalationBridge,
   type VoiceRoutingLeg,
 } from "./voice-triage-escalate.js";
 
@@ -1172,11 +1171,11 @@ export class CallController {
       // speech and stays in the turn's text, matching the row the bridge's
       // transcript hygiene keeps for it; the canned fallback is audio-only,
       // matching the row it deletes.
-      const usesFallbackBridge =
-        escalationBridge.length < MIN_SPOKEN_BRIDGE_CHARS;
-      const spokenBridge = usesFallbackBridge
-        ? fallbackEscalationBridgeFor(this.resolveSynthesisLanguage())
-        : escalationBridge;
+      const { spokenBridge, usesFallback: usesFallbackBridge } =
+        resolveSpokenEscalationBridge(
+          escalationBridge,
+          this.resolveSynthesisLanguage(),
+        );
       if (usesFallbackBridge) {
         emitSafeChunk(`${spokenBridge} `);
       } else {

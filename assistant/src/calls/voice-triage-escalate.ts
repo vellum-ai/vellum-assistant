@@ -104,6 +104,27 @@ export function fallbackEscalationBridgeFor(language?: string): string {
 export const MIN_SPOKEN_BRIDGE_CHARS = 3;
 
 /**
+ * The phrase spoken across an escalation hand-off, for both voice drivers:
+ * the front-door leg's own capped bridge when it is a real bridge, else the
+ * canned fallback in the caller's language. `usesFallback` marks the canned
+ * phrase as audio-only: the model never produced it, so no transcript row
+ * carries it (the bridge's hygiene pass deletes the leg's row), and the
+ * driver keeps it out of the turn's recorded text.
+ */
+export function resolveSpokenEscalationBridge(
+  cappedBridge: string,
+  language?: string,
+): { spokenBridge: string; usesFallback: boolean } {
+  const usesFallback = cappedBridge.length < MIN_SPOKEN_BRIDGE_CHARS;
+  return {
+    spokenBridge: usesFallback
+      ? fallbackEscalationBridgeFor(language)
+      : cappedBridge,
+    usesFallback,
+  };
+}
+
+/**
  * Hard cap on the spoken escalation bridge. The bridge is supposed to be a
  * single short sentence; the cap bounds the hand-off delay (and the audio)
  * when a model rambles instead of stopping.
