@@ -655,6 +655,77 @@ describe("useChangeTiers", () => {
     expect(captured.value).toEqual({ needsResize: true, creditChanged: false });
   });
 
+  test("an untouched dimension is judged against the caller's seed, not the live cache", async () => {
+    // The caller seeded its pickers at machine medium; the cache has since
+    // moved to large (and so has the server). The user only changes credits
+    // and the picker still reads medium: that is the untouched seed value, so
+    // the server's large must be kept, not reverted to medium.
+    onboardingFixture = onboarding({ max_machine_tier: "large" });
+    const { result } = setup();
+
+    const captured: { value: ChangeTiersResult | null } = { value: null };
+    await act(async () => {
+      captured.value = await result.current.changeTiers(
+        { machineTier: "medium", storageTier: "xs", creditTier: "credits_50" },
+        { machineTier: "medium", storageTier: "xs", creditTier: null },
+      );
+    });
+
+    expect(packageCalls).toEqual([
+      {
+        body: {
+          machine_tier: "large",
+          storage_tier: "xs",
+          credit_tier: "credits_50",
+        },
+      },
+    ]);
+    expect(captured.value).toEqual({ needsResize: false, creditChanged: true });
+  });
+
+  test("a second call while the first is in flight is rejected", async () => {
+    // Hold the mutation so the first call stays in flight past its preflight
+    // reads; a second click must not start a competing change.
+    let release: (value: PackageChangeResponse) => void = () => {};
+    packageImpl = () =>
+      new Promise<PackageChangeResponse>((resolve) => {
+        release = resolve;
+      });
+    const { result } = setup();
+
+    const first: { value: Promise<ChangeTiersResult | null> | null } = {
+      value: null,
+    };
+    await act(async () => {
+      first.value = result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: null,
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+
+    const second: { value: ChangeTiersResult | null } = {
+      value: { needsResize: true, creditChanged: true },
+    };
+    await act(async () => {
+      second.value = await result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: null,
+      });
+    });
+    expect(second.value).toBeNull();
+
+    await act(async () => {
+      release(OK);
+      await first.value;
+    });
+    expect(packageCalls).toHaveLength(1);
+    await waitFor(() => expect(result.current.isPending).toBe(false));
+  });
+
   test("posting no changes is a successful no-op with no dispatch", async () => {
     const { result, invalidatedKeys } = setup();
 

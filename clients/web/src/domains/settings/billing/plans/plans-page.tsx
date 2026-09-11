@@ -706,7 +706,10 @@ function PlansPageContent() {
       const canLowerResources =
         !currentKnown ||
         lowersMachineCeiling(current.machineTier, selection.machineTier);
-      const result = await changeTiers(selection);
+      const result = await changeTiers(
+        selection,
+        customInitialSelection ?? undefined,
+      );
       if (!result) {
         // The hook toasted; keep the modal open so the user can retry.
         return;

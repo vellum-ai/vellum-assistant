@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@vellumai/design-library/components/toast";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import {
   TIER_CHANGE_ELIGIBLE_STATUSES,
@@ -55,6 +55,17 @@ export interface ChangeTiersSelection {
   creditTier: CreditTierEnum | null;
 }
 
+/**
+ * The tiers a caller's pickers were seeded from, captured when they were
+ * seeded. A dimension whose selection still equals its seed was never edited
+ * by the user, whatever the cache has moved to since.
+ */
+export interface ChangeTiersSeed {
+  machineTier: MachineTierEnum | null;
+  storageTier: StorageTierEnum | null;
+  creditTier: CreditTierEnum | null;
+}
+
 /** Outcome of a successful `changeTiers` dispatch. */
 export interface ChangeTiersResult {
   /**
@@ -75,9 +86,17 @@ export interface ChangeTiersResult {
 }
 
 export interface UseChangeTiersResult {
+  /**
+   * `seed` is what the caller's pickers were seeded from, so an untouched
+   * dimension can be told from an edited one even after the cache has moved
+   * on; it defaults to the hook's `current` for callers that re-seed their
+   * pickers whenever `current` changes.
+   */
   changeTiers: (
     selection: ChangeTiersSelection,
+    seed?: ChangeTiersSeed,
   ) => Promise<ChangeTiersResult | null>;
+  /** True from the first preflight read until the change settles. */
   isPending: boolean;
   /**
    * The message of the last failed `changeTiers` (already toasted), cleared
@@ -122,9 +141,11 @@ export interface UseChangeTiersResult {
  *
  * Before posting, the subscription and onboarding reads are refetched and the
  * target is built against that fresh snapshot: the request carries every
- * dimension, so a dimension the caller left at the value it was seeded with is
- * sent as the server's current value, never as a stale cache entry that would
- * revert a change made elsewhere. A failed refetch aborts the change.
+ * dimension, so a dimension the caller left at the value its pickers were
+ * seeded with is sent as the server's current value, never as a stale cache
+ * entry that would revert a change made elsewhere. A failed refetch aborts the
+ * change, and the whole operation (reads included) counts as pending so a
+ * second click cannot start a competing change.
  *
  * `eligible` is true only for an active, non-cancelling Pro sub in an
  * entitlement-bearing status; change-package 4xxs otherwise. A
@@ -142,6 +163,11 @@ export function useChangeTiers({
   const queryClient = useQueryClient();
   const { t } = useTranslation("settings");
   const [error, setError] = useState<string | null>(null);
+  // The preflight reads run before the mutation is pending, so the in-flight
+  // window is tracked here: the ref rejects a re-entrant call synchronously,
+  // the state disables the caller's controls.
+  const inFlightRef = useRef(false);
+  const [inFlight, setInFlight] = useState(false);
   // These are org-scoped reads, so hold them until the caller is ready (its own
   // platform-hosted gate) and the org header source has hydrated — otherwise a
   // request can fire without `Vellum-Organization-Id` and 4xx.
@@ -230,10 +256,28 @@ export function useChangeTiers({
       !onboardingQuery.isFetching &&
       onboardingQuery.dataUpdatedAt >= subscriptionQuery.dataUpdatedAt);
 
-  const isPending = changePackageMutation.isPending;
+  const isPending = inFlight || changePackageMutation.isPending;
 
   const changeTiers = async (
     selection: ChangeTiersSelection,
+    seed: ChangeTiersSeed = current,
+  ): Promise<ChangeTiersResult | null> => {
+    if (inFlightRef.current) {
+      return null;
+    }
+    inFlightRef.current = true;
+    setInFlight(true);
+    try {
+      return await applyTiers(selection, seed);
+    } finally {
+      inFlightRef.current = false;
+      setInFlight(false);
+    }
+  };
+
+  const applyTiers = async (
+    selection: ChangeTiersSelection,
+    seed: ChangeTiersSeed,
   ): Promise<ChangeTiersResult | null> => {
     setError(null);
     const fail = (message: string): null => {
@@ -272,21 +316,20 @@ export function useChangeTiers({
       hasPlatformFee: freshSubscription.has_platform_fee ?? true,
     };
 
-    // A dimension the caller left at the value it was seeded with expresses
-    // "keep what I have", so it is sent as the fresh current value; only a
-    // dimension the caller actually moved is sent as chosen.
+    // A dimension the caller left at the value its pickers were seeded with
+    // expresses "keep what I have", so it is sent as the fresh current value;
+    // only a dimension the caller actually moved is sent as chosen.
     const target: ChangeTiersSelection = {
       machineTier:
-        selection.machineTier === current.machineTier
+        selection.machineTier === seed.machineTier
           ? fresh.machineTier
           : selection.machineTier,
       storageTier:
-        selection.storageTier === current.storageTier &&
-        fresh.storageTier != null
+        selection.storageTier === seed.storageTier && fresh.storageTier != null
           ? fresh.storageTier
           : selection.storageTier,
       creditTier:
-        selection.creditTier === current.creditTier
+        selection.creditTier === seed.creditTier
           ? fresh.creditTier
           : selection.creditTier,
     };

@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -15,7 +15,10 @@ import {
   useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session";
 import { invalidateBillingQueries } from "@/domains/settings/billing/invalidate-billing-queries";
-import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
+import {
+  type ChangeTiersSeed,
+  useChangeTiers,
+} from "@/domains/settings/billing/use-change-tiers";
 import {
   organizationsBillingPlansRetrieveOptions,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
@@ -204,9 +207,15 @@ function AdjustPlanModalContent({
         )
       : (proPlan?.storage_tiers ?? []);
 
+  // The tiers the pickers were seeded from for this opening. Later query
+  // updates keep the picker values (`prev ??` below), so this, not the live
+  // current tiers, is what tells an untouched dimension from an edited one.
+  const openSeedRef = useRef<ChangeTiersSeed | null>(null);
+
   // Seed selections when the modal opens and the relevant data lands.
   useEffect(() => {
     if (!open) {
+      openSeedRef.current = null;
       setSelectedMachineTier(null);
       setSelectedStorageTier(null);
       setSelectedCreditTier(undefined);
@@ -219,6 +228,11 @@ function AdjustPlanModalContent({
       if (currentMachineTier == null || currentStorageTier == null) {
         return;
       }
+      openSeedRef.current ??= {
+        machineTier: currentMachineTier,
+        storageTier: currentStorageTier,
+        creditTier: currentCreditTier,
+      };
       setSelectedMachineTier((prev) =>
         resolveTierSelection<MachineTierEnum>(
           machineTiersForPicker,
@@ -381,11 +395,14 @@ function AdjustPlanModalContent({
       });
       return;
     }
-    void changeTiers({
-      machineTier: selectedMachineTier,
-      storageTier: selectedStorageTier,
-      creditTier: displayCreditTier,
-    }).then((result) => {
+    void changeTiers(
+      {
+        machineTier: selectedMachineTier,
+        storageTier: selectedStorageTier,
+        creditTier: displayCreditTier,
+      },
+      openSeedRef.current ?? undefined,
+    ).then((result) => {
       if (!result) {
         // The hook toasted and exposes the message for the inline notice.
         return;
