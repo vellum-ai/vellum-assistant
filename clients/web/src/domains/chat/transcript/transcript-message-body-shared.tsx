@@ -107,11 +107,9 @@ export interface TranscriptMessageBodyProps {
   /**
    * True only for the last message of the latest turn — the one that sits
    * directly above the parked assistant avatar (trailing non-message rows
-   * like the thinking slot don't count). Collapses the hover-actions
-   * row to zero height so the avatar hugs the message, then animates it open
-   * on hover/focus/tap-reveal (the avatar slides down to make room). History
-   * rows leave it `false` and keep the always-reserved row height so hovering
-   * mid-transcript never shifts layout.
+   * like the thinking slot don't count). Attaches Retry to that assistant
+   * row. Copy and Read aloud stay visible on every copyable row; secondary
+   * hover actions still reveal on hover, focus, or tap.
    */
   isLatestMessage?: boolean;
 }

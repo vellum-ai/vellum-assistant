@@ -624,6 +624,7 @@ const currentState = (): CompanionSurfaceState => {
     // Main's own, along with the marks below. Every line above passes on what
     // the app's window said; these are what main did with its frame.
     annotating,
+    marksCleared,
     annotationTool,
     // Absent rather than empty, so a surface reads one shape for nothing
     // being pointed at whether the shell holds marks or has never heard of
@@ -1277,6 +1278,18 @@ let coachmarkTarget: WatchCaptureTarget | undefined;
 let coachmarkRequests = 0;
 
 /**
+ * How many times the user has cleared the shared surface from the pill.
+ *
+ * The assistant's marks are main's and come down here directly. The user's
+ * own ink is the frame window's, drawn there and never seen by main, so the
+ * only way a press on the pill reaches it is on the pushed state: this steps
+ * on every clear, and the drawing layer drops its ink on the step. A count
+ * rather than a flag, since a flag would have to be lowered again, and a
+ * window that mounted between the raise and the lower would never see it.
+ */
+let marksCleared = 0;
+
+/**
  * The surface of the last frame this process handed to the window holding the
  * session, or nothing before it has served one.
  *
@@ -1436,6 +1449,31 @@ const syncCoachmarks = (): void => {
     return;
   }
   setCoachmarks(NO_COACHMARKS);
+};
+
+/**
+ * Take down everything on the shared surface, from the pill: the assistant's
+ * marks, and the user's own ink.
+ *
+ * Nothing about the share moves. The frame stays up, the mode stays where it
+ * was, and the marks go. Counted as a request the way `screen_clear_marks`
+ * is, so a lookup still out when the press lands is refused when it answers
+ * rather than putting back what the user just took down. Refused off the
+ * share: with no frame there is nothing on it to clear.
+ */
+const clearMarks = (): void => {
+  if (!framesTheShare()) {
+    return;
+  }
+  coachmarkRequests += 1;
+  marksCleared += 1;
+  const marksWereUp = coachmarks.length > 0;
+  setCoachmarks(NO_COACHMARKS);
+  // Taking the marks down pushes on its own; the count has to reach the
+  // frame whether or not any were up.
+  if (!marksWereUp) {
+    pushState();
+  }
 };
 
 /**
@@ -2386,6 +2424,15 @@ export const installCompanionWindow = (): void => {
    */
   on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
     setAnnotating(!annotating);
+  });
+
+  /**
+   * Clear, from the pill: everything on the shared surface comes down and
+   * the share goes on. The frame's drawing layer drops its ink off the count
+   * this steps on the pushed state.
+   */
+  on("vellum:companion:clearMarks", z.tuple([]), () => {
+    clearMarks();
   });
 
   /**

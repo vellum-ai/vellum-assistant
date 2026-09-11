@@ -29,6 +29,7 @@ import {
   answerCompanionWatchRetro,
   advanceCompanionIntro,
   captureCompanionSourceThumbnail,
+  clearCompanionMarks,
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
@@ -156,6 +157,15 @@ export function CompanionSurfacePage() {
   // and the only one of these that is: the press asks main to make a window
   // main opened interactive, and this is main's answer about whether it did.
   const [annotating, setAnnotating] = useState(false);
+  // Whether the assistant has marks up on the shared surface. Main's for the
+  // reason the marks are: it holds them, and it is the side that takes them
+  // down.
+  const [pointedAt, setPointedAt] = useState(false);
+  // Whether the shell has a Clear to answer at all. Read off the count it
+  // steps on every clear, the way the mode is read off `annotating`: a shell
+  // that predates the control names no count, and a Clear drawn for it would
+  // be a control whose press goes nowhere.
+  const [clearable, setClearable] = useState(false);
   // What a press on that frame draws. Main's for the reason the mode is, and
   // read off the same push: the strip that chooses it and the frame that
   // draws with it are two windows, and this is the one answer both see.
@@ -281,6 +291,10 @@ export function CompanionSurfacePage() {
       // control drawn held down over a frame that is not doing that is a
       // promise about where the user's next press lands.
       setAnnotating(state.annotating === true);
+      // Main sends the marks only while the frame is around the share, so a
+      // list with anything in it is something on the surface right now.
+      setPointedAt((state.coachmarks?.length ?? 0) > 0);
+      setClearable(state.marksCleared !== undefined);
       // As it arrived, absence included: a shell that predates the shapes
       // names none, and the strip must not offer what that shell cannot do.
       setAnnotationTool(state.annotationTool);
@@ -896,6 +910,15 @@ export function CompanionSurfacePage() {
         annotating={annotating}
         onAnnotate={(next) => {
           setCompanionAnnotating(next);
+        }}
+        // Clear, offered while there is something on the shared surface to
+        // take down: the assistant's marks, or the mode the user's own ink is
+        // drawn under, and only from a shell with a Clear to answer it.
+        // Main's both ways, like Draw: the press asks, and the marks going
+        // from the pushed state is what happened.
+        marked={clearable && (pointedAt || annotating)}
+        onClearMarks={() => {
+          clearCompanionMarks();
         }}
         // The tool, main's the same way: the press asks, and `annotationTool`
         // above is what main did with the ask.

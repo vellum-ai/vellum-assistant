@@ -114,7 +114,7 @@ export function resolveEffectiveAppHtmlFromDir(sourceDir: string): string {
   if (isLegacySingleFileDir(sourceDir)) {
     return UNSUPPORTED_LEGACY_APP_HTML;
   }
-  return `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
+  return `<p>App compilation failed. Run <code>assistant apps refresh</code> to rebuild.</p>`;
 }
 
 /**

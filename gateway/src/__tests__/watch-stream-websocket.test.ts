@@ -446,6 +446,7 @@ describe("createWatchStreamWebsocketHandler: velay-attested managed auth", () =>
     bridgeProof = true,
     token,
     managed = true,
+    velayBaseUrl,
   }: {
     userId?: string;
     actor?: string;
@@ -453,6 +454,7 @@ describe("createWatchStreamWebsocketHandler: velay-attested managed auth", () =>
     bridgeProof?: boolean;
     token?: string;
     managed?: boolean;
+    velayBaseUrl?: string;
   }) => {
     if (managed) {
       process.env.IS_PLATFORM = "true";
@@ -470,7 +472,9 @@ describe("createWatchStreamWebsocketHandler: velay-attested managed auth", () =>
     if (bridgeProof) {
       setVelayBridgeAuthHeader(headers);
     }
-    const handler = createWatchStreamWebsocketHandler(makeConfig());
+    const handler = createWatchStreamWebsocketHandler(
+      makeConfig(velayBaseUrl ? { velayBaseUrl } : {}),
+    );
     const query = token ? `&token=${token}` : "";
     const req = new Request(
       `http://localhost:7830/v1/watch/stream?mimeType=audio/pcm${query}`,
@@ -548,10 +552,31 @@ describe("createWatchStreamWebsocketHandler: velay-attested managed auth", () =>
     expect(res!.status).toBe(403);
   });
 
-  test("does not trust velay headers outside managed mode", async () => {
+  test("does not trust velay headers on a gateway with no velay tunnel", async () => {
     const { res, server } = await managedUpgrade({ managed: false });
 
     expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("admits the attested guardian on a locally hosted gateway with a velay tunnel", async () => {
+    const { res, server } = await managedUpgrade({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+    });
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("still pins the attested caller to the guardian on a locally hosted gateway", async () => {
+    const { res, server } = await managedUpgrade({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+      userId: "99999999-9999-9999-9999-999999999999",
+    });
+
+    expect(res!.status).toBe(403);
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 });

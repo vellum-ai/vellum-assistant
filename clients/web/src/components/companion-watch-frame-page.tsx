@@ -299,6 +299,10 @@ export function CompanionWatchFramePage() {
       {annotating && (
         <CompanionShareAnnotation
           ink={accentHex ?? COMPANION_DEFAULT_ACCENT}
+          // The pill's Clear, as the count main steps on it. Read off the
+          // same push as the mode, so a clear cannot arrive for a layer the
+          // same push is taking down.
+          cleared={state?.marksCleared ?? 0}
           // Read off the same push as the mode, so the tool chosen on the
           // pill and the one under the hand here are never two.
           tool={state?.annotationTool}

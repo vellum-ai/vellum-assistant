@@ -2515,9 +2515,8 @@ describe("reconcileFromDaemon", () => {
   });
 
   it("does not settle a candidate re-parented mid-round-trip", async () => {
-    // `ensureEntry` guesses the conversation on screen as parent, so a later
-    // `subagent_event` can re-attribute the stub. This response describes the
-    // conversation it asked about, not the one the row now belongs to.
+    // A later `subagent_event` can re-parent a stub. This response describes
+    // the conversation it asked about, not the one the row now belongs to.
     getState().spawnSubagent({
       subagentId: "sa-moved",
       label: "Agent",
@@ -3009,19 +3008,19 @@ describe("reconcileFromDaemon hydration arming", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ensureEntry: parent scoping falls back to the conversation on screen
+// ensureEntry: parent scoping comes from the evidence, never the screen
 // ---------------------------------------------------------------------------
 
 describe("ensureEntry parent scoping", () => {
-  it("scopes an id-less stub to the active conversation", () => {
+  it("leaves an id-less stub unscoped even with a conversation on screen", () => {
     useConversationStore.getState().setActiveConversationId("conv-active");
 
     getState().ensureEntry({ subagentId: "sa-1", timestamp: NOW });
 
-    expect(getState().byId["sa-1"]?.parentConversationId).toBe("conv-active");
+    expect(getState().byId["sa-1"]?.parentConversationId).toBeUndefined();
   });
 
-  it("prefers the parent id the evidence carried", () => {
+  it("scopes the stub to the parent id the evidence carries", () => {
     useConversationStore.getState().setActiveConversationId("conv-active");
 
     getState().ensureEntry({
@@ -3035,11 +3034,21 @@ describe("ensureEntry parent scoping", () => {
     );
   });
 
-  it("lets reconcile's orphan pass settle a stub it scoped", async () => {
-    // Without the fallback the stub belongs to no conversation: the overlay
-    // shows it in all of them and the per-parent orphan pass settles it in
-    // none.
-    useConversationStore.getState().setActiveConversationId("conv-parent");
+  it("lets reconcile's orphan pass settle a stub scoped to its parent", async () => {
+    getState().ensureEntry({
+      subagentId: "sa-1",
+      timestamp: NOW,
+      status: "running",
+      parentConversationId: "conv-parent",
+    });
+    reconcileReply = { ok: true, subagents: {} };
+
+    await getState().reconcileFromDaemon("assistant-1", "conv-parent");
+
+    expect(getState().byId["sa-1"]?.status).toBe("interrupted");
+  });
+
+  it("never settles an unscoped stub, which belongs to no conversation", async () => {
     getState().ensureEntry({
       subagentId: "sa-1",
       timestamp: NOW,
@@ -3049,7 +3058,7 @@ describe("ensureEntry parent scoping", () => {
 
     await getState().reconcileFromDaemon("assistant-1", "conv-parent");
 
-    expect(getState().byId["sa-1"]?.status).toBe("interrupted");
+    expect(getState().byId["sa-1"]?.status).toBe("running");
   });
 });
 

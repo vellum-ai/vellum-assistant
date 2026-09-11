@@ -64,7 +64,7 @@ For automated publishing, the `release.yml` GitHub Actions workflow builds, pack
 2. Select an assistant (if more than one is available).
 3. Click **Connect**.
 
-That's it. The extension auto-reconnects on browser restarts, network drops, and assistant restarts. Click **Pause** to intentionally stop the relay.
+That's it. The extension auto-reconnects on browser restarts, network drops, silent SSE stalls (no events or heartbeats), and assistant restarts. Click **Pause** to intentionally stop the relay.
 
 ## Environment Selector
 

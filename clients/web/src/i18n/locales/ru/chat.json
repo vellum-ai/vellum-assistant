@@ -394,8 +394,7 @@
     "cancel": "Отмена",
     "confirm": "Удалить",
     "message": "Удалить «{title}»? Диалог и его сообщения будут удалены навсегда. Связанные ресурсы и воспоминания могут сохраниться. Это действие нельзя отменить.",
-    "title": "Удалить диалог",
-    "untitled": "Без названия"
+    "title": "Удалить диалог"
   },
   "deletedMessageRow": {
     "label": "Это сообщение было удалено"
@@ -702,6 +701,36 @@
     "v3SourceL1L2": "L1+L2",
     "v3SourceNeedle": "needle",
     "yes": "Да"
+  },
+  "messageHoverActions": {
+    "bookmark": "Закладка",
+    "copied": "Скопировано",
+    "copy": "Копировать",
+    "copyFailed": "Не удалось скопировать сообщение.",
+    "forkFromHere": "Ответвить отсюда",
+    "inspect": "Просмотр",
+    "loading": "Чтение…",
+    "openInSlack": "Открыть в Slack",
+    "playFailed": "Не удалось прочитать это сообщение.",
+    "readAloud": "Прочитать вслух",
+    "removeBookmark": "Убрать закладку",
+    "retry": "Повторить",
+    "stop": "Остановить",
+    "summarizeUpToHere": "Суммировать досюда"
+  },
+  "messageLongPressActions": {
+    "bookmark": "Закладка",
+    "copied": "Скопировано",
+    "copy": "Копировать",
+    "copyFailed": "Не удалось скопировать сообщение.",
+    "forkFromHere": "Ответвить отсюда",
+    "inspect": "Просмотр",
+    "openInSlack": "Открыть в Slack",
+    "readAloud": "Прочитать вслух",
+    "removeBookmark": "Убрать закладку",
+    "stop": "Остановить",
+    "summarizeUpToHere": "Суммировать досюда",
+    "title": "Действия с сообщением"
   },
   "mobileCallSelector": {
     "callOfTotal": "Вызов {number} из {total}",

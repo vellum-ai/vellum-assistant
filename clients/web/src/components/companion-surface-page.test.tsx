@@ -24,6 +24,7 @@ const startVoiceMock = mock(() => undefined);
 const toggleWatchMock = mock((_pick?: unknown) => undefined);
 const setScreenShareMock = mock((_pick?: unknown) => undefined);
 const setAnnotatingMock = mock((_annotating: boolean) => undefined);
+const clearMarksMock = mock(() => undefined);
 const setAnnotationToolMock = mock((_tool: string) => undefined);
 /**
  * What the shell lists for the picker. Null is a shell with no picker to
@@ -138,6 +139,7 @@ mock.module("@/runtime/companion-surface", () => ({
   toggleCompanionWatch: toggleWatchMock,
   setCompanionScreenShare: setScreenShareMock,
   setCompanionAnnotating: setAnnotatingMock,
+  clearCompanionMarks: clearMarksMock,
   setCompanionAnnotationTool: setAnnotationToolMock,
   listCompanionCaptureSources: listSourcesMock,
   // The picker's tiles ask for these; a desktop with nothing to picture is
@@ -168,6 +170,7 @@ afterEach(() => {
   toggleWatchMock.mockClear();
   setScreenShareMock.mockClear();
   setAnnotatingMock.mockClear();
+  clearMarksMock.mockClear();
   setAnnotationToolMock.mockClear();
   listSourcesMock.mockClear();
   captureSources = null;
@@ -1908,6 +1911,76 @@ describe("the picker behind Share", () => {
       expect(drawOf(container).getAttribute("aria-pressed")).toBe("true");
       fireEvent.click(drawOf(container));
       expect(setAnnotatingMock.mock.calls).toEqual([[false]]);
+    });
+
+    /**
+     * Clear, beside Draw. What is on the shared surface is main's to say:
+     * the assistant's marks arrive on the pushed state, and the mode is
+     * where the user's own ink is drawn, which main never sees. A shell
+     * with a Clear to answer names the count it steps on every clear.
+     */
+    describe("clearing what is on it", () => {
+      const clearOf = (container: HTMLElement): HTMLButtonElement | null =>
+        container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Clear marks"]',
+        );
+      const MARK = {
+        kind: "region" as const,
+        x: 0.1,
+        y: 0.2,
+        width: 0.3,
+        height: 0.1,
+      };
+
+      test("is offered while the assistant has marks up", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        expect(clearOf(container)).toBeNull();
+
+        pushState({ ...STATE, marksCleared: 0, coachmarks: [MARK] });
+        expect(clearOf(container)).not.toBeNull();
+
+        pushState({ ...STATE, marksCleared: 0 });
+        expect(clearOf(container)).toBeNull();
+      });
+
+      test("is offered while drawing is on, where the user's own ink is", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, marksCleared: 0, annotating: true });
+        expect(clearOf(container)).not.toBeNull();
+      });
+
+      /**
+       * A newer renderer can meet an older shell, which publishes marks and
+       * the mode but has no Clear on its bridge. A control drawn for it
+       * would be one whose press goes nowhere.
+       */
+      test("is not offered by a shell that has no Clear to answer it", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, coachmarks: [MARK], annotating: true });
+        expect(clearOf(container)).toBeNull();
+      });
+
+      test("the press asks main to clear", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, marksCleared: 0, coachmarks: [MARK] });
+        const clear = clearOf(container);
+        if (clear === null) {
+          throw new Error("Expected Clear to render");
+        }
+        fireEvent.click(clear);
+        expect(clearMarksMock).toHaveBeenCalledTimes(1);
+        // Nothing comes down off the press: the marks going from the pushed
+        // state is what happened.
+        expect(clearOf(container)).not.toBeNull();
+      });
     });
 
     /**

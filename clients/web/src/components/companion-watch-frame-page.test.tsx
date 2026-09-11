@@ -437,6 +437,19 @@ describe("the frame around what is read", () => {
     });
 
     /**
+     * The pill's Clear reaches the layer as the count main steps on the
+     * pushed state, read off the same push as the mode. A shell that has no
+     * Clear names no count, which is no clears.
+     */
+    test("hands the layer the count of clears", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, annotating: true, marksCleared: 2 });
+      expect(inkOf(container)?.getAttribute("data-cleared")).toBe("2");
+      pushState({ ...STATE, annotating: true });
+      expect(inkOf(container)?.getAttribute("data-cleared")).toBe("0");
+    });
+
+    /**
      * The tool is read off the same push as the mode, so the one chosen on
      * the pill and the one under the hand here are never two. A shell that
      * names none has only the pencil.

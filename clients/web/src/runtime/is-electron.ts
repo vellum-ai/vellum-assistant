@@ -411,6 +411,7 @@ declare global {
         setScreenShare?(pick?: CompanionCapturePick): void;
         setAnnotating?(annotating: boolean): void;
         toggleAnnotating?(): void;
+        clearMarks?(): void;
         setAnnotationTool?(tool: CompanionAnnotationTool): void;
         annotateShare?(
           phase: CompanionAnnotationPhase,

@@ -553,3 +553,58 @@ describe("the shape tools", () => {
     );
   });
 });
+
+/**
+ * Clear on the pill, arriving as a step in a count on the pushed state. The
+ * press is in another window and this layer holds the ink, so the count is
+ * the one place the two meet.
+ */
+describe("the pill's Clear", () => {
+  test("takes the finished marks off the overlay", () => {
+    const view = render(<CompanionShareAnnotation ink={INK} cleared={0} />);
+    const layer = layerOf(view.container);
+    down(layer, 100, 100);
+    move(layer, 900, 900);
+    up(layer, 900, 900);
+    expect(view.container.querySelector("polyline")).not.toBeNull();
+    view.rerender(<CompanionShareAnnotation ink={INK} cleared={1} />);
+    expect(view.container.querySelector("polyline")).toBeNull();
+  });
+
+  /**
+   * Main replays its state into a window it has just opened, so the first
+   * value here is however many clears came before this layer existed. None
+   * of them was a press on marks it has.
+   */
+  test("the count the layer mounts with is not a press", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} cleared={3} />,
+    );
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    move(layer, 900, 900);
+    up(layer, 900, 900);
+    expect(container.querySelector("polyline")).not.toBeNull();
+  });
+
+  /**
+   * A clear is about what is already on the surface. The stroke under the
+   * hand is not there yet, and goes to the call on its release as it would
+   * have; the cleared one does not go with it, since it is no longer on the
+   * overlay the release sends.
+   */
+  test("leaves the mark under the hand, which alone is sent on its release", () => {
+    const view = render(<CompanionShareAnnotation ink={INK} cleared={0} />);
+    const layer = layerOf(view.container);
+    down(layer, 100, 100);
+    move(layer, 900, 900);
+    up(layer, 900, 900);
+    down(layer, 200, 200);
+    move(layer, 300, 300);
+    view.rerender(<CompanionShareAnnotation ink={INK} cleared={1} />);
+    expect(view.container.querySelectorAll("polyline")).toHaveLength(1);
+    up(layer, 300, 300);
+    expect(sent.at(-1)?.strokes).toHaveLength(1);
+    expect(sent.at(-1)?.strokes[0]?.points[0]).toEqual({ x: 0.2, y: 0.2 });
+  });
+});

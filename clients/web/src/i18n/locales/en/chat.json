@@ -383,8 +383,7 @@
   },
   "chatConversationHeader": {
     "archived": "[Archived]",
-    "newChat": "New Chat",
-    "untitled": "Untitled"
+    "newChat": "New Chat"
   },
   "chatInfoPanel": {
     "appsTitle": "Apps",
@@ -663,9 +662,6 @@
     "label": "{count, plural, one {# asset} other {# assets}}",
     "labelUnavailable": "Assets could not be loaded"
   },
-  "conversationRow": {
-    "untitled": "Untitled"
-  },
   "conversationStarterDock": {
     "caption": "Try some suggestions:"
   },
@@ -711,8 +707,7 @@
     "cancel": "Cancel",
     "confirm": "Delete",
     "message": "Delete “{title}”? This permanently removes the conversation and its messages. Related assets and memories may still persist. This cannot be undone.",
-    "title": "Delete conversation",
-    "untitled": "Untitled"
+    "title": "Delete conversation"
   },
   "deletedMessageRow": {
     "label": "This message was deleted"
@@ -1197,17 +1192,30 @@
     "bookmark": "Bookmark",
     "copied": "Copied",
     "copy": "Copy",
+    "copyFailed": "Couldn't copy the message.",
     "forkFromHere": "Fork from here",
     "inspect": "Inspect",
+    "loading": "Reading…",
     "openInSlack": "Open in Slack",
+    "playFailed": "Couldn't read this message.",
+    "readAloud": "Read aloud",
     "removeBookmark": "Remove bookmark",
     "retry": "Retry",
+    "stop": "Stop",
     "summarizeUpToHere": "Summarize up to here"
   },
   "messageLongPressActions": {
     "bookmark": "Bookmark",
     "copied": "Copied",
+    "copy": "Copy",
+    "copyFailed": "Couldn't copy the message.",
+    "forkFromHere": "Fork from here",
+    "inspect": "Inspect",
+    "openInSlack": "Open in Slack",
+    "readAloud": "Read aloud",
     "removeBookmark": "Remove bookmark",
+    "stop": "Stop",
+    "summarizeUpToHere": "Summarize up to here",
     "title": "Message actions"
   },
   "micPermissionPrimer": {
@@ -1758,9 +1766,6 @@
     "assistantBusy": "Your assistant is busy. Try again when it finishes replying.",
     "retryFailed": "Couldn't retry the response",
     "summarizeFailed": "Couldn't summarize the conversation"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "Untitled"
   },
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",

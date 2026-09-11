@@ -4,6 +4,7 @@ import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../../daemon/message-types/sync.js";
+import { resolveConversationTitle } from "../../i18n/index.js";
 import { syncAvatarToPlatform } from "../../platform/sync-avatar.js";
 import { getAvatarImagePath } from "../../util/platform.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
@@ -257,7 +258,7 @@ export function publishConversationTitleChanged(
     {
       type: "conversation_title_updated",
       conversationId,
-      title,
+      title: resolveConversationTitle(title),
     },
     conversationId,
   );

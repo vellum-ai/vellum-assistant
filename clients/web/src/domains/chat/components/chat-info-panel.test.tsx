@@ -37,7 +37,7 @@ import {
 
 import {
   attachmentRows,
-  CHAT_INFO_DRAWER_WIDTH_PX,
+  CHAT_INFO_BODY_WIDTH_PX,
   CHAT_INFO_T0,
   chatInfoAppHtmlCacheMock,
   clearTranscriptMessages,
@@ -66,7 +66,7 @@ const OTHER_CONVERSATION_ID = "conv-2";
 const restoreDomStubs = installChatInfoDomStubs();
 
 mock.module("@/hooks/use-element-size", () =>
-  makeElementSizeMock(() => CHAT_INFO_DRAWER_WIDTH_PX),
+  makeElementSizeMock(() => CHAT_INFO_BODY_WIDTH_PX),
 );
 
 // The app tile's live preview would otherwise call the daemon's open endpoint.

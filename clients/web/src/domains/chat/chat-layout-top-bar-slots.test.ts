@@ -43,6 +43,10 @@ describe("ChatLayout top-bar slots", () => {
     expect(layoutSource).toContain("{topBarPill}");
   });
 
+  test("the shared header receives the route-owned mobile top bar", () => {
+    expect(layoutSource).toContain("mobileTopBar={mobileTopBar}");
+  });
+
   // Both land in the header's one route slot, so their order in the cluster is
   // the order the layout writes them in: pill first, bell after.
   test("the top bar seats the pill ahead of the accessory", () => {

@@ -2160,6 +2160,23 @@ export interface CompanionSurfaceState {
   annotationTool?: CompanionAnnotationTool;
 
   /**
+   * How many times the user has cleared the shared surface from the pill.
+   *
+   * A running count rather than an event, the way `captureCount` is. The
+   * frame's drawing layer holds the user's own ink and main never sees it,
+   * so a press on the pill reaches that ink only on the state everything
+   * else reaches it on. A step in the number is one clear. The value a
+   * window mounts with is history, since main replays its state into a
+   * window it has just opened, and a layer that dropped its ink on the
+   * replay would be clearing for a press made before it existed.
+   *
+   * The assistant's marks need no such signal: main holds those and takes
+   * them down itself. Absent on a shell that predates the control, which
+   * reads as no clears yet.
+   */
+  marksCleared?: number;
+
+  /**
    * What the assistant is pointing at on the shared surface, drawn on the
    * frame around it. See {@link CompanionCoachmark}.
    *

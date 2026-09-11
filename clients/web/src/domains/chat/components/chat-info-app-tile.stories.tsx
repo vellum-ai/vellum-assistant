@@ -18,7 +18,7 @@ import {
   withChatInfoStoryClient,
 } from "@/domains/chat/components/chat-info-story-fixtures";
 import {
-  CHAT_INFO_DRAWER_WIDTH_PX,
+  CHAT_INFO_BODY_WIDTH_PX,
   makeAppSummary,
   makeChatInfoQueryClient,
   seedChatInfoConversation,
@@ -80,7 +80,7 @@ export const Default: Story = {};
 export const Stretched: Story = {
   args: { stretch: true },
   render: (args) => (
-    <div className="flex gap-2" style={{ width: CHAT_INFO_DRAWER_WIDTH_PX }}>
+    <div className="flex gap-2" style={{ width: CHAT_INFO_BODY_WIDTH_PX }}>
       <ChatInfoAppTile {...args} app={TRIP_PLANNER} />
       <ChatInfoAppTile {...args} app={PACKING_LIST} />
       <ChatInfoAppTile {...args} app={FERRY_TIMES} />

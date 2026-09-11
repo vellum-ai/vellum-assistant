@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.10
+  version: 0.12.0
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -1579,6 +1579,93 @@ paths:
                     type: number
                 required:
                   - published
+                additionalProperties: false
+  /v1/apps/{id}/refresh:
+    post:
+      operationId: apps_by_id_refresh_post
+      summary: Compile an app
+      description: Compile workspace or plugin app source into dist/ and refresh open surfaces.
+      tags:
+        - apps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                  compiled:
+                    type: boolean
+                  compile_duration_ms:
+                    type: number
+                  compile_errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        location:
+                          type: object
+                          properties:
+                            file:
+                              type: string
+                            line:
+                              type: number
+                            column:
+                              type: number
+                          required:
+                            - file
+                            - line
+                            - column
+                          additionalProperties: false
+                      required:
+                        - text
+                      additionalProperties: false
+                  compile_warnings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        location:
+                          type: object
+                          properties:
+                            file:
+                              type: string
+                            line:
+                              type: number
+                            column:
+                              type: number
+                          required:
+                            - file
+                            - line
+                            - column
+                          additionalProperties: false
+                      required:
+                        - text
+                      additionalProperties: false
+                required:
+                  - ok
+                  - appId
+                  - name
+                  - compiled
+                  - compile_duration_ms
                 additionalProperties: false
   /v1/apps/{id}/share-cloud:
     post:
@@ -5350,6 +5437,117 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/channels/send:
+    post:
+      operationId: channels_send_post
+      summary: Send text to a channel chat
+      description:
+        Deliver text to a chat or person on a channel through the channel's transport, recorded after the channel
+        acknowledges it.
+      tags:
+        - channels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                  enum:
+                    - telegram
+                    - phone
+                    - vellum
+                    - whatsapp
+                    - slack
+                    - email
+                    - platform
+                    - a2a
+                    - discord
+                    - plugin
+                  description: Channel to send on
+                target:
+                  oneOf:
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: chat
+                        chatId:
+                          type: string
+                          minLength: 1
+                          description: Chat id in the channel's own id space
+                        threadId:
+                          description: Thread within the chat, in the channel's own id space
+                          type: string
+                          minLength: 1
+                      required:
+                        - kind
+                        - chatId
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: person
+                        userId:
+                          type: string
+                          minLength: 1
+                          description: Person to reach in their DM, in the channel's own id space
+                      required:
+                        - kind
+                        - userId
+                  type: object
+                text:
+                  type: string
+                  minLength: 1
+                  description: Text to send
+                renderRichly:
+                  description: Ask the channel for its rich rendering, where it has one
+                  type: boolean
+              required:
+                - channel
+                - target
+                - text
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channel:
+                    type: string
+                    enum:
+                      - telegram
+                      - phone
+                      - vellum
+                      - whatsapp
+                      - slack
+                      - email
+                      - platform
+                      - a2a
+                      - discord
+                      - plugin
+                  chatId:
+                    type: string
+                  threadId:
+                    type: string
+                  messageIds:
+                    type: array
+                    items:
+                      type: string
+                  lastMessageId:
+                    type: string
+                  recordedIn:
+                    type: string
+                required:
+                  - channel
+                  - chatId
+                  - messageIds
+                  - lastMessageId
+                additionalProperties: false
   /v1/clients:
     get:
       operationId: clients_get
@@ -11146,7 +11344,9 @@ paths:
     post:
       operationId: credentials_list_post
       summary: List all credentials with metadata
-      description: Return all stored credentials with metadata, OAuth connection info, and platform-managed credentials.
+      description:
+        Return credentials from the live credential vault, with OAuth connection info and platform-managed
+        credentials. Fails if the vault is unreachable.
       tags:
         - credentials
       requestBody:
@@ -36993,6 +37193,281 @@ paths:
       tags:
         - user-routes
       parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+  /v1/x/plugins/{plugin}/notices:
+    delete:
+      operationId: x_plugins_by_plugin_notices_delete
+      summary: Gateway DELETE notice to a plugin (namespace root)
+      description:
+        "Dispatches DELETE requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    get:
+      operationId: x_plugins_by_plugin_notices_get
+      summary: Gateway GET notice to a plugin (namespace root)
+      description:
+        "Dispatches GET requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    head:
+      operationId: x_plugins_by_plugin_notices_head
+      summary: Gateway HEAD notice to a plugin (namespace root)
+      description:
+        "Dispatches HEAD requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    options:
+      operationId: x_plugins_by_plugin_notices_options
+      summary: Gateway OPTIONS notice to a plugin (namespace root)
+      description:
+        "Dispatches OPTIONS requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    patch:
+      operationId: x_plugins_by_plugin_notices_patch
+      summary: Gateway PATCH notice to a plugin (namespace root)
+      description:
+        "Dispatches PATCH requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: x_plugins_by_plugin_notices_post
+      summary: Gateway POST notice to a plugin (namespace root)
+      description:
+        "Dispatches POST requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    put:
+      operationId: x_plugins_by_plugin_notices_put
+      summary: Gateway PUT notice to a plugin (namespace root)
+      description:
+        "Dispatches PUT requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+  /v1/x/plugins/{plugin}/notices/{path}:
+    delete:
+      operationId: x_plugins_by_plugin_notices_by_path_delete
+      summary: Gateway DELETE notice to a plugin
+      description:
+        "Dispatches DELETE requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    get:
+      operationId: x_plugins_by_plugin_notices_by_path_get
+      summary: Gateway GET notice to a plugin
+      description:
+        "Dispatches GET requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    head:
+      operationId: x_plugins_by_plugin_notices_by_path_head
+      summary: Gateway HEAD notice to a plugin
+      description:
+        "Dispatches HEAD requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    options:
+      operationId: x_plugins_by_plugin_notices_by_path_options
+      summary: Gateway OPTIONS notice to a plugin
+      description:
+        "Dispatches OPTIONS requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    patch:
+      operationId: x_plugins_by_plugin_notices_by_path_patch
+      summary: Gateway PATCH notice to a plugin
+      description:
+        "Dispatches PATCH requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: x_plugins_by_plugin_notices_by_path_post
+      summary: Gateway POST notice to a plugin
+      description:
+        "Dispatches POST requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    put:
+      operationId: x_plugins_by_plugin_notices_by_path_put
+      summary: Gateway PUT notice to a plugin
+      description:
+        "Dispatches PUT requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
         - name: path
           in: path
           required: true

@@ -12,7 +12,7 @@ const mockProvider = {
   synthesize: mockSynthesize,
 };
 
-mock.module("../calls/resolve-call-tts-provider.js", () => ({
+mock.module("../resolve-call-tts-provider.js", () => ({
   resolveCallTtsProvider: jest.fn(() => ({
     provider: mockProvider,
     useSynthesizedPath: false,
@@ -20,13 +20,10 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
   })),
 }));
 
-import {
-  mulawToPcm16,
-  pcm16ToMulaw,
-} from "../calls/media-stream-audio-transcode.js";
-import { MediaStreamOutput } from "../calls/media-stream-output.js";
-import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
-import { setConfig } from "./helpers/set-config.js";
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+import { mulawToPcm16, pcm16ToMulaw } from "../media-stream-audio-transcode.js";
+import { MediaStreamOutput } from "../media-stream-output.js";
+import { resolveCallTtsProvider } from "../resolve-call-tts-provider.js";
 
 const mockResolveCallTtsProvider = resolveCallTtsProvider as ReturnType<
   typeof jest.fn

@@ -167,6 +167,7 @@
     "captureWindows": "Ventanas",
     "deny": "Denegar",
     "draw": "Dibujar",
+    "clearMarks": "Borrar marcas",
     "drawTools": "Herramienta de dibujo",
     "drawFreehand": "Mano alzada",
     "drawLine": "Línea",
@@ -208,6 +209,9 @@
     "copyFileContentsAria": "Copiar contenido del archivo",
     "downloadFileAria": "Descargar archivo",
     "editFileAria": "Editar archivo"
+  },
+  "conversationTitle": {
+    "untitled": "Sin título"
   },
   "createAssistantDialog": {
     "cancel": "Cancelar",
@@ -856,7 +860,9 @@
     "verificationFailed": "Verificación fallida",
     "verifiedTitle": "Los registros DNS se han verificado. Tu dominio está listo para enviar y recibir correo.",
     "verifyingDomain": "Verificando dominio…",
-    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos."
+    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos.",
+    "setupRequired": "Configuración del dominio requerida",
+    "setupRequiredTitle": "Este dominio no se ha aprovisionado con el proveedor de correo. No puede enviar ni recibir correo hasta completar la configuración."
   },
   "managedServicesBanner": {
     "body": "Los servicios administrados se miden y se deducen del saldo de tu cuenta de Vellum. <link>Ver precios</link>"

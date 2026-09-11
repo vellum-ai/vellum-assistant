@@ -78,6 +78,12 @@ function makeFakeConversation(options: {
     setTransportHints: () => {
       mutationCalls.push("setTransportHints");
     },
+    setTrustContext: () => {
+      mutationCalls.push("setTrustContext");
+    },
+    ensureActorScopedHistory: async () => {
+      mutationCalls.push("ensureActorScopedHistory");
+    },
     emitActivityState: () => {
       mutationCalls.push("emitActivityState");
     },

@@ -3687,6 +3687,68 @@ describe("companion window: pointing at what is shared", () => {
   });
 
   /**
+   * The user's own way to take the marks down, from the pill. The share is
+   * what the marks are about and it goes on; the frame stays around it. The
+   * count is read as a difference, since it is main's own and outlives a
+   * case.
+   */
+  describe("the pill's Clear", () => {
+    const clears = (): number => state().marksCleared ?? 0;
+
+    test("takes the marks down and leaves the share running", async () => {
+      await shareAndSee();
+      await showCompanionCoachmarks([MARK], CALL);
+      const before = clears();
+      send("vellum:companion:clearMarks");
+      expect(state().coachmarks).toBeUndefined();
+      expect(state().screenShare).toEqual(DISPLAY);
+      expect(clears()).toBe(before + 1);
+    });
+
+    /**
+     * The user's own ink is on the frame's window and main never sees it,
+     * so the press reaches it as a step in a count on the pushed state. The
+     * step has to happen whether or not the assistant had marks up, since
+     * the ink is the other thing the press is about.
+     */
+    test("steps the count the frame drops its ink on, marks up or not", () => {
+      shareDisplay();
+      send("vellum:companion:setAnnotating", true);
+      const before = clears();
+      send("vellum:companion:clearMarks");
+      send("vellum:companion:clearMarks");
+      expect(clears()).toBe(before + 2);
+      // The mode is the user's, and stays where they put it.
+      expect(state().annotating).toBe(true);
+    });
+
+    test("is nothing with nothing shared", () => {
+      const before = clears();
+      send("vellum:companion:clearMarks");
+      expect(clears()).toBe(before);
+    });
+
+    /** The race `screen_clear_marks` runs, with the same answer. */
+    test("outranks a lookup still out when it is pressed", async () => {
+      windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+      await shareAndSee(WINDOW);
+      let letGo!: () => void;
+      locateHeldBy = new Promise<void>((resolve) => {
+        letGo = resolve;
+      });
+      const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+      send("vellum:companion:clearMarks");
+      letGo();
+
+      expect(await drawing).toEqual({
+        kind: "refused",
+        refusal: "superseded",
+      });
+      expect(state().coachmarks).toBeUndefined();
+    });
+  });
+
+  /**
    * The whole reason a mark may name a control rather than give a rectangle:
    * the tree holds the control's frame exactly, so the fractions are derived
    * rather than estimated. A window at (100,50) 1000x500 with the control at
