@@ -9,10 +9,12 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
+import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
 import {
   desktopChromePath,
   resolveDesktopBinaries,
@@ -223,7 +225,18 @@ export class DesktopSessionManager {
     this.which = options.which ?? Bun.which;
     this.probeVncPort = options.probeVncPort ?? probeLoopbackPort;
     this.resolveChromePath =
-      options.resolveChromePath ?? (async () => desktopChromePath());
+      options.resolveChromePath ??
+      (async () => {
+        if (process.platform === "linux" && getIsContainerized()) {
+          // Google Chrome reads policies from /etc even when its deb is extracted.
+          try {
+            writeDesktopChromePolicy("/etc/opt/chrome/policies/managed");
+          } catch (err) {
+            log.warn({ err }, "Desktop Chrome policy could not be applied");
+          }
+        }
+        return desktopChromePath();
+      });
     this.killProcessGroup = options.killProcessGroup ?? killProcessGroup;
     this.lingerMs = options.lingerMs ?? DESKTOP_LINGER_MS;
     this.readyDeadlineMs = options.readyDeadlineMs ?? VNC_READY_DEADLINE_MS;
