@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
+  NotificationActionEvent,
   NotificationIdentity,
   ShowNotificationPayload,
 } from "@vellumai/ipc-contract";
@@ -20,6 +21,7 @@ import * as androidNotificationChannels from "@/runtime/android-notification-cha
 import * as nativeAuthRuntime from "@/runtime/native-auth";
 import * as platformDetection from "@/runtime/platform-detection";
 import * as pushRegistration from "@/runtime/push-registration";
+import type { NotificationTapPayload } from "@/runtime/notification-taps";
 
 // ── host platform guards ─────────────────────────────────────────────────────
 //
@@ -27,9 +29,10 @@ import * as pushRegistration from "@/runtime/push-registration";
 // under happy-dom, and the Electron branch would return before reaching
 // the code under test.
 
+let nativePlatform = true;
 mock.module("@/runtime/native-auth", () => ({
   ...nativeAuthRuntime,
-  isNativePlatform: () => true,
+  isNativePlatform: () => nativePlatform,
 }));
 let nativeAndroid = false;
 mock.module("@/runtime/platform-detection", () => ({
@@ -85,13 +88,23 @@ interface RegisterActionTypesArg {
 }
 const scheduleMock = mock(async (_arg: ScheduleArg) => {});
 const registerActionTypesMock = mock(async (_arg: RegisterActionTypesArg) => {});
+type LocalActionListener = (action: {
+  notification: { extra?: unknown };
+}) => void;
+let localActionListener: LocalActionListener | null = null;
+const addLocalListenerMock = mock(
+  async (_eventName: string, listener: LocalActionListener) => {
+    localActionListener = listener;
+    return { remove: async () => {} };
+  },
+);
 mock.module("@capacitor/local-notifications", () => ({
   LocalNotifications: {
     checkPermissions: async () => ({ display: "granted" }),
     requestPermissions: async () => ({ display: "granted" }),
     schedule: scheduleMock,
     registerActionTypes: registerActionTypesMock,
-    addListener: async () => ({ remove: async () => {} }),
+    addListener: addLocalListenerMock,
   },
 }));
 
@@ -117,6 +130,7 @@ const {
   NOTIFICATION_INTENT_VIEW_ACTION_ID,
   postForegroundRemotePush,
   postLocalNotification,
+  setNotificationTapHandler,
   __resetNotificationsStateForTests,
 } = await import("@/runtime/notifications");
 const {
@@ -160,6 +174,7 @@ function testIdentity(
 }
 
 beforeEach(() => {
+  nativePlatform = true;
   nativeAndroid = false;
   sessionConfirmedAssistantId = null;
   scheduleMock.mockClear();
@@ -167,6 +182,14 @@ beforeEach(() => {
   ackMock.mockClear();
   ackArgs.length = 0;
   ensureAndroidAlertsChannelMock.mockClear();
+  localActionListener = null;
+  addLocalListenerMock.mockReset();
+  addLocalListenerMock.mockImplementation(
+    async (_eventName: string, listener: LocalActionListener) => {
+      localActionListener = listener;
+      return { remove: async () => {} };
+    },
+  );
   __clearNotificationIdentitySnapshotsForTests();
   useClientFeatureFlagStore.setState({
     pushAvatarSender: false,
@@ -738,6 +761,238 @@ describe("postLocalNotification local-surface presentation flags", () => {
     ).toEqual(["app", "app", "assistant", "assistant"]);
     for (const [request] of scheduleMock.mock.calls) {
       expect(request.notifications[0]?.extra?.identity).toEqual(identity);
+    }
+  });
+});
+
+describe("notification tap listener adapters", () => {
+  async function flushTapQueue(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  test("forwards Electron action identity and conversation metadata", async () => {
+    const identity = testIdentity();
+    let actionListener: ((event: NotificationActionEvent) => void) | null = null;
+    const show = mock(async (_payload: ShowNotificationPayload) => ({
+      success: true,
+    }));
+    (window as unknown as { vellum?: unknown }).vellum = {
+      platform: "electron",
+      notifications: {
+        show,
+        onAction: (listener: (event: NotificationActionEvent) => void) => {
+          actionListener = listener;
+          return () => {};
+        },
+      },
+    };
+    const received: NotificationTapPayload[] = [];
+    setNotificationTapHandler((payload) => {
+      received.push(payload);
+    });
+
+    const listener = actionListener as
+      | ((event: NotificationActionEvent) => void)
+      | null;
+    if (!listener) {
+      throw new Error("expected Electron action listener");
+    }
+    listener({
+      kind: "click",
+      category: "notificationIntent",
+      conversationId: "conv-electron",
+      deliveryId: "delivery-electron",
+      identity,
+    });
+    await flushTapQueue();
+
+    expect(received).toEqual([
+      {
+        conversationId: "conv-electron",
+        sourceEventName: "electron:notificationIntent:click",
+        deliveryId: "delivery-electron",
+        identity,
+      },
+    ]);
+    expect(show).not.toHaveBeenCalled();
+    expect(scheduleMock).not.toHaveBeenCalled();
+  });
+
+  test("retries Electron action registration after a rejected preload", async () => {
+    const identity = testIdentity();
+    let actionListener: ((event: NotificationActionEvent) => void) | null = null;
+    const show = mock(async (_payload: ShowNotificationPayload) => ({
+      success: true,
+    }));
+    const onAction = mock(
+      (
+        _listener: (event: NotificationActionEvent) => void,
+      ): (() => void) | Promise<never> => () => {},
+    );
+    onAction.mockImplementationOnce(async () => {
+      throw new Error("preload unavailable");
+    });
+    onAction.mockImplementationOnce((listener) => {
+      actionListener = listener;
+      return () => {};
+    });
+    (window as unknown as { vellum?: unknown }).vellum = {
+      platform: "electron",
+      notifications: { show, onAction },
+    };
+    const received: NotificationTapPayload[] = [];
+    const handler = (payload: NotificationTapPayload) => {
+      received.push(payload);
+    };
+
+    setNotificationTapHandler(handler);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    setNotificationTapHandler(handler);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(onAction).toHaveBeenCalledTimes(2);
+    const listener = actionListener as
+      | ((event: NotificationActionEvent) => void)
+      | null;
+    if (!listener) {
+      throw new Error("expected retried Electron action listener");
+    }
+    listener({
+      kind: "action",
+      category: "notificationIntent",
+      conversationId: "conv-retry",
+      identity,
+    });
+    await flushTapQueue();
+
+    expect(received).toEqual([
+      expect.objectContaining({
+        conversationId: "conv-retry",
+        identity,
+      }),
+    ]);
+    expect(show).not.toHaveBeenCalled();
+  });
+
+  test("forwards Capacitor extra through the common dispatcher", async () => {
+    const identity = testIdentity();
+    const received: NotificationTapPayload[] = [];
+    setNotificationTapHandler((payload) => {
+      received.push(payload);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const listener = localActionListener;
+    if (!listener) {
+      throw new Error("expected Capacitor action listener");
+    }
+    const tapPayload: NotificationTapPayload = {
+      conversationId: "conv-native",
+      sourceEventName: "reminder.fired",
+      deliveryId: "delivery-native",
+      identity,
+    };
+    listener({ notification: { extra: tapPayload } });
+    await flushTapQueue();
+
+    expect(received).toEqual([tapPayload]);
+    expect(scheduleMock).not.toHaveBeenCalled();
+  });
+
+  test("retries Capacitor action registration after a bridge failure", async () => {
+    addLocalListenerMock.mockRejectedValueOnce(
+      new Error("native listener unavailable"),
+    );
+    const received: NotificationTapPayload[] = [];
+    const handler = (payload: NotificationTapPayload) => {
+      received.push(payload);
+    };
+
+    setNotificationTapHandler(handler);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    setNotificationTapHandler(handler);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(addLocalListenerMock).toHaveBeenCalledTimes(2);
+    const listener = localActionListener;
+    if (!listener) {
+      throw new Error("expected retried Capacitor action listener");
+    }
+    listener({
+      notification: {
+        extra: {
+          conversationId: "conv-native-retry",
+          sourceEventName: "reminder.fired",
+        },
+      },
+    });
+    await flushTapQueue();
+
+    expect(received).toEqual([
+      expect.objectContaining({ conversationId: "conv-native-retry" }),
+    ]);
+    expect(scheduleMock).not.toHaveBeenCalled();
+  });
+
+  test("browser onclick dispatches original scoped metadata only once", async () => {
+    nativePlatform = false;
+    const identity = testIdentity();
+    const received: NotificationTapPayload[] = [];
+    const createdNotifications: Array<{
+      onclick: (() => void) | null;
+      close: () => void;
+    }> = [];
+    let notificationCount = 0;
+    const originalNotification = globalThis.Notification;
+    class TestNotification {
+      static permission: NotificationPermission = "granted";
+      static requestPermission = async (): Promise<NotificationPermission> =>
+        "granted";
+      onclick: (() => void) | null = null;
+      close = mock(() => {});
+
+      constructor(_title: string, _options?: NotificationOptions) {
+        notificationCount += 1;
+        createdNotifications.push(this);
+      }
+    }
+    Object.defineProperty(globalThis, "Notification", {
+      configurable: true,
+      value: TestNotification,
+    });
+    try {
+      setNotificationTapHandler((payload) => {
+        received.push(payload);
+      });
+      await postLocalNotification({
+        ...baseArgs,
+        identity,
+        deepLinkMetadata: { conversationId: "conv-browser" },
+      });
+
+      const notification = createdNotifications[0];
+      if (!notification?.onclick) {
+        throw new Error("expected browser notification click handler");
+      }
+      notification.onclick();
+      await flushTapQueue();
+
+      expect(received).toEqual([
+        expect.objectContaining({
+          conversationId: "conv-browser",
+          sourceEventName: "reminder.fired",
+          deliveryId: "delivery-1",
+          identity,
+        }),
+      ]);
+      expect(notificationCount).toBe(1);
+      expect(scheduleMock).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(globalThis, "Notification", {
+        configurable: true,
+        value: originalNotification,
+      });
     }
   });
 });

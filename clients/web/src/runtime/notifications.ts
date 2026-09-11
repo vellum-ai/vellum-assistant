@@ -30,8 +30,6 @@ import {
 import type { PushNotificationSchema } from "@capacitor/push-notifications";
 import type {
   NotificationIdentity,
-  NotificationNameProvenance,
-  NotificationPresentation,
   ShowNotificationPayload,
 } from "@vellumai/ipc-contract";
 
@@ -50,6 +48,13 @@ import {
   type OwnedNotificationName,
   type NotificationSenderResolution,
 } from "@/runtime/notification-sender";
+import {
+  __resetNotificationTapsForTests,
+  dispatchNotificationTap,
+  registerNotificationTapHandler,
+  type NotificationTapHandler,
+  type NotificationTapPayload,
+} from "@/runtime/notification-taps";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 import {
   extractPushConversationId,
@@ -57,20 +62,7 @@ import {
 } from "@/runtime/push-registration";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
-/**
- * Payload stored alongside each native notification so the tap handler can
- * deep-link back to the originating conversation. Kept intentionally small —
- * iOS truncates `userInfo` payloads and we don't need the full daemon event.
- */
-export interface NotificationTapPayload {
-  conversationId?: string;
-  sourceEventName: string;
-  deliveryId?: string;
-  identity?: NotificationIdentity;
-  presentation?: NotificationPresentation;
-  nameProvenance?: NotificationNameProvenance;
-  suppressGroupTitle?: boolean;
-}
+export type { NotificationTapPayload } from "@/runtime/notification-taps";
 
 /**
  * Capacitor / APNs category for the "Go to Conversation" action. Must stay
@@ -90,7 +82,6 @@ let pendingPermissionRequest: Promise<PermissionState> | null = null;
 let tapListenersRegistered = false;
 let conversationActionTypeRegistered = false;
 let conversationActionTypePromise: Promise<void> | null = null;
-let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
 const recentNativeDeliveryIds = new Set<string>();
 const nativeDeliveryPromises = new Map<string, Promise<void>>();
 const MAX_RECENT_DELIVERY_IDS = 128;
@@ -286,17 +277,18 @@ async function registerTapListeners(): Promise<void> {
   // `NotificationTapPayload` so the same `tapHandler` is invoked
   // regardless of platform. The listener is permanent (app lifetime).
   if (isElectron() && window.vellum?.notifications) {
-    window.vellum.notifications.onAction((event) => {
-      if (!tapHandler) {
-        return;
-      }
-      tapHandler({
-        conversationId: event.conversationId,
-        sourceEventName: `electron:${event.category}:${event.kind}`,
-        deliveryId: event.deliveryId,
-        identity: event.identity,
+    try {
+      await window.vellum.notifications.onAction((event) => {
+        dispatchNotificationTap({
+          conversationId: event.conversationId,
+          sourceEventName: `electron:${event.category}:${event.kind}`,
+          deliveryId: event.deliveryId,
+          identity: event.identity,
+        });
       });
-    });
+    } catch {
+      tapListenersRegistered = false;
+    }
     return;
   }
 
@@ -310,14 +302,15 @@ async function registerTapListeners(): Promise<void> {
       (action) => {
         const extra = action.notification.extra as
           NotificationTapPayload | undefined;
-        if (extra && tapHandler) {
-          tapHandler(extra);
+        if (extra) {
+          dispatchNotificationTap(extra);
         }
       },
     );
   } catch {
     // Listener registration is best-effort — a failure here means taps
     // won't deep-link, but banners will still fire.
+    tapListenersRegistered = false;
   }
 }
 
@@ -329,9 +322,9 @@ async function registerTapListeners(): Promise<void> {
  * closures always see the latest callback.
  */
 export function setNotificationTapHandler(
-  handler: (payload: NotificationTapPayload) => void,
+  handler: NotificationTapHandler,
 ): void {
-  tapHandler = handler;
+  registerNotificationTapHandler(handler);
   void registerTapListeners();
 }
 
@@ -688,9 +681,7 @@ export async function postLocalNotification(
       });
       n.onclick = () => {
         window.focus();
-        if (tapHandler) {
-          tapHandler(tapPayload);
-        }
+        dispatchNotificationTap(tapPayload);
         n.close();
       };
     } catch (err) {
@@ -750,7 +741,7 @@ export function __resetNotificationsStateForTests(): void {
   tapListenersRegistered = false;
   conversationActionTypeRegistered = false;
   conversationActionTypePromise = null;
-  tapHandler = null;
+  __resetNotificationTapsForTests();
   recentNativeDeliveryIds.clear();
   nativeDeliveryPromises.clear();
 }
