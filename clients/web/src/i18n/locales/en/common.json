@@ -140,7 +140,7 @@
     "done": "Got it",
     "hold": {
       "body": "Try it now. I’ll move on when it reaches me.",
-      "openKeyboardSettings": "Open Keyboard settings",
+      "claimedBody": "{apps} may be taking it first.",
       "title": "Hold {key} to dictate",
       "tryAgain": "Try again",
       "unreachedBody": "Remapped, claimed by another app, or Input Monitoring is off.",
@@ -358,6 +358,9 @@
     "ctaLabel": "Star us",
     "subtitle": "Star us on GitHub or contribute",
     "title": "Vellum is open source"
+  },
+  "inputMonitoringReason": {
+    "body": "macOS will ask to allow Input Monitoring, which is how Vellum notices the key from any app."
   },
   "lazyBoundary": {
     "loadError": "This section couldn't load. Reload the page to try again."

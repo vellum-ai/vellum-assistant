@@ -343,6 +343,9 @@ export interface FnKeyState {
   fnUsageType: number | null;
 }
 
+/** `AppleFnUsageType` for "Start Dictation (press Globe twice)". */
+export const FN_USAGE_START_DICTATION = 3;
+
 export interface HotkeyEvent {
   kind: HotkeyEventKind;
   state: HotkeyEventState;

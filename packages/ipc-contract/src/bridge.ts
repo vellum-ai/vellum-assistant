@@ -815,16 +815,6 @@ export interface VellumBridge {
      */
     advanceIntro(action: CompanionIntroAction): void;
     /**
-     * Open macOS's Keyboard settings, where a voice key that never reaches
-     * the app is most often remapped.
-     *
-     * Opened by main rather than the renderer because the surface's window
-     * opens nothing itself: it is click-through and navigates nowhere, so a
-     * `window.open` from it is denied at the shell. Absent on shells with no
-     * voice key, which have nothing to send the user there for.
-     */
-    openKeyboardSettings?(): void;
-    /**
      * Open the surface's own menu, at the pointer.
      *
      * Built and popped in main, because a menu is a native window: the

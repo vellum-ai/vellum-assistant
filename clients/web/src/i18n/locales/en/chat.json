@@ -881,9 +881,6 @@
   "inlineProcessCard": {
     "stop": "Stop"
   },
-  "inputMonitoringReason": {
-    "body": "macOS will ask to allow Input Monitoring, which is how Vellum notices the key from any app."
-  },
   "inspectPage": {
     "accessDenied": "Inspector is available when the Internal Thread Actions feature flag is enabled.",
     "allMessages": "All messages",

@@ -24,7 +24,7 @@ mock.module(
 );
 
 const { askForInputMonitoring, __resetInputMonitoringAskForTests } =
-  await import("@/domains/chat/voice/input-monitoring-ask");
+  await import("@/utils/input-monitoring-ask");
 
 describe("asking for Input Monitoring", () => {
   beforeEach(() => {
