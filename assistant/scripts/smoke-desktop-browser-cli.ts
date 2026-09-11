@@ -57,7 +57,13 @@ const page = Bun.serve({
     }
     return new Response(
       `<!doctype html><html><head><title>Desktop browser CLI</title><style>body{font:24px sans-serif;padding:70px;background:#f3f4f8}input,button{font:inherit;padding:12px;margin:16px}#result{color:#5140bd}</style></head><body><h1>Streamed desktop browser</h1><label>Example text<input id="text"></label><button id="save" onclick="fetch('/save');document.getElementById('result').textContent='Saved '+document.getElementById('text').value">Save</button><p id="result"></p></body></html>`,
-      { headers: { "content-type": "text/html" } },
+      {
+        headers: {
+          "content-type": "text/html",
+          "content-security-policy":
+            "require-trusted-types-for 'script'; trusted-types 'none'",
+        },
+      },
     );
   },
 });
