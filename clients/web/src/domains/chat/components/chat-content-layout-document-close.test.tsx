@@ -29,7 +29,6 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
-import { useDocumentConversationRoute } from "../hooks/use-document-conversation-route";
 import { showDocumentInConversation } from "../document-conversation-navigation";
 import type { ChatMainPanelProps } from "./chat-route-content";
 
@@ -49,7 +48,6 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 }));
 mock.module("./chat-route-content", () => ({
   ChatMainPanel: () => {
-    useDocumentConversationRoute();
     const location = useLocation();
     const navigationType = useNavigationType();
     return (
@@ -137,6 +135,7 @@ describe("desktop document drawer dismissal", () => {
       const page = renderLayout(
         "/assistant/conversations/conv-1?document=surface-1&documentReturn=%2Fassistant%2Flibrary&documentView=document&keep=1#message-1",
       );
+      await screen.findByTestId("editor");
       const close = await screen.findByRole("button", {
         name: "Close document",
       });

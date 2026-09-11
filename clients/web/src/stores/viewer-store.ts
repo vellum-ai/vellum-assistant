@@ -1437,6 +1437,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       set({
         openedDocumentState: {
           source: "document",
+          assistantId,
           surfaceId: result.surfaceId,
           conversationId: result.conversationId,
           documentName: result.title ?? "Untitled",

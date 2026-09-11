@@ -1234,6 +1234,10 @@ describe("loadDocument", () => {
     await getState().loadDocument("asst-1", "surf-1");
 
     expect(getState().mainView).toBe("document");
+    expect(getState().openedDocumentState).toMatchObject({
+      assistantId: "asst-1",
+      surfaceId: "surf-1",
+    });
     expect(unseenFor("conv-1")).toEqual([]);
   });
 

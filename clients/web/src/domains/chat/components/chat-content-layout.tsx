@@ -10,7 +10,7 @@
  * directly from stores: no props required for layout decisions.
  */
 
-import { lazy, useCallback, useEffect, type ReactNode } from "react";
+import { lazy, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
@@ -19,7 +19,12 @@ import { ProgressStack } from "@/domains/chat/components/progress-stack";
 import { SideControlPlacementBoundary } from "@/domains/chat/components/side-control-placement";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
-import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import {
+  DocumentViewerContainer,
+  type DocumentViewerContainerHandle,
+} from "@/domains/chat/components/document-viewer-container";
+import { DocumentChatContent } from "./document-chat-content";
+import { useDocumentConversationRoute } from "../hooks/use-document-conversation-route";
 import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
 import {
   ChatMainPanel,
@@ -47,7 +52,6 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOverlayEscape } from "../hooks/use-overlay-escape";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
-import { closeDocumentInConversation } from "../document-conversation-navigation";
 import { skillDetailBackState } from "@/utils/skills";
 
 // Import thunks for the lazy panel chunks, shared by the React.lazy wrappers
@@ -145,6 +149,8 @@ export function rightDrawerWidthProfile(
 // ---------------------------------------------------------------------------
 
 export function ChatContentLayout(props: ChatMainPanelProps) {
+  const documentRoute = useDocumentConversationRoute();
+  const documentEditorRef = useRef<DocumentViewerContainerHandle>(null);
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
@@ -239,9 +245,19 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     [navigate, isMobile],
   );
 
-  const handleCloseDocument = useCallback(() => {
-    closeDocumentInConversation(navigate, location);
-  }, [navigate, location]);
+  const handleCloseDocument = documentRoute.closeDocument;
+  const handleDocumentFeedback = useCallback(() => {
+    const opened = useViewerStore.getState().openedDocumentState;
+    if (opened?.source !== "document") {
+      return;
+    }
+    void navigate(
+      routes.conversationWithPrompt(
+        opened.conversationId,
+        getDocumentFeedbackPrompt(opened.documentName),
+      ),
+    );
+  }, [navigate]);
 
   const onCloseSubagentDetail = useCallback(() => {
     useViewerStore.getState().closeSubagentDetail();
@@ -421,7 +437,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     return (
       <WorkspacePanes
         presentation="side"
-        secondary={<ChatMainPanel {...props} />}
+        secondary={<ChatMainPanel {...props} documentRoute={documentRoute} />}
         primary={
           <AppViewerContainer
             appId={openedAppState.appId}
@@ -486,7 +502,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const chatContent = (
     <SideControlPlacementBoundary className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       <ProgressStack placement="column" />
-      <ChatMainPanel {...props} />
+      <ChatMainPanel {...props} documentRoute={documentRoute} />
     </SideControlPlacementBoundary>
   );
 
@@ -506,7 +522,21 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // so an occasional chat remount on those transitions is acceptable.)
   let rightPanel: ReactNode = null;
   if (!isMobile) {
-    if (mainView === "document" && openedDocumentState && assistantId) {
+    if (mainView === "document" && documentRoute.surfaceId && assistantId) {
+      rightPanel = (
+        <DocumentChatContent
+          assistantId={assistantId}
+          surfaceId={documentRoute.surfaceId}
+          document={openedDocumentState}
+          loading={documentRoute.isLoading}
+          error={documentRoute.error}
+          editorRef={documentEditorRef}
+          onClose={handleCloseDocument}
+          onRetry={documentRoute.reloadDocument}
+          onSubmitFeedback={handleDocumentFeedback}
+        />
+      );
+    } else if (mainView === "document" && openedDocumentState && assistantId) {
       // A workspace file is shown read-only, in a panel that fetches its own
       // bytes.
       if (openedDocumentState.source === "workspace-file-preview") {
@@ -542,17 +572,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
                   documentName,
                 )
             }
-            onSubmitFeedback={() => {
-              const prompt = getDocumentFeedbackPrompt(
-                openedDocumentState.documentName,
-              );
-              navigate(
-                routes.conversationWithPrompt(
-                  openedDocumentState.conversationId,
-                  prompt,
-                ),
-              );
-            }}
+            onSubmitFeedback={handleDocumentFeedback}
           />
         );
       }
@@ -718,7 +738,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       defaultWidth={widthProfile.defaultWidth}
       open={rightPanel != null}
       left={chatContent}
-      right={rightPanel}
+      // Release desktop editors before the mobile route waits for their saves.
+      right={isMobile ? <></> : rightPanel}
     />
   );
 }

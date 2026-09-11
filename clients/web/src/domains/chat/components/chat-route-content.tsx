@@ -40,7 +40,7 @@ import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
 import { useDocumentChatPreparation } from "@/domains/chat/hooks/use-document-chat-preparation";
-import { useDocumentConversationRoute } from "@/domains/chat/hooks/use-document-conversation-route";
+import type { useDocumentConversationRoute } from "@/domains/chat/hooks/use-document-conversation-route";
 import type { DocumentViewerContainerHandle } from "./document-viewer-container";
 import { DocumentChatContent } from "./document-chat-content";
 import { DocumentChatNavigation } from "./document-chat-navigation";
@@ -325,7 +325,10 @@ export function ChatMainPanel({
   onboardingChoiceEligible,
   didOnboarding,
   onboardingConversationId,
-}: ChatMainPanelProps) {
+  documentRoute,
+}: ChatMainPanelProps & {
+  documentRoute: ReturnType<typeof useDocumentConversationRoute>;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation("chat");
@@ -440,7 +443,6 @@ export function ChatMainPanel({
   const isMobile = useIsMobile();
   const needsUserInput = useInteractionStore(hasActiveInteraction);
   const openedDocumentState = useViewerStore.use.openedDocumentState();
-  const documentRoute = useDocumentConversationRoute();
   const documentEditorRef = useRef<DocumentViewerContainerHandle | null>(null);
   const documentPreparation = useDocumentChatPreparation({
     assistantId,

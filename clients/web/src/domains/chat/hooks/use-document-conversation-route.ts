@@ -15,6 +15,8 @@ import {
 } from "../document-conversation";
 import {
   DOCUMENT_RETURN_PARAM,
+  closeDocumentInConversation,
+  documentReturnPath,
   getDocumentConversationRoute,
   markOpenedDocumentViewed,
   setDocumentConversationPresentation,
@@ -29,7 +31,8 @@ export function useDocumentConversationRoute() {
   const { t } = useTranslation("chat");
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const { conversationId } = useParams<{ conversationId: string }>();
-  const { search, state: navigationState } = useLocation();
+  const location = useLocation();
+  const { pathname, search, state: navigationState } = location;
   const navigate = useNavigate();
   const readiness = useOrgHeaderReadiness();
   const isMobile = useIsMobile();
@@ -47,7 +50,31 @@ export function useDocumentConversationRoute() {
     | { owner: string; kind: "error"; message: string }
     | null
   >(null);
-  const owner = `${assistantId}:${conversationId}:${surfaceId}`;
+  const owner = `${assistantId}:${conversationId}:${surfaceId}:${isMobile}`;
+  const wasMobileRef = useRef(isMobile);
+
+  useEffect(() => {
+    const wasMobile = wasMobileRef.current;
+    wasMobileRef.current = isMobile;
+    if (wasMobile || !isMobile || surfaceId || !assistantId) {
+      return;
+    }
+    const viewer = useViewerStore.getState();
+    const opened = viewer.openedDocumentState;
+    if (
+      viewer.mainView !== "document" ||
+      opened?.source !== "document" ||
+      opened.assistantId !== assistantId
+    ) {
+      return;
+    }
+    const params = new URLSearchParams({
+      [DOCUMENT_RETURN_PARAM]: documentReturnPath(pathname),
+    });
+    void navigate(`${routes.document(opened.surfaceId)}?${params}`, {
+      replace: true,
+    });
+  }, [isMobile, surfaceId, assistantId, pathname, navigate]);
 
   useEffect(() => {
     if (!surfaceId || !assistantId || !conversationId) {
@@ -144,9 +171,13 @@ export function useDocumentConversationRoute() {
 
   const closeDocument = useCallback(() => {
     scopeRef.current?.dispose();
+    if (!isMobile) {
+      closeDocumentInConversation(navigate, location);
+      return;
+    }
     useViewerStore.getState().closeDocument();
     returnFromDocument(navigate, surfaceId ?? "", returnTo, navigationState);
-  }, [navigate, surfaceId, returnTo, navigationState]);
+  }, [navigate, surfaceId, returnTo, navigationState, isMobile, location]);
 
   useOverlayEscape(isMobile && !!surfaceId && showingDocument, () => {
     if (useViewerStore.getState().mainView !== "document") {

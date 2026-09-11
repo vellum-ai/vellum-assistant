@@ -2,7 +2,8 @@
 
 The mobile document editor is a presentation of its linked conversation, not a
 second messaging session. `ChatPage` and `ActiveChatView` own the ordinary chat
-lifecycle. `ChatMainPanel` places `DocumentChatContent` in `ChatBody` above the
+lifecycle. `ChatContentLayout` owns the document route state shared by both
+viewport layouts. `ChatMainPanel` places `DocumentChatContent` in `ChatBody` above the
 existing `ChatComposer`. Both editor and transcript stay mounted while the
 document is associated with the route; the inactive region is hidden and inert.
 The composer stays at the same React-tree position across
@@ -99,6 +100,15 @@ Desktop uses its existing side drawer. Read-only workspace-file previews retain 
 separate mobile overlay and cannot send document feedback. Comment updates use the
 existing global event bus and document-comment event hook. Export, comments and
 rename remain owned by `DocumentViewerContainer`.
+Crossing the mobile breakpoint invalidates the document host's load state before
+the incoming editor mounts. The outgoing editor flushes on unmount, and the shared
+route waits for that drain before refetching; failures show Retry and Close instead
+of an editable retained snapshot. The desktop drawer releases its editor before
+the mobile load rather than retaining it through the closing animation. A document
+opened on desktop without URL intent enters the existing mobile document adapter
+when the viewport narrows, preserving the current chat as its return destination.
+Desktop loads record the owning assistant for this handoff. Workspace-file previews
+keep their separate responsive path.
 Standalone and in-chat document hosts share `useDocumentPdfExport` for PDF download
 and failure feedback, using the existing per-platform file-saving path.
 
