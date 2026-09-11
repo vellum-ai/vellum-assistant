@@ -122,6 +122,7 @@ COPY packages/slack-text /app/packages/slack-text
 COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
+COPY clients/chrome-extension/background /app/clients/chrome-extension/background
 
 # Resolve production workspace dependencies from the filesystem layout shipped
 # in the image.

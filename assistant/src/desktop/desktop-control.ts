@@ -3,6 +3,10 @@ import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
+import {
+  DesktopBrowser,
+  desktopBrowserActionSchema,
+} from "./desktop-browser.js";
 import { desktopDependencyInstaller } from "./desktop-dependencies.js";
 import { isAssistantDesktopEnabled } from "./desktop-feature.js";
 import {
@@ -34,6 +38,10 @@ type Owner = {
 
 export class DesktopControl {
   private owner: Owner | null = null;
+  private readonly browser: Pick<
+    DesktopBrowser,
+    "execute" | "invalidate" | "release"
+  >;
   private humanControl = false;
   private inputCleanupPending = false;
   private generation = 0;
@@ -47,6 +55,7 @@ export class DesktopControl {
       manager: () => DesktopSessionManager;
       input: DesktopInput;
       notify: () => Promise<unknown>;
+      browser?: Pick<DesktopBrowser, "execute" | "invalidate" | "release">;
     } = {
       enabled: () => isAssistantDesktopEnabled(getConfig()),
       ready: () => desktopDependencyInstaller.getStatus().state === "ready",
@@ -54,7 +63,9 @@ export class DesktopControl {
       input: new X11DesktopInput(),
       notify: () => publishSyncInvalidation([SYNC_TAGS.assistantDesktop]),
     },
-  ) {}
+  ) {
+    this.browser = deps.browser ?? new DesktopBrowser();
+  }
 
   getStatus(): DesktopControlStatus {
     return {
@@ -108,13 +119,18 @@ export class DesktopControl {
       return;
     }
     owner?.abort.abort();
+    this.browser.invalidate();
     owner?.removeAbortListener();
     this.inputCleanupPending = true;
     clearInterval(this.watchdog);
     this.watchdog = undefined;
     try {
       try {
-        await this.deps.input.releaseInput();
+        try {
+          await this.browser.release();
+        } finally {
+          await this.deps.input.releaseInput();
+        }
       } finally {
         await this.deps.input.setViewerInput(true);
       }
@@ -195,7 +211,10 @@ export class DesktopControl {
   ): Promise<ToolExecutionResult> {
     const generation = this.generation;
     return this.exclusive(async () => {
-      const action = desktopActionSchema.parse(input);
+      const action =
+        input.scope === "browser"
+          ? desktopBrowserActionSchema.parse(input)
+          : { ...desktopActionSchema.parse(input), scope: "desktop" as const };
       if (
         context.trustClass !== "guardian" ||
         !context.sourceActorPrincipalId ||
@@ -244,6 +263,27 @@ export class DesktopControl {
       owner.lastActivity = Date.now();
       signal.throwIfAborted();
       try {
+        if (action.action !== "observe" && ++owner.actions > MAX_ACTIONS) {
+          throw new Error(
+            "Desktop action limit reached. Finish this session before continuing.",
+          );
+        }
+        if (action.scope === "browser") {
+          owner.observation = undefined;
+          const state = await this.browser.execute(
+            input,
+            owner.actorId,
+            owner.conversationId,
+            signal,
+          );
+          signal.throwIfAborted();
+          return {
+            isError: false,
+            content:
+              "Untrusted desktop browser page data:\n" + JSON.stringify(state),
+          };
+        }
+        this.browser.invalidate();
         if (action.action !== "observe") {
           if (action.observation_id !== owner.observation?.id) {
             throw new Error(
@@ -263,11 +303,6 @@ export class DesktopControl {
             );
           }
           owner.observation = undefined;
-          if (++owner.actions > MAX_ACTIONS) {
-            throw new Error(
-              "Desktop action limit reached. Finish this session before continuing.",
-            );
-          }
           await this.deps.input.perform(action, signal);
         }
         const observation = await this.deps.input.observe(signal);

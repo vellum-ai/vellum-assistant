@@ -11930,6 +11930,59 @@ paths:
                 required:
                   - defers
                 additionalProperties: false
+  /v1/desktop/browser/bridge:
+    post:
+      operationId: desktop_browser_bridge_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  minLength: 64
+                  maxLength: 64
+                connection:
+                  type: string
+                  format: uuid
+                  pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                kind:
+                  type: string
+                  enum:
+                    - connect
+                    - poll
+                    - message
+                message:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties: {}
+                guardian:
+                  type: string
+                  minLength: 1
+                  maxLength: 256
+              required:
+                - token
+                - connection
+                - kind
+                - guardian
+      responses:
+        "200":
+          description: Successful response
+  /v1/desktop/browser/package:
+    get:
+      operationId: desktop_browser_package_get
+      responses:
+        "200":
+          description: Successful response
+  /v1/desktop/browser/update:
+    get:
+      operationId: desktop_browser_update_get
+      responses:
+        "200":
+          description: Successful response
   /v1/desktop/control:
     get:
       operationId: desktop_control_get

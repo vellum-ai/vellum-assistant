@@ -1,3 +1,4 @@
+import { createDesktopBrowserHandler } from "./http/routes/desktop-browser.js";
 process.title = "vellum-gateway";
 
 import { eventRefersToAnotherMessage } from "./channels/inbound-event.js";
@@ -674,6 +675,7 @@ async function main() {
   const migrationJobStatusProxy = createMigrationJobStatusProxyHandler(config);
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
+  const desktopBrowserHandler = createDesktopBrowserHandler(config);
   const desktopSetupProxy = createDesktopSetupProxyHandler(config);
   const desktopControlProxy = createDesktopSetupProxyHandler(config, "control");
   const brainGraphProxy = createBrainGraphProxyHandler(config);
@@ -971,6 +973,13 @@ async function main() {
       handleContactPromptSubmit,
       handleContactRecordSubmit,
     }),
+
+    ...(["bridge", "update", "package"] as const).map((kind) => ({
+      path: `/v1/desktop/browser/${kind}`,
+      method: kind === "bridge" ? ("POST" as const) : ("GET" as const),
+      auth: "none" as const,
+      handler: desktopBrowserHandler,
+    })),
 
     // ── Generic loopback pairing (localhost-only, auth: none) ──
     {

@@ -1958,6 +1958,7 @@ describe('createHostBrowserDispatcher', () => {
     beforeEach(() => {
       (globalThis as unknown as { chrome: unknown }).chrome = {
         ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        windows: { update: async () => ({}) },
         tabs: {
           query: async (_queryInfo: unknown) => mockTabs,
           update: async (_tabId: number, _props: unknown) => mockTabs[0],
@@ -2009,6 +2010,7 @@ describe('createHostBrowserDispatcher', () => {
     test('posts an error envelope when chrome.tabs.query throws', async () => {
       (globalThis as unknown as { chrome: unknown }).chrome = {
         ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        windows: { update: async () => ({}) },
         tabs: {
           query: async () => { throw new Error('permission denied'); },
           update: async (_tabId: number, _props: unknown) => mockTabs[0],
@@ -2041,6 +2043,7 @@ describe('createHostBrowserDispatcher', () => {
     beforeEach(() => {
       (globalThis as unknown as { chrome: unknown }).chrome = {
         ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        windows: { update: async () => ({}) },
         tabs: {
           query: async (_queryInfo: unknown) => [mockTab],
           update: async (_tabId: number, _props: unknown) => mockTab,
@@ -2113,6 +2116,7 @@ describe('createHostBrowserDispatcher', () => {
     test('posts error when chrome.tabs.update throws', async () => {
       (globalThis as unknown as { chrome: unknown }).chrome = {
         ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        windows: { update: async () => ({}) },
         tabs: {
           query: async (_queryInfo: unknown) => [mockTab],
           update: async (_tabId: number, _props: unknown) => { throw new Error('tab not found'); },
@@ -2144,6 +2148,7 @@ describe('createHostBrowserDispatcher', () => {
     beforeEach(() => {
       (globalThis as unknown as { chrome: unknown }).chrome = {
         ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        windows: { update: async () => ({}) },
         tabs: {
           query: async (_queryInfo: unknown) => [],
           update: async (_tabId: number, _props: unknown) => undefined,
@@ -2196,6 +2201,7 @@ describe('createHostBrowserDispatcher', () => {
     test('posts error when chrome.tabs.remove throws', async () => {
       (globalThis as unknown as { chrome: unknown }).chrome = {
         ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        windows: { update: async () => ({}) },
         tabs: {
           query: async (_queryInfo: unknown) => [],
           update: async (_tabId: number, _props: unknown) => undefined,
@@ -2281,6 +2287,7 @@ describe('createHostBrowserDispatcher', () => {
     beforeEach(() => {
       (globalThis as unknown as { chrome: unknown }).chrome = {
         ...(globalThis as unknown as { chrome: Record<string, unknown> }).chrome,
+        windows: { update: async () => ({}) },
         tabs: {
           query: async () => [mockTab],
           update: async (_tabId: number, _props: unknown) => mockTab,

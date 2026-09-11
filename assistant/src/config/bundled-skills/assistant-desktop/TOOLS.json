@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "desktop_control",
-      "description": "Observe or control the assistant's own desktop, visible in the desktop modal. Start with observe. Every input action requires the latest observation_id and returns a screenshot. Click and scroll require x/y; drag additionally requires to_x/to_y; type requires text; key requires key. Call done when finished. Never controls the user's personal computer.",
+      "description": "Observe or control the streamed assistant desktop. Use scope browser for compact page text, elements and tab actions in its visible Chrome. Browser actions require the latest observation_id and element references; they return structured state without screenshots. Omit scope for screenshot and X11 input. Both scopes share the same guardian conversation control lease. Call done without scope when finished. Never targets a personal browser.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -18,7 +18,12 @@
               "key",
               "scroll",
               "drag",
-              "done"
+              "done",
+              "navigate",
+              "select_tab",
+              "new_tab",
+              "close_tab",
+              "wait"
             ]
           },
           "observation_id": {
@@ -61,6 +66,30 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 20
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["browser"]
+          },
+          "tab_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "frame_id": {
+            "type": "string"
+          },
+          "element": {
+            "type": "string",
+            "description": "An element eid from the latest browser observation."
+          },
+          "url": {
+            "type": "string",
+            "description": "HTTP or HTTPS URL for browser navigate."
+          },
+          "wait_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2000
           }
         },
         "required": ["action"]

@@ -20,7 +20,11 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((fn) => fn()));
 });
 
-function fixture() {
+function fixture(
+  browser?: NonNullable<
+    ConstructorParameters<typeof DesktopControl>[0]
+  >["browser"],
+) {
   let enabled = true;
   let ready = true;
   let holder: DesktopViewer | null = null;
@@ -47,6 +51,7 @@ function fixture() {
     ensureDesktopRunning: started,
   } as unknown as DesktopSessionManager;
   const control = new DesktopControl({
+    browser,
     enabled: () => enabled,
     ready: () => ready,
     manager: () => manager,
@@ -75,6 +80,66 @@ async function observe(control: DesktopControl, ctx = context()) {
   expect(result.contentBlocks?.[0]?.type).toBe("image");
   return result.content.match(/observation_id: ([a-f0-9-]+)/)![1]!;
 }
+
+test("browser and X11 share ownership and takeover cancels queued browser work", async () => {
+  let dispatched!: () => void;
+  const started = new Promise<void>((resolve) => {
+    dispatched = resolve;
+  });
+  let calls = 0;
+  const browser = {
+    invalidate: () => {},
+    release: mock(async () => {}),
+    execute: async (
+      _input: Record<string, unknown>,
+      _actor: string,
+      _conversation: string,
+      signal: AbortSignal,
+    ) => {
+      calls++;
+      if (calls === 1) {
+        return { observation_id: crypto.randomUUID() };
+      }
+      dispatched();
+      return new Promise<Record<string, unknown>>((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new Error("interrupted")),
+          { once: true },
+        );
+      });
+    },
+  };
+  const f = fixture(browser);
+  const first = await f.control.execute(
+    { scope: "browser", action: "observe" },
+    context(),
+  );
+  expect(first.contentBlocks).toBeUndefined();
+  await expect(
+    f.control.execute(
+      { action: "observe" },
+      { ...context(), conversationId: "conv-other" },
+    ),
+  ).rejects.toThrow("Another conversation");
+  const input = {
+    scope: "browser",
+    action: "click",
+    element: "e1",
+    observation_id: crypto.randomUUID(),
+  };
+  const active = f.control
+    .execute(input, context())
+    .catch((err: Error) => err.message);
+  await started;
+  const queued = f.control.execute(input, context());
+  await f.control.takeControl();
+  expect(await active).toBe("interrupted");
+  expect((await queued).yieldToUser).toBe(true);
+  expect(calls).toBe(2);
+  expect(browser.release).toHaveBeenCalled();
+  expect(f.input.releaseInput).toHaveBeenCalled();
+});
 
 describe("assistant desktop control", () => {
   test("observes and acts on one session, returning a fresh image after every action", async () => {

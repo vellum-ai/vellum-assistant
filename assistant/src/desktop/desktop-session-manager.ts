@@ -5,7 +5,6 @@
  * Google Chrome, started by the first viewer and lingering after the
  * last one leaves so a reconnect is instant.
  */
-
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -14,6 +13,7 @@ import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
+import { desktopBrowserBridge } from "./desktop-browser-bridge.js";
 import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
 import {
   desktopChromePath,
@@ -23,6 +23,7 @@ import {
   DESKTOP_DISPLAY,
   DESKTOP_OVERRIDABLE_PARAMETERS,
 } from "./desktop-display.js";
+import { ensureDesktopExtension } from "./desktop-extension.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
 
@@ -239,6 +240,10 @@ export class DesktopSessionManager {
             log.warn({ err }, "Desktop Chrome policy could not be applied");
           }
         }
+        await ensureDesktopExtension({
+          chromePath: desktopChromePath(),
+          profileDir: this.profileDir,
+        });
         return desktopChromePath();
       });
     this.killProcessGroup = options.killProcessGroup ?? killProcessGroup;
@@ -581,6 +586,7 @@ export class DesktopSessionManager {
    * the linger path passes none since nobody is watching by then.
    */
   private teardown(loss?: DesktopLoss): Promise<void> {
+    desktopBrowserBridge.disconnect();
     this.clearLinger();
     this.generation += 1;
     this.running = false;
