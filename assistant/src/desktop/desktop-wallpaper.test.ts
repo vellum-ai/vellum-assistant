@@ -122,3 +122,70 @@ test("a missing native renderer leaves the existing desktop background alone", a
   });
   expect(await renderCurrentDesktopWallpaper(480, 300)).toBeNull();
 });
+
+async function wordmarkPixels(
+  png: Buffer,
+): Promise<{ x: number; y: number }[]> {
+  const { data, info } = await sharp(png)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const pixels: { x: number; y: number }[] = [];
+  for (let y = 0; y < info.height; y++) {
+    for (let x = 0; x < info.width; x++) {
+      const offset = (y * info.width + x) * info.channels;
+      if (
+        data[offset]! > 150 &&
+        data[offset + 1]! > 150 &&
+        data[offset + 2]! > 150
+      ) {
+        pixels.push({ x, y });
+      }
+    }
+  }
+  return pixels;
+}
+
+test("renders the current identity name and picks up a rename on the next refresh", async () => {
+  const identity = join(workspace, "IDENTITY.md");
+  writeFileSync(identity, "- **Name:** Alice\n");
+  const first = (await renderCurrentDesktopWallpaper(480, 300))!;
+  expect(first).toEqual(renderDesktopWallpaper(480, 300, null, null, "Alice"));
+  const pixels = await wordmarkPixels(first);
+  expect(pixels.length).toBeGreaterThan(100);
+  expect(pixels.every(({ y }) => y > 300 * 0.6 && y < 300 * 0.72)).toBe(true);
+
+  writeFileSync(identity, "- **Name:** Bob\n");
+  const renamed = await renderCurrentDesktopWallpaper(480, 300);
+  expect(renamed).not.toEqual(first);
+  expect(renamed).toEqual(renderDesktopWallpaper(480, 300, null, null, "Bob"));
+});
+
+test("an unset or template identity displays Vellum OS", async () => {
+  const fallback = renderDesktopWallpaper(480, 300, null, null, "Vellum");
+  expect(await renderCurrentDesktopWallpaper(480, 300)).toEqual(fallback);
+  writeFileSync(
+    join(workspace, "IDENTITY.md"),
+    "- **Name:** _(not yet chosen)_\n",
+  );
+  expect(await renderCurrentDesktopWallpaper(480, 300)).toEqual(fallback);
+});
+
+test("long names fit inside the wallpaper without losing the wordmark", async () => {
+  const png = renderDesktopWallpaper(480, 300, null, null, "W".repeat(32));
+  const pixels = await wordmarkPixels(png);
+  expect(pixels.length).toBeGreaterThan(100);
+  expect(pixels.every(({ x }) => x > 480 * 0.13 && x < 480 * 0.87)).toBe(true);
+});
+
+test("names containing XML are rendered as text without injecting SVG shapes", async () => {
+  const name =
+    'Alice & </text><rect width="480" height="300" fill="red"/><text>';
+  const png = renderDesktopWallpaper(480, 300, null, null, name);
+  const fallback = renderDesktopWallpaper(480, 300, null, null);
+  const top = { left: 0, top: 0, width: 480, height: 150 };
+  expect(await sharp(png).extract(top).raw().toBuffer()).toEqual(
+    await sharp(fallback).extract(top).raw().toBuffer(),
+  );
+  expect((await wordmarkPixels(png)).length).toBeGreaterThan(0);
+});
