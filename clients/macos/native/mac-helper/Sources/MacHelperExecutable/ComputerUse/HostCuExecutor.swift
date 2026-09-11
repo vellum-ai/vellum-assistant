@@ -5,6 +5,61 @@ import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "HostCu")
 
+// MARK: - Phase Timing
+
+/// The phases of one step, named as they reach the daemon in the `timings` map.
+private enum CuPhase: String {
+    case total
+    case execute
+    case settle
+    case axWalk
+    case capture
+    case encode
+    case secondaryWindows
+}
+
+/// Collects the wall time each phase of one `cu.perform` step costs, in whole
+/// milliseconds. A reference type so one instance threads through the nested
+/// observation builders and every early return still reports what it spent.
+/// Main-actor isolated to match the runner, which keeps the measured closures
+/// on the same executor and so keeps executor hops out of the measurement.
+@MainActor
+private final class PhaseTimer {
+    private let startedAt = DispatchTime.now()
+    private var marks: [String: Int] = [:]
+
+    /// Run `body`, recording how long it took under `phase`. The closure stays
+    /// main-actor isolated, so wrapping a call in it changes nothing about
+    /// where that call runs.
+    func measure<T>(_ phase: CuPhase, _ body: @MainActor () async throws -> T) async rethrows -> T {
+        let start = DispatchTime.now()
+        defer { record(phase, since: start) }
+        return try await body()
+    }
+
+    func record(_ phase: CuPhase, millis: Int) {
+        marks[phase.rawValue] = millis
+    }
+
+    /// Record a phase `measure` cannot wrap, because the value it calls into is
+    /// not `Sendable` and so cannot cross into the closure.
+    func record(_ phase: CuPhase, since start: DispatchTime) {
+        let elapsed = DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds
+        record(phase, millis: Int(elapsed / 1_000_000))
+    }
+
+    /// Record everything elapsed since this timer was created, which is the
+    /// first line of `perform`.
+    func recordTotal() {
+        record(.total, since: startedAt)
+    }
+
+    /// Zero for a phase that never ran, which keeps the step log readable.
+    subscript(phase: CuPhase) -> Int { marks[phase.rawValue] ?? 0 }
+
+    var snapshot: [String: Int] { marks }
+}
+
 // MARK: - Action Runner
 
 /// Encapsulates the full host CU action cycle: map tool -> verify -> execute -> wait -> observe.
@@ -52,6 +107,7 @@ enum HostCuActionRunner {
         stepNumber: Int,
         reasoning: String?
     ) async -> HostCuResultPayload {
+        let timer = PhaseTimer()
         touchSession(conversationId)
         let enumerator = AccessibilityTreeEnumerator()
         let screenCapture = ScreenCapture()
@@ -72,6 +128,19 @@ enum HostCuActionRunner {
         var executionResult: String? = nil
         var executionError: String? = nil
 
+        // Every exit runs through here, so a blocked or failed step still
+        // reports where its time went.
+        func finish(_ observation: ObservationData) -> HostCuResultPayload {
+            timer.recordTotal()
+            log.info("[\(stepNumber)] \(observation.treeSummary ?? "no AX tree") — total \(timer[.total])ms (axWalk \(timer[.axWalk])ms, capture \(timer[.capture])ms)")
+            return buildResultPayload(
+                requestId: requestId,
+                conversationId: conversationId,
+                observation: observation,
+                timings: timer.snapshot
+            )
+        }
+
         if !isObserveOnly {
             // Ensure Accessibility is granted before any CGEvent input, which
             // silently fails otherwise. Prompt the user on first miss.
@@ -82,9 +151,10 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: "Accessibility permission not granted. Grant Vellum access in System Settings > Privacy & Security > Accessibility, then retry.",
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
             }
 
             // Resolve element IDs to coordinates if needed
@@ -95,9 +165,10 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: "Could not resolve element coordinates for action",
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
             }
 
             // Handle done/respond completion signals — skip execution
@@ -109,9 +180,10 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: nil,
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
             }
 
             if resolvedAction.type == .respond {
@@ -122,9 +194,10 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: nil,
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
             }
 
             // VERIFY (local safety check)
@@ -141,9 +214,10 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: "BLOCKED: \(reason) (confirmation not available in proxy mode)",
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
 
             case .blocked(let reason):
                 log.warning("[\(stepNumber)] BLOCKED: \(reason)")
@@ -153,12 +227,14 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: "BLOCKED: \(reason)",
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
             }
 
             // EXECUTE
+            let executeStart = DispatchTime.now()
             do {
                 executionResult = try await executor.execute(resolvedAction)
             } catch {
@@ -168,10 +244,13 @@ enum HostCuActionRunner {
                 }
                 executionError = errorMessage
             }
+            timer.record(.execute, since: executeStart)
 
             // WAIT — brief delay to let the UI settle after action
             do {
-                try await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                try await timer.measure(.settle) {
+                    try await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                }
             } catch {
                 log.warning("Post-action delay interrupted: \(error)")
             }
@@ -192,10 +271,11 @@ enum HostCuActionRunner {
             executionError: executionError,
             stepNumber: stepNumber,
             conversationId: conversationId,
+            timer: timer,
             captureTarget: captureTarget
         )
 
-        return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+        return finish(obs)
     }
 
     // MARK: - Capture Target
@@ -357,7 +437,13 @@ enum HostCuActionRunner {
         let executionResult: String?
         let executionError: String?
         let secondaryWindows: String?
+        /// One-line description of the tree that was read, for the step log.
+        /// Nil when no tree was available.
+        let treeSummary: String?
     }
+
+    /// One window's AX read: its elements plus the identity of the window they came from.
+    private typealias WindowRead = (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)
 
     /// Capture the current screen state as an observation.
     private static func buildObservation(
@@ -367,6 +453,7 @@ enum HostCuActionRunner {
         executionError: String?,
         stepNumber: Int,
         conversationId: String,
+        timer: PhaseTimer,
         captureTarget: CaptureTarget? = nil
     ) async -> ObservationData {
         var axTreeText: String?
@@ -378,6 +465,7 @@ enum HostCuActionRunner {
         var screenWidthPt: Int?
         var screenHeightPt: Int?
         var secondaryWindowsText: String?
+        var treeSummary: String?
 
         // Targeted reads are standalone snapshots, never a desktop diff baseline.
         // Clear before enumeration, including failed/missing-window captures, so
@@ -392,18 +480,16 @@ enum HostCuActionRunner {
         // focused window: it may be on another display or another app, and
         // its text would then be filed against a frame that never showed it.
         // A targeted read with no matching tree is a screenshot alone.
-        let windowResult: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
-        switch captureTarget {
-        case .window(let windowId):
-            windowResult = await enumerator.enumerateWindow(windowId: windowId)
-        case .display(let displayId):
-            if let windowId = CaptureSources.topmostWindowId(onDisplay: displayId) {
-                windowResult = await enumerator.enumerateWindow(windowId: windowId)
-            } else {
-                windowResult = nil
+        let windowResult = await timer.measure(.axWalk) { () -> WindowRead? in
+            switch captureTarget {
+            case .window(let windowId):
+                return await enumerator.enumerateWindow(windowId: windowId)
+            case .display(let displayId):
+                guard let windowId = CaptureSources.topmostWindowId(onDisplay: displayId) else { return nil }
+                return await enumerator.enumerateWindow(windowId: windowId)
+            case nil:
+                return await enumerator.enumerateCurrentWindow()
             }
-        case nil:
-            windowResult = await enumerator.enumerateCurrentWindow()
         }
 
         if let result = windowResult {
@@ -415,7 +501,7 @@ enum HostCuActionRunner {
             let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
             currentElements = captureTarget == nil ? flat : nil
             let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
-            log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
+            treeSummary = "AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)"
 
             // Compute AX diff against previous step's elements
             if captureTarget == nil, let previousFlat = previousAXElements[conversationId] {
@@ -425,17 +511,23 @@ enum HostCuActionRunner {
             // Enumerate secondary windows on first step. Never for a targeted
             // read: those windows are outside what the user agreed to show.
             if stepNumber <= 1 && captureTarget == nil {
-                let secondaryWindows = await enumerator.enumerateSecondaryWindows(
-                    excludingPID: result.pid,
-                    maxWindows: 2
-                )
+                let secondaryWindows = await timer.measure(.secondaryWindows) {
+                    await enumerator.enumerateSecondaryWindows(
+                        excludingPID: result.pid,
+                        maxWindows: 2
+                    )
+                }
                 secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
             }
 
             // Capture screenshot
             do {
-                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
-                screenshotBase64 = screenshotResult.jpegData.base64EncodedString()
+                let screenshotResult = try await timer.measure(.capture) {
+                    try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
+                }
+                screenshotBase64 = await timer.measure(.encode) {
+                    screenshotResult.jpegData.base64EncodedString()
+                }
                 if let meta = screenshotResult.metadata {
                     screenshotWidthPx = meta.screenshotWidthPx
                     screenshotHeightPx = meta.screenshotHeightPx
@@ -450,8 +542,12 @@ enum HostCuActionRunner {
             // No focused window — try screenshot as fallback
             log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
             do {
-                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
-                screenshotBase64 = screenshotResult.jpegData.base64EncodedString()
+                let screenshotResult = try await timer.measure(.capture) {
+                    try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
+                }
+                screenshotBase64 = await timer.measure(.encode) {
+                    screenshotResult.jpegData.base64EncodedString()
+                }
                 if let meta = screenshotResult.metadata {
                     screenshotWidthPx = meta.screenshotWidthPx
                     screenshotHeightPx = meta.screenshotHeightPx
@@ -475,12 +571,18 @@ enum HostCuActionRunner {
             screenHeightPt: screenHeightPt,
             executionResult: executionResult,
             executionError: executionError,
-            secondaryWindows: secondaryWindowsText
+            secondaryWindows: secondaryWindowsText,
+            treeSummary: treeSummary
         )
     }
 
     /// Package observation data into a `HostCuResultPayload` and update previous AX state.
-    private static func buildResultPayload(requestId: String, conversationId: String, observation: ObservationData) -> HostCuResultPayload {
+    private static func buildResultPayload(
+        requestId: String,
+        conversationId: String,
+        observation: ObservationData,
+        timings: [String: Int]?
+    ) -> HostCuResultPayload {
         // Update previous AX elements for next step's diff
         if let elements = observation.currentElements {
             previousAXElements[conversationId] = elements
@@ -497,7 +599,8 @@ enum HostCuActionRunner {
             screenHeightPt: observation.screenHeightPt,
             executionResult: observation.executionResult,
             executionError: observation.executionError,
-            secondaryWindows: observation.secondaryWindows
+            secondaryWindows: observation.secondaryWindows,
+            timings: timings
         )
     }
 
