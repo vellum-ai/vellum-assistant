@@ -351,6 +351,44 @@ describe("MCP connection teardown", () => {
       clock.mockRestore();
     }
   });
+  test("authorization start settles failed cancellation before replacing its state", async () => {
+    setMcpAuthPending("example", "https://auth.example.com", "cleanup-attempt");
+    failedKeys.add("mcp:example:tokens");
+    await expect(
+      handler("internal_mcp_auth_cancel", {
+        serverId: "example",
+        attemptId: "cleanup-attempt",
+      }),
+    ).rejects.toThrow("credential cleanup failed");
+
+    const startCallback = spyOn(
+      McpOAuthProvider.prototype,
+      "startCallbackServer",
+    ).mockRejectedValue(new Error("new authorization started"));
+    try {
+      await expect(
+        handler("internal_mcp_auth_start", { serverId: "example" }),
+      ).rejects.toThrow("credential cleanup failed");
+      expect(startCallback).not.toHaveBeenCalled();
+      expect(getMcpAuthState("example")).toMatchObject({
+        status: "error",
+        attemptId: "cleanup-attempt",
+        cancellationCleanupPending: true,
+      });
+      expect(credentials.has("mcp:example:tokens")).toBe(true);
+
+      failedKeys.clear();
+      await expect(
+        handler("internal_mcp_auth_start", { serverId: "example" }),
+      ).rejects.toThrow("new authorization started");
+      expect(startCallback).toHaveBeenCalledTimes(1);
+      expect([...credentials.keys()]).toEqual(["mcp:example:headers"]);
+      expect(getMcpAuthState("example")?.attemptId).not.toBe("cleanup-attempt");
+      expect(savedServers()).toHaveProperty("example");
+    } finally {
+      startCallback.mockRestore();
+    }
+  });
   test("a stale cleanup retry cannot cancel or clear a newer attempt", async () => {
     setMcpAuthPending("example", "https://auth.example.com", "failed-attempt");
     failedKeys.add("mcp:example:tokens");

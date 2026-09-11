@@ -77,7 +77,10 @@ Auth start returns an additive `attempt_id`. Status retains the existing
 pending/complete/error vocabulary and also returns `attempt_id`. Cancel takes
 `{serverId, attemptId}` and only cancels a matching pending attempt. It closes
 the callback, fences writes, clears that attempt's OAuth records, and keeps
-configuration for retry. A stale cancellation returns `{cancelled: false}`.
+configuration for retry. Failed cancellation cleanup retains its attempt ID;
+authorization start retries that cleanup before creating a replacement attempt.
+If cleanup still fails, start fails with the original cleanup state intact.
+A stale cancellation returns `{cancelled: false}`.
 CLI polling requires a matching status ID when start advertised an attempt ID;
 older assistants that omit it retain their existing polling behavior.
 

@@ -37,7 +37,11 @@ export async function withMcpServerOperation<T>(
 }
 
 /** Called inside the server operation lock before a new authorization attempt. */
-export function beginMcpConnection(serverId: string): Promise<void> {
+export async function beginMcpConnection(serverId: string): Promise<void> {
+  const state = getMcpAuthState(serverId);
+  if (state?.status === "error" && state.cancellationCleanupPending) {
+    await cancelMcpConnectionAttempt(serverId, state.attemptId);
+  }
   return withMcpCredentialLock(serverId, async (lease) => {
     lease.advance();
   });
