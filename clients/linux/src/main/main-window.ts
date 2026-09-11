@@ -25,6 +25,7 @@ import { isAllowedOrigin, resolveAllowedOrigin } from "./app-origin.client";
 import { handle, on } from "./ipc.client";
 import log from "./logger";
 import { createWindow } from "./windows.client";
+import { installStartupActivation } from "./startup-activation";
 
 const MAIN_DEFAULT_BOUNDS = { width: 1280, height: 800 } as const;
 const MAIN_MIN_SIZE = { width: 800, height: 600 } as const;
@@ -57,10 +58,7 @@ const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
 };
 
 const createMainWindow = (): BrowserWindow => {
-  const { maximized, ...bounds } = restoreBounds(
-    "main",
-    MAIN_DEFAULT_BOUNDS,
-  );
+  const { maximized, ...bounds } = restoreBounds("main", MAIN_DEFAULT_BOUNDS);
   const overlay = readTitleBarOverlayTheme();
   if (overlay) {
     syncNativeColorScheme(overlay.colorScheme);
@@ -236,13 +234,9 @@ export const installMainWindow = (): void => {
   handle(MAIN_WINDOW_ENSURE_VISIBLE, z.tuple([]), async () => {
     await ensureVisible();
   });
-  handle(
-    MAIN_WINDOW_SET_ONBOARDING,
-    z.tuple([z.boolean()]),
-    ([active]) => {
-      setOnboarding(active);
-    },
-  );
+  handle(MAIN_WINDOW_SET_ONBOARDING, z.tuple([z.boolean()]), ([active]) => {
+    setOnboarding(active);
+  });
   handle(
     MAIN_WINDOW_SET_TITLE_BAR_OVERLAY,
     z.tuple([titleBarOverlayThemeSchema]),
@@ -261,7 +255,7 @@ export const installMainWindow = (): void => {
     setAssistantName(name);
   });
 
-  void ensureVisible();
+  installStartupActivation(ensureVisible);
 };
 
 export const __resetForTesting = (): void => {

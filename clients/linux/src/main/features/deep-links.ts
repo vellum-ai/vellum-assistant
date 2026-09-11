@@ -1,5 +1,3 @@
-import { app } from "electron";
-
 import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
@@ -23,6 +21,7 @@ import {
 } from "@vellumai/electron-desktop/settings";
 import { resolveEnvironmentName } from "@vellumai/local-mode";
 
+import { autostartLoginItemBackend } from "../autostart";
 import { handle, on } from "../ipc.client";
 import { ensureVisible } from "../main-window";
 
@@ -46,11 +45,8 @@ const deepLinksFeature: CapabilityModule<DesktopCapabilityRegistry> = {
     installDeepLinks();
 
     configureLoginItem({
+      backend: autostartLoginItemBackend,
       handle,
-      identity:
-        !app.isPackaged && process.argv[1]
-          ? { path: process.execPath, args: [process.argv[1]] }
-          : undefined,
       store: {
         read: () => readSetting("launchAtLogin"),
         subscribe: (listener) => onSettingChange("launchAtLogin", listener),
