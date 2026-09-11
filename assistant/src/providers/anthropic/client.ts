@@ -1104,9 +1104,9 @@ export class AnthropicProvider implements Provider {
       if (systemPrompt) {
         // The system prompt may carry a cache boundary (placed by the
         // section pipeline — see `prompts/sections.ts`) splitting it into
-        // a stable-prefix block and a volatile-suffix block, each with
-        // its own breakpoint so a volatile-section change doesn't
-        // re-create the stable prefix.  A 1-hour cache TTL is used (when
+        // a head every conversation shares and a per-conversation block,
+        // each with its own breakpoint so a different per-conversation
+        // block still reads the shared head.  A 1-hour cache TTL is used (when
         // supported by the model) so the breakpoints survive turn gaps
         // that exceed the default 5-minute window.
         params.system = systemPrompt

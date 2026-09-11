@@ -64,7 +64,9 @@ export type SectionRenderContext = Record<string, unknown>;
  * declaring section itself gates off, so a disabled section doesn't
  * silently merge the blocks around it.  Only the first breakpoint is
  * honored (the provider-side cache budget allows exactly two system
- * blocks); extras are logged and ignored.
+ * blocks); extras are logged and ignored.  The block before the boundary
+ * is the head shared by every conversation on the workspace; the block
+ * after it is held fixed per conversation (see `stabilizeSystemPrompt`).
  *
  * The numeric prefix on each id is load-bearing inside its render phase; pick
  * a number that places the section where it should appear in the final prompt.
