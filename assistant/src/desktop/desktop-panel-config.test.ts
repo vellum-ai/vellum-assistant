@@ -10,7 +10,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, spyOn, test } from "bun:test";
 
-import { migrateDesktopDockMigration } from "../workspace/migrations/154-migrate-desktop-dock.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 
 const workspaces: string[] = [];
@@ -21,7 +20,7 @@ afterEach(() => {
   }
 });
 
-test("upgrades a generated tint2 desktop without disturbing its profile or custom files", () => {
+test("initializes the dock and preserves user changes across restarts", () => {
   const workspace = mkdtempSync(join(tmpdir(), "desktop-dock-"));
   workspaces.push(workspace);
   const configDir = join(workspace, "data", "desktop-panel");
@@ -30,17 +29,6 @@ test("upgrades a generated tint2 desktop without disturbing its profile or custo
   mkdirSync(profileDir, { recursive: true });
   writeFileSync(join(profileDir, "Preferences"), "browser preferences");
   writeFileSync(join(configDir, "wallpaper.png"), "keep");
-  for (const name of [
-    "tint2rc",
-    "browser.png",
-    "chromium.desktop",
-    "terminal.desktop",
-  ]) {
-    writeFileSync(join(configDir, name), "generated tint2 content");
-  }
-
-  migrateDesktopDockMigration.run(workspace);
-  migrateDesktopDockMigration.run(workspace);
   const request = {
     configDir,
     chromiumPath: "/opt/chrome-v1/chrome",
@@ -56,12 +44,21 @@ test("upgrades a generated tint2 desktop without disturbing its profile or custo
     readFileSync(join(pinsDir, "chrome.dockitem"), "utf8"),
   ).not.toBeEmpty();
 
-  // An unpinned app must stay unpinned after a restart or interrupted upgrade.
+  expect(readFileSync(join(pinsDir, "mines.dockitem"), "utf8")).toContain(
+    "applications/org.gnome.Mines.desktop",
+  );
+  expect(
+    readFileSync(
+      join(configDir, "applications", "org.gnome.Mines.desktop"),
+      "utf8",
+    ),
+  ).toContain("Exec=/usr/games/gnome-mines");
+
+  // Removed pins stay removed across restarts.
   rmSync(join(pinsDir, "chrome.dockitem"));
   rmSync(join(pinsDir, "mines.dockitem"));
   const customSettings = settings.replace("icon-size=48", "icon-size=64");
   writeFileSync(settingsPath, customSettings);
-  migrateDesktopDockMigration.run(workspace);
   writeDesktopPanelConfig({
     ...request,
     chromiumPath: "/opt/chrome-v2/chrome",
@@ -79,13 +76,11 @@ test("upgrades a generated tint2 desktop without disturbing its profile or custo
     "browser preferences",
   );
   expect(readFileSync(join(configDir, "wallpaper.png"), "utf8")).toBe("keep");
-  expect(() => readFileSync(join(configDir, "tint2rc"))).toThrow();
 });
 
-test("initialization recovers partial pin creation and a migration on a fresh workspace is a no-op", () => {
+test("initialization recovers partial pin creation", () => {
   const workspace = mkdtempSync(join(tmpdir(), "desktop-dock-"));
   workspaces.push(workspace);
-  migrateDesktopDockMigration.run(workspace);
   const configDir = join(workspace, "data", "desktop-panel");
   const pinsDir = join(configDir, "plank", "dock1", "launchers");
   mkdirSync(pinsDir, { recursive: true });
