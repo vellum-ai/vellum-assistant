@@ -309,6 +309,20 @@ describe("writeGuardianFeedReceipt", () => {
     );
   });
 
+  test("a pending request dismissed outright is not revived by its receipt", async () => {
+    await appendFeedItem(pendingGuardianItem("req-10"));
+    const itemId = guardianFeedItemId("req-10");
+    // Bulk dismissal spares a pending guardian item, but a deliberate
+    // single-item dismissal stays available and is not undone by the
+    // resolution that follows it.
+    await patchFeedItemStatus(itemId, "dismissed");
+    await writeGuardianFeedReceipt({ requestId: "req-10", status: "denied" });
+
+    expect(readHomeFeed().items.find((i) => i.id === itemId)?.status).toBe(
+      "dismissed",
+    );
+  });
+
   test("a receipt the user marked unread again stays unread", async () => {
     await appendFeedItem(pendingGuardianItem("req-9"));
     const itemId = guardianFeedItemId("req-9");

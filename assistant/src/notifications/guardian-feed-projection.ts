@@ -203,13 +203,13 @@ export async function writeGuardianFeedReceipt(
     }
     const updated = await patchFeedItemContent(itemId, {
       urgency: "medium",
-      // Only on the edge into terminal. A later receipt for the same
-      // request (the fan-out retries per surface, and reconciliation
-      // heals drift) must leave the status alone, or it would undo a
-      // user who deliberately marked the receipt unread again.
+      // Only on the pending-to-terminal edge. A later receipt for the
+      // same request (the fan-out retries per surface, reconciliation
+      // heals drift) must not undo a user who marked the receipt unread
+      // again; from `new` specifically, because a pending item the user
+      // dismissed outright stays dismissed.
       status: (existing) =>
-        existing.status === "new" &&
-        existing.guardianRequest?.status === "pending"
+        existing.status === "new" && isPendingGuardianFeedItem(existing)
           ? "seen"
           : existing.status,
       guardianRequest: (existing) => ({
