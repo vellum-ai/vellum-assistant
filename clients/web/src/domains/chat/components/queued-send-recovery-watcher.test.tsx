@@ -307,6 +307,57 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(stillQueued("nonce-1")).toBe(true);
   });
 
+  test("an older reconciliation cannot undo a newer queued snapshot", async () => {
+    isOrgReady = true;
+    let resolveFirst: (snapshot: ConversationSnapshot) => void = () => {};
+    let resolveSecond: (snapshot: ConversationSnapshot) => void = () => {};
+    fetchConversationMessagesMock = mock(
+      async (..._args: unknown[]): Promise<ConversationSnapshot> =>
+        new Promise((resolve) => {
+          if (fetchConversationMessagesMock.mock.calls.length === 1) {
+            resolveFirst = resolve;
+          } else {
+            resolveSecond = resolve;
+          }
+        }),
+    );
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    recordQueuedSend("nonce-1", "conv-left");
+    render(<QueuedSendRecoveryWatcher />);
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    });
+    await waitFor(() =>
+      expect(fetchConversationMessagesMock).toHaveBeenCalledTimes(2),
+    );
+
+    await act(async () => {
+      resolveSecond({
+        messages: [
+          {
+            id: "msg-1",
+            clientMessageId: "nonce-1",
+            role: "user",
+            timestamp: new Date().toISOString(),
+            attachments: [],
+            queueStatus: "queued",
+          },
+        ],
+        processing: true,
+      });
+    });
+    await act(async () => {
+      resolveFirst({ messages: [], processing: false });
+    });
+
+    expect(heldFor("conv-left")).toBeUndefined();
+    expect(stillQueued("nonce-1")).toBe(true);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
   test("switching back recognizes a persisted send without a client nonce", async () => {
     isOrgReady = true;
     let resolveSnapshot: (snapshot: ConversationSnapshot) => void = () => {};

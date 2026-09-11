@@ -213,9 +213,38 @@ describe("DocumentViewerContainer autosave", () => {
     renderViewer({ handleRef });
     await typeIntoEditor("latest body");
 
-    const markdown = await handleRef.current!.flushPendingSave();
+    let markdown = "";
+    await act(async () => {
+      markdown = await handleRef.current!.flushPendingSave();
+    });
 
     expect(markdown).toBe("latest body");
+  });
+
+  test("flushes an edit that arrives while an older save is pending", async () => {
+    let finishFirstSave: () => void = () => {};
+    saveDocumentContent.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishFirstSave = () => resolve({ success: true } as unknown);
+        }),
+    );
+    const handleRef = createRef<DocumentViewerContainerHandle>();
+    renderViewer({ handleRef });
+    await typeIntoEditor("older body");
+
+    const flush = handleRef.current!.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    await typeIntoEditor("latest body");
+    await act(async () => {
+      finishFirstSave();
+    });
+
+    expect(await flush).toBe("latest body");
+    expect(saveDocumentContent.mock.calls.map((call) => call[1])).toEqual([
+      "older body",
+      "latest body",
+    ]);
   });
 
   test("serializes a newer flush behind an autosave already in flight", async () => {
@@ -248,7 +277,6 @@ describe("DocumentViewerContainer autosave", () => {
 
     await act(async () => {
       finishFirst();
-      await firstFlush;
     });
     await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(2));
     expect(saveDocumentContent.mock.calls.map((call) => call[1])).toEqual([
@@ -258,7 +286,7 @@ describe("DocumentViewerContainer autosave", () => {
 
     await act(async () => {
       finishSecond();
-      await latestFlush;
+      await Promise.all([firstFlush, latestFlush]);
     });
   });
 

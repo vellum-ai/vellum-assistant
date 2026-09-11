@@ -213,41 +213,49 @@ export function DocumentViewerContainer({
   );
 
   const flushPendingSave = useCallback(async () => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    const pending = pendingMarkdownRef.current;
-    if (pending === null) {
-      await saveChainRef.current;
-      return latestMarkdownRef.current ?? content;
-    }
-    pendingMarkdownRef.current = null;
-    // Serialize saves so a slow older write cannot land after the version a
-    // document-scoped message is about to reference.
-    const queuedSave = queueDocumentSave(
-      () => saveTargetRef.current,
-      pending.markdown,
-    );
-    await queuedSave.then(
-      () => {
-        setSaveStatus("saved");
-        savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
-      },
-      (error: unknown) => {
-        // Keep the newest failed edit available for the next autosave flush or
-        // send attempt. A newer edit already supersedes this revision.
+    while (true) {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      const pending = pendingMarkdownRef.current;
+      if (pending === null) {
+        const currentSave = saveChainRef.current;
+        await currentSave;
         if (
           pendingMarkdownRef.current === null &&
-          markdownRevisionRef.current === pending.revision
+          saveChainRef.current === currentSave
         ) {
-          pendingMarkdownRef.current = pending;
+          return latestMarkdownRef.current ?? content;
         }
-        setSaveStatus("idle");
-        throw error;
-      },
-    );
-    return latestMarkdownRef.current ?? content;
+        continue;
+      }
+      pendingMarkdownRef.current = null;
+      // Serialize saves so a slow older write cannot land after the version a
+      // document-scoped message is about to reference.
+      const queuedSave = queueDocumentSave(
+        () => saveTargetRef.current,
+        pending.markdown,
+      );
+      await queuedSave.then(
+        () => {
+          setSaveStatus("saved");
+          savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+        },
+        (error: unknown) => {
+          // Keep the newest failed edit available for the next autosave flush
+          // or send attempt. A newer edit already supersedes this revision.
+          if (
+            pendingMarkdownRef.current === null &&
+            markdownRevisionRef.current === pending.revision
+          ) {
+            pendingMarkdownRef.current = pending;
+          }
+          setSaveStatus("idle");
+          throw error;
+        },
+      );
+    }
   }, [content, queueDocumentSave]);
 
   const handleContentChange = useCallback(

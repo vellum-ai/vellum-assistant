@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -104,9 +104,10 @@ function correlatedQueuedSendClientMessageId(
 export function QueuedSendRecoveryWatcher() {
   const { t } = useTranslation("chat");
   const isOrgReady = useIsOrgReady();
+  const reconciliationGenerationRef = useRef(0);
 
   const reconcileQueuedSends = useCallback(
-    async (assistantId: string): Promise<void> => {
+    async (assistantId: string, generation: number): Promise<void> => {
       if (!isOrgReady) {
         return;
       }
@@ -131,6 +132,7 @@ export function QueuedSendRecoveryWatcher() {
           continue;
         }
         if (
+          reconciliationGenerationRef.current !== generation ||
           useResolvedAssistantsStore.getState().activeAssistantId !==
           assistantId
         ) {
@@ -192,21 +194,28 @@ export function QueuedSendRecoveryWatcher() {
   useEffect(() => {
     let ownerAssistantId =
       useResolvedAssistantsStore.getState().activeAssistantId;
-    if (ownerAssistantId !== null) {
-      void reconcileQueuedSends(ownerAssistantId);
-    }
-    return useResolvedAssistantsStore.subscribe((state) => {
+    const reconcileActiveAssistant = (activeAssistantId: string | null) => {
+      reconciliationGenerationRef.current += 1;
+      const generation = reconciliationGenerationRef.current;
+      if (activeAssistantId === null) {
+        useComposerStore.getState().clearHeldSends();
+        return;
+      }
+      void reconcileQueuedSends(activeAssistantId, generation);
+    };
+    reconcileActiveAssistant(ownerAssistantId);
+    const unsubscribe = useResolvedAssistantsStore.subscribe((state) => {
       const { activeAssistantId } = state;
       if (activeAssistantId === ownerAssistantId) {
         return;
       }
       ownerAssistantId = activeAssistantId;
-      if (activeAssistantId === null) {
-        useComposerStore.getState().clearHeldSends();
-        return;
-      }
-      void reconcileQueuedSends(activeAssistantId);
+      reconcileActiveAssistant(activeAssistantId);
     });
+    return () => {
+      reconciliationGenerationRef.current += 1;
+      unsubscribe();
+    };
   }, [reconcileQueuedSends]);
 
   useBusSubscription("sse.event", (envelope) => {
