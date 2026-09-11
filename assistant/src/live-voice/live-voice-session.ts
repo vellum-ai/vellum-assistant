@@ -2,6 +2,11 @@ import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 
 import {
+  type BargeInGuard,
+  createBargeInGuard,
+  DEFAULT_BARGE_IN_MIN_SPEECH_MS,
+} from "../calls/barge-in-guard.js";
+import {
   MediaTurnDetector,
   type TurnDetectorConfig,
 } from "../calls/media-turn-detector.js";
@@ -195,7 +200,6 @@ const FINALIZE_GRACE_MS = 1_000;
 // upstream of the provider, which hears only the microphone: it cannot tell
 // our own TTS bleeding through imperfect echo cancellation from the caller,
 // and would report a user turn nobody took.
-const DEFAULT_BARGE_IN_MIN_SPEECH_MS = 250;
 // The playback echo gate learns microphone energy while assistant audio is
 // expected at the speaker. Input must rise above the learned level by this
 // margin to count as user speech.
@@ -231,24 +235,6 @@ const NOISE_FLOOR_MAX_BASE_MULTIPLE = 4;
 // tracks the effective trailing-silence threshold (the detector keeps its own
 // copy private) so the endpoint decider can report the pause length.
 const DEFAULT_SILENCE_THRESHOLD_MS = 800;
-// Longest continuous sub-threshold gap the sustained-speech barge-in run
-// tolerates without resetting. A gap this short is a syllable boundary, or the
-// choppy energy the browser's half-duplex echo canceller produces while the
-// assistant is still playing (it ducks the user's near-end voice, so post-AEC
-// user speech arrives as intermittent above-gate chunks) — so the run keeps
-// accumulating across it and a barge-in during playback still lands. Only a
-// longer continuous silence (a real end of speech, or an isolated cough) resets
-// the run.
-const BARGE_IN_GAP_TOLERANCE_MS = 200;
-// Ceiling on cumulative sub-threshold time across a whole barge-in run, as a
-// multiple of bargeInMinSpeechMs. Per-gap tolerance alone lets sparse isolated
-// blips (e.g. a 10 ms echo spike every 200 ms) each clear the consecutive-gap
-// timer while retaining prior speech, so they would sum to the guard over
-// several seconds and fire a barge-in with no sustained user speech. Capping the
-// run's total tolerated silence imposes a minimum above-gate duty cycle
-// (1 / (1 + ratio) ≈ 20%): once the run is mostly silence it resets, so genuine
-// choppy speech still lands but periodic noise cannot accumulate into one.
-const BARGE_IN_MAX_TOLERATED_SILENCE_RATIO = 4;
 // Slack added to the configured end-of-turn timeout before the session stops
 // waiting for an event that is not coming and falls the utterance back onto
 // the silence-boundary path. A turn-detecting provider force-ends its own turn
@@ -1175,22 +1161,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // assistant turn is audibly speaking: above-gate speech-chunk duration
   // accumulates until it reaches bargeInMinSpeechMs, then the deferred
   // speech_started + barge-in fire (at most once per onset). Brief sub-threshold
-  // gaps are tolerated (see BARGE_IN_GAP_TOLERANCE_MS); the run resets on a
+  // gaps are tolerated (see barge-in-guard.ts); the run resets on a
   // single longer continuous silence, or once cumulative tolerated silence
-  // exceeds the duty-cycle ceiling (see BARGE_IN_MAX_TOLERATED_SILENCE_RATIO).
+  // exceeds the duty-cycle ceiling (see barge-in-guard.ts).
   // The detector's utterance end discards the guard.
   private pendingBargeIn: {
     // Null when guarding only the post-tts_done drain window (the turn is
     // already finalized but the client is still playing its tail).
     turn: ActiveAssistantTurn | null;
-    speechMs: number;
-    // Consecutive sub-threshold (non-speech) time since the last speech chunk;
-    // resets speechMs once it exceeds BARGE_IN_GAP_TOLERANCE_MS.
-    silenceMs: number;
-    // Cumulative sub-threshold time over the whole run (not reset by speech
-    // chunks); resets speechMs once it exceeds the duty-cycle ceiling so sparse
-    // periodic blips cannot sum into a barge-in.
-    toleratedSilenceMs: number;
+    // The shared sustained-speech accounting (gap tolerance, duty-cycle
+    // ceiling, threshold).
+    guard: BargeInGuard;
   } | null = null;
   // Estimated wall-clock ms until the client finishes draining the
   // assistant audio sent so far. The server clears the turn right after
@@ -2374,7 +2355,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     if (this.echoWindowTotalAudioMs === 0) {
       this.echoWindowGuardCarryover =
-        this.pendingBargeIn !== null && this.pendingBargeIn.speechMs > 0;
+        this.pendingBargeIn !== null && this.pendingBargeIn.guard.speechMs > 0;
     } else if (this.pendingBargeIn === null) {
       this.echoWindowGuardCarryover = false;
     }
@@ -2419,7 +2400,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
     if (meanAmplitude > speechThreshold) {
       const guardHasSpeech =
-        this.pendingBargeIn !== null && this.pendingBargeIn.speechMs > 0;
+        this.pendingBargeIn !== null && this.pendingBargeIn.guard.speechMs > 0;
       if (!guardHasSpeech && this.echoMatchesAssistant(chunk)) {
         this.updateEchoEnergy(meanAmplitude, chunkMs);
         return [{ chunk, classification: "echo" }];
@@ -2717,9 +2698,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // accumulates (trackBargeInGuard), so no speech is lost either way.
       this.pendingBargeIn = {
         turn: bargeableTurn,
-        speechMs: 0,
-        silenceMs: 0,
-        toleratedSilenceMs: 0,
+        guard: createBargeInGuard(this.bargeInMinSpeechMs),
       };
       return;
     }
@@ -2743,68 +2722,39 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   // Advance the sustained-speech barge-in guard by one server-VAD chunk.
   // Speech accumulates toward bargeInMinSpeechMs, short true-silence gaps are
-  // tolerated, and classified playback echo resets the run immediately.
-  // Longer or mostly silent runs reset through the existing gap limits.
+  // tolerated, and classified playback echo resets the run immediately (the
+  // shared guard owns that accounting). A reset also drops the echo state a
+  // run carried over, so the classifier re-learns the playback level.
   private trackBargeInGuard(
     classification: VadEnergyClassification,
     chunk: Buffer,
   ): void {
-    const guard = this.pendingBargeIn;
-    if (!guard) {
+    const pending = this.pendingBargeIn;
+    if (!pending) {
       return;
     }
     const chunkMs = pcm16DurationMs(
       chunk.byteLength,
       this.context.startFrame.audio.sampleRate,
     );
-    if (classification === "echo") {
-      this.resetBargeInGuardRun();
-      return;
-    }
-    if (classification === "silence") {
-      guard.silenceMs += chunkMs;
-      guard.toleratedSilenceMs += chunkMs;
-      // Strictly greater on the per-gap check: a gap of exactly
-      // BARGE_IN_GAP_TOLERANCE_MS is still tolerated. The web client batches PCM
-      // into 50 ms frames, so a run of ducked frames lands on the boundary
-      // exactly (e.g. four frames = 200 ms). The run also resets once its total
-      // tolerated silence outweighs the speech by the duty-cycle ceiling, so
-      // sparse periodic blips can never sum to the guard.
-      if (
-        guard.silenceMs > BARGE_IN_GAP_TOLERANCE_MS ||
-        guard.toleratedSilenceMs >
-          this.bargeInMinSpeechMs * BARGE_IN_MAX_TOLERATED_SILENCE_RATIO
-      ) {
-        this.resetBargeInGuardRun();
+    const step = pending.guard.track(classification, chunkMs);
+    if (step === "reset") {
+      if (this.echoWindowGuardCarryover) {
+        this.echoWindowGuardCarryover = false;
+        this.echoEnergyEma = 0;
+        this.echoProbeChunks = [];
       }
       return;
     }
-    guard.silenceMs = 0;
-    guard.speechMs += chunkMs;
-    if (guard.speechMs < this.bargeInMinSpeechMs) {
+    if (step !== "fired") {
       return;
     }
     this.pendingBargeIn = null;
     this.assistantPlaybackTailUntilMs = 0;
     this.sendSpeechStarted();
-    const { turn } = guard;
+    const { turn } = pending;
     if (turn && turn === this.activeAssistantTurn && !turn.finalized) {
       this.bargeIn(turn);
-    }
-  }
-
-  private resetBargeInGuardRun(): void {
-    const guard = this.pendingBargeIn;
-    if (!guard) {
-      return;
-    }
-    guard.speechMs = 0;
-    guard.silenceMs = 0;
-    guard.toleratedSilenceMs = 0;
-    if (this.echoWindowGuardCarryover) {
-      this.echoWindowGuardCarryover = false;
-      this.echoEnergyEma = 0;
-      this.echoProbeChunks = [];
     }
   }
 
