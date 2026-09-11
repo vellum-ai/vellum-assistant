@@ -84,7 +84,12 @@ returns the current saved title/content. The chat submit hook awaits preparation
 before clearing its ordinary draft and attachments, in either presentation.
 A failed save, changed owner,
 closed editor or changed draft cancels preparation without taking the message.
-Feedback uses the saved title. Live-voice entry awaits the same flush before
+Feedback uses the saved title. Mobile and desktop feedback share the preparation
+runner, which validates ownership and releases the editing lease after navigation.
+Desktop feedback waits for saves in both URL-backed and ordinary drawers; failures
+show an error beside the retained, editable draft. A desktop drawer can target a
+different linked conversation while still checking the active chat for cancellation.
+Live-voice entry awaits the same flush before
 starting the conversation session; dictation writes to the existing chat input.
 Sending during dictation finishes the transcript before document preparation.
 An owner change during either wait leaves the message in the ordinary draft.

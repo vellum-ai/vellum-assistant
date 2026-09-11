@@ -14,22 +14,26 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import type { DocumentViewerContainerHandle } from "../components/document-viewer-container";
 import type { ComposerSendPreparation } from "./use-composer-submit";
+import type { DocumentEditorSnapshot } from "./use-document-editor-save";
 
 interface DocumentChatPreparationParams {
   assistantId: string | null;
   conversationId: string | null;
+  /** A desktop drawer can show a document linked to a different conversation. */
+  documentConversationId?: string | null;
   surfaceId: string | null;
   editorRef: RefObject<DocumentViewerContainerHandle | null>;
 }
 
 interface DocumentSendPreparation extends ComposerSendPreparation {
-  snapshot: { title: string; content: string };
+  snapshot: DocumentEditorSnapshot;
 }
 
 /** Flushes the visible editor before the ordinary chat send or voice entry. */
 export function useDocumentChatPreparation({
   assistantId,
   conversationId,
+  documentConversationId = conversationId,
   surfaceId,
   editorRef,
 }: DocumentChatPreparationParams) {
@@ -49,7 +53,7 @@ export function useDocumentChatPreparation({
     return () => {
       mountedRef.current = false;
     };
-  }, [assistantId, conversationId, surfaceId]);
+  }, [assistantId, conversationId, documentConversationId, surfaceId]);
 
   const prepareSend =
     useCallback(async (): Promise<DocumentSendPreparation | null> => {
@@ -73,7 +77,7 @@ export function useDocumentChatPreparation({
           doc?.source === "document" &&
           doc.assistantId === assistantId &&
           doc.surfaceId === surfaceId &&
-          doc.conversationId === conversationId
+          doc.conversationId === documentConversationId
         );
       };
       if (!editor || !isCurrent()) {
@@ -114,22 +118,38 @@ export function useDocumentChatPreparation({
         }
         return null;
       }
-    }, [assistantId, conversationId, surfaceId, editorRef]);
+    }, [
+      assistantId,
+      conversationId,
+      documentConversationId,
+      surfaceId,
+      editorRef,
+    ]);
 
-  const prepareVoice = useCallback(async () => {
-    const preparation = await prepareSend();
-    if (!preparation) {
-      return false;
-    }
-    try {
-      return preparation.isCurrent();
-    } finally {
-      preparation.release();
-    }
-  }, [prepareSend]);
+  const runPrepared = useCallback(
+    async (action?: (snapshot: DocumentEditorSnapshot) => void) => {
+      const preparation = await prepareSend();
+      if (!preparation) {
+        return false;
+      }
+      try {
+        if (!preparation.isCurrent()) {
+          return false;
+        }
+        action?.(preparation.snapshot);
+        return true;
+      } finally {
+        preparation.release();
+      }
+    },
+    [prepareSend],
+  );
+
+  const prepareVoice = useCallback(() => runPrepared(), [runPrepared]);
 
   return {
     prepareSend,
+    runPrepared,
     prepareVoice,
     preparing: status.kind === "preparing",
     error: status.kind === "error" ? status.message : null,

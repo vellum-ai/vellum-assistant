@@ -17,6 +17,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { useEffect, useRef } from "react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
@@ -57,7 +58,24 @@ mock.module(
   "../api/document-comments",
   (): Partial<typeof comments> => ({
     ...comments,
-    fetchComments: async () => [],
+    fetchComments: async () => [
+      {
+        id: "comment-1",
+        surfaceId: "surface-1",
+        conversationId: "conv-1",
+        author: "user",
+        content: "Please revise this paragraph",
+        anchorStart: null,
+        anchorEnd: null,
+        anchorText: null,
+        parentCommentId: null,
+        status: "open",
+        resolvedBy: null,
+        resolvedAt: null,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ],
   }),
 );
 mock.module(
@@ -224,6 +242,7 @@ afterEach(async () => {
   queryClient.clear();
   viewport.restore();
   mediaTargets.clear();
+  document.body.style.pointerEvents = "";
   mock.restore();
   useResolvedAssistantsStore.setState(selection, true);
   useConversationStore.setState(conversation, true);
@@ -367,4 +386,125 @@ describe("document viewport handoff", () => {
     ).toBe("Original body");
     expect(write).not.toHaveBeenCalled();
   });
+});
+
+async function openFeedback() {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Document options" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Comments" }));
+  return screen.findByRole("button", { name: /Submit feedback/i });
+}
+
+describe("desktop document feedback", () => {
+  test.each([
+    { urlBacked: true, rename: false, linkedConversation: "conv-1" },
+    { urlBacked: true, rename: true, linkedConversation: "conv-1" },
+    { urlBacked: false, rename: false, linkedConversation: "conv-1" },
+    { urlBacked: false, rename: true, linkedConversation: "conv-1" },
+    { urlBacked: false, rename: false, linkedConversation: "conv-linked" },
+  ])(
+    "flushes before feedback: URL-backed=$urlBacked, rename=$rename, linked=$linkedConversation",
+    async ({ urlBacked, rename, linkedConversation }) => {
+      saved.conversationId = linkedConversation;
+      renderLayout(false, urlBacked);
+      if (!urlBacked) {
+        fireEvent.click(screen.getByRole("button", { name: "Open document" }));
+      }
+      const editor = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      fireEvent.change(editor, { target: { value: "Latest local body" } });
+      if (rename) {
+        const user = userEvent.setup();
+        await user.click(
+          screen.getByRole("button", { name: "Document options" }),
+        );
+        await user.click(
+          await screen.findByRole("menuitem", { name: "Rename" }),
+        );
+        const name = await screen.findByLabelText("Name");
+        await user.clear(name);
+        await user.type(name, "Latest title");
+        await user.click(screen.getByRole("button", { name: "Save" }));
+      }
+      const feedback = await openFeedback();
+      const previousUrl = screen.getByTestId("url").textContent;
+      fireEvent.click(feedback);
+      fireEvent.click(feedback);
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId("url").textContent).toBe(previousUrl);
+      expect((editor as HTMLTextAreaElement).disabled).toBe(true);
+      await act(async () => finishWrite());
+      await waitFor(() =>
+        expect(screen.getByTestId("url").textContent).toContain("prompt="),
+      );
+      const destination = new URL(
+        screen.getByTestId("url").textContent!,
+        "https://example.com",
+      );
+      expect(destination.pathname).toBe(
+        `/assistant/conversations/${linkedConversation}`,
+      );
+      expect(destination.searchParams.get("prompt")).toContain(
+        rename ? "Latest title" : "Notes",
+      );
+      expect(saved.content).toBe("Latest local body");
+      expect(saved.title).toBe(rename ? "Latest title" : "Notes");
+      expect(write).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test("failed feedback preparation keeps the editable draft and can retry", async () => {
+    renderLayout(false);
+    const editor = await screen.findByRole("textbox", {
+      name: "Document body",
+    });
+    fireEvent.change(editor, { target: { value: "Keep local body" } });
+    fireEvent.click(await openFeedback());
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    await act(async () => failWrite(new Error("offline")));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Document body" })).toBe(editor);
+    expect((editor as HTMLTextAreaElement).value).toBe("Keep local body");
+    expect((editor as HTMLTextAreaElement).disabled).toBe(false);
+    expect(screen.getByTestId("url").textContent).not.toContain("prompt=");
+    pendingWrite = Promise.resolve();
+    fireEvent.click(screen.getByRole("button", { name: /Submit feedback/i }));
+    await waitFor(() =>
+      expect(screen.getByTestId("url").textContent).toContain("prompt="),
+    );
+    expect(saved.content).toBe("Keep local body");
+    expect(write).toHaveBeenCalledTimes(2);
+  });
+
+  test.each(["close", "assistant switch", "conversation switch"])(
+    "%s cancels feedback while the save is pending",
+    async (action) => {
+      renderLayout(false);
+      fireEvent.change(
+        await screen.findByRole("textbox", { name: "Document body" }),
+        {
+          target: { value: "Latest local body" },
+        },
+      );
+      fireEvent.click(await openFeedback());
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      if (action === "close") {
+        fireEvent.click(screen.getByRole("button", { name: "Close document" }));
+      } else if (action === "assistant switch") {
+        act(() =>
+          useResolvedAssistantsStore.setState({
+            activeAssistantId: "assistant-2",
+          }),
+        );
+      } else {
+        act(() =>
+          useConversationStore.setState({ activeConversationId: "conv-2" }),
+        );
+      }
+      await act(async () => finishWrite());
+      expect(screen.getByTestId("url").textContent).not.toContain("prompt=");
+      expect(saved.content).toBe("Latest local body");
+    },
+  );
 });

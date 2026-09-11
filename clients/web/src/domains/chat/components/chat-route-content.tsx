@@ -1578,30 +1578,20 @@ export function ChatMainPanel({
       : undefined;
 
   const handleDocumentFeedback = async () => {
-    const preparation = await documentPreparation.prepareSend();
-    if (!preparation) {
-      return;
-    }
-    try {
-      if (
-        preparation.isCurrent() &&
-        activeConversationId &&
-        documentRoute.surfaceId
-      ) {
+    await documentPreparation.runPrepared((snapshot) => {
+      if (activeConversationId && documentRoute.surfaceId) {
         navigate(
           documentConversationUrl(
             activeConversationId,
             documentRoute.surfaceId,
             getDocumentConversationRoute(location.search).returnTo,
             "chat",
-            getDocumentFeedbackPrompt(preparation.snapshot.title),
+            getDocumentFeedbackPrompt(snapshot.title),
           ),
           { replace: true, state: location.state },
         );
       }
-    } finally {
-      preparation.release();
-    }
+    });
   };
 
   const chatBody = (

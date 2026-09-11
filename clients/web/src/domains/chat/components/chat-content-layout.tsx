@@ -13,6 +13,7 @@
 import { lazy, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
+import { Notice } from "@vellumai/design-library";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { CHAT_INFO_DRAWER_WIDTH_PX } from "@/domains/chat/components/chat-info-drawer-width";
 import { ProgressStack } from "@/domains/chat/components/progress-stack";
@@ -25,6 +26,7 @@ import {
 } from "@/domains/chat/components/document-viewer-container";
 import { DocumentChatContent } from "./document-chat-content";
 import { useDocumentConversationRoute } from "../hooks/use-document-conversation-route";
+import { useDocumentChatPreparation } from "../hooks/use-document-chat-preparation";
 import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
 import {
   ChatMainPanel,
@@ -196,6 +198,20 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const isMobile = useIsMobile();
+  const { runPrepared: runDocumentFeedback, error: documentFeedbackError } =
+    useDocumentChatPreparation({
+      assistantId,
+      conversationId: activeConversationId,
+      documentConversationId:
+        openedDocumentState?.source === "document"
+          ? openedDocumentState.conversationId
+          : null,
+      surfaceId:
+        !isMobile && openedDocumentState?.source === "document"
+          ? openedDocumentState.surfaceId
+          : null,
+      editorRef: documentEditorRef,
+    });
   const navigate = useNavigate();
   const location = useLocation();
   const editApp = useEditApp();
@@ -251,13 +267,15 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     if (opened?.source !== "document") {
       return;
     }
-    void navigate(
-      routes.conversationWithPrompt(
-        opened.conversationId,
-        getDocumentFeedbackPrompt(opened.documentName),
-      ),
-    );
-  }, [navigate]);
+    void runDocumentFeedback((snapshot) => {
+      void navigate(
+        routes.conversationWithPrompt(
+          opened.conversationId,
+          getDocumentFeedbackPrompt(snapshot.title),
+        ),
+      );
+    });
+  }, [navigate, runDocumentFeedback]);
 
   const onCloseSubagentDetail = useCallback(() => {
     useViewerStore.getState().closeSubagentDetail();
@@ -557,6 +575,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         rightPanel = (
           <DocumentViewerContainer
             key={`document:${openedDocumentState.surfaceId}`}
+            handleRef={documentEditorRef}
             source="document"
             documentName={openedDocumentState.documentName}
             content={openedDocumentState.content}
@@ -726,6 +745,23 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         </LazyBoundary>
       );
     }
+  }
+
+  if (
+    rightPanel &&
+    mainView === "document" &&
+    openedDocumentState?.source === "document"
+  ) {
+    rightPanel = (
+      <div className="flex h-full min-h-0 flex-col">
+        {documentFeedbackError && (
+          <Notice tone="error" className="shrink-0">
+            {documentFeedbackError}
+          </Notice>
+        )}
+        {rightPanel}
+      </div>
+    );
   }
 
   // One drawer instance across every panel, so switching profiles moves the
