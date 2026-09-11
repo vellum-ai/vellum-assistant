@@ -18,8 +18,13 @@ export const NATIVE_APP_NUDGE_FUNNEL_VERSION = "native_app_nudge_v1_2026_08";
 /** Where the nudge rendered. */
 export type NudgeSurface = "banner" | "settings";
 
-/** Which app the nudge promoted. `NudgeTarget` plus the macOS desktop app. */
-export type NudgeTelemetryTarget = "ios" | "android" | "generic" | "macos";
+/** Which app the nudge promoted. */
+export type NudgeTelemetryTarget =
+  | "ios"
+  | "android"
+  | "generic"
+  | "macos"
+  | "windows";
 
 export type NudgeTelemetryAction = "impression" | "click" | "dismiss";
 
