@@ -196,6 +196,20 @@ describe("bridgeRect", () => {
     const bridge = bridgeRect(AVATAR, overlapping);
     expect(bridge.left).toBeGreaterThan(bridge.right);
   });
+
+  /**
+   * A call docked to a side stands the pill up under the creature, and the
+   * strip turns with it: the pill's column wide, the gap between them tall.
+   */
+  test("stands up between a creature and a pill below it", () => {
+    const column = { left: 100, right: 144, top: 156, bottom: 356 };
+    expect(bridgeRect(AVATAR, column)).toEqual({
+      left: 100,
+      right: 144,
+      top: 144,
+      bottom: 156,
+    });
+  });
 });
 
 /**

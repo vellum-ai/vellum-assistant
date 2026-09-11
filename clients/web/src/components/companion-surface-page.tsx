@@ -33,6 +33,7 @@ import {
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
+  releaseCompanionSurface,
   setCompanionAnnotating,
   setCompanionAnnotationTool,
   setCompanionInteractive,
@@ -52,6 +53,7 @@ import type {
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCardGrowth,
+  CompanionDock,
   CompanionCharacter,
   CompanionGrowth,
   CompanionIntroBeat,
@@ -101,6 +103,10 @@ export function CompanionSurfacePage() {
   // window position and is the only side that knows how much room the display
   // has above the surface.
   const [cardGrowth, setCardGrowth] = useState<CompanionCardGrowth>("up");
+  // Which edge of the display the call's bar rests on. Main's call, like the
+  // growths: it placed the window there and built the canvas for it. Absent
+  // from a shell that predates the docks, which is the bottom.
+  const [dock, setDock] = useState<CompanionDock>("bottom");
   // The creature's box in points and the pill's, which are the surface's whole
   // scale between them. Main sizes the window from both, so they arrive with
   // the state rather than being settings this window reads for itself.
@@ -248,6 +254,7 @@ export function CompanionSurfacePage() {
     const apply = (state: CompanionSurfaceState) => {
       setGrowth(state.growth);
       setCardGrowth(state.cardGrowth);
+      setDock(state.dock ?? "bottom");
       setAvatarBox(state.avatarBox);
       // The creature's box unless the pill has one of its own, which covers a
       // shell that predates the second axis: one box for both is the surface
@@ -570,6 +577,7 @@ export function CompanionSurfacePage() {
     // so the drag is dropped and this move goes on to hit-test normally.
     if (dragRef.current !== null && event.buttons === 0) {
       dragRef.current = null;
+      releaseCompanionSurface();
     }
     // A drag owns the pointer until it is released. Hit-testing through it
     // would collapse the surface the moment the cursor left the pill, which is
@@ -690,14 +698,24 @@ export function CompanionSurfacePage() {
       className="relative h-screen w-screen bg-transparent"
       onMouseMove={onMouseMove}
       onMouseUp={() => {
-        dragRef.current = null;
+        // The hand letting go, which main hears about whether or not the
+        // press moved anything: mid-call, a drag's release is the drop that
+        // docks the bar to an edge, and main is the side that knows whether
+        // this press was one.
+        if (dragRef.current !== null) {
+          dragRef.current = null;
+          releaseCompanionSurface();
+        }
       }}
       onPointerCancel={() => {
         // The capture goes with the pointer when the host takes it, so nothing
         // more reports this press, and a leave that deferred to the drag may
         // never arrive. Give the desktop back the way a leave does; a pointer
         // still on the pill re-arms it on its next move.
-        dragRef.current = null;
+        if (dragRef.current !== null) {
+          dragRef.current = null;
+          releaseCompanionSurface();
+        }
         setHovered(false);
         setInteractive(false);
       }}
@@ -724,6 +742,7 @@ export function CompanionSurfacePage() {
         phase={phase}
         growth={growth}
         cardGrowth={cardGrowth}
+        dock={dock}
         // The two boxes main sized the window for. The surface spends the
         // options one on its own outermost box and uses both to place the pill
         // against a creature that may be a different size from it.

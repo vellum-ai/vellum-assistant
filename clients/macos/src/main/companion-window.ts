@@ -29,6 +29,7 @@ import {
   COMPANION_INTRO_BEATS,
   companionBoxFor,
   companionCardSideFor,
+  companionDockIsSide,
   companionGapFor,
   companionNearEdgeFor,
   companionPadFor,
@@ -44,6 +45,7 @@ import {
   type CompanionAnnotationTool,
   type CompanionCardGrowth,
   type CompanionCoachmark,
+  type CompanionDock,
   type CompanionGrowth,
   type CompanionContext,
   type CompanionIntroAction,
@@ -61,9 +63,11 @@ import {
   readSetting,
 } from "@vellumai/electron-desktop/settings";
 import {
+  readCompanionCallDock,
   readCompanionHidden,
   readCompanionIntroSeen,
   readCompanionSize,
+  writeCompanionCallDock,
   writeCompanionIntroSeen,
   writeCompanionSize,
   writeCompanionHidden,
@@ -231,10 +235,21 @@ export interface CompanionGeometry {
  * process, which is what the fixed canvas exists to avoid. It *is* resized when
  * the user picks a different size on either axis, which is a deliberate,
  * one-off event rather than something that happens mid-gesture.
+ *
+ * A call docked to a side of the display is the other such event. The bar
+ * stands up as a column centred on the avatar, and a column reaches as far
+ * below the avatar as above it, where the canvas above keeps only the near
+ * edge below. So for a side dock the canvas is symmetric about the avatar
+ * instead: as tall each way as the column's half length, the gap, the creature
+ * standing at the column's end and the pad. Taller below than the ordinary
+ * canvas, which the window server allows (the canvas may hang off the bottom
+ * of a display), and shorter above, which is what keeps the avatar reachable
+ * near the top on a display shorter than the ordinary canvas is wide.
  */
 export const geometryFor = (
   avatar: CompanionSize,
   options: CompanionSize,
+  dock: CompanionDock = "bottom",
 ): CompanionGeometry => {
   const avatarBox = companionBoxFor("avatar", avatar);
   const optionsBox = companionBoxFor("options", options);
@@ -266,13 +281,30 @@ export const geometryFor = (
   // drawing the creature on another, and a card side is a ceiling with slack in
   // it where a near edge is the line itself.
   const riseAbove = canvasHeight - dropBelow;
+  // Twice a whole half rather than a whole total. The renderer puts the
+  // avatar on the canvas's centre line, so an odd width would stand the
+  // creature on a half point and a resize would not land back on it.
+  const canvasWidth = Math.round(maxReach + pad) * 2;
+  if (companionDockIsSide(dock)) {
+    // Half the column's greatest length, then the gap and the whole of the
+    // creature standing at its end, then the pad: the same reach the width
+    // holds for the row, read up from the avatar's centre. Whole for the
+    // reason the width is twice a whole half.
+    const sideHalf = Math.round(maxPillWidth / 2 + gap + avatarBox + pad);
+    return {
+      avatarBox,
+      optionsBox,
+      canvasWidth,
+      canvasHeight: sideHalf * 2,
+      riseAbove: sideHalf,
+      dropBelow: sideHalf,
+      maxReach,
+    };
+  }
   return {
     avatarBox,
     optionsBox,
-    // Twice a whole half rather than a whole total. The renderer puts the
-    // avatar on the canvas's centre line, so an odd width would stand the
-    // creature on a half point and a resize would not land back on it.
-    canvasWidth: Math.round(maxReach + pad) * 2,
+    canvasWidth,
     canvasHeight,
     riseAbove,
     dropBelow,
@@ -317,12 +349,49 @@ let growth: CompanionGrowth = "right";
 let cardGrowth: CompanionCardGrowth = "up";
 
 /**
+ * Which edge of the display a call takes the bar to. See `CompanionDock`.
+ *
+ * Read from the store at startup and replaced when the user drops the bar on
+ * another edge mid-call. Held beside {@link growth} for the same reason: it is
+ * a fact about where the window is put, and the renderer has to be told it to
+ * draw the bar the way the window was placed for.
+ */
+let dock: CompanionDock = readCompanionCallDock();
+
+/**
+ * The edge a call's drag would drop the bar on if the hand let go now, or
+ * `null` while no such drag is in flight.
+ *
+ * Set on each move of a drag during a call and cleared by the release. The
+ * window showing the four edges reads it off the pushed state to light one,
+ * and the release reads it to know where to send the bar.
+ */
+let docking: CompanionDock | null = null;
+
+/**
+ * How far a press has carried the bar since it began, in points, while a
+ * call has the surface.
+ *
+ * A press is a drag once it has travelled this far and a click until then,
+ * the same slop the renderer keeps for its own click. The renderer reports
+ * every move of a held button, jitter included, so without this a click on
+ * the creature mid-call would flash the four edges for a frame and glide the
+ * bar a point back to its dock.
+ */
+const DOCK_DRAG_SLOP = 3;
+let dockDragTravel = 0;
+
+/**
  * The canvas the surface is currently drawn in.
  *
  * Read from the store at startup and replaced when the user picks a different
- * size. Held rather than derived per call because it is what every position
+ * size, and when a call docks the bar to a side of the display or ends there.
+ * Held rather than derived per call because it is what every position
  * computed here is measured in, and reading the store on each mouse-move of a
  * drag would be a file read per frame.
+ *
+ * Built for the bottom at startup whatever the remembered dock: no call is
+ * running, and the canvas a side dock needs is the call's alone.
  */
 let geometry: CompanionGeometry = geometryFor(
   readCompanionSize("avatar"),
@@ -460,6 +529,15 @@ const WATCH_FRAME_KIND = "companion-watch-frame";
 const WATCH_FRAME_ROUTE = "/floating/companion-watch-frame";
 
 /**
+ * The edges a call's drag can drop the bar on, drawn over the display the
+ * drag is on for as long as it is in flight. Its own click-through window the
+ * size of the work area, like the frame and for the same reason: the surface's
+ * canvas is sized for the pill, and the edges are the display's.
+ */
+const DOCK_ZONES_KIND = "companion-dock-zones";
+const DOCK_ZONES_ROUTE = "/floating/companion-dock-zones";
+
+/**
  * How often the frame asks where a picked window is.
  *
  * A window the user is dragging moves every frame, and nothing tells this
@@ -582,6 +660,9 @@ const currentState = (): CompanionSurfaceState => {
   return {
     growth,
     cardGrowth,
+    dock,
+    // Absent rather than null between drags, as the contract has it.
+    docking: docking ?? undefined,
     avatarBox: geometry.avatarBox,
     optionsBox: geometry.optionsBox,
     character: character === null ? undefined : character,
@@ -818,6 +899,85 @@ export const defaultAvatarCentre = (
 });
 
 /**
+ * Where the avatar's centre goes for a call docked to an edge of the display.
+ *
+ * The bottom is {@link defaultAvatarCentre}, which is where every call has
+ * ever put the bar. The top is asked for at the work area's own top line and
+ * left to {@link placeCanvas} to settle as high as the window server allows,
+ * since the canvas above the avatar is what decides that and the clamp already
+ * knows it. The sides stand the bar up as a column centred on the avatar, so
+ * the avatar goes to the display's vertical centre and the same margin in from
+ * the edge the bottom keeps up from its own: the column's cross reach is the
+ * bar's half box and its lit edge, which is the same number the bottom
+ * measures its margin from (see `companionLowerReachFor`).
+ *
+ * Exported for its tests and pure for the same reason as {@link placeCanvas}.
+ */
+export const dockedAvatarCentre = (
+  dock: CompanionDock,
+  workArea: { x: number; y: number; width: number; height: number },
+  geometry: CompanionGeometry,
+): { x: number; y: number } => {
+  const reach = companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
+  switch (dock) {
+    case "bottom":
+      return defaultAvatarCentre(workArea, geometry);
+    case "top":
+      return { x: workArea.x + workArea.width / 2, y: workArea.y };
+    case "left":
+      return {
+        x: workArea.x + DEFAULT_MARGIN + reach,
+        y: workArea.y + workArea.height / 2,
+      };
+    case "right":
+      return {
+        x: workArea.x + workArea.width - DEFAULT_MARGIN - reach,
+        y: workArea.y + workArea.height / 2,
+      };
+  }
+};
+
+/**
+ * The edge a bar dropped at a point would dock to: whichever of the four is
+ * closest to it.
+ *
+ * Plain distance rather than a fraction of the display's size, so the answer
+ * is the edge the hand is nearest, which is the edge it was dragging toward.
+ * A point equally far from two edges goes to the earlier of the two in the
+ * order the docks are named, which puts the bottom first: it is the edge the
+ * bar is designed around, so a tie resolves to the shape the user already
+ * knows.
+ *
+ * Exported for its tests, as {@link growthFor} is.
+ */
+export const nearestDock = (
+  point: { x: number; y: number },
+  workArea: { x: number; y: number; width: number; height: number },
+): CompanionDock => {
+  const distances: [CompanionDock, number][] = [
+    ["bottom", workArea.y + workArea.height - point.y],
+    ["top", point.y - workArea.y],
+    ["left", point.x - workArea.x],
+    ["right", workArea.x + workArea.width - point.x],
+  ];
+  return distances.reduce((nearest, candidate) =>
+    candidate[1] < nearest[1] ? candidate : nearest,
+  )[0];
+};
+
+/**
+ * Which dock the canvas is currently built for: the remembered one while a
+ * call has the surface, and the bottom otherwise.
+ *
+ * The bottom outside a call whatever the user last dropped the bar on, because
+ * the side dock's canvas is the column's and the idle pill is a row hanging
+ * off the creature with the introduction's card above it, which is the shape
+ * the ordinary canvas is sized for.
+ */
+const canvasDock = (): CompanionDock =>
+  callSurfaceFor(call, dialing) ? dock : "bottom";
+
+/**
  * Where the surface opens with no remembered position: the bottom centre of
  * the display under the cursor.
  *
@@ -841,8 +1001,9 @@ const pushState = (): void => {
   const state = currentState();
   // The glow reads the same state the surface does, for the same reason the
   // surface holds none of it: one push, two windows, no second idea of which
-  // call is running or what colour it is.
-  for (const kind of [COMPANION_KIND, WATCH_FRAME_KIND]) {
+  // call is running or what colour it is. The edges a call's drag can drop
+  // the bar on read it the same way, for which of them to light.
+  for (const kind of [COMPANION_KIND, WATCH_FRAME_KIND, DOCK_ZONES_KIND]) {
     const win = getFloatingWindow(kind);
     if (win) {
       win.webContents.send("vellum:companion:state", state);
@@ -2019,10 +2180,13 @@ const syncCallSurface = (): void => {
     // arrives on the way home must send the pill back to that home when it
     // ends, not to wherever it was passing through when the call came.
     callHome = glide === null ? avatarCentre(win) : glide.to;
+    // The column's canvas before the glide to a side, so the bar arrives
+    // already standing in a canvas that can hold it.
+    syncCanvas();
     const display = displayUnder(callHome);
     glideAvatarTo(
       win,
-      defaultAvatarCentre(display.workArea, geometry),
+      dockedAvatarCentre(dock, display.workArea, geometry),
       display.workArea,
     );
     return;
@@ -2032,10 +2196,110 @@ const syncCallSurface = (): void => {
   }
   const home = callHome;
   callHome = null;
+  // A drag the call ends under has nothing left to dock.
+  docking = null;
+  dockDragTravel = 0;
+  closeDockZones();
   if (win === null) {
     return;
   }
+  syncCanvas();
   glideAvatarTo(win, home, displayUnder(home).workArea);
+};
+
+/**
+ * Show the edges over a display, or move them to it.
+ *
+ * Opened by the first move of a drag during a call, moved with the drag from
+ * display to display, and closed by the release or by the call ending under
+ * it.
+ */
+const placeDockZones = (bounds: Rectangle): void => {
+  const existing = getFloatingWindow(DOCK_ZONES_KIND);
+  if (existing !== null) {
+    const current = existing.getBounds();
+    if (
+      current.x !== bounds.x ||
+      current.y !== bounds.y ||
+      current.width !== bounds.width ||
+      current.height !== bounds.height
+    ) {
+      existing.setBounds(bounds);
+    }
+    return;
+  }
+  const win = createFloatingWindow({
+    kind: DOCK_ZONES_KIND,
+    route: DOCK_ZONES_ROUTE,
+    width: bounds.width,
+    height: bounds.height,
+    ignoreMouseEvents: true,
+    position: { x: bounds.x, y: bounds.y },
+    browserWindow: {
+      hasShadow: false,
+      focusable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      backgroundColor: "#00000000",
+    },
+  });
+  // Under the surface being dragged over it, so the bar is never hidden by
+  // the edge it is about to land on.
+  win.setAlwaysOnTop(true, "floating", -1);
+};
+
+const closeDockZones = (): void => {
+  getFloatingWindow(DOCK_ZONES_KIND)?.close();
+};
+
+/**
+ * Note where a drag during a call would drop the bar, and show the edges.
+ *
+ * Run after each move of such a drag, against the display the avatar is now
+ * over: a drag across displays docks to an edge of the display it ends on.
+ * Pushed only when the answer changes, since the surface is pushed the same
+ * state and a drag is a message per pixel.
+ */
+const armDock = (centre: { x: number; y: number }): void => {
+  const { workArea } = displayUnder(centre);
+  placeDockZones(workArea);
+  const next = nearestDock(centre, workArea);
+  if (next === docking) {
+    return;
+  }
+  docking = next;
+  pushState();
+};
+
+/**
+ * Drop the bar on an edge: remember it, and glide the bar there in a canvas
+ * that fits it.
+ *
+ * The release of a drag during a call, and the mid-call reset. The edge is
+ * the user's stated placement of the call's bar, so it is written to the store
+ * the way a size pick is and every call after this one takes the bar there.
+ */
+const dropOnDock = (next: CompanionDock): void => {
+  docking = null;
+  closeDockZones();
+  writeCompanionCallDock(next);
+  dock = next;
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (win === null || win.isDestroyed()) {
+    pushState();
+    return;
+  }
+  const resting = glide === null ? avatarCentre(win) : glide.to;
+  // Before the glide, as on the way into a call: the canvas is rebuilt
+  // around where the bar rests now, and the glide then crosses to the edge
+  // in the canvas the edge needs. A rebuild pushes the surface itself; the
+  // push is owed either way, since the dock and the drag both moved.
+  if (!syncCanvas()) {
+    pushState();
+  }
+  const { workArea } = displayUnder(resting);
+  glideAvatarTo(win, dockedAvatarCentre(dock, workArea, geometry), workArea);
 };
 
 /**
@@ -2282,8 +2546,29 @@ export const installCompanionWindow = (): void => {
       // clamped to that display's edges instead of being held back at the
       // first one's.
       moveAvatarTo(win, wanted, displayUnder(wanted).workArea);
+      // A drag during a call is a drag toward an edge: the bar moves as
+      // freely as the idle pill does, and the release docks it to whichever
+      // edge it is nearest. Read back off the window rather than from
+      // `wanted`, since the clamp is what decided where the avatar is.
+      if (callSurfaceFor(call, dialing)) {
+        dockDragTravel += Math.abs(dx) + Math.abs(dy);
+        if (dockDragTravel > DOCK_DRAG_SLOP) {
+          armDock(avatarCentre(win));
+        }
+      }
     },
   );
+
+  // The hand letting go. Sent after every press, and what it settles is
+  // main's to know: a drag during a call docks the bar to the edge it was
+  // heading for, and every other release has nothing to do.
+  on("vellum:companion:release", z.tuple([]), () => {
+    dockDragTravel = 0;
+    if (docking === null) {
+      return;
+    }
+    dropOnDock(docking);
+  });
 
   /**
    * Talk, delivered to the renderer that can act on it.
@@ -2979,6 +3264,9 @@ export const openCompanionWindow = (): void => {
   win.on("closed", () => {
     cancelGlide();
     callHome = null;
+    // A drag on a window that no longer exists has nothing left to drop.
+    docking = null;
+    closeDockZones();
   });
   // `createFloatingWindow` has already shown it. A surface opened while the
   // app is in front, which is where a sign-in opens it from, goes straight back
@@ -3049,10 +3337,48 @@ export const setCompanionSurfaceSize = (
   size: CompanionSize,
 ): void => {
   writeCompanionSize(axis, size);
+  applyGeometry(
+    geometryFor(
+      readCompanionSize("avatar"),
+      readCompanionSize("options"),
+      canvasDock(),
+    ),
+  );
+};
+
+/**
+ * Rebuild the canvas for the dock the surface is on, if it is not already
+ * built for it.
+ *
+ * The call's way in and out and a drop on another edge all go through here:
+ * each can change which dock the canvas answers for, and only a change that
+ * moves an edge of the canvas is worth a window resize. Answers whether the
+ * canvas was rebuilt, since a rebuild pushes the surface and a caller with a
+ * push of its own to make can then leave it at that.
+ */
+const syncCanvas = (): boolean => {
   const next = geometryFor(
     readCompanionSize("avatar"),
     readCompanionSize("options"),
+    canvasDock(),
   );
+  if (
+    next.canvasHeight === geometry.canvasHeight &&
+    next.riseAbove === geometry.riseAbove
+  ) {
+    return false;
+  }
+  applyGeometry(next);
+  return true;
+};
+
+/**
+ * Swap the canvas for another one built around the same avatar point.
+ *
+ * The surface is not moved by it: the avatar rests exactly where it was, and
+ * the window is placed in the new canvas around that point.
+ */
+const applyGeometry = (next: CompanionGeometry): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     geometry = next;
@@ -3096,11 +3422,13 @@ export const setCompanionSurfaceSize = (
  * pointer. Where the pill rests, for a glide in flight, is where the glide is
  * headed, as every other reader of its resting place has it.
  *
- * During a call the surface is already at this point unless the user dragged
- * it away, and the call is holding the place the pill goes back to when the
- * call ends. A reset asked for mid-call makes the default that place too:
- * the user has just said where the surface belongs, and a call ending by
- * sending it back to wherever it was before would undo that.
+ * During a call the surface is at the edge the bar is docked to unless the
+ * user dragged it away, and the call is holding the place the pill goes back
+ * to when the call ends. A reset asked for mid-call makes the default that
+ * place too, and the bottom the bar's dock again: the user has just said
+ * where the surface belongs, and a call ending by sending it back to wherever
+ * it was before, or the next call standing the bar up on a side, would undo
+ * that.
  *
  * A glide rather than a jump, the way the call moves it, and instant under
  * "Reduce motion" for the same reason.
@@ -3112,11 +3440,15 @@ export const resetCompanionSurfacePosition = (): void => {
   }
   const resting = glide === null ? avatarCentre(win) : glide.to;
   const { workArea } = displayUnder(resting);
-  const home = defaultAvatarCentre(workArea, geometry);
   if (callHome !== null) {
-    callHome = home;
+    // In the ordinary canvas, which the drop on the bottom rebuilds before
+    // it measures the home: the bottom's margin is the same in both, so the
+    // point is the same either way.
+    callHome = defaultAvatarCentre(workArea, geometry);
+    dropOnDock("bottom");
+    return;
   }
-  glideAvatarTo(win, home, workArea);
+  glideAvatarTo(win, defaultAvatarCentre(workArea, geometry), workArea);
 };
 
 /**
