@@ -32,6 +32,7 @@ import { getAttentionStateByConversationIds } from "../persistence/conversation-
 import {
   getAssistantMessageIdsInTurn,
   getMessageById,
+  getMessagesAfter,
   type MessageRow,
 } from "../persistence/conversation-crud.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
@@ -79,20 +80,67 @@ export interface ScheduleResultNotificationParams {
 }
 
 /**
+ * Tool-use ids in this run whose execution reported no error.
+ *
+ * A `tool_use` block records that the model called a tool, never that the
+ * call achieved anything: a send the channel refused, one that failed before
+ * it left, and one that timed out with an unknown outcome all leave the same
+ * block behind. The executor's verdict lands on the `tool_result` the call
+ * produced, so success is read from there.
+ *
+ * The read starts at the run's first row, so it covers the tool-result rows
+ * interleaved through the turn. Rows from a later turn in a reused
+ * conversation can come back too and are harmless: only ids belonging to this
+ * run's own `tool_use` blocks are ever looked up.
+ */
+function collectSucceededToolUseIds(
+  conversationId: string,
+  firstRunRow: MessageRow,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const row of getMessagesAfter(conversationId, {
+    id: firstRunRow.id,
+    createdAt: firstRunRow.createdAt,
+  })) {
+    if (row.role !== "user") {
+      continue;
+    }
+    for (const block of row.content) {
+      // guard:allow-tool-result-only: the local executor's verdict on a
+      // delivery it ran. A server-side `web_search_tool_result` carries no
+      // `is_error` and never delivers anything.
+      if (block.type === "tool_result" && block.is_error !== true) {
+        ids.add(block.tool_use_id);
+      }
+    }
+  }
+  return ids;
+}
+
+/**
  * Whether a tool call in the run's turn delivered the result somewhere the
  * user will see it, outside the notification pipeline.
  *
- * The schedule skill prescribes two such routes for rich content — the
- * messaging tool for email, and the Slack Web API's `chat.postMessage` through
- * bash — and neither writes a `notification_events` row, so the pipeline probe
- * cannot see them. Without this check a well-authored Slack digest would post
- * its summary and then get a second notification whose body is "Posted the
- * digest to #general." This is a recognized-routes list, not a general "did
- * the run do anything?" heuristic: a route that is not here gets the fallback,
- * which is the safe failure.
+ * The schedule skill prescribes two such routes for rich content, the
+ * messaging tool and the Slack Web API's `chat.postMessage` through bash, and
+ * neither writes a `notification_events` row, so the pipeline probe cannot see
+ * them. Without this check a well-authored Slack digest would post its summary
+ * and then get a second notification whose body is "Posted the digest to
+ * #general."
+ *
+ * Two conditions, and both are load-bearing. The route has to be recognized,
+ * because this is a known-routes list rather than a general "did the run do
+ * anything?" heuristic. And the call has to have succeeded, because
+ * suppressing on the attempt alone is how a failed send costs the user both
+ * the digest and the explanation: the run posts nothing, says so in a
+ * conversation nobody has open, and the safety net stays quiet. Either
+ * condition unmet gets the fallback, which is the safe failure.
  */
-function isDirectDelivery(block: ContentBlock): boolean {
-  if (block.type !== "tool_use") {
+function isDirectDelivery(
+  block: ContentBlock,
+  succeededToolUseIds: ReadonlySet<string>,
+): boolean {
+  if (block.type !== "tool_use" || !succeededToolUseIds.has(block.id)) {
     return false;
   }
   if (block.name === "messaging_send") {
@@ -241,7 +289,17 @@ export async function emitScheduleResultNotification(
     // tool, a Slack post through the Web API. The user has the result; a
     // notification reading "posted it" on top would be the duplicate.
     const runRows = collectRunRows(latestRow, conversationId, runStartedAt);
-    if (runRows.some((row) => row.content.some(isDirectDelivery))) {
+    const firstRunRow = runRows[0];
+    const succeededToolUseIds = firstRunRow
+      ? collectSucceededToolUseIds(conversationId, firstRunRow)
+      : new Set<string>();
+    if (
+      runRows.some((row) =>
+        row.content.some((block) =>
+          isDirectDelivery(block, succeededToolUseIds),
+        ),
+      )
+    ) {
       return;
     }
 
