@@ -5,7 +5,10 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { LibraryView } from "@/domains/library/library-view";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
-import { documentEntryState } from "@/utils/document-navigation";
+import {
+  documentEntryState,
+  documentEntryUrl,
+} from "@/utils/document-navigation";
 
 export function LibraryPage() {
   const assistantId = useActiveAssistantId();
@@ -21,7 +24,7 @@ export function LibraryPage() {
 
   const handleOpenDocument = useCallback(
     (documentSurfaceId: string) => {
-      void navigate(routes.document(documentSurfaceId), {
+      void navigate(documentEntryUrl(documentSurfaceId, location.pathname), {
         state: documentEntryState(location, documentSurfaceId),
       });
     },

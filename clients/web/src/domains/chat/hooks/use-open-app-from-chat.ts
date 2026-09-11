@@ -16,15 +16,16 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
-import { routes } from "@/utils/routes";
-import { documentEntryState } from "@/utils/document-navigation";
+import {
+  documentEntryState,
+  documentEntryUrl,
+} from "@/utils/document-navigation";
 
 import {
   documentRequestScope,
   resolveDocumentConversation,
 } from "../document-conversation";
 import {
-  DOCUMENT_RETURN_PARAM,
   documentReturnPath,
   getDocumentConversationRoute,
   navigateToDocumentConversation,
@@ -137,10 +138,7 @@ export function useOpenDocumentFromChat(
             state,
           );
         } else {
-          const params = new URLSearchParams({
-            [DOCUMENT_RETURN_PARAM]: returnTo,
-          });
-          void navigate(`${routes.document(surfaceId)}?${params}`, { state });
+          void navigate(documentEntryUrl(surfaceId, returnTo), { state });
         }
       } catch (error) {
         if (scope.isCurrent()) {

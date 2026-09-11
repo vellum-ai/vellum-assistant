@@ -27,6 +27,8 @@ presentation action, retaining the editor, original return destination and histo
 state. An in-progress session load remains owned by the route.
 The return destination accepts only supported in-app Library/chat paths,
 including the chat router's optional trailing slash.
+Library's optional trailing slash is also preserved, so click-opened document
+sessions can pop back to the exact original entry without duplicating history.
 Return navigation strips that optional slash from the selected conversation ID
 while preserving the destination URL, so returning to the current chat keeps its
 live subagent, workflow and transcript-panel state.
@@ -47,6 +49,10 @@ or Android Back through the same return action as its close button. Other active
 overlays and controls that claim Escape take priority. Loading and failed mobile
 document loads offer Close document; errors also offer Retry. Close cancels the
 pending load and uses the same return destination as a loaded editor.
+The mobile document host registers its header only while it supplies a close
+action. The layout retains its navigation before that registration, including
+authentication, assistant lifecycle and first-message setup screens, and restores
+it when the host unmounts. Registration cleanup preserves a newer header owner.
 Route exit, including browser Back to Library, clears the route-owned document
 target and snapshot. Cleanup checks target reference identity so it preserves a
 newer entry, including one for the same surface, and leaves other active panels

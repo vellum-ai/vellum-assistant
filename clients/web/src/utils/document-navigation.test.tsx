@@ -230,6 +230,7 @@ function renderHistory(initialEntries: string[]) {
 describe("document navigation history", () => {
   test.each([
     "/assistant/library",
+    "/assistant/library/",
     "/assistant/conversations/conv-origin",
     "/assistant/conversations/conv-origin/",
     "/assistant/conversations/conv-linked",
@@ -269,7 +270,11 @@ describe("document navigation history", () => {
     },
   );
 
-  test.each(["/assistant/library", "/assistant/conversations/conv-origin"])(
+  test.each([
+    "/assistant/library",
+    "/assistant/library/",
+    "/assistant/conversations/conv-origin",
+  ])(
     "missing-link recovery preserves the return entry from %s",
     async (origin) => {
       linked = false;

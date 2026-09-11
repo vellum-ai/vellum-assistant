@@ -1,8 +1,10 @@
 import { Button, Notice } from "@vellumai/design-library";
 import { Loader2 } from "lucide-react";
-import type { RefObject } from "react";
+import { useLayoutEffect, type RefObject } from "react";
 
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import {
   useViewerStore,
@@ -41,6 +43,19 @@ export function DocumentChatContent({
   onSubmitFeedback,
 }: DocumentChatContentProps) {
   const { t } = useTranslation("chat");
+  const isMobile = useIsMobile();
+  const registerDocumentHeader =
+    useChatLayoutSlotsStore.use.registerDocumentHeader();
+  const hasEditor =
+    !!assistantId &&
+    document?.source === "document" &&
+    document.surfaceId === surfaceId;
+  const hasCloseAction = loading || !!error || hasEditor;
+  useLayoutEffect(() => {
+    if (isMobile && surfaceId && hasCloseAction) {
+      return registerDocumentHeader(surfaceId);
+    }
+  }, [isMobile, surfaceId, hasCloseAction, registerDocumentHeader]);
   const handleExport = useDocumentPdfExport(
     assistantId,
     surfaceId,
@@ -81,11 +96,7 @@ export function DocumentChatContent({
       </Notice>
     );
   }
-  if (
-    !assistantId ||
-    document?.source !== "document" ||
-    document.surfaceId !== surfaceId
-  ) {
+  if (!hasEditor) {
     return null;
   }
   return (

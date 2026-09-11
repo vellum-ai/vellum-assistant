@@ -107,7 +107,7 @@ import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
-import { getDocumentConversationRoute } from "./document-conversation-navigation";
+import { useDocumentHeaderVisible } from "./hooks/use-document-header-visible";
 import {
   ArchiveAllConfirmDialog,
   useArchiveAllConfirmation,
@@ -965,10 +965,7 @@ export function ChatLayout({
   // attention tracking, message reconciliation) rely on it persisting
   // across route changes.
   const isOnConversationRoute = isConversationPath(location.pathname);
-  const documentHeaderVisible =
-    isMobile &&
-    isOnConversationRoute &&
-    getDocumentConversationRoute(location.search).showingDocument;
+  const documentHeaderVisible = useDocumentHeaderVisible();
   const sidebarActiveConversationId = isOnConversationRoute
     ? (activeConversationId ?? undefined)
     : undefined;

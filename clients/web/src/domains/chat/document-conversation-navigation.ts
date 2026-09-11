@@ -5,16 +5,19 @@ import type { DocumentContent } from "@/types/document-types";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import {
+  DOCUMENT_RETURN_PARAM,
   documentReturnPath,
   hasDocumentReturnEntry,
 } from "@/utils/document-navigation";
 
 import { useUnseenDocumentChangesStore } from "./unseen-document-changes-store";
 
-export { documentReturnPath } from "@/utils/document-navigation";
+export {
+  DOCUMENT_RETURN_PARAM,
+  documentReturnPath,
+} from "@/utils/document-navigation";
 
 export const DOCUMENT_PARAM = "document";
-export const DOCUMENT_RETURN_PARAM = "documentReturn";
 export const DOCUMENT_VIEW_PARAM = "documentView";
 
 export function getDocumentConversationRoute(search: string) {

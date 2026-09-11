@@ -2,15 +2,25 @@ import type { Location } from "react-router";
 
 import { routes } from "@/utils/routes";
 
+export const DOCUMENT_RETURN_PARAM = "documentReturn";
+
 /** Only the two document entry surfaces are valid return destinations. */
 export function documentReturnPath(value?: string | null): string {
   if (
     value === routes.library.root ||
+    value === `${routes.library.root}/` ||
     /^\/assistant\/conversations\/[^/?#\\]+\/?$/.test(value ?? "")
   ) {
     return value!;
   }
   return routes.library.root;
+}
+
+export function documentEntryUrl(surfaceId: string, returnTo: string): string {
+  const params = new URLSearchParams({
+    [DOCUMENT_RETURN_PARAM]: documentReturnPath(returnTo),
+  });
+  return `${routes.document(surfaceId)}?${params}`;
 }
 
 /** Marks a pushed document entry whose previous route is safe to revisit. */
