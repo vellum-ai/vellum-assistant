@@ -44,18 +44,21 @@ window.*.title.bg: Flat Solid
 window.*.label.bg: Parentrelative
 window.*.handle.bg: Flat Solid
 window.*.grip.bg: Flat Solid
-window.*.button.*.bg: Flat Solid
-window.active.title.bg.color: #292930
-window.active.border.color: ${tint("#4a4a54", 0.4)}
-window.active.title.separator.color: ${tint("#202026", 0.4)}
+window.*.button.*.bg: Parentrelative
+window.*.button.*.hover.bg: Flat Solid
+window.*.button.*.pressed.bg: Flat Solid
+window.active.title.bg: Flat Gradient Horizontal
+window.active.title.bg.color: ${tint("#292930", 0.28)}
+window.active.title.bg.colorTo: #292930
+window.active.border.color: #4a4a54
+window.active.title.separator.color: #202026
 window.active.label.text.color: #f0f0f4
 window.active.handle.bg.color: #292930
 window.active.grip.bg.color: #292930
-window.active.button.*.bg.color: #292930
 window.active.button.*.image.color: #d4d4dc
-window.active.button.hover.bg.color: ${tint("#45454f", 0.22)}
-window.active.button.pressed.bg.color: ${tint("#555561", 0.18)}
-window.active.button.disabled.image.color: #62626e
+window.active.button.*.hover.bg.color: ${tint("#45454f", 0.22)}
+window.active.button.*.pressed.bg.color: ${tint("#555561", 0.18)}
+window.active.button.*.disabled.image.color: #62626e
 window.active.button.close.hover.bg.color: #b64150
 window.active.button.close.pressed.bg.color: #963442
 window.inactive.title.bg.color: #232329
@@ -64,11 +67,10 @@ window.inactive.title.separator.color: #202026
 window.inactive.label.text.color: #a6a6b2
 window.inactive.handle.bg.color: #232329
 window.inactive.grip.bg.color: #232329
-window.inactive.button.*.bg.color: #232329
 window.inactive.button.*.image.color: #858592
-window.inactive.button.hover.bg.color: #3b3b45
-window.inactive.button.pressed.bg.color: #4a4a54
-window.inactive.button.disabled.image.color: #565660
+window.inactive.button.*.hover.bg.color: #3b3b45
+window.inactive.button.*.pressed.bg.color: #4a4a54
+window.inactive.button.*.disabled.image.color: #565660
 menu.border.width: 1
 menu.border.color: #4a4a54
 menu.title.bg: Flat Solid
