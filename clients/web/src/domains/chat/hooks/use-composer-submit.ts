@@ -35,6 +35,7 @@ import {
   useQuoteReplyStore,
   type StagedQuote,
 } from "@/domains/chat/quote-reply-store";
+import { finishActiveDictation } from "@/domains/chat/voice/finish-dictation";
 import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { haptic } from "@/utils/haptics";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -125,9 +126,12 @@ export function useComposerSubmit({
   const sendChainRef = useRef<Promise<void>>(Promise.resolve());
   const preparingRef = useRef<symbol | null>(null);
   const sendDisabledRef = useRef(sendDisabled);
+  const editingTarget = isEditing ? editingMessageId : null;
+  const editingTargetRef = useRef(editingTarget);
   useLayoutEffect(() => {
     sendDisabledRef.current = sendDisabled;
-  }, [sendDisabled]);
+    editingTargetRef.current = editingTarget;
+  }, [sendDisabled, editingTarget]);
   const ownerRef = useRef({ assistantId, activeConversationId, mounted: true });
   useLayoutEffect(() => {
     ownerRef.current = { assistantId, activeConversationId, mounted: true };
@@ -148,6 +152,47 @@ export function useComposerSubmit({
   // --- Submit logic -------------------------------------------------------
   const submitMessage = useCallback(
     async (inputOverride?: string, opts?: { bypassSecretCheck?: boolean }) => {
+      if (sendDisabled || preparingRef.current || !ownerRef.current.mounted) {
+        return;
+      }
+      const originatingOwner = ownerRef.current;
+      const editingAtPress = editingTargetRef.current;
+      // A send pressed mid-dictation means "finish, then send". Waiting for
+      // the transcript to land is what keeps the payload equal to what the
+      // user can read: the live partial is not in the draft yet, so sending
+      // first would drop everything spoken since the draft was last written
+      // (LUM-3432). An explicit override is its own payload (a starter
+      // prompt, the secret guard's re-send) and never the live draft, so it
+      // does not wait.
+      if (inputOverride === undefined) {
+        const outcome = await finishActiveDictation();
+        if (outcome === "no-transcript") {
+          // The spoken words did not survive. The draft sitting in the
+          // composer is not what the user asked to send, so leave it intact
+          // rather than sending it in their place.
+          return;
+        }
+        // The wait is long enough for the world to move. The composer is not
+        // keyed by conversation, so a thread switch during it lands the
+        // transcript in the new thread's draft while this closure still
+        // holds the old thread's `sendMessage`: sending now would clear one
+        // thread's draft and deliver it to another. A confirmation or secret
+        // prompt arriving during the wait flips `sendDisabled` for the same
+        // reason, and the prompt gate must win over a send pressed before it
+        // existed. An edit cancelled during the wait (Escape is live again
+        // once the recording has moved to processing) would otherwise still
+        // be undone and re-sent by this closure, which remembers the edit as
+        // it stood at the press. Either way the words stay in the draft for
+        // the user.
+        if (
+          ownerRef.current !== originatingOwner ||
+          !ownerRef.current.mounted ||
+          sendDisabledRef.current ||
+          editingTargetRef.current !== editingAtPress
+        ) {
+          return;
+        }
+      }
       const input = useComposerStore.getState().input;
       const chatAttachments = useComposerStore.getState().attachments;
       const uploadingCount = selectUploadingCount(chatAttachments);
@@ -157,7 +202,7 @@ export function useComposerSubmit({
       const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
       const channelReference = useChannelReferenceStore.getState().reference;
       const trimmed = (inputOverride ?? input).trim();
-      if (sendDisabled || preparingRef.current) {
+      if (sendDisabledRef.current || preparingRef.current) {
         return;
       }
       // A staged channel reference is content in its own right: "look at this
@@ -195,7 +240,6 @@ export function useComposerSubmit({
 
       if (prepareSend) {
         const attempt = Symbol();
-        const originatingOwner = ownerRef.current;
         preparingRef.current = attempt;
         let preparation: ComposerSendPreparation | null = null;
         try {
@@ -205,6 +249,7 @@ export function useComposerSubmit({
             !preparation ||
             !preparation.isCurrent() ||
             sendDisabledRef.current ||
+            editingTargetRef.current !== editingAtPress ||
             owner !== originatingOwner ||
             !owner.mounted ||
             owner.assistantId !== assistantId ||

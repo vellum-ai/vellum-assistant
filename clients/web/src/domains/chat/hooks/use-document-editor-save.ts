@@ -134,6 +134,10 @@ export function useDocumentEditorSave({
               callbacksRef.current.onRenameFailed(error);
             }
           }
+          if (revisionRef.current !== revision) {
+            captureError(error, { context: "documentSaveSupersededRevision" });
+            continue;
+          }
           if (mountedRef.current) {
             setSaveStatus("idle");
           }

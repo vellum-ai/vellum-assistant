@@ -18,6 +18,8 @@ survives refresh without a second chat page, event connection or composer store.
 The return destination accepts only supported in-app Library/chat paths.
 Conversation bootstrap leaves an explicit conversation URL intact, so it does not
 consume the document presentation or return parameters while selecting the chat.
+Chat Info stays mounted while document entry resolves, then closes immediately
+before navigation. Closing it manually cancels the pending entry request.
 
 Documents normally have a conversation: the document upsert API requires a
 nonempty `conversationId`. Opening a document validates that existing link. A
@@ -30,6 +32,9 @@ surface IDs.
 ## Prepare, then use normal chat
 
 `useDocumentEditorSave` serializes title and body writes for the mounted editor.
+If an older write fails while newer edits are pending, the same save drain attempts
+the latest revision, including during close. A failed latest revision rejects
+without repeatedly retrying itself.
 `beginSendPreparation` takes a short editing lease, drains pending writes and
 returns the current saved title/content. The chat submit hook awaits preparation
 before clearing its ordinary draft and attachments, in either presentation.
@@ -37,6 +42,8 @@ A failed save, changed owner,
 closed editor or changed draft cancels preparation without taking the message.
 Feedback uses the saved title. Live-voice entry awaits the same flush before
 starting the conversation session; dictation writes to the existing chat input.
+Sending during dictation finishes the transcript before document preparation.
+An owner change during either wait leaves the message in the ordinary draft.
 
 Once preparation succeeds, `useComposerSubmit` and `useSendMessage` own sending.
 There is no document delivery endpoint, pending-message store, reply watcher or

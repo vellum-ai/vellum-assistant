@@ -65,7 +65,10 @@ export function ChatInfoPanel({
 }: ChatInfoPanelProps) {
   const { t } = useTranslation("chat");
   const { assistantId, conversationId } = payload;
-  const openDocument = useOpenDocumentFromChat(assistantId);
+  const openDocument = useOpenDocumentFromChat(
+    assistantId,
+    useViewerStore.getState().closeChatInfo,
+  );
 
   // No `refreshKey`: the header trigger owns invalidation.
   const {
@@ -132,7 +135,6 @@ export function ChatInfoPanel({
   const handleOpenFile = useCallback(
     (file: ConversationFileAsset) => {
       if (file.kind === "document") {
-        useViewerStore.getState().closeChatInfo();
         void openDocument(file.doc.surfaceId);
         return;
       }

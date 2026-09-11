@@ -1829,11 +1829,6 @@
     "removeBindingAriaLabel": "移除 {label} 綁定",
     "resetShortcutAriaLabel": "將 {label} 重設為預設值"
   },
-  "showTipsRow": {
-    "ariaLabel": "顯示提示",
-    "description": "側邊欄中偶爾出現的提示，會強調您尚未嘗試過的功能。",
-    "label": "顯示提示"
-  },
   "soundsSections": {
     "addSound": "新增音效",
     "allSoundsAdded": "所有音效已新增",

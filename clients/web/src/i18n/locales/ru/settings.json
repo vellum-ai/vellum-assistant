@@ -1834,11 +1834,6 @@
     "removeBindingAriaLabel": "Удалить привязку {label}",
     "resetShortcutAriaLabel": "Сбросить {label} к значению по умолчанию"
   },
-  "showTipsRow": {
-    "ariaLabel": "Показывать подсказки",
-    "description": "Редкие подсказки в боковой панели про функции, которые ещё не использовались.",
-    "label": "Показывать подсказки"
-  },
   "soundsSections": {
     "addSound": "Добавить звук",
     "allSoundsAdded": "Все звуки добавлены",

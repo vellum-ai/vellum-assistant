@@ -1861,11 +1861,6 @@
     "removeBindingAriaLabel": "Remove {label} binding",
     "resetShortcutAriaLabel": "Reset {label} to default"
   },
-  "showTipsRow": {
-    "ariaLabel": "Show tips",
-    "description": "Occasional tips in the sidebar that highlight features you haven't tried yet.",
-    "label": "Show tips"
-  },
   "soundsSections": {
     "addSound": "Add sound",
     "allSoundsAdded": "All sounds added",

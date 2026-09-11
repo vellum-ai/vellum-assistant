@@ -106,6 +106,7 @@ describe("shared document preparation and composer submit", () => {
     flush.mockImplementationOnce(() => saving.promise);
     let pending!: Promise<void>;
     act(() => { pending = result.current.submitMessage(); });
+    await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
     expect(result.current.preparing).toBe(true);
     expect(useComposerStore.getState().input).toBe("Revise this paragraph");
     expect(useComposerStore.getState().attachments).toEqual([ATTACHMENT]);
@@ -153,6 +154,7 @@ describe("shared document preparation and composer submit", () => {
       flush.mockImplementationOnce(() => saving.promise);
       let pending!: Promise<void>;
       act(() => { pending = result.current.submitMessage(); });
+      await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
       act(() => {
         if (change === "assistant") { useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" }); }
         if (change === "conversation") { useConversationStore.setState({ activeConversationId: "conversation-2" }); }
@@ -179,6 +181,7 @@ describe("shared document preparation and composer submit", () => {
       flush.mockImplementationOnce(() => saving.promise);
       let oldPending!: Promise<void>;
       act(() => { oldPending = result.current.submitMessage(); });
+      await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
       const next = {
         assistantId: change === "assistant" ? "assistant-2" : OWNER.assistantId,
         conversationId: change === "conversation" ? "conversation-2" : OWNER.conversationId,
@@ -206,6 +209,7 @@ describe("shared document preparation and composer submit", () => {
     flush.mockImplementationOnce(() => saving.promise);
     let pending!: Promise<void>;
     act(() => { pending = result.current.submitMessage(); });
+    await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
     const other = { ...OWNER, conversationId: "conversation-2" };
     act(() => selectOwner(other));
     rerender({ ...other, sendDisabled: false, showingDocument: true });
@@ -224,11 +228,13 @@ describe("shared document preparation and composer submit", () => {
     flush.mockImplementationOnce(() => second.promise);
     let oldPending!: Promise<void>;
     act(() => { oldPending = result.current.submitMessage(); });
+    await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
     const next = { ...OWNER, surfaceId: "surface-2" };
     act(() => { selectOwner(next); useComposerStore.getState().setInput("New owner message"); });
     rerender({ ...next, sendDisabled: false, showingDocument: true });
     let newPending!: Promise<void>;
     act(() => { newPending = result.current.submitMessage(); });
+    await waitFor(() => expect(flush).toHaveBeenCalledTimes(2));
     await act(async () => { first.resolve(SNAPSHOT); await oldPending; });
     expect(result.current.preparing).toBe(true);
     await act(async () => result.current.submitMessage());

@@ -76,6 +76,30 @@ body {
   100% { width: 0%; margin-left: 100%; }
 }
 
+/* Route pending bar. Held transparent through the delay, so a navigation that
+   resolves inside it never paints anything and only a wait long enough to read
+   as unresponsive shows the bar. */
+.route-pending-indicator {
+  animation: fadeIn 0.2s ease-out 250ms both;
+}
+
+.route-pending-indicator-fill {
+  animation: indeterminate 1.5s ease-in-out infinite;
+}
+
+/* Reduced motion keeps the bar but stops it travelling, so it reads as a
+   static rule. The fill carries its animation in a class rather than an inline
+   style so this can turn it off: an inline `animation` outranks a stylesheet
+   rule. The wrapper's fade is left alone because the delay in it is what keeps
+   a fast navigation from flashing a bar, which is function rather than
+   decoration, and an opacity fade is not the kind of movement this preference
+   is asking to remove. */
+@media (prefers-reduced-motion: reduce) {
+  .route-pending-indicator-fill {
+    animation: none;
+  }
+}
+
 @keyframes fadeInUp {
   0% { transform: translateY(16px); opacity: 0; }
   100% { transform: none; opacity: 1; }

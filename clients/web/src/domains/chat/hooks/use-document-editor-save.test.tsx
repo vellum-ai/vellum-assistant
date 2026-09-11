@@ -5,10 +5,18 @@ import type * as DocumentSave from "@/domains/chat/api/document-save";
 import type { DocumentSaveTarget } from "@/domains/chat/api/document-save";
 import type * as CaptureError from "@/lib/sentry/capture-error";
 
-const saveDocumentContent = mock(async (_target: DocumentSaveTarget, _markdown: string): Promise<void> => {});
+const saveDocumentContent = mock(
+  async (_target: DocumentSaveTarget, _markdown: string): Promise<void> => {},
+);
 const captureError = mock(() => {});
-mock.module("@/domains/chat/api/document-save", (): Partial<typeof DocumentSave> => ({ saveDocumentContent }));
-mock.module("@/lib/sentry/capture-error", (): Partial<typeof CaptureError> => ({ captureError }));
+mock.module(
+  "@/domains/chat/api/document-save",
+  (): Partial<typeof DocumentSave> => ({ saveDocumentContent }),
+);
+mock.module(
+  "@/lib/sentry/capture-error",
+  (): Partial<typeof CaptureError> => ({ captureError }),
+);
 
 const { useDocumentEditorSave } = await import("./use-document-editor-save");
 
@@ -35,7 +43,14 @@ function renderSave() {
   const onRenameSaved = mock(() => {});
   const onRenameFailed = mock((_error: unknown) => {});
   const hook = renderHook(
-    ({ target, content }) => useDocumentEditorSave({ target, content, onRenamed, onRenameSaved, onRenameFailed }),
+    ({ target, content }) =>
+      useDocumentEditorSave({
+        target,
+        content,
+        onRenamed,
+        onRenameSaved,
+        onRenameFailed,
+      }),
     { initialProps: { target: TARGET, content: "Original body" } },
   );
   return { ...hook, onRenamed, onRenameSaved, onRenameFailed };
@@ -56,7 +71,10 @@ describe("useDocumentEditorSave", () => {
   test("flush returns the current snapshot without writing an unchanged document", async () => {
     const { result } = renderSave();
     await act(async () => {
-      expect(await result.current.flushPendingSave()).toEqual({ title: "Notes", content: "Original body" });
+      expect(await result.current.flushPendingSave()).toEqual({
+        title: "Notes",
+        content: "Original body",
+      });
     });
     expect(saveDocumentContent).not.toHaveBeenCalled();
   });
@@ -74,7 +92,10 @@ describe("useDocumentEditorSave", () => {
       first.resolve();
       expect(await saved).toEqual({ title: "Notes", content: "Latest edit" });
     });
-    expect(saveDocumentContent.mock.calls.map((call) => call[1])).toEqual(["First edit", "Latest edit"]);
+    expect(saveDocumentContent.mock.calls.map((call) => call[1])).toEqual([
+      "First edit",
+      "Latest edit",
+    ]);
   });
 
   test("rename waits behind a body save and carries the latest body", async () => {
@@ -91,10 +112,80 @@ describe("useDocumentEditorSave", () => {
     expect(saveDocumentContent).toHaveBeenCalledTimes(1);
     await act(async () => {
       first.resolve();
-      expect(await saved).toEqual({ title: "Renamed notes", content: "Latest edit" });
+      expect(await saved).toEqual({
+        title: "Renamed notes",
+        content: "Latest edit",
+      });
     });
-    expect(saveDocumentContent.mock.calls[1]).toEqual([{ ...TARGET, title: "Renamed notes" }, "Latest edit"]);
+    expect(saveDocumentContent.mock.calls[1]).toEqual([
+      { ...TARGET, title: "Renamed notes" },
+      "Latest edit",
+    ]);
     expect(onRenameSaved).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(["body", "rename", "close"])(
+    "drains a newer %s revision after the in-flight write fails",
+    async (trigger) => {
+      const first = deferred();
+      const latest = deferred();
+      saveDocumentContent
+        .mockImplementationOnce(() => first.promise)
+        .mockImplementationOnce(() => latest.promise);
+      const { result, unmount, onRenameSaved } = renderSave();
+      act(() => result.current.changeContent("First edit"));
+      const firstFlush = result.current.flushPendingSave().catch(() => {});
+      await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+      act(() => {
+        result.current.changeContent("Latest edit");
+        if (trigger === "rename") {
+          result.current.rename("Latest title");
+        }
+      });
+      if (trigger === "body") {
+        // Let the debounce consume its trigger while the first write is pending.
+        await act(
+          async () => new Promise((resolve) => setTimeout(resolve, 1100)),
+        );
+      } else if (trigger === "close") {
+        unmount();
+      }
+      await act(async () => first.reject(new Error("First write failed")));
+      await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(2));
+      expect(saveDocumentContent.mock.calls[1]).toEqual([
+        { ...TARGET, title: trigger === "rename" ? "Latest title" : "Notes" },
+        "Latest edit",
+      ]);
+      if (trigger !== "close") {
+        expect(result.current.saveStatus).toBe("saving");
+      }
+      await act(async () => {
+        latest.resolve();
+        await firstFlush;
+      });
+      if (trigger === "rename") {
+        expect(onRenameSaved).toHaveBeenCalledTimes(1);
+      }
+      if (trigger !== "close") {
+        expect(result.current.saveStatus).toBe("saved");
+      }
+      expect(saveDocumentContent).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  test("a failed latest revision rejects instead of repeatedly retrying itself", async () => {
+    const first = deferred();
+    saveDocumentContent
+      .mockImplementationOnce(() => first.promise)
+      .mockRejectedValueOnce(new Error("Still offline"));
+    const { result } = renderSave();
+    act(() => result.current.rename("First title"));
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    act(() => result.current.rename("Latest title"));
+    await act(async () => first.reject(new Error("First write failed")));
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(2));
+    expect(captureError).toHaveBeenCalled();
+    expect(result.current.saveStatus).toBe("idle");
   });
 
   test("a failed save rejects preparation and retains its body for retry", async () => {
@@ -111,9 +202,15 @@ describe("useDocumentEditorSave", () => {
     });
     expect(result.current.editingLocked).toBe(false);
     await act(async () => {
-      expect(await result.current.flushPendingSave()).toEqual({ title: "Notes", content: "Keep this edit" });
+      expect(await result.current.flushPendingSave()).toEqual({
+        title: "Notes",
+        content: "Keep this edit",
+      });
     });
-    expect(saveDocumentContent.mock.calls.map((call) => call[1])).toEqual(["Keep this edit", "Keep this edit"]);
+    expect(saveDocumentContent.mock.calls.map((call) => call[1])).toEqual([
+      "Keep this edit",
+      "Keep this edit",
+    ]);
   });
 
   test("failed rename restores the persisted title without dropping body edits", async () => {
@@ -126,9 +223,15 @@ describe("useDocumentEditorSave", () => {
     await waitFor(() => expect(onRenameFailed).toHaveBeenCalledTimes(1));
     expect(onRenamed.mock.calls).toEqual([["Temporary title"], ["Notes"]]);
     await act(async () => {
-      expect(await result.current.flushPendingSave()).toEqual({ title: "Notes", content: "Keep this edit" });
+      expect(await result.current.flushPendingSave()).toEqual({
+        title: "Notes",
+        content: "Keep this edit",
+      });
     });
-    expect(saveDocumentContent.mock.calls[1]).toEqual([TARGET, "Keep this edit"]);
+    expect(saveDocumentContent.mock.calls[1]).toEqual([
+      TARGET,
+      "Keep this edit",
+    ]);
   });
 
   test("a failed older rename cannot roll back a newer title", async () => {
@@ -140,8 +243,15 @@ describe("useDocumentEditorSave", () => {
     act(() => result.current.rename("Latest title"));
     await act(async () => first.reject(new Error("offline")));
     expect(onRenamed.mock.calls).toEqual([["First title"], ["Latest title"]]);
+    expect(saveDocumentContent.mock.calls[1]).toEqual([
+      { ...TARGET, title: "Latest title" },
+      "Original body",
+    ]);
     await act(async () => {
-      expect(await result.current.flushPendingSave()).toEqual({ title: "Latest title", content: "Original body" });
+      expect(await result.current.flushPendingSave()).toEqual({
+        title: "Latest title",
+        content: "Original body",
+      });
     });
   });
 
@@ -158,7 +268,10 @@ describe("useDocumentEditorSave", () => {
     });
     expect(result.current.editingLocked).toBe(true);
     await act(async () => {
-      expect(await first.flush()).toEqual({ title: "Notes", content: "Prepared body" });
+      expect(await first.flush()).toEqual({
+        title: "Notes",
+        content: "Prepared body",
+      });
       first.release();
     });
     expect(result.current.editingLocked).toBe(true);
@@ -167,7 +280,9 @@ describe("useDocumentEditorSave", () => {
     expect(result.current.editingLocked).toBe(false);
     act(() => result.current.changeContent("After release"));
     await act(async () => {
-      expect((await result.current.flushPendingSave()).content).toBe("After release");
+      expect((await result.current.flushPendingSave()).content).toBe(
+        "After release",
+      );
     });
   });
 
@@ -188,7 +303,9 @@ describe("useDocumentEditorSave", () => {
     first.resolve();
     expect(await preparing).toBeInstanceOf(Error);
     expect(oldHandle.beginSendPreparation().isCurrent()).toBe(false);
-    await expect(oldHandle.flushPendingSave()).rejects.toThrow("no longer active");
+    await expect(oldHandle.flushPendingSave()).rejects.toThrow(
+      "no longer active",
+    );
     expect(saveDocumentContent.mock.calls[0]).toEqual([TARGET, "Last edit"]);
   });
 
@@ -207,7 +324,9 @@ describe("useDocumentEditorSave", () => {
     });
     rerender({ target: TARGET, content: "Stale fetched body" });
     await act(async () => {
-      expect((await result.current.flushPendingSave()).content).toBe("Local latest");
+      expect((await result.current.flushPendingSave()).content).toBe(
+        "Local latest",
+      );
     });
     rerender({ target: TARGET, content: "New assistant edit" });
     expect(result.current.editorContent).toBe("New assistant edit");
@@ -216,16 +335,25 @@ describe("useDocumentEditorSave", () => {
   test("a linked conversation update changes subsequent writes without losing edits", async () => {
     const { result, rerender } = renderSave();
     act(() => result.current.changeContent("Pending edit"));
-    rerender({ target: { ...TARGET, conversationId: "conversation-2" }, content: "Original body" });
+    rerender({
+      target: { ...TARGET, conversationId: "conversation-2" },
+      content: "Original body",
+    });
     await act(async () => result.current.flushPendingSave());
-    expect(saveDocumentContent.mock.calls[0]).toEqual([{ ...TARGET, conversationId: "conversation-2" }, "Pending edit"]);
+    expect(saveDocumentContent.mock.calls[0]).toEqual([
+      { ...TARGET, conversationId: "conversation-2" },
+      "Pending edit",
+    ]);
   });
 
   test("a title-only prop change cannot restore the loaded body over saved edits", async () => {
     const { result, rerender } = renderSave();
     act(() => result.current.changeContent("Latest saved edit"));
     await act(async () => result.current.flushPendingSave());
-    rerender({ target: { ...TARGET, title: "Renamed externally" }, content: "Original body" });
+    rerender({
+      target: { ...TARGET, title: "Renamed externally" },
+      content: "Original body",
+    });
     await act(async () => {
       expect(await result.current.flushPendingSave()).toEqual({
         title: "Renamed externally",

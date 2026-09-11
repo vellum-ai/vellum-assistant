@@ -26,6 +26,7 @@ mock.module("../logger.js", () => ({
 import {
   ALL_CREDENTIAL_SPECS,
   readCredential,
+  readCredentialResult,
   readServiceCredentials,
   type ServiceCredentialSpec,
 } from "../credential-reader.js";
@@ -352,6 +353,77 @@ describe("readServiceCredentials", () => {
       } else {
         process.env.CES_SERVICE_TOKEN = previousToken;
       }
+    }
+  });
+});
+
+function withCesEnv(url: string, token: string, run: () => Promise<void>) {
+  const previousUrl = process.env.CES_CREDENTIAL_URL;
+  const previousToken = process.env.CES_SERVICE_TOKEN;
+  process.env.CES_CREDENTIAL_URL = url;
+  process.env.CES_SERVICE_TOKEN = token;
+  return run().finally(() => {
+    if (previousUrl === undefined) {
+      delete process.env.CES_CREDENTIAL_URL;
+    } else {
+      process.env.CES_CREDENTIAL_URL = previousUrl;
+    }
+    if (previousToken === undefined) {
+      delete process.env.CES_SERVICE_TOKEN;
+    } else {
+      process.env.CES_SERVICE_TOKEN = previousToken;
+    }
+  });
+}
+
+describe("readCredentialResult", () => {
+  const account = credentialKey("vellum", "platform_user_id");
+
+  test("CES 5xx does not fall through to keys.enc", async () => {
+    writeEncryptedStore({ [account]: "stale-keys-enc-value" });
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response("internal error", { status: 500 });
+      },
+    });
+    try {
+      await withCesEnv(
+        `http://127.0.0.1:${server.port}`,
+        "test-ces-service-token",
+        async () => {
+          const result = await readCredentialResult(account);
+          expect(result).toEqual({ value: undefined, unreachable: true });
+          expect(await readCredential(account)).toBeUndefined();
+        },
+      );
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("CES 404 falls through to keys.enc", async () => {
+    writeEncryptedStore({ [account]: "keys-enc-value" });
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return Response.json({ error: "not found" }, { status: 404 });
+      },
+    });
+    try {
+      await withCesEnv(
+        `http://127.0.0.1:${server.port}`,
+        "test-ces-service-token",
+        async () => {
+          const result = await readCredentialResult(account);
+          expect(result).toEqual({
+            value: "keys-enc-value",
+            unreachable: false,
+          });
+        },
+      );
+    } finally {
+      server.stop(true);
     }
   });
 });

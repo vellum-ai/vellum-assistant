@@ -47,9 +47,13 @@ export async function openDocumentFromChat(
   await useViewerStore.getState().loadDocument(assistantId, surfaceId);
 }
 
-/** Mobile document entry keeps the linked conversation's ordinary chat session. */
+/**
+ * Mobile document entry keeps the linked conversation's ordinary chat session.
+ * `beforeOpen` dismisses the originating UI only once entry is ready.
+ */
 export function useOpenDocumentFromChat(
   ownerAssistantId?: string,
+  beforeOpen?: () => void,
 ): (surfaceId: string) => Promise<void> {
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantId = ownerAssistantId ?? activeAssistantId;
@@ -69,6 +73,7 @@ export function useOpenDocumentFromChat(
         return;
       }
       if (!isMobile) {
+        beforeOpen?.();
         await openDocumentFromChat(assistantId, surfaceId);
         return;
       }
@@ -97,6 +102,7 @@ export function useOpenDocumentFromChat(
           return;
         }
         const returnTo = documentReturnPath(pathname);
+        beforeOpen?.();
         if (linkedId) {
           navigateToDocumentConversation(
             navigate,
@@ -120,7 +126,7 @@ export function useOpenDocumentFromChat(
         scope.dispose();
       }
     },
-    [assistantId, isMobile, navigate, pathname, t],
+    [assistantId, isMobile, navigate, pathname, t, beforeOpen],
   );
 }
 
