@@ -249,14 +249,19 @@ describe("createResolveToolsCallback — toolContextPin", () => {
     });
   }
 
-  test("control: without a pin, a clientless fork drops every client-gated tool from the wire", () => {
+  test("control: without a pin, a clientless fork drops every client-gated tool but ui_show", () => {
     projectedSkillToolNames = [];
     const resolve = createResolveToolsCallback(
       CLIENT_GATED_DEFS,
       clientlessExecutionCtx(),
     )!;
 
-    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual(["remember"]);
+    // ui_show stays on the wire: background UI surfaces persist and return
+    // instead of awaiting action, so they no longer need a connected client.
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual([
+      "remember",
+      "ui_show",
+    ]);
   });
 
   test("a desktop-source pin restores the host/UI/client tool defs on the wire", () => {
@@ -291,7 +296,11 @@ describe("createResolveToolsCallback — toolContextPin", () => {
       }),
     )!;
 
-    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual(["remember"]);
+    // ui_show survives the clientless pin: it persists and returns.
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual([
+      "remember",
+      "ui_show",
+    ]);
   });
 
   test("invariant: a pinned-in tool is on the wire but can never execute", async () => {
