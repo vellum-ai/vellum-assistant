@@ -3344,6 +3344,7 @@ export async function surfaceProxyResolver(
     const caps = ctx.channelCapabilities;
     if (
       caps &&
+      !ctx.hasNoClient &&
       !caps.supportsDynamicUi &&
       !isSlackTaskProgressUiException(ctx, toolName, input)
     ) {
@@ -3552,11 +3553,12 @@ export async function surfaceProxyResolver(
           : surfaceType === "table"
             ? hasActions
             : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
-    // An explicit `await_action: true` is honored for every other type; an
-    // actionless surface has nothing to await, so it is forced false.
-    const awaitAction = isActionless
-      ? false
-      : ((input.await_action as boolean) ?? isInteractive);
+    // Background turns persist surfaces for a later conversation open and
+    // return immediately. An actionless surface also has nothing to await.
+    const awaitAction =
+      !ctx.hasNoClient &&
+      !isActionless &&
+      ((input.await_action as boolean) ?? isInteractive);
 
     // Only one non-persistent interactive surface at a time. If another
     // surface is already awaiting user input, reject this one so the LLM
