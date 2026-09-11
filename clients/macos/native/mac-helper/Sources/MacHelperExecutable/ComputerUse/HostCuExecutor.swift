@@ -157,6 +157,32 @@ enum HostCuActionRunner {
                 return finish(obs)
             }
 
+            // Stand down while the person at the machine is using it. Both
+            // checks run before the verifier, because it records every action
+            // it allows: a refusal banked there would let three of the retries
+            // this error asks for trip the repeat detector and block the action
+            // for good, long after the user went idle.
+            let standDown: () async -> HostCuResultPayload = {
+                log.info("[\(stepNumber)] Standing down: the user is using the machine")
+                let obs = await buildObservation(
+                    enumerator: enumerator,
+                    screenCapture: screenCapture,
+                    executionResult: nil,
+                    executionError: ExecutorError.userIsActive.errorDescription,
+                    stepNumber: stepNumber,
+                    conversationId: conversationId,
+                    timer: timer
+                )
+                return finish(obs)
+            }
+            let takesOver = ActionExecutor.takesOverFromUser(agentAction.type)
+
+            // Refuse early when we can, which also skips the AX walk that
+            // coordinate resolution would otherwise do on the way to nothing.
+            if takesOver, ActionExecutor.userIsCurrentlyActive() {
+                return await standDown()
+            }
+
             // Resolve element IDs to coordinates if needed
             guard let resolvedAction = await resolveCoordinatesIfNeeded(for: agentAction, enumerator: enumerator, stepNumber: stepNumber) else {
                 let obs = await buildObservation(
@@ -198,6 +224,14 @@ enum HostCuActionRunner {
                     timer: timer
                 )
                 return finish(obs)
+            }
+
+            // Check again. Resolution above awaits an accessibility walk that
+            // can run for seconds, and the machine is not ours during it, so a
+            // person who started typing midway through would otherwise be
+            // interrupted by an action cleared before they touched anything.
+            if takesOver, ActionExecutor.userIsCurrentlyActive() {
+                return await standDown()
             }
 
             // VERIFY (local safety check)
