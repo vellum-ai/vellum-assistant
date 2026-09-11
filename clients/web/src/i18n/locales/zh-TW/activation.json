@@ -1,1 +1,45 @@
-{}
+{
+  "catalog": {
+    "assistantFallback": "你的助理"
+  },
+  "celebration": {
+    "title": "太棒了，全部搞定！",
+    "subtitle": "已完成三項初始任務。隨時可以在這裡查看完整靈感清單。"
+  },
+  "launch": {
+    "failed": "無法啟動任務，請重試。",
+    "noAssistant": "目前未連接任何助理。",
+    "openConversation": "開啟對話",
+    "running": "正在側邊欄中執行",
+    "unknownTask": "該任務已不再可用。"
+  },
+  "menu": {
+    "inspirationList": "靈感清單"
+  },
+  "page": {
+    "loading": "正在載入建議...",
+    "title": "快速入門"
+  },
+  "pill": {
+    "aria": "任務建議，已完成 {total} 項中的 {done} 項",
+    "label": "任務建議",
+    "progress": "{done}/{total}"
+  },
+  "row": {
+    "customLabel": "自訂：",
+    "customPlaceholder": "輸入任何你想嘗試的內容",
+    "done": "已完成",
+    "open": "開啟",
+    "openTask": "開啟 {title}",
+    "send": "傳送",
+    "steps": "{count} 個步驟",
+    "working": "正在處理",
+    "writeYourOwn": "自行撰寫"
+  },
+  "welcome": {
+    "later": "稍後再說",
+    "showFullList": "查看完整清單",
+    "subtitle": "嘗試精選的任務卡片，協助你全面了解助理的強大能力。",
+    "title": "歡迎使用！"
+  }
+}
