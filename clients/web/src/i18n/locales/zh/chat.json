@@ -748,6 +748,16 @@
     "saving": "正在保存…",
     "wordCount": "{count, plural, other {# 个字}}"
   },
+  "documentConversation": {
+    "unavailable": "无法打开文档对话。请重试。",
+    "updateRequired": "请更新助手以开始关联对话。",
+    "prepareFailed": "无法准备文档对话。你的编辑仍然保留。",
+    "feedbackPrompt": "请查看并处理我对“{title}”的评论。",
+    "missing": "此文档的对话不可用。你可以继续编辑或开始新的关联对话。",
+    "start": "开始关联对话",
+    "retry": "重试",
+    "back": "返回"
+  },
   "documentViewerPage": {
     "exportFailed": "导出 PDF 失败",
     "notFound": "未找到文档。"

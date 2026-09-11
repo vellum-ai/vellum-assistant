@@ -39,7 +39,7 @@ import {
 } from "@/domains/chat/hooks/use-conversation-assets";
 import {
   openAppFromChat,
-  openDocumentFromChat,
+  useOpenDocumentFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
@@ -65,6 +65,7 @@ export function ChatInfoPanel({
 }: ChatInfoPanelProps) {
   const { t } = useTranslation("chat");
   const { assistantId, conversationId } = payload;
+  const openDocument = useOpenDocumentFromChat(assistantId);
 
   // No `refreshKey`: the header trigger owns invalidation.
   const {
@@ -132,13 +133,13 @@ export function ChatInfoPanel({
     (file: ConversationFileAsset) => {
       if (file.kind === "document") {
         useViewerStore.getState().closeChatInfo();
-        void openDocumentFromChat(assistantId, file.doc.surfaceId);
+        void openDocument(file.doc.surfaceId);
         return;
       }
       // The modal sits above the panel, so the panel stays open behind it.
       openPreview(file.attachment, previewIndexById.get(file.id));
     },
-    [assistantId, openPreview, previewIndexById],
+    [openDocument, openPreview, previewIndexById],
   );
 
   const categoryTitles: Record<ChatInfoCategory, string> = {

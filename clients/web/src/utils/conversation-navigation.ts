@@ -14,6 +14,9 @@ import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
 
 export interface NavigateToConversationOptions {
+  /** An explicit presentation URL for the same conversation. */
+  destination?: string;
+  replace?: boolean;
   /** Anchor the transcript to a specific message on load. */
   messageId?: string;
   /**
@@ -97,11 +100,16 @@ export function navigateToConversation(
   }
   revealConversationView(conversationId);
   useConversationStore.getState().setActiveConversationId(conversationId);
-  void navigate(
-    options?.messageId
+  const destination =
+    options?.destination ??
+    (options?.messageId
       ? routes.conversationAtMessage(conversationId, options.messageId)
-      : routes.conversation(conversationId),
-  );
+      : routes.conversation(conversationId));
+  if (options?.replace) {
+    void navigate(destination, { replace: true });
+  } else {
+    void navigate(destination);
+  }
 }
 
 /**

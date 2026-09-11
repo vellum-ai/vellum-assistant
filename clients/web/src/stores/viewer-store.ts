@@ -200,6 +200,7 @@ export interface OpenedAppState {
  */
 export interface OpenedDbDocumentState {
   source: "document";
+  assistantId?: string;
   surfaceId: string;
   conversationId: string;
   documentName: string;

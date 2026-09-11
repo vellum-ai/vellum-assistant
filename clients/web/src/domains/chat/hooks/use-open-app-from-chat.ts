@@ -6,11 +6,28 @@
  * helper to the active assistant, for the surfaces that do not name one.
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { useLocation, useNavigate } from "react-router";
+import { toast } from "@vellumai/design-library/components/toast";
 
+import { documentsByIdGet } from "@/generated/daemon/sdk.gen";
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
+import { routes } from "@/utils/routes";
+
+import {
+  documentRequestScope,
+  resolveDocumentConversation,
+} from "../document-conversation";
+import {
+  DOCUMENT_RETURN_PARAM,
+  documentReturnPath,
+  navigateToDocumentConversation,
+} from "../document-conversation-navigation";
 
 /** Opens `appId` under `assistantId` in the viewer panel. */
 export async function openAppFromChat(
@@ -28,6 +45,83 @@ export async function openDocumentFromChat(
 ): Promise<void> {
   haptic.light();
   await useViewerStore.getState().loadDocument(assistantId, surfaceId);
+}
+
+/** Mobile document entry keeps the linked conversation's ordinary chat session. */
+export function useOpenDocumentFromChat(
+  ownerAssistantId?: string,
+): (surfaceId: string) => Promise<void> {
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const assistantId = ownerAssistantId ?? activeAssistantId;
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const { t } = useTranslation("chat");
+  const requestRef = useRef<ReturnType<typeof documentRequestScope> | null>(
+    null,
+  );
+
+  useEffect(() => () => requestRef.current?.dispose(), [assistantId, pathname]);
+
+  return useCallback(
+    async (surfaceId) => {
+      if (!assistantId) {
+        return;
+      }
+      if (!isMobile) {
+        await openDocumentFromChat(assistantId, surfaceId);
+        return;
+      }
+      requestRef.current?.dispose();
+      const scope = documentRequestScope(assistantId);
+      requestRef.current = scope;
+      if (!scope.isCurrent()) {
+        scope.dispose();
+        return;
+      }
+      haptic.light();
+      try {
+        const { data } = await documentsByIdGet({
+          path: { assistant_id: assistantId, id: surfaceId },
+          throwOnError: true,
+        });
+        if (!scope.isCurrent()) {
+          return;
+        }
+        const linkedId = await resolveDocumentConversation({
+          assistantId,
+          document: data,
+          isCurrent: scope.isCurrent,
+        });
+        if (!scope.isCurrent()) {
+          return;
+        }
+        const returnTo = documentReturnPath(pathname);
+        if (linkedId) {
+          navigateToDocumentConversation(
+            navigate,
+            data,
+            linkedId,
+            assistantId,
+            returnTo,
+          );
+        } else {
+          const params = new URLSearchParams({
+            [DOCUMENT_RETURN_PARAM]: returnTo,
+          });
+          void navigate(`${routes.document(surfaceId)}?${params}`);
+        }
+      } catch (error) {
+        if (scope.isCurrent()) {
+          captureError(error, { context: "open_document_from_chat" });
+          toast.error(t("documentConversation.unavailable"));
+        }
+      } finally {
+        scope.dispose();
+      }
+    },
+    [assistantId, isMobile, navigate, pathname, t],
+  );
 }
 
 /**

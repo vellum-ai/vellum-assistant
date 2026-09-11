@@ -751,6 +751,16 @@
     "saving": "Guardando…",
     "wordCount": "{count, plural, one {# palabra} other {# palabras}}"
   },
+  "documentConversation": {
+    "unavailable": "No se puede abrir la conversación del documento. Inténtalo de nuevo.",
+    "updateRequired": "Actualiza tu asistente para iniciar una conversación vinculada.",
+    "prepareFailed": "No se pudo preparar la conversación del documento. Tus cambios siguen disponibles.",
+    "feedbackPrompt": "Revisa y atiende mis comentarios sobre \"{title}\".",
+    "missing": "La conversación de este documento no está disponible. Puedes seguir editando o iniciar una nueva conversación vinculada.",
+    "start": "Iniciar una conversación vinculada",
+    "retry": "Intentar de nuevo",
+    "back": "Volver"
+  },
   "documentViewerPage": {
     "exportFailed": "No se pudo exportar el PDF",
     "notFound": "Documento no encontrado."

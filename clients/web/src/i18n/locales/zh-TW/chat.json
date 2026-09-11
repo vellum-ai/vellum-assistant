@@ -748,6 +748,16 @@
     "saving": "正在儲存…",
     "wordCount": "{count, plural, other {# 個字}}"
   },
+  "documentConversation": {
+    "unavailable": "無法開啟文件對話。請再試一次。",
+    "updateRequired": "請更新助理以開始連結對話。",
+    "prepareFailed": "無法準備文件對話。你的編輯仍然保留。",
+    "feedbackPrompt": "請查看並處理我對「{title}」的評論。",
+    "missing": "此文件的對話無法使用。你可以繼續編輯或開始新的連結對話。",
+    "start": "開始連結對話",
+    "retry": "再試一次",
+    "back": "返回"
+  },
   "documentViewerPage": {
     "exportFailed": "匯出 PDF 失敗",
     "notFound": "找不到文件。"
