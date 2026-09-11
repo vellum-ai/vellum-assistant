@@ -4,7 +4,11 @@ import { reloadMcpServers } from "../daemon/mcp-reload-service.js";
 import { Mutex } from "../util/mutex.js";
 import { withMcpConfigWrite } from "./config-write-lock.js";
 import { withMcpCredentialLock } from "./credential-coordination.js";
-import { cancelCurrentMcpAuth, getMcpAuthState } from "./mcp-auth-state.js";
+import {
+  cancelCurrentMcpAuth,
+  getMcpAuthState,
+  setMcpAuthCancellationCleanupPending,
+} from "./mcp-auth-state.js";
 import { deleteMcpHeaders } from "./mcp-header-store.js";
 import { publishMcpChanged } from "./sync.js";
 
@@ -55,18 +59,26 @@ export async function cancelMcpConnectionAttempt(
   const { deleteMcpOAuthCredentials } = await import("./mcp-oauth-provider.js");
   return withMcpCredentialLock(serverId, async (lease) => {
     const state = getMcpAuthState(serverId);
-    if (state?.status !== "pending" || state.attemptId !== attemptId) {
+    if (
+      state?.attemptId !== attemptId ||
+      !(
+        state.status === "pending" ||
+        (state.status === "error" && state.cancellationCleanupPending)
+      )
+    ) {
       return false;
     }
     cancelCurrentMcpAuth(serverId);
+    setMcpAuthCancellationCleanupPending(serverId, attemptId, true);
     lease.advance();
     try {
       const result = await deleteMcpOAuthCredentials(serverId);
       if (!result.ok) {
         throw new Error(
-          "Authorization cancelled, but credential cleanup failed; retry disconnecting",
+          "Authorization cancelled, but credential cleanup failed; retry cancelling",
         );
       }
+      setMcpAuthCancellationCleanupPending(serverId, attemptId, false);
       return true;
     } finally {
       lease.advance();
@@ -101,6 +113,17 @@ export async function teardownMcpConnection(
               `Credential cleanup failed (${failed.join(
                 ", ",
               )}); retry disconnecting`,
+              false,
+            );
+          }
+          const authState = getMcpAuthState(serverId);
+          if (
+            authState?.status === "error" &&
+            authState.cancellationCleanupPending
+          ) {
+            setMcpAuthCancellationCleanupPending(
+              serverId,
+              authState.attemptId,
               false,
             );
           }

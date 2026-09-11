@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
 
@@ -302,6 +302,119 @@ describe("MCP connection teardown", () => {
           ? ["mcp:example:client_binding", "mcp:example:headers"]
           : ["mcp:example:headers"],
       );
+    },
+  );
+  test("failed cancellation retries the same attempt after the status grace period", async () => {
+    setMcpAuthPending("example", "https://auth.example.com", "retry-attempt");
+    const close = mock(() => {});
+    registerMcpAuthCancellation("example", "retry-attempt", close);
+    failedKeys.add("mcp:example:client_binding");
+    const request = { serverId: "example", attemptId: "retry-attempt" };
+    await expect(handler("internal_mcp_auth_cancel", request)).rejects.toThrow(
+      "retry cancelling",
+    );
+
+    const clock = spyOn(Date, "now").mockReturnValue(Date.now() + 120_000);
+    try {
+      expect(getMcpAuthState("example")).toMatchObject({
+        status: "error",
+        attemptId: "retry-attempt",
+        cancellationCleanupPending: true,
+      });
+      const entered = deferred();
+      const release = deferred();
+      failedKeys.clear();
+      deleteHook = async (key) => {
+        if (key.endsWith(":client_binding")) {
+          entered.resolve();
+          await release.promise;
+        }
+      };
+      publishedCredentials.length = 0;
+      const retry = handler("internal_mcp_auth_cancel", request);
+      await entered.promise;
+      expect(credentials.has("mcp:example:client_binding")).toBe(true);
+      expect(publishedCredentials).toHaveLength(0);
+      release.resolve();
+
+      expect(await retry).toEqual({ cancelled: true });
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(publishedCredentials.at(-1)).toEqual(["mcp:example:headers"]);
+      expect(savedServers()).toHaveProperty("example");
+      expect(getMcpAuthState("example")).toMatchObject({
+        cancellationCleanupPending: false,
+      });
+      expect(await handler("internal_mcp_auth_cancel", request)).toEqual({
+        cancelled: false,
+      });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+  test("a stale cleanup retry cannot cancel or clear a newer attempt", async () => {
+    setMcpAuthPending("example", "https://auth.example.com", "failed-attempt");
+    failedKeys.add("mcp:example:tokens");
+    const request = { serverId: "example", attemptId: "failed-attempt" };
+    await expect(handler("internal_mcp_auth_cancel", request)).rejects.toThrow(
+      "credential cleanup failed",
+    );
+    failedKeys.clear();
+    setMcpAuthPending("example", "https://auth.example.com", "new-attempt");
+    const closeNew = mock(() => {});
+    registerMcpAuthCancellation("example", "new-attempt", closeNew);
+    credentials.set("mcp:example:tokens", "new-attempt-token");
+    publishedCredentials.length = 0;
+
+    expect(await handler("internal_mcp_auth_cancel", request)).toEqual({
+      cancelled: false,
+    });
+    expect(closeNew).not.toHaveBeenCalled();
+    expect(credentials.get("mcp:example:tokens")).toBe("new-attempt-token");
+    expect(getMcpAuthState("example")).toMatchObject({
+      status: "pending",
+      attemptId: "new-attempt",
+    });
+    expect(publishedCredentials).toHaveLength(0);
+  });
+  test("an ordinary OAuth error does not authorize cancellation cleanup", async () => {
+    setMcpAuthPending("example", "https://auth.example.com", "error-attempt");
+    setMcpAuthError("example", "Connection cancelled", "error-attempt");
+    const before = [...credentials.entries()];
+    expect(
+      await handler("internal_mcp_auth_cancel", {
+        serverId: "example",
+        attemptId: "error-attempt",
+      }),
+    ).toEqual({ cancelled: false });
+    expect([...credentials.entries()]).toEqual(before);
+  });
+  test.each(["internal_mcp_remove", "internal_mcp_auth_revoke"])(
+    "%s also settles a failed cancellation's cleanup state",
+    async (operation) => {
+      setMcpAuthPending(
+        "example",
+        "https://auth.example.com",
+        "cleanup-attempt",
+      );
+      failedKeys.add("mcp:example:tokens");
+      await expect(
+        handler("internal_mcp_auth_cancel", {
+          serverId: "example",
+          attemptId: "cleanup-attempt",
+        }),
+      ).rejects.toThrow("credential cleanup failed");
+      failedKeys.clear();
+
+      await handler(
+        operation,
+        operation === "internal_mcp_remove"
+          ? { name: "example" }
+          : { serverId: "example" },
+      );
+
+      expect(getMcpAuthState("example")).toMatchObject({
+        cancellationCleanupPending: false,
+      });
     },
   );
   test("concurrent add and remove preserve unrelated configuration writes", async () => {

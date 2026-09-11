@@ -24,6 +24,7 @@ const mockGetMcpAuthState = mock((_serverId: string) => null as unknown);
 mock.module("../mcp/mcp-auth-state.js", () => ({
   cancelCurrentMcpAuth: () => {},
   getMcpAuthState: mockGetMcpAuthState,
+  setMcpAuthCancellationCleanupPending: () => {},
 }));
 
 import { setConfig } from "./helpers/set-config.js";
