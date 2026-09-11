@@ -28,6 +28,8 @@ import { navigateToDocumentConversation } from "../document-conversation-navigat
 import { useUnseenDocumentChangesStore } from "../unseen-document-changes-store";
 import type * as ConversationHistory from "./use-conversation-history";
 import type * as TurnTimeout from "./use-turn-timeout";
+import { DocumentChatContent } from "../components/document-chat-content";
+import type { DocumentViewerContainerHandle } from "../components/document-viewer-container";
 
 const documentData: DocumentContent = {
   success: true,
@@ -123,6 +125,7 @@ function Harness() {
     onboardingDraftConversationIdRef,
   });
   const session = useDocumentConversationRoute();
+  const editorRef = useRef<DocumentViewerContainerHandle>(null);
   const location = useLocation();
   return (
     <>
@@ -133,10 +136,26 @@ function Harness() {
       <div data-testid="status">
         {session.isLoading ? "loading" : (session.error ?? "ready")}
       </div>
-      <button onClick={session.closeDocument}>Close</button>
+      {session.error ? (
+        <DocumentChatContent
+          assistantId="assistant-1"
+          surfaceId={session.surfaceId}
+          document={null}
+          loading={session.isLoading}
+          error={session.error}
+          editorRef={editorRef}
+          onClose={session.closeDocument}
+          onRetry={session.reloadDocument}
+          onSubmitFeedback={() => {}}
+        />
+      ) : (
+        <>
+          <button onClick={session.closeDocument}>Close</button>
+          <button onClick={session.reloadDocument}>Retry</button>
+        </>
+      )}
       <button onClick={session.viewConversation}>View conversation</button>
       <button onClick={session.reopenDocument}>Reopen document</button>
-      <button onClick={session.reloadDocument}>Retry</button>
     </>
   );
 }
@@ -223,6 +242,32 @@ afterEach(() => {
 });
 
 describe("document conversation route", () => {
+  test.each(["offline", "not found"])(
+    "the error surface can close a document after a %s response",
+    async (reason) => {
+      load.mockRejectedValueOnce(
+        Object.assign(new Error(reason), {
+          status: reason === "not found" ? 404 : undefined,
+        }),
+      );
+      const origin = "/assistant/conversations/conv-1";
+      const page = renderRoute("conv-1", true, false, origin);
+      const close = await page.findByRole("button", { name: "Close document" });
+      expect(page.getByRole("button", { name: "Retry" })).toBeTruthy();
+      fireEvent.click(close);
+      await waitFor(() =>
+        expect(page.getByTestId("url").textContent).toBe(origin),
+      );
+      expect(page.queryByRole("alert")).toBeNull();
+      expect(useViewerStore.getState().openedDocumentState).toBeNull();
+      expect(useViewerStore.getState().mainView).toBe("chat");
+      expect(useConversationStore.getState().activeConversationId).toBe(
+        "conv-1",
+      );
+      expect(load).toHaveBeenCalledTimes(1);
+    },
+  );
+
   test("closing returns to the originating conversation with its trailing slash", async () => {
     const origin = "/assistant/conversations/conv-origin/";
     const page = renderRoute("conv-1", true, false, origin);

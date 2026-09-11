@@ -66,7 +66,12 @@ export function DocumentChatContent({
       <Notice
         tone="error"
         actions={
-          <Button onClick={onRetry}>{t("exportProgressModal.retry")}</Button>
+          <>
+            <Button onClick={onRetry}>{t("exportProgressModal.retry")}</Button>
+            <Button variant="outlined" onClick={onClose}>
+              {t("documentViewerContainer.closeDocumentAria")}
+            </Button>
+          </>
         }
       >
         {error}

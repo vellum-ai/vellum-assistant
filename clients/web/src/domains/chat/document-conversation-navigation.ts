@@ -1,4 +1,4 @@
-import type { NavigateFunction } from "react-router";
+import type { Location, NavigateFunction } from "react-router";
 
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DocumentContent } from "@/types/document-types";
@@ -20,6 +20,34 @@ export function getDocumentConversationRoute(search: string) {
       surfaceId !== null && params.get(DOCUMENT_VIEW_PARAM) !== "chat",
     returnTo: documentReturnPath(params.get(DOCUMENT_RETURN_PARAM)),
   };
+}
+
+/** Dismisses the drawer without leaving its conversation or retaining URL intent. */
+export function closeDocumentInConversation(
+  navigate: NavigateFunction,
+  location: Pick<Location, "pathname" | "search" | "hash" | "state">,
+): void {
+  useViewerStore.getState().closeDocument();
+  const params = new URLSearchParams(location.search);
+  const documentParams = [
+    DOCUMENT_PARAM,
+    DOCUMENT_RETURN_PARAM,
+    DOCUMENT_VIEW_PARAM,
+  ];
+  if (!documentParams.some((key) => params.has(key))) {
+    return;
+  }
+  for (const key of documentParams) {
+    params.delete(key);
+  }
+  void navigate(
+    {
+      pathname: location.pathname,
+      search: params.toString(),
+      hash: location.hash,
+    },
+    { replace: true, state: location.state },
+  );
 }
 
 /** Only the two document entry surfaces are valid return destinations. */

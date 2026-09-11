@@ -46,6 +46,7 @@ import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
+import { closeDocumentInConversation } from "../document-conversation-navigation";
 import { skillDetailBackState } from "@/utils/skills";
 
 // Import thunks for the lazy panel chunks, shared by the React.lazy wrappers
@@ -238,8 +239,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   );
 
   const handleCloseDocument = useCallback(() => {
-    useViewerStore.getState().closeDocument();
-  }, []);
+    closeDocumentInConversation(navigate, location);
+  }, [navigate, location]);
 
   const onCloseSubagentDetail = useCallback(() => {
     useViewerStore.getState().closeSubagentDetail();
