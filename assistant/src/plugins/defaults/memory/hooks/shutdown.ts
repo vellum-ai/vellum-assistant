@@ -9,7 +9,7 @@
 
 import type { HookFunction, ShutdownContext } from "@vellumai/plugin-api";
 
-import { stopWorkspaceSkillMdMtimePoll } from "../../../../daemon/skill-memory-refresh.js";
+import { stopWorkspaceSkillMdMtimePoll } from "../skill-md-mtime-poll.js";
 import { stopMemoryWorkerProcess } from "../worker-control.js";
 
 const shutdown: HookFunction<ShutdownContext> = async () => {

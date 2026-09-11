@@ -14,7 +14,7 @@ mock.module("../worker-control.js", () => ({
   },
 }));
 
-mock.module("../../../../daemon/skill-memory-refresh.js", () => ({
+mock.module("../skill-md-mtime-poll.js", () => ({
   stopWorkspaceSkillMdMtimePoll: () => {},
 }));
 
