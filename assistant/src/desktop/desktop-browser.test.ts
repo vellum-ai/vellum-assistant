@@ -336,3 +336,31 @@ test("release uses the Space descriptor after cancellation between keyDown and k
     windowsVirtualKeyCode: 32,
   });
 });
+
+test("hover-triggered navigation prevents mouse press and needs no synthetic button release", async () => {
+  const f = fixture();
+  const state = await f.observe();
+  f.intercept(async (method) => {
+    if (
+      method === "Input.dispatchMouseEvent" &&
+      f.calls.at(-1)?.params?.type === "mouseMoved"
+    ) {
+      f.event("Page.frameNavigated");
+    }
+  });
+  const result = await f.browser.execute(
+    {
+      action: "click",
+      observation_id: String(state.observation_id),
+      ref: "e1",
+    },
+    f.signal,
+  );
+  expect(result.error).toContain("changed after hover");
+  await f.browser.release();
+  expect(
+    f.calls.filter((call) =>
+      ["mousePressed", "mouseReleased"].includes(String(call.params?.type)),
+    ),
+  ).toHaveLength(0);
+});

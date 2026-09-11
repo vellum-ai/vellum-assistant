@@ -109,6 +109,7 @@ export async function dispatchClickAt(
   cdp: CdpClient,
   point: { x: number; y: number },
   signal?: AbortSignal,
+  verifyAfterHover?: () => Promise<void>,
 ): Promise<void> {
   const base = { x: point.x, y: point.y, button: "left", clickCount: 1 };
   await cdp.send(
@@ -116,6 +117,7 @@ export async function dispatchClickAt(
     { ...base, type: "mouseMoved" },
     signal,
   );
+  await verifyAfterHover?.();
   await cdp.send(
     "Input.dispatchMouseEvent",
     { ...base, type: "mousePressed" },
@@ -343,24 +345,6 @@ export async function dispatchKeyPress(
   await cdp.send(
     "Input.dispatchKeyEvent",
     { ...baseParams, type: "keyUp" },
-    signal,
-  );
-}
-
-/** Release a held key using the same descriptor as key presses. */
-export async function dispatchKeyRelease(
-  cdp: CdpClient,
-  key: string,
-  signal?: AbortSignal,
-): Promise<void> {
-  const descriptor = resolveKeyDescriptor(key);
-  await cdp.send(
-    "Input.dispatchKeyEvent",
-    {
-      ...(descriptor ?? { key }),
-      type: "keyUp",
-      text: undefined,
-    },
     signal,
   );
 }

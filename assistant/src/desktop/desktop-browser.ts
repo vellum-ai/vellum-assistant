@@ -6,7 +6,6 @@ import {
   dispatchClickAt,
   dispatchInsertText,
   dispatchKeyPress,
-  dispatchKeyRelease,
   evaluateExpression,
   focusElement,
   scrollIntoViewIfNeeded,
@@ -103,7 +102,7 @@ export class DesktopBrowser {
   private epoch = 0;
   private removeEvents?: () => void;
   private mouse?: { x: number; y: number };
-  private key?: string;
+  private key?: Record<string, unknown>;
 
   constructor(
     private readonly connect: (signal: AbortSignal) => Promise<CdpWsTransport>,
@@ -143,11 +142,7 @@ export class DesktopBrowser {
           );
         }
         if (this.key) {
-          await dispatchKeyRelease(
-            this.client(this.transport, opts.signal),
-            this.key,
-            opts.signal,
-          );
+          await this.transport.send("Input.dispatchKeyEvent", this.key, opts);
         }
       }
     } finally {
@@ -197,12 +192,25 @@ export class DesktopBrowser {
   ): CdpClient {
     const sessionId = this.session;
     return {
-      send: (method, params, callerSignal) => {
+      send: async <T>(
+        method: string,
+        params?: Record<string, unknown>,
+        callerSignal?: AbortSignal,
+      ): Promise<T> => {
         signal.throwIfAborted();
         if (!sessionId || sessionId !== this.session) {
           throw new Error("Desktop tab session changed. Observe again.");
         }
-        return transport.send(
+        if (
+          method === "Input.dispatchMouseEvent" &&
+          params?.type === "mousePressed"
+        ) {
+          this.mouse = { x: Number(params.x), y: Number(params.y) };
+        }
+        if (method === "Input.dispatchKeyEvent" && params?.type === "keyDown") {
+          this.key = { ...params, type: "keyUp", text: undefined };
+        }
+        const result = await transport.send<T>(
           method,
           {
             ...params,
@@ -217,6 +225,16 @@ export class DesktopBrowser {
               : signal,
           },
         );
+        if (
+          method === "Input.dispatchMouseEvent" &&
+          params?.type === "mouseReleased"
+        ) {
+          this.mouse = undefined;
+        }
+        if (method === "Input.dispatchKeyEvent" && params?.type === "keyUp") {
+          this.key = undefined;
+        }
+        return result;
       },
       dispose: () => {},
     };
@@ -540,9 +558,21 @@ export class DesktopBrowser {
               "Use desktop scope for frame clicks; frame coordinates are not desktop coordinates.",
             );
           }
-          this.mouse = point;
-          await dispatchClickAt(cdp, point, signal);
-          this.mouse = undefined;
+          await dispatchClickAt(cdp, point, signal, async () => {
+            const current = await actionableElement(
+              cdp,
+              resolved.object.objectId,
+              false,
+              signal,
+            );
+            if (
+              observation.epoch !== this.epoch ||
+              Math.abs(current.x - point.x) > 1 ||
+              Math.abs(current.y - point.y) > 1
+            ) {
+              throw new Error("Element changed after hover. Observe again.");
+            }
+          });
         } else {
           await focusElement(cdp, backendNodeId, signal);
           const focus = await cdp.send<{ result: { value: boolean } }>(
@@ -560,9 +590,7 @@ export class DesktopBrowser {
           if (action.action === "type") {
             await dispatchInsertText(cdp, action.text, signal);
           } else {
-            this.key = action.key;
             await dispatchKeyPress(cdp, action.key, signal);
-            this.key = undefined;
           }
         }
       }
