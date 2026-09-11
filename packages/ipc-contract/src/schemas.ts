@@ -115,11 +115,22 @@ export const prepareNotificationIdentityPayloadSchema = z
     }
   });
 
-export const resetNotificationIdentitiesPayloadSchema = z.object({
-  scopeId: boundedIdentityString,
-  scopeEpoch: z.number().int().nonnegative().safe(),
-  assistantId: boundedIdentityString.optional(),
-});
+export const resetNotificationIdentitiesPayloadSchema = z
+  .object({
+    scopeId: boundedIdentityString,
+    scopeEpoch: z.number().int().nonnegative().safe(),
+    assistantId: boundedIdentityString.optional(),
+    identityRevision: z.number().int().nonnegative().safe().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.identityRevision !== undefined && !value.assistantId) {
+      context.addIssue({
+        code: "custom",
+        message: "An identity revision requires a targeted assistant reset",
+        path: ["identityRevision"],
+      });
+    }
+  });
 
 export const showNotificationPayloadSchema = z
   .object({

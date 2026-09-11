@@ -805,6 +805,8 @@ export interface ResetNotificationIdentitiesPayload {
   scopeId: string;
   scopeEpoch: number;
   assistantId?: string;
+  /** Revision tombstone for a targeted reset within the current scope epoch. */
+  identityRevision?: number;
 }
 
 export interface NotificationDeliveryIdentifiers {

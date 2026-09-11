@@ -241,8 +241,16 @@ describe("prepared notification identity schemas", () => {
         scopeId: IDENTITY.scopeId,
         scopeEpoch: 3,
         assistantId: IDENTITY.assistantId,
+        identityRevision: 5,
       }).assistantId,
     ).toBe(IDENTITY.assistantId);
+    expect(() =>
+      resetNotificationIdentitiesPayloadSchema.parse({
+        scopeId: IDENTITY.scopeId,
+        scopeEpoch: 3,
+        identityRevision: 5,
+      }),
+    ).toThrow();
   });
 });
 
