@@ -390,13 +390,23 @@ describe("catalog discovery and connection UI", () => {
   });
 
   test("closing the owned popup exposes Retry and can finish after a late callback", async () => {
+    catalog.entries.push(
+      mcpCatalogEntry({ id: "example", displayName: "Example integration" }),
+    );
     await beginFathom();
     popup.closed = true;
-    await screen.findByRole("button", { name: "Retry" });
+    expect(
+      (await screen.findByRole<HTMLButtonElement>("button", { name: "Retry" }))
+        .disabled,
+    ).toBe(false);
     screen.getByText(
       "Finish signing in to Fathom, or retry to open sign-in again. We will keep checking for completed authorization.",
     );
-    row("Fathom").getByRole("button", { name: "Finish connecting" });
+    expect(
+      row("Example integration").getByRole<HTMLButtonElement>("button", {
+        name: "Connect",
+      }).disabled,
+    ).toBe(true);
     expect(cancel).not.toHaveBeenCalled();
     await completeFathom();
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
