@@ -435,6 +435,14 @@ describe("settleRunningReplies", () => {
 });
 
 describe("markReplyRunning", () => {
+  test("records when a persistence echo started the reply", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+
+    getState().markReplyRunning("conv-1", "cm-1", true);
+
+    expect(pendingFor("conv-1")[0]?.persistenceConfirmed).toBe(true);
+  });
+
   test("acknowledges the send carrying the nonce", () => {
     getState().startAwaitingReply("conv-1", "cm-1");
     getState().startAwaitingReply("conv-1", "cm-2");

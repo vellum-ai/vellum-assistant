@@ -62,6 +62,8 @@ export interface PendingDocumentReply {
   clientMessageId?: string;
   /** The persisted row id, or queued request id before that row is written. */
   serverMessageId?: string;
+  /** A history row or user-message echo confirmed persistence. */
+  persistenceConfirmed?: boolean;
   /**
    * The daemon has taken the send in: it echoed the message back as running,
    * or acked it as queued. Until then nothing on the stream speaks for the
@@ -217,9 +219,14 @@ export interface DocumentComposerReplyActions {
    * `conversationId`: it is running, and the next terminal there is its own.
    * When the event or every pending send lacks a nonce, the oldest send not
    * yet acknowledged is the one echoed; a nonce that names none of them is
-   * another client's message.
+   * another client's message. `persistenceConfirmed` distinguishes a row or
+   * echo from a dequeue that only starts the persistence attempt.
    */
-  markReplyRunning: (conversationId: string, clientMessageId?: string) => void;
+  markReplyRunning: (
+    conversationId: string,
+    clientMessageId?: string,
+    persistenceConfirmed?: boolean,
+  ) => void;
   /**
    * The daemon parked the send carrying `clientMessageId` in
    * `conversationId`'s queue, so it is acknowledged but not the one running.
@@ -443,7 +450,12 @@ function carriesNonce(
 function acceptedReply(
   pending: PendingDocumentReply,
   updates: Pick<PendingDocumentReply, "acknowledged" | "queued"> &
-    Partial<Pick<PendingDocumentReply, "queuedOnStream">>,
+    Partial<
+      Pick<
+        PendingDocumentReply,
+        "queuedOnStream" | "persistenceConfirmed"
+      >
+    >,
 ): PendingDocumentReply {
   const { recovering: _recovering, ...rest } = pending;
   return { ...rest, ...updates };
@@ -611,7 +623,11 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       return settled;
     },
 
-    markReplyRunning: (conversationId, clientMessageId) => {
+    markReplyRunning: (
+      conversationId,
+      clientMessageId,
+      persistenceConfirmed = false,
+    ) => {
       set((s) => {
         const pending = s.pendingReplies.get(conversationId);
         if (!pending || pending.length === 0) {
@@ -620,19 +636,30 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         const index = indexOfAwaitedSend(
           pending,
           clientMessageId,
-          pending.findIndex((p) => !p.acknowledged),
+          pending.findIndex(
+            (p) =>
+              !p.acknowledged ||
+              (persistenceConfirmed &&
+                !p.queued &&
+                p.persistenceConfirmed !== true),
+          ),
         );
         if (index === -1) {
           return s;
         }
         const current = pending[index];
-        if (current.acknowledged && !current.queued) {
+        if (
+          current.acknowledged &&
+          !current.queued &&
+          (!persistenceConfirmed || current.persistenceConfirmed === true)
+        ) {
           return s;
         }
         const next = [...pending];
         next[index] = acceptedReply(current, {
           acknowledged: true,
           queued: false,
+          ...(persistenceConfirmed ? { persistenceConfirmed: true } : {}),
         });
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),

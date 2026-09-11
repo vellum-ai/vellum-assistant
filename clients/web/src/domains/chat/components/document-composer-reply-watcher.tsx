@@ -126,25 +126,30 @@ function isPendingReply(
 function correlatedDocumentReplyClientMessageId(
   conversationId: string,
   clientMessageId: string | undefined,
-  serverMessageId: string | undefined,
+  ...serverMessageIds: Array<string | undefined>
 ): string | undefined {
   if (clientMessageId !== undefined) {
     return clientMessageId;
   }
-  if (serverMessageId === undefined) {
+  if (serverMessageIds.every((id) => id === undefined)) {
     return undefined;
   }
   const replyStore = useDocumentComposerReplyStore.getState();
   const pending = replyStore.pendingReplies
     .get(conversationId)
-    ?.find((reply) => reply.serverMessageId === serverMessageId);
+    ?.find(
+      (reply) =>
+        reply.serverMessageId !== undefined &&
+        serverMessageIds.includes(reply.serverMessageId),
+    );
   if (pending?.clientMessageId !== undefined) {
     return pending.clientMessageId;
   }
   return [...replyStore.detachedQueuedSends].find(
     ([, send]) =>
       send.conversationId === conversationId &&
-      send.serverMessageId === serverMessageId,
+      send.serverMessageId !== undefined &&
+      serverMessageIds.includes(send.serverMessageId),
   )?.[0];
 }
 
@@ -265,7 +270,11 @@ export function DocumentComposerReplyWatcher() {
             continue;
           }
           if (message !== undefined && snapshot?.processing === true) {
-            replyStore.markReplyRunning(conversationId, clientMessageId);
+            replyStore.markReplyRunning(
+              conversationId,
+              clientMessageId,
+              true,
+            );
             markProcessingWhenPending(conversationId);
             continue;
           }
@@ -361,13 +370,19 @@ export function DocumentComposerReplyWatcher() {
       if (!event.conversationId) {
         return;
       }
-      rekeyByNonce(event.conversationId, event.clientMessageId);
-      if (event.clientMessageId !== undefined) {
-        acceptCorrelatedRecovery(event.clientMessageId);
+      const clientMessageId = correlatedDocumentReplyClientMessageId(
+        event.conversationId,
+        event.clientMessageId,
+        event.messageId,
+        event.requestId,
+      );
+      rekeyByNonce(event.conversationId, clientMessageId);
+      if (clientMessageId !== undefined) {
+        acceptCorrelatedRecovery(clientMessageId);
       }
       useDocumentComposerReplyStore
         .getState()
-        .markReplyRunning(event.conversationId, event.clientMessageId);
+        .markReplyRunning(event.conversationId, clientMessageId, true);
       markProcessingWhenPending(event.conversationId);
       return;
     }
@@ -522,9 +537,30 @@ export function DocumentComposerReplyWatcher() {
     // dequeue, sends the daemon has not spoken for yet belong to no turn, and
     // a terminal with none of these sends running belongs to a turn started
     // elsewhere.
-    const settled = useDocumentComposerReplyStore
-      .getState()
-      .settleRunningReplies(conversationId);
+    const replyStore = useDocumentComposerReplyStore.getState();
+    const failedBeforePersistence =
+      event.type === "error"
+        ? (replyStore.pendingReplies.get(conversationId) ?? []).filter(
+            (pending) =>
+              pending.acknowledged &&
+              !pending.queued &&
+              pending.persistenceConfirmed !== true &&
+              !pending.recovering &&
+              pending.payload !== undefined,
+          )
+        : [];
+    const settled = replyStore.settleRunningReplies(conversationId);
+    for (const pending of failedBeforePersistence) {
+      if (pending.payload !== undefined) {
+        replyStore.stashFailedSend(
+          pending.payload,
+          pending.clientMessageId,
+        );
+      }
+    }
+    if (failedBeforePersistence.length > 0) {
+      toast.error(t("documentComposer.sendFailed"));
+    }
     const activeAssistantId =
       useResolvedAssistantsStore.getState().activeAssistantId;
     if (activeAssistantId !== null) {

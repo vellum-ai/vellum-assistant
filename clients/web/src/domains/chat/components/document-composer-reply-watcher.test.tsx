@@ -233,6 +233,7 @@ function publishMessageQueuedDeleted(
 function publishUserMessageEcho(
   conversationId: string | undefined,
   clientMessageId?: string,
+  serverMessageId?: string,
 ) {
   act(() => {
     publish("sse.event", {
@@ -243,6 +244,7 @@ function publishUserMessageEcho(
         text: "A note from the document composer.",
         ...(conversationId ? { conversationId } : {}),
         ...(clientMessageId ? { clientMessageId } : {}),
+        ...(serverMessageId ? { requestId: serverMessageId } : {}),
       },
     });
   });
@@ -255,7 +257,7 @@ function publishUserMessageEcho(
 function acknowledgeRunning(conversationId: string, clientMessageId?: string) {
   useDocumentComposerReplyStore
     .getState()
-    .markReplyRunning(conversationId, clientMessageId);
+    .markReplyRunning(conversationId, clientMessageId, true);
 }
 
 function setActiveAssistant(assistantId: string | null) {
@@ -1268,6 +1270,46 @@ describe("DocumentComposerReplyWatcher", () => {
 
       expect(queued("conv-1")).toBe(false);
       expect(awaiting("conv-1")).toBe(true);
+    });
+
+    test("a legacy error recovers a dequeued send that never echoed", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1");
+      publishMessageDequeued("conv-1");
+      publishStreamError("conv-1");
+
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+      expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+    });
+
+    test("a legacy error does not recover a dequeued send that persisted", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .recordReplyServerMessageId("conv-1", "cm-1", "req-conv-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1");
+      publishMessageDequeued("conv-1");
+      publishUserMessageEcho("conv-1", undefined, "req-conv-1");
+      publishStreamError("conv-1");
+
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+      expect(heldFor("surf-1")).toBeUndefined();
+      expect(toastErrorMock).not.toHaveBeenCalled();
+      expect(toastSuccessMock).not.toHaveBeenCalled();
     });
 
     test("a message_requeued for the awaited send re-flags the wait a dequeue cleared", () => {
