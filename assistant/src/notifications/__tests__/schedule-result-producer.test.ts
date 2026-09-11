@@ -278,37 +278,6 @@ describe("emitScheduleResultNotification", () => {
     expect(emitCalls).toHaveLength(0);
   });
 
-  test("stays silent when the run posted through the channel send door", async () => {
-    // The skills now name this door for text, so a run that follows them
-    // must not get a second notification on top of the post it made.
-    turnRows = [
-      makeToolCallRow("bash", {
-        command:
-          'assistant channels send slack C0123456789 --text "the digest"',
-      }),
-    ];
-    assistantRow = makeAssistantRow([
-      { type: "text", text: "Posted the digest to #general." },
-    ] as ContentBlock[]);
-
-    await run();
-
-    expect(emitCalls).toHaveLength(0);
-  });
-
-  test("a chat id or body that merely mentions the words is not a delivery", async () => {
-    turnRows = [
-      makeToolCallRow("bash", {
-        command:
-          'assistant oauth request --provider slack_channel /conversations.history --json \'{"channel":"C1","text":"channels sending update"}\'',
-      }),
-    ];
-
-    await run();
-
-    expect(emitCalls).toHaveLength(1);
-  });
-
   test("still notifies when the run's tool calls were not deliveries", async () => {
     // Bash that reads Slack is not bash that posts to it.
     turnRows = [

@@ -79,29 +79,17 @@ export interface ScheduleResultNotificationParams {
 }
 
 /**
- * The channel send door as a run would invoke it through bash: the CLI, the
- * `channels` group, and the `send` verb, in that order, separated by
- * whitespace. Matched rather than compared because the command carries its
- * arguments inline, and anchored on word boundaries so a chat id or a message
- * body that happens to contain the words does not count as a delivery.
- */
-const CHANNEL_SEND_COMMAND = /\bassistant\s+channels\s+send\b/;
-
-/**
  * Whether a tool call in the run's turn delivered the result somewhere the
  * user will see it, outside the notification pipeline.
  *
- * The skills prescribe three such routes for rich content, and none writes a
- * `notification_events` row, so the pipeline probe cannot see them: the
- * messaging tool, the channel send door through bash, and the Slack Web API's
- * `chat.postMessage` through bash, which the Slack skill keeps only for a
- * shape the door cannot carry. Without this check a well-authored Slack digest
- * would post its summary and then get a second notification whose body is
- * "Posted the digest to #general." This is a recognized-routes list, not a
- * general "did the run do anything?" heuristic: a route that is not here gets
- * the fallback, which is the safe failure. A route the skills start naming has
- * to be added here in the same change, or a run that follows them delivers
- * twice.
+ * The schedule skill prescribes two such routes for rich content — the
+ * messaging tool for email, and the Slack Web API's `chat.postMessage` through
+ * bash — and neither writes a `notification_events` row, so the pipeline probe
+ * cannot see them. Without this check a well-authored Slack digest would post
+ * its summary and then get a second notification whose body is "Posted the
+ * digest to #general." This is a recognized-routes list, not a general "did
+ * the run do anything?" heuristic: a route that is not here gets the fallback,
+ * which is the safe failure.
  */
 function isDirectDelivery(block: ContentBlock): boolean {
   if (block.type !== "tool_use") {
@@ -112,11 +100,7 @@ function isDirectDelivery(block: ContentBlock): boolean {
   }
   if (block.name === "bash") {
     const command = (block.input as { command?: unknown } | undefined)?.command;
-    return (
-      typeof command === "string" &&
-      (command.includes("chat.postMessage") ||
-        CHANNEL_SEND_COMMAND.test(command))
-    );
+    return typeof command === "string" && command.includes("chat.postMessage");
   }
   return false;
 }

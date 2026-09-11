@@ -256,4 +256,4 @@ If a Slack API call fails due to missing or invalid credentials -- for example, 
 - For text, including digests, reports, and formatted summaries: the send command, which records what it posted. Markdown is rendered the way a reply is.
 - For a structure markdown cannot express (headers, buttons): `chat.postMessage` with blocks via `assistant oauth request --provider slack_channel`, knowing the post is not recorded.
 - For short alerts: `assistant notifications send` via `bash` is fine -- it lets the notification router pick the best channel
-- For a task that runs on its own: always include an explicit delivery step, otherwise output only lives in the conversation log
+- For a task that runs on its own: the **schedule** skill's Delivering Results section covers how a scheduled run delivers what it produced
