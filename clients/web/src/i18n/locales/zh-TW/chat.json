@@ -827,7 +827,12 @@
     "stepWarmup": "預熱",
     "surfaceVoice": "語音通話攝影機",
     "thresholds": "閾值",
-    "valueAbsent": "無"
+    "valueAbsent": "無",
+    "forcedNoveltyThresholdLabel": "主動請求閾值",
+    "reasonAnswered": "已請求，但上一張相片已包含該內容。",
+    "reasonSettling": "已停止移動，但靜止時間尚不足。",
+    "stepAnswered": "已顯示",
+    "stepSettling": "保持靜止"
   },
   "groupActions": {
     "archiveAll": "全部封存…",
@@ -1930,5 +1935,12 @@
   "assistantSection": {
     "emptyBody": "我隨時都在思考。當有值得您關注的事情時，我會在這裡發起對話。",
     "emptyTitle": "目前還沒有任何想法。"
+  },
+  "assistantSectionToggle": {
+    "hide": "隱藏來自 {name} 的對話",
+    "show": "顯示來自 {name} 的對話"
+  },
+  "coachmarkPress": {
+    "turn": "我點擊了 {label}。接下來呢？"
   }
 }

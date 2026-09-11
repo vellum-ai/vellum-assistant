@@ -3101,7 +3101,7 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("synthesized provider: stays 'processing' during synthesis latency, so barge-in cannot abort an inaudible turn", async () => {
+  test("synthesized provider: stays 'processing' during synthesis latency until the play URL is sent", async () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
@@ -3142,11 +3142,11 @@ describe("call-controller", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     // No audio has reached the caller yet (play URL not sent), so the controller
-    // must stay in `processing` — a barge-in here would abort a turn the caller
-    // cannot hear. See JARVIS-1232.
+    // must stay in `processing`: the state tells the transport nothing is
+    // audible, and only sustained caller speech (the transport's guard) may
+    // cut the inaudible turn off. See JARVIS-1232.
     expect(relay.sentPlayUrls.length).toBe(0);
     expect(controller.getState()).toBe("processing");
-    expect(controller.handleBargeIn()).toBe(false);
 
     // Release audio → play URL sent → turn finishes and returns to idle.
     releaseChunk?.();
@@ -4665,10 +4665,11 @@ describe("call-controller", () => {
       controller.destroy();
     });
 
-    test("handleBargeIn returns false and does not abort while still processing (no output yet)", async () => {
+    test("handleBargeIn accepts a barge-in while still processing and aborts the silent turn", async () => {
       // Simulate a turn stuck waiting for the processing lock: no tokens
-      // emitted, no completion. The controller must stay in `processing` and
-      // NOT flip to `speaking`, so barge-in can't abort a silent turn.
+      // emitted, no completion. The controller stays in `processing`, and a
+      // sustained caller barge-in (the transport's guard has already
+      // vouched for it) cuts the thinking turn off before it speaks.
       mockStartVoiceTurn.mockImplementation(
         async (opts: {
           onTextDelta: (t: string) => void;
@@ -4693,18 +4694,17 @@ describe("call-controller", () => {
 
       const onAccepted = mock(() => {});
       const bargeResult = controller.handleBargeIn(onAccepted);
-      expect(bargeResult).toBe(false);
-      expect(onAccepted).not.toHaveBeenCalled();
-      // Still processing (not aborted), and no interrupt/end-of-turn token sent.
-      expect(controller.getState()).toBe("processing");
+      expect(bargeResult).toBe(true);
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+      // The turn is aborted; nothing was spoken, so no end-of-turn token.
+      expect(controller.getState()).toBe("idle");
       const endTokens = relay.sentTokens.filter(
         (t) => t.last === true && t.token === "",
       );
       expect(endTokens.length).toBe(0);
 
-      // Cleanup: abort the pending turn
-      controller.destroy();
       await turnPromise.catch(() => {});
+      controller.destroy();
     });
 
     test("stays in processing until first token, then flips to speaking and barge-in is accepted", async () => {
@@ -4746,9 +4746,7 @@ describe("call-controller", () => {
         await Promise.resolve();
       }
 
-      // Before any token: processing, barge-in ignored (turn not aborted).
-      expect(controller.getState()).toBe("processing");
-      expect(controller.handleBargeIn()).toBe(false);
+      // Before any token: processing (no audio out yet).
       expect(controller.getState()).toBe("processing");
 
       // Release the first token → controller flips to speaking.
@@ -4766,7 +4764,7 @@ describe("call-controller", () => {
       await turnPromise.catch(() => {});
     });
 
-    test("buffering transport (media-stream): streamed tokens do not flip to speaking; barge-in is rejected and the turn still delivers", async () => {
+    test("buffering transport (media-stream): streamed tokens do not flip to speaking; a barge-in still cuts the thinking turn off", async () => {
       // Simulates the media-stream transport: sendTextToken(.., false)
       // only buffers; audio starts later. The controller must stay in
       // `processing` until the transport's audio-start signal fires, so
@@ -4810,17 +4808,17 @@ describe("call-controller", () => {
       expect(controller.getState()).toBe("processing");
       expect(audioStartCallback).not.toBeNull();
 
-      // VAD speech-start mid-generation → barge-in rejected, turn intact.
-      expect(controller.handleBargeIn()).toBe(false);
-      expect(controller.getState()).toBe("processing");
+      // Sustained caller speech mid-generation: the buffered, unspoken turn
+      // is cut off like a spoken one would be, and its text is discarded.
+      expect(controller.handleBargeIn()).toBe(true);
+      expect(controller.getState()).toBe("idle");
 
-      // The turn completes and delivers its end-of-turn signal.
-      releaseTurn();
-      await turnPromise;
+      await turnPromise.catch(() => {});
+      // No end-of-turn token: nothing had been spoken.
       const endTokens = relay.sentTokens.filter(
         (t) => t.last === true && t.token === "",
       );
-      expect(endTokens.length).toBe(1);
+      expect(endTokens.length).toBe(0);
 
       controller.destroy();
     });

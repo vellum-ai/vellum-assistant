@@ -2398,5 +2398,15 @@
     "setUpTag": "设置",
     "signInTag": "登录",
     "soleProviderHint": "仅 {name} 提供此模型。"
+  },
+  "previewUiChannel": {
+    "description": "在当前浏览器中加载本应用的预览版本。你的助理不会受到影响。",
+    "offAriaLabel": "预览版界面已关闭",
+    "onAriaLabel": "预览版界面已开启",
+    "runningPreview": "当前运行：预览版本 {version}",
+    "runningStable": "当前运行：稳定版本 {version}",
+    "title": "预览版界面",
+    "unavailableHint": "当前未提供预览版本，因此本浏览器仍在使用稳定版本。可在开发者工具中删除 vellum_preview Cookie 以重置。",
+    "versionUnknown": "未知"
   }
 }
