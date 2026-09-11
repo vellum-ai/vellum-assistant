@@ -164,6 +164,7 @@ function renderRoute(
   conversationId = "conv-1",
   showingDocument = true,
   fromLibrary = false,
+  returnTo = "/assistant/library",
 ) {
   const queryClient = new QueryClient();
   return render(
@@ -171,7 +172,7 @@ function renderRoute(
       initialEntries={[
         fromLibrary
           ? "/assistant/library"
-          : `/assistant/conversations/${conversationId}?document=surface-1&documentReturn=%2Fassistant%2Flibrary${showingDocument ? "" : "&documentView=chat"}`,
+          : `/assistant/conversations/${conversationId}?document=surface-1&documentReturn=${encodeURIComponent(returnTo)}${showingDocument ? "" : "&documentView=chat"}`,
       ]}
     >
       <Routes>
@@ -222,6 +223,22 @@ afterEach(() => {
 });
 
 describe("document conversation route", () => {
+  test("closing returns to the originating conversation with its trailing slash", async () => {
+    const origin = "/assistant/conversations/conv-origin/";
+    const page = renderRoute("conv-1", true, false, origin);
+    await waitFor(() =>
+      expect(page.getByTestId("status").textContent).toBe("ready"),
+    );
+    fireEvent.click(page.getByText("Close"));
+    await waitFor(() =>
+      expect(page.getByTestId("url").textContent).toBe(origin),
+    );
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "conv-origin",
+    );
+  });
+
   test("Library entry keeps its document intent when the chat loader mounts", async () => {
     const page = renderRoute("conv-1", true, true);
     fireEvent.click(page.getByText("Open document"));

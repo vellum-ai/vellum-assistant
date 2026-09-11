@@ -143,6 +143,31 @@ describe("document write routes publish documents:list", () => {
     expectDocumentsChanged(events);
   });
 
+  test("an existing document with a missing conversation can save before relinking", async () => {
+    await saveViaRoute();
+    const db = getDb();
+    db.run("PRAGMA foreign_keys = OFF");
+    try {
+      db.run("DELETE FROM conversations");
+    } finally {
+      db.run("PRAGMA foreign_keys = ON");
+    }
+
+    await expect(
+      saveViaRoute({ title: "Renamed notes", content: "Edited body" }),
+    ).resolves.toMatchObject({ success: true, surfaceId: "doc-sync" });
+    createConversation({ id: OTHER_CONVERSATION_ID });
+    await expect(
+      linkViaRoute("doc-sync", OTHER_CONVERSATION_ID),
+    ).resolves.toMatchObject({ success: true });
+    await expect(
+      invoke("getDocument", { pathParams: { id: "doc-sync" } }),
+    ).resolves.toMatchObject({
+      title: "Renamed notes",
+      content: "Edited body",
+    });
+  });
+
   test("a content-only save publishes", async () => {
     // The save moves `updated_at` and the word count, which order and fill the
     // Library and the assets list on every other client. The saving client

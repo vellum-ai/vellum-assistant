@@ -36,18 +36,16 @@ mock.module("@/hooks/use-is-mobile", () => ({
 }));
 const { useOpenDocumentFromChat } = await import("./use-open-app-from-chat");
 
+let originPath = "/assistant/conversations/conv-origin";
 function Wrapper({ children }: PropsWithChildren) {
-  return (
-    <MemoryRouter initialEntries={["/assistant/conversations/conv-origin"]}>
-      {children}
-    </MemoryRouter>
-  );
+  return <MemoryRouter initialEntries={[originPath]}>{children}</MemoryRouter>;
 }
 
 let selection: ReturnType<typeof useResolvedAssistantsStore.getState>;
 let conversation: ReturnType<typeof useConversationStore.getState>;
 let viewer: ReturnType<typeof useViewerStore.getState>;
 beforeEach(() => {
+  originPath = "/assistant/conversations/conv-origin";
   selection = useResolvedAssistantsStore.getState();
   conversation = useConversationStore.getState();
   viewer = useViewerStore.getState();
@@ -67,23 +65,29 @@ afterEach(() => {
 });
 
 describe("mobile chat document entry", () => {
-  test("selects the document's linked conversation and preserves the originating route", async () => {
-    const { result } = renderHook(
-      () => ({ open: useOpenDocumentFromChat(), location: useLocation() }),
-      { wrapper: Wrapper },
-    );
-    await act(() => result.current.open("surface-1"));
-    expect(result.current.location.pathname).toBe(
-      "/assistant/conversations/conv-linked",
-    );
-    expect(
-      new URLSearchParams(result.current.location.search).get("documentReturn"),
-    ).toBe("/assistant/conversations/conv-origin");
-    expect(useConversationStore.getState().activeConversationId).toBe(
-      "conv-linked",
-    );
-    expect(createConversation).not.toHaveBeenCalled();
-  });
+  test.each(["", "/"])(
+    "selects the linked conversation and preserves the origin suffix '%s'",
+    async (suffix) => {
+      originPath += suffix;
+      const { result } = renderHook(
+        () => ({ open: useOpenDocumentFromChat(), location: useLocation() }),
+        { wrapper: Wrapper },
+      );
+      await act(() => result.current.open("surface-1"));
+      expect(result.current.location.pathname).toBe(
+        "/assistant/conversations/conv-linked",
+      );
+      expect(
+        new URLSearchParams(result.current.location.search).get(
+          "documentReturn",
+        ),
+      ).toBe(originPath);
+      expect(useConversationStore.getState().activeConversationId).toBe(
+        "conv-linked",
+      );
+      expect(createConversation).not.toHaveBeenCalled();
+    },
+  );
 
   test("a missing link goes to explicit recovery without creating a conversation", async () => {
     found = false;

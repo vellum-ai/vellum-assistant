@@ -26,7 +26,7 @@ export function getDocumentConversationRoute(search: string) {
 export function documentReturnPath(value?: string | null): string {
   if (
     value === routes.library.root ||
-    /^\/assistant\/conversations\/[^/?#\\]+$/.test(value ?? "")
+    /^\/assistant\/conversations\/[^/?#\\]+\/?$/.test(value ?? "")
   ) {
     return value!;
   }

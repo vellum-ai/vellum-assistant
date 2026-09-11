@@ -15,7 +15,8 @@ Library, chat cards and direct document links use the shared document-conversati
 entry helpers. The conversation URL records the document surface, its return
 destination and whether the document or conversation is visible. This intent
 survives refresh without a second chat page, event connection or composer store.
-The return destination accepts only supported in-app Library/chat paths.
+The return destination accepts only supported in-app Library/chat paths,
+including the chat router's optional trailing slash.
 Conversation bootstrap leaves an explicit conversation URL intact, so it does not
 consume the document presentation or return parameters while selecting the chat.
 Chat Info stays mounted while document entry resolves, then closes immediately
@@ -28,6 +29,9 @@ editor never silently creates a conversation. Repair caches the minted row befor
 linking so a failed link can retry without creating another row. Assistant and
 surface identity scope the entry and editor, including assistants with copied
 surface IDs.
+Updating an existing document's title and body does not require its original
+conversation row to exist. The save upsert preserves its owning ID, so edits can
+flush before the explicit repair action links a replacement conversation.
 
 ## Prepare, then use normal chat
 
