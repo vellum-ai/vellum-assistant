@@ -814,6 +814,45 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("a processMessage turn whose history reload fails puts the resting actor back", async () => {
+    // `processMessage` is the commitment point, so it stamps the slot before
+    // scoping history. A reload that throws starts no turn, and leaving the
+    // stamp would attribute the conversation to a sender that never ran: an
+    // actorless dispatch afterwards (a deferred wake) resolves the resting
+    // slot and would inherit it.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const contact = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "slack" as const,
+      requesterExternalUserId: "U-contact",
+    };
+    conversation.setTrustContext(contact);
+
+    conversation.loadFromDb = async () => {
+      throw new Error("history store exploded");
+    };
+
+    const guardian = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+      requesterExternalUserId: "guardian-principal",
+    };
+    await expect(
+      conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: () => {},
+        requestId: "req-1",
+        trustContext: guardian,
+      }),
+    ).rejects.toThrow("history store exploded");
+
+    expect(conversation.getTrustContext()).toBe(contact);
+    expect(pendingRuns.length).toBe(0);
+  });
+
   test("a processMessage turn keeps its turn-start trust when the slot moves before the loop opens", async () => {
     // processMessage is the third turn entry point, and the one a web turn
     // takes on an idle conversation (the route only enqueues while

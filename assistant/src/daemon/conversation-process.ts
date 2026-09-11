@@ -1840,6 +1840,7 @@ export async function processMessage(
     metadata: callerMetadata,
     trustContext: committingTrustContext,
   } = options;
+  const priorRestingTrust = restingTrust(conversation);
   if (committingTrustContext) {
     conversation.setTrustContext(committingTrustContext);
   }
@@ -1852,7 +1853,24 @@ export async function processMessage(
   // land in.
   const turnTrustContext = restingTrust(conversation);
   conversation.currentTurnTrustContext = turnTrustContext;
-  await conversation.ensureActorScopedHistory();
+  try {
+    await conversation.ensureActorScopedHistory();
+  } catch (err) {
+    // This is the commitment point for the turn, so the stamp above is
+    // correct, but a reload that fails starts no turn: the conversation must
+    // not be left attributed to a sender that never ran. Guarded on identity
+    // so a writer that legitimately moved the slot across the await keeps it.
+    // Only the resting slot needs putting back; `runAgentLoopImpl` re-seeds
+    // the per-turn field at the head of every turn, so no later dispatch can
+    // inherit it.
+    if (
+      committingTrustContext &&
+      restingTrust(conversation) === committingTrustContext
+    ) {
+      conversation.setTrustContext(priorRestingTrust ?? null);
+    }
+    throw err;
+  }
   conversation.currentTurnAuthContext = conversation.authContext;
   conversation.currentTurnSourceActorPrincipalId =
     sourceActorPrincipalId ?? conversation.authContext?.actorPrincipalId;
