@@ -14,6 +14,11 @@ import { build, createServer, type ViteDevServer } from "vite";
 
 import { openApiCodegenPlugin } from "./vite-plugin-openapi-codegen";
 
+const schemas = {
+  assistant: "assistant/openapi.yaml",
+  gateway: "gateway/openapi.json",
+};
+
 let fixture: string;
 let server: ViteDevServer | undefined;
 
@@ -31,9 +36,9 @@ async function setup() {
   );
   const root = path.join(fixture, "clients/web");
   await mkdir(root, { recursive: true });
-  for (const service of ["assistant", "gateway"]) {
+  for (const [service, schema] of Object.entries(schemas)) {
     await mkdir(path.join(fixture, service));
-    await writeFile(path.join(fixture, service, "openapi.yaml"), "initial");
+    await writeFile(path.join(fixture, schema), "initial");
   }
   await writeFile(
     path.join(root, "package.json"),
@@ -41,8 +46,8 @@ async function setup() {
   );
   await writeFile(
     path.join(root, "generate.ts"),
-    `const values = await Promise.all(["assistant", "gateway"].map(service =>
-      Bun.file("../../" + service + "/openapi.yaml").text()));
+    `const values = await Promise.all(["../../assistant/openapi.yaml", "../../gateway/openapi.json"].map(file =>
+      Bun.file(file).text()));
     await Bun.write("client.js", "export const endpoints = " + JSON.stringify(values));`,
   );
   return {
@@ -63,8 +68,8 @@ test("regenerates before serving and after either service schema changes", async
     (await server!.transformRequest("/client.js"))?.code;
   expect(await client()).toContain('"initial"');
 
-  for (const service of ["assistant", "gateway"]) {
-    await writeFile(path.join(fixture, service, "openapi.yaml"), service);
+  for (const [service, schema] of Object.entries(schemas)) {
+    await writeFile(path.join(fixture, schema), service);
     await waitFor(
       async () => expect(await client()).toContain(`"${service}"`),
       {

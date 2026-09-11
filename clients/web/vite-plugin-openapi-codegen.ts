@@ -45,7 +45,7 @@ export function openApiCodegenPlugin(): Plugin {
       inputs = new Set(
         [
           "../../assistant/openapi.yaml",
-          "../../gateway/openapi.yaml",
+          "../../gateway/openapi.json",
           "openapi-schemas/platform.yaml",
           "openapi-schemas/auth.yaml",
           "openapi-ts.config.ts",
