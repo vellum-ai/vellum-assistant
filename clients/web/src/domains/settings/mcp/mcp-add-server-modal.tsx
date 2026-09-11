@@ -73,7 +73,7 @@ export function McpAddServerModal({
   const transportOptionsList = useMemo(() => transportOptions(t), [t]);
 
   const [name, setName] = useState("");
-  const [transportType, setTransportType] = useState<TransportType>("sse");
+  const [transportType, setTransportType] = useState<TransportType>("streamable-http");
   const [url, setUrl] = useState("");
   const [command, setCommand] = useState("");
   const [args, setArgs] = useState("");
@@ -84,7 +84,7 @@ export function McpAddServerModal({
 
   const resetForm = useCallback(() => {
     setName("");
-    setTransportType("sse");
+    setTransportType("streamable-http");
     setUrl("");
     setCommand("");
     setArgs("");

@@ -14,6 +14,7 @@ import { mcpHelp } from "./mcp.help.js";
 interface McpServerEntry {
   id: string;
   status: string;
+  lifecycleState?: string;
   transport: {
     type: string;
     url?: string;
@@ -32,17 +33,28 @@ interface McpServerEntry {
 
 async function pollMcpAuthStatus(
   serverId: string,
-  options: { intervalMs: number; timeoutMs: number },
+  options: { intervalMs: number; timeoutMs: number; attemptId?: string },
 ): Promise<{ status: "complete" | "error"; error?: string }> {
   const deadline = Date.now() + options.timeoutMs;
   while (Date.now() < deadline) {
     await new Promise<void>((resolve) =>
       setTimeout(resolve, options.intervalMs),
     );
-    const result = await cliIpcCall<{ status: string; error?: string }>(
-      "internal_mcp_auth_status",
-      { pathParams: { serverId } },
-    );
+    const result = await cliIpcCall<{
+      status: string;
+      error?: string;
+      attempt_id?: string;
+    }>("internal_mcp_auth_status", { pathParams: { serverId } });
+    if (
+      result.ok &&
+      options.attemptId !== undefined &&
+      result.result?.attempt_id !== options.attemptId
+    ) {
+      return {
+        status: "error",
+        error: `OAuth attempt changed or could not be verified. Run 'assistant mcp auth ${serverId}' to retry.`,
+      };
+    }
     if (result.ok && result.result?.status === "complete") {
       return { status: "complete" };
     }
@@ -78,9 +90,21 @@ async function pollMcpAuthStatus(
 // Display helper for list output
 // ---------------------------------------------------------------------------
 
+const MCP_LIFECYCLE_STATES = new Set([
+  "not-started",
+  "connecting",
+  "connected",
+  "needs-auth",
+  "error",
+  "declared",
+]);
+
 function printServerEntry(entry: McpServerEntry): void {
+  const status = MCP_LIFECYCLE_STATES.has(entry.lifecycleState ?? "")
+    ? entry.lifecycleState
+    : entry.status;
   log.info(`  ${entry.id}`);
-  log.info(`    Status:    ${entry.status}`);
+  log.info(`    Status:    ${status}`);
   // Only plugin-declared servers name a source. A workspace server is the
   // default case and printing "workspace" on every one of them is noise.
   if (entry.source === "plugin") {
@@ -229,10 +253,11 @@ export function registerMcpCommand(program: Command): void {
         );
 
       subcommand(mcp, "auth").action(async (name: string) => {
-        // IPC-first path — attempt daemon-orchestrated flow (works on hosted assistants)
+        // The assistant owns browser authorization, including on hosted instances.
         const startResult = await cliIpcCall<{
           auth_url: string;
           state: string;
+          attempt_id?: string;
           already_authenticated?: boolean;
         }>("internal_mcp_auth_start", { body: { serverId: name } });
 
@@ -252,6 +277,7 @@ export function registerMcpCommand(program: Command): void {
           );
 
           const finalStatus = await pollMcpAuthStatus(name, {
+            attemptId: startResult.result.attempt_id,
             intervalMs: 2_000,
             timeoutMs: 150_000, // matches existing OAUTH_TIMEOUT_MS
           });

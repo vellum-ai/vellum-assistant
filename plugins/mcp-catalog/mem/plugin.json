@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mem",
+  "version": "1.0.0",
+  "description": "Search, create, and organize notes in Mem.",
+  "homepage": "https://docs.mem.ai/mcp/overview",
+  "license": "MIT"
+}

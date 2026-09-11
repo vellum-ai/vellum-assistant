@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "todoist",
+  "version": "1.0.0",
+  "description": "Find and manage tasks, projects, sections, and comments.",
+  "homepage": "https://github.com/Doist/todoist-mcp",
+  "license": "MIT"
+}

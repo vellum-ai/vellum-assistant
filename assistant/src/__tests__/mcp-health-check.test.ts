@@ -4,6 +4,14 @@ const mockConnect = jest.fn();
 const mockDisconnect = jest.fn();
 let mockIsConnected = true;
 let mockLastError: Error | null = null;
+let runtimeState: string | undefined;
+let runtimeDiagnostic: string | undefined;
+mock.module("../mcp/manager.js", () => ({
+  getMcpServerManager: () => ({
+    getServerState: () => runtimeState,
+    getServerDiagnostic: () => runtimeDiagnostic,
+  }),
+}));
 
 mock.module("../mcp/client.js", () => ({
   McpClient: class {
@@ -44,10 +52,6 @@ mock.module("../mcp/mcp-auth-orchestrator.js", () => ({
   }),
 }));
 
-mock.module("../mcp/mcp-auth-state.js", () => ({
-  getMcpAuthState: () => null,
-}));
-
 mock.module("../mcp/mcp-oauth-provider.js", () => ({
   hasMcpOAuthTokens: async () => false,
   deleteMcpOAuthCredentials: async () => ({ ok: true, failedKeys: [] }),
@@ -59,15 +63,18 @@ const listHandler = ROUTES.find(
   (r: { operationId: string }) => r.operationId === "internal_mcp_list",
 )!.handler;
 
-describe("checkServerHealth (via internal_mcp_list route)", () => {
+describe("passive runtime state (via internal_mcp_list route)", () => {
   beforeEach(() => {
     mockConnect.mockReset();
     mockDisconnect.mockReset();
     mockIsConnected = true;
     mockLastError = null;
+    runtimeState = undefined;
+    runtimeDiagnostic = undefined;
   });
 
-  test("returns connected when server connects successfully", async () => {
+  test("returns connected only when runtime reports connected", async () => {
+    runtimeState = "connected";
     mockConnect.mockResolvedValue(undefined);
     mockDisconnect.mockResolvedValue(undefined);
 
@@ -75,10 +82,12 @@ describe("checkServerHealth (via internal_mcp_list route)", () => {
       servers: { status: string }[];
     };
     expect(result.servers[0].status).toBe("connected");
-    expect(mockDisconnect).toHaveBeenCalled();
+    expect(mockDisconnect).not.toHaveBeenCalled();
+    expect(mockConnect).not.toHaveBeenCalled();
   });
 
-  test("returns needs-auth when isConnected is false and no lastError", async () => {
+  test("returns recorded needs-auth state", async () => {
+    runtimeState = "needs-auth";
     mockConnect.mockResolvedValue(undefined);
     mockIsConnected = false;
 
@@ -88,15 +97,79 @@ describe("checkServerHealth (via internal_mcp_list route)", () => {
     expect(result.servers[0].status).toBe("needs-auth");
   });
 
-  test("returns error when connect fails with lastError", async () => {
+  test("returns recorded error state", async () => {
+    runtimeState = "error";
+    runtimeDiagnostic = "connection-failed";
     mockConnect.mockResolvedValue(undefined);
     mockIsConnected = false;
     mockLastError = new Error("Connection refused");
     mockDisconnect.mockResolvedValue(undefined);
 
     const result = (await listHandler({})) as {
-      servers: { status: string }[];
+      servers: { status: string; diagnostic?: string }[];
     };
     expect(result.servers[0].status).toBe("error");
+    expect(result.servers[0].diagnostic).toBe("connection-failed");
+  });
+  test("repeated reads never connect unstarted remote or stdio servers", async () => {
+    const result = (await listHandler({})) as {
+      servers: { status: string; lifecycleState: string }[];
+    };
+    await listHandler({});
+    expect(result.servers[0]).toMatchObject({
+      status: "error",
+      lifecycleState: "not-started",
+    });
+    expect(mockConnect).not.toHaveBeenCalled();
+    expect(mockDisconnect).not.toHaveBeenCalled();
+  });
+  test("connecting is distinct from connected and uses a legacy status", async () => {
+    runtimeState = "connecting";
+    const result = (await listHandler({})) as {
+      servers: { status: string; lifecycleState: string }[];
+    };
+    expect(result.servers[0]).toMatchObject({
+      status: "error",
+      lifecycleState: "connecting",
+    });
+  });
+  test("returns saved catalog provenance without inferring identity for custom entries", async () => {
+    const catalog = {
+      id: "example",
+      serverKey: "example",
+      definitionDigest: "a".repeat(64),
+    };
+    const transport = {
+      type: "streamable-http",
+      url: "https://example.com/mcp",
+    };
+    setConfig("mcp", {
+      servers: { saved: { transport, catalog }, custom: { transport } },
+    });
+    const result = (await listHandler({})) as {
+      servers: { id: string; catalog: unknown }[];
+    };
+    expect(
+      result.servers.find((server) => server.id === "saved")?.catalog,
+    ).toEqual(catalog);
+    expect(
+      result.servers.find((server) => server.id === "custom")?.catalog,
+    ).toBeNull();
+    expect(mockConnect).not.toHaveBeenCalled();
+  });
+  test("advertises actual registration limits without probing connections", async () => {
+    const route = ROUTES.find(
+      (entry) => entry.operationId === "internal_mcp_tools_summary",
+    )!;
+    const result = await route.handler({});
+    const { MCP_MAX_TOOLS_PER_SERVER, MCP_GLOBAL_MAX_TOOLS } =
+      await import("../config/schemas/mcp.js");
+    expect(result).toMatchObject({
+      limits: {
+        perServer: MCP_MAX_TOOLS_PER_SERVER,
+        global: MCP_GLOBAL_MAX_TOOLS,
+      },
+    });
+    expect(mockConnect).not.toHaveBeenCalled();
   });
 });

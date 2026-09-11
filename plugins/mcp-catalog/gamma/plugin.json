@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "gamma",
+  "version": "1.0.0",
+  "description": "Create presentations, documents, and social posts.",
+  "homepage": "https://developers.gamma.app/mcp/gamma-mcp-server.md",
+  "license": "MIT"
+}

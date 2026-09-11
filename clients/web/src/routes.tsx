@@ -52,7 +52,7 @@ function OAuthDesktopCompleteRedirect() {
 }
 
 function McpSettingsRedirect() {
-  return <Navigate to={`${routes.settings.integrations}?tab=mcp`} replace />;
+  return <Navigate to={routes.settings.integrations} replace />;
 }
 
 /**

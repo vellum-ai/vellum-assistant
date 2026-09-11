@@ -267,6 +267,14 @@ legacy branch at the call site.
 A few backwards-compat concerns don't fit the version-gate shape and live
 with the code they protect:
 
+- **MCP authentication cancellation**: `mcp-auth-cancellation.ts` reads the
+  `attempt_id` capability from the actual auth/start response. An assistant
+  that returns it supports cancellation of that exact attempt. Older responses
+  omit it, so the UI offers **Stop waiting**, which only dismisses local polling.
+  This avoids predicting a release floor while supporting same-source local
+  builds. A browser-close or app-resume event only checks progress; the MCP
+  callback has no managed-OAuth deep-link payload.
+
 - **SSE event parsing** — `src/lib/streaming/event-parser.ts` accepts both
   the enveloped event shape of 0.8.5+
   (`{ id, conversationId, seq, emittedAt, message }`) and the flat legacy

@@ -207,26 +207,63 @@ describe("assistant mcp list", () => {
     expect(stdout).toContain("https://example.com/mcp");
   });
 
-  test("prints the status string from the list response", async () => {
-    mockCliIpcCallFn = mock(() =>
-      Promise.resolve({
-        ok: true,
-        result: {
-          servers: [
-            {
-              id: "error-server",
-              status: "error",
-              transport: { type: "sse", url: "https://example.com/sse" },
-            },
-          ],
-        },
-      }),
-    );
+  test.each([undefined, "future-state"])(
+    "falls back to legacy status for lifecycle state %s",
+    async (lifecycleState) => {
+      mockCliIpcCallFn = mock(() =>
+        Promise.resolve({
+          ok: true,
+          result: {
+            servers: [
+              {
+                id: "error-server",
+                status: "error",
+                lifecycleState,
+                transport: { type: "sse", url: "https://example.com/sse" },
+              },
+            ],
+          },
+        }),
+      );
 
-    const { stdout, exitCode } = await runMcpList();
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("error");
-  });
+      const { stdout, exitCode } = await runMcpList();
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("Status:    error");
+    },
+  );
+
+  test.each([
+    "not-started",
+    "connecting",
+    "connected",
+    "needs-auth",
+    "error",
+    "declared",
+  ])(
+    "prefers known lifecycle state %s in human output",
+    async (lifecycleState) => {
+      mockCliIpcCallFn = mock(() =>
+        Promise.resolve({
+          ok: true,
+          result: {
+            servers: [
+              {
+                id: "test-server",
+                status: "legacy-status",
+                lifecycleState,
+                transport: { type: "sse", url: "https://example.com/sse" },
+              },
+            ],
+          },
+        }),
+      );
+
+      const { stdout, exitCode } = await runMcpList();
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain(`Status:    ${lifecycleState}`);
+      expect(stdout).not.toContain("legacy-status");
+    },
+  );
 
   test("shows stdio command info", async () => {
     mockCliIpcCallFn = mock(() =>
@@ -263,7 +300,8 @@ describe("assistant mcp list", () => {
           servers: [
             {
               id: "json-server",
-              status: "✓ Connected",
+              status: "error",
+              lifecycleState: "connecting",
               transport: {
                 type: "streamable-http",
                 url: "https://example.com/mcp",
@@ -280,6 +318,8 @@ describe("assistant mcp list", () => {
     expect(Array.isArray(parsed)).toBe(true);
     expect(parsed).toHaveLength(1);
     expect(parsed[0].id).toBe("json-server");
+    expect(parsed[0].status).toBe("error");
+    expect(parsed[0].lifecycleState).toBe("connecting");
     expect(parsed[0].transport.url).toBe("https://example.com/mcp");
   });
 
@@ -516,7 +556,7 @@ describe("assistant mcp reload", () => {
   });
 });
 
-describe("assistant mcp auth — IPC path", () => {
+describe("assistant mcp auth - IPC path", () => {
   beforeAll(() => {
     testDataDir = join(
       tmpdir(),
@@ -636,6 +676,56 @@ describe("assistant mcp auth — IPC path", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toContain("Authentication successful");
+  });
+
+  test("polling completes when status matches the advertised attempt", async () => {
+    mockCliIpcCallFn = mock((method) =>
+      Promise.resolve({
+        ok: true,
+        result:
+          method === "internal_mcp_auth_start"
+            ? {
+                auth_url: "https://auth.example.com",
+                state: "srv",
+                attempt_id: "attempt-1",
+              }
+            : { status: "complete", attempt_id: "attempt-1" },
+      }),
+    );
+
+    const { exitCode, stdout } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("Authentication successful");
+  });
+
+  test.each([
+    { status: "pending", attempt_id: "attempt-2" },
+    { status: "complete", attempt_id: "attempt-2" },
+    { status: "error", attempt_id: "attempt-2", error: "access_denied" },
+    { status: "complete" },
+  ])("does not adopt status from an unverified attempt: %j", async (status) => {
+    mockCliIpcCallFn = mock((method) =>
+      Promise.resolve({
+        ok: true,
+        result:
+          method === "internal_mcp_auth_start"
+            ? {
+                auth_url: "https://auth.example.com",
+                state: "srv",
+                attempt_id: "attempt-1",
+              }
+            : status,
+      }),
+    );
+
+    const { exitCode, stdout, stderr } = await runMcp("auth", ["srv"]);
+
+    expect(exitCode).toBe(1);
+    expect(stdout).not.toContain("Authentication successful");
+    expect(stderr).toContain("OAuth attempt changed or could not be verified");
+    expect(stderr).toContain("assistant mcp auth srv");
+    expect(mockCliIpcCallFn).toHaveBeenCalledTimes(2);
   });
 
   test("polling error → exits 1 with error message", async () => {

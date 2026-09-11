@@ -1,18 +1,18 @@
 import { Cable } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import type { McpServerEntry, McpToolsSummaryServer } from "./mcp-api";
+import type { McpServerEntry, McpToolLimits, McpToolsSummaryServer } from "./mcp-api";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 import { useTranslation } from "@/i18n";
+import { mcpLifecycleState, supportsMcpAction } from "../integration-items";
 
 type AuthType = "none" | "bearer" | "api-key";
 
-type SettingsTranslate = ReturnType<
-  typeof useTranslation<"settings">
->["t"];
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 
 const AUTH_OPTION_VALUES: AuthType[] = ["none", "bearer", "api-key"];
 
@@ -27,9 +27,28 @@ function authOptionLabel(authType: AuthType, t: SettingsTranslate): string {
   }
 }
 
+function diagnosticMessage(diagnostic: string | undefined, t: SettingsTranslate) {
+  switch (diagnostic) {
+    case "connection-failed":
+      return t("mcpServerDetailModal.connectionFailed");
+    case "authorization-required":
+      return t("mcpServerDetailModal.authorizationRequired");
+    case "tools-discovery-failed":
+      return t("mcpServerDetailModal.toolsDiscoveryFailed");
+    case "connection-closed":
+      return t("mcpServerDetailModal.connectionClosed");
+    default:
+      return undefined;
+  }
+}
+
 interface McpServerDetailModalProps {
   server: McpServerEntry | null;
+  displayName?: string;
   toolsSummary: McpToolsSummaryServer | undefined;
+  toolsLoading?: boolean;
+  toolsError?: boolean;
+  toolLimits?: McpToolLimits;
   onClose: () => void;
   onSave: (
     serverId: string,
@@ -43,7 +62,11 @@ interface McpServerDetailModalProps {
 
 export function McpServerDetailModal({
   server,
+  displayName,
   toolsSummary,
+  toolsLoading = false,
+  toolsError = false,
+  toolLimits,
   onClose,
   onSave,
   isPending,
@@ -57,7 +80,7 @@ export function McpServerDetailModal({
   useEffect(() => {
     if (server) {
       setAuthType(server.authType);
-      // Credential store never returns raw values — reset secret fields.
+      // Credential store never returns raw values. Reset secret fields.
       // Preserve the non-secret header name for API-key auth rotations.
       setBearerToken("");
       setApiKeyHeader(server.authHeaderName ?? "X-API-Key");
@@ -66,7 +89,7 @@ export function McpServerDetailModal({
   }, [server]);
 
   const handleSave = useCallback(() => {
-    if (!server) {
+    if (!server || !supportsMcpAction(server, "configure")) {
       return;
     }
 
@@ -101,14 +124,7 @@ export function McpServerDetailModal({
       name: server.id,
       ...(headers !== undefined ? { headers } : {}),
     });
-  }, [
-    server,
-    authType,
-    bearerToken,
-    apiKeyHeader,
-    apiKeyValue,
-    onSave,
-  ]);
+  }, [server, authType, bearerToken, apiKeyHeader, apiKeyValue, onSave]);
 
   const handleClose = useCallback(() => {
     if (!isPending) {
@@ -119,6 +135,7 @@ export function McpServerDetailModal({
   if (!server) {
     return null;
   }
+  const diagnostic = diagnosticMessage(server.diagnostic, t);
 
   return (
     <Modal.Root
@@ -131,21 +148,25 @@ export function McpServerDetailModal({
     >
       <Modal.Content size="lg">
         <Modal.Header icon={Cable}>
-          <Modal.Title>{server.id}</Modal.Title>
+          <Modal.Title className="[overflow-wrap:anywhere]">
+            {displayName ?? server.id}
+          </Modal.Title>
           <Modal.Description>
             {t("mcpServerDetailModal.description", {
               transport: server.transport.type,
-              status: server.status,
+              status: mcpLifecycleState(server),
             })}
           </Modal.Description>
         </Modal.Header>
 
         <Modal.Body>
           <div className="space-y-5">
-            {server.transport.type !== "stdio" ? (
+            {diagnostic ? <Notice tone="warning">{diagnostic}</Notice> : null}
+            {server.transport.type !== "stdio" &&
+            supportsMcpAction(server, "configure") ? (
               <>
                 {server.hasOAuth ? (
-                  <div className="flex items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2">
                     <span className="text-body-small-default text-[var(--content-secondary)]">
                       {t("mcpServerDetailModal.authentication")}
                     </span>
@@ -196,7 +217,7 @@ export function McpServerDetailModal({
                       onChange={(e) => setBearerToken(e.target.value)}
                       placeholder={
                         server.hasStaticAuth && server.authType === "bearer"
-                          ? t("mcpServerDetailModal.bearerTokenPlaceholderKeep")
+                          ? t("mcpServerDetailModal.savedTokenPlaceholder")
                           : t("mcpServerDetailModal.bearerTokenPlaceholder")
                       }
                       fullWidth
@@ -205,7 +226,7 @@ export function McpServerDetailModal({
                 ) : null}
 
                 {authType === "api-key" && !server.hasOAuth ? (
-                  <div className="flex gap-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div className="flex-1 space-y-1.5">
                       <label
                         className="text-body-small-default text-[var(--content-secondary)]"
@@ -249,58 +270,78 @@ export function McpServerDetailModal({
               </>
             ) : null}
 
-            {toolsSummary && toolsSummary.tools.length > 0 ? (
-              <div className="space-y-2">
-                <h3 className="text-body-medium-default text-[var(--content-default)]">
-                  {t("mcpServerDetailModal.registeredToolsHeading", {
-                    count: toolsSummary.toolCount,
-                  })}
-                </h3>
+            {server.transport.url || server.transport.command ? (
+              <dl className="space-y-1 text-body-small-default">
+                <dt className="text-[var(--content-secondary)]">
+                  {server.transport.type === "stdio"
+                    ? t("mcpServerDetailModal.command")
+                    : t("mcpServerDetailModal.endpoint")}
+                </dt>
+                <dd className="text-[var(--content-tertiary)] [overflow-wrap:anywhere]">
+                  {server.transport.url ?? server.transport.command}
+                </dd>
+              </dl>
+            ) : null}
+
+            <section className="space-y-2">
+              <h3 className="text-body-medium-default text-[var(--content-default)]">
+                {t("mcpServerDetailModal.toolsHeading")}
+              </h3>
+              {toolLimits ? (
                 <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  {t("mcpServerDetailModal.tokenOverhead", {
-                    count: toolsSummary.estimatedTokens.toLocaleString(),
+                  {t("mcpServerDetailModal.toolLimits", {
+                    perServer: toolLimits.perServer,
+                    global: toolLimits.global,
                   })}
                 </p>
-                <div className="max-h-64 overflow-y-auto rounded-lg border border-[var(--border-base)]">
-                  <table className="w-full text-body-small-default">
-                    <thead>
-                      <tr className="border-b border-[var(--border-base)] bg-[var(--surface-base)]">
-                        <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">
-                          {t("mcpServerDetailModal.tableTool")}
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">
-                          {t("mcpServerDetailModal.tableDescription")}
-                        </th>
-                        <th className="px-3 py-2 text-right font-medium text-[var(--content-secondary)]">
-                          {t("mcpServerDetailModal.tableTokens")}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {toolsSummary.tools.map((tool) => (
-                        <tr
-                          key={tool.name}
-                          className="border-b border-[var(--border-base)] last:border-b-0"
-                        >
-                          <td className="px-3 py-2 font-medium text-[var(--content-default)]">
-                            {tool.name}
-                          </td>
-                          <td className="max-w-xs truncate px-3 py-2 text-[var(--content-tertiary)]">
-                            {tool.description ||
-                              t("mcpServerDetailModal.emptyDescription")}
-                          </td>
-                          <td className="px-3 py-2 text-right text-[var(--content-tertiary)]">
-                            {t("mcpServerDetailModal.toolEstimatedTokens", {
-                              count: tool.estimatedTokens.toLocaleString(),
-                            })}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : null}
+              ) : null}
+              {toolsLoading ? (
+                <p
+                  role="status"
+                  className="text-body-small-default text-[var(--content-tertiary)]"
+                >
+                  {t("mcpServerDetailModal.toolsLoading")}
+                </p>
+              ) : toolsError ? (
+                <p
+                  role="alert"
+                  className="text-body-small-default text-[var(--content-tertiary)]"
+                >
+                  {t("mcpServerDetailModal.toolsError")}
+                </p>
+              ) : toolsSummary && toolsSummary.tools.length > 0 ? (
+                <>
+                  <p className="text-body-small-default text-[var(--content-tertiary)]">
+                    {t("mcpServerDetailModal.tokenOverhead", {
+                      count: toolsSummary.estimatedTokens.toLocaleString(),
+                    })}
+                  </p>
+                  <ul className="divide-y divide-[var(--border-base)] rounded-lg border border-[var(--border-base)]">
+                    {toolsSummary.tools.map((tool) => (
+                      <li key={tool.name} className="space-y-1 px-3 py-3">
+                        <p className="text-body-small-default text-[var(--content-default)] [overflow-wrap:anywhere]">
+                          {tool.name}
+                        </p>
+                        {tool.description ? (
+                          <p className="whitespace-pre-wrap text-body-small-default text-[var(--content-secondary)] [overflow-wrap:anywhere]">
+                            {tool.description}
+                          </p>
+                        ) : null}
+                        <p className="text-body-small-default text-[var(--content-tertiary)]">
+                          {t("mcpServerDetailModal.toolEstimatedTokens", {
+                            count: tool.estimatedTokens.toLocaleString(),
+                          })}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  {t("mcpServerDetailModal.toolsEmpty")}
+                </p>
+              )}
+            </section>
           </div>
         </Modal.Body>
 
@@ -308,11 +349,13 @@ export function McpServerDetailModal({
           <Button variant="ghost" onClick={handleClose} disabled={isPending}>
             {t("mcpServerDetailModal.cancel")}
           </Button>
-          <Button variant="primary" onClick={handleSave} disabled={isPending}>
-            {isPending
-              ? t("mcpServerDetailModal.saving")
-              : t("mcpServerDetailModal.save")}
-          </Button>
+          {supportsMcpAction(server, "configure") ? (
+            <Button variant="primary" onClick={handleSave} disabled={isPending}>
+              {isPending
+                ? t("mcpServerDetailModal.saving")
+                : t("mcpServerDetailModal.save")}
+            </Button>
+          ) : null}
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>

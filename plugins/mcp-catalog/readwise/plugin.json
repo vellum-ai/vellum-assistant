@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "readwise",
+  "version": "1.0.0",
+  "description": "Search highlights, documents, and reading notes.",
+  "homepage": "https://docs.readwise.io/tools/mcp",
+  "license": "MIT"
+}

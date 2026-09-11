@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "clay",
+  "version": "1.0.0",
+  "description": "Research, enrich, and update people and company records.",
+  "homepage": "https://university.clay.com/docs/connect-to-clay-mcp",
+  "license": "MIT"
+}

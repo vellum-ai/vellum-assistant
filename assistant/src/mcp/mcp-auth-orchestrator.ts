@@ -1,13 +1,3 @@
-/**
- * Daemon-side orchestrator for MCP OAuth flows.
- *
- * Runs the entire OAuth exchange (callback registration, auth URL capture,
- * code exchange, token persistence) inside the daemon heap so that
- * registerPendingCallback and consumeCallback always execute in the same
- * process.  The CLI receives only the authorization URL via IPC and polls
- * for completion.
- */
-
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -15,7 +5,11 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 import { reloadMcpServers } from "../daemon/mcp-reload-service.js";
 import { getLogger } from "../util/logger.js";
+import { beginMcpConnection } from "./connection-lifecycle.js";
 import {
+  cancelCurrentMcpAuth,
+  clearMcpAuthCancellation,
+  registerMcpAuthCancellation,
   setMcpAuthComplete,
   setMcpAuthError,
   setMcpAuthPending,
@@ -24,6 +18,7 @@ import { getMcpHeaders } from "./mcp-header-store.js";
 import { McpOAuthProvider } from "./mcp-oauth-provider.js";
 
 const log = getLogger("mcp-auth-orchestrator");
+const CALLBACK_TIMEOUT_MS = 2 * 60 * 1000;
 
 export interface McpAuthTransportConfig {
   url: string;
@@ -33,179 +28,119 @@ export interface McpAuthTransportConfig {
 
 export interface OrchestrateMcpOAuthConnectResult {
   auth_url: string;
+  attempt_id: string;
   already_authenticated?: true;
 }
 
-/**
- * Start a daemon-owned MCP OAuth flow.
- *
- * Returns immediately with the authorization URL for the CLI to open in
- * the browser.  The token exchange runs in the background in the daemon heap
- * and updates the in-memory auth state map on completion.
- */
+/** The route holds the server operation lock while preparing authorization. */
 export async function orchestrateMcpOAuthConnect(args: {
   serverId: string;
   transport: McpAuthTransportConfig;
 }): Promise<OrchestrateMcpOAuthConnectResult> {
   const { serverId, transport } = args;
+  cancelCurrentMcpAuth(serverId);
+  await beginMcpConnection(serverId);
+  const attemptId = crypto.randomUUID();
+  setMcpAuthPending(serverId, "", attemptId);
 
   let capturedAuthUrl: string | undefined;
-  const provider = new McpOAuthProvider(
-    serverId,
-    transport.url,
-    /* interactive */ false,
-    {
-      onAuthorizationUrl: (url) => {
-        capturedAuthUrl = url;
-      },
+  const provider = new McpOAuthProvider(serverId, transport.url, false, {
+    requireConfigured: true,
+    onAuthorizationUrl: (url) => {
+      capturedAuthUrl = url;
     },
-  );
-
-  // Re-discover, but keep the client registration. Discovery is a read and
-  // costs a request; registration is a write on the authorization server,
-  // and remaking it per attempt leaves a record behind every time. The
-  // provider drops a stored registration on its own when the redirect URI
-  // or the authorization server it was made against has changed.
-  await provider.invalidateCredentials("discovery");
-
-  // Register the pending callback in the daemon heap
-  const { codePromise } = await provider.startCallbackServer();
-
-  // Resolve effective headers: credential store takes precedence, then config
-  const storedHeaders = await getMcpHeaders(serverId);
-  const effectiveHeaders = storedHeaders ?? transport.headers;
-
-  // Build the MCP transport and client
-  const serverUrl = new URL(transport.url);
-  const TransportClass =
-    transport.type === "sse"
-      ? SSEClientTransport
-      : StreamableHTTPClientTransport;
-  const mcpTransport = new TransportClass(serverUrl, {
-    authProvider: provider,
-    requestInit: effectiveHeaders ? { headers: effectiveHeaders } : undefined,
   });
   const client = new Client({ name: "vellum-assistant", version: "1.0.0" });
+  registerMcpAuthCancellation(serverId, attemptId, () => provider.close());
+
+  const close = async (): Promise<void> => {
+    clearMcpAuthCancellation(serverId, attemptId);
+    provider.close();
+    try {
+      await client.close();
+    } catch (err) {
+      log.debug({ err, serverId }, "MCP OAuth transport close failed");
+    }
+  };
 
   try {
-    await client.connect(mcpTransport);
-    // No error — server is already authenticated
-    provider.stopCallbackServer();
+    // Discovery is refreshed while a valid client registration is retained.
+    await provider.invalidateCredentials("discovery");
+    const { codePromise } = await provider.startCallbackServer();
+    const storedHeaders = await getMcpHeaders(serverId);
+    const effectiveHeaders = storedHeaders ?? transport.headers;
+    const TransportClass =
+      transport.type === "sse"
+        ? SSEClientTransport
+        : StreamableHTTPClientTransport;
+    const mcpTransport = new TransportClass(new URL(transport.url), {
+      authProvider: provider,
+      requestInit: effectiveHeaders ? { headers: effectiveHeaders } : undefined,
+    });
     try {
-      await client.close();
-    } catch {
-      /* ignore */
-    }
-    return { auth_url: "", already_authenticated: true };
-  } catch (err) {
-    if (err instanceof UnauthorizedError) {
-      // Expected — onAuthorizationUrl has fired, capturedAuthUrl is set
-    } else {
-      provider.stopCallbackServer();
-      try {
-        await client.close();
-      } catch {
-        /* ignore */
-      }
-      throw err;
-    }
-  }
-
-  if (!capturedAuthUrl) {
-    provider.stopCallbackServer();
-    try {
-      await client.close();
-    } catch {
-      /* ignore */
-    }
-    throw new Error("No authorization URL captured from OAuth provider");
-  }
-
-  // Per-attempt token. Gates fire-and-forget state writes so that a
-  // re-run of `assistant mcp auth <serverId>` before the previous attempt
-  // finishes cannot have its slot overwritten by stale completion writes
-  // from the older attempt.
-  const attemptId = crypto.randomUUID();
-  setMcpAuthPending(serverId, capturedAuthUrl, attemptId);
-
-  // Fire-and-forget background tail — completes the token exchange once
-  // the user approves in the browser.
-  // Note: we do NOT call client.connect() again here — both SSEClientTransport
-  // and StreamableHTTPClientTransport throw "already started" on a second
-  // connect() call.  The tokens are persisted by saveTokens inside finishAuth,
-  // so the daemon can reconnect on the next MCP reload without re-connecting here.
-  void (async () => {
-    try {
-      // Apply an explicit timeout: the deferred code promise relies on the
-      // caller for time-boxing. Without this race, a tail leaks forever if
-      // the user never completes the OAuth handshake.
-      const code = await Promise.race([
-        codePromise,
-        new Promise<never>((_, reject) => {
-          const t = setTimeout(
-            () => reject(new Error("OAuth callback timed out")),
-            CALLBACK_TIMEOUT_MS,
-          );
-          // Don't keep the event loop alive solely for this timer
-          if (typeof t.unref === "function") {
-            t.unref();
-          }
-        }),
-      ]);
-      await mcpTransport.finishAuth(code);
-      const applied = setMcpAuthComplete(serverId, attemptId);
-      if (!applied) {
-        log.info(
-          { serverId, attemptId },
-          "MCP OAuth completion superseded by newer attempt — skipping state write",
-        );
-        return;
-      }
-      log.info({ serverId }, "MCP OAuth flow completed");
-      // Trigger MCP reload from inside the daemon so the CLI doesn't need
-      // to fall back on the deprecated file-based signal mechanism.
-      // Best-effort: reload failures are logged but don't poison the
-      // success status the polling CLI is about to observe.
-      try {
-        await reloadMcpServers();
-      } catch (reloadErr) {
-        log.warn(
-          {
-            serverId,
-            err:
-              reloadErr instanceof Error
-                ? reloadErr.message
-                : String(reloadErr),
-          },
-          "MCP reload after auth completion failed",
-        );
-      }
+      await client.connect(mcpTransport);
+      setMcpAuthComplete(serverId, attemptId);
+      await close();
+      await reloadMcpServers();
+      return {
+        auth_url: "",
+        attempt_id: attemptId,
+        already_authenticated: true,
+      };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const applied = setMcpAuthError(serverId, message, attemptId);
-      if (!applied) {
-        log.info(
-          { serverId, attemptId, error: message },
-          "MCP OAuth error superseded by newer attempt — skipping state write",
-        );
-      } else {
-        log.warn({ serverId, error: message }, "MCP OAuth flow failed");
-      }
-    } finally {
-      provider.stopCallbackServer();
-      try {
-        await client.close();
-      } catch {
-        /* ignore */
+      if (!(err instanceof UnauthorizedError)) {
+        throw err;
       }
     }
-  })();
+    if (!capturedAuthUrl) {
+      throw new Error("No authorization URL captured from OAuth provider");
+    }
+    setMcpAuthPending(serverId, capturedAuthUrl, attemptId);
 
-  return { auth_url: capturedAuthUrl };
+    void (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const code = await Promise.race([
+          codePromise,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error("OAuth callback timed out")),
+              CALLBACK_TIMEOUT_MS,
+            );
+            timer.unref();
+          }),
+        ]);
+        // Credential persistence itself checks the provider's generation.
+        await mcpTransport.finishAuth(code);
+        if (!setMcpAuthComplete(serverId, attemptId)) {
+          return;
+        }
+        try {
+          const reload = await reloadMcpServers();
+          if (!reload.success) {
+            throw new Error(reload.error);
+          }
+        } catch (err) {
+          log.warn({ serverId, err }, "MCP reload after authorization failed");
+        }
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        if (setMcpAuthError(serverId, error, attemptId)) {
+          log.warn({ serverId, error }, "MCP OAuth flow failed");
+        }
+      } finally {
+        clearTimeout(timer);
+        await close();
+      }
+    })();
+    return { auth_url: capturedAuthUrl, attempt_id: attemptId };
+  } catch (err) {
+    setMcpAuthError(
+      serverId,
+      err instanceof Error ? err.message : String(err),
+      attemptId,
+    );
+    await close();
+    throw err;
+  }
 }
-
-// How long a user has to complete the browser handshake before the tail
-// gives up. Shorter than the callback registry's own 5-minute TTL, so the
-// failure surfaces here with a clear message rather than as a registry
-// expiry the caller cannot attribute.
-const CALLBACK_TIMEOUT_MS = 2 * 60 * 1000;

@@ -8,8 +8,10 @@ import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import type { McpServerSource, McpTransport } from "../config/schemas/mcp.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { assertMcpCleanupComplete } from "./credential-coordination.js";
 import { getMcpHeaders } from "./mcp-header-store.js";
 import { McpOAuthProvider } from "./mcp-oauth-provider.js";
+import { publishMcpChanged } from "./sync.js";
 
 const log = getLogger("mcp-client");
 
@@ -96,6 +98,14 @@ export class McpClient {
         "MCP SDK transport error (non-fatal)",
       );
     };
+    this.client.onclose = () => {
+      const wasConnected = this.connected;
+      this.connected = false;
+      this.oauthProvider?.close();
+      if (wasConnected) {
+        void publishMcpChanged();
+      }
+    };
   }
 
   async connect(transportConfig: McpTransport): Promise<void> {
@@ -107,6 +117,9 @@ export class McpClient {
       transportConfig.type === "sse" ||
       transportConfig.type === "streamable-http";
     const usesStoredCredentials = this.source === "workspace";
+    if (usesStoredCredentials) {
+      assertMcpCleanupComplete(this.serverId);
+    }
 
     // For HTTP transports, only attach an OAuth provider if cached tokens
     // exist. This avoids triggering client registration during daemon
@@ -121,6 +134,7 @@ export class McpClient {
           this.serverId,
           transportConfig.url,
           /* interactive */ false,
+          { requireConfigured: true },
         );
       }
     }
@@ -273,17 +287,18 @@ export class McpClient {
     };
   }
 
-  async disconnect(): Promise<void> {
-    if (!this.connected) {
-      return;
-    }
+  async disconnect(options: { requireCleanup?: boolean } = {}): Promise<void> {
+    this.oauthProvider?.close();
+    this.connected = false;
 
     try {
       await this.client.close();
     } catch (err) {
       log.warn({ err, serverId: this.serverId }, "Error closing MCP client");
+      if (options.requireCleanup) {
+        throw err;
+      }
     }
-    this.connected = false;
     this.transport = null;
     log.info({ serverId: this.serverId }, "MCP client disconnected");
   }

@@ -54,6 +54,7 @@ import {
   createEncryptedStoreBackend,
   createUnavailableBackend,
 } from "./credential-backend.js";
+import { requiresCredentialCompletion } from "./credential-completion.js";
 import { credentialKey } from "./credential-key.js";
 
 export type {
@@ -164,9 +165,8 @@ async function attachCredentialRecordBackend(
   client: CesClient | undefined,
 ): Promise<void> {
   const { CesRpcRecordBackend } = await import("./ces-rpc-record-backend.js");
-  const { setCredentialRecordBackend } = await import(
-    "../tools/credentials/metadata-store.js"
-  );
+  const { setCredentialRecordBackend } =
+    await import("../tools/credentials/metadata-store.js");
   if (!client) {
     setCredentialRecordBackend(undefined);
     return;
@@ -596,6 +596,9 @@ async function withCredentialTimeout<T>(
   op: () => Promise<T>,
   fallback: T,
 ): Promise<T> {
+  if (requiresCredentialCompletion()) {
+    return op();
+  }
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       log.warn(CREDENTIAL_TIMEOUT_MSG + " — returning fallback");

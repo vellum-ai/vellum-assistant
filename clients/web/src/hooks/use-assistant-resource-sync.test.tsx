@@ -31,6 +31,7 @@ import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { avatarQueryKey } from "@/hooks/use-assistant-avatar";
 import { chooserRowAvatarQueryKeyPrefix } from "@/hooks/use-chooser-row-avatar";
 import { platformAvatarUrlsQueryKey } from "@/hooks/use-platform-avatar-urls";
+import { mcpQueryKeys } from "@/domains/settings/mcp/mcp-query-keys";
 import { SYNC_TAGS } from "@/lib/sync/types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import { __resetForTesting, publish } from "@/lib/event-bus";
@@ -390,6 +391,96 @@ describe("useAssistantResourceSync", () => {
     });
   });
 
+  for (const tag of [SYNC_TAGS.mcpList, SYNC_TAGS.assistantConfig, SYNC_TAGS.pluginsList]) {
+    test(`invalidates only the active assistant MCP caches for ${tag}`, async () => {
+      const queryClient = freshQueryClient();
+      for (const assistantId of ["asst-1", "asst-2"]) {
+        queryClient.setQueryData(mcpQueryKeys.list(assistantId), []);
+        queryClient.setQueryData(mcpQueryKeys.details(assistantId), []);
+        queryClient.setQueryData(mcpQueryKeys.catalog(assistantId), []);
+      }
+      renderHook(() => useAssistantResourceSync("asst-1", true), { wrapper: createWrapper(queryClient) });
+      emit(syncEvent([tag]) as unknown as AssistantEvent);
+      await waitFor(() => {
+        expect(queryClient.getQueryState(mcpQueryKeys.list("asst-1"))?.isInvalidated).toBe(true);
+        expect(queryClient.getQueryState(mcpQueryKeys.details("asst-1"))?.isInvalidated).toBe(true);
+      });
+      expect(queryClient.getQueryState(mcpQueryKeys.list("asst-2"))?.isInvalidated).toBe(false);
+      expect(queryClient.getQueryState(mcpQueryKeys.details("asst-2"))?.isInvalidated).toBe(false);
+      for (const assistantId of ["asst-1", "asst-2"]) {
+        expect(
+          queryClient.getQueryState(mcpQueryKeys.catalog(assistantId))?.isInvalidated,
+        ).toBe(false);
+      }
+    });
+  }
+
+  test("reconnect refetches mounted MCP rows without fetching unopened tool details", async () => {
+    const queryClient = freshQueryClient();
+    const fetchRows = mock(async () => []);
+    const observer = new QueryObserver(queryClient, { queryKey: mcpQueryKeys.list("asst-1"), queryFn: fetchRows, staleTime: Infinity });
+    queryClient.setQueryData(mcpQueryKeys.details("asst-1"), []);
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await waitFor(() => expect(fetchRows).toHaveBeenCalledTimes(1));
+      renderHook(() => useAssistantResourceSync("asst-1", true), { wrapper: createWrapper(queryClient) });
+      publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+      await flushReconnectSweep();
+      await waitFor(() => expect(fetchRows).toHaveBeenCalledTimes(2));
+      expect(queryClient.getQueryState(mcpQueryKeys.details("asst-1"))?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(mcpQueryKeys.details("asst-1"))?.fetchStatus).toBe("idle");
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("MCP invalidation refetches tools while Configure is open", async () => {
+    const queryClient = freshQueryClient();
+    const fetchTools = mock(async () => ({ servers: [] }));
+    const observer = new QueryObserver(queryClient, {
+      queryKey: mcpQueryKeys.details("asst-1"),
+      queryFn: fetchTools,
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await waitFor(() => expect(fetchTools).toHaveBeenCalledTimes(1));
+      renderHook(() => useAssistantResourceSync("asst-1", true), {
+        wrapper: createWrapper(queryClient),
+      });
+      emit(syncEvent([SYNC_TAGS.mcpList]) as unknown as AssistantEvent);
+      await waitFor(() => expect(fetchTools).toHaveBeenCalledTimes(2));
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("reconnect refetches only the active assistant's mounted MCP catalog", async () => {
+    const queryClient = freshQueryClient();
+    const fetchCatalog = mock(async () => ({ entries: [] }));
+    const observer = new QueryObserver(queryClient, {
+      queryKey: mcpQueryKeys.catalog("asst-1"),
+      queryFn: fetchCatalog,
+      staleTime: Infinity,
+    });
+    queryClient.setQueryData(mcpQueryKeys.catalog("asst-2"), { entries: [] });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await waitFor(() => expect(fetchCatalog).toHaveBeenCalledTimes(1));
+      renderHook(() => useAssistantResourceSync("asst-1", true), {
+        wrapper: createWrapper(queryClient),
+      });
+      publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+      await flushReconnectSweep();
+      await waitFor(() => expect(fetchCatalog).toHaveBeenCalledTimes(2));
+      expect(
+        queryClient.getQueryState(mcpQueryKeys.catalog("asst-2"))?.isInvalidated,
+      ).toBe(false);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   test("invalidates plugin list / catalog / open-detail queries on plugins:list sync tag", async () => {
     const queryClient = freshQueryClient();
     const calls: unknown[] = [];
@@ -612,9 +703,14 @@ describe("useAssistantResourceSync", () => {
     expect(avatarSweeps.length).toBe(1);
     expect(avatarSweeps[0]?.refetchType).toBe("none");
 
+    const catalogSweeps = sweepsFor(calls, mcpQueryKeys.catalog("asst-1"));
+    expect(catalogSweeps.length).toBe(1);
+    expect(catalogSweeps[0]?.refetchType).toBe("none");
+
     // The flush consumed the pending timer, so the debounce never fires again.
     await flushReconnectSweep();
     expect(sweepsFor(calls, avatarQueryKey("asst-1")).length).toBe(1);
+    expect(sweepsFor(calls, mcpQueryKeys.catalog("asst-1")).length).toBe(1);
   });
 
   // A queued sweep closes over the assistant that was active when it was

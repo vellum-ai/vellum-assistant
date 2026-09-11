@@ -51,6 +51,68 @@ afterEach(() => {
 });
 
 describe("runtime proxy handler", () => {
+  test.each([
+    ["GET", "/v1/internal/mcp/catalog", "/v1/internal/mcp/catalog"],
+    [
+      "GET",
+      "/v1/assistants/test-assistant/internal/mcp/catalog",
+      "/v1/internal/mcp/catalog",
+    ],
+    [
+      "POST",
+      "/v1/internal/mcp/catalog/connect",
+      "/v1/internal/mcp/catalog/connect",
+    ],
+    [
+      "POST",
+      "/v1/assistants/test-assistant/internal/mcp/catalog/connect",
+      "/v1/internal/mcp/catalog/connect",
+    ],
+  ])(
+    "forwards catalog %s %s through the HTTP catch-all",
+    async (method, path, upstreamPath) => {
+      const payload =
+        method === "POST"
+          ? JSON.stringify({
+              catalogId: "example",
+              serverKey: "primary",
+              definitionDigest: "a".repeat(64),
+            })
+          : undefined;
+      let captured:
+        | { url: string; method: string; body: string | undefined }
+        | undefined;
+      fetchMock = mock(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          captured = {
+            url: String(input),
+            method: init?.method ?? "GET",
+            body: init?.body
+              ? new TextDecoder().decode(init.body as ArrayBuffer)
+              : undefined,
+          };
+          return Response.json({ ok: true });
+        },
+      );
+
+      const response = await createRuntimeProxyHandler(makeConfig())(
+        new Request(`http://localhost:7830${path}`, {
+          method,
+          headers: { "content-type": "application/json" },
+          body: payload,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(captured).toEqual({
+        url: `http://localhost:7821${upstreamPath}`,
+        method,
+        body: payload,
+      });
+      expect(await response.json()).toEqual({ ok: true });
+    },
+  );
+
   test("rewrites legacy /v1/assistants/:assistantId/... to flat /v1/... for upstream", async () => {
     const captured: { url: string }[] = [];
     fetchMock = mock(async (input: string | URL | Request) => {

@@ -15,11 +15,28 @@
 import { z } from "zod";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
+import {
+  MCP_GLOBAL_MAX_TOOLS,
+  MCP_MAX_TOOLS_PER_SERVER,
+  type McpConfig,
+  type McpServerConfig,
+  McpServerConfigSchema,
+} from "../../config/schemas/mcp.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
-import { McpClient } from "../../mcp/client.js";
-import { getMcpServerManager } from "../../mcp/manager.js";
+import {
+  beginMcpConnection,
+  cancelMcpConnectionAttempt,
+  completeSavedMcpRemoval,
+  McpTeardownError,
+  teardownMcpConnection,
+  withMcpConfigWrite,
+  withMcpServerOperation,
+} from "../../mcp/connection-lifecycle.js";
+import {
+  getMcpServerManager,
+  type McpConnectionDiagnostic,
+} from "../../mcp/manager.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
 import {
@@ -27,10 +44,8 @@ import {
   getMcpHeaders,
   setMcpHeaders,
 } from "../../mcp/mcp-header-store.js";
-import {
-  deleteMcpOAuthCredentials,
-  hasMcpOAuthTokens,
-} from "../../mcp/mcp-oauth-provider.js";
+import { hasMcpOAuthTokens } from "../../mcp/mcp-oauth-provider.js";
+import { publishMcpChanged } from "../../mcp/sync.js";
 import { readPluginMcpServers } from "../../plugins/mcp-servers.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
@@ -47,7 +62,11 @@ const log = getLogger("mcp-auth-routes");
 // `requestBody` (the OpenAPI/wire contract) and the handler's `parseBody`
 // call, so the advertised shape and the validated shape can't drift.
 
-const McpServerIdParams = z.object({ serverId: z.string() });
+const McpServerIdParams = z.object({ serverId: z.string().min(1) });
+const McpAuthCancelParams = z.object({
+  serverId: z.string().min(1),
+  attemptId: z.string().min(1),
+});
 
 const McpUpdateParams = z.object({
   name: z.string(),
@@ -72,44 +91,52 @@ async function handleMcpAuthStart({
 }): Promise<{
   auth_url: string;
   state: string;
+  attempt_id: string;
   already_authenticated?: boolean;
 }> {
   const { serverId } = parseBody(McpServerIdParams, body);
 
-  const raw = loadRawConfig();
-  const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
-  const serverConfig = servers[serverId];
+  return withMcpServerOperation(serverId, async () => {
+    const raw = loadRawConfig();
+    const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+    const serverConfig = servers[serverId];
 
-  if (!serverConfig) {
-    throw new BadRequestError(`MCP server "${serverId}" not configured`);
-  }
+    if (!serverConfig) {
+      throw new BadRequestError(`MCP server "${serverId}" not configured`);
+    }
 
-  const transport = serverConfig.transport;
-  if (transport.type !== "sse" && transport.type !== "streamable-http") {
-    throw new BadRequestError(
-      `OAuth only supported for sse/streamable-http transports (server "${serverId}" uses ${transport.type})`,
-    );
-  }
+    const transport = serverConfig.transport;
+    if (transport.type !== "sse" && transport.type !== "streamable-http") {
+      throw new BadRequestError(
+        `OAuth only supported for sse/streamable-http transports (server "${serverId}" uses ${transport.type})`,
+      );
+    }
 
-  let result: { auth_url: string; already_authenticated?: boolean };
-  try {
-    result = await orchestrateMcpOAuthConnect({
-      serverId,
-      transport: {
-        url: transport.url,
-        type: transport.type,
-        headers: transport.headers,
-      },
-    });
-  } catch (err) {
-    throw new InternalError(err instanceof Error ? err.message : String(err));
-  }
+    let result: {
+      auth_url: string;
+      attempt_id: string;
+      already_authenticated?: boolean;
+    };
+    try {
+      result = await orchestrateMcpOAuthConnect({
+        serverId,
+        transport: {
+          url: transport.url,
+          type: transport.type,
+          headers: transport.headers,
+        },
+      });
+    } catch (err) {
+      throw new InternalError(err instanceof Error ? err.message : String(err));
+    }
 
-  return {
-    auth_url: result.auth_url,
-    state: serverId,
-    already_authenticated: result.already_authenticated,
-  };
+    return {
+      auth_url: result.auth_url,
+      state: serverId,
+      attempt_id: result.attempt_id,
+      already_authenticated: result.already_authenticated,
+    };
+  });
 }
 
 function handleMcpAuthStatus({
@@ -117,9 +144,9 @@ function handleMcpAuthStatus({
 }: {
   pathParams?: Record<string, string>;
 }):
-  | { status: "pending"; auth_url: string }
-  | { status: "complete" }
-  | { status: "error"; error: string } {
+  | { status: "pending"; auth_url: string; attempt_id: string }
+  | { status: "complete"; attempt_id: string }
+  | { status: "error"; error: string; attempt_id: string } {
   const { serverId } = pathParams as { serverId: string };
   const state = getMcpAuthState(serverId);
 
@@ -128,12 +155,16 @@ function handleMcpAuthStatus({
   }
 
   if (state.status === "pending") {
-    return { status: "pending", auth_url: state.authUrl };
+    return {
+      status: "pending",
+      auth_url: state.authUrl,
+      attempt_id: state.attemptId,
+    };
   }
   if (state.status === "complete") {
-    return { status: "complete" };
+    return { status: "complete", attempt_id: state.attemptId };
   }
-  return { status: "error", error: state.error };
+  return { status: "error", error: state.error, attempt_id: state.attemptId };
 }
 
 /**
@@ -157,61 +188,26 @@ function handleMcpReload(_args: { body?: Record<string, unknown> }): {
 }
 
 // ---------------------------------------------------------------------------
-// Health check helper
-// ---------------------------------------------------------------------------
-
-const HEALTH_CHECK_TIMEOUT_MS = 10_000;
-
-async function checkMachineReadableHealth(
-  serverId: string,
-  config: McpServerConfig,
-  timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
-): Promise<string> {
-  const client = new McpClient(serverId);
-  try {
-    await Promise.race([
-      client.connect(config.transport),
-      new Promise<never>((_, reject) => {
-        const t = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-        if (typeof t === "object" && "unref" in t) {
-          t.unref();
-        }
-      }),
-    ]);
-
-    if (client.isConnected) {
-      await client.disconnect();
-      return "connected";
-    }
-
-    const err = client.lastError;
-    if (err) {
-      if (err.message.includes("timeout")) {
-        return "error";
-      }
-      return "error";
-    }
-
-    return "needs-auth";
-  } catch {
-    try {
-      await client.disconnect();
-    } catch {
-      /* ignore */
-    }
-    return "error";
-  }
-}
-
-// ---------------------------------------------------------------------------
 // List
 // ---------------------------------------------------------------------------
 
 interface McpServerEntry {
   id: string;
   status: string;
+  diagnostic?: McpConnectionDiagnostic;
+  lifecycleState:
+    | "not-started"
+    | "connecting"
+    | "connected"
+    | "needs-auth"
+    | "error"
+    | "declared";
+  supportedActions: Array<
+    "configure" | "authenticate" | "remove" | "manage-plugin"
+  >;
   transport: Omit<McpServerConfig["transport"], "headers"> & { type: string };
   hasOAuth: boolean;
+  catalog?: McpServerConfig["catalog"];
   hasStaticAuth: boolean;
   authType: "none" | "bearer" | "api-key";
   authHeaderName?: string;
@@ -225,22 +221,6 @@ interface McpServerEntry {
   /** Plugin that declared this server. Present only when `source` is `plugin`. */
   pluginName?: string;
 }
-
-/**
- * Status reported for a plugin-declared server the MCP manager holds no
- * live client for — it has not been started yet, or its connection failed.
- *
- * A plugin server is never health-checked the way a workspace server is.
- * `checkMachineReadableHealth` constructs its own `McpClient`, which
- * resolves `mcp:<serverId>:headers` and `mcp:<serverId>:tokens` from the
- * credential store, and a plugin controls both its server key and its URL,
- * so probing one would send workspace-owned credentials to an endpoint the
- * plugin chose whenever an id happens to match a stored key. Skipping the
- * probe also avoids spawning a plugin's declared stdio command as a side
- * effect of listing. The manager's own client — started with credentials
- * isolated — is the only thing consulted instead.
- */
-const PLUGIN_SERVER_STATUS = "declared";
 
 function detectAuthType(headers: Record<string, string>): "bearer" | "api-key" {
   const authValue = headers["Authorization"] ?? headers["authorization"];
@@ -261,8 +241,13 @@ async function handleMcpList(_args: {
   ).filter(([, config]) => config && typeof config === "object");
 
   const workspaceEntries: McpServerEntry[] = await Promise.all(
-    configEntries.map(async ([id, config]) => {
-      const status = await checkMachineReadableHealth(id, config);
+    configEntries.map(async ([id, config]): Promise<McpServerEntry> => {
+      const lifecycleState =
+        getMcpServerManager().getServerState(id, "workspace") ?? "not-started";
+      const status =
+        lifecycleState === "connected" || lifecycleState === "needs-auth"
+          ? lifecycleState
+          : "error";
       const hasOAuth =
         config.transport.type !== "stdio" ? await hasMcpOAuthTokens(id) : false;
 
@@ -293,12 +278,22 @@ async function handleMcpList(_args: {
       return {
         id,
         status,
+        lifecycleState,
+        diagnostic: getMcpServerManager().getServerDiagnostic(id, "workspace"),
+        supportedActions: [
+          "configure",
+          "remove",
+          ...(config.transport.type === "stdio"
+            ? []
+            : ["authenticate" as const]),
+        ],
         transport: safeTransport as McpServerEntry["transport"],
         hasOAuth,
         hasStaticAuth,
         authType,
         ...(authHeaderName && { authHeaderName }),
         source: "workspace" as const,
+        catalog: config.catalog ?? null,
       };
     }),
   );
@@ -313,8 +308,7 @@ async function handleMcpList(_args: {
  *
  * Nothing here touches the credential store or the network: a plugin
  * server carries no auth state the assistant owns, and its status comes
- * from the manager's in-memory client rather than a probe (see
- * {@link PLUGIN_SERVER_STATUS}).
+ * from the manager's recorded connection state.
  */
 function listPluginServerEntries(
   configEntries: [string, McpServerConfig][],
@@ -351,11 +345,14 @@ function listPluginServerEntries(
     .map((server) => {
       const { headers: _stripped, ...safeTransport } = server.config
         .transport as Record<string, unknown>;
+      const lifecycleState =
+        manager.getServerState(server.id, "plugin") ?? "declared";
       return {
         id: server.id,
-        status: manager.getClient(server.id)?.isConnected
-          ? "connected"
-          : PLUGIN_SERVER_STATUS,
+        status: lifecycleState === "connected" ? "connected" : "declared",
+        lifecycleState,
+        diagnostic: manager.getServerDiagnostic(server.id, "plugin"),
+        supportedActions: ["configure", "manage-plugin"],
         transport: safeTransport as McpServerEntry["transport"],
         // A plugin server has no assistant-owned credentials. Resolving
         // these against `mcp:<id>:*` would report, and could disclose, a
@@ -390,6 +387,7 @@ function handleMcpToolsSummary(): {
   servers: McpToolsSummaryServerEntry[];
   totalToolCount: number;
   totalEstimatedTokens: number;
+  limits: { perServer: number; global: number };
 } {
   const byServer = getMcpToolsByServer();
   const servers: McpToolsSummaryServerEntry[] = [];
@@ -420,7 +418,15 @@ function handleMcpToolsSummary(): {
     totalEstimatedTokens += serverTokens;
   }
 
-  return { servers, totalToolCount, totalEstimatedTokens };
+  return {
+    servers,
+    totalToolCount,
+    totalEstimatedTokens,
+    limits: {
+      perServer: MCP_MAX_TOOLS_PER_SERVER,
+      global: MCP_GLOBAL_MAX_TOOLS,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -434,50 +440,57 @@ async function handleMcpUpdate({
 }): Promise<{ updated: true }> {
   const { name, headers } = parseBody(McpUpdateParams, body);
 
-  const raw = loadRawConfig();
-  const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
-  const serverMap = mcpConfig?.servers as
-    | Record<string, Record<string, unknown>>
-    | undefined;
+  return withMcpServerOperation(name, () =>
+    withMcpConfigWrite(async () => {
+      const raw = loadRawConfig();
+      const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
+      const serverMap = mcpConfig?.servers as
+        | Record<string, Record<string, unknown>>
+        | undefined;
 
-  if (!serverMap || !serverMap[name]) {
-    throw new NotFoundError(`MCP server "${name}" not found.`);
-  }
+      if (!serverMap || !serverMap[name]) {
+        throw new NotFoundError(`MCP server "${name}" not found.`);
+      }
 
-  const server = serverMap[name];
+      const server = serverMap[name];
 
-  if (headers !== undefined) {
-    const transport = server.transport as Record<string, unknown> | undefined;
-    if (
-      transport &&
-      (transport.type === "sse" || transport.type === "streamable-http")
-    ) {
-      // Migrate any legacy config-level headers away
-      delete transport.headers;
+      if (headers !== undefined) {
+        const transport = server.transport as
+          | Record<string, unknown>
+          | undefined;
+        if (
+          transport &&
+          (transport.type === "sse" || transport.type === "streamable-http")
+        ) {
+          // Migrate any legacy config-level headers away
+          delete transport.headers;
 
-      // Store in credential store (or delete if clearing)
-      if (headers === null || Object.keys(headers).length === 0) {
-        const ok = await deleteMcpHeaders(name);
-        if (!ok) {
-          throw new InternalError(
-            "Failed to clear auth headers from credential store",
-          );
-        }
-      } else {
-        const ok = await setMcpHeaders(name, headers);
-        if (!ok) {
-          throw new InternalError(
-            "Failed to persist auth headers to credential store",
-          );
+          // Store in credential store (or delete if clearing)
+          if (headers === null || Object.keys(headers).length === 0) {
+            const ok = await deleteMcpHeaders(name);
+            if (!ok) {
+              throw new InternalError(
+                "Failed to clear auth headers from credential store",
+              );
+            }
+          } else {
+            const ok = await setMcpHeaders(name, headers);
+            if (!ok) {
+              throw new InternalError(
+                "Failed to persist auth headers to credential store",
+              );
+            }
+          }
         }
       }
-    }
-  }
 
-  saveRawConfig(raw);
-  triggerReload("internal_mcp_update");
+      saveRawConfig(raw);
+      await publishMcpChanged();
+      triggerReload("internal_mcp_update");
 
-  return { updated: true };
+      return { updated: true };
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -517,40 +530,46 @@ async function handleMcpAdd({
       );
   }
 
-  const raw = loadRawConfig();
-  if (!raw.mcp) {
-    raw.mcp = { servers: {} };
-  }
-  const mcpConfig = raw.mcp as Record<string, unknown>;
-  if (!mcpConfig.servers) {
-    mcpConfig.servers = {};
-  }
-  const serverMap = mcpConfig.servers as Record<string, unknown>;
+  return withMcpServerOperation(name, () =>
+    withMcpConfigWrite(async () => {
+      const raw = loadRawConfig();
+      if (!raw.mcp) {
+        raw.mcp = { servers: {} };
+      }
+      const mcpConfig = raw.mcp as Record<string, unknown>;
+      if (!mcpConfig.servers) {
+        mcpConfig.servers = {};
+      }
+      const serverMap = mcpConfig.servers as Record<string, unknown>;
 
-  if (serverMap[name]) {
-    throw new BadRequestError(
-      `MCP server "${name}" already exists. Remove it first with: assistant mcp remove ${name}`,
-    );
-  }
+      if (serverMap[name]) {
+        throw new BadRequestError(
+          `MCP server "${name}" already exists. Remove it first with: assistant mcp remove ${name}`,
+        );
+      }
 
-  serverMap[name] = {
-    transport,
-  };
+      await beginMcpConnection(name);
+      serverMap[name] = {
+        transport,
+      };
 
-  // Store auth headers in credential store, not config
-  if (headers && Object.keys(headers).length > 0) {
-    const ok = await setMcpHeaders(name, headers);
-    if (!ok) {
-      throw new InternalError(
-        "Failed to persist auth headers to credential store",
-      );
-    }
-  }
+      // Store auth headers in credential store, not config
+      if (headers && Object.keys(headers).length > 0) {
+        const ok = await setMcpHeaders(name, headers);
+        if (!ok) {
+          throw new InternalError(
+            "Failed to persist auth headers to credential store",
+          );
+        }
+      }
 
-  saveRawConfig(raw);
-  triggerReload("internal_mcp_add");
+      saveRawConfig(raw);
+      await publishMcpChanged();
+      triggerReload("internal_mcp_add");
 
-  return { added: true };
+      return { added: true };
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -563,37 +582,42 @@ async function handleMcpAuthRevoke({
   body?: Record<string, unknown>;
 }): Promise<{ revoked: true }> {
   const { serverId } = parseBody(McpServerIdParams, body);
-
-  const raw = loadRawConfig();
-  const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
-  const serverConfig = servers[serverId];
-
-  if (!serverConfig) {
-    throw new NotFoundError(`MCP server "${serverId}" not found`);
-  }
-
-  let result: { ok: boolean; failedKeys: string[] };
-  try {
-    result = await deleteMcpOAuthCredentials(serverId);
-  } catch (err) {
-    throw new InternalError(
-      `Failed to revoke OAuth credentials: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  if (!result.ok) {
-    throw new InternalError(
-      `Failed to delete OAuth credentials for keys: ${result.failedKeys.join(", ")}`,
-    );
-  }
-
-  triggerReload("internal_mcp_auth_revoke");
-  return { revoked: true };
+  return withMcpServerOperation(serverId, async () => {
+    const raw = loadRawConfig();
+    const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+    if (!Object.hasOwn(servers, serverId)) {
+      throw new NotFoundError(`MCP server "${serverId}" not found`);
+    }
+    try {
+      await teardownMcpConnection(serverId, { removeConfig: false });
+    } catch (err) {
+      throw new InternalError(err instanceof Error ? err.message : String(err));
+    }
+    return { revoked: true };
+  });
 }
 
-// ---------------------------------------------------------------------------
-// Remove
-// ---------------------------------------------------------------------------
+async function handleMcpAuthCancel({
+  body,
+}: {
+  body?: Record<string, unknown>;
+}): Promise<{ cancelled: boolean }> {
+  const { serverId, attemptId } = parseBody(McpAuthCancelParams, body);
+  return withMcpServerOperation(serverId, async () => {
+    const raw = loadRawConfig();
+    const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+    if (!Object.hasOwn(servers, serverId)) {
+      throw new NotFoundError(`MCP server "${serverId}" not found`);
+    }
+    try {
+      return {
+        cancelled: await cancelMcpConnectionAttempt(serverId, attemptId),
+      };
+    } catch (err) {
+      throw new InternalError(err instanceof Error ? err.message : String(err));
+    }
+  });
+}
 
 async function handleMcpRemove({
   body,
@@ -601,36 +625,40 @@ async function handleMcpRemove({
   body?: Record<string, unknown>;
 }): Promise<{ removed: true }> {
   const { name } = parseBody(McpRemoveParams, body);
-
-  const raw = loadRawConfig();
-  const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
-  const serverMap = mcpConfig?.servers as Record<string, unknown> | undefined;
-
-  if (!serverMap || !serverMap[name]) {
-    throw new NotFoundError(`MCP server "${name}" not found.`);
-  }
-
-  // Best-effort cleanup of credentials stored for this server
-  const serverConfig = serverMap[name] as Record<string, unknown>;
-  const transport = serverConfig?.transport as
-    | Record<string, unknown>
-    | undefined;
-  if (transport?.type === "sse" || transport?.type === "streamable-http") {
-    try {
-      await Promise.all([
-        deleteMcpOAuthCredentials(name),
-        deleteMcpHeaders(name),
-      ]);
-    } catch {
-      // Ignore — credentials may not exist
+  return withMcpServerOperation(name, async () => {
+    const raw = loadRawConfig();
+    const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+    if (!Object.hasOwn(servers, name)) {
+      if (
+        readPluginMcpServers().servers.some((server) => server.id === name) &&
+        !getMcpServerManager().hasWorkspaceConnection(name)
+      ) {
+        throw new NotFoundError(`Workspace MCP server "${name}" not found`);
+      }
+      try {
+        await completeSavedMcpRemoval(name);
+        const reload = await reloadMcpServers({ requireCleanup: true });
+        if (!reload.success) {
+          throw new Error(reload.error);
+        }
+      } catch {
+        throw new InternalError(
+          "Removal was saved, but runtime cleanup failed; retry removing the integration",
+        );
+      }
+      return { removed: true };
     }
-  }
-
-  delete serverMap[name];
-  saveRawConfig(raw);
-  triggerReload("internal_mcp_remove");
-
-  return { removed: true };
+    try {
+      await teardownMcpConnection(name, { removeConfig: true });
+    } catch (err) {
+      const message =
+        err instanceof McpTeardownError
+          ? err.message
+          : "Credential cleanup failed; the integration was kept so you can retry disconnecting";
+      throw new InternalError(message);
+    }
+    return { removed: true };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -651,6 +679,12 @@ export const ROUTES: RouteDefinition[] = [
       "Starts a daemon-owned MCP OAuth flow and returns the authorization URL for the CLI to open in the browser.",
     tags: ["internal"],
     requestBody: McpServerIdParams,
+    responseBody: z.object({
+      auth_url: z.string(),
+      state: z.string(),
+      attempt_id: z.string(),
+      already_authenticated: z.boolean().optional(),
+    }),
     handler: handleMcpAuthStart,
   },
   {
@@ -669,7 +703,36 @@ export const ROUTES: RouteDefinition[] = [
     additionalResponses: {
       "404": { description: "No active OAuth flow for the given serverId" },
     },
+    responseBody: z.discriminatedUnion("status", [
+      z.object({
+        status: z.literal("pending"),
+        auth_url: z.string(),
+        attempt_id: z.string(),
+      }),
+      z.object({ status: z.literal("complete"), attempt_id: z.string() }),
+      z.object({
+        status: z.literal("error"),
+        error: z.string(),
+        attempt_id: z.string(),
+      }),
+    ]),
     handler: handleMcpAuthStatus,
+  },
+  {
+    operationId: "internal_mcp_auth_cancel",
+    endpoint: "internal/mcp/auth/cancel",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Cancel an MCP authorization attempt",
+    description:
+      "Cancels the matching authorization attempt and clears its OAuth credentials; the same attempt ID can retry incomplete cancellation cleanup.",
+    tags: ["internal"],
+    requestBody: McpAuthCancelParams,
+    responseBody: z.object({ cancelled: z.boolean() }),
+    handler: handleMcpAuthCancel,
   },
   {
     operationId: "internal_mcp_reload",
@@ -695,19 +758,44 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List MCP servers with health status",
     description:
-      "Returns configured MCP servers with live health-check results (connected, needs auth, error).",
+      "Returns configured MCP servers and recorded runtime state without opening connections.",
     tags: ["internal"],
     responseBody: z.object({
       servers: z.array(
         z.object({
           id: z.string(),
           status: z.string(),
+          diagnostic: z
+            .enum([
+              "connection-failed",
+              "authorization-required",
+              "tools-discovery-failed",
+              "connection-closed",
+            ])
+            .optional(),
+          lifecycleState: z.enum([
+            "not-started",
+            "connecting",
+            "connected",
+            "needs-auth",
+            "error",
+            "declared",
+          ]),
+          source: z.enum(["workspace", "plugin"]),
+          pluginName: z.string().optional(),
+          supportedActions: z.array(
+            z.enum(["configure", "authenticate", "remove", "manage-plugin"]),
+          ),
+          hasStaticAuth: z.boolean(),
+          authType: z.enum(["none", "bearer", "api-key"]),
+          authHeaderName: z.string().optional(),
           transport: z
             .object({
               type: z.enum(["stdio", "sse", "streamable-http"]),
             })
             .passthrough(),
           hasOAuth: z.boolean(),
+          catalog: McpServerConfigSchema.shape.catalog,
         }),
       ),
     }),
@@ -742,6 +830,9 @@ export const ROUTES: RouteDefinition[] = [
       ),
       totalToolCount: z.number(),
       totalEstimatedTokens: z.number(),
+      limits: z
+        .object({ perServer: z.number(), global: z.number() })
+        .optional(),
     }),
     handler: handleMcpToolsSummary,
   },

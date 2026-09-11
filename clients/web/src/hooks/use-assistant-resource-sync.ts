@@ -32,6 +32,10 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
+import {
+  invalidateMcpQueries,
+  mcpQueryKeys,
+} from "@/domains/settings/mcp/mcp-query-keys";
 import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
@@ -141,6 +145,7 @@ export function useAssistantResourceSync(
               // `memory.v3.live`), so a config write on any client can change
               // what the Memory surface must render.
               invalidateMemoryQueries(queryClient, assistantId);
+              invalidateMcpQueries(queryClient, assistantId);
               break;
             case SYNC_TAGS.assistantSounds:
               void queryClient.invalidateQueries({
@@ -188,6 +193,10 @@ export function useAssistantResourceSync(
               break;
             case SYNC_TAGS.pluginsList:
               invalidatePluginQueries(queryClient, assistantId);
+              invalidateMcpQueries(queryClient, assistantId);
+              break;
+            case SYNC_TAGS.mcpList:
+              invalidateMcpQueries(queryClient, assistantId);
               break;
             case SYNC_TAGS.activationProgress:
               void queryClient.invalidateQueries({
@@ -311,6 +320,11 @@ function refreshAssistantResources(
   });
   void queryClient.invalidateQueries({
     queryKey: configGetQueryKey(pathOpts),
+    refetchType,
+  });
+  invalidateMcpQueries(queryClient, assistantId, refetchType);
+  void queryClient.invalidateQueries({
+    queryKey: mcpQueryKeys.catalog(assistantId),
     refetchType,
   });
   invalidateAvatarQueries(queryClient, assistantId, refetchType);

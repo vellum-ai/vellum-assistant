@@ -11,6 +11,7 @@ import type { OAuthConnectPreset } from "@/domains/settings/oauth-scope-presets"
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
+import { Tag } from "@vellumai/design-library/components/tag";
 
 export interface ManagedTabProps {
   displayName: string;
@@ -128,12 +129,19 @@ export function ManagedTab({
                 logoUrl={logoUrl}
                 size={20}
               />
-              <span className="min-w-0 flex-1 truncate text-body-medium-default text-[var(--content-default)]">
-                {accountLabel}
-              </span>
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="text-body-medium-default text-[var(--content-default)] [overflow-wrap:anywhere]">
+                  {accountLabel}
+                </p>
+                {!connection.connected ? (
+                  <Tag tone="negative">
+                    {t("managedOauthTab.needsAttention")}
+                  </Tag>
+                ) : null}
+              </div>
               <Button
                 variant="dangerOutline"
-                size="compact"
+                className="min-h-11 min-w-11"
                 iconOnly={
                   isDisconnecting ? (
                     <Loader2 className="animate-spin" />

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "clay": {
+      "type": "streamable-http",
+      "url": "https://api.clay.com/v3/mcp"
+    }
+  }
+}

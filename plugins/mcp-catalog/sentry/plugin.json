@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "sentry",
+  "version": "1.0.0",
+  "description": "Investigate errors, issues, and application performance.",
+  "homepage": "https://github.com/getsentry/sentry-mcp",
+  "license": "MIT"
+}

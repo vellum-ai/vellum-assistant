@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { GoogleLogo } from "@/components/icons/google-logo";
 import { publicAsset } from "@/utils/public-asset";
@@ -25,11 +25,14 @@ import { publicAsset } from "@/utils/public-asset";
 const BUNDLED_LOGO_URLS: Record<string, string> = {
   airtable: publicAsset("/images/integrations/airtable.svg"),
   asana: publicAsset("/images/integrations/asana.svg"),
+  atlassian: publicAsset("/images/integrations/atlassian.svg"),
+  brex: publicAsset("/images/integrations/brex.svg"),
   calendly: publicAsset("/images/integrations/calendly.svg"),
   discord: publicAsset("/images/integrations/discord.svg"),
   discord_channel: publicAsset("/images/integrations/discord.svg"),
   dropbox: publicAsset("/images/integrations/dropbox.svg"),
   eventbrite: publicAsset("/images/integrations/eventbrite.svg"),
+  fathom: publicAsset("/images/integrations/fathom.png"),
   figma: publicAsset("/images/integrations/figma.svg"),
   github: publicAsset("/images/integrations/github.svg"),
   hubspot: publicAsset("/images/integrations/hubspot.svg"),
@@ -37,11 +40,14 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   monday: publicAsset("/images/integrations/monday.svg"),
   notion: publicAsset("/images/integrations/notion.svg"),
   outlook: publicAsset("/images/integrations/outlook.png"),
+  ramp: publicAsset("/images/integrations/ramp.ico"),
   salesforce: publicAsset("/images/integrations/salesforce.svg"),
   sanity: publicAsset("/images/integrations/sanity.svg"),
+  sentry: publicAsset("/images/integrations/sentry.svg"),
   slack: publicAsset("/images/integrations/slack.svg"),
   slack_channel: publicAsset("/images/integrations/slack.svg"),
   spotify: publicAsset("/images/integrations/spotify.svg"),
+  stripe: publicAsset("/images/integrations/stripe.svg"),
   stripe_link: publicAsset("/images/integrations/stripe-link.svg"),
   telegram: publicAsset("/images/integrations/telegram.svg"),
   todoist: publicAsset("/images/integrations/todoist.svg"),
@@ -76,6 +82,8 @@ interface IntegrationIconProps {
   providerKey: string;
   displayName: string | null;
   logoUrl: string | null;
+  fallbackLogoUrl?: string | null;
+  fallback?: ReactNode;
   size?: number;
 }
 
@@ -83,13 +91,23 @@ export function IntegrationIcon({
   providerKey,
   displayName,
   logoUrl,
+  fallbackLogoUrl,
+  fallback,
   size = 32,
 }: IntegrationIconProps) {
-  // Sources that have 404'd (or otherwise failed to decode) this mount. Keyed
-  // by URL rather than a boolean so a failing bundled asset falls through to
-  // the remote `logoUrl` instead of skipping straight to the initials avatar.
-  const [failedSources, setFailedSources] = useState<readonly string[]>([]);
+  // Failed URLs belong to one candidate set so changing a connection retries its icon.
+  const [failures, setFailures] = useState<{
+    candidatesKey: string;
+    sources: readonly string[];
+  }>({ candidatesKey: "", sources: [] });
   const normalizedProviderKey = providerKey.toLowerCase();
+  const candidatesKey = JSON.stringify([
+    normalizedProviderKey,
+    logoUrl,
+    fallbackLogoUrl,
+  ]);
+  const failedSources =
+    failures.candidatesKey === candidatesKey ? failures.sources : [];
   const name = displayName ?? providerKey;
   const initials = name.slice(0, 2).toUpperCase();
   const bgColor = colorForKey(providerKey);
@@ -104,9 +122,11 @@ export function IntegrationIcon({
     );
   }
 
-  const candidates = [BUNDLED_LOGO_URLS[normalizedProviderKey], logoUrl].filter(
-    (candidate): candidate is string => Boolean(candidate),
-  );
+  const candidates = [
+    BUNDLED_LOGO_URLS[normalizedProviderKey],
+    logoUrl,
+    fallbackLogoUrl,
+  ].filter((candidate): candidate is string => Boolean(candidate));
   const effectiveLogoUrl = candidates.find(
     (candidate) => !failedSources.includes(candidate),
   );
@@ -119,19 +139,26 @@ export function IntegrationIcon({
         key={effectiveLogoUrl}
         src={effectiveLogoUrl}
         alt=""
+        referrerPolicy="no-referrer"
         width={size}
         height={size}
         style={{ width: size, height: size }}
         className="shrink-0 rounded-md object-contain"
         onError={() =>
-          setFailedSources((previous) =>
-            previous.includes(effectiveLogoUrl)
+          setFailures((previous) => {
+            const sources =
+              previous.candidatesKey === candidatesKey ? previous.sources : [];
+            return sources.includes(effectiveLogoUrl)
               ? previous
-              : [...previous, effectiveLogoUrl],
-          )
+              : { candidatesKey, sources: [...sources, effectiveLogoUrl] };
+          })
         }
       />
     );
+  }
+
+  if (fallback !== undefined) {
+    return fallback;
   }
 
   return (

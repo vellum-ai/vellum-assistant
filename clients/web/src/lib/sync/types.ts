@@ -8,6 +8,7 @@ export const SYNC_TAGS = {
   appsList: "apps:list",
   documentsList: "documents:list",
   pluginsList: "plugins:list",
+  mcpList: "mcp:list",
   conversationsList: "conversations:list",
   /** Activation checklist progress: which tasks are started or done, their
    *  live step counts, and which surfaces have been dismissed. Emitted on

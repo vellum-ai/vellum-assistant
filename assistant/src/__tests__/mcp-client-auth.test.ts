@@ -25,6 +25,9 @@ mock.module("../config/env-registry.js", () => ({
   checkUnrecognizedEnvVars: () => [],
 }));
 
+const publishMcpChanged = mock(async () => {});
+mock.module("../mcp/sync.js", () => ({ publishMcpChanged }));
+
 const { McpClient } = await import("../mcp/client.js");
 const { McpOAuthProvider } = await import("../mcp/mcp-oauth-provider.js");
 
@@ -146,4 +149,51 @@ describe("McpOAuthProvider redirectUrl", () => {
     );
     expect(interactive.redirectUrl).toBeUndefined();
   });
+});
+
+describe("McpClient cleanup failures", () => {
+  test("strict cleanup reports a failed SDK close and remains retryable", async () => {
+    const client = new McpClient("cleanup-server");
+    const internals = client as unknown as {
+      client: { close: () => Promise<void> };
+      connected: boolean;
+    };
+    let fails = true;
+    internals.connected = true;
+    internals.client = {
+      close: async () => {
+        if (fails) {
+          throw new Error("socket close failed");
+        }
+      },
+    };
+    await expect(client.disconnect({ requireCleanup: true })).rejects.toThrow(
+      "socket close failed",
+    );
+    expect(client.isConnected).toBe(false);
+    fails = false;
+    await client.disconnect({ requireCleanup: true });
+  });
+});
+
+test("an unexpected SDK close invalidates the connected row and closes its credential fence", async () => {
+  const client = new McpClient("example");
+  const internal = client as unknown as {
+    client: { connect: () => Promise<void>; onclose: () => void };
+    createTransport: () => unknown;
+    oauthProvider?: { close: () => void };
+  };
+  internal.client.connect = async () => {};
+  internal.createTransport = () => ({});
+  await client.connect(httpTransport);
+  expect(client.isConnected).toBe(true);
+  const close = mock(() => {});
+  internal.oauthProvider = { close };
+  publishMcpChanged.mockClear();
+  internal.client.onclose();
+  expect(client.isConnected).toBe(false);
+  expect(close).toHaveBeenCalledTimes(1);
+  expect(publishMcpChanged).toHaveBeenCalledTimes(1);
+  internal.client.onclose();
+  expect(publishMcpChanged).toHaveBeenCalledTimes(1);
 });

@@ -47,10 +47,6 @@ mock.module("../mcp/mcp-auth-orchestrator.js", () => ({
   }),
 }));
 
-mock.module("../mcp/mcp-auth-state.js", () => ({
-  getMcpAuthState: () => null,
-}));
-
 mock.module("../mcp/mcp-oauth-provider.js", () => ({
   // Stand in for a credential store that holds tokens for every id, which
   // is the condition under which a leak would be observable.
@@ -176,7 +172,7 @@ describe("internal_mcp_list, plugin-declared servers", () => {
     // The credential mocks above return a token and an Authorization header
     // for every id. Constructing a client for the plugin server is what
     // would ship them to the plugin-declared URL.
-    expect(connectedServerIds).toContain("from-workspace");
+    expect(connectedServerIds).toEqual([]);
     expect(connectedServerIds).not.toContain("unabyss");
   });
 

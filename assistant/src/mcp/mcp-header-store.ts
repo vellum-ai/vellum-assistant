@@ -15,6 +15,8 @@ import {
   setSecureKeyAsync,
 } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { withMcpConfigWrite } from "./config-write-lock.js";
+import { withMcpCredentialLock } from "./credential-coordination.js";
 
 const log = getLogger("mcp-header-store");
 
@@ -48,9 +50,8 @@ export async function setMcpHeaders(
   serverId: string,
   headers: Record<string, string>,
 ): Promise<boolean> {
-  const ok = await setSecureKeyAsync(
-    headersKey(serverId),
-    JSON.stringify(headers),
+  const ok = await withMcpCredentialLock(serverId, () =>
+    setSecureKeyAsync(headersKey(serverId), JSON.stringify(headers)),
   );
   if (!ok) {
     log.warn({ serverId }, "Failed to persist MCP headers to secure storage");
@@ -78,59 +79,63 @@ export async function deleteMcpHeaders(serverId: string): Promise<boolean> {
  * Safe to call on every MCP reload — no-ops when no legacy headers remain.
  */
 export async function migrateLegacyMcpHeaders(): Promise<void> {
-  const raw = loadRawConfig();
-  const mcpConfig = raw.mcp as
-    | { servers?: Record<string, Record<string, unknown>> }
-    | undefined;
-  const servers = mcpConfig?.servers;
-  if (!servers) {
-    return;
-  }
-
-  let configDirty = false;
-  for (const [id, server] of Object.entries(servers)) {
-    const transport = server?.transport as Record<string, unknown> | undefined;
-    if (
-      !transport ||
-      (transport.type !== "sse" && transport.type !== "streamable-http")
-    ) {
-      continue;
-    }
-    const legacyHeaders = transport.headers as
-      | Record<string, string>
+  return withMcpConfigWrite(async () => {
+    const raw = loadRawConfig();
+    const mcpConfig = raw.mcp as
+      | { servers?: Record<string, Record<string, unknown>> }
       | undefined;
-    if (!legacyHeaders || Object.keys(legacyHeaders).length === 0) {
-      continue;
+    const servers = mcpConfig?.servers;
+    if (!servers) {
+      return;
     }
 
-    // Only migrate if credential store doesn't already have headers for
-    // this server (idempotent — safe to re-run after partial failure).
-    const existing = await getMcpHeaders(id);
-    if (existing) {
-      // Credential store already has headers; just strip the config copy.
-      delete transport.headers;
-      configDirty = true;
-      continue;
+    let configDirty = false;
+    for (const [id, server] of Object.entries(servers)) {
+      const transport = server?.transport as
+        | Record<string, unknown>
+        | undefined;
+      if (
+        !transport ||
+        (transport.type !== "sse" && transport.type !== "streamable-http")
+      ) {
+        continue;
+      }
+      const legacyHeaders = transport.headers as
+        | Record<string, string>
+        | undefined;
+      if (!legacyHeaders || Object.keys(legacyHeaders).length === 0) {
+        continue;
+      }
+
+      // Only migrate if credential store doesn't already have headers for
+      // this server (idempotent, safe to re-run after partial failure).
+      const existing = await getMcpHeaders(id);
+      if (existing) {
+        // Credential store already has headers; just strip the config copy.
+        delete transport.headers;
+        configDirty = true;
+        continue;
+      }
+
+      const ok = await setMcpHeaders(id, legacyHeaders);
+      if (ok) {
+        delete transport.headers;
+        configDirty = true;
+        log.info(
+          { serverId: id },
+          "Migrated legacy MCP headers to credential store",
+        );
+      } else {
+        log.warn(
+          { serverId: id },
+          "Skipping legacy header migration: credential store write failed; will retry on next reload",
+        );
+      }
     }
 
-    const ok = await setMcpHeaders(id, legacyHeaders);
-    if (ok) {
-      delete transport.headers;
-      configDirty = true;
-      log.info(
-        { serverId: id },
-        "Migrated legacy MCP headers to credential store",
-      );
-    } else {
-      log.warn(
-        { serverId: id },
-        "Skipping legacy header migration — credential store write failed; will retry on next reload",
-      );
+    if (configDirty) {
+      saveRawConfig(raw);
+      log.info("Config updated: legacy MCP headers removed after migration");
     }
-  }
-
-  if (configDirty) {
-    saveRawConfig(raw);
-    log.info("Config updated: legacy MCP headers removed after migration");
-  }
+  });
 }
