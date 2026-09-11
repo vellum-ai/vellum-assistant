@@ -11,9 +11,7 @@ import { mcpLifecycleState, supportsMcpAction } from "../integration-items";
 
 type AuthType = "none" | "bearer" | "api-key";
 
-type SettingsTranslate = ReturnType<
-  typeof useTranslation<"settings">
->["t"];
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 
 const AUTH_OPTION_VALUES: AuthType[] = ["none", "bearer", "api-key"];
 
@@ -30,6 +28,7 @@ function authOptionLabel(authType: AuthType, t: SettingsTranslate): string {
 
 interface McpServerDetailModalProps {
   server: McpServerEntry | null;
+  displayName?: string;
   toolsSummary: McpToolsSummaryServer | undefined;
   toolsLoading?: boolean;
   toolsError?: boolean;
@@ -46,6 +45,7 @@ interface McpServerDetailModalProps {
 
 export function McpServerDetailModal({
   server,
+  displayName,
   toolsSummary,
   toolsLoading = false,
   toolsError = false,
@@ -106,14 +106,7 @@ export function McpServerDetailModal({
       name: server.id,
       ...(headers !== undefined ? { headers } : {}),
     });
-  }, [
-    server,
-    authType,
-    bearerToken,
-    apiKeyHeader,
-    apiKeyValue,
-    onSave,
-  ]);
+  }, [server, authType, bearerToken, apiKeyHeader, apiKeyValue, onSave]);
 
   const handleClose = useCallback(() => {
     if (!isPending) {
@@ -136,7 +129,9 @@ export function McpServerDetailModal({
     >
       <Modal.Content size="lg">
         <Modal.Header icon={Cable}>
-          <Modal.Title className="[overflow-wrap:anywhere]">{server.id}</Modal.Title>
+          <Modal.Title className="[overflow-wrap:anywhere]">
+            {displayName ?? server.id}
+          </Modal.Title>
           <Modal.Description>
             {t("mcpServerDetailModal.description", {
               transport: server.transport.type,
@@ -147,7 +142,8 @@ export function McpServerDetailModal({
 
         <Modal.Body>
           <div className="space-y-5">
-            {server.transport.type !== "stdio" && supportsMcpAction(server, "configure") ? (
+            {server.transport.type !== "stdio" &&
+            supportsMcpAction(server, "configure") ? (
               <>
                 {server.hasOAuth ? (
                   <div className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2">
@@ -272,11 +268,17 @@ export function McpServerDetailModal({
                 {t("mcpServerDetailModal.toolsHeading")}
               </h3>
               {toolsLoading ? (
-                <p role="status" className="text-body-small-default text-[var(--content-tertiary)]">
+                <p
+                  role="status"
+                  className="text-body-small-default text-[var(--content-tertiary)]"
+                >
                   {t("mcpServerDetailModal.toolsLoading")}
                 </p>
               ) : toolsError ? (
-                <p role="alert" className="text-body-small-default text-[var(--content-tertiary)]">
+                <p
+                  role="alert"
+                  className="text-body-small-default text-[var(--content-tertiary)]"
+                >
                   {t("mcpServerDetailModal.toolsError")}
                 </p>
               ) : toolsSummary && toolsSummary.tools.length > 0 ? (
@@ -319,11 +321,13 @@ export function McpServerDetailModal({
           <Button variant="ghost" onClick={handleClose} disabled={isPending}>
             {t("mcpServerDetailModal.cancel")}
           </Button>
-          {supportsMcpAction(server, "configure") ? <Button variant="primary" onClick={handleSave} disabled={isPending}>
-            {isPending
-              ? t("mcpServerDetailModal.saving")
-              : t("mcpServerDetailModal.save")}
-          </Button> : null}
+          {supportsMcpAction(server, "configure") ? (
+            <Button variant="primary" onClick={handleSave} disabled={isPending}>
+              {isPending
+                ? t("mcpServerDetailModal.saving")
+                : t("mcpServerDetailModal.save")}
+            </Button>
+          ) : null}
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>

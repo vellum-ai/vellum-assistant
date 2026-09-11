@@ -9,6 +9,7 @@ import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 import {
+  mcpCatalogEntry,
   mcpServer,
   oauthConnection,
   oauthProvider,
@@ -82,6 +83,56 @@ queryClient.setQueryData(mcpQueryKeys.details(assistantId), {
         },
       ],
     },
+  ],
+});
+
+queryClient.setQueryData(mcpQueryKeys.catalog(assistantId), {
+  supportsConnect: true,
+  entries: [
+    mcpCatalogEntry({
+      setup: {
+        mode: "oauth",
+        instructions: "Choose the account whose meeting notes you want to use.",
+      },
+    }),
+    mcpCatalogEntry({
+      id: "brex",
+      serverKey: "brex",
+      displayName: "Brex",
+      icon: "brex",
+      description: "Review expenses, cards, and company spending.",
+      setup: {
+        mode: "oauth",
+        instructions: "A Brex admin must enable AI assistant access.",
+      },
+    }),
+    mcpCatalogEntry({
+      id: "ramp",
+      serverKey: "ramp",
+      displayName: "Ramp",
+      icon: "ramp",
+      description: "Explore expenses, bills, and company spending.",
+      setup: {
+        mode: "manual",
+        instructions:
+          "Ask an administrator to allow this client's OAuth redirect URI before connecting.",
+      },
+    }),
+    mcpCatalogEntry({
+      id: "notion",
+      serverKey: "notion",
+      displayName: "Notion",
+      icon: "notion",
+      oauthProvider: "notion",
+      description: "Search pages and databases through MCP.",
+    }),
+    mcpCatalogEntry({
+      id: "linear",
+      serverKey: "linear",
+      displayName: "Linear",
+      icon: "linear",
+      description: "Find issues, projects, and team updates.",
+    }),
   ],
 });
 

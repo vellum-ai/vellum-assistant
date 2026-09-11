@@ -24,6 +24,7 @@ import { mcpQueryKeys } from "./mcp-query-keys";
 interface McpConnectAttempt {
   operationId: string;
   serverId: string;
+  displayName: string;
   startedAt: number;
   phase: "starting" | "authorizing" | "connecting" | "error";
   attemptId?: string;
@@ -39,7 +40,7 @@ export function useMcpConnect(assistantId: string) {
   const blankPopup = useRef<Window | null>(null);
   const pendingPreparation = useRef<{
     operationId: string;
-    run: () => Promise<void>;
+    run: () => Promise<string | void>;
   } | null>(null);
 
   const stopWaiting = useCallback(() => {
@@ -106,7 +107,9 @@ export function useMcpConnect(assistantId: string) {
       setAttempt({
         ...attempt,
         phase: "error",
-        error: status.error ?? t("mcpConnect.authorizationFailed"),
+        error:
+          status.error?.replaceAll(attempt.serverId, attempt.displayName) ??
+          t("mcpConnect.authorizationFailed"),
       });
     }
   }, [assistantId, attempt, authStatus.data, queryClient, t]);
@@ -152,8 +155,8 @@ export function useMcpConnect(assistantId: string) {
       attempt.phase === "authorizing"
         ? authStatus.error
         : attempt.phase === "connecting"
-        ? runtime.error
-        : null;
+          ? runtime.error
+          : null;
     if (error) {
       captureError(error, { context: "mcp.connect.poll" });
       setAttempt({
@@ -168,21 +171,24 @@ export function useMcpConnect(assistantId: string) {
     if (!attempt || attempt.phase === "error") {
       return;
     }
-    const timer = setTimeout(() => {
-      if (activeOperation.current !== attempt.operationId) {
-        return;
-      }
-      blankPopup.current?.close();
-      blankPopup.current = null;
-      setAttempt(
-        (current) =>
-          current && {
-            ...current,
-            phase: "error",
-            error: t("mcpConnect.timedOut"),
-          },
-      );
-    }, Math.max(0, attempt.startedAt + CONNECTION_POLL_WINDOW_MS - Date.now()));
+    const timer = setTimeout(
+      () => {
+        if (activeOperation.current !== attempt.operationId) {
+          return;
+        }
+        blankPopup.current?.close();
+        blankPopup.current = null;
+        setAttempt(
+          (current) =>
+            current && {
+              ...current,
+              phase: "error",
+              error: t("mcpConnect.timedOut"),
+            },
+        );
+      },
+      Math.max(0, attempt.startedAt + CONNECTION_POLL_WINDOW_MS - Date.now()),
+    );
     return () => clearTimeout(timer);
   }, [attempt, t]);
 
@@ -203,7 +209,11 @@ export function useMcpConnect(assistantId: string) {
   }, [assistantId, attempt, queryClient]);
 
   const connect = useCallback(
-    (serverId: string, prepare?: () => Promise<void>) => {
+    (
+      serverId: string,
+      prepare?: () => Promise<string | void>,
+      displayName = serverId,
+    ) => {
       if (
         activeOperation.current &&
         (attempt?.phase !== "error" ||
@@ -217,9 +227,10 @@ export function useMcpConnect(assistantId: string) {
       pendingPreparation.current = prepare
         ? { operationId, run: prepare }
         : null;
-      const next: McpConnectAttempt = {
+      let next: McpConnectAttempt = {
         operationId,
         serverId,
+        displayName,
         startedAt: Date.now(),
         phase: "starting",
       };
@@ -245,14 +256,18 @@ export function useMcpConnect(assistantId: string) {
         Date.now() < next.startedAt + CONNECTION_POLL_WINDOW_MS;
       void (async () => {
         try {
-          await prepare?.();
+          const preparedServerId = await prepare?.();
           if (pendingPreparation.current?.operationId === operationId) {
             pendingPreparation.current = null;
           }
           if (!stillCurrent()) {
             return;
           }
-          const result = await startMcpAuth(assistantId, serverId);
+          if (preparedServerId) {
+            next = { ...next, serverId: preparedServerId };
+            setAttempt(next);
+          }
+          const result = await startMcpAuth(assistantId, next.serverId);
           if (!stillCurrent()) {
             return;
           }
@@ -337,10 +352,15 @@ export function useMcpConnect(assistantId: string) {
 
   return {
     attempt,
+    isBusy: Boolean(attempt && attempt.phase !== "error"),
     connect,
     retry: () => {
       if (attempt) {
-        connect(attempt.serverId, pendingPreparation.current?.run);
+        connect(
+          attempt.serverId,
+          pendingPreparation.current?.run,
+          attempt.displayName,
+        );
       }
     },
     dismiss,

@@ -17,19 +17,29 @@ export function McpConnectionDialogs({
 }) {
   const { t } = useTranslation("settings");
   const { auth, add, save, remove, details, configureServer } = connections;
+  const removingCatalog = Boolean(
+    connections.list.data?.servers.find(
+      (server) => server.id === connections.removeServerId,
+    )?.catalog,
+  );
   return (
     <>
       {auth.attempt ? (
         <Notice tone={auth.attempt.error ? "warning" : "info"}>
           <div className="space-y-2">
+            {auth.attempt.error ? (
+              <p className="font-medium [overflow-wrap:anywhere]">
+                {auth.attempt.displayName}
+              </p>
+            ) : null}
             <p className="[overflow-wrap:anywhere]">
               {auth.attempt.error ??
                 (auth.attempt.phase === "connecting"
                   ? t("mcpConnect.waitingForRuntime", {
-                      name: auth.attempt.serverId,
+                      name: auth.attempt.displayName,
                     })
                   : t("mcpConnect.waitingForAuthorization", {
-                      name: auth.attempt.serverId,
+                      name: auth.attempt.displayName,
                     }))}
             </p>
             <div className="flex flex-wrap gap-2">
@@ -65,10 +75,15 @@ export function McpConnectionDialogs({
       ) : null}
       <McpServerDetailModal
         server={configureServer}
+        displayName={
+          configureServer
+            ? connections.serverDisplayName(configureServer.id)
+            : undefined
+        }
         toolsSummary={details.data?.servers.find(
           (entry) => entry.serverId === configureServer?.id,
         )}
-        toolsLoading={details.isPending}
+        toolsLoading={details.isPending || details.isFetching}
         toolsError={details.isError}
         onClose={() => connections.setConfigureServerId(null)}
         onSave={(_serverId, updates) => save.mutate(updates)}
@@ -76,15 +91,30 @@ export function McpConnectionDialogs({
       />
       <ConfirmDialog
         open={connections.removeServerId !== null}
-        title={t("mcpPage.removeDialogTitle")}
+        title={t(
+          removingCatalog
+            ? "mcpCatalog.disconnectTitle"
+            : "mcpPage.removeDialogTitle",
+        )}
         message={
           connections.removeServerId
-            ? t("mcpPage.removeDialogMessage", {
-                serverId: connections.removeServerId,
-              })
+            ? t(
+                removingCatalog
+                  ? "mcpCatalog.disconnectMessage"
+                  : "mcpPage.removeDialogMessage",
+                {
+                  serverId: connections.serverDisplayName(
+                    connections.removeServerId,
+                  ),
+                },
+              )
             : ""
         }
-        confirmLabel={t("mcpPage.removeDialogConfirm")}
+        confirmLabel={t(
+          removingCatalog
+            ? "mcpServerCard.disconnect"
+            : "mcpPage.removeDialogConfirm",
+        )}
         destructive
         isPending={remove.isPending}
         onConfirm={() => {

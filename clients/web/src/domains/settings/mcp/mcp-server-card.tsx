@@ -17,6 +17,8 @@ import {
 
 interface McpServerCardProps {
   server: McpServerEntry;
+  displayName?: string;
+  providerKey?: string;
   onRemove: (serverId: string) => void;
   onConfigure: (serverId: string) => void;
   onAuthenticate: (serverId: string) => void;
@@ -27,6 +29,8 @@ interface McpServerCardProps {
 
 export function McpServerCard({
   server,
+  displayName,
+  providerKey,
   onRemove,
   onConfigure,
   onAuthenticate,
@@ -35,7 +39,7 @@ export function McpServerCard({
   onManagePlugin,
 }: McpServerCardProps) {
   const { t } = useTranslation("settings");
-  const state = mcpLifecycleState(server);
+  const state = isAuthenticating ? "connecting" : mcpLifecycleState(server);
   const pluginOwned = server.source === "plugin";
   const needsAuth =
     state === "needs-auth" &&
@@ -45,33 +49,38 @@ export function McpServerCard({
   const actionLabel = pluginOwned
     ? t("mcpServerCard.managePlugin")
     : isAuthenticating
-    ? t("mcpServerCard.connecting")
-    : needsAuth
-    ? server.hasOAuth
-      ? t("mcpServerCard.reconnect")
-      : t("mcpServerCard.finishConnecting")
-    : t("mcpServerCard.configure");
+      ? t("mcpServerCard.connecting")
+      : needsAuth
+        ? server.hasOAuth
+          ? t("mcpServerCard.reconnect")
+          : t("mcpServerCard.finishConnecting")
+        : t("mcpServerCard.configure");
   const statusLabel = isConnected
     ? t("mcpServerCard.statusConnected")
     : state === "connecting"
-    ? t("mcpServerCard.statusConnecting")
-    : state === "declared"
-    ? t("mcpServerCard.statusDeclared")
-    : state === "not-started"
-    ? t("mcpServerCard.statusNotStarted")
-    : t("mcpServerCard.statusNeedsAttention");
+      ? t("mcpServerCard.statusConnecting")
+      : state === "declared"
+        ? t("mcpServerCard.statusDeclared")
+        : state === "not-started"
+          ? t("mcpServerCard.statusNotStarted")
+          : t("mcpServerCard.statusNeedsAttention");
   const statusTone = isConnected
     ? "positive"
     : state === "connecting" || state === "declared" || state === "not-started"
-    ? "neutral"
-    : "negative";
+      ? "neutral"
+      : "negative";
   const showDetailsAction = needsAuth || pluginOwned || isAuthenticating;
   const canRemove = supportsMcpAction(server, "remove");
 
   return (
     <IntegrationListRow
-      icon={<McpIntegrationIcon endpointUrl={server.transport.url} />}
-      title={server.id}
+      icon={
+        <McpIntegrationIcon
+          providerKey={providerKey}
+          endpointUrl={server.transport.url}
+        />
+      }
+      title={displayName ?? server.id}
       subtitle={pluginOwned ? server.pluginName : integrationHostname(server)}
       status={<Tag tone={statusTone}>{statusLabel}</Tag>}
       primaryAction={
@@ -84,8 +93,8 @@ export function McpServerCard({
             pluginOwned
               ? onManagePlugin?.(server.pluginName)
               : needsAuth
-              ? onAuthenticate(server.id)
-              : onConfigure(server.id)
+                ? onAuthenticate(server.id)
+                : onConfigure(server.id)
           }
           disabled={
             !pluginOwned && (isAuthenticating || (needsAuth && connectDisabled))
@@ -103,12 +112,12 @@ export function McpServerCard({
                 iconOnly={<MoreHorizontal />}
                 className="min-w-11"
                 aria-label={t("mcpServerCard.moreActions", {
-                  serverId: server.id,
+                  serverId: displayName ?? server.id,
                 })}
               />
             </ActionMenu.Trigger>
             <ActionMenu.Content
-              title={server.id}
+              title={displayName ?? server.id}
               showTitle
               closeLabel={t("mcpServerCard.actionsSheetClose")}
               align="end"
@@ -127,7 +136,11 @@ export function McpServerCard({
               {canRemove ? (
                 <ActionMenu.Item
                   icon={Trash2}
-                  label={t("mcpServerCard.removeServer")}
+                  label={
+                    server.catalog
+                      ? t("mcpServerCard.disconnect")
+                      : t("mcpServerCard.removeServer")
+                  }
                   tone="destructive"
                   onSelect={() => onRemove(server.id)}
                 />

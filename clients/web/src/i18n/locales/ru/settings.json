@@ -877,7 +877,8 @@
     "connect": "Подключить",
     "connected": "Подключено",
     "connectedAccounts": "{count, plural, one {# подключённый аккаунт} few {# подключённых аккаунта} many {# подключённых аккаунтов} other {# подключённого аккаунта}}",
-    "needsAttention": "Требует внимания"
+    "needsAttention": "Требует внимания",
+    "connectedConnections": "{count, plural, one {# активное подключение} few {# активных подключения} many {# активных подключений} other {# активного подключения}}"
   },
   "integrationsPage": {
     "accountConnectedToast": "Аккаунт {providerLabel} успешно подключён.",
@@ -1033,7 +1034,8 @@
     "statusDeclared": "Управляется плагином",
     "statusNeedsAttention": "Требует внимания",
     "statusNotStarted": "Не запущено",
-    "viewDetails": "Подробнее"
+    "viewDetails": "Подробнее",
+    "disconnect": "Отключить"
   },
   "mcpServerDetailModal": {
     "apiKey": "API-ключ",
@@ -2319,5 +2321,19 @@
     "waitingForAuthorization": "Завершите авторизацию {name} в браузере и вернитесь сюда.",
     "waitingForRuntime": "Ожидание готовности {name}...",
     "runtimeFailed": "Авторизация завершена, но подключить интеграцию не удалось. Повторите попытку или откройте настройки."
+  },
+  "mcpCatalog": {
+    "setUp": "Настроить",
+    "setupTitle": "Подключить {name}",
+    "manualInstructions": "Перед подключением выполните требования провайдера по настройке.",
+    "openDocumentation": "Открыть инструкцию",
+    "setupAcknowledged": "Необходимая настройка выполнена.",
+    "chooseMethod": "Выберите способ подключения. У каждого способа отдельные права доступа и подключения.",
+    "oauthMethod": "Подключение Vellum",
+    "oauthMethodDescription": "Подключите аккаунт через встроенную интеграцию.",
+    "mcpMethod": "MCP {name}",
+    "unavailable": "Не удалось загрузить каталог интеграций. Сохранённые подключения по-прежнему доступны.",
+    "disconnectTitle": "Отключить интеграцию?",
+    "disconnectMessage": "Отключить {serverId}? Сохранённое подключение и учётные данные будут удалены из Vellum, а инструменты остановлены."
   }
 }

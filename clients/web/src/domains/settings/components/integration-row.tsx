@@ -5,7 +5,8 @@ import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { useTranslation } from "@/i18n";
 
-import { summarizeOAuthConnections } from "../integration-items";
+import type { McpServerEntry } from "../mcp/mcp-api";
+import { summarizeIntegrationConnections } from "../integration-items";
 import { IntegrationListRow } from "./integration-list-row";
 
 interface IntegrationRowProps {
@@ -14,6 +15,7 @@ interface IntegrationRowProps {
   description: string | null;
   logoUrl: string | null;
   connections: OAuthConnection[];
+  mcpServers?: McpServerEntry[];
   disabled?: boolean;
   onConfigure: () => void;
 }
@@ -24,13 +26,13 @@ export function IntegrationRow({
   description,
   logoUrl,
   connections,
+  mcpServers = [],
   disabled,
   onConfigure,
 }: IntegrationRowProps) {
   const { t } = useTranslation("settings");
-  const { connectedCount, needsAttention } = summarizeOAuthConnections(
-    connections,
-  );
+  const { connectedCount, needsAttention, configured } =
+    summarizeIntegrationConnections(connections, mcpServers);
   return (
     <IntegrationListRow
       icon={
@@ -44,7 +46,12 @@ export function IntegrationRow({
       title={displayName}
       subtitle={
         connectedCount > 0
-          ? t("integrationRow.connectedAccounts", { count: connectedCount })
+          ? t(
+              mcpServers.length > 0
+                ? "integrationRow.connectedConnections"
+                : "integrationRow.connectedAccounts",
+              { count: connectedCount },
+            )
           : description
       }
       status={
@@ -56,11 +63,11 @@ export function IntegrationRow({
       }
       primaryAction={
         <Button
-          variant={connections.length > 0 ? "outlined" : "primary"}
+          variant={configured ? "outlined" : "primary"}
           onClick={onConfigure}
           disabled={disabled}
         >
-          {connections.length > 0
+          {configured
             ? t("integrationRow.configure")
             : t("integrationRow.connect")}
         </Button>

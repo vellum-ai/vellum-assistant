@@ -95,3 +95,5 @@ asset rather than falling back to a CDN copy of the same mark.
 Drop the asset here, add the provider key to `BUNDLED_LOGO_URLS` in
 `integration-icon.tsx`, and record the source and licence above. See
 `assistant/src/oauth/AGENTS.md` for the rest of the new-provider checklist.
+
+The GitHub mark includes a white backplate to preserve contrast in both themes.

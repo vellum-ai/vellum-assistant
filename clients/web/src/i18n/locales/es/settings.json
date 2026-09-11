@@ -891,7 +891,8 @@
     "connect": "Conectar",
     "connected": "Conectada",
     "connectedAccounts": "{count, plural, one {# cuenta conectada} other {# cuentas conectadas}}",
-    "needsAttention": "Requiere atención"
+    "needsAttention": "Requiere atención",
+    "connectedConnections": "{count, plural, one {# conexión activa} other {# conexiones activas}}"
   },
   "integrationsPage": {
     "accountConnectedToast": "Cuenta de {providerLabel} conectada correctamente.",
@@ -1047,7 +1048,8 @@
     "statusDeclared": "Administrado por plugin",
     "statusNeedsAttention": "Requiere atención",
     "statusNotStarted": "Sin iniciar",
-    "viewDetails": "Ver detalles"
+    "viewDetails": "Ver detalles",
+    "disconnect": "Desconectar"
   },
   "mcpServerDetailModal": {
     "apiKey": "Clave API",
@@ -2337,5 +2339,19 @@
     "waitingForAuthorization": "Completa la autorización de {name} en el navegador y vuelve aquí.",
     "waitingForRuntime": "Esperando a que {name} esté listo...",
     "runtimeFailed": "La autorización terminó, pero la integración no pudo conectarse. Reintenta o abre Configurar."
+  },
+  "mcpCatalog": {
+    "setUp": "Configurar",
+    "setupTitle": "Conectar {name}",
+    "manualInstructions": "Completa los requisitos de configuración del proveedor antes de conectar.",
+    "openDocumentation": "Ver guía de configuración",
+    "setupAcknowledged": "He completado la configuración requerida.",
+    "chooseMethod": "Elige cómo conectar. Cada método tiene acceso y conexiones independientes.",
+    "oauthMethod": "Conexión de Vellum",
+    "oauthMethodDescription": "Conecta una cuenta con la integración incorporada.",
+    "mcpMethod": "MCP de {name}",
+    "unavailable": "No se pudo cargar el catálogo de integraciones. Tus conexiones guardadas siguen disponibles.",
+    "disconnectTitle": "¿Desconectar integración?",
+    "disconnectMessage": "¿Desconectar {serverId}? Se eliminarán su conexión guardada y sus credenciales de Vellum y se detendrán sus herramientas."
   }
 }

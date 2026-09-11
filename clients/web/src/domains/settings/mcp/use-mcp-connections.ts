@@ -6,6 +6,7 @@ import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
+import { mcpDisplayName } from "../integration-items";
 import {
   addMcpServer,
   fetchMcpServers,
@@ -14,6 +15,11 @@ import {
   removeMcpServer,
   updateMcpServer,
 } from "./mcp-api";
+import {
+  connectMcpCatalogEntry,
+  fetchMcpCatalog,
+  type McpCatalogEntry,
+} from "./mcp-catalog-api";
 import { mcpQueryKeys } from "./mcp-query-keys";
 import { useMcpConnect } from "./use-mcp-connect";
 
@@ -32,6 +38,12 @@ export function useMcpConnections(assistantId: string) {
   );
   const [removeServerId, setRemoveServerId] = useState<string | null>(null);
 
+  const catalog = useQuery({
+    queryKey: mcpQueryKeys.catalog(assistantId),
+    queryFn: () => fetchMcpCatalog(assistantId),
+    enabled: isOrgReady,
+    staleTime: 60_000,
+  });
   const list = useQuery({
     queryKey: mcpQueryKeys.list(assistantId),
     queryFn: () => fetchMcpServers(assistantId),
@@ -40,6 +52,10 @@ export function useMcpConnections(assistantId: string) {
   const configureServer =
     list.data?.servers.find((server) => server.id === configureServerId) ??
     null;
+  const serverDisplayName = (serverId: string) => {
+    const server = list.data?.servers.find((entry) => entry.id === serverId);
+    return server ? mcpDisplayName(server, catalog.data?.entries) : serverId;
+  };
   const details = useQuery({
     queryKey: mcpQueryKeys.details(assistantId),
     queryFn: () => fetchMcpToolsSummary(assistantId),
@@ -79,18 +95,25 @@ export function useMcpConnections(assistantId: string) {
   });
   const remove = useMutation({
     mutationFn: (serverId: string) => removeMcpServer(assistantId, serverId),
-    onSuccess: (_data, serverId) => {
+    onMutate: (serverId) => ({ displayName: serverDisplayName(serverId) }),
+    onSuccess: (_data, serverId, context) => {
       if (auth.attempt?.serverId === serverId) {
         auth.stopWaiting();
       }
       invalidate();
       setRemoveServerId(null);
       setConfigureServerId(null);
-      toast.success(t("mcpPage.toastRemoved", { serverId }));
+      toast.success(
+        t("mcpPage.toastRemoved", { serverId: context.displayName }),
+      );
     },
-    onError: (error, serverId) => {
+    onError: (error, serverId, context) => {
       captureError(error, { context: "mcp.remove" });
-      toast.error(t("mcpPage.toastRemoveFailed", { serverId }));
+      toast.error(
+        t("mcpPage.toastRemoveFailed", {
+          serverId: context?.displayName ?? serverDisplayName(serverId),
+        }),
+      );
     },
   });
   const reload = useMutation({
@@ -111,7 +134,31 @@ export function useMcpConnections(assistantId: string) {
     }
   };
 
+  const connectCatalog = (
+    entry: McpCatalogEntry,
+    setupAcknowledged = false,
+  ) => {
+    if (!catalog.data?.supportsConnect) {
+      return;
+    }
+    auth.connect(entry.displayName, async () => {
+      const result = await connectMcpCatalogEntry(assistantId, {
+        catalogId: entry.id,
+        serverKey: entry.serverKey,
+        definitionDigest: entry.definitionDigest,
+        setupAcknowledged,
+      });
+      invalidate();
+      return result.serverId;
+    });
+  };
+
   return {
+    catalog,
+    connectCatalog,
+    connectServer: (serverId: string) =>
+      auth.connect(serverId, undefined, serverDisplayName(serverId)),
+    serverDisplayName,
     list,
     details,
     auth,

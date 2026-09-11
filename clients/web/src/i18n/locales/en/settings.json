@@ -891,7 +891,8 @@
     "connect": "Connect",
     "connected": "Connected",
     "connectedAccounts": "{count, plural, one {# connected account} other {# connected accounts}}",
-    "needsAttention": "Needs attention"
+    "needsAttention": "Needs attention",
+    "connectedConnections": "{count, plural, one {# connected connection} other {# connected connections}}"
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} account connected successfully.",
@@ -1047,7 +1048,8 @@
     "statusDeclared": "Managed by plugin",
     "statusNeedsAttention": "Needs attention",
     "statusNotStarted": "Not started",
-    "viewDetails": "View details"
+    "viewDetails": "View details",
+    "disconnect": "Disconnect"
   },
   "mcpServerDetailModal": {
     "apiKey": "API key",
@@ -2395,5 +2397,19 @@
     "waitingForAuthorization": "Complete authorization for {name} in the browser, then return here.",
     "waitingForRuntime": "Waiting for {name} to become ready...",
     "runtimeFailed": "Authorization finished, but the integration could not connect. Retry or open Configure."
+  },
+  "mcpCatalog": {
+    "setUp": "Set up",
+    "setupTitle": "Connect {name}",
+    "manualInstructions": "Complete the provider's setup requirements before connecting.",
+    "openDocumentation": "View setup guide",
+    "setupAcknowledged": "I have completed the required setup.",
+    "chooseMethod": "Choose how to connect. Each method has separate access and connections.",
+    "oauthMethod": "Vellum connection",
+    "oauthMethodDescription": "Connect an account using the built-in integration.",
+    "mcpMethod": "{name} MCP",
+    "unavailable": "The integration catalog could not be loaded. Your saved connections are still available.",
+    "disconnectTitle": "Disconnect integration?",
+    "disconnectMessage": "Disconnect {serverId}? This removes its saved connection and credentials from Vellum and stops its tools."
   }
 }

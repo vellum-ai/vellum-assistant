@@ -891,7 +891,8 @@
     "connect": "连接",
     "connected": "已连接",
     "connectedAccounts": "{count, plural, other {# 个已连接账号}}",
-    "needsAttention": "需要处理"
+    "needsAttention": "需要处理",
+    "connectedConnections": "{count, plural, other {# 个已连接的连接}}"
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} 账户连接成功。",
@@ -1047,7 +1048,8 @@
     "statusDeclared": "由插件管理",
     "statusNeedsAttention": "需要处理",
     "statusNotStarted": "尚未启动",
-    "viewDetails": "查看详情"
+    "viewDetails": "查看详情",
+    "disconnect": "断开连接"
   },
   "mcpServerDetailModal": {
     "apiKey": "API 密钥",
@@ -2385,5 +2387,19 @@
     "waitingForAuthorization": "请在浏览器中完成 {name} 的授权，然后返回此处。",
     "waitingForRuntime": "正在等待 {name} 就绪...",
     "runtimeFailed": "授权已完成，但集成无法连接。请重试或打开配置。"
+  },
+  "mcpCatalog": {
+    "setUp": "设置",
+    "setupTitle": "连接 {name}",
+    "manualInstructions": "请在连接前完成提供商要求的设置。",
+    "openDocumentation": "查看设置指南",
+    "setupAcknowledged": "我已完成所需设置。",
+    "chooseMethod": "选择连接方式。每种方式拥有独立的访问权限和连接。",
+    "oauthMethod": "Vellum 连接",
+    "oauthMethodDescription": "使用内置集成连接账号。",
+    "mcpMethod": "{name} MCP",
+    "unavailable": "无法加载集成目录。已保存的连接仍然可用。",
+    "disconnectTitle": "断开集成连接？",
+    "disconnectMessage": "断开 {serverId} 的连接？这会从 Vellum 中删除其已保存的连接和凭据，并停止其工具。"
   }
 }

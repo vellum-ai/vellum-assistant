@@ -891,7 +891,8 @@
     "connect": "連線",
     "connected": "已連線",
     "connectedAccounts": "{count, plural, other {# 個已連線帳號}}",
-    "needsAttention": "需要處理"
+    "needsAttention": "需要處理",
+    "connectedConnections": "{count, plural, other {# 個已建立的連線}}"
   },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} 帳號已成功連線。",
@@ -1047,7 +1048,8 @@
     "statusDeclared": "由外掛管理",
     "statusNeedsAttention": "需要處理",
     "statusNotStarted": "尚未啟動",
-    "viewDetails": "查看詳細資料"
+    "viewDetails": "查看詳細資料",
+    "disconnect": "中斷連線"
   },
   "mcpServerDetailModal": {
     "apiKey": "API 金鑰",
@@ -2385,5 +2387,19 @@
     "waitingForAuthorization": "請在瀏覽器中完成 {name} 的授權，然後返回此處。",
     "waitingForRuntime": "正在等待 {name} 就緒...",
     "runtimeFailed": "授權已完成，但整合無法連線。請重試或開啟設定。"
+  },
+  "mcpCatalog": {
+    "setUp": "設定",
+    "setupTitle": "連接 {name}",
+    "manualInstructions": "請在連線前完成供應商要求的設定。",
+    "openDocumentation": "查看設定指南",
+    "setupAcknowledged": "我已完成必要設定。",
+    "chooseMethod": "選擇連線方式。每種方式擁有獨立的存取權限和連線。",
+    "oauthMethod": "Vellum 連線",
+    "oauthMethodDescription": "使用內建整合連接帳號。",
+    "mcpMethod": "{name} MCP",
+    "unavailable": "無法載入整合目錄。已儲存的連線仍可使用。",
+    "disconnectTitle": "中斷整合連線？",
+    "disconnectMessage": "中斷 {serverId} 的連線？這會從 Vellum 刪除其已儲存的連線與憑證，並停止其工具。"
   }
 }

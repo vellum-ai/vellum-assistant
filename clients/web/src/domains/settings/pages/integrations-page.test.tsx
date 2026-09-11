@@ -44,7 +44,11 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
     },
   },
 }));
+const actualDaemonQueries = await import(
+  "@/generated/daemon/@tanstack/react-query.gen"
+);
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
+  ...actualDaemonQueries,
   oauthProvidersGetOptions: () => ({
     queryKey: ["oauth-providers"],
     queryFn: async () => {
@@ -55,7 +59,11 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
     },
   }),
 }));
+const actualApiQueries = await import(
+  "@/generated/api/@tanstack/react-query.gen"
+);
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
+  ...actualApiQueries,
   assistantsOauthConnectionsListOptions: () => ({
     queryKey: ["oauth-connections"],
     queryFn: async () => seededConnections,
@@ -68,15 +76,15 @@ mock.module("@/hooks/use-platform-assistant-id", () => ({
     error: null,
   }),
 }));
+const actualPlatformGate = await import("@/hooks/use-platform-gate");
 mock.module("@/hooks/use-platform-gate", () => ({
+  ...actualPlatformGate,
   usePlatformGate: () => platformGate,
 }));
 mock.module("@/lib/sentry/capture-error", () => ({ captureError: () => {} }));
-mock.module("@/domains/settings/components/integration-detail-modal", () => ({
-  IntegrationDetailModal: () => null,
-}));
-mock.module("@/domains/settings/mcp/mcp-connection-dialogs", () => ({
-  McpConnectionDialogs: () => null,
+mock.module("@/domains/settings/mcp/mcp-catalog-api", () => ({
+  fetchMcpCatalog: async () => ({ supportsConnect: false, entries: [] }),
+  connectMcpCatalogEntry: async () => ({ serverId: "unused", created: false }),
 }));
 mock.module("@/domains/settings/mcp/mcp-api", () => ({
   fetchMcpServers: async () => {
@@ -203,9 +211,11 @@ describe("IntegrationsPage", () => {
     hydrated = false;
     render(<IntegrationsPage />, { wrapper: Wrapper });
     expect(
-      (screen.getByRole("button", {
-        name: "Add custom integration",
-      }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Add custom integration",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 });
