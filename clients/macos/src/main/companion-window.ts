@@ -2184,6 +2184,9 @@ const syncCallSurface = (): void => {
     // already standing in a canvas that can hold it.
     syncCanvas();
     const display = displayUnder(callHome);
+    // The edges, loaded now and kept hidden, so the first drag of the call
+    // has a window to show rather than one to build.
+    readyDockZones(display.workArea);
     glideAvatarTo(
       win,
       dockedAvatarCentre(dock, display.workArea, geometry),
@@ -2208,13 +2211,15 @@ const syncCallSurface = (): void => {
 };
 
 /**
- * Show the edges over a display, or move them to it.
+ * Have the edges' window built and hidden over a display, ready to show.
  *
- * Opened by the first move of a drag during a call, moved with the drag from
- * display to display, and closed by the release or by the call ending under
- * it.
+ * Built when the call takes the surface rather than on the first move of a
+ * drag: a window has to load its page before it can draw, and a drag that
+ * had to wait for that would be halfway to the edge before the edges
+ * appeared. Hidden straight after it is built; its page draws nothing until
+ * a drag is in flight anyway, so nothing is seen either way.
  */
-const placeDockZones = (bounds: Rectangle): void => {
+const readyDockZones = (bounds: Rectangle): BrowserWindow => {
   const existing = getFloatingWindow(DOCK_ZONES_KIND);
   if (existing !== null) {
     const current = existing.getBounds();
@@ -2226,7 +2231,7 @@ const placeDockZones = (bounds: Rectangle): void => {
     ) {
       existing.setBounds(bounds);
     }
-    return;
+    return existing;
   }
   const win = createFloatingWindow({
     kind: DOCK_ZONES_KIND,
@@ -2247,6 +2252,26 @@ const placeDockZones = (bounds: Rectangle): void => {
   // Under the surface being dragged over it, so the bar is never hidden by
   // the edge it is about to land on.
   win.setAlwaysOnTop(true, "floating", -1);
+  win.hide();
+  return win;
+};
+
+/**
+ * Show the edges over a display, or move them to it.
+ *
+ * On each move of a drag during a call, so the edges follow the drag from
+ * display to display. Hidden again by the release, and closed by the call
+ * ending.
+ */
+const placeDockZones = (bounds: Rectangle): void => {
+  const win = readyDockZones(bounds);
+  if (!win.isVisible()) {
+    win.showInactive();
+  }
+};
+
+const hideDockZones = (): void => {
+  getFloatingWindow(DOCK_ZONES_KIND)?.hide();
 };
 
 const closeDockZones = (): void => {
@@ -2282,7 +2307,7 @@ const armDock = (centre: { x: number; y: number }): void => {
  */
 const dropOnDock = (next: CompanionDock): void => {
   docking = null;
-  closeDockZones();
+  hideDockZones();
   writeCompanionCallDock(next);
   dock = next;
   const win = getFloatingWindow(COMPANION_KIND);

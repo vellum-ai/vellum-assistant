@@ -1385,13 +1385,18 @@ describe("the edge a call's bar docks to", () => {
     expect(state().dock).toBe("top");
   });
 
+  /**
+   * The window is built with the call and kept hidden, so the drag has a
+   * window to show rather than one to build and load.
+   */
   test("a drag mid-call shows the edges and names the one it is heading for", () => {
-    send("vellum:companion:startVoice");
     expect(zonesWindow()).toBeNull();
+    send("vellum:companion:startVoice");
+    expect(zonesWindow()?.visible).toBe(false);
+    expect(zonesWindow()?.bounds).toEqual(SCREEN);
     dragTo({ x: 100, y: 450 });
     const zones = zonesWindow();
-    expect(zones).not.toBeNull();
-    expect(zones?.bounds).toEqual(SCREEN);
+    expect(zones?.visible).toBe(true);
     expect(zones?.level).toEqual(["floating", -1]);
     expect(state().docking).toBe("left");
     dragTo({ x: 700, y: 60 });
@@ -1406,7 +1411,7 @@ describe("the edge a call's bar docks to", () => {
     send("vellum:companion:startVoice");
     const docked = centre();
     send("vellum:companion:moveBy", 1, -1);
-    expect(zonesWindow()).toBeNull();
+    expect(zonesWindow()?.visible).toBe(false);
     expect(state().docking).toBeUndefined();
     release();
     expect(centre()).toEqual({ x: docked.x + 1, y: docked.y - 1 });
@@ -1425,7 +1430,7 @@ describe("the edge a call's bar docks to", () => {
     send("vellum:companion:startVoice");
     dragTo({ x: 100, y: 450 });
     release();
-    expect(zonesWindow()).toBeNull();
+    expect(zonesWindow()?.visible).toBe(false);
     expect(state().docking).toBeUndefined();
     expect(state().dock).toBe("left");
     expect(storedDock).toBe("left");
@@ -1466,7 +1471,7 @@ describe("the edge a call's bar docks to", () => {
   test("a call ending under a drag takes the edges down with it", () => {
     send("vellum:companion:startVoice");
     dragTo({ x: 100, y: 450 });
-    expect(zonesWindow()).not.toBeNull();
+    expect(zonesWindow()?.visible).toBe(true);
     send("vellum:voiceActivity:end");
     expect(zonesWindow()).toBeNull();
     expect(state().docking).toBeUndefined();
