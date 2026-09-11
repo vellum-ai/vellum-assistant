@@ -93,6 +93,12 @@ interface FailedDocumentSend {
   clientMessageId?: string;
 }
 
+/** A queued send retained while its assistant's event stream is detached. */
+export interface DetachedQueuedDocumentSend {
+  conversationId: string;
+  payload: PendingDocumentReplyPayload;
+}
+
 export interface DocumentComposerReplyState {
   /**
    * Sends awaiting a reply, keyed by conversation, oldest first. A
@@ -113,6 +119,12 @@ export interface DocumentComposerReplyState {
    * message left to hold for its document under its assistant.
    */
   detachedSends: ReadonlyMap<string, PendingDocumentReplyPayload>;
+  /**
+   * Queued sends retained across assistant switches, keyed by nonce. When the
+   * owner becomes active again, the reply watcher checks the authoritative
+   * conversation snapshot before either discarding or recovering the payload.
+   */
+  detachedQueuedSends: ReadonlyMap<string, DetachedQueuedDocumentSend>;
   /**
    * Conversations whose last send settled on a handoff, so the processing
    * marker stays up for the queued work the handoff announced. A conversation
@@ -268,14 +280,17 @@ export interface DocumentComposerReplyActions {
   takeDetachedSend: (
     clientMessageId: string,
   ) => PendingDocumentReplyPayload | null;
+  /** Forget a queued send retained across an assistant switch. */
+  dropDetachedQueuedSend: (clientMessageId: string) => boolean;
   /**
    * Drop every pending send and every handed-off conversation, for an
    * assistant switch no reply can arrive across. The message of a send the
-   * daemon has not spoken for is kept in `detachedSends` under its nonce; an
-   * acknowledged send's message is with the daemon. Held messages stay, since
-   * each is keyed by the assistant it went to as well as its document's
-   * surface, and only that document's composer under that assistant takes it
-   * back.
+   * daemon has not spoken for is kept in `detachedSends` under its nonce. An
+   * acknowledged queued send stays in `detachedQueuedSends` until its owner
+   * becomes active and the authoritative history says whether it remains
+   * queued, was persisted, or failed. Held messages stay, since each is keyed
+   * by the assistant it went to as well as its document's surface, and only
+   * that document's composer under that assistant takes it back.
    */
   clearAwaitingReplies: () => void;
   /**
@@ -423,6 +438,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
     pendingReplies: new Map(),
     failedSends: new Map(),
     detachedSends: new Map(),
+    detachedQueuedSends: new Map(),
     handedOffConversationIds: new Set(),
 
     startAwaitingReply: (conversationId, clientMessageId, payload) => {
@@ -778,6 +794,18 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       return detached;
     },
 
+    dropDetachedQueuedSend: (clientMessageId) => {
+      if (!get().detachedQueuedSends.has(clientMessageId)) {
+        return false;
+      }
+      set((s) => {
+        const next = new Map(s.detachedQueuedSends);
+        next.delete(clientMessageId);
+        return { detachedQueuedSends: next };
+      });
+      return true;
+    },
+
     clearAwaitingReplies: () => {
       set((s) => {
         if (
@@ -787,7 +815,8 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
           return s;
         }
         const detachedSends = new Map(s.detachedSends);
-        for (const pending of s.pendingReplies.values()) {
+        const detachedQueuedSends = new Map(s.detachedQueuedSends);
+        for (const [conversationId, pending] of s.pendingReplies) {
           for (const p of pending) {
             if (
               !p.acknowledged &&
@@ -797,11 +826,23 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
             ) {
               detachedSends.set(p.clientMessageId, p.payload);
             }
+            if (
+              p.acknowledged &&
+              p.queued &&
+              p.clientMessageId &&
+              p.payload
+            ) {
+              detachedQueuedSends.set(p.clientMessageId, {
+                conversationId,
+                payload: p.payload,
+              });
+            }
           }
         }
         return {
           pendingReplies: new Map(),
           detachedSends,
+          detachedQueuedSends,
           handedOffConversationIds: new Set(),
         };
       });
@@ -809,10 +850,18 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
 
     clearHeldMessages: () => {
       set((s) => {
-        if (s.failedSends.size === 0 && s.detachedSends.size === 0) {
+        if (
+          s.failedSends.size === 0 &&
+          s.detachedSends.size === 0 &&
+          s.detachedQueuedSends.size === 0
+        ) {
           return s;
         }
-        return { failedSends: new Map(), detachedSends: new Map() };
+        return {
+          failedSends: new Map(),
+          detachedSends: new Map(),
+          detachedQueuedSends: new Map(),
+        };
       });
     },
   }),

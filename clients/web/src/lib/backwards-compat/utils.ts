@@ -159,6 +159,22 @@ export function assistantSupports(minVersion: string): boolean {
 }
 
 /**
+ * Whether the identity store holds a version fetched for
+ * `ownerAssistantId`, for imperative callers that must not continue on a
+ * timed-out scoped wait with another assistant's version.
+ */
+export function assistantVersionKnownFor(
+  ownerAssistantId: string | null | undefined,
+): ownerAssistantId is string {
+  const { assistantId, version } = useAssistantIdentityStore.getState();
+  return (
+    version !== null &&
+    ownerAssistantId != null &&
+    ownerAssistantId === assistantId
+  );
+}
+
+/**
  * Non-hook variant of {@link useAssistantScopedSupports}, for imperative
  * callers (event handlers, async ops): same owner-scoping rule, read off a
  * `getState()` snapshot.
@@ -177,11 +193,9 @@ export function assistantScopedSupports(
   minVersion: string,
   ownerAssistantId: string | null | undefined,
 ): ownerAssistantId is string {
-  const identityAssistantId = useAssistantIdentityStore.getState().assistantId;
   return (
     assistantSupports(minVersion) &&
-    ownerAssistantId != null &&
-    ownerAssistantId === identityAssistantId
+    assistantVersionKnownFor(ownerAssistantId)
   );
 }
 

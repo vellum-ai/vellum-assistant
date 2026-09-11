@@ -22,11 +22,14 @@ function loaded(data: unknown): QueryState {
 
 /** Staged state per query, keyed by the `_id` its options factory carries. */
 let queries: Record<string, QueryState> = {};
+let queryEnabled: Record<string, boolean | undefined> = {};
+let orgReady = true;
 
 const actualReactQuery = await import("@tanstack/react-query");
 mock.module("@tanstack/react-query", () => ({
   ...actualReactQuery,
   useQuery: (opts: { queryKey?: [{ _id?: string }]; enabled?: boolean }) => {
+    queryEnabled[opts.queryKey?.[0]?._id ?? ""] = opts.enabled;
     if (opts.enabled === false) {
       return PENDING;
     }
@@ -41,6 +44,10 @@ function options(id: string) {
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   configGetOptions: options("config"),
   conversationsByIdGetOptions: options("conversation"),
+}));
+
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => orgReady,
 }));
 
 const { useActiveProfileModel, useActiveProfileModelState } =
@@ -66,6 +73,8 @@ function state(conversationId: string | undefined) {
 afterEach(() => {
   cleanup();
   queries = {};
+  queryEnabled = {};
+  orgReady = true;
 });
 
 describe("useActiveProfileModelState", () => {
@@ -94,6 +103,17 @@ describe("useActiveProfileModelState", () => {
       model: { provider: "anthropic", model: "claude", supportsVision: true },
       resolved: false,
     });
+  });
+
+  test("waits for organization headers before starting either query", () => {
+    orgReady = false;
+    queries = {
+      config: CONFIG,
+      conversation: loaded({ conversation: { inferenceProfile: "docs" } }),
+    };
+
+    expect(state("conv-1")).toEqual({ model: null, resolved: false });
+    expect(queryEnabled).toEqual({ config: false, conversation: false });
   });
 
   test("resolves the conversation's own override once its row lands", () => {

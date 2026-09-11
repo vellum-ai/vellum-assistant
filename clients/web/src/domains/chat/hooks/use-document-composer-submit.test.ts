@@ -31,7 +31,15 @@
  * composer/conversation/reply stores are real, so the resolution branches are
  * exercised for real rather than asserted against a mock's call args.
  */
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  jest,
+  mock,
+  test,
+} from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -432,6 +440,7 @@ beforeEach(() => {
     pendingReplies: new Map(),
     failedSends: new Map(),
     detachedSends: new Map(),
+    detachedQueuedSends: new Map(),
   });
   useViewerStore.setState({ openedDocumentState: null });
   // Below the server-mint floor, so the legacy path is the default and the
@@ -461,6 +470,7 @@ afterEach(() => {
     pendingReplies: new Map(),
     failedSends: new Map(),
     detachedSends: new Map(),
+    detachedQueuedSends: new Map(),
   });
   useViewerStore.setState({ openedDocumentState: null });
 });
@@ -648,6 +658,34 @@ describe("conversation id resolution", () => {
 });
 
 describe("the version the send is framed against", () => {
+  test("a timed-out identity wait never sends under another assistant's version", async () => {
+    jest.useFakeTimers();
+    try {
+      useAssistantIdentityStore.setState({
+        version: "0.9.0",
+        assistantId: "assistant-2",
+      });
+      useComposerStore.getState().setInput("hello", "document");
+      const { result } = renderSubmit("conv-existing");
+
+      let submitted: Promise<void> = Promise.resolve();
+      await act(async () => {
+        submitted = result.current.submit();
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(5_000);
+        await submitted;
+      });
+
+      expect(postChatMessageMock).not.toHaveBeenCalled();
+      expect(result.current.status).toBe("error");
+      expect(useComposerStore.getState().documentInput).toBe("hello");
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test("closing the document during version resolution holds its full payload", async () => {
     useAssistantIdentityStore.setState({ version: null, assistantId: null });
     useComposerStore.setState({

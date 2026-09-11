@@ -16,7 +16,7 @@
  * behind this gate until every supported assistant understands the new
  * flow.
  */
-import { assistantSupports } from "./utils";
+import { assistantScopedSupports, assistantSupports } from "./utils";
 
 export const MIN_VERSION = "0.8.6";
 
@@ -38,4 +38,11 @@ export const MIN_VERSION = "0.8.6";
  */
 export function supportsServerMintedConversation(): boolean {
   return assistantSupports(MIN_VERSION);
+}
+
+/** Owner-scoped variant for async writes that can outlive an assistant switch. */
+export function supportsServerMintedConversationFor(
+  assistantId: string | null | undefined,
+): assistantId is string {
+  return assistantScopedSupports(MIN_VERSION, assistantId);
 }

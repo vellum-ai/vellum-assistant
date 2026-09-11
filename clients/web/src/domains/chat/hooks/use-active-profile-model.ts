@@ -6,6 +6,7 @@ import {
   conversationsByIdGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { ConfigGetResponse } from "@/generated/daemon/types.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 
 /**
  * Resolves the (provider, model) pair currently in effect for a chat
@@ -75,13 +76,14 @@ export function useActiveProfileModelState(
   conversationId: string | undefined,
   pendingProfile?: string | null,
 ): ActiveProfileModelState {
+  const isOrgReady = useIsOrgReady();
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId ?? "" } }),
-    enabled: !!assistantId,
+    enabled: !!assistantId && isOrgReady,
     staleTime: 30_000,
   });
 
-  const conversationEnabled = !!assistantId && !!conversationId;
+  const conversationEnabled = !!assistantId && !!conversationId && isOrgReady;
   const { data: convData, status: convStatus } = useQuery({
     ...conversationsByIdGetOptions({
       path: { assistant_id: assistantId ?? "", id: conversationId ?? "" },

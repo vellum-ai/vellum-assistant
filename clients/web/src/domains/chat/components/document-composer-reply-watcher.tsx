@@ -1,14 +1,16 @@
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { fetchConversationMessages } from "@/domains/chat/api/messages";
 import {
   keepsProcessingMarker,
   useDocumentComposerReplyStore,
 } from "@/domains/chat/document-composer-reply-store";
 import { isMessageScopedError } from "@/domains/chat/utils/message-scoped-error";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { navigateToConversation } from "@/utils/conversation-navigation";
@@ -61,6 +63,26 @@ function rekeyByNonce(
     .transferProcessingConversationId(previousConversationId, conversationId);
 }
 
+/** Drop every recovery copy correlated with an accepted or deleted send. */
+function dropCorrelatedRecovery(clientMessageId: string): void {
+  const replyStore = useDocumentComposerReplyStore.getState();
+  replyStore.dropFailedSend(clientMessageId);
+  replyStore.dropDetachedQueuedSend(clientMessageId);
+}
+
+/** Whether the active stream still owns the pending send carrying `nonce`. */
+function isPendingReply(
+  conversationId: string,
+  clientMessageId: string,
+): boolean {
+  return (
+    useDocumentComposerReplyStore
+      .getState()
+      .pendingReplies.get(conversationId)
+      ?.some((pending) => pending.clientMessageId === clientMessageId) ?? false
+  );
+}
+
 /**
  * Fires the document composer's "Assistant replied" toast once the daemon
  * reports a turn complete for a send `useDocumentComposerSubmit` flagged as
@@ -89,6 +111,101 @@ function rekeyByNonce(
 export function DocumentComposerReplyWatcher() {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
+  const isOrgReady = useIsOrgReady();
+
+  const reconcileDetachedQueuedReplies = useCallback(
+    async (assistantId: string): Promise<void> => {
+      if (!isOrgReady) {
+        return;
+      }
+      const detached = [
+        ...useDocumentComposerReplyStore.getState().detachedQueuedSends,
+      ].filter(([, send]) => send.payload.assistantId === assistantId);
+      if (detached.length === 0) {
+        return;
+      }
+
+      // Reattach before the network read so queue events that arrive as this
+      // assistant becomes active can settle the retained send by nonce.
+      for (const [clientMessageId, send] of detached) {
+        const replyStore = useDocumentComposerReplyStore.getState();
+        replyStore.startAwaitingReply(
+          send.conversationId,
+          clientMessageId,
+          send.payload,
+        );
+        replyStore.acknowledgeReply(
+          send.conversationId,
+          clientMessageId,
+          true,
+        );
+        useConversationStore
+          .getState()
+          .addProcessingConversationId(send.conversationId);
+      }
+
+      const byConversation = new Map<
+        string,
+        typeof detached
+      >();
+      for (const entry of detached) {
+        const conversationId = entry[1].conversationId;
+        const entries = byConversation.get(conversationId) ?? [];
+        entries.push(entry);
+        byConversation.set(conversationId, entries);
+      }
+
+      for (const [conversationId, entries] of byConversation) {
+        let snapshot: Awaited<ReturnType<typeof fetchConversationMessages>>;
+        try {
+          snapshot = await fetchConversationMessages(
+            assistantId,
+            conversationId,
+          );
+        } catch {
+          // Keep the payload and the reattached nonce. A later stream event or
+          // assistant activation can resolve it without risking a duplicate.
+          continue;
+        }
+        if (
+          useResolvedAssistantsStore.getState().activeAssistantId !==
+          assistantId
+        ) {
+          return;
+        }
+
+        for (const [clientMessageId, send] of entries) {
+          const replyStore = useDocumentComposerReplyStore.getState();
+          const stillDetached = replyStore.detachedQueuedSends.get(
+            clientMessageId,
+          );
+          if (stillDetached === undefined) {
+            continue;
+          }
+          const message = snapshot?.messages.find(
+            (candidate) => candidate.clientMessageId === clientMessageId,
+          );
+          if (message?.queueStatus === "queued") {
+            continue;
+          }
+          if (message === undefined && snapshot?.processing !== false) {
+            // The send can be between dequeue and persistence. Only an idle
+            // snapshot with neither a queued nor persisted row proves it died.
+            continue;
+          }
+
+          replyStore.dropDetachedQueuedSend(clientMessageId);
+          replyStore.stopAwaitingReply(conversationId, clientMessageId);
+          if (message === undefined) {
+            replyStore.stashFailedSend(send.payload);
+            toast.error(t("documentComposer.sendFailed"));
+          }
+          clearProcessingWhenSettled(conversationId);
+        }
+      }
+    },
+    [isOrgReady, t],
+  );
 
   // One SSE connection follows the active assistant, so a wait held across a
   // switch never sees its reply and would toast on an unrelated turn. The
@@ -98,6 +215,9 @@ export function DocumentComposerReplyWatcher() {
   useEffect(() => {
     let ownerAssistantId =
       useResolvedAssistantsStore.getState().activeAssistantId;
+    if (ownerAssistantId !== null) {
+      void reconcileDetachedQueuedReplies(ownerAssistantId);
+    }
     return useResolvedAssistantsStore.subscribe((state) => {
       const { activeAssistantId } = state;
       if (activeAssistantId === ownerAssistantId) {
@@ -131,8 +251,11 @@ export function DocumentComposerReplyWatcher() {
         }
       }
       ownerAssistantId = activeAssistantId;
+      if (activeAssistantId !== null) {
+        void reconcileDetachedQueuedReplies(activeAssistantId);
+      }
     });
-  }, []);
+  }, [reconcileDetachedQueuedReplies]);
 
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
@@ -147,9 +270,7 @@ export function DocumentComposerReplyWatcher() {
       }
       rekeyByNonce(event.conversationId, event.clientMessageId);
       if (event.clientMessageId !== undefined) {
-        useDocumentComposerReplyStore
-          .getState()
-          .dropFailedSend(event.clientMessageId);
+        dropCorrelatedRecovery(event.clientMessageId);
       }
       useDocumentComposerReplyStore
         .getState()
@@ -166,6 +287,11 @@ export function DocumentComposerReplyWatcher() {
         useDocumentComposerReplyStore
           .getState()
           .dropFailedSend(event.clientMessageId);
+        if (isPendingReply(event.conversationId, event.clientMessageId)) {
+          useDocumentComposerReplyStore
+            .getState()
+            .dropDetachedQueuedSend(event.clientMessageId);
+        }
       }
       useDocumentComposerReplyStore
         .getState()
@@ -182,6 +308,11 @@ export function DocumentComposerReplyWatcher() {
         useDocumentComposerReplyStore
           .getState()
           .dropFailedSend(event.clientMessageId);
+        if (isPendingReply(event.conversationId, event.clientMessageId)) {
+          useDocumentComposerReplyStore
+            .getState()
+            .dropDetachedQueuedSend(event.clientMessageId);
+        }
       }
       useDocumentComposerReplyStore
         .getState()
@@ -197,6 +328,11 @@ export function DocumentComposerReplyWatcher() {
         useDocumentComposerReplyStore
           .getState()
           .dropFailedSend(event.clientMessageId);
+        if (isPendingReply(event.conversationId, event.clientMessageId)) {
+          useDocumentComposerReplyStore
+            .getState()
+            .dropDetachedQueuedSend(event.clientMessageId);
+        }
       }
       useDocumentComposerReplyStore
         .getState()
@@ -215,6 +351,7 @@ export function DocumentComposerReplyWatcher() {
       rekeyByNonce(conversationId, clientMessageId);
       const replyStore = useDocumentComposerReplyStore.getState();
       replyStore.dropFailedSend(clientMessageId);
+      replyStore.dropDetachedQueuedSend(clientMessageId);
       replyStore.stopAwaitingReply(conversationId, clientMessageId);
       clearProcessingWhenSettled(conversationId);
       return;
@@ -254,12 +391,15 @@ export function DocumentComposerReplyWatcher() {
       rekeyByNonce(conversationId, clientMessageId);
       const replyStore = useDocumentComposerReplyStore.getState();
       const pending = replyStore.pendingReplies.get(conversationId) ?? [];
-      // A nonce naming none of these sends is another client's message, and
-      // the sends listed here are still owed their own terminals.
+      const detached = replyStore.detachedQueuedSends.get(clientMessageId);
+      // A nonce naming neither an attached nor switch-detached send is
+      // another client's message, and the sends listed here are still owed
+      // their own terminals.
       const failed = pending.find((p) => p.clientMessageId === clientMessageId);
-      if (!failed) {
+      if (!failed && !detached) {
         return;
       }
+      replyStore.dropDetachedQueuedSend(clientMessageId);
       replyStore.stopAwaitingReply(conversationId, clientMessageId);
       clearProcessingWhenSettled(conversationId);
       // The daemon reports this failure after the send's own response, by
@@ -267,8 +407,10 @@ export function DocumentComposerReplyWatcher() {
       // message went out, and on the standalone document route no other
       // handler sees the error.
       toast.error(t("documentComposer.sendFailed"));
-      if (failed.payload && !failed.recovering) {
+      if (failed?.payload && !failed.recovering) {
         replyStore.stashFailedSend(failed.payload);
+      } else if (detached) {
+        replyStore.stashFailedSend(detached.payload);
       }
       return;
     }
@@ -283,6 +425,11 @@ export function DocumentComposerReplyWatcher() {
     const settled = useDocumentComposerReplyStore
       .getState()
       .settleRunningReplies(conversationId);
+    const activeAssistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    if (activeAssistantId !== null) {
+      void reconcileDetachedQueuedReplies(activeAssistantId);
+    }
     // A handoff leaves the marker up for the queued work it announces, and the
     // conversation is named as handed off. The next terminal there that is not
     // itself a handoff takes the marker down, whether or not it answers a send

@@ -57,9 +57,12 @@ import { findConversation } from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
-import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
+import { supportsServerMintedConversationFor } from "@/lib/backwards-compat/server-minted-conversation";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
-import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
+import {
+  assistantVersionKnownFor,
+  whenAssistantVersionKnownFor,
+} from "@/lib/backwards-compat/utils";
 import { useTranslation } from "@/i18n";
 
 export type DocumentComposerSendStatus = "idle" | "sending" | "sent" | "error";
@@ -276,14 +279,11 @@ export function useDocumentComposerSubmit({
       return;
     }
     const ownerGeneration = ownerGenerationRef.current;
-    // Every gate that frames the send reads the version of whichever
-    // assistant is active when it runs (`supportsServerMintedConversation`
-    // here, `pickConversationIdWireField` inside `postChatMessage`), so an
-    // attempt that outlives a switch to another assistant would be framed
-    // against the wrong one. Switching also clears the draft, hands the
-    // shared slot to the incoming assistant, and resets this attempt's
-    // nonce, so an attempt that finds the assistant changed has nothing left
-    // to send, or to say on a composer that is not the one it started on.
+    // Every gate that frames the send must read the version fetched for this
+    // attempt's assistant. Switching clears the draft, hands the shared slot
+    // to the incoming assistant, and resets this attempt's nonce, so an
+    // attempt that finds the assistant changed has nothing left to send, or
+    // to say on a composer that is not the one it started on.
     // Both the owner this hook still holds and the assistant the app has
     // active: a switch that unmounts the host clears the owner, and one that
     // keeps it mounted moves the active assistant first.
@@ -365,6 +365,16 @@ export function useDocumentComposerSubmit({
         holdAbandonedPreflight();
         return;
       }
+      // The wait is bounded. If it expired while the identity store still
+      // belongs to another assistant, neither the legacy nor current wire
+      // shape is safe to choose for this write.
+      if (!assistantVersionKnownFor(assistantId)) {
+        if (ownsSlotNow()) {
+          setStatus("error");
+        }
+        toast.error(t("documentComposer.sendFailed"));
+        return;
+      }
       const resolvedId = resolveDocumentConversationId(doc, assistantId);
       // A fresh client-minted id (never sent to the server) can't be sent as
       // a strict-lookup `conversationId` on assistants >= 0.8.6, which 404s
@@ -376,10 +386,7 @@ export function useDocumentComposerSubmit({
       const isFreshDraft = useConversationStore
         .getState()
         .draftConversationIds.has(resolvedId);
-      // Unscoped, matching the read `postChatMessage` makes when it picks its
-      // own wire field: the two have to agree on one version, and that read
-      // has no owner to scope to.
-      const requireLink = supportsServerMintedConversation();
+      const requireLink = supportsServerMintedConversationFor(assistantId);
       const useServerMint = isFreshDraft && requireLink;
 
       // The daemon starts the turn inside the send and prompt assembly reads
@@ -467,7 +474,10 @@ export function useDocumentComposerSubmit({
       const expectedWireField = requireLink
         ? "conversationId"
         : "conversationKey";
-      if (pickConversationIdWireField() !== expectedWireField) {
+      if (
+        !assistantVersionKnownFor(assistantId) ||
+        pickConversationIdWireField() !== expectedWireField
+      ) {
         if (ownsSlotNow()) {
           setStatus("error");
         }

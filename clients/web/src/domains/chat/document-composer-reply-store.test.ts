@@ -66,6 +66,7 @@ beforeEach(() => {
     pendingReplies: new Map(),
     failedSends: new Map(),
     detachedSends: new Map(),
+    detachedQueuedSends: new Map(),
     handedOffConversationIds: new Set(),
   });
 });
@@ -1008,6 +1009,28 @@ describe("clearAwaitingReplies", () => {
     expect(getState().detachedSends.size).toBe(0);
   });
 
+  test("retains an acknowledged queued send for switch-back reconciliation", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().markReplyQueued("conv-1", "cm-1");
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().detachedQueuedSends.get("cm-1")).toEqual({
+      conversationId: "conv-1",
+      payload: SENT_PAYLOAD,
+    });
+    expect(getState().detachedSends.size).toBe(0);
+  });
+
+  test("does not retain an acknowledged running send for recovery", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().markReplyRunning("conv-1", "cm-1");
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().detachedQueuedSends.size).toBe(0);
+  });
+
   test("detaches nothing from a send listed without a message or a nonce", () => {
     getState().startAwaitingReply("conv-1", "cm-1");
     getState().startAwaitingReply("conv-2", undefined, SENT_PAYLOAD);
@@ -1229,6 +1252,18 @@ describe("takeDetachedSend", () => {
   });
 });
 
+describe("dropDetachedQueuedSend", () => {
+  test("forgets the retained queued send named by nonce", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().markReplyQueued("conv-1", "cm-1");
+    getState().clearAwaitingReplies();
+
+    expect(getState().dropDetachedQueuedSend("cm-1")).toBe(true);
+    expect(getState().detachedQueuedSends.size).toBe(0);
+    expect(getState().dropDetachedQueuedSend("cm-1")).toBe(false);
+  });
+});
+
 describe("clearHeldMessages", () => {
   test("drops every held and every detached message", () => {
     // Leaving every assistant (logout, removing the active one) must not
@@ -1236,12 +1271,15 @@ describe("clearHeldMessages", () => {
     getState().stashFailedSend(SENT_PAYLOAD);
     getState().stashFailedSend({ ...SENT_PAYLOAD, surfaceId: "surf-2" });
     getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().startAwaitingReply("conv-2", "cm-2", SENT_PAYLOAD);
+    getState().markReplyQueued("conv-2", "cm-2");
     getState().clearAwaitingReplies();
 
     getState().clearHeldMessages();
 
     expect(getState().failedSends.size).toBe(0);
     expect(getState().detachedSends.size).toBe(0);
+    expect(getState().detachedQueuedSends.size).toBe(0);
   });
 
   test("is a no-op when nothing is held or detached", () => {

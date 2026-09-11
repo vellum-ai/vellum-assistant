@@ -11,7 +11,7 @@
  * navigation and the toast surface are mocked.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 
 const navigateSpy = mock((_to: string) => {});
 mock.module("react-router", () => ({
@@ -32,6 +32,35 @@ mock.module("@vellumai/design-library/components/toast", () => ({
     success: (...args: unknown[]) => toastSuccessMock(...args),
     error: (...args: unknown[]) => toastErrorMock(...args),
   },
+}));
+
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => true,
+}));
+
+const realMessages = await import("@/domains/chat/api/messages");
+interface ConversationSnapshot {
+  messages: Array<{
+    id: string;
+    clientMessageId?: string;
+    role: "user" | "assistant";
+    timestamp: string;
+    attachments: never[];
+    queueStatus?: "queued" | "processing";
+    queuePosition?: number;
+  }>;
+  processing?: boolean;
+}
+let fetchConversationMessagesMock = mock(
+  async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+    messages: [],
+    processing: false,
+  }),
+);
+mock.module("@/domains/chat/api/messages", () => ({
+  ...realMessages,
+  fetchConversationMessages: (...args: unknown[]) =>
+    fetchConversationMessagesMock(...args),
 }));
 
 const { useComposerStore } = await import("@/domains/chat/composer-store");
@@ -340,11 +369,18 @@ function detachedFor(clientMessageId: string) {
     .detachedSends.get(clientMessageId);
 }
 
+function detachedQueuedFor(clientMessageId: string) {
+  return useDocumentComposerReplyStore
+    .getState()
+    .detachedQueuedSends.get(clientMessageId);
+}
+
 beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
     detachedSends: new Map(),
+    detachedQueuedSends: new Map(),
     handedOffConversationIds: new Set(),
   });
   useConversationStore.setState({
@@ -362,6 +398,12 @@ beforeEach(() => {
   navigateToConversationMock.mockClear();
   toastSuccessMock.mockClear();
   toastErrorMock.mockClear();
+  fetchConversationMessagesMock = mock(
+    async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+      messages: [],
+      processing: false,
+    }),
+  );
 });
 
 afterEach(() => {
@@ -1792,6 +1834,138 @@ describe("DocumentComposerReplyWatcher", () => {
         ...FAILED_SEND_PAYLOAD,
         surfaceId: "surf-2",
       });
+    });
+
+    test("switching back recovers a queued send missing from an idle snapshot", async () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      expect(detachedQueuedFor("cm-1")).toEqual({
+        conversationId: "conv-1",
+        payload: FAILED_SEND_PAYLOAD,
+      });
+
+      setActiveAssistant("assistant-1");
+
+      await waitFor(() => expect(detachedQueuedFor("cm-1")).toBeUndefined());
+      expect(awaiting("conv-1")).toBe(false);
+      expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("a late failure from the detached stream recovers its queued send", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      publishStreamError("conv-1", "cm-1", "message");
+
+      expect(detachedQueuedFor("cm-1")).toBeUndefined();
+      expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("a late queue acknowledgment does not discard a detached send", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      publishMessageQueued("conv-1", "cm-1");
+
+      expect(detachedQueuedFor("cm-1")).toBeDefined();
+      expect(awaiting("conv-1")).toBe(false);
+    });
+
+    test("switching back discards recovery when history contains the send", async () => {
+      fetchConversationMessagesMock = mock(
+        async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+          messages: [
+            {
+              id: "msg-1",
+              clientMessageId: "cm-1",
+              role: "user",
+              timestamp: new Date().toISOString(),
+              attachments: [],
+            },
+          ],
+          processing: false,
+        }),
+      );
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+
+      await waitFor(() => expect(detachedQueuedFor("cm-1")).toBeUndefined());
+      expect(awaiting("conv-1")).toBe(false);
+      expect(heldFor("surf-1")).toBeUndefined();
+      expect(toastErrorMock).not.toHaveBeenCalled();
+    });
+
+    test("switching back keeps a send that the snapshot still lists as queued", async () => {
+      fetchConversationMessagesMock = mock(
+        async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+          messages: [
+            {
+              id: "req-1",
+              clientMessageId: "cm-1",
+              role: "user",
+              timestamp: new Date().toISOString(),
+              attachments: [],
+              queueStatus: "queued",
+              queuePosition: 1,
+            },
+          ],
+          processing: true,
+        }),
+      );
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+
+      await waitFor(() =>
+        expect(fetchConversationMessagesMock).toHaveBeenCalledWith(
+          "assistant-1",
+          "conv-1",
+        ),
+      );
+      expect(awaiting("conv-1")).toBe(true);
+      expect(queued("conv-1")).toBe(true);
+      expect(detachedQueuedFor("cm-1")).toBeDefined();
+
+      publishMessageDequeued("conv-1", "cm-1");
+
+      expect(detachedQueuedFor("cm-1")).toBeUndefined();
+      expect(queued("conv-1")).toBe(false);
     });
 
     test("leaving every assistant drops held messages and a send's own", () => {

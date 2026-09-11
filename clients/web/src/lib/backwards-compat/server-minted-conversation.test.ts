@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
+import {
+  supportsServerMintedConversation,
+  supportsServerMintedConversationFor,
+} from "@/lib/backwards-compat/server-minted-conversation";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 function setVersion(version: string | null) {
@@ -56,5 +59,17 @@ describe("supportsServerMintedConversation", () => {
     expect(supportsServerMintedConversation()).toBe(false);
     setVersion("0.8");
     expect(supportsServerMintedConversation()).toBe(false);
+  });
+});
+
+describe("supportsServerMintedConversationFor", () => {
+  test("requires the version to belong to the requested assistant", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.8.6", "assistant-1");
+
+    expect(supportsServerMintedConversationFor("assistant-1")).toBe(true);
+    expect(supportsServerMintedConversationFor("assistant-2")).toBe(false);
+    expect(supportsServerMintedConversationFor(null)).toBe(false);
   });
 });

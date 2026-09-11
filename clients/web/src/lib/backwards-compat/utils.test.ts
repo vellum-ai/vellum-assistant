@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 import {
+  assistantVersionKnownFor,
   useAssistantScopedSupports,
   useAssistantSupports,
   whenAssistantVersionKnown,
@@ -172,6 +173,21 @@ describe("useAssistantScopedSupports", () => {
     useAssistantIdentityStore.getState().clearIdentity();
     rerender();
     expect(result.current).toBe(false);
+  });
+});
+
+describe("assistantVersionKnownFor", () => {
+  test("requires both a version and its matching owner", () => {
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.8.6", "assistant-1");
+
+    expect(assistantVersionKnownFor("assistant-1")).toBe(true);
+    expect(assistantVersionKnownFor("assistant-2")).toBe(false);
+    expect(assistantVersionKnownFor(null)).toBe(false);
+
+    useAssistantIdentityStore.getState().clearIdentity();
+    expect(assistantVersionKnownFor("assistant-1")).toBe(false);
   });
 });
 
