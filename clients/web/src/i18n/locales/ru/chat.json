@@ -12,6 +12,9 @@
     "saveButton": "Сохранить",
     "pastePlaceholder": "Ключ"
   },
+  "acpRunChatView": {
+    "modelLabel": "Модель"
+  },
   "activityStepsPanel": {
     "backAria": "Назад ко всем шагам",
     "backTooltip": "Все шаги",

@@ -12,7 +12,7 @@ import {
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
-import type { LiveVoiceFrontModelConfig } from "../../config/schemas/live-voice.js";
+import type { VoiceFrontModelConfig } from "../../config/schemas/voice.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -183,7 +183,7 @@ function createHarness(options: {
   echoBargeInMargin?: number;
   echoEmaHalfLifeMs?: number;
   echoDrainSlackMs?: number;
-  frontModelConfig?: Partial<LiveVoiceFrontModelConfig>;
+  frontModelConfig?: Partial<VoiceFrontModelConfig>;
   emitMetrics?: boolean;
   metricsClock?: () => number;
   // Return a promise to hold a frame's transport write open (a backed-up

@@ -4,7 +4,11 @@ import { createLinuxHostProxyRuntime } from "./host-proxy-adapter";
 
 test("creates a Linux runtime with only the committed portable executors", () => {
   const runtime = createLinuxHostProxyRuntime({
-    acquireGuardianToken: async () => null,
+    acquireGuardianToken: async () => ({
+      ok: false,
+      status: 404,
+      error: "unused",
+    }),
     getSessionToken: () => null,
     getLockfile: () => ({ assistants: [], activeAssistant: null }),
     onLockfileChange: () => () => undefined,
@@ -45,7 +49,11 @@ test("adds host_cu when the computer-use capability is installed", () => {
   };
 
   const runtime = createLinuxHostProxyRuntime({
-    acquireGuardianToken: async () => null,
+    acquireGuardianToken: async () => ({
+      ok: false,
+      status: 404,
+      error: "unused",
+    }),
     getSessionToken: () => null,
     getLockfile: () => ({ assistants: [], activeAssistant: null }),
     onLockfileChange: () => () => undefined,

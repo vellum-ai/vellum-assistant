@@ -6,6 +6,8 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { RequestError } from "@agentclientprotocol/sdk";
+
 import { AcpAuthRequiredEventSchema } from "../../api/events/acp-auth-required.js";
 import { AcpSessionErrorEventSchema } from "../../api/events/acp-session-error.js";
 import {
@@ -15,6 +17,7 @@ import {
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
   isClaudeAuthFailureMessage,
+  requestErrorReason,
 } from "../auth-required.js";
 
 describe("isAcpAuthRequired", () => {
@@ -86,6 +89,99 @@ describe("isClaudeAuthFailureMessage", () => {
     ).toBe(false);
     expect(isClaudeAuthFailureMessage(undefined)).toBe(false);
     expect(isClaudeAuthFailureMessage("")).toBe(false);
+  });
+});
+
+describe("requestErrorReason", () => {
+  test("decodes the sentence the SDK moved into the payload", () => {
+    const rejection = new RequestError(-32603, "Internal error", {
+      details: "Failed to authenticate. Please run /login",
+    });
+
+    expect(requestErrorReason(rejection)).toBe(
+      "Failed to authenticate. Please run /login",
+    );
+    // The point of decoding: the generic message never matches.
+    expect(isClaudeAuthFailureMessage(rejection.message)).toBe(false);
+    expect(isClaudeAuthFailureMessage(requestErrorReason(rejection))).toBe(
+      true,
+    );
+  });
+
+  test("reads the message off a rejection that carries no payload", () => {
+    // Straight off the wire: a plain object, not an instance of any class we
+    // control, and with the auth text where the SDK leaves a framed one.
+    const rejection = {
+      code: -32603,
+      message: "Failed to authenticate. Please run /login",
+    };
+
+    expect(requestErrorReason(rejection)).toBe(
+      "Failed to authenticate. Please run /login",
+    );
+    expect(isClaudeAuthFailureMessage(requestErrorReason(rejection))).toBe(
+      true,
+    );
+  });
+
+  test("keeps the rejection's own message when the payload names no reason", () => {
+    expect(requestErrorReason(new RequestError(-32603, "boom", { c: 7 }))).toBe(
+      "boom",
+    );
+    expect(
+      requestErrorReason(
+        RequestError.methodNotFound("session/set_config_option"),
+      ),
+    ).toBe('"Method not found": session/set_config_option');
+    expect(requestErrorReason(new Error("Not logged in"))).toBe(
+      "Not logged in",
+    );
+  });
+
+  test("keeps a specific rejection message ahead of supplemental details", () => {
+    expect(
+      requestErrorReason(
+        new RequestError(-32603, "Model unavailable", {
+          details: "The selected deployment is temporarily unavailable",
+        }),
+      ),
+    ).toBe("Model unavailable");
+  });
+
+  test("serializes the payload behind a bare Internal error that names no reason", () => {
+    expect(
+      requestErrorReason(new RequestError(-32603, "Internal error", { c: 7 })),
+    ).toBe('{"c":7}');
+  });
+
+  test("serializes the payload behind a generic Invalid params", () => {
+    // How the agent-side SDK answers a request its schema rejects.
+    expect(
+      requestErrorReason(
+        RequestError.invalidParams({ _errors: ["model: Invalid option"] }),
+      ),
+    ).toBe('{"_errors":["model: Invalid option"]}');
+  });
+
+  test("decodes claude-agent-acp's prompt-time 401 from its message", () => {
+    // RequestError.internalError({ errorKind }, cliText) as the adapter raises
+    // it: the CLI's text rides the message and the payload only names a kind.
+    const rejection = new RequestError(
+      -32603,
+      "Internal error: Failed to authenticate. API Error: 401 OAuth access token has expired.",
+      { errorKind: "authentication_failed" },
+    );
+
+    expect(requestErrorReason(rejection)).toBe(rejection.message);
+    expect(isClaudeAuthFailureMessage(requestErrorReason(rejection))).toBe(
+      true,
+    );
+  });
+
+  test("stringifies a rejection that is not an object at all", () => {
+    expect(requestErrorReason("plain string")).toBe("plain string");
+    expect(requestErrorReason(-32603)).toBe("-32603");
+    expect(requestErrorReason(null)).toBe("null");
   });
 });
 

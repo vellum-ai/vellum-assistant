@@ -9,9 +9,12 @@ import {
   handleAcpSessionSpawned,
   handleAcpSessionUpdate,
   handleAcpSessionUsage,
+  handleAcpSessionModelUpdate,
   handleAcpSessionCompleted,
   handleAcpSessionError,
 } from "@/domains/chat/utils/stream-handlers/acp-handlers";
+
+const MODEL_REVISION_EPOCH = "01900000-0000-7000-8000-000000000001";
 
 function getState() {
   return useAcpRunStore.getState();
@@ -171,6 +174,61 @@ describe("handleAcpSessionUsage", () => {
       contextSize: 1,
     });
     expect(getState().byId).toEqual({});
+  });
+});
+
+describe("handleAcpSessionModelUpdate", () => {
+  it("records the model and the adapter's options on the run", () => {
+    spawn();
+    handleAcpSessionModelUpdate({
+      type: "acp_session_model_update",
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: MODEL_REVISION_EPOCH,
+      modelRevision: 1,
+      model: "opus",
+      availableModels: [
+        { value: "opus", label: "Opus" },
+        { value: "haiku", label: "Haiku", group: "Fast" },
+      ],
+    });
+    const entry = getState().byId["acp-1"];
+    expect(entry?.model).toBe("opus");
+    expect(entry?.availableModels).toEqual([
+      { value: "opus", label: "Opus" },
+      { value: "haiku", label: "Haiku", group: "Fast" },
+    ]);
+    expect(entry?.modelRevision).toBe(1);
+  });
+
+  it("records an adapter with no model selector", () => {
+    spawn();
+    handleAcpSessionModelUpdate({
+      type: "acp_session_model_update",
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: MODEL_REVISION_EPOCH,
+      modelRevision: 2,
+      availableModels: [],
+    });
+    const entry = getState().byId["acp-1"];
+    expect(entry?.model).toBeUndefined();
+    expect(entry?.availableModels).toEqual([]);
+  });
+
+  it("buffers a model update for a session it has not seeded", () => {
+    handleAcpSessionModelUpdate({
+      type: "acp_session_model_update",
+      acpSessionId: "acp-missing",
+      modelRevisionEpoch: MODEL_REVISION_EPOCH,
+      modelRevision: 3,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    expect(getState().byId).toEqual({});
+    expect(getState().pendingModelUpdates.get("acp-missing")).toMatchObject({
+      modelRevision: 3,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
   });
 });
 

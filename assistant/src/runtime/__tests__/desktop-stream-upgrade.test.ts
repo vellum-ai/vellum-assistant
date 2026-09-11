@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import { RuntimeHttpServer } from "../http-server.js";
 import {
   mintActorToken,
@@ -13,6 +14,7 @@ describe("RuntimeHttpServer /v1/desktop/stream upgrade", () => {
   let server: RuntimeHttpServer;
   let baseUrl: string;
   let restoreAuthEnv: () => void;
+  const originalContainerized = process.env.IS_CONTAINERIZED;
 
   beforeEach(async () => {
     restoreAuthEnv = requireHttpAuth();
@@ -25,6 +27,12 @@ describe("RuntimeHttpServer /v1/desktop/stream upgrade", () => {
   afterEach(async () => {
     await server.stop();
     restoreAuthEnv();
+    if (originalContainerized === undefined) {
+      delete process.env.IS_CONTAINERIZED;
+    } else {
+      process.env.IS_CONTAINERIZED = originalContainerized;
+    }
+    setOverridesForTesting({});
   });
 
   test("desktop control rejects unauthenticated and actor requests and hides the disabled feature", async () => {
@@ -83,4 +91,18 @@ describe("RuntimeHttpServer /v1/desktop/stream upgrade", () => {
     expect(closed.code).toBe(4008);
     expect(closed.reason).toBe("Desktop is not available on this assistant");
   });
+  for (const flag of [false, undefined]) {
+    test(`refuses a containerized stream with a disabled or missing flag (${flag})`, async () => {
+      process.env.IS_CONTAINERIZED = "true";
+      setOverridesForTesting(
+        flag === undefined ? {} : { "assistant-desktop": flag },
+      );
+      const ws = new WebSocket(
+        `ws://${baseUrl}/v1/desktop/stream?token=${encodeURIComponent(mintGatewayToken())}`,
+      );
+      const closed = await waitForClose(ws);
+      expect(closed.code).toBe(4008);
+      expect(closed.reason).toBe("Desktop is not available on this assistant");
+    });
+  }
 });

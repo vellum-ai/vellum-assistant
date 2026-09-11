@@ -12,6 +12,15 @@
 import { tmpdir } from "node:os";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+
+import {
+  MODEL_OPTION_MODELS,
+  modelOption,
+  modelOptionWithoutCurrent,
+  nonModelOption,
+} from "./helpers/acp-model-option.js";
+
 // ---------------------------------------------------------------------------
 // Fake AcpAgentProcess with scriptable capabilities and history replay.
 // ---------------------------------------------------------------------------
@@ -31,6 +40,24 @@ let promptThrowsSync = false;
  * the resume has not yet settled.
  */
 let resumeSessionGate: Promise<void> | null = null;
+/** Config options session/resume and session/load report back. */
+let resumeConfigOptions: SessionConfigOption[] = [];
+/**
+ * One `config_option_update` per entry, announced during session/load's
+ * replay, the way an adapter reports what the reattached session moved
+ * through before the load resolves.
+ */
+let replayConfigOptionUpdates: SessionConfigOption[][] = [];
+/** When set, setConfigOption rejects with it (the adapter refusing a pin). */
+let setConfigOptionError: Error | null = null;
+/** When set, setConfigOption answers with this instead of the moved selector. */
+let setConfigOptionResult: SessionConfigOption[] | null = null;
+/** Every `setConfigOption` the manager dispatched during a resume. */
+const setConfigOptionCalls: Array<{
+  sessionId: string;
+  configId: string;
+  value: string | boolean;
+}> = [];
 const fakeInstances: FakeAcpAgentProcess[] = [];
 
 class FakeAcpAgentProcess {
@@ -67,24 +94,63 @@ class FakeAcpAgentProcess {
     return fakeCaps.resume;
   }
 
-  async createSession(_cwd: string): Promise<string> {
-    return "proto-new";
+  async createSession(
+    _cwd: string,
+  ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
+    return { sessionId: "proto-new", configOptions: [] };
   }
 
-  async loadSession(sessionId: string, cwd: string): Promise<void> {
+  async loadSession(
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ configOptions: SessionConfigOption[] }> {
     this.loadSessionCalls.push({ sessionId, cwd });
     // Replay history through the client handler before resolving, exactly
     // as a real agent does per the ACP spec for session/load.
     for (const text of replayChunks) {
       await this.emitChunk(text);
     }
+    for (const configOptions of replayConfigOptionUpdates) {
+      await this.emitConfigOptions(configOptions);
+    }
+    return { configOptions: resumeConfigOptions };
   }
 
-  async resumeSession(sessionId: string, cwd: string): Promise<void> {
+  async resumeSession(
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ configOptions: SessionConfigOption[] }> {
     if (resumeSessionGate) {
       await resumeSessionGate;
     }
     this.resumeSessionCalls.push({ sessionId, cwd });
+    return { configOptions: resumeConfigOptions };
+  }
+
+  /** Answers the way an adapter does: the selector now sits on `value`. */
+  async setConfigOption(
+    sessionId: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<SessionConfigOption[]> {
+    setConfigOptionCalls.push({ sessionId, configId, value });
+    if (setConfigOptionError) {
+      throw setConfigOptionError;
+    }
+    if (setConfigOptionResult) {
+      return setConfigOptionResult;
+    }
+    return typeof value === "string"
+      ? [modelOption(value)]
+      : resumeConfigOptions;
+  }
+
+  /** Drives a config_option_update through the real client handler. */
+  async emitConfigOptions(configOptions: SessionConfigOption[]): Promise<void> {
+    await this.clientFactory(this).sessionUpdate({
+      sessionId: "proto-old",
+      update: { sessionUpdate: "config_option_update", configOptions },
+    });
   }
 
   /** Drives an agent_message_chunk through the real client handler. */
@@ -174,7 +240,7 @@ mock.module("../prepare-agent-env.js", () => ({
 type ResolveResult =
   | {
       ok: true;
-      agent: { command: string; args: string[] };
+      agent: { command: string; args: string[]; model?: string };
     }
   | { ok: false; reason: "binary_not_found"; hint: string; command: string };
 let resolveImpl: (id: string) => ResolveResult = () => ({
@@ -212,6 +278,7 @@ import type { AssistantEvent } from "../../api/index.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type { AcpSessionState } from "../types.js";
+import { AcpConfigOptionRefusedError } from "../types.js";
 import {
   clearHistory,
   insertHistoryRow,
@@ -264,6 +331,11 @@ beforeEach(() => {
   prepareAgentEnvGate = null;
   prepareAgentEnvCommands = [];
   resumeSessionGate = null;
+  resumeConfigOptions = [];
+  replayConfigOptionUpdates = [];
+  setConfigOptionError = null;
+  setConfigOptionResult = null;
+  setConfigOptionCalls.length = 0;
   resolveImpl = () => ({
     ok: true,
     agent: { command: "claude-agent-acp", args: [] },
@@ -510,7 +582,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     ]);
     const { cwd, env } = options as { cwd?: string; env?: NodeJS.ProcessEnv };
     expect(cwd).toBeDefined();
@@ -709,6 +781,198 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(row.context_size).toBe(200_000);
     expect(row.cost_amount).toBe(0.05);
     expect(row.cost_currency).toBe("USD");
+  });
+
+  test("a resume with no configured model leaves the adapter on its own", async () => {
+    fakeCaps.resume = true;
+    resumeConfigOptions = [modelOption("default")];
+    insertHistoryRow({ id: "resume-model-1" });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-model-1", () => {});
+
+    expect(setConfigOptionCalls).toEqual([]);
+    expect((manager.getStatus("resume-model-1") as AcpSessionState).model).toBe(
+      "default",
+    );
+  });
+
+  test("a resume keeps the model the adapter restored from the session", async () => {
+    fakeCaps.resume = true;
+    // The bundled Claude profile names opus, but the reattached session was
+    // running on sonnet and the adapter reports it back.
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
+    resumeConfigOptions = [modelOption("sonnet")];
+    insertHistoryRow({ id: "resume-model-2" });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await manager.resumeFromHistory("resume-model-2", (msg) => sent.push(msg));
+
+    expect(setConfigOptionCalls).toEqual([]);
+    const state = manager.getStatus("resume-model-2") as AcpSessionState;
+    expect(state.model).toBe("sonnet");
+    expect(sent.map((m) => m.type)).toEqual([
+      "acp_session_spawned",
+      "acp_session_model_update",
+    ]);
+    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId: "resume-model-2",
+        modelRevisionEpoch: state.modelRevisionEpoch!,
+        modelRevision: 1,
+        model: "sonnet",
+        availableModels: MODEL_OPTION_MODELS,
+      },
+    ]);
+  });
+
+  test("a model named only by the load replay keeps the session off the re-pin", async () => {
+    fakeCaps.loadSession = true;
+    // The selector reaches the manager only through the replayed
+    // notification: the load itself answers with no config options at all.
+    replayConfigOptionUpdates = [[modelOption("sonnet")]];
+    resumeConfigOptions = [];
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
+    insertHistoryRow({ id: "resume-replay-only" });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await manager.resumeFromHistory("resume-replay-only", (msg) =>
+      sent.push(msg),
+    );
+
+    // The replay is the adapter reporting what the session came back on, so
+    // the per-agent default has nothing to put right.
+    expect(setConfigOptionCalls).toEqual([]);
+    expect(
+      (manager.getStatus("resume-replay-only") as AcpSessionState).model,
+    ).toBe("sonnet");
+    const modelEvents = sent.filter(
+      (m) => m.type === "acp_session_model_update",
+    );
+    expect(modelEvents.map((m) => m.model)).toEqual(["sonnet", "sonnet"]);
+    expect(modelEvents[1]).toMatchObject({
+      acpSessionId: "resume-replay-only",
+      availableModels: MODEL_OPTION_MODELS,
+    });
+  });
+
+  test("a re-pin answered without the selector withdraws the picker the replay announced", async () => {
+    fakeCaps.loadSession = true;
+    // The replay puts the selector in front of clients before the re-pin
+    // runs, so the answer that drops it has something to correct. It names no
+    // model, which is what leaves the ladder something to apply.
+    replayConfigOptionUpdates = [[modelOptionWithoutCurrent()]];
+    resumeConfigOptions = [];
+    setConfigOptionResult = [nonModelOption()];
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
+    insertHistoryRow({
+      id: "resume-selector-gone",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+    });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await manager.resumeFromHistory("resume-selector-gone", (msg) =>
+      sent.push(msg),
+    );
+
+    const state = manager.getStatus("resume-selector-gone") as AcpSessionState;
+    expect(state.model).toBeUndefined();
+    expect(state.availableModels).toEqual([]);
+    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId: "resume-selector-gone",
+        modelRevisionEpoch: state.modelRevisionEpoch!,
+        modelRevision: 1,
+        availableModels: MODEL_OPTION_MODELS,
+      },
+      {
+        type: "acp_session_model_update",
+        acpSessionId: "resume-selector-gone",
+        modelRevisionEpoch: state.modelRevisionEpoch!,
+        modelRevision: 2,
+        availableModels: [],
+      },
+    ]);
+  });
+
+  test("a re-pin the connection cannot carry tears the resume down", async () => {
+    fakeCaps.resume = true;
+    resumeConfigOptions = [modelOptionWithoutCurrent()];
+    setConfigOptionError = new Error("ACP connection closed");
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
+    insertHistoryRow({
+      id: "resume-pin-transport",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+    });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await expect(
+      manager.resumeFromHistory("resume-pin-transport", (msg) =>
+        sent.push(msg),
+      ),
+    ).rejects.toThrow("ACP connection closed");
+
+    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual(
+      [],
+    );
+    expect(manager.getStatus()).toEqual([]);
+  });
+
+  test("a resume the adapter refuses to re-pin runs on the adapter's model", async () => {
+    fakeCaps.resume = true;
+    resumeConfigOptions = [modelOptionWithoutCurrent()];
+    setConfigOptionError = new AcpConfigOptionRefusedError(
+      "Invalid value for config option model: opus",
+    );
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
+    insertHistoryRow({
+      id: "resume-refused-model",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+    });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await manager.resumeFromHistory("resume-refused-model", (msg) =>
+      sent.push(msg),
+    );
+
+    // State and the published event name the model the run is really on, which
+    // is whatever the adapter reported, never the one it refused.
+    expect(
+      (manager.getStatus("resume-refused-model") as AcpSessionState).model,
+    ).toBeUndefined();
+    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId: "resume-refused-model",
+        modelRevisionEpoch: (
+          manager.getStatus("resume-refused-model") as AcpSessionState
+        ).modelRevisionEpoch!,
+        modelRevision: 1,
+        availableModels: MODEL_OPTION_MODELS,
+      },
+    ]);
   });
 
   test("concurrent resumes of the same id: one wins, the loser fails cleanly without leaking a process", async () => {

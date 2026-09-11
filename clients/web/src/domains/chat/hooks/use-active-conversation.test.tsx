@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { createElement } from "react";
 
+import { useConversationStore } from "@/stores/conversation-store";
 import type { Conversation } from "@/types/conversation-types";
 
 let foregroundImpl: Conversation[] = [];
@@ -74,10 +75,12 @@ beforeEach(() => {
   assistantInitiatedImpl = [];
   isOrgReadyImpl = true;
   refreshConversationRowCalls.length = 0;
+  useConversationStore.setState({ draftConversationIds: new Set() });
 });
 
 afterEach(() => {
   cleanup();
+  useConversationStore.setState({ draftConversationIds: new Set() });
 });
 
 describe("useActiveConversation", () => {
@@ -176,6 +179,17 @@ describe("useActiveConversation", () => {
         { assistantId: "asst-1", conversationId: "bg-unloaded" },
       ]);
     });
+  });
+
+  test("does not fetch a client-minted draft", async () => {
+    useConversationStore.getState().registerDraftConversationId("draft-1");
+
+    renderHook(() => useActiveConversation("asst-1", "draft-1", true), {
+      wrapper,
+    });
+
+    await Promise.resolve();
+    expect(refreshConversationRowCalls).toHaveLength(0);
   });
 
   test("does not fetch when disabled", async () => {

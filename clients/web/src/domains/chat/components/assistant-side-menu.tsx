@@ -88,11 +88,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
    * dependency (and of the router context it needs).
    */
   notificationsAction?: ReactNode;
-  /**
-   * Rendered above `footerAction` in the rail footer (hidden when collapsed)
-   * and above the floating action pills on the overlay.
-   */
-  tipCard?: ReactNode;
   onClose?: () => void;
 
   onPinConversation?: (conversation: Conversation) => void;
@@ -215,7 +210,6 @@ function SearchButton() {
  *       in Chats instead, so which section a conversation appears in changes
  *       but whether it appears does not
  *   Footer
- *     • caller-provided tip card (SidebarTipCard), hidden on the collapsed rail
  *     • caller-provided action (PreferencesMenu)
  *
  * This component does **not** know that order. `useSidebarState` hands it one
@@ -254,7 +248,6 @@ export function AssistantSideMenu({
   onStartNewConversation,
   footerAction,
   notificationsAction,
-  tipCard,
   onPinConversation,
   onRenameConversation,
   onArchiveConversation,
@@ -302,10 +295,9 @@ export function AssistantSideMenu({
     conversationsFailed === true && hasNoConversations;
 
   // --- Overlay bottom reserve ---
-  // The overlay's floating bottom column (tip card + action pills) covers the
-  // sheet's bottom, so the body's own box stops above it and the last
-  // conversation rows scroll clear. Measured (not static) because the tip
-  // card appears/disappears and its copy length varies.
+  // The overlay's floating action pills cover the sheet's bottom, so the
+  // body's own box stops above them and the last conversation rows scroll
+  // clear. The measured reserve follows the rendered action column.
   // The scrollport the flat "All" list virtualizes against. State, not a ref,
   // because the list only mounts once the node exists and has to re-render
   // when it does.
@@ -780,13 +772,12 @@ export function AssistantSideMenu({
 
         {variant === "overlay" ? (
           <SideMenuOverlayBottomColumn
-            tipCard={tipCard}
             footerAction={footerAction}
             onStartNewConversation={onStartNewConversation}
             onClose={onClose}
             onHeightChange={setOverlayBottomColumnHeight}
           />
-        ) : footerAction || tipCard ? (
+        ) : footerAction ? (
           /* Every entry in this sidebar is a pill on the page background, and
              a shape like that is already delimited: a line above the last one
              would divide a column that reads as grouped without it. The
@@ -794,8 +785,6 @@ export function AssistantSideMenu({
              on `SideMenu.Footer` is what holds it at the bottom while the
              list scrolls in `SideMenu.Body` above it. */
           <SideMenu.Footer>
-            {/* The collapsed rail drops the tip card (per design). */}
-            {isCollapsedRail ? null : tipCard}
             {footerAction}
           </SideMenu.Footer>
         ) : null}

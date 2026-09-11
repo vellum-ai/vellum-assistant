@@ -38,9 +38,8 @@ import type { Logger } from "pino";
 import { authorizeRuntimeAudioStream } from "./runtime-audio-stream.js";
 import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
 import type { GatewayConfig } from "../../config.js";
-import { credentialKey } from "../../credential-key.js";
-import { readCredential } from "../../credential-reader.js";
 import { requestHasVelayBridgeAuth } from "../../velay/bridge-auth.js";
+import { readStoredPlatformUserId } from "../../platform-user-id.js";
 
 const VELAY_USER_ID_HEADER = "x-velay-user-id";
 const VELAY_ORG_ID_HEADER = "x-velay-org-id";
@@ -111,12 +110,17 @@ export async function requireManagedGuardian(
   log: Logger,
 ): Promise<Response | null> {
   let storedUserId: string | undefined;
+  let unreachable = false;
   try {
-    storedUserId = await readCredential(
-      credentialKey("vellum", "platform_user_id"),
-    );
+    const result = await readStoredPlatformUserId();
+    storedUserId = result.userId;
+    unreachable = result.unreachable;
   } catch (err) {
     log.error({ err }, "guardian pin: platform_user_id lookup failed");
+    return new Response("Service Unavailable", { status: 503 });
+  }
+  if (unreachable) {
+    log.warn("guardian pin: platform_user_id credential store unreachable");
     return new Response("Service Unavailable", { status: 503 });
   }
   if (!storedUserId) {

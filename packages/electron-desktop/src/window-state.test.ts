@@ -16,6 +16,7 @@ let savedCompanionIntroSeen: boolean | undefined = undefined;
 let savedCompanionSize: unknown = undefined;
 let savedCompanionAvatarSize: unknown = undefined;
 let savedCompanionOptionsSize: unknown = undefined;
+let savedCompanionCallDock: unknown = undefined;
 let savedTitleBarOverlay: unknown = undefined;
 let workArea = { x: 0, y: 0, width: 1920, height: 1080 };
 const storeSetMock = mock((_key: string, _value: unknown) => {});
@@ -42,6 +43,9 @@ mock.module("electron-store", () => ({
       if (key === "companionOptionsSize") {
         return savedCompanionOptionsSize ?? fallback;
       }
+      if (key === "companionCallDock") {
+        return savedCompanionCallDock ?? fallback;
+      }
       if (key === "titleBarOverlay") return savedTitleBarOverlay ?? fallback;
       if (key === "windows") return savedWindows;
       return fallback;
@@ -65,11 +69,13 @@ mock.module("electron", () => ({
 const {
   restoreBounds,
   track,
+  readCompanionCallDock,
   readCompanionHidden,
   readCompanionIntroSeen,
   readCompanionSize,
   readOnboardingActive,
   readTitleBarOverlayTheme,
+  writeCompanionCallDock,
   writeCompanionHidden,
   writeCompanionIntroSeen,
   writeCompanionSize,
@@ -106,6 +112,7 @@ beforeEach(() => {
   savedCompanionSize = undefined;
   savedCompanionAvatarSize = undefined;
   savedCompanionOptionsSize = undefined;
+  savedCompanionCallDock = undefined;
   savedTitleBarOverlay = undefined;
   workArea = { x: 0, y: 0, width: 1920, height: 1080 };
   storeSetMock.mockClear();
@@ -534,6 +541,37 @@ describe("companion surface sizes", () => {
     expect(
       storeSetMock.mock.calls.some(([key]) => key === "companionSize"),
     ).toBe(false);
+  });
+});
+
+/**
+ * The edge the call bar rests on. The same bargain as the sizes: the file is
+ * JSON a user can edit, and the value picks where the window goes, so only an
+ * edge this build knows ever places it.
+ */
+describe("companion call dock", () => {
+  test("absent reads as the bottom, where every build puts the bar", () => {
+    expect(readCompanionCallDock()).toBe("bottom");
+  });
+
+  test("reads the edge the bar was dropped on", () => {
+    savedCompanionCallDock = "left";
+    expect(readCompanionCallDock()).toBe("left");
+  });
+
+  test("an edge this build does not know reads as the bottom", () => {
+    savedCompanionCallDock = "middle";
+    expect(readCompanionCallDock()).toBe("bottom");
+  });
+
+  test("writing persists the edge and skips one already recorded", () => {
+    writeCompanionCallDock("right");
+    expect(storeSetMock).toHaveBeenCalledWith("companionCallDock", "right");
+
+    storeSetMock.mockClear();
+    savedCompanionCallDock = "right";
+    writeCompanionCallDock("right");
+    expect(storeSetMock).not.toHaveBeenCalled();
   });
 });
 

@@ -26,7 +26,7 @@ afterAll(() => {
 });
 
 describe("always-loaded tool count", () => {
-  test("should be exactly 11 with recall occupying the existing slot", async () => {
+  test("should be exactly 14 with recall occupying the existing slot", async () => {
     await initializeTools();
     const allDefs = getAllToolDefinitions();
 
@@ -48,10 +48,11 @@ describe("always-loaded tool count", () => {
     // connected — without a human in the loop, the guardian auto-approve
     // path would allow unchecked host command execution.
     //
-    // `watch_retro_report` is here for the same reason the ui_surface tools are
-    // NOT: a watch retrospective runs clientless, so it can only report through
-    // a tool that survives this baseline. Its description and schema are kept
-    // deliberately terse because that is the cost of the slot.
+    // `watch_retro_report` survives this baseline for the same reason the
+    // ui_* tools do: a watch retrospective runs clientless, so it can only
+    // report through a tool that survives this baseline. The ui_* tools are
+    // here because background UI surfaces persist and return instead of
+    // awaiting action, so they no longer need a connected client.
     const expectedNames = [
       "bash",
       "file_edit",
@@ -61,6 +62,9 @@ describe("always-loaded tool count", () => {
       "remember",
       "skill_execute",
       "skill_load",
+      "ui_dismiss",
+      "ui_show",
+      "ui_update",
       "watch_retro_report",
       "web_fetch",
       "web_search",
@@ -68,6 +72,6 @@ describe("always-loaded tool count", () => {
 
     expect(activeNames).toEqual(expectedNames);
     expect(activeNames.filter((name) => name === "recall")).toHaveLength(1);
-    expect(activeTools.length).toBe(11);
+    expect(activeTools.length).toBe(14);
   });
 });

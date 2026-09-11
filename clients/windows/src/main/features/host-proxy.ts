@@ -59,7 +59,11 @@ const installBridge = (capabilities: DesktopCapabilityRegistry): void => {
             "[host-proxy] no CLI provider registered, skipping local assistant",
             { assistantId },
           );
-          return null;
+          return {
+            ok: false,
+            status: 500,
+            error: "no CLI provider registered",
+          };
         }
         const result = await getGuardianAccessToken(
           assistantId,
@@ -71,11 +75,11 @@ const installBridge = (capabilities: DesktopCapabilityRegistry): void => {
         if (!result.ok) {
           log.warn("[host-proxy] failed to obtain guardian token", {
             assistantId,
+            status: result.status,
             error: result.error,
           });
-          return null;
         }
-        return result.accessToken;
+        return result;
       },
       getSessionToken,
       onSessionTokenChange,

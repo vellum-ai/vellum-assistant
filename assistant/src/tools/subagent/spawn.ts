@@ -484,9 +484,9 @@ function spawnCancelledResult(label: string): ToolExecutionResult {
  * repeat-spawn guard folds, so a consult has to record it the same way every
  * other spawn does or the guard could never match one consult against another.
  *
- * The context pack is best effort: the parent conversation is looked up only
- * for its warm skill catalog, so an unresolvable one (e.g. evicted) costs the
- * skills section of the pack and nothing else.
+ * The context pack is best effort: each section independently falls back to
+ * null on failure, so a missing workspace or empty catalog costs only that
+ * section, never the consult.
  *
  * The budget is the advisor's alone. It is the only spawn the agent may issue
  * unprompted and the only one that runs on the premium profile, so it is the
@@ -502,21 +502,18 @@ async function buildAdvisorFields(
   maxRuntimeMs: number;
   maxToolCalls: number;
 }> {
-  const parentConversation = findConversation(context.conversationId);
   // Situational awareness for the advisor: the parent's live tool set, the
   // full skill catalog, and its workspace. Assembled off the per-turn
   // ToolContext snapshot (trust, channel) so the personal-memory sections are
   // gated exactly like the runtime injectors. A null pack just means the
-  // consult runs on the brief alone.
+  // consult runs on the brief alone. Skills come from a fresh
+  // `loadSkillCatalog()` inside the context pack, not a conversation snapshot.
   const situationalContext = await buildAdvisorContext({
     conversationId: context.conversationId,
     workingDir: context.workingDir,
     allowedToolNames: context.allowedToolNames,
     trustClass: context.trustClass,
     enabledPluginSet: context.enabledPluginSet,
-    // The parent's warm per-turn catalog keeps the synchronous on-disk catalog
-    // scan out of the spawn path.
-    skillCatalog: parentConversation?.skillProjectionCache?.catalog,
   });
   return {
     requestText: advisorRequestText(objective, situationalContext),

@@ -37,6 +37,7 @@ export const acpSpawnInputSchema = z.looseObject({
   agent: nullAsOmitted(z.string()),
   task: nullAsOmitted(z.string()),
   cwd: nullAsOmitted(z.string()),
+  model: nullAsOmitted(z.string()),
 });
 
 /**
@@ -66,6 +67,7 @@ export async function executeAcpSpawn(
   }
   const agent = parsedInput.data.agent || "claude";
   const task = parsedInput.data.task;
+  const model = parsedInput.data.model;
 
   if (!task) {
     return { content: '"task" is required.', isError: true };
@@ -124,14 +126,20 @@ export async function executeAcpSpawn(
     // Recheck: the auto-install and the agent-env preparation above are both
     // awaits, and this is the point a long-lived subprocess starts.
     throwIfCancelled(context);
-    const { acpSessionId, protocolSessionId } = await manager.spawn(
+    const {
+      acpSessionId,
+      protocolSessionId,
+      requestedModel,
+      effectiveModel,
+      modelWarning,
+    } = await manager.spawn(
       agent,
       agentConfig,
       task,
       cwd,
       context.conversationId,
       sendToClient,
-      context.toolUseId,
+      { parentToolUseId: context.toolUseId, model },
       // The manager rechecks after its own protocol handshake and session
       // creation, so a turn stopped in that window tears the child process
       // down instead of handing it the task.
@@ -150,16 +158,26 @@ export async function executeAcpSpawn(
     const installNote = autoInstalledPackage
       ? ` Installed ${autoInstalledPackage} automatically.`
       : "";
+    // Relayed verbatim: the warning already distinguishes an adapter with no
+    // selector from one that refused the value.
+    const modelNote = modelWarning
+      ? ` The requested model was not applied: ${modelWarning}`
+      : "";
+    const effectiveModelNote = effectiveModel
+      ? ` The top-level ACP session reports "${effectiveModel}" as its effective model.`
+      : " The top-level ACP session did not report an effective model.";
     const payload = JSON.stringify({
       acpSessionId,
       protocolSessionId,
       agent,
       cwd,
+      requestedModel: requestedModel ?? null,
+      effectiveModel: effectiveModel ?? null,
       status: "running",
       message:
         `ACP agent "${agent}" spawned (session: ${protocolSessionId}). ` +
         `Results stream back via SSE. You will be notified when it completes.` +
-        `${installNote}${resumeHint}`,
+        `${installNote}${modelNote}${effectiveModelNote}${resumeHint}`,
     });
 
     return { content: payload, isError: false };

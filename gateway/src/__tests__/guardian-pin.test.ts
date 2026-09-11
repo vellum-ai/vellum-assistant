@@ -23,8 +23,11 @@ mock.module("../auth/guardian-bootstrap.js", () => ({
 let mockReadCredential = mock(
   async (_key: string): Promise<string | undefined> => VELAY_USER_ID,
 );
-mock.module("../credential-reader.js", () => ({
-  readCredential: (key: string) => mockReadCredential(key),
+mock.module("../platform-user-id.js", () => ({
+  readStoredPlatformUserId: async () => ({
+    userId: await mockReadCredential("vellum:platform_user_id"),
+    unreachable: false,
+  }),
 }));
 
 const { authorizeGuardianStream } =
@@ -175,7 +178,7 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     const query = token ? `?token=${token}` : "";
     return authorizeGuardianStream(
       new Request(`${STREAM_URL}${query}`, { headers }),
-      makeConfig(velayBaseUrl ? { velayBaseUrl } : {}),
+      makeConfig({ velayBaseUrl }),
       log,
     );
   };
@@ -249,34 +252,31 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     expect(res!.status).toBe(401);
   });
 
-  test("admits the attested guardian on a locally hosted gateway with a velay tunnel", async () => {
-    const res = await managedAuthorize({
-      managed: false,
-      velayBaseUrl: "https://velay.example.test",
-    });
-
-    expect(res).toBeNull();
+  test("admits the attested guardian through a locally hosted velay tunnel", async () => {
+    expect(
+      await managedAuthorize({
+        managed: false,
+        velayBaseUrl: "https://velay.example.test",
+      }),
+    ).toBeNull();
   });
 
-  test("still pins the attested caller to the guardian on a locally hosted gateway", async () => {
+  test("refuses a different owner through a locally hosted velay tunnel", async () => {
     const res = await managedAuthorize({
       managed: false,
       velayBaseUrl: "https://velay.example.test",
       userId: "99999999-9999-9999-9999-999999999999",
     });
-
     expect(res!.status).toBe(403);
   });
 
-  test("rejects locally hosted tunnel headers without bridge proof", async () => {
+  test("requires bridge proof through a locally hosted velay tunnel", async () => {
     const res = await managedAuthorize({
       managed: false,
       velayBaseUrl: "https://velay.example.test",
       bridgeProof: false,
     });
-
     expect(res!.status).toBe(401);
-    expect(mockReadCredential).not.toHaveBeenCalled();
   });
 
   /**

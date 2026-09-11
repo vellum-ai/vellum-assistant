@@ -93,6 +93,7 @@ import {
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
+import { RoutePendingIndicator } from "@/components/route-pending-indicator";
 import { StatusBanner } from "@/components/status-banner";
 import { UpdateToast } from "@/components/update-toast";
 import { retireAssistant } from "@/assistant/retire-service";
@@ -585,9 +586,13 @@ export function RootLayout() {
       <UpdateToast />
       {appShellOwnsTopInset ? <StatusBanner placement="web" /> : null}
       <div
-        className="flex min-w-0 flex-col overflow-hidden w-full"
+        className="relative flex min-w-0 flex-col overflow-hidden w-full"
         style={{ flex: "1 1 0%", minHeight: 0 }}
       >
+        {/* Inside the shell rather than fixed to the viewport, so it sits
+            below the safe-area inset and the status banner instead of under
+            the notch. */}
+        <RoutePendingIndicator />
         <Outlet />
       </div>
 

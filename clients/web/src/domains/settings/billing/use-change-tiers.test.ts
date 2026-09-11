@@ -16,6 +16,7 @@ import type {
   OnboardingStateResponse,
   PlanListResponse,
   SubscriptionResponse,
+  PackageChangeResponse,
 } from "@/generated/api/types.gen";
 
 import type { ChangeTiersResult } from "./use-change-tiers";
@@ -73,14 +74,11 @@ function proPlans(): PlanListResponse {
   };
 }
 
-// Per-dimension captured bodies + resolution controls.
+// Captured change-package bodies + resolution control. The whole selection
+// goes out as ONE call with explicit tiers.
 type Body = { body: Record<string, unknown> };
-const machineCalls: Body[] = [];
-const storageCalls: Body[] = [];
-const creditCalls: Body[] = [];
-let machineImpl: (opts: Body) => Promise<unknown>;
-let storageImpl: (opts: Body) => Promise<unknown>;
-let creditImpl: (opts: Body) => Promise<unknown>;
+const packageCalls: Body[] = [];
+let packageImpl: (opts: Body) => Promise<PackageChangeResponse>;
 // Counts subscription fetches so the readiness gate can be asserted.
 let subscriptionFetches = 0;
 
@@ -116,25 +114,15 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   }),
   organizationsBillingPlansRetrieveQueryKey: () => PLANS_KEY,
   organizationsBillingSummaryRetrieveQueryKey: () => SUMMARY_KEY,
-  organizationsBillingSubscriptionChangeMachineTierCreateMutation: () => ({
+  organizationsBillingSubscriptionChangePackageCreateMutation: () => ({
     mutationFn: (opts: Body) => {
-      machineCalls.push(opts);
-      return machineImpl(opts);
-    },
-  }),
-  organizationsBillingSubscriptionChangeStorageTierCreateMutation: () => ({
-    mutationFn: (opts: Body) => {
-      storageCalls.push(opts);
-      return storageImpl(opts);
-    },
-  }),
-  organizationsBillingSubscriptionChangeCreditTierCreateMutation: () => ({
-    mutationFn: (opts: Body) => {
-      creditCalls.push(opts);
-      return creditImpl(opts);
+      packageCalls.push(opts);
+      return packageImpl(opts);
     },
   }),
 }));
+
+const OK: PackageChangeResponse = { status: "ok", package: null };
 
 const toastErrorCalls: string[] = [];
 mock.module("@vellumai/design-library/components/toast", () => ({
@@ -230,13 +218,9 @@ function setup({
 
 describe("useChangeTiers", () => {
   beforeEach(() => {
-    machineCalls.length = 0;
-    storageCalls.length = 0;
-    creditCalls.length = 0;
+    packageCalls.length = 0;
     toastErrorCalls.length = 0;
-    machineImpl = async () => ({});
-    storageImpl = async () => ({});
-    creditImpl = async () => ({});
+    packageImpl = async () => OK;
     onboardingHangs = false;
     onboardingFails = false;
     subscriptionFetches = 0;
@@ -263,8 +247,15 @@ describe("useChangeTiers", () => {
       storageTier: "xs",
       storageGib: 10,
       creditTier: null,
+      hasPlatformFee: true,
     });
     expect(result.current.eligible).toBe(true);
+  });
+
+  test("reads the fee from the subscription, defaulting to billed when absent", () => {
+    subscriptionFixture = proSubscription({ has_platform_fee: false });
+    const { result } = setup();
+    expect(result.current.current.hasPlatformFee).toBe(false);
   });
 
   test("exposes the onboarding payload's primary assistant", () => {
@@ -414,7 +405,7 @@ describe("useChangeTiers", () => {
     expect(result.current.currentReady).toBe(true);
   });
 
-  test("fires only the changed dimensions and invalidates on success", async () => {
+  test("posts the whole selection as one change-package call and invalidates on success", async () => {
     // Current is medium/xs/null; change machine + credit, keep storage.
     const { result, invalidatedKeys } = setup();
 
@@ -427,10 +418,17 @@ describe("useChangeTiers", () => {
       });
     });
 
-    expect(machineCalls).toEqual([{ body: { machine_tier: "large" } }]);
-    expect(creditCalls).toEqual([{ body: { credit_tier: "credits_50" } }]);
-    // Storage is unchanged, so no storage-tier call fires.
-    expect(storageCalls).toEqual([]);
+    // Every dimension travels, changed or not: the server diffs the target
+    // against the subscription and applies it as one payment-gated change.
+    expect(packageCalls).toEqual([
+      {
+        body: {
+          machine_tier: "large",
+          storage_tier: "xs",
+          credit_tier: "credits_50",
+        },
+      },
+    ]);
     expect(invalidatedKeys).toEqual([
       SUBSCRIPTION_KEY,
       PLANS_KEY,
@@ -454,8 +452,9 @@ describe("useChangeTiers", () => {
       });
     });
 
-    expect(storageCalls).toEqual([{ body: { storage_tier: "s" } }]);
-    expect(machineCalls).toEqual([]);
+    expect(packageCalls).toEqual([
+      { body: { machine_tier: "medium", storage_tier: "s", credit_tier: null } },
+    ]);
     expect(captured.value).toEqual({ needsResize: true, creditChanged: false });
   });
 
@@ -498,7 +497,7 @@ describe("useChangeTiers", () => {
       });
     });
 
-    expect(machineCalls).toEqual([{ body: { machine_tier: "medium" } }]);
+    expect(packageCalls).toHaveLength(1);
     expect(captured.value).toEqual({
       needsResize: false,
       creditChanged: false,
@@ -517,19 +516,17 @@ describe("useChangeTiers", () => {
       });
     });
 
-    expect(creditCalls).toEqual([{ body: { credit_tier: "credits_50" } }]);
-    expect(machineCalls).toEqual([]);
-    expect(storageCalls).toEqual([]);
+    expect(packageCalls).toHaveLength(1);
     // No compute/disk provisioning is owed, but the credit change persisted, so
     // the caller still opens the takeover.
     expect(captured.value).toEqual({ needsResize: false, creditChanged: true });
   });
 
   test("toasts the extracted error and returns null on failure", async () => {
-    machineImpl = async () => {
+    packageImpl = async () => {
       throw { detail: "Payment failed. Your card was declined." };
     };
-    const { result } = setup();
+    const { result, invalidatedKeys } = setup();
 
     const captured: { value: ChangeTiersResult | null } = {
       value: { needsResize: true, creditChanged: false },
@@ -542,46 +539,17 @@ describe("useChangeTiers", () => {
       });
     });
 
+    // The change is atomic server-side: nothing landed, so nothing to refetch
+    // or provision; the caller holds the modal open for a retry.
     expect(captured.value).toBeNull();
+    expect(invalidatedKeys).toEqual([]);
     expect(toastErrorCalls).toEqual([
       "Payment failed. Your card was declined.",
     ]);
   });
 
-  test("opens the resize takeover when a resource dim lands but credit fails", async () => {
-    // Storage upgrade succeeds server-side; the credit change fails. The
-    // entitlement already moved, so the caller must still open resize.
-    creditImpl = async () => {
-      throw { detail: "Payment failed. Your card was declined." };
-    };
-    subscriptionFixture = proSubscription({ selected_credit_tier: null });
-    const { result } = setup();
-
-    const captured: { value: ChangeTiersResult | null } = { value: null };
-    await act(async () => {
-      captured.value = await result.current.changeTiers({
-        machineTier: "medium",
-        storageTier: "s",
-        creditTier: "credits_50",
-      });
-    });
-
-    expect(storageCalls).toEqual([{ body: { storage_tier: "s" } }]);
-    expect(creditCalls).toEqual([{ body: { credit_tier: "credits_50" } }]);
-    expect(toastErrorCalls).toEqual([
-      "Payment failed. Your card was declined.",
-    ]);
-    // The storage upgrade landed (needs a resize); the credit change did not.
-    expect(captured.value).toEqual({ needsResize: true, creditChanged: false });
-  });
-
-  test("surfaces the takeover when only the credit dim landed and a resource failed", async () => {
-    // Machine (the sole resource change) fails; the credit change succeeds. No
-    // provisioning is owed, but the persisted credit change still opens the
-    // takeover.
-    machineImpl = async () => {
-      throw { detail: "Machine tier unavailable." };
-    };
+  test("a server no_op is a successful no-op without a resize", async () => {
+    packageImpl = async () => ({ status: "no_op", package: null });
     const { result } = setup();
 
     const captured: { value: ChangeTiersResult | null } = { value: null };
@@ -589,13 +557,173 @@ describe("useChangeTiers", () => {
       captured.value = await result.current.changeTiers({
         machineTier: "large",
         storageTier: "xs",
-        creditTier: "credits_50",
+        creditTier: null,
       });
     });
 
-    expect(creditCalls).toEqual([{ body: { credit_tier: "credits_50" } }]);
-    expect(toastErrorCalls).toEqual(["Machine tier unavailable."]);
+    expect(captured.value).toEqual({
+      needsResize: false,
+      creditChanged: false,
+    });
+  });
+
+  test("a fee-less sub re-submitting its own tiers still dispatches (the fee is added)", async () => {
+    // Only Mighty is sold without the platform fee; a custom plan always
+    // carries it, so keeping the tiers is a real change: the fee gets billed.
+    subscriptionFixture = proSubscription({ has_platform_fee: false });
+    const { result } = setup();
+
+    const captured: { value: ChangeTiersResult | null } = { value: null };
+    await act(async () => {
+      captured.value = await result.current.changeTiers({
+        machineTier: "medium",
+        storageTier: "xs",
+        creditTier: null,
+      });
+    });
+
+    expect(packageCalls).toEqual([
+      { body: { machine_tier: "medium", storage_tier: "xs", credit_tier: null } },
+    ]);
+    // Nothing to provision: no ceiling moved and the bundle is unchanged.
+    expect(captured.value).toEqual({
+      needsResize: false,
+      creditChanged: false,
+    });
+  });
+
+  test("a failed fresh read aborts the change before anything is posted", async () => {
+    onboardingFails = true;
+    const { result, invalidatedKeys } = setup();
+
+    const captured: { value: ChangeTiersResult | null } = {
+      value: { needsResize: true, creditChanged: false },
+    };
+    await act(async () => {
+      captured.value = await result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: null,
+      });
+    });
+
+    // The request carries every dimension, so it is never built from a
+    // snapshot that could not be refreshed.
+    expect(captured.value).toBeNull();
+    expect(packageCalls).toEqual([]);
+    expect(invalidatedKeys).toEqual([]);
+    expect(toastErrorCalls).toEqual([
+      "Failed to change your plan. Please try again.",
+    ]);
+    expect(result.current.error).toBe(
+      "Failed to change your plan. Please try again.",
+    );
+  });
+
+  test("dimensions left at their seeded value are sent as the fresh current value", async () => {
+    // The modal was seeded from a cache reading medium/xs/null, but the server
+    // has since moved the storage to "s" and added a bundle. The caller only
+    // changes the machine, so the untouched storage and bundle must travel as
+    // what the server holds now, not as the stale seed, or they would revert.
+    const { result } = setup();
+    onboardingFixture = onboarding({
+      max_machine_tier: "medium",
+      selected_storage_tier: "s",
+      selected_storage_gib: 30,
+    });
+    subscriptionFixture = proSubscription({ selected_credit_tier: "credits_50" });
+
+    const captured: { value: ChangeTiersResult | null } = { value: null };
+    await act(async () => {
+      captured.value = await result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: null,
+      });
+    });
+
+    expect(packageCalls).toEqual([
+      {
+        body: {
+          machine_tier: "large",
+          storage_tier: "s",
+          credit_tier: "credits_50",
+        },
+      },
+    ]);
+    // Only the machine actually moved.
+    expect(captured.value).toEqual({ needsResize: true, creditChanged: false });
+  });
+
+  test("an untouched dimension is judged against the caller's seed, not the live cache", async () => {
+    // The caller seeded its pickers at machine medium; the cache has since
+    // moved to large (and so has the server). The user only changes credits
+    // and the picker still reads medium: that is the untouched seed value, so
+    // the server's large must be kept, not reverted to medium.
+    onboardingFixture = onboarding({ max_machine_tier: "large" });
+    const { result } = setup();
+
+    const captured: { value: ChangeTiersResult | null } = { value: null };
+    await act(async () => {
+      captured.value = await result.current.changeTiers(
+        { machineTier: "medium", storageTier: "xs", creditTier: "credits_50" },
+        { machineTier: "medium", storageTier: "xs", creditTier: null },
+      );
+    });
+
+    expect(packageCalls).toEqual([
+      {
+        body: {
+          machine_tier: "large",
+          storage_tier: "xs",
+          credit_tier: "credits_50",
+        },
+      },
+    ]);
     expect(captured.value).toEqual({ needsResize: false, creditChanged: true });
+  });
+
+  test("a second call while the first is in flight is rejected", async () => {
+    // Hold the mutation so the first call stays in flight past its preflight
+    // reads; a second click must not start a competing change.
+    let release: (value: PackageChangeResponse) => void = () => {};
+    packageImpl = () =>
+      new Promise<PackageChangeResponse>((resolve) => {
+        release = resolve;
+      });
+    const { result } = setup();
+
+    const first: { value: Promise<ChangeTiersResult | null> | null } = {
+      value: null,
+    };
+    await act(async () => {
+      first.value = result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: null,
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.isPending).toBe(true));
+
+    const second: { value: ChangeTiersResult | null } = {
+      value: { needsResize: true, creditChanged: true },
+    };
+    await act(async () => {
+      second.value = await result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: null,
+      });
+    });
+    expect(second.value).toBeNull();
+
+    await act(async () => {
+      release(OK);
+      await first.value;
+    });
+    expect(packageCalls).toHaveLength(1);
+    await waitFor(() => expect(result.current.isPending).toBe(false));
   });
 
   test("posting no changes is a successful no-op with no dispatch", async () => {
@@ -610,9 +738,7 @@ describe("useChangeTiers", () => {
       });
     });
 
-    expect(machineCalls).toEqual([]);
-    expect(storageCalls).toEqual([]);
-    expect(creditCalls).toEqual([]);
+    expect(packageCalls).toEqual([]);
     expect(invalidatedKeys).toEqual([]);
     expect(captured.value).toEqual({
       needsResize: false,

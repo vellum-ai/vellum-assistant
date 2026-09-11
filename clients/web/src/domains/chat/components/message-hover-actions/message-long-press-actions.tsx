@@ -21,7 +21,6 @@ import {
   useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
-import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BottomSheet, PanelItem } from "@vellumai/design-library";
@@ -54,7 +53,6 @@ export function MessageLongPressActions({
 }: MessageLongPressActionsProps) {
   const { t } = useTranslation("chat");
   const canBookmark = useCanBookmark(message, conversationId);
-  const canReadAloud = useCanUseInternalThreadActions();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const readAloudMessageId = useMessageReadAloudStore.use.messageId();
   const readAloudStatus = useMessageReadAloudStore.use.status();
@@ -138,7 +136,7 @@ export function MessageLongPressActions({
     );
   }
 
-  if (hasCopyableText && message.id && canReadAloud) {
+  if (hasCopyableText && message.id) {
     items.push(
       buildItem({
         key: "read-aloud",

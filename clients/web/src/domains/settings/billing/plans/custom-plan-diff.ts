@@ -54,6 +54,13 @@ export interface CustomPlanSeed {
   machineTier: MachineTierEnum | null;
   storageTier: StorageTierEnum;
   creditTier: CreditTierEnum | null;
+  /**
+   * Whether the seeded sub already bills the platform fee. A custom plan
+   * always carries it, so a fee-less (Mighty) seed reads the fee row as an
+   * addition and prices the previous total without it. Absent means the fee
+   * is already billed.
+   */
+  hasPlatformFee?: boolean;
 }
 
 export interface CustomPlanDiffRow {
@@ -140,11 +147,14 @@ export function computeCustomPlanDiff(input: {
     seed != null && seed.machineTier != null && seedMachine == null;
   const seedStorageUnresolved = seed != null && seedStorage == null;
 
+  // A fee-less seed is gaining the fee, so the row reads as a change (there is
+  // no previous value to strike through: the fee was simply not billed).
+  const seedLacksFee = seed != null && seed.hasPlatformFee === false;
   const rows: CustomPlanDiffRow[] = [
     {
       key: "base",
       label: `Platform fee: ${formatMonthly(proPlan.base_price_cents)}`,
-      changed: false,
+      changed: seedLacksFee,
     },
   ];
 
@@ -230,7 +240,7 @@ export function computeCustomPlanDiff(input: {
   }
 
   const previousTotalCents =
-    proPlan.base_price_cents +
+    (seedLacksFee ? 0 : proPlan.base_price_cents) +
     (seedMachine?.price_cents ?? 0) +
     (seedStorage?.price_cents ?? 0) +
     (seedCredit?.price_cents ?? 0);

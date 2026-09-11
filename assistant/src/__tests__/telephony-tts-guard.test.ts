@@ -455,10 +455,11 @@ describe("resolveCallTtsProvider with requiresPcmAudio", () => {
     expect(result.provider?.id).toBe("elevenlabs");
   });
 
-  test("without requiresPcmAudio the configured provider is not swapped", async () => {
+  test("without requiresPcmAudio the configured provider is not swapped for playability", async () => {
     testConfig.services.tts.provider = "deepgram";
-    // No credentials at all — the CR transport path does not consult the
-    // media-stream playability capability.
+    storedKeys["deepgram"] = "dg-key";
+    // The CR transport path does not consult the media-stream playability
+    // capability.
     registerStubProvider("deepgram", async () => {
       return { audio: Buffer.from("x"), contentType: "audio/mpeg" };
     });
@@ -467,6 +468,37 @@ describe("resolveCallTtsProvider with requiresPcmAudio", () => {
     expect(result.provider?.id).toBe("deepgram");
     expect(result.useSynthesizedPath).toBe(true);
     expect(result.audioFormat).toBe("mp3");
+  });
+
+  test("managed speech stands in for a configured provider whose credential is missing", async () => {
+    testConfig.services.tts.provider = "deepgram";
+    // No deepgram key, managed speech available: the phone speaks through
+    // managed speech, the same substitution live voice makes.
+    registerStubProvider("deepgram", async () => {
+      throw new Error("should not be used");
+    });
+    registerStubProvider("vellum", async () => {
+      return { audio: Buffer.from("x"), contentType: "audio/mpeg" };
+    });
+
+    const result = await resolveCallTtsProvider();
+    expect(result.provider?.id).toBe("vellum");
+    expect(result.useSynthesizedPath).toBe(true);
+  });
+
+  test("without managed speech a credential-less configured provider is kept", async () => {
+    mockManagedSpeechAvailable = false;
+    try {
+      testConfig.services.tts.provider = "deepgram";
+      registerStubProvider("deepgram", async () => {
+        return { audio: Buffer.from("x"), contentType: "audio/mpeg" };
+      });
+
+      const result = await resolveCallTtsProvider();
+      expect(result.provider?.id).toBe("deepgram");
+    } finally {
+      mockManagedSpeechAvailable = true;
+    }
   });
 });
 
@@ -584,6 +616,7 @@ describe("speakSystemPrompt mid-stream failure after audio started", () => {
   test("non-PCM transport: skips the native text fallback — no full-prompt re-speak", async () => {
     testConfig.services.tts.provider = "fish-audio";
     testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
+    storedKeys["fish-audio"] = "fa-key";
 
     const fishStream = jest.fn(failAfterFirstChunk());
     registerStreamingStubProvider("fish-audio", fishStream);
@@ -657,6 +690,7 @@ describe("speakSystemPrompt aborted synthesis", () => {
   test("non-PCM transport with native-fallback provider: abort skips the text fallback and end-of-turn", async () => {
     testConfig.services.tts.provider = "fish-audio";
     testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
+    storedKeys["fish-audio"] = "fa-key";
 
     const controller = new AbortController();
     controller.abort();
@@ -742,6 +776,7 @@ describe("speakSystemPrompt aborted synthesis", () => {
   test("provider AbortError without any signal is a failure — non-PCM native fallback still runs", async () => {
     testConfig.services.tts.provider = "fish-audio";
     testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
+    storedKeys["fish-audio"] = "fa-key";
 
     const fishSynthesize = jest.fn(async () => {
       throw new DOMException("socket torn down", "AbortError");

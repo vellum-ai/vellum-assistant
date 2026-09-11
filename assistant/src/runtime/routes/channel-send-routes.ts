@@ -1,8 +1,8 @@
 /**
  * Route handler for a model-directed text send to a channel chat.
  *
- * POST /v1/channels/send: deliver text to a chat or person on a channel
- * through the channel's transport, recorded after acknowledgement. The
+ * POST /v1/channels/send: deliver text to a chat on a channel through the
+ * channel's transport, recorded after acknowledgement. The
  * messaging tool's channel branch runs the same function in-process; this
  * route is the door for the CLI and scripts, so the two doors share one
  * seam and one record.
@@ -21,24 +21,15 @@ import { BadGatewayError, BadRequestError } from "./errors.js";
 import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-const ProactiveTargetSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("chat"),
-    chatId: z.string().min(1).describe("Chat id in the channel's own id space"),
-    threadId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe("Thread within the chat, in the channel's own id space"),
-  }),
-  z.object({
-    kind: z.literal("person"),
-    userId: z
-      .string()
-      .min(1)
-      .describe("Person to reach in their DM, in the channel's own id space"),
-  }),
-]);
+const ProactiveTargetSchema = z.object({
+  kind: z.literal("chat"),
+  chatId: z.string().min(1).describe("Chat id in the channel's own id space"),
+  threadId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Thread within the chat, in the channel's own id space"),
+});
 
 const ChannelSendRequestSchema = z.object({
   channel: z.enum(CHANNEL_IDS).describe("Channel to send on"),
@@ -85,7 +76,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Send text to a channel chat",
     description:
-      "Deliver text to a chat or person on a channel through the channel's transport, recorded after the channel acknowledges it.",
+      "Deliver text to a chat on a channel through the channel's transport, recorded after the channel acknowledges it.",
     tags: ["channels"],
     handler: handleChannelSend,
     requestBody: ChannelSendRequestSchema,

@@ -1,5 +1,5 @@
 /**
- * Tests for `badRequestMessage` — the rule deciding when a failed daemon call
+ * Tests for `badRequestMessage`, the rule deciding when a failed daemon call
  * should be reported in the server's own words rather than the call site's
  * fallback copy.
  */

@@ -55,6 +55,7 @@ class FakeTcp implements DesktopTcpSocket {
 function newBridge(
   manager: DesktopSessionManager,
   ensureInstalled: () => Promise<void> = async () => {},
+  isEnabled: () => boolean = () => true,
 ) {
   const ws = new FakeWs();
   const tcp = new FakeTcp();
@@ -65,6 +66,7 @@ function newBridge(
   const bridge = new DesktopStreamBridge(ws, {
     manager,
     ensureInstalled,
+    isEnabled,
     connect: async (_port, handlers) => {
       tcp.handlers = handlers;
       await gate;
@@ -85,6 +87,69 @@ function slotIsFree(manager: DesktopSessionManager): boolean {
 }
 
 describe("DesktopStreamBridge", () => {
+  test("refuses a disabled desktop before installation or process startup", async () => {
+    const h = newFakeDesktop({ profileDir });
+    let installs = 0;
+    const b = newBridge(
+      h.manager,
+      async () => {
+        installs++;
+      },
+      () => false,
+    );
+    await b.bridge.start();
+    expect(b.ws.closeCode).toBe(4008);
+    expect(installs).toBe(0);
+    expect(h.spawned).toEqual([]);
+    expect(slotIsFree(h.manager)).toBe(true);
+  });
+
+  test("does not start the desktop when disabled during installation", async () => {
+    const h = newFakeDesktop({ profileDir });
+    let enabled = true;
+    const install = Promise.withResolvers<void>();
+    const b = newBridge(
+      h.manager,
+      () => install.promise,
+      () => enabled,
+    );
+    const started = b.bridge.start();
+    enabled = false;
+    install.resolve();
+    await started;
+    expect(b.ws.closeCode).toBe(4008);
+    expect(slotIsFree(h.manager)).toBe(true);
+    expect(b.tcp.handlers).toBeUndefined();
+    expect(h.spawned).toEqual([]);
+  });
+
+  for (const direction of ["viewer", "desktop"] as const) {
+    test(`blocks ${direction} frames when the flag is disabled after connection`, async () => {
+      const h = newFakeDesktop({ profileDir });
+      let enabled = true;
+      const b = newBridge(
+        h.manager,
+        async () => {},
+        () => enabled,
+      );
+      b.connectNow();
+      await b.bridge.start();
+      enabled = false;
+      const frame = new Uint8Array([1, 2, 3]);
+      if (direction === "viewer") {
+        b.bridge.handleClientFrame(frame);
+      } else {
+        b.tcp.handlers.onData(frame);
+      }
+      expect(b.ws.closeCode).toBe(4008);
+      expect(b.ws.sent).toHaveLength(0);
+      expect(b.tcp.writes).toHaveLength(0);
+      expect(b.tcp.ended).toBe(true);
+      expect(slotIsFree(h.manager)).toBe(true);
+      await h.manager.destroy();
+    });
+  }
+
   test("direct viewers share background setup across a timeout and reconnect", async () => {
     const h = newFakeDesktop({ profileDir });
     let ready = false;
@@ -300,6 +365,7 @@ describe("DesktopStreamBridge", () => {
 
     const ws = new FakeWs();
     const bridge = new DesktopStreamBridge(ws, {
+      isEnabled: () => true,
       connect: async () => {
         throw new Error("must not dial the VNC port");
       },

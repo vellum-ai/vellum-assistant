@@ -1,13 +1,10 @@
 /**
  * The gate that decides whether a watch retrospective can report at all.
  *
- * A retrospective runs as a `clientless` wake, which pins the turn
- * non-interactive. `conversation-tool-setup` gates the whole `ui_surface`
- * family on a client being present, so in that turn `ui_show` is not denied,
- * it is absent: a retrospective told to call it can only tell the user it
- * cannot. Nothing about the card's schema, its renderer, or the prompt's
- * wording reveals that, which is why it is asserted here against the real
- * registry rather than assumed anywhere else.
+ * A retrospective runs as a `clientless` wake, but its report continues to
+ * use the post-turn renderer so the report lands after its tool call has been
+ * persisted. The core UI tools remain available on that turn for other
+ * background work, so this file pins both contracts against the real registry.
  */
 
 import { afterAll, describe, expect, test } from "bun:test";
@@ -54,20 +51,14 @@ describe("watch retrospective tool availability", () => {
     ).toBe(true);
   });
 
-  test("ui_show is absent from a clientless turn", async () => {
+  test("core UI tools stay available on a clientless turn", async () => {
     await initializeTools();
     const ctx = clientlessContext();
 
-    // The reason the report does not go through `ui_show`. If this ever flips
-    // to true, the extra tool above can be reconsidered; while it is false,
-    // routing the retrospective's card through `ui_show` produces a turn that
-    // cannot report at all.
-    expect(isToolActiveForContext("ui_show", ctx)).toBe(false);
-    expect(isToolActiveForContext("ui_update", ctx)).toBe(false);
-    expect(isToolActiveForContext("ui_dismiss", ctx)).toBe(false);
+    for (const name of ["ui_show", "ui_update", "ui_dismiss"]) {
+      expect(isToolActiveForContext(name, ctx)).toBe(true);
+    }
 
-    // And the gate really is about the client, not about the tools being
-    // unregistered: with one attached, the same names are active.
     const withClient = clientfulContext();
     expect(isToolActiveForContext("ui_show", withClient)).toBe(true);
   });

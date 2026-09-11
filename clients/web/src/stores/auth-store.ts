@@ -992,12 +992,13 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
 
     if (isGatewayAuthEnabled()) {
       try {
-        // Ride out the gateway's startup window: on reboot the gateway restarts
-        // concurrently with the app and answers the mint with a transient
-        // "starting" 503 for a few seconds. A single prime there would drop the
-        // session to unauthenticated and surface the recovery controls for an
-        // assistant that reconnects on its own moments later. Still no `wake` —
-        // app launch must not spawn daemon processes.
+        // Ride out the gateway's startup window: on reboot the gateway (a
+        // Login Item) restarts concurrently with the app. The mint fails to
+        // fetch while the port is unbound, then answers a transient 503 or
+        // 401 before the guardian binding lands. A single prime there would
+        // drop the session to unauthenticated and surface the recovery
+        // controls for an assistant that reconnects on its own. Still no
+        // `wake`: app launch must not spawn assistant processes.
         await primeLocalGatewayConnectionWithStartupRetry();
         set(authenticatedLocalUser());
       } catch {
@@ -1139,10 +1140,11 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
    * probe and swallows failures, this rethrows so the caller can surface the
    * reason — including the typed `GuardianTokenError` from the host seam — and
    * offer recovery instead of dead-ending. It primes through
-   * `primeLocalGatewayConnectionWithRepair`, which self-heals a stopped or
-   * mis-seeded assistant via `wake` before surfacing any error — matching the
-   * native client's re-pair-on-connect bootstrap. The boot probe deliberately
-   * stays on the plain primitive so app launch never spawns daemon processes.
+   * `primeLocalGatewayConnectionWithRepair`, which rides out a starting
+   * gateway and self-heals a stopped or mis-seeded assistant via `wake` before
+   * surfacing any error, matching the native client's re-pair-on-connect
+   * bootstrap. The boot probe deliberately stays on the startup-retry
+   * primitive so app launch never spawns assistant processes.
    */
   connectLocalAssistant: async (assistantId: string) => {
     const target = getLocalAssistants().find(

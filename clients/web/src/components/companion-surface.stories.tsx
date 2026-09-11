@@ -529,34 +529,6 @@ export const InCallDrawingCardDown: Story = {
 };
 
 /**
- * Drawing on what is shared, with the box tool current: the strip of tools
- * stands off the Draw control on the card side of the pill.
- */
-export const InCallDrawing: Story = {
-  args: {
-    phase: "call",
-    shareEnabled: true,
-    sharing: true,
-    annotating: true,
-    annotationTool: "box",
-    call: DEMO_CALL,
-  },
-};
-
-/** The same strip where the card grows down, so it stands under the pill. */
-export const InCallDrawingCardDown: Story = {
-  args: {
-    phase: "call",
-    shareEnabled: true,
-    sharing: true,
-    annotating: true,
-    annotationTool: "circle",
-    cardGrowth: "down",
-    call: DEMO_CALL,
-  },
-};
-
-/**
  * Both held down at once, which is the widest row a call draws and what
  * `FALLBACK_WIDTHS.call` stands in for before the row has been measured.
  */
@@ -789,6 +761,23 @@ export const InCallAssistantTurn: Story = {
       label: "Thinking\u2026",
     },
   },
+};
+
+/**
+ * Mid-call docked to a side of the display, which stands the bar up.
+ *
+ * The controls run down a column under the creature, their captions and the
+ * activity line stand off it toward the middle of the screen, and the host
+ * builds a canvas symmetric about the creature for it. Compare with `InCall`:
+ * the same controls in the same order, read down rather than across.
+ */
+export const InCallDockedLeft: Story = {
+  args: { phase: "call", call: DEMO_CALL, dock: "left", sharing: true },
+};
+
+/** The same column against the right edge, with everything facing left. */
+export const InCallDockedRight: Story = {
+  args: { phase: "call", call: DEMO_CALL, dock: "right", sharing: true },
 };
 
 /** Mid-call with both mutes on, which is what the two buttons swap to. */
