@@ -469,14 +469,14 @@ describe("feed-writer", () => {
 
       // The updater sees the status as of the write, so a conditional
       // transition cannot overwrite what another writer just set.
-      const seen: string[] = [];
+      const observed: string[] = [];
       const conditional = await patchFeedItemContent("item-1", {
         status: (existing) => {
-          seen.push(existing);
+          observed.push(existing);
           return existing === "new" ? "seen" : existing;
         },
       });
-      expect(seen).toEqual(["acted_on"]);
+      expect(observed).toEqual(["acted_on"]);
       expect(conditional!.status).toBe("acted_on");
       expect(readFileJson().items[0]!.status).toBe("acted_on");
     });

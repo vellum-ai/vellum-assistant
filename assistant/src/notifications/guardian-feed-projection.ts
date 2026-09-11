@@ -170,13 +170,15 @@ export interface GuardianFeedReceiptParams {
  * attention" treatment and becomes an ordinary clearable notification,
  * and an item still marked `new` is marked `seen`: a request settled on
  * any surface is no longer something the user has to review, and leaving
- * it unread is a false attention signal. Returns false only when the
- * write itself failed, so the withdrawal fan-out can hold its
- * per-request receipt back and retry (same contract as the other
- * surfaces it settles). A request with no projection item resolves
- * true: the pending writer converges the write-vs-resolve race by
- * re-checking canonical status after its append, so there is nothing
- * here for a retry to fix.
+ * it unread is a false attention signal. Only `new` advances, so a
+ * status the user set survives a caller that receipts twice.
+ *
+ * Returns false only when the write itself failed, so the withdrawal
+ * fan-out can hold its per-request receipt back and retry (same
+ * contract as the other surfaces it settles). A request with no
+ * projection item resolves true: the pending writer converges the
+ * write-vs-resolve race by re-checking canonical status after its
+ * append, so there is nothing here for a retry to fix.
  */
 export async function writeGuardianFeedReceipt(
   params: GuardianFeedReceiptParams,
@@ -200,12 +202,6 @@ export async function writeGuardianFeedReceipt(
     }
     const updated = await patchFeedItemContent(itemId, {
       urgency: "medium",
-      // Unread means the user still has something to review, and a
-      // request that has already been decided, expired, or cancelled is
-      // not that. Only a `new` item advances: one the user has read,
-      // acted on, or cleared keeps the status they gave it, so a receipt
-      // written again (the withdrawal fan-out retries per surface) can
-      // never pull a dismissed row back into the bell.
       status: (existing) => (existing === "new" ? "seen" : existing),
       guardianRequest: (existing) => ({
         ...existing,

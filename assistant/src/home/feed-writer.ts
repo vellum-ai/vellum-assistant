@@ -187,9 +187,9 @@ export interface FeedItemContentPatch {
   urgency?: FeedItemUrgency;
   /**
    * New status, or an updater applied inside the coalescing queue so it
-   * reads the status as of write time. Use the updater form for a
-   * conditional transition: a plain value would overwrite a status the
-   * user set while the patch sat in the queue.
+   * reads the status as of write time. Use the updater for a conditional
+   * transition: a plain value would overwrite a status another writer
+   * set while the patch sat in the queue.
    */
   status?: FeedItemStatus | ((existing: FeedItemStatus) => FeedItemStatus);
   /**

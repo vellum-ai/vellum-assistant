@@ -74,13 +74,12 @@ it end to end:
   after its append.
 - The receipt is the whole retire mechanism, so everything that must
   stop happening lives in `writeGuardianFeedReceipt`: the terminal
-  `guardianRequest.status` is what withdraws every client affordance,
-  urgency drops to `medium` to leave the "Needs attention" treatment,
-  and a still-`new` item is marked `seen`, because a request resolved
-  from another surface is not something left to review. It only ever
-  advances `new`; a status the user set (`seen`, `acted_on`,
-  `dismissed`) is left alone, so re-running the fan-out cannot pull a
-  cleared receipt back into the bell.
+  `guardianRequest.status` withdraws every client affordance, urgency
+  drops to `medium` to leave the "Needs attention" treatment, and a
+  still-`new` item is marked `seen` (unread means the user has
+  something to review, which a resolved request is not). Only `new`
+  advances, so re-running the fan-out cannot pull a cleared receipt
+  back into the bell.
 - The feed writer's bulk-dismiss pass skips pending guardian items
   (`isPendingGuardianFeedItem`), so "Clear all" can never retire an
   unresolved request; only its receipt is clearable.
