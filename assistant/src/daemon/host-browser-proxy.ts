@@ -5,7 +5,10 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
-import { enforceSameActorOrErrorResult } from "../runtime/auth/same-actor.js";
+import {
+  enforceSameActorOrErrorResult,
+  unavailableSameUserClientError,
+} from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -283,6 +286,17 @@ export class HostBrowserProxy {
       sourceActorPrincipalId,
       targetClientId,
     );
+
+    if (
+      preferredClient === undefined &&
+      sourceActorPrincipalId !== undefined &&
+      targetClientId === undefined
+    ) {
+      if (isExtensionOnlyMethod(input.cdpMethod)) {
+        return Promise.resolve(extensionRequiredResult(input.cdpMethod));
+      }
+      return Promise.resolve(unavailableSameUserClientError("host_browser"));
+    }
 
     // Same-user enforcement: when the caller's actor is known, refuse to
     // dispatch to a client owned by a different actor. This covers the

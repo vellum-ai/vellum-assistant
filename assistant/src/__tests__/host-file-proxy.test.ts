@@ -746,9 +746,8 @@ describe("HostFileProxy", () => {
       expect(sentMessages).toHaveLength(0);
     });
 
-    test("untargeted request with no auto-resolve match still broadcasts (legacy path unchanged)", async () => {
+    test("rejects when the actor has no capable client", async () => {
       setup();
-      // No matching same-user clients available.
       mockClients = [
         {
           clientId: "client-A",
@@ -757,23 +756,18 @@ describe("HostFileProxy", () => {
         },
       ];
 
-      const resultPromise = proxy.request(
+      const result = await proxy.request(
         { operation: "read", path: "/tmp/test.txt" },
         "session-1",
         undefined,
         undefined,
-        "user-B", // No same-user match → no auto-resolve, broadcast untargeted.
+        "user-B",
       );
 
-      expect(sentMessages).toHaveLength(1);
-      const sent = sentMessages[0] as Record<string, unknown>;
-      expect(sent.targetClientId).toBeUndefined();
-      const requestId = sent.requestId as string;
-
-      proxy.resolve(requestId, { content: "ok", isError: false });
-      await resultPromise;
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content).toContain("belongs to this user");
+      expect(sentMessages).toHaveLength(0);
     });
-
     test("auto-resolve picks the same-user client when there's exactly one", async () => {
       setup();
       mockClients = [
@@ -807,7 +801,7 @@ describe("HostFileProxy", () => {
       await resultPromise;
     });
 
-    test("auto-resolve falls through when no client matches the source user", async () => {
+    test("rejects when only a different user has a capable client", async () => {
       setup();
       mockClients = [
         {
@@ -817,7 +811,7 @@ describe("HostFileProxy", () => {
         },
       ];
 
-      const resultPromise = proxy.request(
+      const result = await proxy.request(
         { operation: "read", path: "/tmp/test.txt" },
         "session-1",
         undefined,
@@ -825,16 +819,10 @@ describe("HostFileProxy", () => {
         "user-C",
       );
 
-      // No same-user client → no auto-resolve, broadcast untargeted.
-      expect(sentMessages).toHaveLength(1);
-      const sent = sentMessages[0] as Record<string, unknown>;
-      expect(sent.targetClientId).toBeUndefined();
-      const requestId = sent.requestId as string;
-
-      proxy.resolve(requestId, { content: "ok", isError: false });
-      await resultPromise;
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content).toContain("belongs to this user");
+      expect(sentMessages).toHaveLength(0);
     });
-
     test("legacy embedded targetClientId in input still goes through the same-user gate", async () => {
       setup();
       mockClients = [

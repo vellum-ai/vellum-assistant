@@ -142,9 +142,7 @@ function detectRejection(
     ? args.hub.getActorPrincipalIdForClient(args.targetClientId)
     : (args.targetActorPrincipalId ??
       (isHttpAuthDisabled() && targetClientId
-        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(
-            targetClientId,
-          )
+        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(targetClientId)
         : undefined));
 
   let reason: RejectionReason | undefined;
@@ -262,6 +260,43 @@ export function pickSameUserAutoResolve(args: {
     return { kind: "match", clientId: sameUser[0].clientId };
   }
   return { kind: "ambiguous" };
+}
+
+/**
+ * Pick the most recently active capable client owned by the turn actor.
+ * `listClientsByCapability` is ordered by recent activity, so the first
+ * same-user match provides deterministic routing without broadcasting a host
+ * request across multiple devices.
+ */
+export function pickMostRecentSameUserClient(args: {
+  hub: Pick<AssistantEventHub, "listClientsByCapability">;
+  capability: HostProxyCapability;
+  sourceActorPrincipalId: string | undefined;
+}): string | undefined {
+  const { hub, capability, sourceActorPrincipalId } = args;
+  if (sourceActorPrincipalId == null) {
+    return undefined;
+  }
+  return hub
+    .listClientsByCapability(capability)
+    .find((client) => client.actorPrincipalId === sourceActorPrincipalId)
+    ?.clientId;
+}
+
+/**
+ * Error result for an automatic host route with no capable client owned by the
+ * actor that initiated the turn.
+ */
+export function unavailableSameUserClientError(
+  capability: HostProxyCapability,
+): {
+  content: string;
+  isError: true;
+} {
+  return {
+    content: `No connected ${capability} client belongs to this user. Connect a capable client signed in as the same user, then retry.`,
+    isError: true,
+  };
 }
 
 /**
