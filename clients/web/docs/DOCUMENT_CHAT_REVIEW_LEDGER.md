@@ -1,6 +1,6 @@
 # Document chat replacement: review disposition ledger
 
-This ledger accounts for the actionable findings on [PR #42277](https://github.com/vellum-ai/vellum-assistant/pull/42277) without copying its second-composer architecture. Status labels distinguish planned work from verified behavior; update the planned categories with final test evidence before publication.
+This ledger accounts for the actionable findings on [PR #42277](https://github.com/vellum-ai/vellum-assistant/pull/42277) without copying its second-composer architecture. Status labels distinguish implemented behavior, verified regressions, obsolete mechanisms and remaining baseline limitations. The final validation checkpoint below names checks that still need to run after the latest integration changes.
 
 ## Audit snapshot
 
@@ -15,9 +15,9 @@ This ledger accounts for the actionable findings on [PR #42277](https://github.c
 
 ### Document target preparation
 
-Status: Carried helper and regression tests planned.
+Status: Shared entry helper implemented; targeted regressions pass.
 
-Use one assistant-owned resolution/link operation before any first send. Preserve a successfully minted row across a failed link, reject unknown write capability, require actual linkage, and invalidate any stale route/assistant generation. Any retained legacy cache format remains supported.
+`document-conversation.ts` resolves the existing link before entering the ordinary conversation session. Opening a document does not create a conversation. An explicit repair action checks assistant capability, retains a created row/key across retries and links it before entry. The existing assistant-scoped edit-session cache remains the mapping source. Tests cover valid and missing links, transport failures, creation/link retries, unsupported assistants and permanent cancellation across an assistant switch, including A-B-A. The old first-send mint and private document-submit generation are not carried.
 
 - [Use server minting for unlinked document conversations](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3961339351); [Link the document before its first turn starts](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963181750); [Scope wire-version checks to the request assistant](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963799752); [Stop sending when document linking fails](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963799761); [Keep requiring the link after a failed mint attempt](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963918549).
 - [Preserve unlinked state after a failed rekey](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3964072563); [Check assistant ownership before relinking the open document](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3968764847); [Revalidate the open document after rekeying](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3969160855); [Hold one version decision through document sends](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3969522293); [Keep using the minted mapping until document relinking succeeds](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3980314174).
@@ -27,32 +27,32 @@ Use one assistant-owned resolution/link operation before any first send. Preserv
 
 ### Document load ownership and empty selection
 
-Status: Regression tests planned.
+Status: Assistant-owned entry and fallback implemented; targeted regressions pass.
 
-Gate the entire editor, not just Send, on the current assistant and surface. Missing selection must resolve to a fallback. This includes the old PR's still-open missing-assistant finding.
+Entry and document-route state are scoped to assistant, conversation and surface; stale asynchronous results cannot reopen a closed target. A settled missing assistant renders a fallback rather than a permanent spinner. Document route, standalone page, open-document and viewer-store tests cover these paths, including the old PR's still-open missing-assistant finding.
 
 - [Disable the composer while the route document is stale](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963685319); [Gate stale documents by assistant as well](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963918552); [Re-scope the open document when assistants change](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3964072571); [Do not render a stale document under the new assistant](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3970307705); [Let a missing assistant reach the fallback](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3988310735).
 
 ### Body/title save ordering
 
-Status: Carried helper and regression tests planned.
+Status: Shared save helper implemented; save, submit and preparation regressions pass.
 
-Serialize title and body writes, drain edits arriving during flush, fence rollback to its rename attempt, and use the latest flushed content/title. Hold a short editing barrier through final prepare-and-submit. Feedback shares these invariants.
+`useDocumentEditorSave` serializes title/body writes, drains edits arriving during flush, fences rename rollback and returns the latest saved snapshot. Its tests cover failed-save retry, concurrent writes, editing leases, stale leases and incoming snapshots. Shared submit and standalone feedback tests exercise preparation before taking a message. The persistent-editor integration keeps local edits mounted in either presentation; preparation tests cover sends while the associated editor is hidden as well as visible.
 
 - [Flush document edits before submitting the message](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3986962583); [Wait for rename writes before sending](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3987116957); [Flush document edits before launching feedback](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3987311524); [Prevent a queued autosave from restoring a failed rename](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3987311542); [Fence rename rollback to the attempt](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3987531905).
 - [Flush edits again after feedback preflight](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3987531913); [Reopen feedback with the flushed document content](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3987696459); [Drain edits that arrive during a flush](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3987834213); [Refresh the document title after feedback preflight](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3987948993); [Flush again after document-send preflight](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3988050171).
 
 ### Keyboard and safe area
 
-Status: Layout regression planned.
+Status: Single app-shell layout implemented; native-device validation pending.
 
-One layout layer reserves the bottom safe area. Inspect the existing mobile viewport helper with the real composer stack.
+The document fills the existing chat shell's content region above its one composer. It does not add another fixed overlay or reserve a second bottom safe area. Mobile Storybook rendering has been checked at 390 by 844, but that is not an iOS keyboard, native safe-area or microphone validation.
 
 - [Reserve the overlay bottom safe area only once](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3964072583).
 
 ### Existing shared command and picker behavior
 
-Status: Already on main; preserve.
+Status: Already on main; preserved through the existing composer path.
 
 The main send path dispatches slash commands, and ChatMainPanel returns the accepted file list to native pickers. Reusing those exact paths avoids the old second composer's bypasses.
 
@@ -60,26 +60,26 @@ The main send path dispatches slash commands, and ChatMainPanel returns the acce
 
 ### Target model and attachment gating
 
-Status: Shared helper correction and tests planned.
+Status: Routing-truth query target corrected; unresolved-capability behavior remains a baseline limitation.
 
-The current main hook still fails open while the target profile loads or fails, and its queries lack organization-readiness gating. Use the actual non-draft active conversation ID, distinguish unresolved/error from success, and hold incompatible image selection/submission. These are not fixed merely by sharing the component.
+The profile lookup uses `activeConversationId` rather than waiting for the conversation row to hydrate. The existing shared attachment picker/send path is reused. However, the shared hook still defaults an unresolved or failed profile to image-capable and lacks organization-readiness gating. Complete capability gating and image revalidation are not claimed fixed by this replacement; they require separately scoped shared work and tests.
 
 - [Apply the vision attachment gate to document uploads](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3971339540); [Hold image uploads until the target profile resolves](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3971882203); [Revalidate images before the main-chat send](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3973277284); [Query the target profile before allowing images](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3973401395); [Gate images against the resolved conversation](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3980863368).
 - [Keep failed conversation-profile queries unresolved](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982540121); [Gate conversation lookup on org readiness](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3984562405).
 
 ### Localization
 
-Status: Copy audit and regression planned.
+Status: New document-session copy uses all current locale catalogs; shared legacy error copy remains unchanged.
 
-The old document-specific notification/placeholder catalog is not reused. Every new visible string uses all current locale catalogs. Existing shared attachment error copy remains a separate shared surface to audit, not evidence of translated old document errors.
+The old document-specific notification/placeholder catalog is not reused. New navigation, entry/repair, save-error and feedback strings use the current five locale catalogs. Existing shared attachment error copy remains a separate shared surface, not evidence that all legacy errors are translated.
 
 - [Add the document composer strings to Russian](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3969160863); [Localize the document composer placeholder](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3969974964); [Localize document attachment failures](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3972545611); [Localize the remaining document upload failures](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3973122835).
 
 ### Shared delivery protocol and terminal state
 
-Status: Baseline investigation; no protocol port.
+Status: Baseline mismatch reproduced; no protocol changes carried.
 
-Main emits the established error discriminator. The old PR's distinct message_failed and new cancellation paths are absent. A batch-tail persistence failure still emits a terminal-looking error while siblings continue; reproduce before selecting a coherent shared fix. If scope or terminal behavior changes, web, TUI, plain CLI, nonce-less clients and old-client delivery must be evaluated together. The final open TUI cancellation finding is not inherited unless its triggering cancellation change is introduced.
+Main emits the established error discriminator. The historical message_failed discriminator and the old PR's extra cancellation paths are not carried. Existing assistant tests and the client TODO below demonstrate a batch-tail persistence failure emitting a terminal-looking error while successful siblings continue. This shared mismatch remains unresolved. Any future scope/terminal change must evaluate web, TUI, plain CLI, nonce-less clients and old-client delivery together. The final open TUI cancellation finding is not inherited because its triggering cancellation change is absent.
 
 - [Keep message-scoped errors out of turn teardown](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3971882209); [Tag member errors even when the nonce is absent](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3972080742); [Honor explicit turn scope before the legacy nonce fallback](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3972440062); [Handle message-scoped errors in every event client](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3981895074); [Centralize the message-scope predicate](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982116131).
 - [Correlate accepted-send failures with document waits](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982834693); [Use a backward-compatible event for message failures](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982933109); [End the turn when remaining batch items all deduplicate](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982933122); [Handle cancellation in the interactive TUI](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3983037310); [Avoid cancelling after a synchronous queued command](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3983297434).
@@ -87,9 +87,9 @@ Main emits the established error discriminator. The old PR's distinct message_fa
 
 ### Shared off-screen and ambiguous-send recovery
 
-Status: Baseline investigation; not claimed fixed.
+Status: Off-screen attachment loss reproduced; shared recovery limitations remain unresolved.
 
-Main has no queuedSends ledger or QueuedSendRecoveryWatcher. Its off-screen failures restore text only and accepted queued payloads do not survive transcript reset. Prove the relevant gap with normal-chat regressions, then make only bounded shared fixes. Do not port the old watcher or label missed-event reconciliation, nonce-aware recovery, batch subtraction, or retry logic as complete without implementing and testing it.
+Main has no queuedSends ledger or QueuedSendRecoveryWatcher. The normal-chat TODO below reproduces text-only restoration after an off-screen transport failure. Accepted queued payloads also do not survive transcript reset. No production recovery map or watcher is carried. Missed-event reconciliation, nonce-aware recovery, batch subtraction and retry improvements remain separate shared work, not completed outcomes of this replacement.
 
 - [Preserve newer drafts when restoring a failed queue member](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3972080749); [Restore attachments from failed queued sends](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3972545602); [Restore failed text and attachments atomically](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3973277293); [Retain failed sends while the composer is occupied](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3981722675); [Queue every failed-send recovery payload](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3981895100).
 - [Retain queued sends after their conversation is left](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3981895108); [Recover sends when no chat view is mounted](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982116113); [Retain queued payload before awaiting the POST](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982253186); [Retain queued copies after ambiguous transport failures](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982345629); [Defer restoring sends with an ambiguous outcome](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3983103661).
@@ -100,9 +100,9 @@ Main has no queuedSends ledger or QueuedSendRecoveryWatcher. Its off-screen fail
 
 ### Preparation ownership and draft preservation
 
-Status: Shared preparation regressions planned.
+Status: Shared pre-send preparation implemented; focused ownership and voice regressions pass.
 
-Document preflight must not clear a draft before handoff to normal chat. Capture an ownership generation and abort without changing newer state after document/conversation/assistant changes or unmount. The old submit hook and its private attempt/detachment fields are not carried.
+The shared submit hook awaits preparation before clearing ordinary composer text or attachments. Save failure, changed draft and invalid preparation prevent handoff. `use-document-chat-preparation.test.tsx` exercises the real composed hooks and stores across cancellation, assistant/conversation/surface changes, A-B-A, hung owners, stale release and hidden associated-editor sends, with editor/save/transport boundaries mocked. `chat-composer.test.tsx` covers the live-voice preparation outcomes. The old submit hook and private attempt/detachment fields are not carried. Failures after handoff remain governed by normal chat, including the unresolved off-screen limitations above.
 
 - [Guard completion cleanup against document switches](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3962164146); [Track assistant ownership in the completion guard](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963685311); [Reset sending state when the slot owner changes](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963799765); [Preserve the active owner's send status](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3969160840); [Version slot ownership across document transitions](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3969322735).
 - [Keep stale send actions scoped to their assistant](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3969322743); [Preserve the newer send's nonce across stale completions](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3969522282); [Do not let stale sends replace the active retry nonce](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3971882195); [Invalidate pending sends when an assistant switch unmounts](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982744630); [Preserve failed document sends after leaving the editor](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3983488541).
@@ -111,9 +111,9 @@ Document preflight must not clear a draft before handoff to normal chat. Capture
 
 ### Second composer slot and preview ownership
 
-Status: Obsolete mechanism; shared-session regressions planned.
+Status: Obsolete mechanism; shared composer and persistent-editor identity regressions pass.
 
-There is no document input/attachment slot to reset, leak into another document, or reclaim separately. Document/transcript presentation must keep one composer identity and its previews. Ordinary cross-conversation failure recovery is accounted separately above.
+There is no document input/attachment slot to reset, leak into another document, or reclaim separately. `ChatBody` retains one composer and keeps the associated editor/transcript mounted, with the inactive region hidden and inert. Tests preserve composer identity, focus, edited document content and editor identity through presentation switches. Scroll regressions prevent hidden zero-sized geometry from paging history or losing the reader's position. The browser interaction passed with real editor edits, composer text and an uploaded attachment retained through both toggles. Ordinary cross-conversation failure recovery is accounted separately above.
 
 - [Key document composer state to its assistant and document](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3961339358); [Reset the slot when leaving the standalone document route](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3962164136); [Clear document text when switching assistants](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3962164153); [Revoke document preview URLs after sending](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3969322755); [Keep failed sends scoped to their originating document](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3972705575).
 - [Keep failed sends stashed while the composer is occupied](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3973122833); [Keep restored failed-send previews usable](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3973277305); [Keep claimed document recoveries retractable](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3984762898).
@@ -122,7 +122,7 @@ There is no document input/attachment slot to reset, leak into another document,
 
 Status: Obsolete mechanism; shared delivery limits remain explicit.
 
-No document-specific waiting list, processing marker, recovery claimant or reply-toast correlator is created. Existing chat state supplies the visible status. The old watcher retry finding is therefore structurally absent. This does not claim that normal chat solves all ambiguous-send, detached-stream, or nonce-less delivery cases; those constraints remain in the shared-delivery investigation.
+No document-specific waiting list, processing marker, recovery claimant or reply-toast correlator is created. Existing chat state supplies the visible status. The old watcher retry finding is therefore structurally absent. This does not claim that normal chat solves all ambiguous-send, detached-stream, or nonce-less delivery cases; those constraints remain in the shared-delivery limitations above.
 
 - [Seed the processing snapshot for background conversations](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3961339368); [Track queued document messages through their own turn](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3961339376); [Preserve an idempotency key across ambiguous send failures](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3961339383); [Correlate reply completion to the queued request](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3962164162); [Handle terminal conversation errors in the reply watcher](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963685324).
 - [Avoid starting a waiter after a deduplicated retry](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963685328); [Clear or scope reply waits on assistant switches](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3963799769); [Keep queued waits across earlier turn failures](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3964072578); [Regenerate the nonce when the pending payload changes](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3964195811); [Flag queued waits before their predecessor can finish](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3964195814).
@@ -143,7 +143,7 @@ documents.conversation_id references a real conversations row and the SQLite con
 
 - [Persist draft replacements beyond the current tab](https://github.com/vellum-ai/vellum-assistant/pull/42277#discussion_r3982540126).
 
-## Baseline evidence and integration gates
+## Baseline evidence
 
 - Two executable `test.todo` regressions record baseline gaps without making mainline CI red. Running each with Bun's `--todo` flag executes its assertions and reports the expected failure as a TODO, not a passing behavior check:
   - `src/domains/chat/hooks/use-send-message.stale-scope.test.tsx`: send text plus an uploaded attachment, change conversation during the POST, then throw the transport request. Existing draft restoration returns the text but the expected attachment is absent (`[]`).
@@ -152,7 +152,15 @@ documents.conversation_id references a real conversations row and the SQLite con
 - Both changed web test files pass through the normal isolated runner with the two unfixed assertions retained as TODOs. No production recovery or protocol change is implied by this evidence.
 - `src/domains/chat/hooks/use-send-message.ts` sends a client nonce and guards active-view writes. Its queued and direct off-screen error branches call text-only `restoreFailedDraft`; they do not retain a full accepted-send payload after a conversation switch.
 - `src/domains/chat/utils/stream-handlers/error-handlers.ts` treats correlated `QUEUE_FULL` as nonterminal, but ordinary errors end the turn and cancel the stream. `assistant/src/daemon/conversation-process.ts` emits such an ordinary error for a failed batch tail, then continues successful siblings.
-- `src/domains/chat/components/chat-route-content.tsx` dispatches the normal composer and returns accepted picker files, but defaults an unresolved profile to image-capable. `use-active-profile-model.ts` queries a conversation only when supplied its ID and currently does not gate on organization readiness.
+- `src/domains/chat/components/chat-route-content.tsx` dispatches the normal composer, returns accepted picker files and supplies the routing-truth conversation ID to profile lookup, but still defaults an unresolved profile to image-capable. `use-active-profile-model.ts` does not gate on organization readiness.
 - Do not cherry-pick intermediate wire changes. The old reviews first requested a new discriminator, then demonstrated old-client recovery regressions and restored compatible scoped errors. Any future shared protocol work must evaluate the complete final contract, not an isolated historical reply.
-- Acceptance requires real shared orchestration tests for document/transcript switches, preparation failures and owner changes, plus actual production-presentation rendering. A mocked submit callback or an obsolete document-store test is insufficient.
 - Any remaining baseline delivery limitation must be stated in the replacement PR and tracked separately. It must not be described as resolved by removing the document watcher.
+
+## Validation checkpoint
+
+- The integrated targeted batch passed for document entry/navigation, route refresh and ownership, opening from chat, the standalone page, viewer state, Tiptap, shared submit, ChatBody, ChatComposer, Chat Info, both baseline TODO files and hidden-transcript scroll behavior. The separate document-save and document-editor-sync test files also passed.
+- The latest persistent-editor change passed ChatBody and scroll visibility tests, targeted lint and a full web typecheck in its isolated worktree. The integrated browser interaction passed with real Tiptap edits, editor content/identity, composer text and an uploaded attachment retained through both presentation switches, with no preview errors.
+- Integrated web typecheck passed at `ba31bc0ac7`, along with the shared-submit, ChatBody, standalone-page and document-route suites. Hooks lint reported no errors; the existing ChatComposer slash-command dependency warning is unchanged. The focused preparation and live-voice suites passed independently with a clean web typecheck and were integrated at `d91236a27c`; their final integration rerun is pending.
+- Production and Storybook builds passed before the last persistent-editor and preparation adjustments. Their final integrated rerun is pending; this checkpoint does not substitute earlier build passes for those results.
+- The production-component mobile Storybook rendered at 390 by 844. Stories include idle, dark, uploading, working, error, needs-input and desktop presentations. Fixture transport and submit callbacks are not evidence of real delivery, backend queue execution or native voice behavior.
+- Native-device keyboard, safe-area, picker and microphone behavior has not been exercised. These remain manual validation gaps, independent of the passing browser and unit checks.
