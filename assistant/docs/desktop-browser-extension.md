@@ -56,7 +56,9 @@ The native connection automatically restarts after disconnect and discards
 outstanding requests. There is no action retry after dispatch. A command may
 have reached Chrome even if cancellation or a timeout prevents its response.
 Observe before deciding how to continue. Input cleanup issues key/button
-releases, including when the original press has an outstanding response.
+releases, including when the original press has an outstanding response. Failed cleanup
+remains pending and blocks observations in either scope until both input channels
+have been released.
 
 Embedded frames support reading when exposed by the selected target's AX tree;
 input in frames, canvas, native Chrome UI, password/file fields, and other

@@ -113,6 +113,14 @@ export class DesktopControl {
     });
   }
 
+  private async releaseInput(): Promise<void> {
+    try {
+      await this.browser.release();
+    } finally {
+      await this.deps.input.releaseInput();
+    }
+  }
+
   private async release(): Promise<void> {
     const owner = this.owner;
     if (!owner && !this.inputCleanupPending) {
@@ -126,11 +134,7 @@ export class DesktopControl {
     this.watchdog = undefined;
     try {
       try {
-        try {
-          await this.browser.release();
-        } finally {
-          await this.deps.input.releaseInput();
-        }
+        await this.releaseInput();
       } finally {
         await this.deps.input.setViewerInput(true);
       }
@@ -193,7 +197,7 @@ export class DesktopControl {
       await this.deps.manager().ensureDesktopRunning();
       owner.abort.signal.throwIfAborted();
       await this.deps.input.setViewerInput(false);
-      await this.deps.input.releaseInput();
+      await this.releaseInput();
       this.inputCleanupPending = false;
       this.notify();
       return owner;

@@ -141,6 +141,55 @@ test("browser and X11 share ownership and takeover cancels queued browser work",
   expect(f.input.releaseInput).toHaveBeenCalled();
 });
 
+test.each(["browser", "desktop"] as const)(
+  "failed browser cleanup blocks a new %s session until release succeeds",
+  async (scope) => {
+    let failRelease = false;
+    const browser = {
+      invalidate: () => {},
+      execute: mock(async () => ({ observation_id: crypto.randomUUID() })),
+      release: mock(async () => {
+        if (failRelease) {
+          throw new Error("Browser input cleanup unavailable");
+        }
+      }),
+    };
+    const f = fixture(browser);
+    const abort = new AbortController();
+    await f.control.execute(
+      { scope: "browser", action: "observe" },
+      context(abort.signal),
+    );
+    try {
+      failRelease = true;
+      abort.abort();
+      await f.control.allowAssistant();
+      expect(f.control.getStatus().state).toBe("assistant");
+      const input =
+        scope === "browser"
+          ? { scope, action: "observe" }
+          : { action: "observe" };
+      await expect(f.control.execute(input, context())).rejects.toThrow(
+        "Browser input cleanup unavailable",
+      );
+      expect(browser.execute).toHaveBeenCalledTimes(1);
+      expect(f.input.observe).not.toHaveBeenCalled();
+      expect(f.control.getStatus().state).toBe("assistant");
+      const releases = browser.release.mock.calls.length;
+      failRelease = false;
+      await f.control.execute(input, context());
+      expect(browser.release.mock.calls.length).toBeGreaterThan(releases);
+      expect(
+        scope === "browser"
+          ? browser.execute.mock.calls.length
+          : f.input.observe.mock.calls.length,
+      ).toBe(scope === "browser" ? 2 : 1);
+    } finally {
+      failRelease = false;
+    }
+  },
+);
+
 describe("assistant desktop control", () => {
   test("observes and acts on one session, returning a fresh image after every action", async () => {
     const f = fixture();
