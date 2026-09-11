@@ -171,13 +171,19 @@ export function SidebarSectionItem({
         isAssistantSection
           ? cn(
               "mt-auto [--sidebar-card-surface:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]",
-              /* A row hovered on this card raises to the same wash the New
-                 Chat pill raises to (`PANEL_ITEM_WASH.raised`, 24% of the
-                 accent into the lift), rather than the neutral gray every
-                 other card's rows hover in, so the card reads as one tinted
-                 object under the pointer as well as at rest. Every row is a
-                 `PanelItem`, and this is the property its hover reads. */
+              /* A row hovered or selected on this card raises to the same
+                 wash the New Chat pill raises to (`PANEL_ITEM_WASH.raised`,
+                 24% of the accent into the lift), rather than the neutral
+                 gray every other card's rows hover in, so the card reads as
+                 one tinted object under the pointer and around the open
+                 thread as well as at rest. Every row is a `PanelItem`, and
+                 these are the properties its hover and current-page states
+                 read. Active is stated alongside hover, as
+                 `panelItemWashStyle` does, because without it the current
+                 row falls back to `--surface-active` and sits as a white
+                 cell on the tint. */
               "[--panel-item-hover:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
+              "[--panel-item-active:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
             )
           : undefined
       }

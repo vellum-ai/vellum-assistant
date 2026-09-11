@@ -188,6 +188,19 @@ describe("SidebarSectionItem — the assistant-initiated section", () => {
     );
   });
 
+  /* The open thread sits in the same wash as a hovered one. Without an
+     active value the row falls back to `--surface-active`, a white cell on
+     the tinted card. */
+  test("paints the active row in the same wash as a hovered one", () => {
+    const { container } = renderSection(assistantSection());
+    const card = container.querySelector<HTMLElement>(
+      "[class*='--sidebar-card-surface:']",
+    );
+    expect(card!.className).toContain(
+      "[--panel-item-active:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
+    );
+  });
+
   test("shows the empty state in place of the rows when it has none", () => {
     renderSection(assistantSection());
 
