@@ -232,5 +232,5 @@ assistant notifications edit --id notif:abc12345-... --status dismissed
 ## Important
 
 - Do **NOT** use AppleScript `display notification` or other OS-level notification commands for assistant-managed alerts. Always use `assistant notifications send`.
-- For sending rich content (digests, summaries, reports) to a specific chat or email destination, use the appropriate platform's API directly. For Gmail, use `messaging_send`. For Slack, use the Slack Web API directly (see the **slack** skill).
+- For sending rich content (digests, summaries, reports) to a specific chat or email destination, use `messaging_send`. It reaches Gmail and Outlook as a draft, and posts to a Slack, Telegram, Discord, or WhatsApp chat through that channel's own transport, where the post is recorded. The notification router is for short alerts and may rewrite them, so it is not the path for content you wrote deliberately.
 - Send notifications that fire **immediately** with no delay capability. For one-time future alerts, use `schedule_create` with `fire_at`. For recurring alerts, use `schedule_create` with an expression (cron/RRULE).

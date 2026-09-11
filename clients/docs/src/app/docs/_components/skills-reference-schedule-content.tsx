@@ -16,15 +16,19 @@ const TOC_ITEMS = [
 export function SkillsReferenceScheduleContent() {
   return (
     <>
-      <DocsContent title="Schedule" breadcrumb="Docs / Skills Reference / Schedule">
+      <DocsContent
+        title="Schedule"
+        breadcrumb="Docs / Skills Reference / Schedule"
+      >
         <section id="what-it-does">
           <SectionHeading id="what-it-does" level={2}>
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Sets up recurring and one-shot scheduled actions using cron syntax, RRULE patterns, or
-            simple timestamps. Your assistant can do things on a schedule without you asking,
-            including recurring monitoring of a page, dashboard, or status check.
+            Sets up recurring and one-shot scheduled actions using cron syntax,
+            RRULE patterns, or simple timestamps. Your assistant can do things
+            on a schedule without you asking, including recurring monitoring of
+            a page, dashboard, or status check.
           </p>
         </section>
 
@@ -32,9 +36,7 @@ export function SkillsReferenceScheduleContent() {
           <SectionHeading id="setup-required" level={2}>
             Setup required
           </SectionHeading>
-          <p className="mb-0 text-zinc-600">
-            None. Works immediately.
-          </p>
+          <p className="mb-0 text-zinc-600">None. Works immediately.</p>
         </section>
 
         <section id="permissions" className="mt-12">
@@ -65,51 +67,44 @@ export function SkillsReferenceScheduleContent() {
               <tbody className="[&>tr:nth-child(even)]:bg-zinc-50">
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Remind me to check my email every morning at 9am&rdquo;
+                    &ldquo;Remind me to check my email every morning at
+                    9am&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Creates a recurring schedule
-                  </td>
+                  <td className="px-3 py-2">Creates a recurring schedule</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     &ldquo;Set a reminder for March 15th at 2pm&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    One-time scheduled notification
-                  </td>
+                  <td className="px-3 py-2">One-time scheduled notification</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     &ldquo;Every Friday at 5pm, summarize my week&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Recurring task with execution
-                  </td>
+                  <td className="px-3 py-2">Recurring task with execution</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Watch this status page and alert me if a branch is late&rdquo;
+                    &ldquo;Watch this status page and alert me if a branch is
+                    late&rdquo;
                   </td>
                   <td className="px-3 py-2">
-                    Creates a recurring schedule that checks the page and notifies on exceptions
+                    Creates a recurring schedule that checks the page and
+                    notifies on exceptions
                   </td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     &ldquo;Show me my active schedules&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Lists all scheduled items
-                  </td>
+                  <td className="px-3 py-2">Lists all scheduled items</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
                     &ldquo;Cancel the morning email reminder&rdquo;
                   </td>
-                  <td className="px-3 py-2">
-                    Deletes a schedule
-                  </td>
+                  <td className="px-3 py-2">Deletes a schedule</td>
                 </tr>
               </tbody>
             </table>
@@ -125,14 +120,15 @@ export function SkillsReferenceScheduleContent() {
             <li>RRULE (RFC 5545) for complex recurrence patterns</li>
             <li>ISO 8601 timestamps for one-time events</li>
             <li>
-              Four modes: &ldquo;execute&rdquo; (run a task), &ldquo;notify&rdquo; (send a
-              notification), &ldquo;script&rdquo; (run a shell command), or
-              &ldquo;workflow&rdquo; (run a saved workflow)
+              Four modes: &ldquo;execute&rdquo; (run a task),
+              &ldquo;notify&rdquo; (send a notification), &ldquo;script&rdquo;
+              (run a shell command), or &ldquo;workflow&rdquo; (run a saved
+              workflow)
             </li>
             <li>Timezone-aware</li>
             <li>
-              Notify mode can prefer the Vellum app used to create the schedule on macOS, Windows,
-              or iOS when no source channel is available
+              Notify mode can prefer the Vellum app used to create the schedule
+              on macOS, Windows, or iOS when no source channel is available
             </li>
             <li>
               Each schedule is pinned to a model profile when it is created, so
@@ -148,39 +144,50 @@ export function SkillsReferenceScheduleContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Recurring monitoring.</strong> Ask the assistant to watch a page or
-              dashboard. It creates a schedule you can pause and edit, not a script to run
-              yourself.
+              <strong>Recurring monitoring.</strong> Ask the assistant to watch
+              a page or dashboard. It creates a schedule you can pause and edit,
+              not a script to run yourself.
             </li>
             <li>
-              <strong>Persistent across conversations.</strong> Schedules persist across
-              conversations &mdash; set it once and it runs until you cancel it.
+              <strong>Persistent across conversations.</strong> Schedules
+              persist across conversations &mdash; set it once and it runs until
+              you cancel it.
             </li>
             <li>
               <strong>Simple reminders.</strong> For simple reminders, just say
               &ldquo;remind me.&rdquo;
             </li>
             <li>
-              <strong>Complex patterns.</strong> For complex patterns (&ldquo;every other
-              Tuesday&rdquo;), the RRULE support handles it.
+              <strong>Complex patterns.</strong> For complex patterns
+              (&ldquo;every other Tuesday&rdquo;), the RRULE support handles it.
             </li>
             <li>
-              <strong>Same permission rules.</strong> Scheduled actions run with the same permission
-              rules as interactive actions &mdash; your assistant won&apos;t do anything it
-              couldn&apos;t do in a normal conversation.
+              <strong>Same permission rules.</strong> Scheduled actions run with
+              the same permission rules as interactive actions &mdash; your
+              assistant won&apos;t do anything it couldn&apos;t do in a normal
+              conversation.
             </li>
             <li>
-              <strong>Results reach you.</strong> A schedule that produces output &mdash; a digest,
-              a report, a check whose answer is &ldquo;nothing changed&rdquo; &mdash; delivers it the
-              way you asked: a notification, an email, a Slack post. If a run finishes with output
-              and delivered it nowhere, the assistant sends you its final reply as a notification,
-              so a scheduled run never finishes silently in a conversation you don&apos;t have open.
+              <strong>Results reach you.</strong> A schedule that produces
+              output, a digest, a report, a check whose answer is &ldquo;nothing
+              changed&rdquo;, delivers it the way you asked. A post to Slack,
+              Telegram, or Discord arrives in the chat as an ordinary message
+              from your assistant, formatted the way its replies there are, and
+              kept alongside them so it can tell you later what it sent. Email
+              arrives as a draft in your mailbox for you to review, not as
+              something sent on your behalf. The exception is a message built
+              around interactive buttons, which Slack takes by a different route
+              that your assistant cannot read back afterwards. If a run finishes
+              with output and nothing delivered it, whether it never tried or
+              the send failed, the assistant sends you its final reply as a
+              notification, so a scheduled run never finishes silently in a
+              conversation you don&apos;t have open.
             </li>
             <li>
-              <strong>In-app links in Vellum chat.</strong> In Vellum chat, schedule and
-              conversation names the assistant mentions are links to their details. Those
-              links work in the Vellum app only, not in Slack, Telegram, Discord, email, or
-              notifications.
+              <strong>In-app links in Vellum chat.</strong> In Vellum chat,
+              schedule and conversation names the assistant mentions are links
+              to their details. Those links work in the Vellum app only, not in
+              Slack, Telegram, Discord, email, or notifications.
             </li>
           </ul>
         </section>

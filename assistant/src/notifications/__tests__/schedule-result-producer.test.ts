@@ -55,6 +55,13 @@ const SCHEDULE_ID = "sched-1";
 const RUN_ID = "run-1";
 const RUN_STARTED_AT = 1700000000000;
 
+/**
+ * The synthetic user rows carrying each tool call's result. A delivery counts
+ * only when its call reported success, so a case that wants suppression has to
+ * supply the matching successful result.
+ */
+let toolResultRows: MessageRow[] = [];
+
 const realCrud = await import("../../persistence/conversation-crud.js");
 mock.module("../../persistence/conversation-crud.js", () => ({
   ...realCrud,
@@ -66,6 +73,7 @@ mock.module("../../persistence/conversation-crud.js", () => ({
     messageId === ASSISTANT_MESSAGE_ID
       ? [...turnRows.map((row) => row.id), ASSISTANT_MESSAGE_ID]
       : [messageId],
+  getMessagesAfter: () => toolResultRows,
 }));
 
 const realAttentionStore =
@@ -111,6 +119,25 @@ function makeToolCallRow(
   return makeAssistantRow(
     [{ type: "tool_use", id: `tu-${name}`, name, input }] as ContentBlock[],
     { id: `msg-${name}`, createdAt: RUN_STARTED_AT + 100 },
+  );
+}
+
+/** The executor's verdict on the call `makeToolCallRow(name, ...)` made. */
+function makeToolResultRow(name: string, isError = false): MessageRow {
+  return makeAssistantRow(
+    [
+      {
+        type: "tool_result",
+        tool_use_id: `tu-${name}`,
+        content: isError ? "failed" : "ok",
+        ...(isError ? { is_error: true } : {}),
+      },
+    ] as ContentBlock[],
+    {
+      id: `res-${name}`,
+      role: "user",
+      createdAt: RUN_STARTED_AT + 150,
+    },
   );
 }
 
@@ -189,6 +216,7 @@ beforeEach(() => {
   notifiedProbeArgs.length = 0;
   alreadyNotified = false;
   turnRows = [];
+  toolResultRows = [];
   attentionState = makeAttentionState();
   assistantRow = makeAssistantRow([
     { type: "text", text: "**3 new emails** and one calendar change." },
@@ -245,7 +273,8 @@ describe("emitScheduleResultNotification", () => {
 
   test("stays silent when the run delivered by email through messaging_send", async () => {
     // The schedule skill's prescribed route for rich content. It writes no
-    // notification event, so only the tool call shows the user has the result.
+    // notification event, so the successful tool call is what shows the user
+    // has the result.
     turnRows = [
       makeToolCallRow("messaging_send", {
         platform: "gmail",
@@ -253,6 +282,7 @@ describe("emitScheduleResultNotification", () => {
         message: "Inbox digest…",
       }),
     ];
+    toolResultRows = [makeToolResultRow("messaging_send")];
     assistantRow = makeAssistantRow([
       { type: "text", text: "Sent the digest to your inbox." },
     ] as ContentBlock[]);
@@ -262,13 +292,15 @@ describe("emitScheduleResultNotification", () => {
     expect(emitCalls).toHaveLength(0);
   });
 
-  test("stays silent when the run posted to Slack through chat.postMessage", async () => {
+  test("stays silent when the run posted to a channel through messaging_send", async () => {
     turnRows = [
-      makeToolCallRow("bash", {
-        command:
-          'assistant oauth request --provider slack_channel /chat.postMessage --json \'{"channel":"C1","text":"digest"}\'',
+      makeToolCallRow("messaging_send", {
+        platform: "slack",
+        conversation_id: "C0123456789",
+        text: "the digest",
       }),
     ];
+    toolResultRows = [makeToolResultRow("messaging_send")];
     assistantRow = makeAssistantRow([
       { type: "text", text: "Posted the digest to #general." },
     ] as ContentBlock[]);
@@ -276,6 +308,84 @@ describe("emitScheduleResultNotification", () => {
     await run();
 
     expect(emitCalls).toHaveLength(0);
+  });
+
+  test("notifies when the channel send failed, so the run is not silent", async () => {
+    // The failure this guard exists for: the post never landed, the run said
+    // so in a conversation nobody has open, and suppressing on the attempt
+    // would cost the user the digest and the explanation both.
+    turnRows = [
+      makeToolCallRow("messaging_send", {
+        platform: "slack",
+        conversation_id: "C0123456789",
+        text: "the digest",
+      }),
+    ];
+    toolResultRows = [makeToolResultRow("messaging_send", true)];
+    assistantRow = makeAssistantRow([
+      { type: "text", text: "I could not post the digest to #general." },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+      "I could not post the digest to #general.",
+    );
+  });
+
+  test("notifies when a delivery call left no result at all", async () => {
+    // An interrupted turn persists the call without its verdict. Unproven is
+    // not delivered.
+    turnRows = [
+      makeToolCallRow("messaging_send", {
+        platform: "slack",
+        conversation_id: "C0123456789",
+        text: "the digest",
+      }),
+    ];
+    toolResultRows = [];
+    assistantRow = makeAssistantRow([
+      { type: "text", text: "Here is the digest." },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+  });
+
+  test("stays silent when the run posted to Slack through chat.postMessage", async () => {
+    turnRows = [
+      makeToolCallRow("bash", {
+        command:
+          'assistant oauth request --provider slack_channel /chat.postMessage --json \'{"channel":"C1","text":"digest"}\'',
+      }),
+    ];
+    toolResultRows = [makeToolResultRow("bash")];
+    assistantRow = makeAssistantRow([
+      { type: "text", text: "Posted the digest to #general." },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("notifies when the Web API post failed", async () => {
+    turnRows = [
+      makeToolCallRow("bash", {
+        command:
+          'assistant oauth request --provider slack_channel /chat.postMessage --json \'{"channel":"C1","text":"digest"}\'',
+      }),
+    ];
+    toolResultRows = [makeToolResultRow("bash", true)];
+    assistantRow = makeAssistantRow([
+      { type: "text", text: "Slack rejected the post." },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
   });
 
   test("still notifies when the run's tool calls were not deliveries", async () => {
