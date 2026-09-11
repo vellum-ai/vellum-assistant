@@ -6,7 +6,10 @@ import {
   type SystemPermissionStateItem,
   type SystemPermissionsState,
 } from "@/runtime/is-electron";
-import { detectElectronHostOS } from "@/runtime/platform-detection";
+import {
+  detectElectronHostOS,
+  type ElectronHostOS,
+} from "@/runtime/platform-detection";
 
 export type {
   SystemPermissionKind,
@@ -25,34 +28,30 @@ export const SYSTEM_PERMISSION_KINDS: SystemPermissionKind[] = [
   "notifications",
 ];
 
+/**
+ * Deep links a host's own settings UI answers, per host. A host with no
+ * scheme of its own carries an empty map rather than being left out of the
+ * type, so the no-op is a stated fact instead of a missing case: Linux
+ * desktops share no settings URI scheme, so nothing is routed there.
+ */
 const SYSTEM_PERMISSION_SETTINGS_URLS: Readonly<
-  Record<
-    string,
-    { hostOS: "macos" | "windows"; kind: SystemPermissionKind }
-  >
+  Record<ElectronHostOS, Readonly<Record<string, SystemPermissionKind>>>
 > = {
-  "ms-settings:privacy-microphone": {
-    hostOS: "windows",
-    kind: "microphone",
+  windows: {
+    "ms-settings:privacy-microphone": "microphone",
+    "ms-settings:privacy-speech": "speechRecognition",
+    "ms-settings:privacy-graphicscaptureprogrammatic": "screen",
+    "ms-settings:notifications": "notifications",
   },
-  "ms-settings:privacy-speech": {
-    hostOS: "windows",
-    kind: "speechRecognition",
+  macos: {
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone":
+      "microphone",
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition":
+      "speechRecognition",
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture":
+      "screen",
   },
-  "ms-settings:privacy-graphicscaptureprogrammatic": {
-    hostOS: "windows",
-    kind: "screen",
-  },
-  "ms-settings:notifications": {
-    hostOS: "windows",
-    kind: "notifications",
-  },
-  "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone":
-    { hostOS: "macos", kind: "microphone" },
-  "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition":
-    { hostOS: "macos", kind: "speechRecognition" },
-  "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture":
-    { hostOS: "macos", kind: "screen" },
+  linux: {},
 };
 
 export function supportsSystemPermissions(): boolean {
@@ -94,17 +93,18 @@ export type SystemPermissionSettingsUrlOutcome =
 export function dispatchSystemPermissionSettingsUrl(
   url: string,
 ): SystemPermissionSettingsUrlOutcome {
-  const target = SYSTEM_PERMISSION_SETTINGS_URLS[url];
-  if (!target) {
+  const owner = (
+    Object.keys(SYSTEM_PERMISSION_SETTINGS_URLS) as ElectronHostOS[]
+  ).find((candidate) => url in SYSTEM_PERMISSION_SETTINGS_URLS[candidate]);
+  if (!owner) {
     return "unrecognized";
   }
-  if (
-    detectElectronHostOS() !== target.hostOS ||
-    !supportsSystemPermissions()
-  ) {
+  if (detectElectronHostOS() !== owner || !supportsSystemPermissions()) {
     return "ignored";
   }
-  void openSystemPermissionSettings(target.kind);
+  void openSystemPermissionSettings(
+    SYSTEM_PERMISSION_SETTINGS_URLS[owner][url]!,
+  );
   return "opened";
 }
 

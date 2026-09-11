@@ -6,7 +6,10 @@ import {
   setDockBadge,
   supportsUnreadBadges,
 } from "@/runtime/dock";
-import { detectElectronHostOS } from "@/runtime/platform-detection";
+import {
+  resolveDesktopHostOS,
+  type ElectronHostOS,
+} from "@/runtime/platform-detection";
 import {
   openSystemPermissionSettings,
   requestSystemPermission,
@@ -29,7 +32,6 @@ interface SystemPermissionRowMeta {
   id: SystemPermissionKind;
   type: "system";
   sourceKind: SystemPermissionKind;
-  availableOnWindows?: boolean;
 }
 
 interface LocalPermissionRowMeta {
@@ -56,25 +58,21 @@ const SYSTEM_PERMISSION_ROWS: SystemPermissionRowMeta[] = [
     id: "screen",
     type: "system",
     sourceKind: "screen",
-    availableOnWindows: true,
   },
   {
     id: "microphone",
     type: "system",
     sourceKind: "microphone",
-    availableOnWindows: true,
   },
   {
     id: "speechRecognition",
     type: "system",
     sourceKind: "speechRecognition",
-    availableOnWindows: true,
   },
   {
     id: "notifications",
     type: "system",
     sourceKind: "notifications",
-    availableOnWindows: true,
   },
 ];
 
@@ -87,21 +85,38 @@ const LOCAL_PERMISSION_ROWS: LocalPermissionRowMeta[] = [
 
 type SystemPermissionRowId = (typeof SYSTEM_PERMISSION_ROWS)[number]["id"];
 
+/** Pick the host's wording for a row, falling back to the macOS default. */
+function hostDescription(
+  hostOS: ElectronHostOS,
+  base: string,
+  overrides: Partial<Record<ElectronHostOS, string>>,
+): string {
+  return overrides[hostOS] ?? base;
+}
+
 function systemPermissionCopy(
   id: SystemPermissionRowId,
   t: TFunction,
-  isWindowsHost: boolean,
+  hostOS: ElectronHostOS,
 ): { label: string; description: string } {
   switch (id) {
     case "accessibility":
       return {
         label: t("systemPermissionsCard.accessibilityLabel"),
-        description: t("systemPermissionsCard.accessibilityDescription"),
+        description: hostDescription(
+          hostOS,
+          t("systemPermissionsCard.accessibilityDescription"),
+          { linux: t("systemPermissionsCard.accessibilityLinuxDescription") },
+        ),
       };
     case "screen":
       return {
         label: t("systemPermissionsCard.screenLabel"),
-        description: t("systemPermissionsCard.screenDescription"),
+        description: hostDescription(
+          hostOS,
+          t("systemPermissionsCard.screenDescription"),
+          { linux: t("systemPermissionsCard.screenLinuxDescription") },
+        ),
       };
     case "microphone":
       return {
@@ -111,20 +126,32 @@ function systemPermissionCopy(
     case "speechRecognition":
       return {
         label: t("systemPermissionsCard.speechRecognitionLabel"),
-        description: isWindowsHost
-          ? t("systemPermissionsCard.speechRecognitionWindowsDescription")
-          : t("systemPermissionsCard.speechRecognitionDescription"),
+        description: hostDescription(
+          hostOS,
+          t("systemPermissionsCard.speechRecognitionDescription"),
+          {
+            windows: t(
+              "systemPermissionsCard.speechRecognitionWindowsDescription",
+            ),
+            linux: t("systemPermissionsCard.speechRecognitionLinuxDescription"),
+          },
+        ),
       };
     case "notifications":
       return {
         label: t("systemPermissionsCard.notificationsLabel"),
-        description: isWindowsHost
-          ? t("systemPermissionsCard.notificationsWindowsDescription")
-          : t("systemPermissionsCard.notificationsDescription"),
+        description: hostDescription(
+          hostOS,
+          t("systemPermissionsCard.notificationsDescription"),
+          {
+            windows: t("systemPermissionsCard.notificationsWindowsDescription"),
+            linux: t("systemPermissionsCard.notificationsLinuxDescription"),
+          },
+        ),
       };
     default: {
       // Rows only use the kinds above; other SystemPermissionKind values
-      // (inputMonitoring, automation) are not shown in this card.
+      // (inputMonitoring, automation) have their own settings surfaces.
       throw new Error(`Unsupported system permission row: ${id}`);
     }
   }
@@ -235,14 +262,7 @@ export function SystemPermissionsCard({
   const [notificationBadgesEnabled, setNotificationBadgesEnabled] =
     useNotificationBadgesEnabled();
 
-  const isWindowsHost = detectElectronHostOS() === "windows";
-  const visibleSystemRows = useMemo(
-    () =>
-      SYSTEM_PERMISSION_ROWS.filter(
-        (meta) => !isWindowsHost || meta.availableOnWindows,
-      ),
-    [isWindowsHost],
-  );
+  const hostOS = resolveDesktopHostOS();
 
   const systemRowsById = useMemo(() => {
     const rows = new Map<
@@ -253,7 +273,7 @@ export function SystemPermissionsCard({
       return rows;
     }
 
-    for (const meta of visibleSystemRows) {
+    for (const meta of SYSTEM_PERMISSION_ROWS) {
       const item = state[meta.sourceKind];
       if (item && item.status !== "not-applicable") {
         rows.set(meta.id, { meta, item });
@@ -261,28 +281,35 @@ export function SystemPermissionsCard({
     }
 
     return rows;
-  }, [state, visibleSystemRows]);
+  }, [state]);
 
   const rows = useMemo<PermissionRowViewModel[]>(() => {
-    const systemRows = visibleSystemRows
-      .map((meta) => {
-        const item = systemRowsById.get(meta.id)?.item;
-        if (!item) {
-          return null;
-        }
+    const systemRows = SYSTEM_PERMISSION_ROWS.map((meta) => {
+      const item = systemRowsById.get(meta.id)?.item;
+      if (!item) {
+        return null;
+      }
 
-        const copy = systemPermissionCopy(meta.id, t, isWindowsHost);
+      const copy = systemPermissionCopy(meta.id, t, hostOS);
 
-        return {
-          id: meta.id,
-          label: copy.label,
-          description: copy.description,
-          checked: item.status === "granted",
-          disabled: pendingKind === meta.id || item.status === "restricted",
-          ...(item.error ? { error: item.error } : {}),
-        };
-      })
-      .filter(Boolean) as PermissionRowViewModel[];
+      // macOS and Windows retain settings links for revoking granted access.
+      const noRemediation =
+        !item.canRequest &&
+        !item.canOpenSettings &&
+        (hostOS === "linux" || item.status !== "granted");
+
+      return {
+        id: meta.id,
+        label: copy.label,
+        description: copy.description,
+        checked: item.status === "granted",
+        disabled:
+          pendingKind === meta.id ||
+          item.status === "restricted" ||
+          noRemediation,
+        ...(item.error ? { error: item.error } : {}),
+      };
+    }).filter(Boolean) as PermissionRowViewModel[];
 
     const badgeSurface =
       getUnreadBadgeSurface() === "taskbar icon"
@@ -303,14 +330,7 @@ export function SystemPermissionsCard({
       : [];
 
     return [...systemRows, ...localRows];
-  }, [
-    isWindowsHost,
-    notificationBadgesEnabled,
-    pendingKind,
-    systemRowsById,
-    t,
-    visibleSystemRows,
-  ]);
+  }, [hostOS, notificationBadgesEnabled, pendingKind, systemRowsById, t]);
 
   if (!supported && rows.length === 0) {
     return null;
