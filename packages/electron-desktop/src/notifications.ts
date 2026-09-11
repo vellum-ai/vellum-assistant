@@ -1,17 +1,33 @@
+import { createHash } from "node:crypto";
+
 import { BrowserWindow, nativeImage, Notification } from "electron";
 import { z } from "zod";
 
 import {
   NOTIFICATION_CATEGORIES,
+  NOTIFICATION_SENDER_NAME_MAX_CHARS,
   NOTIFICATIONS_ACTION,
+  NOTIFICATIONS_PREPARE_IDENTITY,
+  NOTIFICATIONS_RESET_IDENTITIES,
   NOTIFICATIONS_SHOW,
   type NotificationCategory,
   type NotificationActionEvent,
+  type NotificationNameProvenance,
   type ShowNotificationPayload,
+  prepareNotificationIdentityPayloadSchema,
+  resolveNotificationDeliveryKey,
+  resetNotificationIdentitiesPayloadSchema,
   showNotificationPayloadSchema,
 } from "@vellumai/ipc-contract";
 
 import type { IpcHandle } from "./ipc";
+import {
+  __resetNotificationIdentityMemoryForTesting,
+  getPreparedNotificationIdentity,
+  normalizeNotificationIdentity,
+  prepareNotificationIdentity,
+  resetNotificationIdentities,
+} from "./notification-identity-memory";
 
 /**
  * Desktop native notifications with category-based action buttons.
@@ -80,6 +96,8 @@ export interface NotificationCreateOptions {
    * renders the plain app-icon notification.
    */
   sender?: NotificationSenderImage;
+  /** Omit a subtitle that would repeat the selected title-fallback name. */
+  suppressGroupTitle?: boolean;
 }
 
 export interface NotificationsRuntime {
@@ -200,11 +218,33 @@ export type { NotificationActionEvent };
 /** `dedupKey → lastShownTimestamp` */
 const recentNotifications = new Map<string, number>();
 
-const dedupKey = (payload: ShowNotificationPayload): string =>
-  payload.deliveryId ?? `${payload.category}:${payload.title}:${payload.body}`;
+const dedupKey = (payload: ShowNotificationPayload): string | null => {
+  const identity = payload.identity
+    ? normalizeNotificationIdentity(payload.identity)
+    : null;
+  if (payload.identity && !identity) {
+    return null;
+  }
+  const owner = identity
+    ? [
+        "scoped",
+        identity.scopeId,
+        identity.assistantId,
+        identity.nativeSenderId,
+      ]
+    : ["legacy"];
+  const deliveryKey = resolveNotificationDeliveryKey(payload);
+  const event = deliveryKey
+    ? ["identifier", deliveryKey]
+    : ["fallback", payload.category, payload.title, payload.body];
+  return JSON.stringify([owner, event]);
+};
 
 const isCoolingDown = (payload: ShowNotificationPayload): boolean => {
   const key = dedupKey(payload);
+  if (!key) {
+    return false;
+  }
   const cooldown = CATEGORY_COOLDOWN_MS[payload.category];
   if (cooldown === 0) {
     return false;
@@ -217,7 +257,10 @@ const isCoolingDown = (payload: ShowNotificationPayload): boolean => {
 };
 
 const recordShown = (payload: ShowNotificationPayload): void => {
-  recentNotifications.set(dedupKey(payload), Date.now());
+  const key = dedupKey(payload);
+  if (key) {
+    recentNotifications.set(key, Date.now());
+  }
 };
 
 // Periodically prune stale entries so the map doesn't grow unbounded.
@@ -280,6 +323,110 @@ interface ShowResult {
   errorMessage?: string;
 }
 
+interface ResolvedNotificationSender {
+  image: NotificationSenderImage;
+  nameProvenance: NotificationNameProvenance;
+}
+
+const boundedSenderName = (value: string | undefined): string | null => {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed
+    .slice(0, NOTIFICATION_SENDER_NAME_MAX_CHARS)
+    .trimEnd();
+};
+
+const decodeVerifiedAvatar = (
+  sender: NonNullable<ShowNotificationPayload["sender"]>,
+  logger: { warn: (...args: unknown[]) => void },
+): { avatarPng: Buffer; avatarHash: string } | null => {
+  const avatarPng = Buffer.from(sender.avatarBase64, "base64");
+  const digest = createHash("sha256").update(avatarPng).digest("hex");
+  if (digest !== sender.avatarHash) {
+    logger.warn(
+      "[notifications] Dropped inline avatar whose hash did not match its bytes",
+    );
+    return null;
+  }
+  return { avatarPng, avatarHash: sender.avatarHash };
+};
+
+/** Resolve decoration only for an explicit, exact assistant presentation. */
+const resolveNotificationSender = (
+  payload: ShowNotificationPayload,
+  logger: { warn: (...args: unknown[]) => void },
+): ResolvedNotificationSender | undefined => {
+  if (payload.presentation !== "assistant" || !payload.identity) {
+    return undefined;
+  }
+
+  const identity = normalizeNotificationIdentity(payload.identity);
+  if (!identity) {
+    return undefined;
+  }
+  const prepared = getPreparedNotificationIdentity(identity);
+  const inlineAvatar = payload.sender
+    ? decodeVerifiedAvatar(payload.sender, logger)
+    : null;
+  const avatar = inlineAvatar ?? prepared?.avatar;
+  if (!avatar) {
+    return undefined;
+  }
+
+  let selectedName: string | null = null;
+  let nameProvenance: NotificationNameProvenance = "verified-memory";
+  const inlineName = payload.sender
+    ? boundedSenderName(payload.sender.name)
+    : null;
+  if (
+    inlineName &&
+    (payload.nameProvenance === "event" ||
+      payload.nameProvenance === "identity-store")
+  ) {
+    selectedName = inlineName;
+    nameProvenance = payload.nameProvenance;
+  }
+  if (
+    !selectedName &&
+    prepared?.name &&
+    prepared.nameProvenance === "identity-store"
+  ) {
+    selectedName = boundedSenderName(prepared.name);
+    nameProvenance = "identity-store";
+  }
+  if (
+    !selectedName &&
+    inlineName &&
+    payload.nameProvenance === "verified-memory"
+  ) {
+    selectedName = inlineName;
+    nameProvenance = "verified-memory";
+  }
+  if (!selectedName && prepared?.name) {
+    selectedName = boundedSenderName(prepared.name);
+    nameProvenance = "verified-memory";
+  }
+  if (!selectedName) {
+    selectedName = boundedSenderName(payload.title);
+    nameProvenance = "title";
+  }
+  if (!selectedName) {
+    return undefined;
+  }
+
+  return {
+    image: {
+      id: identity.nativeSenderId,
+      name: selectedName,
+      avatarPng: Buffer.from(avatar.avatarPng),
+      avatarHash: avatar.avatarHash,
+    },
+    nameProvenance,
+  };
+};
+
 /**
  * The `electron.Notification` path, which can show the sender's avatar on
  * exactly one platform.
@@ -297,7 +444,11 @@ interface ShowResult {
 export const createElectronNotification = (
   options: NotificationCreateOptions,
 ): NotificationLike => {
-  const { sender, ...constructorOptions } = options;
+  const {
+    sender,
+    suppressGroupTitle: _suppressGroupTitle,
+    ...constructorOptions
+  } = options;
   if (sender && process.platform === "linux") {
     return new Notification({
       ...constructorOptions,
@@ -311,7 +462,7 @@ const showNotification = (payload: ShowPayload): Promise<ShowResult> => {
   const { ensureVisible, isSupported, create, logger } = requireRuntime();
   if (payload.senderDropped) {
     (logger ?? console).warn(
-      "[notifications] Dropped a malformed sender; posting with the app icon",
+      "[notifications] Dropped malformed inline sender decoration",
     );
   }
   if (!(isSupported ?? Notification.isSupported)()) {
@@ -329,7 +480,7 @@ const showNotification = (payload: ShowPayload): Promise<ShowResult> => {
   }
 
   const actions = CATEGORY_ACTIONS[payload.category];
-  const sender = payload.sender;
+  const sender = resolveNotificationSender(payload, logger ?? console);
 
   const notif: NotificationLike = (create ?? createElectronNotification)({
     title: payload.title,
@@ -338,12 +489,10 @@ const showNotification = (payload: ShowPayload): Promise<ShowResult> => {
     actions,
     ...(sender
       ? {
-          sender: {
-            id: sender.id,
-            name: sender.name,
-            avatarPng: Buffer.from(sender.avatarBase64, "base64"),
-            avatarHash: sender.avatarHash,
-          },
+          sender: sender.image,
+          ...(sender.nameProvenance === "title"
+            ? { suppressGroupTitle: true }
+            : {}),
         }
       : {}),
   });
@@ -356,6 +505,7 @@ const showNotification = (payload: ShowPayload): Promise<ShowResult> => {
     conversationId: payload.conversationId,
     toolCallId: payload.toolCallId,
     deepLinkMetadata: payload.deepLinkMetadata,
+    ...(payload.identity ? { identity: payload.identity } : {}),
   };
 
   notif.on("click", () => {
@@ -421,7 +571,22 @@ const showNotification = (payload: ShowPayload): Promise<ShowResult> => {
 let pruneTimer: NodeJS.Timeout | null = null;
 
 export const installNotifications = (): void => {
-  requireRuntime().ipc.handle(
+  const ipc = requireRuntime().ipc;
+  ipc.handle(
+    NOTIFICATIONS_PREPARE_IDENTITY,
+    z.tuple([prepareNotificationIdentityPayloadSchema]),
+    ([payload]) => {
+      prepareNotificationIdentity(payload);
+    },
+  );
+  ipc.handle(
+    NOTIFICATIONS_RESET_IDENTITIES,
+    z.tuple([resetNotificationIdentitiesPayloadSchema]),
+    ([payload]) => {
+      resetNotificationIdentities(payload);
+    },
+  );
+  ipc.handle(
     NOTIFICATIONS_SHOW,
     showPayloadSchema,
     ([payload]) => showNotification(payload),
@@ -433,6 +598,7 @@ export const installNotifications = (): void => {
 // Test seam
 export const __resetForTesting = (): void => {
   recentNotifications.clear();
+  __resetNotificationIdentityMemoryForTesting();
   deliveryTimeoutMs = DELIVERY_TIMEOUT_MS;
   if (pruneTimer) {
     clearInterval(pruneTimer);

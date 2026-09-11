@@ -5,13 +5,85 @@ import type {
   DownloadDoneEvent,
   WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
-import { WINDOW_ATTENTION } from "@vellumai/ipc-contract";
+import {
+  NOTIFICATIONS_ACTION,
+  NOTIFICATIONS_PREPARE_IDENTITY,
+  NOTIFICATIONS_RESET_IDENTITIES,
+  NOTIFICATIONS_SHOW,
+  WINDOW_ATTENTION,
+} from "@vellumai/ipc-contract";
 
 import {
   createBundleConfirmBridge,
   createDownloadsBridge,
+  createNotificationsBridge,
   createWindowAttentionSubscriber,
 } from "./preload";
+
+test("creates the notification bridge with optional identity methods", async () => {
+  const handlers = new Map<string, (event: unknown, payload: unknown) => void>();
+  const invoke = mock(() => Promise.resolve({ success: true }));
+  const on = mock(
+    (
+      channel: string,
+      handler: (event: unknown, payload: unknown) => void,
+    ) => {
+      handlers.set(channel, handler);
+    },
+  );
+  const off = mock(() => undefined);
+  const ipc = {
+    invoke,
+    send: mock(() => undefined),
+    on,
+    off,
+  } as unknown as Pick<IpcRenderer, "invoke" | "off" | "on" | "send">;
+  const bridge = createNotificationsBridge(ipc);
+  const scopeId = `scope:v1:${"a".repeat(64)}`;
+  const identity = {
+    scopeId,
+    assistantId: "assistant-a",
+    nativeSenderId: "native-a",
+  };
+  const showPayload = {
+    category: "notificationIntent" as const,
+    title: "Weekly plan",
+    body: "Ready",
+  };
+  const preparePayload = {
+    identity,
+    scopeEpoch: 1,
+    identityRevision: 1,
+    name: "Alice",
+    nameProvenance: "identity-store" as const,
+  };
+  const resetPayload = { scopeId, scopeEpoch: 2 };
+
+  await bridge.show(showPayload);
+  await bridge.prepareIdentity?.(preparePayload);
+  await bridge.resetIdentities?.(resetPayload);
+
+  expect(invoke).toHaveBeenCalledWith(NOTIFICATIONS_SHOW, showPayload);
+  expect(invoke).toHaveBeenCalledWith(
+    NOTIFICATIONS_PREPARE_IDENTITY,
+    preparePayload,
+  );
+  expect(invoke).toHaveBeenCalledWith(
+    NOTIFICATIONS_RESET_IDENTITIES,
+    resetPayload,
+  );
+
+  const received: unknown[] = [];
+  const unsubscribe = bridge.onAction((event) => received.push(event));
+  const action = { kind: "click" as const, conversationId: "conv-a" };
+  handlers.get(NOTIFICATIONS_ACTION)?.({}, action);
+  expect(received).toEqual([action]);
+  unsubscribe();
+  expect(off).toHaveBeenCalledWith(
+    NOTIFICATIONS_ACTION,
+    handlers.get(NOTIFICATIONS_ACTION),
+  );
+});
 
 test("creates the bundle confirmation IPC bridge", async () => {
   const invoke = mock(() => Promise.resolve(null));

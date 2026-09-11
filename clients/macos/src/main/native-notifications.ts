@@ -5,8 +5,8 @@
  * assistant avatar can only become the notification icon by going around it.
  * This module supplies the `create` and `isSupported` seams that
  * `@vellumai/electron-desktop/notifications` calls, and shapes the payload the
- * addon expects: with a sender the assistant's name is the title and the
- * conversation title drops to the subtitle, which is the layout Communication
+ * addon expects: with a sender the assistant's name is the title and a distinct
+ * conversation title becomes the subtitle, which is the layout Communication
  * Notifications render (avatar large, app icon badged in the corner). A
  * notification with no sender has nothing to gain from the addon, so `create`
  * hands it to Electron's presenter instead.
@@ -151,7 +151,9 @@ export const createNativeNotificationFactory = (): {
       const request: NotifierRequest = {
         id: randomUUID(),
         title: resolved ? resolved.name : options.title,
-        ...(resolved ? { subtitle: options.title } : {}),
+        ...(resolved && !options.suppressGroupTitle
+          ? { subtitle: options.title }
+          : {}),
         body: options.body,
         categoryId: categoryIdForActions(options.actions),
         actions: options.actions.map((action) => action.text),

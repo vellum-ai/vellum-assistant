@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { z } from "zod";
 
 import type { createIpcRegistrar } from "./ipc";
+import { clearNotificationIdentityMemory } from "./notification-identity-memory";
 import type {
   clearSessionToken,
   getSessionToken,
@@ -165,6 +166,7 @@ export const installNativeAuth = (): void => {
   });
 
   options.ipc.handle("vellum:auth:signOut", z.tuple([]), () => {
+    clearNotificationIdentityMemory();
     options.sessionStore.clear();
   });
 
