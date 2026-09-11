@@ -3,8 +3,8 @@
  *
  * One key, held to dictate and double-tapped for a call. Fn out of the box, a
  * modifier set of the user's own, or nothing. The card is also where the
- * Input Monitoring grant is asked for again: the key is armed on launch and
- * asks then, so this is for the user who said no and has come back.
+ * Input Monitoring grant is asked for again: onboarding asks as it introduces
+ * the key, so this is for the user who said no and has come back.
  *
  * Absent on hosts with no helper to watch the raw keyboard, since there is
  * nothing there to choose.

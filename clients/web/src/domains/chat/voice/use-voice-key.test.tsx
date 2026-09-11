@@ -278,22 +278,22 @@ describe("the voice key", () => {
   });
 
   /**
-   * Arming the key is what asks for Input Monitoring, once per launch: the
-   * grant is for noticing the press, so the press itself can never be the
-   * moment to ask.
+   * The grant is asked for by the step that introduces the key, never by the
+   * binding: a system prompt at launch reaches a user who has not met the key
+   * yet, and has no idea what it is for.
    */
-  test("asks for Input Monitoring when the key is armed without it", async () => {
+  test("never asks for Input Monitoring on its own", async () => {
     inputMonitoringStatus = "not-determined";
-    const { view } = renderKey();
+    const { onRegistered, view } = renderKey();
     await settle(0);
-    expect(requestSystemPermission).toHaveBeenCalledWith("inputMonitoring");
+    expect(requestSystemPermission).not.toHaveBeenCalled();
+    expect(onRegistered).toHaveBeenLastCalledWith(true);
 
-    // Once. A second registration in the same launch asks nothing more.
     view.rerender({
       key: { kind: "modifierOnly", modifiers: ["control", "option"] },
     });
     await settle(0);
-    expect(requestSystemPermission).toHaveBeenCalledTimes(1);
+    expect(requestSystemPermission).not.toHaveBeenCalled();
   });
 
   /** Edges from the other bindings are other features' business. */

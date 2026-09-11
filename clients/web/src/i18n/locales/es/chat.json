@@ -833,6 +833,9 @@
   "inlineProcessCard": {
     "stop": "Detener"
   },
+  "inputMonitoringReason": {
+    "body": "macOS pedirá permitir la Monitorización de entrada, que es como Vellum detecta la tecla desde cualquier app."
+  },
   "inspectPage": {
     "accessDenied": "El inspector está disponible cuando la marca Internal Thread Actions está habilitada.",
     "allMessages": "Todos los mensajes",

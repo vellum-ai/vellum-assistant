@@ -8,10 +8,6 @@ import {
   subscribeToHotkeyEvents,
   supportsModifierHold,
 } from "@/runtime/hotkey";
-import {
-  getSystemPermissionsState,
-  requestSystemPermission,
-} from "@/runtime/system-permissions";
 import { createVoiceKeyGestureClassifier } from "@/domains/chat/voice/voice-key-gestures";
 import type { VoiceKey } from "@/utils/voice-key";
 
@@ -51,27 +47,6 @@ export interface VoiceKeyHandlers {
 }
 
 /**
- * Whether this launch has asked for Input Monitoring on the key's behalf.
- *
- * The grant is asked for when the key is armed and not yet granted, which on a
- * fresh install is the first launch. Once per launch: a refusal is the user's
- * answer for the session, and the settings card offers the question again.
- */
-let inputMonitoringAskedThisLaunch = false;
-
-async function askForInputMonitoringOnce(): Promise<void> {
-  if (inputMonitoringAskedThisLaunch) {
-    return;
-  }
-  const state = await getSystemPermissionsState();
-  if (state?.inputMonitoring.status === "granted") {
-    return;
-  }
-  inputMonitoringAskedThisLaunch = true;
-  await requestSystemPermission("inputMonitoring");
-}
-
-/**
  * The voice key, from whatever app the user is in: a hold dictates, a double
  * tap starts or ends a call.
  *
@@ -79,6 +54,11 @@ async function askForInputMonitoringOnce(): Promise<void> {
  * key only reaches a focused window and the point of this binding is that the
  * user is somewhere else entirely. The helper reports the key as a hold span,
  * and the gestures are read off the span here (see `voice-key-gestures`).
+ *
+ * Registering never asks for Input Monitoring. The helper needs the grant to
+ * see the key, but a system prompt at launch reaches a user who has not yet
+ * met the key; `askForInputMonitoring` is called from the step that
+ * introduces it, and `onRegistered` reports `false` until then.
  *
  * **A hold is a microphone.** Every `onHoldStart` is closed exactly once, so
  * the effect's teardown closes an open hold too: a binding that goes away
@@ -153,7 +133,6 @@ export function useVoiceKey({
         }
       },
     );
-    void askForInputMonitoringOnce();
 
     return () => {
       disposed = true;
