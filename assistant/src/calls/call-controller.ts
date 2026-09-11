@@ -670,7 +670,8 @@ export class CallController {
     try {
       // Stay in `processing` through the lock-wait and LLM generation; flip to
       // `speaking` only when real outbound audio/tokens start (see
-      // beginSpeaking). This keeps barge-in from aborting a silent turn.
+      // beginSpeaking). The transport reads the state to know whether audio
+      // is audible; either phase is interruptible by sustained caller speech.
       this.state = "processing";
 
       const outcome = await this.streamTtsTokens(
