@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let failClose = true;
 let failListTools = false;
 let closeCalls = 0;
+let connectCalls = 0;
 mock.module("../client.js", () => ({
   McpClient: class {
     isConnected = true;
@@ -10,7 +11,9 @@ mock.module("../client.js", () => ({
       readonly serverId: string,
       readonly source: string,
     ) {}
-    async connect() {}
+    async connect() {
+      connectCalls++;
+    }
     async listTools() {
       if (failListTools) {
         throw new Error("tool discovery failed");
@@ -43,9 +46,24 @@ beforeEach(() => {
   failClose = true;
   failListTools = false;
   closeCalls = 0;
+  connectCalls = 0;
 });
 
 describe("MCP local cleanup acknowledgement", () => {
+  test("a reload cannot replace a client until failed cleanup succeeds", async () => {
+    const manager = new McpServerManager();
+    await manager.start(config);
+    await manager.stop();
+    await expect(manager.start(config)).rejects.toThrow("still closing");
+    expect(connectCalls).toBe(1);
+    expect(manager.hasWorkspaceConnection("example")).toBe(true);
+    failClose = false;
+    await manager.stop();
+    expect(await manager.start(config)).toHaveLength(1);
+    expect(connectCalls).toBe(2);
+    expect(closeCalls).toBe(2);
+    await manager.stop();
+  });
   test("failed tool discovery retains an unclosed connection for strict cleanup", async () => {
     failListTools = true;
     const manager = new McpServerManager();

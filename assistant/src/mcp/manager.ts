@@ -40,6 +40,9 @@ export class McpServerManager {
   >();
 
   async start(config: ResolvedMcpConfig): Promise<McpServerToolInfo[]> {
+    if (this.pendingDisconnects.size > 0) {
+      throw new Error("MCP connections are still closing; retry reloading");
+    }
     const results: McpServerToolInfo[] = [];
 
     console.log(
@@ -173,10 +176,17 @@ export class McpServerManager {
         }
       }),
     );
-    if (options.requireCleanup && this.pendingDisconnects.size > 0) {
-      throw new Error(
-        "MCP connections could not be closed; retry disconnecting",
+    if (this.pendingDisconnects.size > 0) {
+      if (options.requireCleanup) {
+        throw new Error(
+          "MCP connections could not be closed; retry disconnecting",
+        );
+      }
+      log.warn(
+        { pendingCount: this.pendingDisconnects.size },
+        "MCP server shutdown has unfinished cleanup",
       );
+      return;
     }
     log.info("All MCP servers disconnected");
   }

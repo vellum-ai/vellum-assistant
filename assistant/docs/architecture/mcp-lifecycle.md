@@ -83,7 +83,9 @@ older assistants that omit it retain their existing polling behavior.
 
 Explicit teardown requests strict local cleanup. The manager retains client
 handles whose SDK close failed, unregisters their tools, and reports failure;
-a later remove retries those handles. Ordinary shutdown remains tolerant.
+a later remove retries those handles. Ordinary shutdown remains tolerant, but
+startup refuses replacements while any retained transport remains unclosed.
+Reload reports the cleanup failure and can retry closing those handles.
 Queued reloads retain a strict request and converge to the last requested
 configuration snapshot.
 
