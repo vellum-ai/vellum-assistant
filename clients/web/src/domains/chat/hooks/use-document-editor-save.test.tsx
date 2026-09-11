@@ -382,20 +382,20 @@ describe("useDocumentEditorSave", () => {
     expect(saveDocumentContent.mock.calls[0]).toEqual([TARGET, "Last edit"]);
   });
 
-  test("incoming snapshots do not overwrite local changes while a save is pending", async () => {
+  test("unchanged incoming props do not overwrite local changes while a save is pending", async () => {
     const first = deferred();
     saveDocumentContent.mockImplementationOnce(() => first.promise);
     const { result, rerender } = renderSave();
     act(() => result.current.changeContent("Local latest"));
     const saved = result.current.flushPendingSave();
     await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
-    rerender({ target: TARGET, content: "Stale fetched body" });
+    rerender({ target: TARGET, content: "Original body" });
     expect(result.current.editorContent).toBe("Original body");
     await act(async () => {
       first.resolve();
       expect((await saved).content).toBe("Local latest");
     });
-    rerender({ target: TARGET, content: "Stale fetched body" });
+    rerender({ target: TARGET, content: "Original body" });
     await act(async () => {
       expect((await result.current.flushPendingSave()).content).toBe(
         "Local latest",
@@ -403,6 +403,189 @@ describe("useDocumentEditorSave", () => {
     });
     rerender({ target: TARGET, content: "New assistant edit" });
     expect(result.current.editorContent).toBe("New assistant edit");
+  });
+
+  test("applies an assistant update after the save drains without another prop change", async () => {
+    const write = deferred();
+    saveDocumentContent.mockImplementationOnce(() => write.promise);
+    const { result, rerender } = renderSave();
+    act(() => result.current.changeContent("Local edit"));
+    const saved = result.current.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    rerender({ target: TARGET, content: "Assistant edit" });
+    expect(result.current.editorContent).toBe("Original body");
+    await act(async () => {
+      write.resolve();
+      expect((await saved).content).toBe("Assistant edit");
+    });
+    expect(result.current.editorContent).toBe("Assistant edit");
+    act(() => result.current.rename("Renamed notes"));
+    await act(async () => result.current.flushPendingSave());
+    expect(saveDocumentContent.mock.calls[1]).toEqual([
+      { ...TARGET, title: "Renamed notes" },
+      "Assistant edit",
+    ]);
+  });
+
+  test("coalesces changed fields until every local revision has drained", async () => {
+    const first = deferred();
+    const second = deferred();
+    saveDocumentContent
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const { result, rerender } = renderSave();
+    act(() => result.current.changeContent("First local edit"));
+    const saved = result.current.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    act(() => result.current.changeContent("Second local edit"));
+    rerender({ target: TARGET, content: "Assistant first edit" });
+    rerender({ target: TARGET, content: "Assistant latest edit" });
+    rerender({
+      target: { ...TARGET, title: "Assistant title" },
+      content: "Assistant latest edit",
+    });
+    await act(async () => first.resolve());
+    expect(saveDocumentContent.mock.calls[1]![1]).toBe("Second local edit");
+    expect(result.current.editorContent).toBe("Original body");
+    expect(result.current.title).toBe("Notes");
+    await act(async () => {
+      second.resolve();
+      expect(await saved).toEqual({
+        title: "Assistant title",
+        content: "Assistant latest edit",
+      });
+    });
+    expect(result.current.editorContent).toBe("Assistant latest edit");
+    expect(result.current.title).toBe("Assistant title");
+    expect(saveDocumentContent).toHaveBeenCalledTimes(2);
+  });
+
+  test("holds server updates until the last preparation lease releases", async () => {
+    const { result, rerender } = renderSave();
+    let first!: ReturnType<typeof result.current.beginSendPreparation>;
+    let second!: ReturnType<typeof result.current.beginSendPreparation>;
+    act(() => {
+      first = result.current.beginSendPreparation();
+      second = result.current.beginSendPreparation();
+    });
+    rerender({ target: TARGET, content: "Assistant edit" });
+    await act(async () => {
+      expect((await first.flush()).content).toBe("Original body");
+      first.release();
+    });
+    expect(result.current.editorContent).toBe("Original body");
+    expect(result.current.editingLocked).toBe(true);
+    act(() => second.release());
+    expect(result.current.editorContent).toBe("Assistant edit");
+    expect(result.current.editingLocked).toBe(false);
+    expect(saveDocumentContent).not.toHaveBeenCalled();
+  });
+
+  test("releasing preparation while a save is pending still waits for the save", async () => {
+    const write = deferred();
+    saveDocumentContent.mockImplementationOnce(() => write.promise);
+    const { result, rerender } = renderSave();
+    let lease!: ReturnType<typeof result.current.beginSendPreparation>;
+    act(() => {
+      result.current.changeContent("Local edit");
+      lease = result.current.beginSendPreparation();
+    });
+    const saved = result.current.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    rerender({ target: TARGET, content: "Assistant edit" });
+    act(() => lease.release());
+    expect(result.current.editorContent).toBe("Original body");
+    await act(async () => {
+      write.resolve();
+      await saved;
+    });
+    expect(result.current.editorContent).toBe("Assistant edit");
+  });
+
+  test("a deferred update cannot replace a failed local draft before a successful retry", async () => {
+    const write = deferred();
+    saveDocumentContent.mockImplementationOnce(() => write.promise);
+    const { result, rerender } = renderSave();
+    act(() => result.current.changeContent("Keep local edit"));
+    const saved = result.current
+      .flushPendingSave()
+      .catch((error: unknown) => error);
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    rerender({ target: TARGET, content: "Assistant edit" });
+    await act(async () => {
+      write.reject(new Error("offline"));
+      expect(await saved).toBeInstanceOf(Error);
+    });
+    expect(result.current.editorContent).toBe("Original body");
+    await act(async () => {
+      expect((await result.current.flushPendingSave()).content).toBe(
+        "Assistant edit",
+      );
+    });
+    expect(saveDocumentContent.mock.calls.map((call) => call[1])).toEqual([
+      "Keep local edit",
+      "Keep local edit",
+    ]);
+    expect(result.current.editorContent).toBe("Assistant edit");
+  });
+
+  test("a deferred title-only update preserves the locally saved body", async () => {
+    const write = deferred();
+    saveDocumentContent.mockImplementationOnce(() => write.promise);
+    const { result, rerender } = renderSave();
+    act(() => result.current.changeContent("Local edit"));
+    const saved = result.current.flushPendingSave();
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    rerender({
+      target: { ...TARGET, title: "Assistant title" },
+      content: "Original body",
+    });
+    await act(async () => {
+      write.resolve();
+      expect(await saved).toEqual({
+        title: "Assistant title",
+        content: "Local edit",
+      });
+    });
+    expect(result.current.title).toBe("Assistant title");
+  });
+
+  test("a local rename prop echo cannot replay over a subsequent rename", async () => {
+    const write = deferred();
+    saveDocumentContent.mockImplementationOnce(() => write.promise);
+    const { result, rerender } = renderSave();
+    act(() => result.current.rename("First title"));
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    rerender({
+      target: { ...TARGET, title: "First title" },
+      content: "Original body",
+    });
+    act(() => result.current.rename("Second title"));
+    await act(async () => write.resolve());
+    expect(result.current.title).toBe("Second title");
+    await act(async () => {
+      expect((await result.current.flushPendingSave()).title).toBe(
+        "Second title",
+      );
+    });
+  });
+
+  test("a detached save does not apply its deferred snapshot to a new editor", async () => {
+    const write = deferred();
+    saveDocumentContent.mockImplementationOnce(() => write.promise);
+    const oldEditor = renderSave();
+    act(() => oldEditor.result.current.changeContent("Local edit"));
+    const saved = oldEditor.result.current.flushPendingSave().catch(() => {});
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    oldEditor.rerender({ target: TARGET, content: "Assistant edit" });
+    oldEditor.unmount();
+    const newEditor = renderSave();
+    await act(async () => {
+      write.resolve();
+      await saved;
+    });
+    expect(oldEditor.result.current.editorContent).toBe("Original body");
+    expect(newEditor.result.current.editorContent).toBe("Original body");
   });
 
   test("a linked conversation update changes subsequent writes without losing edits", async () => {

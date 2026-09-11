@@ -64,35 +64,59 @@ export function useDocumentEditorSave({
   const mountedRef = useRef(true);
   const leasesRef = useRef(new Set<symbol>());
   const receivedRef = useRef({ title: target.title, content });
+  const deferredSnapshotRef = useRef<Partial<DocumentEditorSnapshot> | null>(
+    null,
+  );
 
-  useLayoutEffect(() => {
-    targetRef.current = target;
-    callbacksRef.current = { onRenamed, onRenameSaved, onRenameFailed };
-    const previous = receivedRef.current;
-    receivedRef.current = { title: target.title, content };
+  const applyDeferredSnapshot = useCallback(() => {
+    const snapshot = deferredSnapshotRef.current;
     if (
+      snapshot === null ||
+      !mountedRef.current ||
       revisionRef.current !== savedRevisionRef.current ||
       activeSaveRef.current !== null ||
       leasesRef.current.size > 0
     ) {
       return;
     }
-    const contentChanged = content !== previous.content;
-    const titleChanged = target.title !== previous.title;
-    if (contentChanged || titleChanged) {
-      latestRef.current = {
-        title: titleChanged ? target.title : latestRef.current.title,
-        content: contentChanged ? content : latestRef.current.content,
-      };
-      persistedRef.current = latestRef.current;
-      if (contentChanged) {
-        setEditorContent(content);
-      }
-      if (titleChanged) {
-        setTitle(target.title);
+    deferredSnapshotRef.current = null;
+    latestRef.current = { ...latestRef.current, ...snapshot };
+    persistedRef.current = latestRef.current;
+    if (snapshot.content !== undefined) {
+      setEditorContent(snapshot.content);
+    }
+    if (snapshot.title !== undefined) {
+      setTitle(snapshot.title);
+    }
+  }, []);
+
+  useLayoutEffect(() => {
+    targetRef.current = target;
+    callbacksRef.current = { onRenamed, onRenameSaved, onRenameFailed };
+    const previous = receivedRef.current;
+    receivedRef.current = { title: target.title, content };
+    // Retain only changed fields so a title refresh cannot replay a loaded body.
+    const deferred = { ...deferredSnapshotRef.current };
+    for (const field of ["content", "title"] as const) {
+      const incoming = receivedRef.current[field];
+      if (incoming !== previous[field]) {
+        if (incoming === latestRef.current[field]) {
+          delete deferred[field];
+        } else {
+          deferred[field] = incoming;
+        }
       }
     }
-  }, [target, content, onRenamed, onRenameSaved, onRenameFailed]);
+    deferredSnapshotRef.current = deferred;
+    applyDeferredSnapshot();
+  }, [
+    target,
+    content,
+    onRenamed,
+    onRenameSaved,
+    onRenameFailed,
+    applyDeferredSnapshot,
+  ]);
 
   const clearTimers = useCallback(() => {
     if (saveTimerRef.current !== null) {
@@ -168,22 +192,23 @@ export function useDocumentEditorSave({
       .finally(() => {
         if (activeSaveRef.current === save) {
           activeSaveRef.current = null;
+          applyDeferredSnapshot();
         }
       });
     activeSaveRef.current = save;
     trackDocumentSave(targetRef.current, save);
     return save;
-  }, [clearTimers]);
+  }, [clearTimers, applyDeferredSnapshot]);
 
   const flushPendingSave = useCallback(async () => {
     if (!mountedRef.current) {
       throw new Error("Document editor is no longer active");
     }
-    const snapshot = await flushSave();
+    await flushSave();
     if (!mountedRef.current) {
       throw new Error("Document editor is no longer active");
     }
-    return snapshot;
+    return { ...latestRef.current };
   }, [flushSave]);
 
   const beginSendPreparation = useCallback((): DocumentSendPreparation => {
@@ -209,10 +234,11 @@ export function useDocumentEditorSave({
         leasesRef.current.delete(lease);
         if (mountedRef.current && leasesRef.current.size === 0) {
           setEditingLocked(false);
+          applyDeferredSnapshot();
         }
       },
     };
-  }, [flushPendingSave]);
+  }, [flushPendingSave, applyDeferredSnapshot]);
 
   const changeContent = useCallback(
     (markdown: string) => {

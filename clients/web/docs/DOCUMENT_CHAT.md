@@ -58,6 +58,10 @@ flush before the explicit repair action links a replacement conversation.
 If an older write fails while newer edits are pending, the same save drain attempts
 the latest revision, including during close. A failed latest revision rejects
 without repeatedly retrying itself.
+Changed incoming document fields are retained during a save or preparation lease
+and applied after the drain and final lease release. Unchanged props cannot replay
+an old body during a title refresh, and failed local writes keep their draft until
+a successful retry. Deferred updates belong only to the mounted editor.
 Successful rename writes invalidate the saved assistant's document-list caches,
 even after the editor unmounts or a newer rename supersedes the write. UI callbacks
 and save indicators remain scoped to the mounted editor.
