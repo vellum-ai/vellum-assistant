@@ -244,7 +244,12 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   // launches the host subprocess — so an unapproved request mutates nothing.
   const decision = await awaitRouteApproval({
     toolName: "acp_spawn",
-    input: { agent, task, cwd },
+    input: {
+      agent,
+      task,
+      cwd,
+      ...(model !== undefined ? { model } : {}),
+    },
     conversationId,
     signal: abortSignal,
   });

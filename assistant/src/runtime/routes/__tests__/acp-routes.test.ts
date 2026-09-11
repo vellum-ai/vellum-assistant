@@ -757,6 +757,13 @@ describe("POST /v1/acp/spawn: model selection", () => {
     const handler = getSpawnHandler();
     await handler({ body: { ...SPAWN_BODY, model: "opus" } });
 
+    expect(confirmationRequests).toHaveLength(1);
+    expect(confirmationRequests[0]?.input).toEqual({
+      agent: "claude",
+      task: "do something",
+      cwd: process.cwd(),
+      model: "opus",
+    });
     expect(spawnMock).toHaveBeenCalledTimes(1);
     expect((spawnMock.mock.calls[0] as unknown[])[6]).toEqual({
       model: "opus",
@@ -770,6 +777,11 @@ describe("POST /v1/acp/spawn: model selection", () => {
     const options = (spawnMock.mock.calls[0] as unknown[])[6] as {
       model?: string;
     };
+    const approvalInput = confirmationRequests[0]?.input as Record<
+      string,
+      unknown
+    >;
+    expect(approvalInput).not.toHaveProperty("model");
     expect(options.model).toBeUndefined();
   });
 
