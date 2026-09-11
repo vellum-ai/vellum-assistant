@@ -205,6 +205,49 @@ describe("DocumentViewerPage", () => {
     });
   });
 
+  test("uses a rename that finishes during feedback preflight", async () => {
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+    let resolveVersion: () => void = () => {};
+    whenAssistantVersionKnownForMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveVersion = resolve;
+        }),
+    );
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+    const handleRef = viewerProps?.handleRef as {
+      current: Record<string, unknown> | null;
+    };
+    handleRef.current = {
+      refreshComments: async () => {},
+      flushPendingSave: async () => "# Notes",
+    };
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = (
+        viewerProps?.onSubmitFeedback as () => Promise<void>
+      )();
+    });
+    act(() => {
+      (viewerProps?.onRenamed as (title: string) => void)("Renamed notes");
+    });
+    await waitFor(() =>
+      expect(viewerProps?.documentName).toBe("Renamed notes"),
+    );
+
+    await act(async () => {
+      resolveVersion();
+      await submitted;
+    });
+
+    expect(useViewerStore.getState().openedDocumentState).toMatchObject({
+      documentName: "Renamed notes",
+    });
+  });
+
   test("abandons feedback after the assistant switches away and back", async () => {
     documentResult = () => Promise.resolve({ data: documentSurface() });
     let resolveVersion: () => void = () => {};

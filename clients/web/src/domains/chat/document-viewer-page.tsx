@@ -11,7 +11,13 @@ import { useTranslation } from "@/i18n";
 import { Typography } from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Loader2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
@@ -61,6 +67,10 @@ export function DocumentViewerPage() {
   const swipeContainerRef = useRef<HTMLDivElement>(null);
 
   const [doc, setDoc] = useState<DocumentContent | null>(null);
+  const docRef = useRef<DocumentContent | null>(null);
+  useLayoutEffect(() => {
+    docRef.current = doc;
+  }, [doc]);
   const [docAssistantId, setDocAssistantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -278,17 +288,21 @@ export function DocumentViewerPage() {
       if (ownerChanged()) {
         return;
       }
+      const currentDoc = docRef.current;
+      if (currentDoc === null || currentDoc.surfaceId !== surfaceId) {
+        return;
+      }
 
       useViewerStore.getState().openDocument();
       useViewerStore.getState().setLoadedDocument({
         source: "document",
-        surfaceId: doc.surfaceId,
+        surfaceId: currentDoc.surfaceId,
         conversationId,
-        documentName: doc.title,
+        documentName: currentDoc.title,
         content: latestContent,
       });
 
-      const prompt = `Please review and address my comments on "${doc.title}".`;
+      const prompt = `Please review and address my comments on "${currentDoc.title}".`;
       navigate(
         `${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`,
       );
