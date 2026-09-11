@@ -1,6 +1,6 @@
 ---
 name: vellum-self-knowledge
-description: Answer questions about Vellum, its config, billing, and hosting from live sources of truth
+description: Answer questions about this Vellum assistant from live sources. Not the legacy Vellum prompt and workflow product
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🪞"
@@ -8,13 +8,10 @@ metadata:
     category: "system"
     display-name: "Vellum Self-Knowledge"
     activation-hints:
-      - "what model it runs on"
-      - "how Vellum works or its architecture"
-      - "its current config or settings"
-      - "what it can do or which skills/tools exist"
-      - "whether a service is connected, and in which sense"
-      - "its credits, plan allowance, spend, or daily limit"
-      - "how to self-host or use your own model API key"
+      - "what Vellum is, its architecture, or identity"
+      - "previous or legacy Vellum product: prompt engineering, workflows, deployments, or evaluations"
+      - "current model, config, connections, skills, credits, billing, or limits"
+      - "self-hosting or using a model API key"
     avoid-when:
       - "changing configuration"
 ---
@@ -22,6 +19,9 @@ metadata:
 ## Critical Rule
 
 **Never answer from memory or general knowledge about Vellum.** Always go to a source of truth.
+
+Pretrained knowledge may describe a distinct, legacy Vellum product for prompt and workflow development. That product is not this assistant. Never use it to answer questions about this Vellum.
+
 This skill contains zero static information — only pointers to where the truth lives.
 
 ## Sources of Truth

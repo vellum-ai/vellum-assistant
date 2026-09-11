@@ -4,7 +4,7 @@
  * rather than static content.
  */
 
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -41,6 +41,9 @@ mock.module("../skills/catalog-install.js", () => ({
 
 // ── Imports (after mocks) ────────────────────────────────────────────────
 
+const { parseFrontmatter } = await import("../config/skills.js");
+const { buildSkillContent } =
+  await import("../plugins/defaults/memory/substrate/skill-content.js");
 const { skillLoadTool } = await import("../tools/skills/load.js");
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -131,6 +134,34 @@ describe("vellum-self-knowledge skill", () => {
   });
 
   // ── Critical rule ────────────────────────────────────────────────────
+
+  test("disambiguates the legacy Vellum product from this assistant", async () => {
+    const result = await executeSkillLoad({ skill: "vellum-self-knowledge" });
+    expect(result.content).toContain("distinct, legacy Vellum product");
+    expect(result.content).toContain(
+      "Never use it to answer questions about this Vellum",
+    );
+  });
+
+  test("keeps legacy-product disambiguation in its retrieval card", () => {
+    const parsed = parseFrontmatter(
+      readFileSync(join(SKILL_SRC_DIR, "SKILL.md"), "utf8"),
+      join(SKILL_SRC_DIR, "SKILL.md"),
+    );
+    expect(parsed).not.toBeNull();
+    const card = buildSkillContent({
+      id: parsed!.name,
+      displayName: parsed!.displayName,
+      description: parsed!.description,
+      activationHints: parsed!.activationHints,
+      avoidWhen: parsed!.avoidWhen,
+    });
+    expect(card.length).toBeLessThanOrEqual(500);
+    expect(card).toContain("legacy Vellum prompt and workflow product");
+    expect(card).toContain(
+      "previous or legacy Vellum product: prompt engineering, workflows, deployments, or evaluations",
+    );
+  });
 
   test("contains the critical rule about not answering from memory", async () => {
     const result = await executeSkillLoad({ skill: "vellum-self-knowledge" });
