@@ -41,6 +41,136 @@ function newManager(
   return newFakeDesktop({ profileDir, panelConfigDir, ...options });
 }
 
+describe("desktop wallpaper lifecycle", () => {
+  test("applies the rendered wallpaper and refreshes it on reconnect without restarting X", async () => {
+    let current = Buffer.from("first wallpaper");
+    const h = newManager({
+      renderWallpaper: async () => current,
+      exitOnTerm: true,
+    });
+    await h.manager.ensureDesktopRunning();
+    await settle();
+    const path = join(panelConfigDir, "wallpaper.png");
+    expect(readFileSync(path)).toEqual(current);
+    expect(h.child("wallpaper").request.cmd).toEqual([
+      "/usr/bin/feh",
+      "--no-fehbg",
+      "--bg-fill",
+      path,
+    ]);
+    expect(h.child("wallpaper").request.env.DISPLAY).toBe(":99");
+    h.child("wallpaper").exit(0);
+    await settle();
+    current = Buffer.from("updated avatar wallpaper");
+    await h.manager.ensureDesktopRunning();
+    await settle();
+    expect(readFileSync(path)).toEqual(current);
+    expect(h.count("wallpaper")).toBe(2);
+    expect(h.count("x-server")).toBe(1);
+    await h.manager.destroy();
+  });
+
+  test.each(["success", "failure"] as const)(
+    "reconnects during a render queue the latest avatar after %s",
+    async (outcome) => {
+      let current = Buffer.from("first avatar");
+      const pending: { finish: () => void; fail: () => void }[] = [];
+      const h = newManager({
+        renderWallpaper: () => {
+          const snapshot = current;
+          return new Promise((resolve, reject) => {
+            pending.push({
+              finish: () => resolve(snapshot),
+              fail: () => reject(new Error("render failed")),
+            });
+          });
+        },
+        exitOnTerm: true,
+      });
+      try {
+        await h.manager.ensureDesktopRunning();
+        current = Buffer.from("second avatar");
+        await h.manager.ensureDesktopRunning();
+        current = Buffer.from("latest avatar");
+        await h.manager.ensureDesktopRunning();
+        expect(pending).toHaveLength(1);
+
+        if (outcome === "success") {
+          pending[0]!.finish();
+        } else {
+          pending[0]!.fail();
+        }
+        await settle();
+        expect(pending).toHaveLength(2);
+        expect(h.count("wallpaper")).toBe(0);
+
+        pending[1]!.finish();
+        await settle();
+        expect(readFileSync(join(panelConfigDir, "wallpaper.png"))).toEqual(
+          current,
+        );
+        expect(h.count("wallpaper")).toBe(1);
+        expect(h.count("x-server")).toBe(1);
+        expect(pending).toHaveLength(2);
+      } finally {
+        await h.manager.destroy();
+      }
+    },
+  );
+
+  test("pending and queued renders neither delay Chrome nor apply after shutdown", async () => {
+    let finish!: (png: Buffer) => void;
+    let renders = 0;
+    const h = newManager({
+      renderWallpaper: () => {
+        renders++;
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      },
+      exitOnTerm: true,
+    });
+    await h.manager.ensureDesktopRunning();
+    await h.manager.ensureDesktopRunning();
+    await settle();
+    expect(h.count("browser")).toBe(1);
+    expect(renders).toBe(1);
+    await h.manager.destroy();
+    finish(Buffer.from("stale render"));
+    await settle();
+    expect(h.count("wallpaper")).toBe(0);
+    expect(renders).toBe(1);
+  });
+
+  test.each(["render", "spawn", "exit"] as const)(
+    "wallpaper %s failure leaves the viewer connected",
+    async (failure) => {
+      const h = newManager({
+        renderWallpaper: async () => {
+          if (failure === "render") {
+            throw new Error("render failed");
+          }
+          return Buffer.from("wallpaper");
+        },
+        failSpawn: failure === "spawn" ? ["wallpaper"] : [],
+        exitOnTerm: true,
+      });
+      const { viewer, lost } = newViewer();
+      h.manager.acquireViewerSlot(viewer);
+      await h.manager.ensureDesktopRunning();
+      await settle();
+      if (failure === "exit") {
+        h.child("wallpaper").exit(1);
+        await settle();
+      }
+      expect(lost).toEqual([]);
+      expect(h.count("browser")).toBe(1);
+      expect(h.terminated()).toEqual([]);
+      await h.manager.destroy();
+    },
+  );
+});
+
 describe("DesktopSessionManager process tree", () => {
   test("concurrent callers share one start of the whole tree", async () => {
     const h = newManager({

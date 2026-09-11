@@ -31,10 +31,12 @@ const DESKTOP_BINARIES = {
   panel: ["tint2"],
   clipboard: ["tigervncconfig", "vncconfig"],
   terminal: ["xterm"],
+  wallpaper: ["feh"],
 } as const;
 
 const DESKTOP_PACKAGES = [
   "dbus-x11",
+  "feh",
   "openbox",
   "tigervnc-standalone-server",
   "tigervnc-common",

@@ -48,6 +48,7 @@ export interface FakeDesktopOptions {
   /** Whether a SIGKILL does; without either the child survives both. */
   exitOnKill?: boolean;
   sourceEnv?: NodeJS.ProcessEnv;
+  renderWallpaper?: (width: number, height: number) => Promise<Buffer | null>;
 }
 
 export function newFakeDesktop(options: FakeDesktopOptions) {
@@ -68,6 +69,7 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
       options.missingBinaries?.includes(binary) ? null : `/usr/bin/${binary}`,
     probeVncPort: async () => vncReady,
     resolveChromePath: () => chromiumPath(),
+    renderWallpaper: options.renderWallpaper ?? (async () => null),
     killProcessGroup: (child, signal) => {
       killed.push({ child: child as FakeChild, signal });
       const exits =
