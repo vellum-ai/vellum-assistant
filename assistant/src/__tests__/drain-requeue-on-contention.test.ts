@@ -23,6 +23,7 @@ interface FakeEvent {
   requestId?: string;
   position?: number;
   clientMessageId?: string;
+  scope?: "turn" | "message";
 }
 
 function makeQueued(
@@ -208,7 +209,9 @@ describe("drainQueue under processing-lock contention", () => {
     expect(
       events.filter(
         (event) =>
-          event.type === "message_failed" && event.message === "disk exploded",
+          event.type === "error" &&
+          event.scope === "message" &&
+          event.message === "disk exploded",
       ).length,
     ).toBe(1);
   });
