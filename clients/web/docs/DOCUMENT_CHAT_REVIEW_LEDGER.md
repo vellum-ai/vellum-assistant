@@ -145,10 +145,14 @@ documents.conversation_id references a real conversations row and the SQLite con
 
 ## Baseline evidence and integration gates
 
+- Two executable `test.todo` regressions record baseline gaps without making mainline CI red. Running each with Bun's `--todo` flag executes its assertions and reports the expected failure as a TODO, not a passing behavior check:
+  - `src/domains/chat/hooks/use-send-message.stale-scope.test.tsx`: send text plus an uploaded attachment, change conversation during the POST, then throw the transport request. Existing draft restoration returns the text but the expected attachment is absent (`[]`).
+  - `src/domains/chat/utils/stream-handlers/error-handlers.test.ts`: pass the ordinary error shape emitted for a failed batch-tail persistence operation into the real shared handler. It calls `endTurn` although another member's turn remains active.
+- The existing assistant tests `failed tail persist uses last-successful requestId` and `failed tail persist is excluded from fanOutOnEvent agent events` pass on the baseline. They establish that the failed tail receives an error while successful siblings continue and receive their eventual completion. Together with the client TODO, this demonstrates the protocol/consumer mismatch rather than assuming a theoretical queue sequence.
+- Both changed web test files pass through the normal isolated runner with the two unfixed assertions retained as TODOs. No production recovery or protocol change is implied by this evidence.
 - `src/domains/chat/hooks/use-send-message.ts` sends a client nonce and guards active-view writes. Its queued and direct off-screen error branches call text-only `restoreFailedDraft`; they do not retain a full accepted-send payload after a conversation switch.
 - `src/domains/chat/utils/stream-handlers/error-handlers.ts` treats correlated `QUEUE_FULL` as nonterminal, but ordinary errors end the turn and cancel the stream. `assistant/src/daemon/conversation-process.ts` emits such an ordinary error for a failed batch tail, then continues successful siblings.
 - `src/domains/chat/components/chat-route-content.tsx` dispatches the normal composer and returns accepted picker files, but defaults an unresolved profile to image-capable. `use-active-profile-model.ts` queries a conversation only when supplied its ID and currently does not gate on organization readiness.
 - Do not cherry-pick intermediate wire changes. The old reviews first requested a new discriminator, then demonstrated old-client recovery regressions and restored compatible scoped errors. Any future shared protocol work must evaluate the complete final contract, not an isolated historical reply.
 - Acceptance requires real shared orchestration tests for document/transcript switches, preparation failures and owner changes, plus actual production-presentation rendering. A mocked submit callback or an obsolete document-store test is insufficient.
 - Any remaining baseline delivery limitation must be stated in the replacement PR and tracked separately. It must not be described as resolved by removing the document watcher.
-
