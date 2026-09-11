@@ -402,19 +402,31 @@ describe("PluginListRow", () => {
     expect(container.textContent).toContain("🦴");
   });
 
-  test("available row renders a platform-hosted icon URL as an <img> without the version gate", () => {
+  test("available row renders a platform-hosted iconUrl as an <img> without the version gate", () => {
     // Version stays null: the catalog icon is a plain URL, not the daemon's
     // bundled-icon endpoint, so the gate must not suppress it.
     const url = "https://assets.example/coffee/icon.png?v=abc";
     const { container } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
-        item={makeItem({ status: "available", external: true, icon: url })}
+        item={makeItem({ status: "available", external: true, iconUrl: url })}
         onSelect={() => {}}
       />,
     );
 
     expect(container.querySelector("img")?.getAttribute("src")).toBe(url);
+  });
+
+  test("installed row never renders a URL-shaped icon as an <img>", () => {
+    const { container } = renderRow(
+      <PluginListRow
+        assistantId={ASSISTANT_ID}
+        item={makeItem({ status: "installed", icon: "http://127.0.0.1" })}
+        onSelect={() => {}}
+      />,
+    );
+
+    expect(container.querySelector("img")).toBeNull();
   });
 
   test("supporting daemon but no hasIcon renders no <img>", () => {

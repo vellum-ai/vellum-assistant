@@ -6,6 +6,16 @@ import type {
 } from "./types";
 
 /**
+ * The platform catalog reports either a curated emoji or the https URL of the
+ * plugin's bundled icon in the same `icon` field. Only the catalog may carry
+ * a URL: an installed plugin's `package.json` icon is author-controlled text
+ * and must never be rendered as an image source.
+ */
+function isCatalogIconUrl(icon: string | undefined): icon is string {
+  return icon !== undefined && icon.startsWith("https://");
+}
+
+/**
  * Consolidate the installed list and the catalog into one row model.
  * Catalog entries whose name is already installed are dropped — the two
  * endpoints are independent, so a locally-installed plugin still appears in
@@ -45,7 +55,7 @@ export function mergePlugins(
       status: "available",
       external: true,
       path: m.path,
-      icon: m.icon,
+      ...(isCatalogIconUrl(m.icon) ? { iconUrl: m.icon } : { icon: m.icon }),
     }));
 
   return [...installedItems, ...catalogItems];

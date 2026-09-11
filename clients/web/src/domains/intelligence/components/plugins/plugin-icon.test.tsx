@@ -72,29 +72,36 @@ describe("PluginIcon", () => {
     expect(container.textContent).toBe("🚀");
   });
 
-  test("renders an https icon as an <img> rather than as text", () => {
+  test("renders iconUrl as an <img>", () => {
     const url = "https://assets.example/coffee/icon.png?v=abc";
-    const { container } = render(<PluginIcon icon={url} external />);
+    const { container } = render(<PluginIcon iconUrl={url} external />);
     const img = container.querySelector("img");
     expect(img).not.toBeNull();
     expect(img!.getAttribute("src")).toBe(url);
     expect(container.textContent).toBe("");
   });
 
-  test("bundled iconSrc wins over an https icon", () => {
+  test("bundled iconSrc wins over iconUrl", () => {
     const { container } = render(
-      <PluginIcon iconSrc="/x.png" icon="https://assets.example/icon.png" />,
+      <PluginIcon iconSrc="/x.png" iconUrl="https://assets.example/icon.png" />,
     );
     expect(container.querySelector("img")!.getAttribute("src")).toBe("/x.png");
   });
 
-  test("falls back to the origin glyph, not the URL text, when an https icon errors", () => {
+  test("falls back to the origin glyph when iconUrl errors", () => {
     const { container } = render(
-      <PluginIcon icon="https://assets.example/icon.png" external />,
+      <PluginIcon iconUrl="https://assets.example/icon.png" external />,
     );
     fireEvent.error(container.querySelector("img")!);
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toBe(PACKAGE);
+  });
+
+  test("never renders a URL-shaped icon as an image", () => {
+    // `icon` is untrusted author text; only `iconUrl` may become an <img>.
+    const { container } = render(<PluginIcon icon="http://127.0.0.1" />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.textContent).toBe("http://127.0.0.1");
   });
 
   test("defaults to 📦 when external", () => {

@@ -100,7 +100,7 @@ describe("mergePlugins", () => {
     expect(catalogRow.icon).toBeUndefined();
   });
 
-  test("carries a catalog entry's icon onto the available row", () => {
+  test("splits a catalog entry's icon into emoji vs platform-hosted URL", () => {
     const url = "https://assets.example/coffee/icon.png?v=abc";
     const [emojiRow, urlRow] = mergePlugins(
       [],
@@ -110,10 +110,32 @@ describe("mergePlugins", () => {
       ],
     );
 
-    // The marketplace emoji and the platform-hosted image URL both pass
-    // through untouched; `PluginIcon` decides how to render each.
     expect(emojiRow.icon).toBe("🦴");
-    expect(urlRow.icon).toBe(url);
+    expect(emojiRow.iconUrl).toBeUndefined();
+    expect(urlRow.iconUrl).toBe(url);
+    expect(urlRow.icon).toBeUndefined();
+  });
+
+  test("never promotes an installed plugin's URL-shaped icon to iconUrl", () => {
+    // `package.json` `vellum.icon` is author-controlled text; rendering it as
+    // an image source would fire a GET at whatever host it names.
+    const [row] = mergePlugins(
+      [installed({ name: "alpha", icon: "http://127.0.0.1" })],
+      [],
+    );
+
+    expect(row.icon).toBe("http://127.0.0.1");
+    expect(row.iconUrl).toBeUndefined();
+  });
+
+  test("keeps a non-https catalog icon as a glyph rather than an image URL", () => {
+    const [row] = mergePlugins(
+      [],
+      [catalog({ name: "beta", icon: "http://x" })],
+    );
+
+    expect(row.iconUrl).toBeUndefined();
+    expect(row.icon).toBe("http://x");
   });
 
   test("carries hasIcon/iconVersion onto installed rows (not the catalog)", () => {
