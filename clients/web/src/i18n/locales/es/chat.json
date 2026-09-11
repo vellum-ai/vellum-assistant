@@ -1895,5 +1895,30 @@
     "failedReplacementRejected": "Vellum rechazó la credencial de reemplazo. Inicia sesión en la plataforma Vellum y vuelve a intentarlo.",
     "failedUnconfirmed": "El reemplazo se guardó, pero no se pudo confirmar con Vellum. Puede que empiece a funcionar en breve.",
     "failedGeneric": "No se pudo restaurar el acceso. Inténtalo de nuevo en un momento."
+  },
+  "desktopApps": {
+    "title": "Añadir apps",
+    "back": "Volver al escritorio",
+    "description": "Añade apps ligeras al escritorio Linux de tu asistente.",
+    "calculator": "Calculadora",
+    "calculatorDescription": "Calculadora científica (xcalc).",
+    "textEditor": "Editor de texto",
+    "textEditorDescription": "Edita archivos de texto sin formato (xedit).",
+    "loading": "Cargando apps…",
+    "unavailable": "Actualiza tu asistente para añadir apps al escritorio.",
+    "loadFailed": "No se pudieron cargar las apps. Comprueba la conexión y reintenta.",
+    "retry": "Reintentar",
+    "openFailed": "No se pudo abrir la app. Vuelve a conectar el escritorio, cierra ventanas que no uses y reintenta.",
+    "installFailed": "La instalación falló. Comprueba la conexión y el espacio disponible y reintenta.",
+    "opening": "Abriendo…",
+    "installing": "Instalando…",
+    "ready": "Lista para abrir",
+    "alreadyInstalled": "Ya instalada",
+    "optional": "App opcional",
+    "open": "Abrir",
+    "addLauncher": "Añadir al escritorio",
+    "install": "Instalar",
+    "pinHint": "Abre una app para verla en el dock. Haz clic derecho en su icono y elige Keep in Dock para fijarla. Añadir una app instalada crea su acceso directo sin reinstalarla.",
+    "persistence": "Las apps se conservan al reiniciar el escritorio, pero pueden necesitar reinstalarse si se reemplaza el contenedor del asistente. Los iconos fijados se conservan con el espacio de trabajo. Guarda ahí tus archivos para conservarlos."
   }
 }

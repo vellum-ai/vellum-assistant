@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  cp,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -178,8 +188,9 @@ export class DesktopDependencyInstaller {
   }
 }
 
-async function run(command: string[]): Promise<void> {
+async function run(command: string[], cwd?: string): Promise<void> {
   const proc = Bun.spawn(command, {
+    cwd,
     env: {
       PATH: "/usr/sbin:/usr/bin:/sbin:/bin",
       HOME: "/root",
@@ -208,12 +219,12 @@ async function run(command: string[]): Promise<void> {
   }
 }
 
-async function installDesktopDependencies(
-  onStage: (stage: NonNullable<DesktopSetupStatus["stage"]>) => void,
+async function withDesktopCA(
+  action: (caBundle?: string) => Promise<void>,
 ): Promise<void> {
   const extraCA = process.env.NODE_EXTRA_CA_CERTS;
   if (!extraCA) {
-    return installDesktopComponents(onStage);
+    return action();
   }
   const caDir = await mkdtemp(join(tmpdir(), "desktop-ca-"));
   try {
@@ -226,10 +237,96 @@ async function installDesktopDependencies(
     // apt's unprivileged downloader must be able to read the public CAs.
     await chmod(caBundle, 0o644);
     await chmod(caDir, 0o755);
-    await installDesktopComponents(onStage, caBundle);
+    await action(caBundle);
   } finally {
     await rm(caDir, { recursive: true, force: true });
   }
+}
+
+async function installDesktopDependencies(
+  onStage: (stage: NonNullable<DesktopSetupStatus["stage"]>) => void,
+): Promise<void> {
+  await installDesktopPackages(DESKTOP_PACKAGES);
+  await withDesktopCA((caBundle) =>
+    installDesktopComponents(onStage, caBundle),
+  );
+}
+
+let packageInstallation: Promise<void> = Promise.resolve();
+
+function withDesktopPackages(
+  action: (apt: string[]) => Promise<void>,
+): Promise<void> {
+  const installation = packageInstallation.then(() =>
+    withDesktopCA(async (caBundle) => {
+      const apt = [
+        "/usr/bin/apt-get",
+        ...(caBundle ? ["-o", `Acquire::https::CaInfo=${caBundle}`] : []),
+      ];
+      await run([...apt, "update"]);
+      await action(apt);
+    }),
+  );
+  packageInstallation = installation.catch(() => {});
+  return installation;
+}
+
+function installDesktopPackages(packages: readonly string[]): Promise<void> {
+  return withDesktopPackages((apt) =>
+    run([
+      ...apt,
+      "install",
+      "-y",
+      "--no-install-recommends",
+      "--no-upgrade",
+      "--no-remove",
+      "-o",
+      "DPkg::Lock::Timeout=120",
+      ...packages,
+    ]),
+  );
+}
+
+export function installDesktopX11App(binary: "xcalc" | "xedit"): Promise<void> {
+  return withDesktopPackages(async (apt) => {
+    const directory = await mkdtemp(join(tmpdir(), "desktop-app-"));
+    const stagedBinary = `/usr/bin/.vellum-${binary}.tmp`;
+    try {
+      await run([...apt, "download", "x11-apps"], directory);
+      const deb = (await readdir(directory)).find((file) =>
+        file.endsWith(".deb"),
+      );
+      if (!deb) {
+        throw new Error("Desktop app download is missing");
+      }
+      const extracted = join(directory, "extracted");
+      await run(["dpkg-deb", "--extract", join(directory, deb), extracted]);
+      // Retain only the MIT/BSD app and its resources, excluding bundled GPL utilities.
+      const appClass = binary === "xcalc" ? "XCalc" : "Xedit";
+      for (const suffix of ["", "-color"]) {
+        await copyFile(
+          join(extracted, "etc/X11/app-defaults", appClass + suffix),
+          `/etc/X11/app-defaults/${appClass}${suffix}`,
+        );
+      }
+      if (binary === "xedit") {
+        await cp(join(extracted, "usr/lib/X11/xedit"), "/usr/lib/X11/xedit", {
+          recursive: true,
+        });
+      }
+      await mkdir("/usr/share/doc/vellum-desktop-apps", { recursive: true });
+      await copyFile(
+        join(extracted, "usr/share/doc/x11-apps/copyright"),
+        "/usr/share/doc/vellum-desktop-apps/copyright",
+      );
+      await copyFile(join(extracted, "usr/bin", binary), stagedBinary);
+      await chmod(stagedBinary, 0o755);
+      await rename(stagedBinary, `/usr/bin/${binary}`);
+    } finally {
+      await rm(stagedBinary, { force: true });
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 }
 
 async function installDesktopComponents(
@@ -237,24 +334,7 @@ async function installDesktopComponents(
   caBundle?: string,
 ): Promise<void> {
   const chrome = CHROME_PACKAGES[process.arch as keyof typeof CHROME_PACKAGES];
-  const apt = [
-    "/usr/bin/apt-get",
-    ...(caBundle ? ["-o", `Acquire::https::CaInfo=${caBundle}`] : []),
-  ];
   await rm(desktopChromePath() + ".ready", { force: true });
-  // Desktop binaries, X assets and the loader share the image root.
-  await run([...apt, "update"]);
-  await run([
-    ...apt,
-    "install",
-    "-y",
-    "--no-install-recommends",
-    "--no-upgrade",
-    "--no-remove",
-    "-o",
-    "DPkg::Lock::Timeout=120",
-    ...DESKTOP_PACKAGES,
-  ]);
   onStage("chrome");
   if (!existsSync(desktopChromePath())) {
     const downloadDir = await mkdtemp(join(tmpdir(), "desktop-chrome-"));

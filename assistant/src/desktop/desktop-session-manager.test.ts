@@ -625,3 +625,37 @@ describe("DesktopSessionManager viewer slot", () => {
     expect(h.count("x-server")).toBe(1);
   });
 });
+
+describe("desktop app lifecycle", () => {
+  test("requires a live viewer, launches on the streamed display, and tears apps down with the desktop", async () => {
+    const { DESKTOP_APPS } = await import("./desktop-apps.js");
+    const h = newManager({
+      exitOnTerm: true,
+      sourceEnv: { HOME: "/root", SECRET_TOKEN: "hidden" },
+    });
+    await expect(h.manager.openApplication(DESKTOP_APPS[0])).rejects.toThrow(
+      "Connect",
+    );
+    const { viewer } = newViewer();
+    h.manager.acquireViewerSlot(viewer);
+    await h.manager.ensureDesktopRunning();
+    await h.manager.openApplication(DESKTOP_APPS[0]);
+    expect(h.child("app:0").request.cmd).toEqual(["/usr/bin/xcalc"]);
+    expect(h.child("app:0").request.env.DISPLAY).toBe(":99");
+    expect(h.child("app:0").request.env.SECRET_TOKEN).toBeUndefined();
+    await h.manager.destroy();
+    expect(h.terminated()).toContain(h.child("app:0"));
+  });
+  test("an app exiting immediately reports failure without stopping the desktop", async () => {
+    const { DESKTOP_APPS } = await import("./desktop-apps.js");
+    const h = newManager({ exitOnTerm: true });
+    const { viewer, lost } = newViewer();
+    h.manager.acquireViewerSlot(viewer);
+    await h.manager.ensureDesktopRunning();
+    const opened = h.manager.openApplication(DESKTOP_APPS[0]);
+    h.child("app:0").exit(1);
+    await expect(opened).rejects.toThrow("could not open");
+    expect(lost).toEqual([]);
+    await h.manager.destroy();
+  });
+});

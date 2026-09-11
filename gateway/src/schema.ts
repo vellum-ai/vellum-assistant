@@ -1182,6 +1182,28 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/desktop/apps": {
+        get: {
+          summary: "List desktop apps",
+          operationId: "desktopAppsList",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "App availability for the bound guardian",
+            },
+          },
+        },
+        post: {
+          summary: "Add or open a desktop app",
+          operationId: "desktopAppsAction",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Current desktop application availability",
+            },
+          },
+        },
+      },
       "/v1/desktop/stream": {
         get: {
           summary: "Assistant desktop stream WebSocket",
