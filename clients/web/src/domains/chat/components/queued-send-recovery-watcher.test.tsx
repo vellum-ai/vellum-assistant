@@ -69,12 +69,17 @@ const attachment: DisplayAttachment = {
   previewUrl: null,
 };
 
-function recordQueuedSend(clientMessageId: string, conversationId: string) {
+function recordQueuedSend(
+  clientMessageId: string,
+  conversationId: string,
+  serverMessageId?: string,
+) {
   useComposerStore.getState().recordQueuedSend(clientMessageId, {
     assistantId: "assistant-1",
     conversationId,
     content: "parked behind the running turn",
     attachments: [attachment],
+    ...(serverMessageId === undefined ? {} : { serverMessageId }),
   });
 }
 
@@ -246,6 +251,54 @@ describe("QueuedSendRecoveryWatcher", () => {
     await waitFor(() => expect(stillQueued("nonce-1")).toBe(false));
     expect(heldFor("conv-left")).toBeUndefined();
     expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  test("switching back recognizes a persisted send without a client nonce", async () => {
+    isOrgReady = true;
+    fetchConversationMessagesMock = mock(
+      async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+        messages: [
+          {
+            id: "msg-1",
+            role: "user",
+            timestamp: new Date().toISOString(),
+            attachments: [],
+          },
+        ],
+        processing: false,
+      }),
+    );
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    recordQueuedSend("nonce-1", "conv-left", "msg-1");
+    render(<QueuedSendRecoveryWatcher />);
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    });
+
+    await waitFor(() => expect(stillQueued("nonce-1")).toBe(false));
+    expect(heldFor("conv-left")).toBeUndefined();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  test("an echo without a client nonce settles by its server id", () => {
+    recordQueuedSend("nonce-1", "conv-left", "msg-1");
+    render(<QueuedSendRecoveryWatcher />);
+
+    act(() => {
+      publish("sse.event", {
+        id: "evt-echo-conv-left",
+        emittedAt: new Date().toISOString(),
+        message: {
+          type: "user_message_echo",
+          text: "parked behind the running turn",
+          conversationId: "conv-left",
+          messageId: "msg-1",
+        },
+      });
+    });
+
+    expect(stillQueued("nonce-1")).toBe(false);
   });
 
   test("the daemon's echo lets the client copy go", () => {

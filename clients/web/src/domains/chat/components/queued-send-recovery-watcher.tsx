@@ -50,6 +50,25 @@ function acceptQueuedSend(clientMessageId: string): void {
   }
 }
 
+/** Find the local nonce for an event that may only carry a durable server id. */
+function correlatedQueuedSendClientMessageId(
+  clientMessageId: string | undefined,
+  conversationId: string | undefined,
+  ...serverMessageIds: Array<string | undefined>
+): string | undefined {
+  const queued = useComposerStore.getState().queuedSends;
+  if (clientMessageId !== undefined && queued.has(clientMessageId)) {
+    return clientMessageId;
+  }
+  return [...queued].find(
+    ([, send]) =>
+      (conversationId === undefined ||
+        send.conversationId === conversationId) &&
+      send.serverMessageId !== undefined &&
+      serverMessageIds.includes(send.serverMessageId),
+  )?.[0];
+}
+
 /**
  * Hands a queued send's message back to the conversation it was written in
  * when the daemon refuses to persist it.
@@ -123,7 +142,10 @@ export function QueuedSendRecoveryWatcher() {
             continue;
           }
           const message = snapshot?.messages.find(
-            (candidate) => candidate.clientMessageId === clientMessageId,
+            (candidate) =>
+              candidate.clientMessageId === clientMessageId ||
+              (send.serverMessageId !== undefined &&
+                candidate.id === send.serverMessageId),
           );
           if (message?.queueStatus === "queued") {
             continue;
@@ -188,7 +210,12 @@ export function QueuedSendRecoveryWatcher() {
     // belongs to this send, so a message the daemon took is never offered for
     // sending twice.
     if (event.type === "user_message_echo") {
-      const { clientMessageId } = event;
+      const clientMessageId = correlatedQueuedSendClientMessageId(
+        event.clientMessageId,
+        event.conversationId,
+        event.messageId,
+        event.requestId,
+      );
       if (clientMessageId === undefined) {
         return;
       }
@@ -199,7 +226,11 @@ export function QueuedSendRecoveryWatcher() {
     // A queued message the user deleted never runs, so the daemon owes no
     // answer for it and the copy has nothing left to recover into.
     if (event.type === "message_queued_deleted") {
-      const { clientMessageId } = event;
+      const clientMessageId = correlatedQueuedSendClientMessageId(
+        event.clientMessageId,
+        event.conversationId,
+        event.requestId,
+      );
       if (clientMessageId === undefined) {
         return;
       }
@@ -213,7 +244,11 @@ export function QueuedSendRecoveryWatcher() {
     ) {
       return;
     }
-    const { clientMessageId } = event;
+    const clientMessageId = correlatedQueuedSendClientMessageId(
+      event.clientMessageId,
+      event.conversationId,
+      event.requestId,
+    );
     if (clientMessageId === undefined) {
       return;
     }

@@ -118,16 +118,29 @@ type SendStreamResult =
        *  cannot see, so recovering a queued send that the daemon later refuses
        *  is the caller's to arrange. */
       queued?: boolean;
-      /** Server-assigned user message id from the active POST resolve.
-       *  Absent for the queued path (POST returns only `requestId`) and
-       *  for scope-changed-mid-flight results. The optimistic send is no
-       *  longer id-swapped against this — the snapshot's echoed row and the
-       *  overlay's `clientMessageId` dedup own that — so this is retained only
-       *  for diagnostics / callers that want the persisted id. */
-      userMessageId?: string;
+      /** Durable row or request id returned when the assistant accepted it. */
+      serverMessageId?: string;
     }
   | { status: "ignored" }
   | { status: "failed"; error: ChatError };
+
+/** Attach the assistant's durable identifiers to a retained recovery copy. */
+function recordQueuedSendAcceptance(
+  clientMessageId: string,
+  conversationId: string,
+  serverMessageId: string | undefined,
+): void {
+  const composer = useComposerStore.getState();
+  const queued = composer.queuedSends.get(clientMessageId);
+  if (queued === undefined) {
+    return;
+  }
+  composer.recordQueuedSend(clientMessageId, {
+    ...queued,
+    conversationId,
+    ...(serverMessageId === undefined ? {} : { serverMessageId }),
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Send options
@@ -527,6 +540,9 @@ export function useSendMessage({
           // The daemon may have queued the send, and the message is still
           // owed a client copy while the daemon decides on it.
           queued: postResult.queued,
+          serverMessageId: postResult.queued
+            ? postResult.requestId
+            : postResult.messageId,
         };
       }
 
@@ -583,6 +599,7 @@ export function useSendMessage({
           status: "ok",
           queued: true,
           resolvedConversationId: postResult.conversationId,
+          serverMessageId: postResult.requestId,
         };
       }
       // Not queued, so no `message_queued` will register this. Recorded anyway
@@ -597,7 +614,7 @@ export function useSendMessage({
       if (hasMatchingActiveStream) {
         return {
           status: "ok",
-          userMessageId: postResult.messageId,
+          serverMessageId: postResult.messageId,
           resolvedConversationId: postResult.conversationId,
         };
       }
@@ -607,7 +624,7 @@ export function useSendMessage({
       startReconciliationLoop(epoch);
       return {
         status: "ok",
-        userMessageId: postResult.messageId,
+        serverMessageId: postResult.messageId,
         resolvedConversationId: postResult.conversationId,
       };
     },
@@ -998,6 +1015,15 @@ export function useSendMessage({
               context: "surface_queued_conversation_after_send",
             });
           });
+          if (!isHidden) {
+            recordQueuedSendAcceptance(
+              clientMessageId,
+              postResult.conversationId,
+              postResult.queued
+                ? postResult.requestId
+                : postResult.messageId,
+            );
+          }
           if (!postResult.queued) {
             // Clear the optimistic queue status and let the existing SSE
             // stream deliver the response.
@@ -1042,19 +1068,6 @@ export function useSendMessage({
                 );
             }
             return;
-          }
-          // The copy kept before the request is filed under the id the
-          // request went to; the daemon's answer names the row it queued the
-          // message in, which is where the refusal, if it comes, is filed.
-          if (!isHidden && postResult.conversationId !== activeConversationId) {
-            const composer = useComposerStore.getState();
-            const kept = composer.takeQueuedSend(clientMessageId);
-            if (kept !== null) {
-              composer.recordQueuedSend(clientMessageId, {
-                ...kept,
-                conversationId: postResult.conversationId,
-              });
-            }
           }
           const requestId = postResult.requestId;
           // The mapping exists to bind the daemon's `message_queued_deleted`
@@ -1242,16 +1255,11 @@ export function useSendMessage({
         // copy stays until an echo or correlated failure settles it. File it
         // under the authoritative row the daemon named in the meantime.
         if (!isHidden) {
-          const composer = useComposerStore.getState();
-          if (resolvedId && resolvedId !== activeConversationId) {
-            const kept = composer.takeQueuedSend(clientMessageId);
-            if (kept !== null) {
-              composer.recordQueuedSend(clientMessageId, {
-                ...kept,
-                conversationId: resolvedId,
-              });
-            }
-          }
+          recordQueuedSendAcceptance(
+            clientMessageId,
+            resolvedId ?? activeConversationId,
+            result.serverMessageId,
+          );
         }
 
         // The send materialized the conversation, so the key is no longer a

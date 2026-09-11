@@ -120,6 +120,8 @@ export interface QueuedSendPayload extends FailedSendPayload {
   /** The assistant the send went to, whose drafts a restored copy lives in. */
   assistantId: string;
   conversationId: string;
+  /** Durable row or request id returned when the assistant accepted the send. */
+  serverMessageId?: string;
 }
 
 export interface ClaimedChatSendTransition {

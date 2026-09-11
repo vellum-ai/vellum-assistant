@@ -422,6 +422,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
       {
         assistantId: "assistant-1",
         conversationId: SEND_CONVERSATION,
+        serverMessageId: "request-1",
         content: "queue this one",
         attachments: [
           {
@@ -453,6 +454,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
       {
         assistantId: "assistant-1",
         conversationId: SEND_CONVERSATION,
+        serverMessageId: "request-1",
         content: "queued after all",
         attachments: [],
       },
@@ -477,6 +479,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
       {
         assistantId: "assistant-1",
         conversationId: SEND_CONVERSATION,
+        serverMessageId: "m1",
         content: "accepted by the server",
         attachments: [],
       },
@@ -500,6 +503,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
       {
         assistantId: "assistant-1",
         conversationId: SEND_CONVERSATION,
+        serverMessageId: "m1",
         content: "interrupt with this",
         attachments: [FAILED_ATTACHMENT],
       },
