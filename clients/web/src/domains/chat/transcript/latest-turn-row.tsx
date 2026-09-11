@@ -111,11 +111,11 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   const phase = useTurnStore.use.phase();
   const isStreaming =
     phase === "queued" || phase === "thinking" || phase === "streaming";
-  // The last message-kind item of the cluster collapses its hover-actions row
+  // The last message-kind item of the cluster is the latest message
   // (see `TranscriptRowProps.isLatestMessage`). Trailing non-message rows —
   // the thinking slot, pending prompts — carry no trailer of their own, so
-  // the flag skips past them; this keeps the space collapsed while the turn
-  // is still streaming, not just after it settles.
+  // Retry stays on the last assistant message while the turn is still
+  // streaming, not just after it settles.
   const lastMessageItem = responseItems.findLast(
     (item) => item.kind === "message",
   );

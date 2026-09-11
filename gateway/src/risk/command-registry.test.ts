@@ -391,6 +391,16 @@ describe("command-registry", () => {
       expect(assistantSpec.baseRisk).toBe("low");
     });
 
+    describe("apps", () => {
+      test("assistant apps inspect is low risk", () => {
+        expect(getAssistantPath("apps inspect").baseRisk).toBe("low");
+      });
+
+      test("assistant apps refresh is medium risk", () => {
+        expect(getAssistantPath("apps refresh").baseRisk).toBe("medium");
+      });
+    });
+
     // ── oauth subcommand ──────────────────────────────────────────────────
     describe("oauth", () => {
       const oauthSpec = assistantSubs.oauth;
@@ -419,6 +429,14 @@ describe("command-registry", () => {
 
       test("assistant oauth request is medium risk", () => {
         expect(oauthSpec.subcommands!.request.baseRisk).toBe("medium");
+      });
+
+      // Both channel doors carry the bot's effects, so both are high: the
+      // request door because the endpoint decides what it does, the send
+      // door because it always posts a message somebody reads.
+      test("both assistant channels doors are high risk", () => {
+        expect(getAssistantPath("channels request").baseRisk).toBe("high");
+        expect(getAssistantPath("channels send").baseRisk).toBe("high");
       });
 
       test("assistant oauth request as a channel bot escalates to high, keyed on the contract's map", () => {

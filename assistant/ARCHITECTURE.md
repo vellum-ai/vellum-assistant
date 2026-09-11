@@ -1294,9 +1294,8 @@ graph TB
         RM_DIR["rmSync skill directory"]
     end
 
-    subgraph "File Watcher"
-        WATCHER["Skills directory watcher<br/>detects changes"]
-        EVICT["Session eviction<br/>+ recreation"]
+    subgraph "Capability reseed"
+        RESEED["SKILL.md mtime poll<br/>reseeds capability cards"]
     end
 
     SNIPPET --> EVAL_TOOL
@@ -1309,14 +1308,12 @@ graph TB
     SCAFFOLD --> MANAGED_STORE
     MANAGED_STORE --> SKILL_DIR
 
-    SKILL_DIR --> WATCHER
-    WATCHER --> EVICT
-
+    SKILL_DIR --> RESEED
     SKILL_DIR --> SKILL_LOAD
     SKILL_LOAD --> SESSION
 
     DELETE --> RM_DIR
-    RM_DIR --> WATCHER
+    RM_DIR --> RESEED
 ```
 
 **Key design decisions:**
@@ -1324,7 +1321,7 @@ graph TB
 - `evaluate_typescript_code` always forces `sandbox.enabled = true` regardless of global config.
 - Snippet contract: must export `default` or `run` with signature `(input: unknown) => unknown | Promise<unknown>`.
 - Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` files.
-- After persist or delete, the file watcher triggers conversation eviction; the next turn runs in a fresh conversation. The model's system prompt instructs it to continue normally.
+- After persist or delete, capability cards reseed from the `SKILL.md` set. The next turn continues in the same conversation.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
 - `skill_load` resolves the recursive include graph (via `include-graph.ts`) before emitting output. Missing children are listed as suggested skills without child `<loaded_skill>` markers; cycles still produce `isError: true` with no marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
 

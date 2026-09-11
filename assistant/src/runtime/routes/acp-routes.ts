@@ -24,8 +24,11 @@ import {
   AcpResumeError,
   AcpSessionNotFoundError,
 } from "../../acp/session-manager.js";
-import type { AcpSessionState } from "../../acp/types.js";
-import type { AssistantEvent } from "../../api/index.js";
+import { type AcpSessionState, isLiveAcpStatus } from "../../acp/types.js";
+import {
+  AcpSessionModelUpdateEventSchema,
+  type AssistantEvent,
+} from "../../api/index.js";
 import { getConfig } from "../../config/loader.js";
 import { createGuardianRequestForConfirmation } from "../../permissions/confirmation-guardian-request.js";
 import type { UserDecision } from "../../permissions/types.js";
@@ -53,6 +56,10 @@ const log = getLogger("acp-routes");
 const DEFAULT_SESSION_LIMIT = 50;
 const MAX_SESSION_LIMIT = 500;
 
+/** The option shape the `acp_session_model_update` event already publishes. */
+const acpModelOptionsSchema =
+  AcpSessionModelUpdateEventSchema.shape.availableModels;
+
 const sessionEntrySchema = z.object({
   id: z.string(),
   agentId: z.string(),
@@ -68,6 +75,15 @@ const sessionEntrySchema = z.object({
   /** Credential failure that ended the run, when one did. Drives the inline
    *  Connect card on reopen; cleared when a replacement token is stored. */
   authErrorCode: z.string().optional(),
+  /** Model a live session is running on. Absent for history rows, which have
+   *  no live process to ask. */
+  model: z.string().optional(),
+  /** Models a live session could run on. Absent for history rows. */
+  availableModels: acpModelOptionsSchema.optional(),
+  /** Scopes live model revisions to one assistant process. */
+  modelRevisionEpoch: z.string().uuid().optional(),
+  /** Orders live model state within `modelRevisionEpoch`. */
+  modelRevision: z.number().int().nonnegative().optional(),
   usedTokens: z.number().optional(),
   contextSize: z.number().optional(),
   costAmount: z.number().optional(),
@@ -214,9 +230,13 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   const task = body?.task as string | undefined;
   const conversationId = body?.conversationId as string | undefined;
   const cwd = (body?.cwd as string | undefined) ?? process.cwd();
+  const model = body?.model ?? undefined;
 
   if (!agent || !task || !conversationId) {
     throw new BadRequestError("agent, task, and conversationId are required");
+  }
+  if (model !== undefined && typeof model !== "string") {
+    throw new BadRequestError("model must be a string when provided");
   }
 
   // High-risk approval gate. Block BEFORE any side effects — resolution can
@@ -224,7 +244,12 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   // launches the host subprocess — so an unapproved request mutates nothing.
   const decision = await awaitRouteApproval({
     toolName: "acp_spawn",
-    input: { agent, task, cwd },
+    input: {
+      agent,
+      task,
+      cwd,
+      ...(model !== undefined ? { model } : {}),
+    },
     conversationId,
     signal: abortSignal,
   });
@@ -262,17 +287,25 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   );
 
   const manager = getAcpSessionManager();
-  const { acpSessionId, protocolSessionId } = await manager.spawn(
+  const { acpSessionId, protocolSessionId, modelWarning } = await manager.spawn(
     agent,
     agentConfig,
     task,
     cwd,
     conversationId,
     broadcastMessage,
+    { model },
   );
 
   log.info({ acpSessionId, protocolSessionId, agent }, "ACP spawn succeeded");
-  return { acpSessionId, protocolSessionId, agent };
+  // A refused model is a warning, not a failed spawn: the session is live on
+  // the agent's own model.
+  return {
+    acpSessionId,
+    protocolSessionId,
+    agent,
+    ...(modelWarning ? { modelWarning } : {}),
+  };
 }
 
 async function steerSession({ pathParams, body }: RouteHandlerArgs) {
@@ -588,10 +621,7 @@ function deleteSession({ pathParams }: RouteHandlerArgs) {
 
   try {
     const state = manager.getStatus(id);
-    if (
-      !Array.isArray(state) &&
-      (state.status === "running" || state.status === "initializing")
-    ) {
+    if (!Array.isArray(state) && isLiveAcpStatus(state.status)) {
       throw new ConflictError(
         `ACP session "${id}" is still ${state.status}. Cancel or close it before deleting.`,
       );
@@ -640,11 +670,22 @@ export const ROUTES: RouteDefinition[] = [
       task: z.string().describe("Task description"),
       conversationId: z.string(),
       cwd: z.string().describe("Working directory").optional(),
+      model: z
+        .string()
+        .optional()
+        .describe("Optional model id or alias to request for the session."),
     }),
     responseBody: z.object({
       acpSessionId: z.string(),
       protocolSessionId: z.string(),
       agent: z.string(),
+      modelWarning: z
+        .string()
+        .optional()
+        .describe(
+          "Why the requested model was not applied. The session is running " +
+            "on the agent's own model.",
+        ),
     }),
   },
   {
@@ -852,6 +893,10 @@ function listMergedSessions(opts: { limit: number; conversationId?: string }): {
       parentToolUseId: s.parentToolUseId,
       authErrorCode: s.authErrorCode,
       authErrorCredential: s.authErrorCredential,
+      model: s.model,
+      availableModels: s.availableModels,
+      modelRevisionEpoch: s.modelRevisionEpoch,
+      modelRevision: s.modelRevision,
       usedTokens: s.latestUsage?.usedTokens,
       contextSize: s.latestUsage?.contextSize,
       costAmount: s.latestUsage?.costAmount,

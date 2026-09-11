@@ -58,3 +58,25 @@ export const Completed: Story = {
     onClose: () => {},
   },
 };
+
+/**
+ * The MODEL tile appears once the daemon reports a model for the session. It
+ * is read only and takes a row of its own under the token tiles.
+ */
+export const RunningWithModel: Story = {
+  args: {
+    entry: { ...runningEntry, acpSessionId: "acp-ibm-model", model: "opus" },
+    onClose: () => {},
+  },
+};
+
+export const CompletedWithModel: Story = {
+  args: {
+    entry: {
+      ...completedEntry,
+      acpSessionId: "acp-ibm-done-model",
+      model: "opus",
+    },
+    onClose: () => {},
+  },
+};

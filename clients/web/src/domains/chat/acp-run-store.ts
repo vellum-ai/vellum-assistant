@@ -12,6 +12,8 @@
 
 import { create } from "zustand";
 
+import type { AcpSessionModelUpdateEvent } from "@vellumai/assistant-api";
+
 import { createSelectors } from "@/utils/create-selectors";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 import {
@@ -68,6 +70,10 @@ export interface AcpRunRawEvent {
   messageId?: string;
 }
 
+/** One selectable model as the ACP adapter reported it. */
+export type AcpModelOption =
+  AcpSessionModelUpdateEvent["availableModels"][number];
+
 export interface AcpRunEntry {
   acpSessionId: string;
   agent: string;
@@ -99,8 +105,36 @@ export interface AcpRunEntry {
   /** Cumulative cost reported by the agent, when available. */
   costAmount?: number;
   costCurrency?: string;
+  /** Model the session currently runs on, when the adapter reports one. */
+  model?: string;
+  /** Models the session can switch to; absent when the adapter has no selector. */
+  availableModels?: AcpModelOption[];
+  /**
+   * Identifier of the assistant process issuing model revisions. Absent on
+   * history rows and responses from assistants predating revision epochs.
+   */
+  modelRevisionEpoch?: string;
+  /** Monotonic server revision within `modelRevisionEpoch`. */
+  modelRevision?: number;
   events: AcpRunRawEvent[];
 }
+
+/** A model update recorded before its session had an entry in the store. */
+export interface PendingModelUpdate {
+  model?: string;
+  availableModels: AcpModelOption[];
+  modelRevisionEpoch: string;
+  modelRevision: number;
+}
+
+/** Model ordering state captured when an ACP snapshot request begins. */
+export interface AcpModelRevision {
+  modelRevisionEpoch?: string;
+  modelRevision?: number;
+}
+
+/** How many sessions can hold a buffered model update at once. */
+export const MAX_PENDING_MODEL_UPDATES = 32;
 
 export interface AcpRunState {
   byId: Record<string, AcpRunEntry>;
@@ -116,6 +150,17 @@ export interface AcpRunState {
    * reconnection by ignoring anything at or below the mark.
    */
   highWaterMark: Map<string, number>;
+  /**
+   * Model updates that landed for a session with no entry yet: an adapter can
+   * report an unsolicited `config_option_update` while the spawn is still
+   * pinning the model, which the daemon publishes before it announces the
+   * session, and an `/acp/sessions` read can be answered after an update it
+   * predates. Whichever path creates the entry, a spawn or a snapshot, folds
+   * the buffered update in under the same ordering rule a live entry gets, so
+   * the selection is not lost. Bounded by
+   * {@link MAX_PENDING_MODEL_UPDATES}, least recently updated id dropped first.
+   */
+  pendingModelUpdates: Map<string, PendingModelUpdate>;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,13 +260,39 @@ export interface AcpRunActions {
   }) => void;
 
   /**
+   * Record the session's model selection. Unlike `updateUsage`, both fields are
+   * replaced wholesale: the adapter reports its full current state, so a
+   * cleared selection or a shrunken option set must not be masked by the
+   * previous one. The server revision prevents an older event or snapshot from
+   * rolling the selection back.
+   *
+   * A session with no entry yet buffers the update in `pendingModelUpdates`
+   * instead, for the spawn or snapshot that creates the entry to apply.
+   */
+  setModel: (params: {
+    acpSessionId: string;
+    modelRevisionEpoch: string;
+    modelRevision: number;
+    model?: string;
+    availableModels: AcpModelOption[];
+  }) => void;
+
+  /**
    * Idempotent merge of history entries keyed by acpSessionId. Unions live and
    * incoming `events` by `seq` so a live stream is never clobbered by a
    * stale-but-longer snapshot, while always merging terminal/status/usage
    * metadata from the history entry. Sets `highWaterMark` to the max seq over
    * the merged buffer and indexes `byToolUseId`.
+   *
+   * A model event and snapshot carry the same server revision, so whichever
+   * path arrives later can be ordered without comparing local receipt times. A
+   * buffered update from `pendingModelUpdates` is folded in by the same rule
+   * and dropped either way.
    */
-  seedFromHistory: (entries: AcpRunEntry[]) => void;
+  seedFromHistory: (
+    entries: AcpRunEntry[],
+    modelRevisionsAtFetch?: ReadonlyMap<string, AcpModelRevision>,
+  ) => void;
 
   reset: () => void;
 }
@@ -237,6 +308,7 @@ const INITIAL_STATE: AcpRunState = {
   orderedIds: [],
   byToolUseId: new Map<string, string>(),
   highWaterMark: new Map<string, number>(),
+  pendingModelUpdates: new Map<string, PendingModelUpdate>(),
 };
 
 // ---------------------------------------------------------------------------
@@ -290,6 +362,186 @@ function mergeEvents(
 }
 
 /**
+ * Fold a snapshot's model selection into a live entry.
+ *
+ * Revisions order updates within one assistant process. Different process
+ * epochs are ordered causally: live events arrive in stream order, while a
+ * snapshot may establish a different epoch only when the model revision has
+ * not changed since its request began. A revisioned copy also wins over an
+ * unrevisioned history or legacy snapshot.
+ *
+ * Otherwise the snapshot rules apply: a row carrying `availableModels` is
+ * authoritative for both fields, so the supported no-selection state (no
+ * `model`, empty options) clears a stale selection, while a legacy row that
+ * omits the option set keeps the store's options and only upgrades a model it
+ * actually carries.
+ */
+function mergeModelSelection(
+  existing: AcpRunEntry,
+  incoming: AcpRunEntry,
+  existingAtFetch?: AcpModelRevision | null,
+): Pick<
+  AcpRunEntry,
+  "model" | "availableModels" | "modelRevisionEpoch" | "modelRevision"
+> {
+  const existingEpoch = existing.modelRevisionEpoch;
+  const incomingEpoch = incoming.modelRevisionEpoch;
+  const differentEpochs = existingEpoch !== incomingEpoch;
+  const existingChangedSinceFetch =
+    existingAtFetch !== undefined &&
+    !sameModelRevision(modelRevisionOf(existing), existingAtFetch);
+  const keepExisting =
+    differentEpochs
+      ? incomingEpoch === undefined
+        ? existingEpoch !== undefined
+        : existingChangedSinceFetch
+      : existing.modelRevision !== undefined &&
+        (incoming.modelRevision === undefined ||
+          existing.modelRevision >= incoming.modelRevision);
+  if (keepExisting) {
+    return {
+      model: existing.model,
+      availableModels: existing.availableModels,
+      modelRevisionEpoch: existing.modelRevisionEpoch,
+      modelRevision: existing.modelRevision,
+    };
+  }
+  const modelRevisionEpoch =
+    incoming.modelRevisionEpoch ?? existing.modelRevisionEpoch;
+  const modelRevision = differentEpochs
+    ? incoming.modelRevision
+    : (incoming.modelRevision ?? existing.modelRevision);
+  if (incoming.availableModels !== undefined) {
+    return {
+      model: incoming.model,
+      availableModels: incoming.availableModels,
+      modelRevisionEpoch,
+      modelRevision,
+    };
+  }
+  return {
+    model: incoming.model ?? existing.model,
+    availableModels: existing.availableModels,
+    modelRevisionEpoch,
+    modelRevision,
+  };
+}
+
+function modelRevisionOf(
+  value: AcpModelRevision,
+): AcpModelRevision | null {
+  if (
+    value.modelRevisionEpoch === undefined &&
+    value.modelRevision === undefined
+  ) {
+    return null;
+  }
+  return {
+    modelRevisionEpoch: value.modelRevisionEpoch,
+    modelRevision: value.modelRevision,
+  };
+}
+
+function sameModelRevision(
+  left: AcpModelRevision | null,
+  right: AcpModelRevision | null,
+): boolean {
+  return (
+    left?.modelRevisionEpoch === right?.modelRevisionEpoch &&
+    left?.modelRevision === right?.modelRevision
+  );
+}
+
+/**
+ * Buffer a model update for a session with no entry, replacing any earlier one
+ * for the same id. Re-inserting the key keeps the map in recency order so the
+ * cap evicts the least recently updated session.
+ */
+function rememberPendingModelUpdate(
+  pendingModelUpdates: Map<string, PendingModelUpdate>,
+  acpSessionId: string,
+  update: PendingModelUpdate,
+): Map<string, PendingModelUpdate> {
+  const existing = pendingModelUpdates.get(acpSessionId);
+  if (
+    existing &&
+    existing.modelRevisionEpoch === update.modelRevisionEpoch &&
+    existing.modelRevision >= update.modelRevision
+  ) {
+    return pendingModelUpdates;
+  }
+  const next = new Map(pendingModelUpdates);
+  next.delete(acpSessionId);
+  next.set(acpSessionId, update);
+  for (const id of next.keys()) {
+    if (next.size <= MAX_PENDING_MODEL_UPDATES) {
+      break;
+    }
+    next.delete(id);
+  }
+  return next;
+}
+
+/**
+ * Forget the buffered model updates for the given sessions, keeping the map
+ * reference stable when none of them had one.
+ */
+function dropPendingModelUpdates(
+  pendingModelUpdates: Map<string, PendingModelUpdate>,
+  acpSessionIds: string[],
+): Map<string, PendingModelUpdate> {
+  const buffered = acpSessionIds.filter((id) => pendingModelUpdates.has(id));
+  if (buffered.length === 0) {
+    return pendingModelUpdates;
+  }
+  const next = new Map(pendingModelUpdates);
+  for (const id of buffered) {
+    next.delete(id);
+  }
+  return next;
+}
+
+/**
+ * Fold a buffered model update into the snapshot entry that creates its
+ * session. The buffered update stands in for the live entry the store never
+ * had, so {@link mergeModelSelection} picks the winner by the same rule.
+ */
+function applyPendingModelUpdate(
+  entry: AcpRunEntry,
+  pending: PendingModelUpdate,
+  existingAtFetch?: AcpModelRevision | null,
+): AcpRunEntry {
+  return {
+    ...entry,
+    ...mergeModelSelection(
+      {
+        ...entry,
+        model: pending.model,
+        availableModels: pending.availableModels,
+        modelRevisionEpoch: pending.modelRevisionEpoch,
+        modelRevision: pending.modelRevision,
+      },
+      entry,
+      existingAtFetch,
+    ),
+  };
+}
+
+/**
+ * Fold a buffered model update into an entry a live event just created or
+ * resumed. The server revision picks between the entry and buffered update.
+ */
+function withPendingModelUpdate(
+  entry: AcpRunEntry,
+  pending: PendingModelUpdate | undefined,
+): AcpRunEntry {
+  if (pending === undefined) {
+    return entry;
+  }
+  return applyPendingModelUpdate(entry, pending);
+}
+
+/**
  * Merge a history entry into an existing live entry. Unions both event buffers
  * by `seq` (never dropping the newest live events) and always folds in the
  * history entry's terminal/status/usage metadata. A terminal history status
@@ -299,6 +551,7 @@ function mergeEvents(
 function mergeHistoryEntry(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
+  existingAtFetch?: AcpModelRevision | null,
 ): AcpRunEntry {
   const events = mergeEvents(existing.events, incoming.events);
 
@@ -321,6 +574,7 @@ function mergeHistoryEntry(
     outputTokens: incoming.outputTokens ?? existing.outputTokens,
     costAmount: incoming.costAmount ?? existing.costAmount,
     costCurrency: incoming.costCurrency ?? existing.costCurrency,
+    ...mergeModelSelection(existing, incoming, existingAtFetch),
     task: existing.task ?? incoming.task,
     parentToolUseId: existing.parentToolUseId ?? incoming.parentToolUseId,
   };
@@ -381,8 +635,13 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   ...INITIAL_STATE,
 
   spawnRun: (params) => {
-    const { byId, orderedIds, byToolUseId } = get();
+    const { byId, orderedIds, byToolUseId, pendingModelUpdates } = get();
     const existing = byId[params.acpSessionId];
+    const pending = pendingModelUpdates.get(params.acpSessionId);
+    const nextPendingModelUpdates = dropPendingModelUpdates(
+      pendingModelUpdates,
+      [params.acpSessionId],
+    );
 
     if (existing) {
       // A respawn for an active run is a no-op. A respawn for a terminal run
@@ -392,15 +651,26 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         return;
       }
 
-      const resumed: AcpRunEntry = {
-        ...existing,
-        status: "running",
-        stopReason: undefined,
-        error: undefined,
-        completedAt: undefined,
-        task: existing.task ?? params.task,
-        parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
-      };
+      const resumed: AcpRunEntry = withPendingModelUpdate(
+        {
+          ...existing,
+          status: "running",
+          stopReason: undefined,
+          error: undefined,
+          completedAt: undefined,
+          task: existing.task ?? params.task,
+          parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
+          // The resumed session reports its own model right after this event
+          // when its adapter has a selector. Clear the pair and revision so the
+          // next process epoch can be established without relying on
+          // wall-clock ordering.
+          model: undefined,
+          availableModels: undefined,
+          modelRevisionEpoch: undefined,
+          modelRevision: undefined,
+        },
+        pending,
+      );
 
       const nextByToolUseId = existing.parentToolUseId
         ? byToolUseId
@@ -413,24 +683,30 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       set({
         byId: { ...byId, [params.acpSessionId]: resumed },
         byToolUseId: nextByToolUseId,
+        pendingModelUpdates: nextPendingModelUpdates,
       });
       return;
     }
 
-    const entry: AcpRunEntry = {
-      acpSessionId: params.acpSessionId,
-      agent: params.agent,
-      parentConversationId: params.parentConversationId,
-      task: params.task,
-      // Daemon emits `acp_session_spawned` only after the session is already
-      // running, so a spawned run starts as "running", not "initializing".
-      status: "running",
-      startedAt: params.startedAt,
-      parentToolUseId: params.parentToolUseId,
-      usedTokens: 0,
-      contextSize: 0,
-      events: [],
-    };
+    // A model update can precede `acp_session_spawned`, so the entry this
+    // event creates takes the selection the adapter already reported.
+    const entry: AcpRunEntry = withPendingModelUpdate(
+      {
+        acpSessionId: params.acpSessionId,
+        agent: params.agent,
+        parentConversationId: params.parentConversationId,
+        task: params.task,
+        // Daemon emits `acp_session_spawned` only after the session is already
+        // running, so a spawned run starts as "running", not "initializing".
+        status: "running",
+        startedAt: params.startedAt,
+        parentToolUseId: params.parentToolUseId,
+        usedTokens: 0,
+        contextSize: 0,
+        events: [],
+      },
+      pending,
+    );
 
     // Only clone the tool-use index when this spawn carries a
     // `parentToolUseId`; otherwise keep the reference stable.
@@ -444,6 +720,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       byId: { ...byId, [params.acpSessionId]: entry },
       orderedIds: [...orderedIds, params.acpSessionId],
       byToolUseId: nextByToolUseId,
+      pendingModelUpdates: nextPendingModelUpdates,
     });
   },
 
@@ -620,20 +897,86 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     });
   },
 
-  seedFromHistory: (entries) => {
-    const { byId, orderedIds, byToolUseId, highWaterMark } = get();
+  setModel: (params) => {
+    const { byId, pendingModelUpdates } = get();
+    const existing = byId[params.acpSessionId];
+    if (!existing) {
+      set({
+        pendingModelUpdates: rememberPendingModelUpdate(
+          pendingModelUpdates,
+          params.acpSessionId,
+          {
+            model: params.model,
+            availableModels: params.availableModels,
+            modelRevisionEpoch: params.modelRevisionEpoch,
+            modelRevision: params.modelRevision,
+          },
+        ),
+      });
+      return;
+    }
+
+    set({
+      byId: {
+        ...byId,
+        [params.acpSessionId]: {
+          ...existing,
+          ...mergeModelSelection(existing, {
+            ...existing,
+            model: params.model,
+            availableModels: params.availableModels,
+            modelRevisionEpoch: params.modelRevisionEpoch,
+            modelRevision: params.modelRevision,
+          }),
+        },
+      },
+      pendingModelUpdates: dropPendingModelUpdates(pendingModelUpdates, [
+        params.acpSessionId,
+      ]),
+    });
+  },
+
+  seedFromHistory: (entries, modelRevisionsAtFetch) => {
+    const {
+      byId,
+      orderedIds,
+      byToolUseId,
+      highWaterMark,
+      pendingModelUpdates,
+    } = get();
 
     // Union live + history events by seq and always merge terminal/status/
     // usage metadata from history so a live entry can't stay stale. The shared
     // helper owns the byId/orderedIds insertion; the seq high-water mark and the
     // tool-use index are acp-specific and folded in from the merged result.
+    const withPendingUpdates = entries.map((entry) => {
+      // An update that landed before this snapshot created the entry waited in
+      // `pendingModelUpdates` for the row to arrive.
+      const pending = pendingModelUpdates.get(entry.acpSessionId);
+      return pending
+        ? applyPendingModelUpdate(
+            entry,
+            pending,
+            modelRevisionsAtFetch
+              ? (modelRevisionsAtFetch.get(entry.acpSessionId) ?? null)
+              : undefined,
+          )
+        : entry;
+    });
     const { byId: nextById, orderedIds: nextOrderedIds } =
       seedEntriesFromHistory({
-        entries,
+        entries: withPendingUpdates,
         byId,
         orderedIds,
         idOf: (entry) => entry.acpSessionId,
-        merge: mergeHistoryEntry,
+        merge: (existing, incoming) =>
+          mergeHistoryEntry(
+            existing,
+            incoming,
+            modelRevisionsAtFetch
+              ? (modelRevisionsAtFetch.get(incoming.acpSessionId) ?? null)
+              : undefined,
+          ),
       });
 
     let nextByToolUseId = byToolUseId;
@@ -666,6 +1009,10 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       orderedIds: nextOrderedIds,
       byToolUseId: nextByToolUseId,
       highWaterMark: nextHighWaterMark,
+      pendingModelUpdates: dropPendingModelUpdates(
+        pendingModelUpdates,
+        entries.map((entry) => entry.acpSessionId),
+      ),
     });
   },
 
@@ -675,6 +1022,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       orderedIds: [],
       byToolUseId: new Map<string, string>(),
       highWaterMark: new Map<string, number>(),
+      pendingModelUpdates: new Map<string, PendingModelUpdate>(),
     }),
 }));
 

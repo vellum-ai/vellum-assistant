@@ -20,6 +20,10 @@
           "cwd": {
             "type": "string",
             "description": "Working directory for the agent. This determines where the agent runs and where its session is stored. Set this to the project/repo root the user wants the agent to work in. Defaults to current conversation's working directory."
+          },
+          "model": {
+            "type": "string",
+            "description": "Model the agent should run on, passed ONLY when the user named one (e.g. 'opus' for Claude). Left off, a Claude session runs on Opus and every other agent on its own default. If the agent refuses the value, or advertises no model selector, the result says so and the session runs on its own model."
           }
         },
         "required": ["task"]

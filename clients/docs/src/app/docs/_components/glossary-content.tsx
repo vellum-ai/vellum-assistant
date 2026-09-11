@@ -34,7 +34,7 @@ const GLOSSARY_ENTRIES: GlossaryEntry[] = [
   {
     term: "Client",
     definition:
-      "A device or application used to interact with the assistant. The Vellum macOS app, iOS app, web interface, and Chrome extension are all clients. A client connects to the assistant through a channel.",
+      "A device or application used to interact with the assistant. The Vellum macOS and Windows apps, iOS app, web interface, and Chrome extension are all clients. A client connects to the assistant through a channel.",
   },
   {
     term: "Contact",

@@ -33,10 +33,11 @@ export function SkillsReferenceACPContent() {
             Setup required
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            The protocol adapter is installed automatically the first time you use an agent. For
-            Claude Code that is everything: sign-in runs through an in-app Connect card, so there is
-            nothing to install yourself. The Codex adapter, @agentclientprotocol/codex-acp,
-            includes Codex and reuses your existing Codex login. Say
+            The protocol adapter is installed automatically the first time you use an agent, at the
+            version your Assistant pins, and an adapter already on your PATH is left as it is.
+            For Claude Code that is everything: sign-in runs through an in-app Connect card,
+            so there is nothing to install yourself. The Codex adapter,
+            @agentclientprotocol/codex-acp, includes Codex and reuses your existing Codex login. Say
             &ldquo;Set up ACP&rdquo; to walk through authentication. Naming Claude Code or Codex is
             also enough: the assistant offers once to connect it here, then continues.
           </p>
@@ -92,6 +93,14 @@ export function SkillsReferenceACPContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
+                    &ldquo;Run Claude Code on sonnet for this&rdquo;
+                  </td>
+                  <td className="px-3 py-2">
+                    Starts the session on the model you named
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-3 py-2">
                     &ldquo;Check on my coding agent&rdquo;
                   </td>
                   <td className="px-3 py-2">Gets agent status</td>
@@ -143,6 +152,13 @@ export function SkillsReferenceACPContent() {
             <li>
               <strong>Choose the right agent.</strong> Claude Code for general development, Codex for
               code generation, Gemini CLI for Google ecosystem integration.
+            </li>
+            <li>
+              <strong>Ask for a model.</strong> Claude Code runs on Opus unless you name a model,
+              and every other agent starts on its own default. Say which model a session should run
+              on, for example &ldquo;use sonnet&rdquo;, and it starts there. A session keeps the
+              model it started on, so ask for a new one to change it. A standing default per agent
+              lives in your Assistant config as <code>acp.agents.&lt;id&gt;.model</code>.
             </li>
           </ul>
         </section>

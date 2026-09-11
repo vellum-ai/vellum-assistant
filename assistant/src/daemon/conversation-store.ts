@@ -27,10 +27,10 @@ import {
 } from "../providers/connection-resolution.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { listProviders } from "../providers/registry.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getSandboxWorkingDir } from "../util/platform.js";
 import { Conversation } from "./conversation.js";
+import { conversationEventSink } from "./conversation-event-sink.js";
 import {
   removeFromEvictor,
   touchConversation,
@@ -377,8 +377,9 @@ async function acquireConversation(
         provider,
         systemPrompt,
         // Top-level conversations deliver to the SSE hub for their whole life,
-        // so every subscribed client sees every event with no per-turn wiring.
-        broadcastMessage,
+        // so every subscribed client sees every event with no per-turn wiring,
+        // scoped to this conversation whatever the event's payload carries.
+        conversationEventSink(conversationId),
         workingDir,
         {
           maxTokens,
@@ -547,7 +548,7 @@ export function clearAllActiveConversations(): number {
 }
 
 /**
- * Evict in-memory conversations after a config/prompt/skills reload so the next
+ * Evict in-memory conversations after a config/prompt reload so the next
  * turn rebuilds them against the new config. Conversations with in-flight work
  * (a live turn, a queued successor, or an active subagent) are marked stale
  * and rebuilt by `getOrCreateConversation` once that work finishes. Idle

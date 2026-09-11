@@ -1,6 +1,7 @@
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../../util/logger.js";
+import { directDeliveryContext } from "../callback-routing.js";
 import type {
   CallbackContext,
   ChannelTransport,
@@ -50,6 +51,22 @@ async function sendTarget(
 
 export const discordTransport: ChannelTransport = {
   channel: "discord",
+
+  /**
+   * A chat is a channel id, with `threadId` naming the thread, which is its
+   * own channel. Reaching a person who has not been named as a chat would
+   * mean opening their DM first, a platform call this resolution does not
+   * make; the inbound `dm` param below is how an event-carried callback says
+   * its `chatId` is a recipient rather than a room.
+   */
+  addressFor(target) {
+    const threadId = target.threadId?.trim();
+    return {
+      ctx: directDeliveryContext("discord", threadId ? { threadId } : {}),
+      chatId: target.chatId,
+      ...(threadId ? { threadId } : {}),
+    };
+  },
 
   // Discord clears a typing indicator after ten seconds.
   activityRefreshMs: 8_000,

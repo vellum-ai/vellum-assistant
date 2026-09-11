@@ -36,25 +36,18 @@ function makeProvider(id: string, displayName: string): MessagingProvider {
   };
 }
 
-// "outlook" is a messaging provider but not a channel (it is not in
-// CHANNEL_IDS): a send through it has no chat conversation to record in.
-// "phone" and "telegram" are channels.
+// "phone" is a provider with a send of its own and no channel transport, so
+// its send stays tool-mediated; "outlook" drafts. A channel with a transport
+// (slack, telegram) never reaches a provider's send: the tool hands it to
+// the transport-backed send, which is what these tests prove.
 const phoneProvider = makeProvider("phone", "Phone");
-const telegramProvider = makeProvider("telegram", "Telegram");
 const outlookProvider = makeProvider("outlook", "Outlook");
-// Slack's provider threads exactly where it is told and reports that thread
-// on the result; Telegram's ignores a requested thread and reports none.
-const slackProvider: MessagingProvider = {
-  ...makeProvider("slack", "Slack"),
-  sendMessage: async (_connection, conversationId, _text, options) => ({
-    id: "1700000000.000100",
-    timestamp: 123,
-    conversationId,
-    ...(options?.threadId ? { threadId: options.threadId } : {}),
-  }),
+const telegramProvider: MessagingProvider = {
+  ...makeProvider("telegram", "Telegram"),
+  sendMessage: undefined,
 };
-let provider: MessagingProvider = phoneProvider;
 
+let provider: MessagingProvider = phoneProvider;
 let connection: OAuthConnection | undefined = undefined;
 
 /** Fires during provider resolution, the first await after the entry guard. */
@@ -74,26 +67,24 @@ mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
   isMailboxAddress: (value: string) => value.includes("@"),
 }));
 
-// ── Sent-post record dependency mocks ──
+// ── The transport-backed send ──
 
-const getConversationMock = mock(
-  (_id: string) => null as { id: string; createdAt: number } | null,
-);
+const ADDRESSABLE = new Set(["slack", "telegram", "discord", "whatsapp"]);
+const sendChannelTextMock = mock(async (params: Record<string, unknown>) => ({
+  channel: params.channel,
+  chatId: (params.target as { chatId: string }).chatId,
+  ...((params.target as { threadId?: string }).threadId
+    ? { threadId: (params.target as { threadId?: string }).threadId }
+    : {}),
+  messageIds: ["1700000000.000100"],
+  lastMessageId: "1700000000.000100",
+  recordedIn: "home-1",
+}));
 
-const syncMessageToDiskMock = mock(
-  (_conversationId: string, _messageId: string, _createdAtMs: number) => {},
-);
-
-const resolveProactiveHomeConversationMock = mock(
-  async (_params: Record<string, unknown>) => ({
-    conversationId: "home-1",
-    createdNewConversation: false,
-  }),
-);
-
-const recordDeliveredChannelPostMock = mock(
-  async (_post: Record<string, unknown>) => ({ messageId: "row-1" }),
-);
+mock.module("../runtime/channel-send.js", () => ({
+  isProactivelyAddressable: (channel: string) => ADDRESSABLE.has(channel),
+  sendChannelText: sendChannelTextMock,
+}));
 
 const mockOutlookCreateDraft = mock(
   async (_conn: OAuthConnection, _draft: Record<string, unknown>) => ({
@@ -127,155 +118,304 @@ mock.module("../messaging/providers/outlook/client.js", () => ({
     })),
 }));
 
-mock.module("../persistence/conversation-crud.js", () => ({
-  setConversationProcessingStartedAt: () => {},
-  isConversationProcessing: () => false,
-  getConversation: getConversationMock,
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
-}));
-
-mock.module("../persistence/conversation-disk-view.js", () => ({
-  syncMessageToDisk: syncMessageToDiskMock,
-}));
-
-mock.module("../notifications/conversation-pairing.js", () => ({
-  resolveProactiveHomeConversation: resolveProactiveHomeConversationMock,
-}));
-
-mock.module("../persistence/external-conversation-store.js", () => ({
-  normalizeExternalThreadId: (value: string | null | undefined) => {
-    const trimmed = value?.trim();
-    return trimmed ? trimmed : null;
-  },
-}));
-
-mock.module("../notifications/delivered-post-record.js", () => ({
-  recordDeliveredChannelPost: recordDeliveredChannelPostMock,
-}));
-
 import { run } from "../config/bundled-skills/messaging/tools/messaging-send.js";
+
+const turn = {
+  workingDir: "/tmp",
+  conversationId: "conv-A",
+  assistantId: "ast-1",
+  trustClass: "guardian" as const,
+  executionChannel: "slack",
+  requesterChatId: "D0123456789",
+  sourceThreadId: "1700000000.000001",
+};
 
 describe("messaging-send tool", () => {
   beforeEach(() => {
     provider = phoneProvider;
     connection = undefined;
     sendMessageMock.mockClear();
+    sendChannelTextMock.mockClear();
     mockOutlookCreateDraft.mockClear();
     mockOutlookCreateReplyDraft.mockClear();
     onResolveProvider = null;
-    getConversationMock.mockClear();
-    syncMessageToDiskMock.mockClear();
-    resolveProactiveHomeConversationMock.mockClear();
-    resolveProactiveHomeConversationMock.mockImplementation(async () => ({
-      conversationId: "home-1",
-      createdNewConversation: false,
-    }));
-    recordDeliveredChannelPostMock.mockClear();
-    recordDeliveredChannelPostMock.mockImplementation(async () => ({
-      messageId: "row-1",
-    }));
   });
 
-  test("passes assistantId from tool context to provider send options", async () => {
-    const result = await run(
-      {
-        platform: "phone",
-        conversation_id: "+15550004444",
-        text: "test message",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-1",
-        assistantId: "ast-alpha",
-        trustClass: "guardian" as const,
-      },
-    );
+  describe("a channel with a transport", () => {
+    test("is sent through the transport-backed send with the turn's snapshot, never a provider", async () => {
+      const result = await run(
+        {
+          platform: "slack",
+          conversation_id: "C123",
+          thread_id: "1700000000.000009",
+          text: "hello",
+        },
+        turn,
+      );
 
-    expect(result.isError).toBe(false);
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      undefined,
-      "+15550004444",
-      "test message",
-      {
-        subject: undefined,
-        inReplyTo: undefined,
-        threadId: undefined,
-        attachments: undefined,
-        assistantId: "ast-alpha",
-      },
-    );
+      expect(result.isError).toBe(false);
+      expect(sendMessageMock).not.toHaveBeenCalled();
+      expect(sendChannelTextMock).toHaveBeenCalledTimes(1);
+      expect(sendChannelTextMock.mock.calls[0]![0]).toEqual({
+        channel: "slack",
+        target: {
+          kind: "chat",
+          chatId: "C123",
+          threadId: "1700000000.000009",
+        },
+        text: "hello",
+        renderRichly: true,
+        assistantId: "ast-1",
+        sender: {
+          conversationId: "conv-A",
+          executionChannel: "slack",
+          requesterChatId: "D0123456789",
+          sourceThreadId: "1700000000.000001",
+        },
+      });
+      expect(result.content).toBe(
+        'Message sent (ID: 1700000000.000100, "thread_id": "1700000000.000009").',
+      );
+    });
+
+    test("names the channel outright without resolving a provider, so a channel with no provider is reachable", async () => {
+      provider = outlookProvider;
+      const result = await run(
+        { platform: "discord", conversation_id: "C1", text: "hi" },
+        turn,
+      );
+      expect(result.isError).toBe(false);
+      expect(sendChannelTextMock.mock.calls[0]![0]).toMatchObject({
+        channel: "discord",
+        target: { kind: "chat", chatId: "C1" },
+      });
+    });
+
+    test("an auto-detected provider that is a channel goes through the transport too", async () => {
+      provider = telegramProvider;
+      const result = await run(
+        { conversation_id: "123456789", text: "hi" },
+        turn,
+      );
+      expect(result.isError).toBe(false);
+      expect(sendChannelTextMock.mock.calls[0]![0]).toMatchObject({
+        channel: "telegram",
+        target: { kind: "chat", chatId: "123456789" },
+      });
+    });
+
+    test("rejects attachments before any send", async () => {
+      const result = await run(
+        {
+          platform: "slack",
+          conversation_id: "C123",
+          text: "with a file",
+          attachment_paths: ["/tmp/does-not-matter.pdf"],
+        },
+        turn,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Gmail and Outlook");
+      expect(sendChannelTextMock).not.toHaveBeenCalled();
+    });
+
+    test("refuses an account rather than sending from the channel's default identity", async () => {
+      const result = await run(
+        {
+          platform: "slack",
+          account: "workspace-b@example.com",
+          conversation_id: "C123",
+          text: "hi",
+        },
+        turn,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("account does not apply to slack");
+      expect(sendChannelTextMock).not.toHaveBeenCalled();
+    });
+
+    test("a turn cancelled during provider resolution sends nothing", async () => {
+      provider = telegramProvider;
+      const controller = new AbortController();
+      onResolveProvider = () => controller.abort();
+      await expect(
+        run(
+          { conversation_id: "123456789", text: "never sent" },
+          { ...turn, signal: controller.signal },
+        ),
+      ).rejects.toThrow();
+      expect(sendChannelTextMock).not.toHaveBeenCalled();
+    });
+
+    test("reports the send's refusal as the tool's error", async () => {
+      sendChannelTextMock.mockImplementationOnce(async () => {
+        throw new Error('Channel "slack" cannot be addressed by person.');
+      });
+      const result = await run(
+        { platform: "slack", conversation_id: "C123", text: "hi" },
+        turn,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("cannot be addressed");
+    });
   });
 
-  test("passes threadId to provider when replying on non-Gmail platform", async () => {
-    const result = await run(
-      {
-        platform: "phone",
-        conversation_id: "conv-1",
-        text: "reply text",
-        thread_id: "thread-abc",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-1",
-        assistantId: "ast-alpha",
-        trustClass: "guardian" as const,
-      },
-    );
+  describe("a provider with a send of its own", () => {
+    test("passes assistantId from tool context to provider send options", async () => {
+      const result = await run(
+        {
+          platform: "phone",
+          conversation_id: "+12125550100",
+          text: "test message",
+        },
+        {
+          workingDir: "/tmp",
+          conversationId: "conv-1",
+          assistantId: "ast-alpha",
+          trustClass: "guardian" as const,
+        },
+      );
 
-    expect(result.isError).toBe(false);
-    expect(sendMessageMock).toHaveBeenCalledWith(
-      undefined,
-      "conv-1",
-      "reply text",
-      {
-        subject: undefined,
-        inReplyTo: undefined,
-        threadId: "thread-abc",
-        attachments: undefined,
-        assistantId: "ast-alpha",
-      },
-    );
+      expect(result.isError).toBe(false);
+      expect(sendChannelTextMock).not.toHaveBeenCalled();
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        undefined,
+        "+12125550100",
+        "test message",
+        {
+          subject: undefined,
+          inReplyTo: undefined,
+          threadId: undefined,
+          attachments: undefined,
+          assistantId: "ast-alpha",
+        },
+      );
+    });
+
+    test("passes threadId to provider when replying", async () => {
+      const result = await run(
+        {
+          platform: "phone",
+          conversation_id: "conv-1",
+          text: "reply text",
+          thread_id: "thread-abc",
+        },
+        {
+          workingDir: "/tmp",
+          conversationId: "conv-1",
+          assistantId: "ast-alpha",
+          trustClass: "guardian" as const,
+        },
+      );
+
+      expect(result.isError).toBe(false);
+      expect(sendMessageMock).toHaveBeenCalledWith(
+        undefined,
+        "conv-1",
+        "reply text",
+        {
+          subject: undefined,
+          inReplyTo: undefined,
+          threadId: "thread-abc",
+          attachments: undefined,
+          assistantId: "ast-alpha",
+        },
+      );
+    });
+
+    test("rejects attachments on platforms that can't carry them", async () => {
+      const result = await run(
+        {
+          platform: "phone",
+          conversation_id: "+12025550142",
+          text: "with a file",
+          attachment_paths: ["/tmp/does-not-matter.pdf"],
+        },
+        {
+          workingDir: "/tmp",
+          conversationId: "conv-1",
+          assistantId: "ast-alpha",
+          trustClass: "guardian" as const,
+        },
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Gmail and Outlook");
+      expect(sendMessageMock).not.toHaveBeenCalled();
+    });
+
+    test("a provider with neither a send nor a transport is refused", async () => {
+      provider = { ...makeProvider("fax", "Fax"), sendMessage: undefined };
+      const result = await run(
+        { platform: "fax", conversation_id: "1", text: "hi" },
+        turn,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("Fax cannot send from here");
+      expect(sendChannelTextMock).not.toHaveBeenCalled();
+    });
   });
 
-  test("rejects attachments on platforms that can't carry them", async () => {
-    const result = await run(
-      {
-        platform: "phone",
-        conversation_id: "+12025550142",
-        text: "with a file",
-        attachment_paths: ["/tmp/does-not-matter.pdf"],
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-1",
-        assistantId: "ast-alpha",
-        trustClass: "guardian" as const,
-      },
-    );
+  describe("Outlook drafts", () => {
+    test("reads and forwards attachments onto an Outlook draft", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "msg-send-att-"));
+      const filePath = join(dir, "report.pdf");
+      writeFileSync(filePath, "pdf-bytes");
+      provider = outlookProvider;
+      connection = {
+        id: "outlook-conn-1",
+        provider: "outlook",
+      } as OAuthConnection;
 
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("Gmail and Outlook");
-    expect(sendMessageMock).not.toHaveBeenCalled();
-  });
+      try {
+        const result = await run(
+          {
+            platform: "outlook",
+            conversation_id: "user@example.com",
+            text: "see attached",
+            subject: "Docs",
+            attachment_paths: [filePath],
+          },
+          {
+            workingDir: "/tmp",
+            conversationId: "conv-1",
+            assistantId: "ast-alpha",
+            trustClass: "guardian" as const,
+          },
+        );
 
-  test("reads and forwards attachments onto an Outlook draft", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "msg-send-att-"));
-    const filePath = join(dir, "report.pdf");
-    writeFileSync(filePath, "pdf-bytes");
-    provider = outlookProvider;
-    connection = {
-      id: "outlook-conn-1",
-      provider: "outlook",
-    } as OAuthConnection;
+        expect(result.isError).toBe(false);
+        expect(result.content).toContain("Outlook draft created");
+        expect(result.content).toContain("Draft ID: outlook-draft-1");
+        expect(sendMessageMock).not.toHaveBeenCalled();
+        expect(mockOutlookCreateDraft).toHaveBeenCalledTimes(1);
+        expect(mockOutlookCreateDraft).toHaveBeenCalledWith(
+          connection,
+          expect.objectContaining({
+            subject: "Docs",
+            body: { contentType: "text", content: "see attached" },
+            toRecipients: [{ emailAddress: { address: "user@example.com" } }],
+            attachments: [expect.objectContaining({ name: "report.pdf" })],
+          }),
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
 
-    try {
+    test("creates an Outlook draft without a To address when conversation_id is not an email", async () => {
+      provider = outlookProvider;
+      connection = {
+        id: "outlook-conn-1",
+        provider: "outlook",
+      } as OAuthConnection;
+
       const result = await run(
         {
           platform: "outlook",
-          conversation_id: "user@example.com",
-          text: "see attached",
-          subject: "Docs",
-          attachment_paths: [filePath],
+          conversation_id: "drafts",
+          text: "Hey team, here is the update.",
+          subject: "Team update",
         },
         {
           workingDir: "/tmp",
@@ -287,410 +427,77 @@ describe("messaging-send tool", () => {
 
       expect(result.isError).toBe(false);
       expect(result.content).toContain("Outlook draft created");
-      expect(result.content).toContain("Draft ID: outlook-draft-1");
+      expect(result.content).toContain("No recipient set");
+      expect(result.content).toContain("Open it:");
       expect(sendMessageMock).not.toHaveBeenCalled();
-      expect(mockOutlookCreateDraft).toHaveBeenCalledTimes(1);
       expect(mockOutlookCreateDraft).toHaveBeenCalledWith(
         connection,
         expect.objectContaining({
-          subject: "Docs",
-          body: { contentType: "text", content: "see attached" },
-          toRecipients: [{ emailAddress: { address: "user@example.com" } }],
-          attachments: [expect.objectContaining({ name: "report.pdf" })],
+          subject: "Team update",
+          body: {
+            contentType: "text",
+            content: "Hey team, here is the update.",
+          },
         }),
       );
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("records a threaded channel send in the thread's home, with the delivered thread on the row", async () => {
-    provider = slackProvider;
-    getConversationMock.mockImplementation(() => ({
-      id: "home-topic",
-      createdAt: 1700000000000,
-    }));
-    resolveProactiveHomeConversationMock.mockImplementation(async () => ({
-      conversationId: "home-topic",
-      createdNewConversation: false,
-    }));
-
-    const result = await run(
-      {
-        platform: "slack",
-        conversation_id: "C123",
-        thread_id: "1700000000.000009",
-        text: "hello from A",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-      },
-    );
-
-    expect(result.isError).toBe(false);
-    expect(
-      resolveProactiveHomeConversationMock.mock.calls[0]![0],
-    ).toMatchObject({
-      sourceChannel: "slack",
-      externalChatId: "C123",
-      threadId: "1700000000.000009",
+      const draftArg = mockOutlookCreateDraft.mock.calls[0][1];
+      expect(draftArg.toRecipients).toBeUndefined();
     });
-    expect(recordDeliveredChannelPostMock.mock.calls[0]![0]).toMatchObject({
-      conversationId: "home-topic",
-      externalChatId: "C123",
-      threadId: "1700000000.000009",
-      providerMessageId: "1700000000.000100",
-    });
-  });
 
-  test("records a channel send in the chat's home conversation once the provider has it", async () => {
-    provider = telegramProvider;
-    getConversationMock.mockImplementation(() => ({
-      id: "home-1",
-      createdAt: 1700000000000,
-    }));
+    test("creates an Outlook reply draft instead of sending when in_reply_to is set", async () => {
+      provider = outlookProvider;
+      connection = {
+        id: "outlook-conn-1",
+        provider: "outlook",
+      } as OAuthConnection;
 
-    const result = await run(
-      {
-        platform: "telegram",
-        conversation_id: "123456789",
-        text: "hello from A",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-      },
-    );
-
-    expect(result.isError).toBe(false);
-    expect(resolveProactiveHomeConversationMock).toHaveBeenCalledTimes(1);
-    expect(
-      resolveProactiveHomeConversationMock.mock.calls[0]![0],
-    ).toMatchObject({
-      sourceChannel: "telegram",
-      externalChatId: "123456789",
-    });
-    expect(recordDeliveredChannelPostMock).toHaveBeenCalledWith({
-      conversationId: "home-1",
-      channel: "telegram",
-      externalChatId: "123456789",
-      text: "hello from A",
-      providerMessageId: "msg-1",
-      crossPostedFrom: "conv-A",
-    });
-    expect(syncMessageToDiskMock).toHaveBeenCalledWith(
-      "home-1",
-      "row-1",
-      1700000000000,
-    );
-  });
-
-  test("records nothing when the home conversation is the sender", async () => {
-    provider = telegramProvider;
-    resolveProactiveHomeConversationMock.mockImplementation(async () => ({
-      conversationId: "conv-A",
-      createdNewConversation: false,
-    }));
-
-    await run(
-      {
-        platform: "telegram",
-        conversation_id: "123456789",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-      },
-    );
-
-    expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
-  });
-
-  test("records nothing when the post landed in the turn's own thread, even though the home is elsewhere", async () => {
-    // A Slack agent-style DM keys one conversation per thread. Its home
-    // resolves to the chat's notification conversation, so the home test
-    // alone would record this send as a cross-post away from the thread it
-    // was made in. The turn's own snapshot (channel, chat, thread) decides
-    // instead, against the thread the provider says it delivered into.
-    provider = slackProvider;
-
-    await run(
-      {
-        platform: "slack",
-        conversation_id: "D0123456789",
-        thread_id: "1700000000.000001",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-        executionChannel: "slack",
-        requesterChatId: "D0123456789",
-        sourceThreadId: "1700000000.000001",
-      },
-    );
-
-    expect(resolveProactiveHomeConversationMock).not.toHaveBeenCalled();
-    expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
-  });
-
-  test("records a send into the turn's chat but a different thread as a cross-post", async () => {
-    provider = slackProvider;
-
-    await run(
-      {
-        platform: "slack",
-        conversation_id: "D0123456789",
-        thread_id: "1700000000.000002",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-        executionChannel: "slack",
-        requesterChatId: "D0123456789",
-        sourceThreadId: "1700000000.000001",
-      },
-    );
-
-    expect(resolveProactiveHomeConversationMock).toHaveBeenCalledTimes(1);
-    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("a thread-less delivery never matches a turn that arrived in a thread", async () => {
-    provider = slackProvider;
-
-    await run(
-      {
-        platform: "slack",
-        conversation_id: "D0123456789",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-        executionChannel: "slack",
-        requesterChatId: "D0123456789",
-        sourceThreadId: "1700000000.000001",
-      },
-    );
-
-    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("decides by where the provider delivered, not by the thread requested", async () => {
-    // Telegram's provider ignores a requested thread and reports none, so a
-    // turn that arrived in a topic and asked for that topic still gets a
-    // post in the thread-less chat; that post is recorded, not suppressed.
-    provider = telegramProvider;
-
-    await run(
-      {
-        platform: "telegram",
-        conversation_id: "123456789",
-        thread_id: "777",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-        executionChannel: "telegram",
-        requesterChatId: "123456789",
-        sourceThreadId: "777",
-      },
-    );
-
-    expect(recordDeliveredChannelPostMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("a turn that arrived through no channel falls back to the home comparison", async () => {
-    provider = slackProvider;
-    resolveProactiveHomeConversationMock.mockImplementation(async () => ({
-      conversationId: "conv-A",
-      createdNewConversation: false,
-    }));
-
-    await run(
-      {
-        platform: "slack",
-        conversation_id: "D0123456789",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-      },
-    );
-
-    expect(resolveProactiveHomeConversationMock).toHaveBeenCalledTimes(1);
-    expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
-  });
-
-  test("records nothing for a provider that is not a channel", async () => {
-    provider = outlookProvider;
-    connection = {
-      id: "outlook-conn-1",
-      provider: "outlook",
-    } as OAuthConnection;
-
-    await run(
-      {
-        platform: "outlook",
-        conversation_id: "user@example.com",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-      },
-    );
-
-    expect(resolveProactiveHomeConversationMock).not.toHaveBeenCalled();
-    expect(recordDeliveredChannelPostMock).not.toHaveBeenCalled();
-  });
-
-  test("creates an Outlook draft without a To address when conversation_id is not an email", async () => {
-    provider = outlookProvider;
-    connection = {
-      id: "outlook-conn-1",
-      provider: "outlook",
-    } as OAuthConnection;
-
-    const result = await run(
-      {
-        platform: "outlook",
-        conversation_id: "drafts",
-        text: "Hey team, here is the update.",
-        subject: "Team update",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-1",
-        assistantId: "ast-alpha",
-        trustClass: "guardian" as const,
-      },
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Outlook draft created");
-    expect(result.content).toContain("No recipient set");
-    expect(result.content).toContain("Open it:");
-    expect(sendMessageMock).not.toHaveBeenCalled();
-    expect(mockOutlookCreateDraft).toHaveBeenCalledWith(
-      connection,
-      expect.objectContaining({
-        subject: "Team update",
-        body: {
-          contentType: "text",
-          content: "Hey team, here is the update.",
+      const result = await run(
+        {
+          platform: "outlook",
+          conversation_id: "user@example.com",
+          text: "Thanks, that works.",
+          in_reply_to: "AAMk-original",
         },
-      }),
-    );
-    const draftArg = mockOutlookCreateDraft.mock.calls[0][1];
-    expect(draftArg.toRecipients).toBeUndefined();
-  });
+        {
+          workingDir: "/tmp",
+          conversationId: "conv-1",
+          assistantId: "ast-alpha",
+          trustClass: "guardian" as const,
+        },
+      );
 
-  test("creates an Outlook reply draft instead of sending when in_reply_to is set", async () => {
-    provider = outlookProvider;
-    connection = {
-      id: "outlook-conn-1",
-      provider: "outlook",
-    } as OAuthConnection;
-
-    const result = await run(
-      {
-        platform: "outlook",
-        conversation_id: "user@example.com",
-        text: "Thanks, that works.",
-        in_reply_to: "AAMk-original",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-1",
-        assistantId: "ast-alpha",
-        trustClass: "guardian" as const,
-      },
-    );
-
-    expect(result.isError).toBe(false);
-    expect(mockOutlookCreateReplyDraft).toHaveBeenCalledWith(
-      connection,
-      "AAMk-original",
-      "Thanks, that works.",
-    );
-    expect(sendMessageMock).not.toHaveBeenCalled();
-    expect(result.content).toContain("outlook-reply-draft-1");
-  });
-
-  test("errors when Outlook is not connected", async () => {
-    provider = outlookProvider;
-    connection = undefined;
-
-    const result = await run(
-      {
-        platform: "outlook",
-        conversation_id: "user@example.com",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-1",
-        assistantId: "ast-alpha",
-        trustClass: "guardian" as const,
-      },
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("OAuth connection");
-    expect(mockOutlookCreateDraft).not.toHaveBeenCalled();
-  });
-
-  test("a record failure does not fail the send", async () => {
-    provider = telegramProvider;
-    getConversationMock.mockImplementation(() => ({
-      id: "home-1",
-      createdAt: 1700000000000,
-    }));
-    recordDeliveredChannelPostMock.mockImplementation(async () => {
-      throw new Error("DB write failed");
+      expect(result.isError).toBe(false);
+      expect(mockOutlookCreateReplyDraft).toHaveBeenCalledWith(
+        connection,
+        "AAMk-original",
+        "Thanks, that works.",
+      );
+      expect(sendMessageMock).not.toHaveBeenCalled();
+      expect(result.content).toContain("outlook-reply-draft-1");
     });
 
-    const result = await run(
-      {
-        platform: "telegram",
-        conversation_id: "123456789",
-        text: "hello",
-      },
-      {
-        workingDir: "/tmp",
-        conversationId: "conv-A",
-        assistantId: "ast-1",
-        trustClass: "guardian" as const,
-      },
-    );
+    test("errors when Outlook is not connected", async () => {
+      provider = outlookProvider;
+      connection = undefined;
 
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("Message sent");
+      const result = await run(
+        {
+          platform: "outlook",
+          conversation_id: "user@example.com",
+          text: "hello",
+        },
+        {
+          workingDir: "/tmp",
+          conversationId: "conv-1",
+          assistantId: "ast-alpha",
+          trustClass: "guardian" as const,
+        },
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("OAuth connection");
+      expect(mockOutlookCreateDraft).not.toHaveBeenCalled();
+    });
   });
 
   /**

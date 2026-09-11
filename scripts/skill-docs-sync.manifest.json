@@ -3,11 +3,11 @@
   "skills": {
     "acp": {
       "docsSlug": "acp",
-      "sha256": "3f23e06b0301b9456acb03a7aa81158e61094b3a663a89175ec40028bcc65a65"
+      "sha256": "5eab3cfce6afecdc6fc8c0c25cf7e3070c31b9fc276030290ebb73a6a5659ad2"
     },
     "app-builder": {
       "docsSlug": "app-builder",
-      "sha256": "250636cb682019210f87615f9412ca1278f72b1f1b50953f8f13fe07b5e33880"
+      "sha256": "9fff654b8f611331996267476a21d47a6eacd260ac2d800e92be92d5db373a5e"
     },
     "computer-use": {
       "docsSlug": "computer-use",

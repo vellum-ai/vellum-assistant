@@ -2,6 +2,7 @@ import type { StreamPlan, StreamPlanStep } from "@vellumai/gateway-client";
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../../util/logger.js";
+import { directDeliveryContext } from "../callback-routing.js";
 import type {
   CallbackContext,
   ChannelTransport,
@@ -65,6 +66,25 @@ function mintDraftId(): number {
 
 export const telegramTransport: ChannelTransport = {
   channel: "telegram",
+
+  /**
+   * A chat is a chat id, with `threadId` naming a forum topic. A person's DM
+   * chat id is their user id on Telegram, so reaching one is naming that
+   * chat and needs no resolution of its own.
+   */
+  addressFor(target) {
+    const threadId = target.threadId?.trim();
+    return {
+      ctx: directDeliveryContext("telegram", threadId ? { threadId } : {}),
+      chatId: target.chatId,
+      ...(threadId ? { threadId } : {}),
+    };
+  },
+
+  // A Telegram chat's inbound conversation is keyed per chat and can be
+  // reset or deleted between sends; a proactive post re-binds it so the
+  // next inbound from the chat lands where the post lives.
+  bindsChatOnProactiveSend: true,
 
   // Telegram clears a chat action after about five seconds.
   activityRefreshMs: 4_000,

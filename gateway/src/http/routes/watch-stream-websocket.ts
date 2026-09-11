@@ -25,8 +25,8 @@ import {
   type RuntimeAudioStreamState,
 } from "./runtime-audio-stream.js";
 import {
+  acceptsVelayAttestation,
   extractVelayAttestedContext,
-  isPlatformManaged,
   requireBoundGuardian,
   requireManagedGuardian,
 } from "./guardian-pin.js";
@@ -140,14 +140,14 @@ export function createWatchStreamWebsocketHandler(config: GatewayConfig) {
       return new Response("Upgrade Required", { status: 426 });
     }
 
-    // Managed/cloud path, taken before the token path exactly as live voice
-    // takes it: velay validated the browser's token and injected the caller,
-    // and the bridge proof is what says this request really came through the
+    // Velay path, taken before the token path exactly as live voice takes
+    // it: velay validated the browser's token and injected the caller, and
+    // the bridge proof is what says this request really came through the
     // gateway's own loopback bridge rather than from someone who guessed the
-    // header names. An incomplete attestation falls through, so a managed
-    // deployment still accepts a valid actor edge JWT.
+    // header names. An incomplete attestation falls through, so a
+    // velay-reachable gateway still accepts a valid actor edge JWT.
     let managedGuardian = false;
-    if (isPlatformManaged() && config.runtimeProxyRequireAuth) {
+    if (acceptsVelayAttestation(config) && config.runtimeProxyRequireAuth) {
       const velayContext = extractVelayAttestedContext(req);
       if (velayContext) {
         if (requestHasVelayBridgeAuth(req)) {

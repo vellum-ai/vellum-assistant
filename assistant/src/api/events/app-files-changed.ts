@@ -1,9 +1,10 @@
 /**
  * `app_files_changed` SSE event.
  *
- * Broadcast when an app's source files change on disk — emitted when a new
- * app is created and by the app source watcher on edits — so connected
- * clients re-read the app (refresh preview, reload the running surface).
+ * Broadcast after an app is created, compiled, or otherwise updated so
+ * connected clients re-read the app (refresh preview, reload the running
+ * surface). Workspace compiles go through `assistant apps refresh` or
+ * `app_refresh`; file edits do not emit this on their own.
  *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via

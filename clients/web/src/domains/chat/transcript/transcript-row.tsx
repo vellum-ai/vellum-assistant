@@ -105,8 +105,7 @@ export interface TranscriptRowProps {
    *  defaults open. History rows leave it `false`. */
   isStreaming?: boolean;
   /** True for the final item of the latest turn. Forwarded to
-   *  `TranscriptMessageBody` so the message directly above the parked avatar
-   *  collapses its hover-actions row and animates it open on hover. */
+   *  `TranscriptMessageBody` so Retry attaches only to that assistant row. */
   isLatestMessage?: boolean;
 }
 
@@ -118,15 +117,14 @@ export interface TranscriptRowProps {
  * resolve via `getElementById`, and exposes the same Inspect affordance as
  * ordinary rows: the daemon backfills the failed request's LLM logs onto
  * this row's message id, and inspection is their only entry point while the
- * bubble is substituted. The actions reveal on hover/focus-visible, and on
- * coarse pointers via tap (dismissed by tapping outside), mirroring
- * `TranscriptMessageBody`'s reveal behavior.
+ * bubble is substituted. Copy and Read aloud stay visible when the message
+ * has text; Inspect still reveals on hover or tap.
  */
 /**
  * Shell for a row that substitutes custom content for the ordinary message
  * body while keeping the backing message's identity and affordances: the
  * `msg-<id>` anchor deep links and programmatic scrolling locate, the
- * `data-message-id` attribute, and the hover/coarse-pointer Inspect action.
+ * `data-message-id` attribute, and Copy, Read aloud, and Inspect actions.
  */
 function SubstitutedMessageShell({
   message,
@@ -165,15 +163,13 @@ function SubstitutedMessageShell({
       className="group/msg flex flex-col gap-2"
     >
       {children}
-      {inspectHandler && (
-        <div className="h-6 overflow-hidden opacity-0 transition-opacity duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none">
-          <MessageHoverActions
-            message={message}
-            conversationId={conversationId}
-            onInspect={inspectHandler}
-          />
-        </div>
-      )}
+      <div className="h-6">
+        <MessageHoverActions
+          message={message}
+          conversationId={conversationId}
+          onInspect={inspectHandler}
+        />
+      </div>
     </div>
   );
 }

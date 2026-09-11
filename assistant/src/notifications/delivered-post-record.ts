@@ -40,6 +40,12 @@ export interface DeliveredChannelPost {
   /** The message id the channel assigned when it acknowledged the post. */
   providerMessageId: string;
   /**
+   * The ids of the further posts the same text became when the channel
+   * split it, in send order. Each is reconciled onto the row like the first,
+   * so a reaction, edit, or delete naming any chunk resolves to this row.
+   */
+  additionalProviderMessageIds?: readonly string[];
+  /**
    * The conversation whose turn made the post, when a different one from
    * the home it is recorded in (the messaging tool sending from a scheduled
    * run, for instance). Stamped as `crossPostedFrom` so the row says where
@@ -75,7 +81,11 @@ export async function recordDeliveredChannelPost(
         : {}),
     },
   });
-  await makeSentMessageIdReconciler(row.id)(post.providerMessageId);
+  const reconcile = makeSentMessageIdReconciler(row.id);
+  await reconcile(post.providerMessageId);
+  for (const id of post.additionalProviderMessageIds ?? []) {
+    await reconcile(id);
+  }
   // A resident conversation reloads its history on the next turn so the
   // post is in context; the client refetches the transcript.
   findConversation(post.conversationId)?.markHistoryStale();

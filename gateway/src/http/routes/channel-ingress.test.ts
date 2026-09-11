@@ -497,6 +497,32 @@ describe("list", () => {
     });
   });
 
+  it("summarises a bearer declaration with its fixed authorization header", async () => {
+    writePlugin("meeting-bot", [
+      {
+        path: "shortcut-health",
+        kind: "http",
+        description: "automation",
+        verification: {
+          kind: "bearer",
+          secret: { field: "shortcut_ingress_token" },
+        },
+      },
+    ]);
+
+    const body = (await (await list()).json()) as {
+      sources: { routes: Record<string, unknown>[] }[];
+    };
+
+    expect(body.sources[0]!.routes[0]).toMatchObject({
+      credential: "credential/meeting-bot/shortcut_ingress_token",
+      verification: {
+        algorithm: "bearer",
+        signatureHeader: "authorization",
+      },
+    });
+  });
+
   it("summarises a Standard Webhooks declaration the same way", async () => {
     writePlugin("meeting-bot", [
       {

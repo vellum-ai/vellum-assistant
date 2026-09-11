@@ -1,6 +1,7 @@
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../../util/logger.js";
+import { directDeliveryContext } from "../callback-routing.js";
 import type { ChannelTransport } from "../channel-transport.js";
 import { sendWhatsAppAttachments, sendWhatsAppReply } from "./send.js";
 
@@ -8,6 +9,23 @@ const log = getLogger("whatsapp-transport");
 
 export const whatsappTransport: ChannelTransport = {
   channel: "whatsapp",
+
+  /**
+   * A chat is the phone number, which is also how a person is named, so
+   * reaching one needs no resolution of its own. There are no threads, so a
+   * target's thread is not carried and the post lands in the chat itself.
+   */
+  addressFor(target) {
+    return {
+      ctx: directDeliveryContext("whatsapp"),
+      chatId: target.chatId,
+    };
+  },
+
+  // A WhatsApp number's inbound conversation is keyed per chat and can be
+  // reset between sends; a proactive post re-binds it so the next inbound
+  // from the number lands where the post lives.
+  bindsChatOnProactiveSend: true,
 
   async deliver(_ctx, payload) {
     const { chatId, text, attachments, approval } = payload;

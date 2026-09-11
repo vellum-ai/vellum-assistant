@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { eq, inArray } from "drizzle-orm";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
@@ -26,17 +27,27 @@ import { AcpAgentProcess } from "./agent-process.js";
 import {
   ACP_AUTH_RECOVERY_GUIDANCE,
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  AcpAuthRequiredError,
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
   isClaudeAuthFailureMessage,
+  requestErrorReason,
 } from "./auth-required.js";
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { deriveFailureError } from "./failure-error.js";
+import type { AcpModelInfo } from "./model-config.js";
+import { deriveModelInfo, resolveAcpModel } from "./model-config.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
 import { formatResolveFailure } from "./resolve-agent.js";
 import { claudeResumeHint } from "./resume-hint.js";
-import type { AcpAgentConfig, AcpSessionState } from "./types.js";
+import {
+  ACP_LIVE_STATUSES,
+  type AcpAgentConfig,
+  AcpConfigOptionRefusedError,
+  type AcpSessionState,
+  isLiveAcpStatus,
+} from "./types.js";
 
 const log = getLogger("acp:session-manager");
 
@@ -46,7 +57,9 @@ const log = getLogger("acp:session-manager");
  * and the marker promises a repair only the Connect Claude flow can perform.
  * Checks both auth-failure shapes (see `auth-required.ts`) against both the
  * raw rejection and the derived failure message, since `deriveFailureError`
- * may replace one with the other.
+ * may replace one with the other. The raw side reads both the rejection's own
+ * message and its decoded reason, because an adapter's words travel in either
+ * depending on how it raised the error.
  */
 function claudeAuthRequiredCode(
   err: unknown,
@@ -59,6 +72,7 @@ function claudeAuthRequiredCode(
   const rawMessage = err instanceof Error ? err.message : String(err);
   return isAcpAuthRequired(err) ||
     isClaudeAuthFailureMessage(rawMessage) ||
+    isClaudeAuthFailureMessage(requestErrorReason(err)) ||
     isClaudeAuthFailureMessage(failureMessage)
     ? ACP_CLAUDE_AUTH_REQUIRED_CODE
     : undefined;
@@ -125,6 +139,28 @@ interface SessionEntry {
    *  rather than needing a sweep to retire it. Absent for agents that use no
    *  Claude credential. */
   credentialDigest?: string;
+  /** Config id of the adapter's model selector, absent when it advertises
+   *  none. Both the id to write a model back through and the flag that says
+   *  this session has a model to publish at all. */
+  modelConfigId?: string;
+}
+
+/** What a spawn or resume pin did about the model it was asked for. */
+interface ModelPinResult {
+  /** False when the session is not on the model asked for: the adapter
+   *  refused it, or advertises no selector at all. */
+  applied: boolean;
+  /** Message to relay, present only when the caller named the model. */
+  warning?: string;
+}
+
+/**
+ * The sentence a caller who named a model gets when the session has no model
+ * selector to put it through, whether the adapter never advertised one or its
+ * answer to the pin dropped the one it had.
+ */
+function noModelSelectionWarning(agentId: string): string {
+  return `Agent "${agentId}" does not support model selection, so the session is running on the agent's own model.`;
 }
 
 /**
@@ -149,6 +185,10 @@ export interface AcpCancellationOptions {
 
 export class AcpSessionManager {
   private sessions = new Map<string, SessionEntry>();
+  /** Scopes process-local model revisions across assistant restarts. */
+  private readonly modelRevisionEpoch = randomUUID();
+  /** Orders model snapshots within this assistant process. */
+  private modelRevision = 0;
   /**
    * Per-session ring buffer of wire-shaped update events forwarded to
    * clients. Bounded by event count and aggregate JSON byte size; oldest
@@ -201,7 +241,7 @@ export class AcpSessionManager {
           stopReason: "daemon_restarted",
           completedAt: Date.now(),
         })
-        .where(inArray(acpSessionHistory.status, ["running", "initializing"]))
+        .where(inArray(acpSessionHistory.status, [...ACP_LIVE_STATUSES]))
         .run();
     } catch (err) {
       log.error(
@@ -243,6 +283,10 @@ export class AcpSessionManager {
    *
    * The prompt is fired in the background — results stream via sessionUpdate
    * callbacks and completion/error messages are sent when the prompt finishes.
+   *
+   * `modelWarning` comes back when the adapter refused the model the session
+   * was asked for: the run is live on the adapter's own default, and the
+   * caller relays the reason rather than treating the spawn as failed.
    */
   async spawn(
     agentId: string,
@@ -251,11 +295,15 @@ export class AcpSessionManager {
     cwd: string,
     parentConversationId: string,
     sendToVellum: (msg: AssistantEvent) => void,
-    parentToolUseId?: string,
-    opts?: AcpCancellationOptions,
-  ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
+    options?: { parentToolUseId?: string; model?: string },
+    cancellation?: AcpCancellationOptions,
+  ): Promise<{
+    acpSessionId: string;
+    protocolSessionId: string;
+    modelWarning?: string;
+  }> {
     this.assertCapacity();
-    opts?.signal?.throwIfAborted();
+    cancellation?.signal?.throwIfAborted();
 
     const acpSessionId = randomUUID();
     log.info(
@@ -277,11 +325,20 @@ export class AcpSessionManager {
       cwd,
       startedAt: Date.now(),
       sendToVellum,
-      parentToolUseId,
+      parentToolUseId: options?.parentToolUseId,
       task,
     });
     const { process: agentProcess, state } = entry;
 
+    const requestedModel = options?.model?.trim() || undefined;
+    // Resolved before the adapter is asked for anything, so the ladder is
+    // walked once against the config the spawn was made under.
+    const resolvedModel = resolveAcpModel({
+      requestedModel,
+      agentModel: agentConfig.model,
+    });
+
+    let configOptions: SessionConfigOption[] = [];
     try {
       log.info({ acpSessionId, agentId }, "ACP spawning child process");
       agentProcess.spawn(cwd);
@@ -291,7 +348,9 @@ export class AcpSessionManager {
       );
       await agentProcess.initialize();
       log.info({ acpSessionId, agentId }, "ACP creating session");
-      const acpProtocolSessionId = await agentProcess.createSession(cwd);
+      const created = await agentProcess.createSession(cwd);
+      const acpProtocolSessionId = created.sessionId;
+      configOptions = created.configOptions;
       state.acpSessionId = acpProtocolSessionId;
       state.status = "running";
       log.info(
@@ -317,16 +376,47 @@ export class AcpSessionManager {
     // awaits, and the child process is already running. A turn stopped in that
     // window must not be told a session started, nor have the agent handed the
     // task, so the process is torn down and the abort let out instead.
-    if (opts?.signal?.aborted) {
+    if (cancellation?.signal?.aborted) {
       log.info(
         { acpSessionId, agentId },
         "ACP spawn cancelled during setup; tearing the session down",
       );
       this.teardownSession(acpSessionId, entry);
-      opts.signal.throwIfAborted();
+      cancellation.signal.throwIfAborted();
+    }
+
+    let modelWarning: string | undefined;
+    try {
+      ({ warning: modelWarning } = await this.pinSessionModel(
+        entry,
+        configOptions,
+        requestedModel,
+        resolvedModel,
+      ));
+    } catch (err) {
+      log.error(
+        { acpSessionId, agentId, err },
+        "ACP spawn failed while applying the model",
+      );
+      const failure = this.classifyPinFailure(err, agentId, agentConfig);
+      // No prompt has fired yet, so no permissions can be pending.
+      this.teardownSession(acpSessionId, entry);
+      throw failure;
+    }
+
+    // Recheck: the model pin is an await too, and everything below it either
+    // announces the session or hands the agent the task.
+    if (cancellation?.signal?.aborted) {
+      log.info(
+        { acpSessionId, agentId },
+        "ACP spawn cancelled during the model pin; tearing the session down",
+      );
+      this.teardownSession(acpSessionId, entry);
+      cancellation.signal.throwIfAborted();
     }
 
     this.sendSpawnedEvent(acpSessionId, entry);
+    this.sendModelEvent(acpSessionId, entry);
 
     // Fire prompt in the background, do not await
     entry.currentPrompt = this.firePromptInBackground(
@@ -336,7 +426,177 @@ export class AcpSessionManager {
       task,
     );
 
-    return { acpSessionId, protocolSessionId: state.acpSessionId };
+    return {
+      acpSessionId,
+      protocolSessionId: state.acpSessionId,
+      ...(modelWarning ? { modelWarning } : {}),
+    };
+  }
+
+  /** Records what a config-option set says about the session's model. */
+  private applyModelInfo(
+    entry: SessionEntry,
+    configOptions: SessionConfigOption[],
+  ): void {
+    this.recordModelInfo(entry, deriveModelInfo(configOptions));
+  }
+
+  /**
+   * Records the model state a `session/new`, `session/load`, or
+   * `session/resume` response reports. The response is authoritative when it
+   * names a selector, or when nothing has announced one yet; otherwise the
+   * selector a `config_option_update` announced while the call was open
+   * stands, because an omitted optional field is not a removal.
+   */
+  private applyOpeningModelInfo(
+    entry: SessionEntry,
+    configOptions: SessionConfigOption[],
+  ): void {
+    const info = deriveModelInfo(configOptions);
+    if (info.modelConfigId || entry.modelConfigId === undefined) {
+      this.recordModelInfo(entry, info);
+    }
+  }
+
+  /**
+   * Writes what the adapter reports onto the entry. `modelConfigId` doubles
+   * as the "this adapter has a model selector" flag, so state is left
+   * untouched when there is none: an adapter that reports no selector cannot
+   * wipe a model another response already named.
+   */
+  private recordModelInfo(entry: SessionEntry, info: AcpModelInfo): void {
+    entry.modelConfigId = info.modelConfigId;
+    if (info.modelConfigId) {
+      entry.state.model = info.model;
+      entry.state.availableModels = info.availableModels;
+    }
+  }
+
+  /**
+   * Records what the opening response says about the model, then puts the
+   * session on `resolvedModel` if that is somewhere else. The value crosses
+   * the wire unvalidated: the adapter's own resolver accepts aliases and full
+   * ids and rejects everything else, and duplicating that judgement here
+   * would refuse values it would have taken. A refusal leaves the run on the
+   * adapter's default and comes back as the message to relay, because a
+   * session that is live and working is worth more than one that never
+   * started over a model name.
+   *
+   * An answer that carries no model selector is not a pin that landed: the
+   * session is left with no model rather than one only the superseded
+   * response ever named, and the empty picker goes out so no client is left
+   * holding a selector the answer retired.
+   *
+   * A caller who named the model is owed the news when it was not applied,
+   * whether the adapter has no selector or refused the value; an inherited
+   * rung (the per-agent config model) is only logged, so a value the caller
+   * never named does not surface as a warning on every spawn.
+   */
+  /**
+   * A model pin that fails for authentication is the same failure a session
+   * that could not open: Claude refused the configured credential, so it is
+   * written down before teardown and surfaced in the shape the spawn boundary
+   * recognises, whether the adapter answered with a structured
+   * `auth_required` or with Claude's message-shaped 401.
+   */
+  private classifyPinFailure(
+    err: unknown,
+    agentId: string,
+    agentConfig: { command: string; credentialDigest?: string },
+  ): unknown {
+    const message = requestErrorReason(err);
+    const authCode = claudeAuthRequiredCode(err, message, {
+      command: basename(agentConfig.command),
+    });
+    if (authCode === undefined && !isAcpAuthRequired(err)) {
+      return err;
+    }
+    noteClaudeTokenRefused(agentConfig.credentialDigest, Date.now());
+    return isAcpAuthRequired(err)
+      ? err
+      : new AcpAuthRequiredError(agentId, message);
+  }
+
+  private async pinSessionModel(
+    entry: SessionEntry,
+    configOptions: SessionConfigOption[],
+    requestedModel: string | undefined,
+    resolvedModel: string | undefined,
+    options?: { keepReportedModel?: boolean },
+  ): Promise<ModelPinResult> {
+    const { state } = entry;
+    this.applyOpeningModelInfo(entry, configOptions);
+
+    // A resume reattaches a session the adapter restored from its own
+    // transcript, so any model it has named by now is the model the run stays
+    // on, whether the opening reply carried it or a replayed
+    // `config_option_update` did.
+    if (options?.keepReportedModel && state.model) {
+      log.info(
+        { acpSessionId: state.id, agentId: state.agentId, model: state.model },
+        "ACP agent reported the resumed session's model; leaving it there",
+      );
+      return { applied: true };
+    }
+
+    if (!resolvedModel || resolvedModel === state.model) {
+      return { applied: true };
+    }
+    if (!entry.modelConfigId) {
+      log.info(
+        { acpSessionId: state.id, agentId: state.agentId, resolvedModel },
+        "ACP agent advertises no model selector; running on its own model",
+      );
+      return {
+        applied: false,
+        ...(requestedModel
+          ? { warning: noModelSelectionWarning(state.agentId) }
+          : {}),
+      };
+    }
+
+    try {
+      const refreshed = await entry.process.setConfigOption(
+        state.acpSessionId,
+        entry.modelConfigId,
+        resolvedModel,
+      );
+      this.applyModelInfo(entry, refreshed);
+      if (!entry.modelConfigId) {
+        // Published, not just recorded: a `config_option_update` that arrived
+        // while the round trip was open has already put its selector in front
+        // of clients, and a session no client holds yet drops the frame.
+        this.clearVanishedModelSelector(state.id, entry);
+        log.warn(
+          { acpSessionId: state.id, agentId: state.agentId, resolvedModel },
+          "ACP agent dropped its model selector while applying the model; running on its own model",
+        );
+        return {
+          applied: false,
+          ...(requestedModel
+            ? { warning: noModelSelectionWarning(state.agentId) }
+            : {}),
+        };
+      }
+      return { applied: true };
+    } catch (err) {
+      // Only the adapter's own answer is a refusal. A closed connection, an
+      // exited process, or a failed authentication is the caller's failure
+      // to tear down, not a model to fall back from.
+      if (!(err instanceof AcpConfigOptionRefusedError)) {
+        throw err;
+      }
+      log.warn(
+        { acpSessionId: state.id, agentId: state.agentId, resolvedModel, err },
+        "ACP agent refused the requested model; running on its own model",
+      );
+      return {
+        applied: false,
+        ...(requestedModel
+          ? { warning: err instanceof Error ? err.message : String(err) }
+          : {}),
+      };
+    }
   }
 
   /**
@@ -362,10 +622,20 @@ export class AcpSessionManager {
     // Initialize the per-session ring buffer before any update can fire.
     this.eventBuffers.set(acpSessionId, []);
 
+    // The map is the evidence, as everywhere else in this class: an id whose
+    // entry is no longer this one was cancelled and resumed, so this
+    // process's late frames must not reach the buffer, the state, or the
+    // clients the replacement now owns. `entry` is declared below and read
+    // only from inside closures the process cannot fire until it exists.
+    const ownsSession = () => this.sessions.get(acpSessionId) === entry;
+
     // Wrap the sender so every emitted message is mirrored into the buffer
     // when it's an `acp_session_update`. The wrapper preserves the original
     // call semantics: it forwards every message unchanged.
     const wrappedSend = (msg: AssistantEvent) => {
+      if (!ownsSession()) {
+        return;
+      }
       if (msg.type === "acp_session_update") {
         this.appendToBuffer(acpSessionId, msg);
       } else if (msg.type === "acp_session_usage") {
@@ -386,10 +656,15 @@ export class AcpSessionManager {
       opts.sendToVellum(msg);
     };
 
+    // The callback runs once the agent is connected and sending
+    // notifications, which is after agentProcess is constructed just below.
     const clientHandler = new VellumAcpClientHandler(
       acpSessionId,
       wrappedSend,
       opts.parentConversationId,
+      (configOptions) => {
+        this.applyUnsolicitedConfigOptions(acpSessionId, entry, configOptions);
+      },
     );
 
     const agentProcess = new AcpAgentProcess(
@@ -442,6 +717,98 @@ export class AcpSessionManager {
       parentToolUseId: entry.parentToolUseId,
       task: entry.task,
     });
+  }
+
+  /**
+   * Publishes the session's model selection. Silent for adapters with no
+   * model selector: the client renders nothing rather than an empty picker.
+   * A separate frame from `acp_session_spawned`, which carries a fixed subset
+   * older clients parse.
+   */
+  private sendModelEvent(acpSessionId: string, entry: SessionEntry): void {
+    if (!entry.modelConfigId) {
+      return;
+    }
+    this.sendModelSnapshot(acpSessionId, entry);
+  }
+
+  /** Publishes model state with the same revision exposed by session reads. */
+  private sendModelSnapshot(acpSessionId: string, entry: SessionEntry): void {
+    const modelRevision = ++this.modelRevision;
+    entry.state.modelRevisionEpoch = this.modelRevisionEpoch;
+    entry.state.modelRevision = modelRevision;
+    entry.sendToVellum({
+      type: "acp_session_model_update",
+      acpSessionId,
+      modelRevisionEpoch: this.modelRevisionEpoch,
+      modelRevision,
+      model: entry.state.model,
+      availableModels: entry.state.availableModels ?? [],
+    });
+  }
+
+  /**
+   * Whether `entry` is still this manager's live entry for `acpSessionId`.
+   * A notification that lands after close, cancellation, or prompt completion
+   * has nothing left to update: the terminal row is already written, so
+   * applying it would leave history on one model and clients on another.
+   */
+  private isEntryLive(acpSessionId: string, entry: SessionEntry): boolean {
+    return (
+      this.sessions.get(acpSessionId) === entry &&
+      isLiveAcpStatus(entry.state.status)
+    );
+  }
+
+  /**
+   * Drops the live model snapshot a vanished selector took with it and
+   * publishes the empty picker. `applyModelInfo` keeps the model already
+   * recorded for adapters that never had a selector, which here would leave
+   * the client holding options the session cannot reach. Returns whether it
+   * fired, so callers skip the publish that assumes a model is still there.
+   *
+   * A published picker is what says the selector was there to vanish: only an
+   * adapter that advertised one ever populates it, so an adapter that never
+   * had one publishes nothing.
+   */
+  private clearVanishedModelSelector(
+    acpSessionId: string,
+    entry: SessionEntry,
+  ): boolean {
+    if (entry.modelConfigId || entry.state.availableModels === undefined) {
+      return false;
+    }
+    entry.state.model = undefined;
+    entry.state.availableModels = [];
+    this.sendModelSnapshot(acpSessionId, entry);
+    return true;
+  }
+
+  /**
+   * Takes in a `config_option_update` the adapter sent unprompted, which is
+   * how a `/model` the user typed straight into the transcript reaches the
+   * daemon: record what it reports, publish it, and drop the live snapshot
+   * when the selector it announced has vanished.
+   *
+   * A session past its terminal transition takes nothing from a late
+   * notification at all: its history row is already written, so mutating
+   * state or emitting here would leave clients and history disagreeing about
+   * the same run.
+   */
+  private applyUnsolicitedConfigOptions(
+    acpSessionId: string,
+    entry: SessionEntry,
+    configOptions: SessionConfigOption[],
+  ): void {
+    if (!this.isEntryLive(acpSessionId, entry)) {
+      return;
+    }
+    this.applyModelInfo(entry, configOptions);
+
+    if (this.clearVanishedModelSelector(acpSessionId, entry)) {
+      return;
+    }
+    this.sendModelEvent(acpSessionId, entry);
   }
 
   /**
@@ -623,6 +990,7 @@ export class AcpSessionManager {
     // Seed before the child process spawns so no live update can fire first.
     entry.clientHandler.seedSeq(maxSeq);
 
+    let configOptions: SessionConfigOption[] = [];
     try {
       log.info(
         { acpSessionId, agentId: row.agentId },
@@ -632,14 +1000,20 @@ export class AcpSessionManager {
       await agentProcess.initialize();
       if (agentProcess.supportsSessionResume) {
         // session/resume reattaches without replaying history.
-        await agentProcess.resumeSession(row.acpSessionId, row.cwd);
+        ({ configOptions } = await agentProcess.resumeSession(
+          row.acpSessionId,
+          row.cwd,
+        ));
       } else if (agentProcess.supportsLoadSession) {
         // session/load replays the full history as session/update
         // notifications before resolving; suppress forwarding so the
         // conversation and ring buffer don't receive duplicates.
         entry.clientHandler.beginReplaySuppression();
         try {
-          await agentProcess.loadSession(row.acpSessionId, row.cwd);
+          ({ configOptions } = await agentProcess.loadSession(
+            row.acpSessionId,
+            row.cwd,
+          ));
         } finally {
           entry.clientHandler.endReplaySuppression();
         }
@@ -668,7 +1042,43 @@ export class AcpSessionManager {
       throw err;
     }
 
+    // The ladder a spawn walks, for the case the adapter reports no model of
+    // its own; a reattached session that comes back naming one keeps it.
+    const resolvedModel = resolveAcpModel({ agentModel: agentConfig.model });
+    let applied: boolean;
+    try {
+      ({ applied } = await this.pinSessionModel(
+        entry,
+        configOptions,
+        undefined,
+        resolvedModel,
+        { keepReportedModel: true },
+      ));
+    } catch (err) {
+      log.error(
+        { acpSessionId, agentId: row.agentId, err },
+        "ACP resume failed while applying the model",
+      );
+      const failure = this.classifyPinFailure(err, row.agentId, agentConfig);
+      this.teardownSession(acpSessionId, entry);
+      throw failure;
+    }
+    if (resolvedModel && !applied) {
+      // State keeps the adapter's own answer, so the model event, the status
+      // projection and the panel all name the model the run is really on.
+      log.warn(
+        {
+          acpSessionId,
+          agentId: row.agentId,
+          resolvedModel,
+          model: state.model,
+        },
+        "ACP resume could not apply the configured model; running on the agent's own model",
+      );
+    }
+
     this.sendSpawnedEvent(acpSessionId, entry);
+    this.sendModelEvent(acpSessionId, entry);
   }
 
   /**
@@ -929,10 +1339,7 @@ export class AcpSessionManager {
     if (!entry) {
       throw new AcpSessionNotFoundError(acpSessionId);
     }
-    if (
-      entry.state.status === "running" ||
-      entry.state.status === "initializing"
-    ) {
+    if (isLiveAcpStatus(entry.state.status)) {
       entry.state.status = "cancelled";
       entry.state.completedAt = Date.now();
     }
@@ -942,6 +1349,13 @@ export class AcpSessionManager {
 
   /**
    * Denies pending ACP permissions, kills the process, and removes the session.
+   *
+   * The permissions and the process belong to `entry`, so they are always
+   * torn down; the map slot and its buffer belong to whichever entry holds
+   * the id, so they are only cleared while that is still this one. A caller
+   * whose entry the map has since replaced (a cancel that persisted a
+   * resumable row, then a resume of the same id, while an await was pending)
+   * would otherwise evict the live session that took its place.
    */
   private teardownSession(acpSessionId: string, entry: SessionEntry): void {
     for (const requestId of entry.clientHandler.pendingRequestIds) {
@@ -951,6 +1365,9 @@ export class AcpSessionManager {
       }
     }
     entry.process.kill();
+    if (this.sessions.get(acpSessionId) !== entry) {
+      return;
+    }
     this.sessions.delete(acpSessionId);
     // Free the buffer in case persistTerminal hasn't already (e.g. close()
     // before terminal transition).

@@ -124,7 +124,7 @@ const spawnMock = mock(
     _cwd: string,
     _parentConversationId: string,
     _sendToVellum: (msg: unknown) => void,
-    _parentToolUseId?: string,
+    _options?: { parentToolUseId?: string; model?: string },
   ) => ({
     acpSessionId: "acp-session-test",
     protocolSessionId: "proto-session-test",
@@ -214,8 +214,10 @@ describe("executeAcpSpawn - happy path", () => {
 
     expect(result.isError).toBe(false);
     expect(spawnMock).toHaveBeenCalledTimes(1);
-    // parentToolUseId is the 7th positional arg to spawn().
-    expect(spawnMock.mock.calls[0][6]).toBe("toolu_abc123");
+    // The options bag is the 7th positional arg to spawn().
+    expect(spawnMock.mock.calls[0][6]).toEqual({
+      parentToolUseId: "toolu_abc123",
+    });
   });
 
   test("default-profile fallback when user config is empty", async () => {
@@ -272,7 +274,7 @@ describe("executeAcpSpawn — input validation", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain("claude-agent-acp is not on PATH");
     expect(result.content).toContain(
-      "bun add -g @agentclientprotocol/claude-agent-acp",
+      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
     );
     expect(execFileMock).not.toHaveBeenCalled();
     expect(spawnMock).not.toHaveBeenCalled();
@@ -309,7 +311,7 @@ describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => 
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const payload = JSON.parse(result.content);
     expect(payload.message).toContain(
-      "Installed @agentclientprotocol/claude-agent-acp automatically.",
+      "Installed @agentclientprotocol/claude-agent-acp@0.75.1 automatically.",
     );
     // The real binary was spawned with cwd = the project dir and token
     // injected (trusted-binary config, no resolution at spawn).
@@ -330,7 +332,7 @@ describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => 
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     ]);
   });
 
@@ -419,7 +421,7 @@ describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("claude-agent-acp is not on PATH");
     expect(result.content).toContain(
-      "bun add -g @agentclientprotocol/claude-agent-acp",
+      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
     );
     expect(result.content).toContain("auto-install failed");
     expect(result.content).toContain("EACCES");
@@ -455,6 +457,82 @@ describe("executeAcpSpawn — per-agent resume hint", () => {
     const payload = JSON.parse(result.content);
     expect(payload.message).not.toContain("claude --resume");
     expect(payload.message).not.toContain("To resume:");
+  });
+});
+
+describe("executeAcpSpawn - model selection", () => {
+  test("threads the requested model into manager.spawn's options", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "opus" },
+      { ...makeContext(), toolUseId: "toolu_model" },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spawnMock.mock.calls[0][6]).toEqual({
+      parentToolUseId: "toolu_model",
+      model: "opus",
+    });
+  });
+
+  test("a null model is treated as omitted", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: null },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const options = spawnMock.mock.calls[0][6] as { model?: string };
+    expect(options.model).toBeUndefined();
+  });
+
+  test("a modelWarning from the spawn is relayed in the result message", async () => {
+    spawnMock.mockImplementationOnce(async () => ({
+      acpSessionId: "acp-session-test",
+      protocolSessionId: "proto-session-test",
+      modelWarning: "Unknown model: nope",
+    }));
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "nope" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    expect(payload.message).toContain(
+      "The requested model was not applied: Unknown model: nope",
+    );
+  });
+
+  test("the note relays a no-selector warning without calling it a refusal", async () => {
+    spawnMock.mockImplementationOnce(async () => ({
+      acpSessionId: "acp-session-test",
+      protocolSessionId: "proto-session-test",
+      modelWarning:
+        'Agent "claude" does not support model selection, so the session is running on the agent\'s own model.',
+    }));
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "opus" },
+      makeContext(),
+    );
+
+    const payload = JSON.parse(result.content);
+    expect(payload.message).toContain("does not support model selection");
+    expect(payload.message).not.toContain("refused");
+  });
+
+  test("no model note when the spawn reports no warning", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "opus" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    expect(payload.message).not.toContain(
+      "The requested model was not applied",
+    );
   });
 });
 

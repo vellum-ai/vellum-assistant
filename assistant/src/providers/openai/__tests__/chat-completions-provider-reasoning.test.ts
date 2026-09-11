@@ -934,6 +934,51 @@ describe("thinking-mode tool_choice rejection fallback", () => {
     expect(text?.text).toBe("ok");
   });
 
+  test("retries once when Kimi rejects a specified tool_choice in thinking mode", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("tool_choice 'specified' is incompatible with thinking enabled")],
+      OK_CHUNKS,
+    );
+
+    const response = await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      {
+        tools: [
+          {
+            name: "select_pages",
+            description: "Pick relevant memory pages",
+            input_schema: { type: "object", properties: {} },
+          },
+        ],
+        config: {
+          tool_choice: { type: "tool", name: "select_pages" },
+          effort: "high",
+        },
+      },
+    );
+
+    expect(requests).toHaveLength(2);
+    const first = requests[0] as {
+      tool_choice?: { type: string; function: { name: string } };
+      reasoning_effort?: string;
+    };
+    const second = requests[1] as {
+      tool_choice?: unknown;
+      reasoning_effort?: string;
+    };
+    expect(first.tool_choice).toEqual({
+      type: "function",
+      function: { name: "select_pages" },
+    });
+    expect(first.reasoning_effort).toBe("high");
+    expect(second.tool_choice).toBeUndefined();
+    expect(second.reasoning_effort).toBe("high");
+    const text = response.content.find((b) => b.type === "text") as
+      | { type: "text"; text: string }
+      | undefined;
+    expect(text?.text).toBe("ok");
+  });
+
   test("retries once for an OpenRouter-wrapped thinking-mode tool_choice rejection", async () => {
     const wrapped = new OpenAI.APIError(
       400,

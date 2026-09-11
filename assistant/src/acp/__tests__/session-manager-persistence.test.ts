@@ -66,7 +66,11 @@ function buildSessionWithFakeProcess(opts: {
     kill: () => {},
     spawn: () => {},
     initialize: () => Promise.resolve(),
-    createSession: () => Promise.resolve(opts.protocolSessionId),
+    createSession: () =>
+      Promise.resolve({
+        sessionId: opts.protocolSessionId,
+        configOptions: [],
+      }),
     cancel: () => Promise.resolve(),
     markStderr: () => 0,
     stderrSince: () => "",
