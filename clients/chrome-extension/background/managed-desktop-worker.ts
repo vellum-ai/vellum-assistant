@@ -2,6 +2,8 @@ import { createCdpProxy } from './cdp-proxy.js';
 import { trackDesktopInput } from './managed-desktop-input.js';
 import { createHostBrowserDispatcher, type HostBrowserRequestEnvelope } from './host-browser-dispatcher.js';
 
+const input = trackDesktopInput(createCdpProxy());
+
 let port: ChromeRuntimePort | undefined;
 let retry: ReturnType<typeof setTimeout> | undefined;
 
@@ -9,13 +11,13 @@ function connect(): void {
   if (port) {
     return;
   }
+  clearTimeout(retry);
   const connection = chrome.runtime.connectNative('ai.vellum.desktop');
   port = connection;
   const post = (message: unknown) => connection.postMessage(message);
-  post({ type: "desktop_browser_hello", version: chrome.runtime.getManifest().version, protocol: 1 });
-  const input = trackDesktopInput(createCdpProxy());
   const dispatcher = createHostBrowserDispatcher({
-    cdpProxy: input.proxy,
+    // The worker owns input tracking across native connections.
+    cdpProxy: { ...input.proxy, dispose: () => {} },
     releaseInput: input.release,
     resolveTarget: async (id) => {
       if (!id || !/^\d+$/.test(id)) {
@@ -62,6 +64,11 @@ function connect(): void {
     clearTimeout(retry);
     retry = setTimeout(connect, 3_000);
   });
+  void input.release().then(() => {
+    if (port === connection) {
+      post({ type: 'desktop_browser_hello', version: chrome.runtime.getManifest().version, protocol: 1 });
+    }
+  }).catch(() => connection.disconnect());
 }
 
 chrome.alarms.onAlarm.addListener(() => connect());

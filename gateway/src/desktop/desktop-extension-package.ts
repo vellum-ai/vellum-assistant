@@ -24,7 +24,10 @@ export function packageDesktopExtension(
   zip: Buffer,
   key: KeyObject,
 ): { id: string; crx: Buffer } {
-  const publicKey = createPublicKey(key).export({
+  const publicKeyObject = createPublicKey(
+    key.export({ type: "pkcs8", format: "pem" }),
+  );
+  const publicKey = publicKeyObject.export({
     type: "spki",
     format: "der",
   });
@@ -45,7 +48,7 @@ export function packageDesktopExtension(
     zip,
   ]);
   const signature = sign("sha256", signedData, key);
-  if (!verify("sha256", signedData, createPublicKey(key), signature)) {
+  if (!verify("sha256", signedData, publicKeyObject, signature)) {
     throw new Error("Desktop extension signature verification failed");
   }
   const proof = Buffer.concat([field(1, publicKey), field(2, signature)]);

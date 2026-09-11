@@ -1,5 +1,7 @@
 import { readFile, readlink } from "node:fs/promises";
 
+import { DESKTOP_NATIVE_MESSAGE_MAX_BYTES } from "@vellumai/gateway-client";
+
 export async function verifyDesktopBrowserParent(
   expected: { chromePath: string; profileDir: string },
   display = process.env.DISPLAY,
@@ -80,13 +82,13 @@ async function main(): Promise<void> {
   let tail = Promise.resolve();
   let queued = 0;
   process.stdin.on("data", (chunk: Buffer) => {
-    if (buffer.length + chunk.length > 4 * 1024 * 1024 + 4) {
+    if (buffer.length + chunk.length > DESKTOP_NATIVE_MESSAGE_MAX_BYTES + 4) {
       process.exit(1);
     }
     buffer = Buffer.concat([buffer, chunk]);
     while (buffer.length >= 4) {
       const length = buffer.readUInt32LE(0);
-      if (length > 4 * 1024 * 1024) {
+      if (length > DESKTOP_NATIVE_MESSAGE_MAX_BYTES) {
         process.exit(1);
       }
       if (buffer.length < length + 4) {

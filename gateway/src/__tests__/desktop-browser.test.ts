@@ -1,3 +1,7 @@
+import {
+  DESKTOP_BRIDGE_BODY_MAX_BYTES,
+  DESKTOP_NATIVE_MESSAGE_MAX_BYTES,
+} from "@vellumai/gateway-client";
 import { expect, test } from "bun:test";
 import type { GatewayConfig } from "../config.js";
 import { createDesktopBrowserHandler } from "../http/routes/desktop-browser.js";
@@ -58,7 +62,10 @@ test("browser callers and oversized messages cannot reach the bridge", async () 
   ]) {
     expect((await f.handler(f.request("{}", origin))).status).toBe(403);
   }
-  expect((await f.handler(f.request("x".repeat(1025)))).status).toBe(413);
+  expect(
+    (await f.handler(f.request("x".repeat(DESKTOP_BRIDGE_BODY_MAX_BYTES + 1))))
+      .status,
+  ).toBe(413);
   expect(f.forwarded).toHaveLength(0);
 });
 
@@ -71,4 +78,24 @@ test("originless requests still require the native capability before forwarding"
     expect(response.status).toBe(403);
   }
   expect(f.forwarded).toHaveLength(0);
+});
+
+test("native messages at the frame limit survive the HTTP envelope", async () => {
+  const f = fixture();
+  const message = { type: "host_browser_result", result: "" };
+  message.result = "x".repeat(
+    DESKTOP_NATIVE_MESSAGE_MAX_BYTES - JSON.stringify(message).length,
+  );
+  const response = await f.handler(
+    f.request(
+      JSON.stringify({
+        token: "capability",
+        connection: "00000000-0000-4000-8000-000000000001",
+        kind: "message",
+        message,
+      }),
+    ),
+  );
+  expect(response.status).toBe(200);
+  expect((await f.forwarded[0]!.json()).message).toEqual(message);
 });

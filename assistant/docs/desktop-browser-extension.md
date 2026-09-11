@@ -59,12 +59,14 @@ Observe before deciding how to continue. Input cleanup issues key/button
 releases, including when the original press has an outstanding response. Failed cleanup
 remains pending and blocks observations in either scope until both input channels
 have been released. Closed or detached targets discard held-input records; a
-rejected press does not create a cleanup obligation.
+rejected press does not create a cleanup obligation. The worker retains held-input
+records across native reconnects and completes cleanup before announcing readiness.
 
 Embedded frames support reading when exposed by the selected target's AX tree;
 input in frames, canvas, native Chrome UI, password/file fields, and other
 applications uses screenshot/X11 fallback. Large responses above the transport
-cap fail instead of silently truncating references. Native input races with
+cap fail instead of silently truncating references. Native responses allow 4 MiB;
+the gateway reserves an additional 1 KiB for the HTTP envelope. Native input races with
 page-authored movement cannot be eliminated entirely after validation.
 
 ## Validation
@@ -72,7 +74,7 @@ page-authored movement cannot be eliminated entirely after validation.
 Scoped tests cover capability/guardian binding, callback connection binding,
 reconnect invalidation, queued cancellation, shared X11/browser ownership,
 actionability rejection, input release, persistent signing identity, and capability rotation. The Linux-only
-the repository-root `scripts/smoke-desktop-extension.ts` uses a temporary workspace and real Chrome
+repository-root `scripts/smoke-desktop-extension.ts` uses a temporary workspace and real Chrome
 on `:99` to exercise signed policy installation, native bootstrap, AX reading,
 semantic click, stale-reference rejection, and input cleanup after a held-key
 tab closes. It runs the real gateway signer IPC

@@ -376,6 +376,8 @@ export {
 export type { BindingStrength } from "./binding-strength-contract.js";
 
 export {
+  DESKTOP_NATIVE_MESSAGE_MAX_BYTES,
+  DESKTOP_BRIDGE_BODY_MAX_BYTES,
   ProvisionDesktopExtensionParamsSchema,
   ProvisionDesktopExtensionResultSchema,
 } from "./desktop-extension-contract.js";

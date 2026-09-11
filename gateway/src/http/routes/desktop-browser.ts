@@ -1,3 +1,4 @@
+import { DESKTOP_BRIDGE_BODY_MAX_BYTES } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../../config.js";
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import { fetchImpl } from "../../fetch.js";
@@ -23,10 +24,7 @@ export function createDesktopBrowserHandler(
       if (req.headers.has("origin")) {
         return new Response("Native desktop client required", { status: 403 });
       }
-      const limited = await readLimitedBody(
-        req,
-        Math.min(config.maxWebhookPayloadBytes, 4 * 1024 * 1024),
-      );
+      const limited = await readLimitedBody(req, DESKTOP_BRIDGE_BODY_MAX_BYTES);
       if (limited.status !== "ok") {
         return new Response("Invalid desktop message", { status: 413 });
       }
