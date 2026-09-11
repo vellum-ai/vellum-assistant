@@ -161,8 +161,38 @@ try {
     }),
   );
   await browser.release();
+  const fresh = await execute({ action: "observe" });
+  const temporary = await execute({
+    action: "new_tab",
+    observation_id: fresh.observation_id,
+  });
+  await desktopBrowserBridge.send(
+    "Input.dispatchKeyEvent",
+    {
+      type: "keyDown",
+      key: "Shift",
+      code: "ShiftLeft",
+      windowsVirtualKeyCode: 16,
+    },
+    String(temporary.tab_id),
+    "user-123",
+    "conv-123",
+    AbortSignal.timeout(15_000),
+  );
+  await execute({
+    action: "close_tab",
+    observation_id: temporary.observation_id,
+  });
+  await desktopBrowserBridge.send(
+    "Vellum.releaseInput",
+    {},
+    undefined,
+    "user-123",
+    "conv-123",
+    AbortSignal.timeout(15_000),
+  );
   console.log(
-    "PASS: signed policy install, native bootstrap, page reading, semantic click, and stale-reference rejection in visible Chrome on :99",
+    "PASS: signed policy install, native bootstrap, page reading, semantic click, stale-reference rejection, and closed-tab input cleanup in visible Chrome on :99",
   );
 } finally {
   desktopBrowserBridge.stop();

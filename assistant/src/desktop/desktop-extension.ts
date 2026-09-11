@@ -17,7 +17,7 @@ import { ipcCallPersistentValidated } from "../ipc/gateway-validated-call.js";
 import { getProtectedDir } from "../util/platform.js";
 import { desktopBrowserBridge } from "./desktop-browser-bridge.js";
 
-export const DESKTOP_EXTENSION_VERSION = "1.0.0";
+export const DESKTOP_EXTENSION_VERSION = "1.0.1";
 let artifact: { id: string; crx: Buffer; gateway: string } | undefined;
 let installed: Promise<void> | undefined;
 

@@ -58,7 +58,8 @@ have reached Chrome even if cancellation or a timeout prevents its response.
 Observe before deciding how to continue. Input cleanup issues key/button
 releases, including when the original press has an outstanding response. Failed cleanup
 remains pending and blocks observations in either scope until both input channels
-have been released.
+have been released. Closed or detached targets discard held-input records; a
+rejected press does not create a cleanup obligation.
 
 Embedded frames support reading when exposed by the selected target's AX tree;
 input in frames, canvas, native Chrome UI, password/file fields, and other
@@ -73,7 +74,8 @@ reconnect invalidation, queued cancellation, shared X11/browser ownership,
 actionability rejection, input release, persistent signing identity, and capability rotation. The Linux-only
 the repository-root `scripts/smoke-desktop-extension.ts` uses a temporary workspace and real Chrome
 on `:99` to exercise signed policy installation, native bootstrap, AX reading,
-semantic click, and stale-reference rejection. It runs the real gateway signer IPC
+semantic click, stale-reference rejection, and input cleanup after a held-key
+tab closes. It runs the real gateway signer IPC
 and capability ingress handler with a stub runtime forwarding hop and guardian
 lookup. Production Desktop modal integration remains a separate validation step.
 
