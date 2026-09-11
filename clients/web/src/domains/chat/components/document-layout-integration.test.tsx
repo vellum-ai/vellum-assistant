@@ -19,6 +19,7 @@ import {
 import { useEffect, useRef } from "react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import { create } from "zustand";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -38,10 +39,14 @@ import type * as ChatInfo from "./chat-info-panel";
 import type { DocumentViewerContainerHandle } from "./document-viewer-container";
 import { useOpenDocumentFromChat } from "../hooks/use-open-app-from-chat";
 
+const useReadiness = create<{ value: Readiness.OrgHeaderReadiness }>(() => ({
+  value: "ready",
+}));
+
 mock.module(
   "@/hooks/use-is-org-ready",
   (): Partial<typeof Readiness> => ({
-    useOrgHeaderReadiness: () => "ready",
+    useOrgHeaderReadiness: () => useReadiness((state) => state.value),
   }),
 );
 mock.module(
@@ -207,6 +212,7 @@ const viewer = useViewerStore.getState();
 let queryClient: QueryClient;
 
 beforeEach(() => {
+  useReadiness.setState({ value: "ready" });
   saved = { ...original };
   linked = true;
   load.mockClear();
@@ -285,6 +291,47 @@ function renderLayout(mobile: boolean, urlBacked = true) {
 }
 
 describe("document viewport handoff", () => {
+  test.each(["unavailable", "resolving"] as const)(
+    "desktop document readiness=%s exposes the error and close action",
+    async (initialReadiness) => {
+      useReadiness.setState({ value: initialReadiness });
+      renderLayout(false);
+      if (initialReadiness === "resolving") {
+        await screen.findByRole("button", { name: "Close document" });
+        expect(load).not.toHaveBeenCalled();
+        act(() => useReadiness.setState({ value: "unavailable" }));
+      }
+      expect(await screen.findByRole("alert")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+      expect(useViewerStore.getState().mainView).toBe("document");
+      expect(load).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Close document" }));
+      expect(screen.getByTestId("url").textContent).toBe(
+        "/assistant/conversations/conv-1",
+      );
+      expect(useViewerStore.getState().mainView).toBe("chat");
+      await waitFor(() =>
+        expect(Boolean(screen.queryByRole("alert"))).toBe(false),
+      );
+    },
+  );
+
+  test("desktop readiness recovery retains the drawer and loads the document", async () => {
+    useReadiness.setState({ value: "unavailable" });
+    renderLayout(false);
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(load).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toBeTruthy();
+    act(() => useReadiness.setState({ value: "ready" }));
+    expect(
+      await screen.findByRole("textbox", { name: "Document body" }),
+    ).toBeTruthy();
+    expect(useViewerStore.getState().mainView).toBe("document");
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(Boolean(screen.queryByRole("alert"))).toBe(false);
+  });
+
   test("replacing a desktop document flushes edits without closing the new panel", async () => {
     renderLayout(false);
     fireEvent.change(
