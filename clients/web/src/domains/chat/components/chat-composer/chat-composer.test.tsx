@@ -2390,6 +2390,63 @@ function renderVoiceComposer(
   };
 }
 
+describe("ChatComposer document context before live voice", () => {
+  test("keeps prewarmed voice closed until document preparation allows entry", async () => {
+    let allow!: (value: boolean) => void;
+    const onBeforeLiveVoiceStart = mock(() => new Promise<boolean>((resolve) => { allow = resolve; }));
+    const { getByLabelText } = renderVoiceComposer({ onBeforeLiveVoiceStart });
+    fireEvent.click(getByLabelText("Start voice mode"));
+    await flushPreflight();
+    expect(livePrewarmSpy).toHaveBeenCalledTimes(1);
+    expect(onBeforeLiveVoiceStart).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+    fireEvent.click(getByLabelText("Start voice mode"));
+    expect(onBeforeLiveVoiceStart).toHaveBeenCalledTimes(1);
+    await act(async () => { allow(true); });
+    await flushPreflight();
+    expect(liveStarterSpy).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy.mock.calls[0]?.slice(0, 2)).toEqual(["asst_test", "conv_test"]);
+  });
+
+  test("a failed or cancelled document preparation releases prewarm without starting voice", async () => {
+    const onBeforeLiveVoiceStart = mock(async () => false);
+    const { getByLabelText } = renderVoiceComposer({ onBeforeLiveVoiceStart });
+    fireEvent.click(getByLabelText("Start voice mode"));
+    await flushPreflight();
+    expect(onBeforeLiveVoiceStart).toHaveBeenCalledTimes(1);
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(liveCancelPrewarmSpy).toHaveBeenCalledTimes(1);
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+  });
+
+  test("a chat switch while the document saves cannot start voice for the old chat", async () => {
+    let allow!: (value: boolean) => void;
+    const onBeforeLiveVoiceStart = mock(() => new Promise<boolean>((resolve) => { allow = resolve; }));
+    const { getByLabelText, rerenderWith } = renderVoiceComposer({ onBeforeLiveVoiceStart });
+    fireEvent.click(getByLabelText("Start voice mode"));
+    await flushPreflight();
+    rerenderWith({ conversationId: "conversation-2" });
+    await act(async () => { allow(true); });
+    await flushPreflight();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+    expect(liveCancelPrewarmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("voice readiness refusal does not start document preparation", async () => {
+    mockPreflightVerdict = {
+      status: "not-ready",
+      missing: [{ kind: "tts", providerId: "elevenlabs", reason: "no key" }],
+      userMessage: "Add a voice provider to start talking.",
+    };
+    const onBeforeLiveVoiceStart = mock(async () => true);
+    const { getByLabelText } = renderVoiceComposer({ onBeforeLiveVoiceStart });
+    fireEvent.click(getByLabelText("Start voice mode"));
+    await flushPreflight();
+    expect(onBeforeLiveVoiceStart).not.toHaveBeenCalled();
+    expect(liveStarterSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe("ChatComposer — live-voice integration", () => {
   test("assistant too old for live voice: no voice button, dictation mic stays enabled", () => {
     // GIVEN an assistant below the live-voice version gate
