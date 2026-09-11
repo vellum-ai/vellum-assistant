@@ -376,7 +376,9 @@ export function useChooserRowAvatar(
   const isConnectedRow = assistant.id === activeAssistantId;
   const isOrgReady = useIsOrgReady();
 
-  const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null);
+  const connected = useAssistantAvatar(isConnectedRow ? assistant.id : null, {
+    ownerAssistant: isConnectedRow ? assistant : null,
+  });
 
   // Keyed by URL so a reload that carries a new thumbnail retries it; a
   // resume retries the same URL, since the failure may have been offline.

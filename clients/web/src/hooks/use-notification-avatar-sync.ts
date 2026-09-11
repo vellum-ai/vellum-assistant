@@ -1,10 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isElectron } from "@/runtime/is-electron";
 import {
+  beginNotificationIdentityPublication,
   clearNotificationAvatar,
+  createNotificationIdentity,
+  getNotificationIdentitySessionGeneration,
+  isNotificationIdentityPublicationCurrent,
+  publishPreparedNotificationIdentity,
+  resolveNotificationIdentityScope,
+  resetPreparedNotificationIdentity,
+  resetPreparedNotificationScope,
+  sameNotificationIdentity,
   setNotificationAvatar,
   sha256Hex,
+  supersedePreparedNotificationIdentity,
+  type NotificationIdentityOwner,
+  type NotificationIdentityPublication,
+  type NotificationIdentityScopeInput,
 } from "@/runtime/notification-avatar";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -15,49 +28,59 @@ import type {
 } from "@/types/avatar";
 import { rasterizeNotificationAvatar } from "@/utils/avatar-raster";
 import { resolveAvatarRender } from "@/utils/avatar-render";
+import { encodeBase64Bytes } from "@/utils/base64";
 import {
   NOTIFICATION_AVATAR_MAX_LOCAL_BYTES,
   NOTIFICATION_AVATAR_SIZE,
   NOTIFICATION_AVATAR_SPEC_VERSION,
 } from "@vellumai/avatar-manifest/notification-avatar";
+import type { NotificationAvatar } from "@vellumai/ipc-contract";
+
+export type NotificationAvatarScope = NotificationIdentityScopeInput;
+
+export interface NotificationAvatarSyncOptions {
+  scopeId: string | null;
+  platformAssistantId?: string | null;
+  assistantName?: string | null;
+  assistantNameOwner?: NotificationIdentityOwner | null;
+  avatarOwner?: NotificationIdentityOwner | null;
+  /** True only after the avatar query has produced a conclusive answer. */
+  avatarReady?: boolean;
+}
+
+interface CachedPreparedAvatar {
+  identityKey: string;
+  pictureKey: string;
+  png: Uint8Array<ArrayBuffer>;
+  avatar: NotificationAvatar;
+}
+
+/** Opaque deterministic account or normalized connection-origin scope. */
+export function resolveNotificationAvatarScope(
+  scope: NotificationAvatarScope | null,
+): string | null {
+  return resolveNotificationIdentityScope(scope);
+}
+
+function ownerMatches(
+  owner: NotificationIdentityOwner | null | undefined,
+  scopeId: string | null,
+  assistantId: string | null,
+): boolean {
+  return Boolean(
+    owner &&
+      scopeId &&
+      assistantId &&
+      owner.scopeId === scopeId &&
+      owner.assistantId === assistantId,
+  );
+}
 
 /**
- * Composite the assistant's avatar onto its accent disc and hold the result for
- * the desktop notifications that post it as the sender's icon.
- *
- * Shaped like `useElectronIconSync` and mounted beside it, off the same avatar
- * query, so the notification icon can never show a different assistant than the
- * one on screen. The canvas work is gated behind the main Electron window and
- * `push-avatar-sender`: no other host reads the holder, a pop-out thread window
- * would publish over the window whose notifications these are, and while the
- * flag is off the holder stays empty so the IPC payload carries no `sender`
- * field.
- *
- * What a run stores is stamped with the assistant it was drawn for, and the
- * holder outlives this effect, so a flag turned off, an assistant with no
- * avatar, a failed rasterization and an unmount all have to take back what an
- * earlier run put there.
- *
- * A run is keyed on the picture rather than on the effect firing. The avatar
- * query re-reads without structural sharing, so `components` and `traits`
- * arrive as fresh objects on every refetch and this effect re-runs for a
- * picture that has not changed; emptying the holder each time would leave any
- * notification posted across the rasterize-and-hash gap with no avatar and no
- * sender name. The key is the arbiter of the gap in both directions: an equal
- * key does nothing at all, and a render whose key has since been replaced never
- * writes what it drew. A custom image is keyed on the manifest's identity for
- * it rather than on the blob URL the query mints fresh every time it refetches,
- * which would be a new picture on every read of the same one.
- *
- * A run that fails transiently (nothing came back from the canvas, the
- * rasterizer threw) drops the key too, so the next refetch draws again instead
- * of inheriting a claim on a picture that never landed, and schedules one
- * redraw rather than waiting for a refetch that may never come: the run that
- * failed may have been drawing from a blob URL a refetch has already revoked,
- * and the effect run that would have redrawn from the fresh one matched the
- * stable key and returned. One redraw per key, so a picture the canvas cannot
- * draw at all is not attempted forever. A render past the byte cap keeps its
- * claim: that outcome is the same every time it is redrawn.
+ * Prepare the active assistant identity for local notification consumers.
+ * The scoped snapshot path runs on every renderer surface when either sender
+ * feature needs it. The legacy singleton remains main-Electron-only because
+ * it also feeds the existing dock/tray notification path.
  */
 export function useNotificationAvatarSync(
   assistantId: string | null,
@@ -66,59 +89,233 @@ export function useNotificationAvatarSync(
   components: CharacterComponents | null,
   traits: CharacterTraits | null,
   accentHex: string | null,
+  options?: NotificationAvatarSyncOptions,
 ): void {
-  const enabled = useClientFeatureFlagStore.use.pushAvatarSender();
-  const heldKey = useRef<string | null>(null);
+  const pushAvatarSender = useClientFeatureFlagStore.use.pushAvatarSender();
+  const localNotificationAvatar =
+    useClientFeatureFlagStore.use.localNotificationAvatar();
+  const prepareEnabled = pushAvatarSender || localNotificationAvatar;
+  const legacyEnabled =
+    pushAvatarSender && isElectron() && !isPopoutWindowLifetime();
+  const scopeId = options
+    ? options.scopeId
+    : resolveNotificationIdentityScope({
+        kind: "connection",
+        url:
+          typeof globalThis.location === "undefined"
+            ? null
+            : globalThis.location.href,
+      });
+  const identity = useMemo(
+    () =>
+      assistantId && scopeId
+        ? createNotificationIdentity(
+            scopeId,
+            assistantId,
+            options?.platformAssistantId,
+          )
+        : null,
+    [assistantId, options?.platformAssistantId, scopeId],
+  );
+  const identityKey = identity
+    ? JSON.stringify([
+        identity.scopeId,
+        identity.assistantId,
+        identity.nativeSenderId,
+      ])
+    : null;
+  const avatarOwnerMatches = options
+    ? ownerMatches(options.avatarOwner, scopeId, assistantId)
+    : true;
+  const assistantNameOwnerMatches = options
+    ? ownerMatches(options.assistantNameOwner, scopeId, assistantId)
+    : true;
+  const assistantName = assistantNameOwnerMatches
+    ? options?.assistantName?.trim() || null
+    : null;
+  const sessionGeneration = getNotificationIdentitySessionGeneration();
+  const avatarReady = avatarOwnerMatches
+    ? (options?.avatarReady ?? true)
+    : false;
+  const render = resolveAvatarRender(
+    avatarOwnerMatches ? customImageUrl : null,
+    avatarOwnerMatches ? components : null,
+    avatarOwnerMatches ? traits : null,
+    NOTIFICATION_AVATAR_SIZE,
+  );
+  const renderSource =
+    render.kind === "character"
+      ? render.dataUri
+      : render.kind === "image"
+        ? render.url
+        : null;
+  const imageId = avatarOwnerMatches && imageMeta
+    ? JSON.stringify([imageMeta.updatedAt, imageMeta.etag])
+    : null;
+  const picture =
+    render.kind === "none"
+      ? avatarReady
+        ? "none"
+        : "pending"
+      : render.kind === "image" && imageId
+        ? imageId
+        : renderSource;
+  const pictureKey = JSON.stringify([
+    NOTIFICATION_AVATAR_SPEC_VERSION,
+    avatarOwnerMatches ? accentHex : null,
+    picture,
+  ]);
+  const updateKey = JSON.stringify([
+    sessionGeneration,
+    identityKey,
+    assistantName,
+    pictureKey,
+    prepareEnabled,
+    legacyEnabled,
+  ]);
+
+  const currentPublication =
+    useRef<NotificationIdentityPublication | null>(null);
+  const lastUpdateKey = useRef<string | null>(null);
+  const inFlightPictureKey = useRef<string | null>(null);
+  const cachedAvatar = useRef<CachedPreparedAvatar | null>(null);
   const redrawnKey = useRef<string | null>(null);
   const [redraws, setRedraws] = useState(0);
-  const release = useCallback((): void => {
-    heldKey.current = null;
-    clearNotificationAvatar();
-  }, []);
-  // The manifest's identity for the uploaded image, which survives a refetch;
-  // null on the legacy sidecar path, which carries none.
-  const imageId = imageMeta ? `${imageMeta.updatedAt}|${imageMeta.etag}` : null;
 
-  useEffect(() => release, [release]);
+  useEffect(
+    () => () => {
+      const publication = currentPublication.current;
+      currentPublication.current = null;
+      if (publication) {
+        resetPreparedNotificationIdentity(publication);
+      }
+      clearNotificationAvatar();
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!isElectron() || isPopoutWindowLifetime() || !enabled || !assistantId) {
-      release();
+    const previous = currentPublication.current;
+    if (!prepareEnabled || !identity) {
+      currentPublication.current = null;
+      lastUpdateKey.current = null;
+      inFlightPictureKey.current = null;
+      cachedAvatar.current = null;
+      if (previous) {
+        resetPreparedNotificationIdentity(previous);
+      }
+      clearNotificationAvatar();
       return;
     }
 
-    const render = resolveAvatarRender(
-      customImageUrl,
-      components,
-      traits,
-      NOTIFICATION_AVATAR_SIZE,
-    );
-    if (render.kind === "none") {
-      release();
+    if (previous && !sameNotificationIdentity(previous.identity, identity)) {
+      currentPublication.current = null;
+      if (previous.identity.scopeId === identity.scopeId) {
+        if (previous.identity.assistantId === identity.assistantId) {
+          resetPreparedNotificationIdentity(previous);
+        } else {
+          supersedePreparedNotificationIdentity(previous);
+        }
+      } else {
+        resetPreparedNotificationScope(previous.identity.scopeId);
+      }
+      lastUpdateKey.current = null;
+      inFlightPictureKey.current = null;
+      cachedAvatar.current = null;
+      clearNotificationAvatar();
+    }
+
+    if (
+      lastUpdateKey.current === updateKey &&
+      currentPublication.current &&
+      isNotificationIdentityPublicationCurrent(currentPublication.current)
+    ) {
+      const cached = cachedAvatar.current;
+      if (
+        legacyEnabled &&
+        cached?.identityKey === identityKey &&
+        cached.pictureKey === pictureKey
+      ) {
+        setNotificationAvatar(
+          identity.assistantId,
+          cached.png,
+          cached.avatar.avatarHash,
+        );
+      } else if (!legacyEnabled) {
+        clearNotificationAvatar();
+      }
+      return;
+    }
+    lastUpdateKey.current = updateKey;
+    inFlightPictureKey.current = null;
+
+    let publication = beginNotificationIdentityPublication(identity);
+    currentPublication.current = publication;
+    const cached = cachedAvatar.current;
+    const preparedName = assistantName
+      ? { name: assistantName, nameProvenance: "identity-store" as const }
+      : {};
+
+    if (render.kind === "none" && avatarReady) {
+      resetPreparedNotificationIdentity(publication);
+      publication = beginNotificationIdentityPublication(identity);
+      currentPublication.current = publication;
+      cachedAvatar.current = null;
+      inFlightPictureKey.current = null;
+      clearNotificationAvatar();
+      if (assistantName) {
+        publishPreparedNotificationIdentity(publication, preparedName);
+      }
       return;
     }
 
-    const src = render.kind === "character" ? render.dataUri : render.url;
-    const picture = render.kind === "image" && imageId ? imageId : src;
-    const key = `${assistantId}|${NOTIFICATION_AVATAR_SPEC_VERSION}|${accentHex ?? ""}|${picture}`;
-    if (key === heldKey.current) {
+    const cachedForPicture =
+      cached?.identityKey === identityKey && cached.pictureKey === pictureKey
+        ? cached
+        : null;
+    publishPreparedNotificationIdentity(publication, {
+      ...preparedName,
+      ...(cachedForPicture ? { avatar: cachedForPicture.avatar } : {}),
+    });
+
+    if (cachedForPicture) {
+      inFlightPictureKey.current = null;
+      if (legacyEnabled) {
+        setNotificationAvatar(
+          identity.assistantId,
+          cachedForPicture.png,
+          cachedForPicture.avatar.avatarHash,
+        );
+      } else {
+        clearNotificationAvatar();
+      }
       return;
     }
-    heldKey.current = key;
-    clearNotificationAvatar();
+
+    if (!renderSource || inFlightPictureKey.current === pictureKey) {
+      if (!legacyEnabled) {
+        clearNotificationAvatar();
+      }
+      return;
+    }
+    inFlightPictureKey.current = pictureKey;
 
     const giveUp = (): void => {
-      release();
-      if (redrawnKey.current === key) {
+      if (currentPublication.current !== publication) {
         return;
       }
-      redrawnKey.current = key;
+      inFlightPictureKey.current = null;
+      lastUpdateKey.current = null;
+      if (redrawnKey.current === pictureKey) {
+        return;
+      }
+      redrawnKey.current = pictureKey;
       setRedraws((count) => count + 1);
     };
 
-    void rasterizeNotificationAvatar(src, accentHex)
+    void rasterizeNotificationAvatar(renderSource, accentHex)
       .then(async (png) => {
-        if (heldKey.current !== key) {
+        if (currentPublication.current !== publication) {
           return;
         }
         if (!png) {
@@ -126,41 +323,64 @@ export function useNotificationAvatarSync(
           return;
         }
         if (png.byteLength > NOTIFICATION_AVATAR_MAX_LOCAL_BYTES) {
-          // Deterministic for this picture, so the key stays claimed and the
-          // canvas is not run for it again on the next refetch.
           warnOversized(png.byteLength);
+          resetPreparedNotificationIdentity(publication);
+          const withoutAvatar = beginNotificationIdentityPublication(identity);
+          currentPublication.current = withoutAvatar;
+          cachedAvatar.current = null;
+          inFlightPictureKey.current = null;
+          clearNotificationAvatar();
+          if (assistantName) {
+            publishPreparedNotificationIdentity(withoutAvatar, preparedName);
+          }
           return;
         }
         const hash = await sha256Hex(png);
-        if (heldKey.current === key) {
-          setNotificationAvatar(assistantId, png, hash);
+        if (currentPublication.current !== publication) {
+          return;
+        }
+        const avatar = {
+          avatarBase64: encodeBase64Bytes(png),
+          avatarHash: hash,
+        };
+        if (!publishPreparedNotificationIdentity(publication, { avatar })) {
+          return;
+        }
+        inFlightPictureKey.current = null;
+        cachedAvatar.current = {
+          identityKey: identityKey!,
+          pictureKey,
+          png,
+          avatar,
+        };
+        if (legacyEnabled) {
+          setNotificationAvatar(identity.assistantId, png, hash);
         }
       })
-      .catch(() => {
-        if (heldKey.current === key) {
-          giveUp();
-        }
-      });
+      .catch(giveUp);
   }, [
-    enabled,
-    assistantId,
+    prepareEnabled,
+    legacyEnabled,
+    identity,
+    identityKey,
+    assistantName,
+    sessionGeneration,
+    pictureKey,
+    render.kind,
+    renderSource,
+    avatarReady,
+    accentHex,
     customImageUrl,
-    imageId,
     components,
     traits,
-    accentHex,
+    avatarOwnerMatches,
     redraws,
-    release,
+    updateKey,
   ]);
 }
 
 let warnedOversized = false;
 
-/**
- * The host caches every disc it is handed on disk, so one too heavy to carry
- * is dropped rather than sent. Reported once: the same avatar redraws on every
- * refetch, and a per-render line would say the same thing forever.
- */
 function warnOversized(bytes: number): void {
   if (warnedOversized) {
     return;

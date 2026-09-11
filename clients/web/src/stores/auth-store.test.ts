@@ -354,6 +354,24 @@ mock.module("@/runtime/widget-snapshot", () => ({
   retryPendingWidgetSnapshotClear: async () => true,
 }));
 
+const notificationAvatarRuntime =
+  await import("@/runtime/notification-avatar");
+
+function seedNotificationIdentityMemory() {
+  const identity = notificationAvatarRuntime.createNotificationIdentity(
+    '["account","user-123","org-abc"]',
+    "assistant-1",
+    "00000000-0000-4000-8000-000000000001",
+  )!;
+  const publication =
+    notificationAvatarRuntime.beginNotificationIdentityPublication(identity);
+  notificationAvatarRuntime.publishPreparedNotificationIdentity(publication, {
+    name: "Assistant One",
+    nameProvenance: "identity-store",
+  });
+  return identity;
+}
+
 // Use the REAL resolved-assistants store: it's dependency-light, so loading it
 // for real is cheap, and the `beforeEach` resets it between tests. (The list is
 // now loaded by the platform-assistants-sync subscription, not the auth store —
@@ -492,6 +510,7 @@ beforeEach(() => {
   clearOrganizationMock.mockClear();
   clearUserScopedStorageMock.mockClear();
   clearWidgetSnapshotMock.mockClear();
+  notificationAvatarRuntime.__clearNotificationIdentitySnapshotsForTests();
   logoutMock.mockClear();
   deleteBiometricTokenMock.mockClear();
   installSessionCookiesMock.mockClear();
@@ -1764,9 +1783,13 @@ function holdWidgetSnapshotClear(): () => void {
 // the shared session-ended transition rather than to `logout()`.
 describe("iOS widget snapshot on session end", () => {
   test("logout drops the widget snapshot", async () => {
+    const identity = seedNotificationIdentityMemory();
     await useAuthStore.getState().logout();
 
     expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+    expect(
+      notificationAvatarRuntime.getNotificationIdentitySnapshot(identity),
+    ).toBeNull();
   });
 
   test("gateway logout drops the widget snapshot", async () => {
@@ -1806,11 +1829,15 @@ describe("iOS widget snapshot on session end", () => {
       sessionStatus: "authenticated",
       platformSession: "present",
     });
+    const identity = seedNotificationIdentityMemory();
 
     await expect(useAuthStore.getState().refreshSession()).resolves.toBe(false);
 
     expect(useAuthStore.getState().sessionStatus).toBe("unauthenticated");
     expect(clearWidgetSnapshotMock).toHaveBeenCalledTimes(1);
+    expect(
+      notificationAvatarRuntime.getNotificationIdentitySnapshot(identity),
+    ).toBeNull();
   });
 
   test("a failed remote-gateway refresh drops the widget snapshot", async () => {

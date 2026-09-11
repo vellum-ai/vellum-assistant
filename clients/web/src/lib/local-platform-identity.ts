@@ -29,10 +29,11 @@ import {
   getActiveOrganizationIdForRequests,
   useOrganizationStore,
 } from "@/stores/organization-store";
+import { isUuid } from "@/utils/uuid";
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ELECTRON_RENDERER_ORIGIN_HEADER = "X-Vellum-Electron-Renderer-Origin";
+
+export { isUuid } from "@/utils/uuid";
 
 type LocalPlatformStatus = {
   assistantId: string | null;
@@ -832,10 +833,6 @@ function gatewayUrl(baseUrl: string, path: string): string {
   const prefix = url.pathname.replace(/\/$/, "");
   url.pathname = `${prefix}${path}`;
   return url.toString();
-}
-
-export function isUuid(value: string): boolean {
-  return UUID_RE.test(value);
 }
 
 function firstString(...values: unknown[]): string | null {

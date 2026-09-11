@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { NotificationIdentity } from "@vellumai/ipc-contract";
 
 import {
   __clearNotificationIdentitySnapshotsForTests,
+  beginNotificationIdentityPublication,
   clearNotificationAvatar,
   createNotificationIdentity,
   getNotificationAvatar,
@@ -11,12 +12,19 @@ import {
   NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT,
   notificationIdentityKey,
   publishNotificationIdentitySnapshot,
+  publishPreparedNotificationIdentity,
+  reconcilePreparedNotificationIdentityOwners,
+  resolveNotificationIdentityScope,
+  resetPreparedNotificationIdentityByKey,
+  resetPreparedNotificationScope,
   resetNotificationIdentitySnapshots,
   setNotificationAvatar,
+  setNotificationIdentityNativeAdapter,
 } from "@/runtime/notification-avatar";
 
 const HASH = "a".repeat(64);
 const AVATAR = { avatarBase64: "iVBORw==", avatarHash: HASH };
+const PLATFORM_ASSISTANT_ID = "00000000-0000-4000-8000-000000000001";
 
 function identity(
   assistantId: string,
@@ -40,23 +48,62 @@ beforeEach(() => {
 });
 
 describe("notification identities", () => {
+  test("derives deterministic opaque SHA-256 scopes from canonical owners", () => {
+    const connection = resolveNotificationIdentityScope({
+      kind: "connection",
+      url: "https://assistant.example.com/path?token=secret",
+    });
+    const sameOrigin = resolveNotificationIdentityScope({
+      kind: "connection",
+      url: "https://assistant.example.com/another-path",
+    });
+    const account = resolveNotificationIdentityScope({
+      kind: "account",
+      accountId: "user@example.com",
+      organizationId: "org-abc",
+    });
+
+    expect(connection).toBe(
+      "scope:v1:2bb3ad9851fe377a7de7dd843d37ef21c31438cf39a02346b51030456e4e7ce1",
+    );
+    expect(sameOrigin).toBe(connection);
+    expect(account).toBe(
+      "scope:v1:e6052e7a38013dfcdb9a2e8603679b2ab223f6b8f473611efd6b3128d860c426",
+    );
+    expect(account).not.toContain("user@example.com");
+    expect(account).not.toContain("org-abc");
+    expect(connection).not.toContain("assistant.example.com");
+  });
+
   test("keeps platform sender ids and namespaces local ids unambiguously", () => {
     const platform = identity(
       "local-assistant",
       "connection:one",
-      "platform-assistant-1",
+      PLATFORM_ASSISTANT_ID,
     );
     const local = identity("self", "connection:one");
     const reloaded = identity("self", "connection:one");
     const otherConnection = identity("self", "connection:two");
 
-    expect(platform.nativeSenderId).toBe("platform-assistant-1");
+    expect(platform.nativeSenderId).toBe(PLATFORM_ASSISTANT_ID);
     expect(local.nativeSenderId).toBe(reloaded.nativeSenderId);
     expect(local.nativeSenderId).not.toBe(otherConnection.nativeSenderId);
     expect(identity("c", "a:b").nativeSenderId).not.toBe(
       identity("b:c", "a").nativeSenderId,
     );
     expect(createNotificationIdentity(" ", "self")).toBeNull();
+  });
+
+  test("rejects a non-UUID platform sender id in the runtime constructor", () => {
+    const invalidPlatform = identity(
+      "assistant-a",
+      "connection:one",
+      "not-a-platform-uuid",
+    );
+    const local = identity("assistant-a", "connection:one");
+
+    expect(invalidPlatform.nativeSenderId).toBe(local.nativeSenderId);
+    expect(invalidPlatform.nativeSenderId).not.toBe("not-a-platform-uuid");
   });
 
   test("uses scope and assistant together as the snapshot owner", () => {
@@ -151,7 +198,7 @@ describe("notification identities", () => {
     const platformOwner = identity(
       "assistant-a",
       "connection:one",
-      "platform-assistant-a",
+      PLATFORM_ASSISTANT_ID,
     );
     publishNotificationIdentitySnapshot({
       identity: localOwner,
@@ -228,6 +275,127 @@ describe("notification identities", () => {
         avatar: AVATAR,
       }),
     ).toBe(true);
+  });
+
+  test("reconciles removed owners and rejects their stale publications", () => {
+    const retained = identity("assistant-a");
+    const removed = identity("assistant-b");
+    const retainedPublication = beginNotificationIdentityPublication(retained);
+    const removedPublication = beginNotificationIdentityPublication(removed);
+    for (const publication of [retainedPublication, removedPublication]) {
+      expect(
+        publishPreparedNotificationIdentity(publication, { avatar: AVATAR }),
+      ).toBe(true);
+    }
+
+    expect(
+      reconcilePreparedNotificationIdentityOwners([
+        {
+          scopeId: retained.scopeId,
+          assistantId: retained.assistantId,
+        },
+      ]),
+    ).toBe(1);
+    expect(getNotificationIdentitySnapshot(retained)).not.toBeNull();
+    expect(getNotificationIdentitySnapshot(removed)).toBeNull();
+    expect(
+      publishPreparedNotificationIdentity(removedPublication, {
+        name: "Stale",
+        nameProvenance: "identity-store",
+      }),
+    ).toBe(false);
+    expect(
+      reconcilePreparedNotificationIdentityOwners([
+        {
+          scopeId: retained.scopeId,
+          assistantId: retained.assistantId,
+        },
+      ]),
+    ).toBe(0);
+
+    const restored = beginNotificationIdentityPublication(removed);
+    expect(restored.identityRevision).toBeGreaterThan(
+      removedPublication.identityRevision,
+    );
+    expect(
+      publishPreparedNotificationIdentity(restored, {
+        name: "Restored",
+        nameProvenance: "identity-store",
+      }),
+    ).toBe(true);
+  });
+
+  test("reconcile force-clears a snapshot-only scope exactly once", () => {
+    const scopeId = resolveNotificationIdentityScope({
+      kind: "connection",
+      url: "https://snapshot-only.example.com",
+    })!;
+    const snapshotOnly = identity("snapshot-only", scopeId);
+    const resetIdentities = mock(() => {});
+    setNotificationIdentityNativeAdapter({ resetIdentities });
+    expect(
+      publishNotificationIdentitySnapshot({
+        identity: snapshotOnly,
+        scopeEpoch: 0,
+        identityRevision: 0,
+        avatar: AVATAR,
+      }),
+    ).toBe(true);
+
+    expect(reconcilePreparedNotificationIdentityOwners([])).toBe(1);
+    expect(getNotificationIdentitySnapshot(snapshotOnly)).toBeNull();
+    expect(resetIdentities).toHaveBeenCalledTimes(1);
+
+    resetPreparedNotificationScope(scopeId);
+    expect(resetIdentities).toHaveBeenCalledTimes(1);
+  });
+
+  test("scope-local publication pressure resets the scope before reusing guards", () => {
+    const publications = Array.from(
+      { length: NOTIFICATION_IDENTITY_SNAPSHOT_LIMIT * 2 + 1 },
+      (_, index) =>
+        beginNotificationIdentityPublication(
+          identity(`assistant-${index}`, "scope:publication-pressure"),
+        ),
+    );
+    for (const publication of publications) {
+      publishPreparedNotificationIdentity(publication, { avatar: AVATAR });
+    }
+
+    const newest = publications.at(-1)!;
+    expect(getNotificationIdentitySnapshot(newest.identity)).not.toBeNull();
+    expect(
+      getNotificationIdentitySnapshot(publications[0]!.identity),
+    ).toBeNull();
+    expect(
+      publishPreparedNotificationIdentity(publications[0]!, {
+        name: "Stale",
+        nameProvenance: "identity-store",
+      }),
+    ).toBe(false);
+    expect(newest.scopeEpoch).toBeGreaterThan(publications[0]!.scopeEpoch);
+  });
+
+  test("reset-by-key is idempotent after it seals an active generation", () => {
+    const owner = identity("assistant-a");
+    const publication = beginNotificationIdentityPublication(owner);
+    publishPreparedNotificationIdentity(publication, { avatar: AVATAR });
+
+    expect(
+      resetPreparedNotificationIdentityByKey(
+        owner.scopeId,
+        owner.assistantId,
+      ),
+    ).toBe(true);
+    expect(
+      resetPreparedNotificationIdentityByKey(
+        owner.scopeId,
+        owner.assistantId,
+      ),
+    ).toBe(true);
+    expect(
+      publishPreparedNotificationIdentity(publication, { avatar: AVATAR }),
+    ).toBe(false);
   });
 
   test("a scope reset rejects late publication and accepts its current epoch", () => {

@@ -12,11 +12,12 @@
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 
 let identityResult: IdentityGetResponse | null = null;
+const fetchAssistantIdentity = mock(async () => identityResult);
 
 // Every mock spreads the real module: `mock.module` replaces it for the whole
 // test process, so returning only the overridden export would erase the rest
@@ -24,7 +25,7 @@ let identityResult: IdentityGetResponse | null = null;
 const identityModule = await import("@/assistant/identity");
 mock.module("@/assistant/identity", () => ({
   ...identityModule,
-  fetchAssistantIdentity: async () => identityResult,
+  fetchAssistantIdentity,
 }));
 
 const prechatModule = await import("@/domains/onboarding/prechat");
@@ -69,6 +70,8 @@ function renderInit() {
 
 beforeEach(() => {
   identityResult = null;
+  fetchAssistantIdentity.mockClear();
+  fetchAssistantIdentity.mockImplementation(async () => identityResult);
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -99,6 +102,83 @@ describe("useAssistantIdentityInit", () => {
       expect(useAssistantIdentityStore.getState().version).toBe("0.11.9");
     });
     expect(useAssistantIdentityStore.getState().unavailableFor).toBeNull();
+  });
+
+  test("an origin scope change exposes only the new scope's verified name", async () => {
+    const firstScope = `scope:v1:${"a".repeat(64)}`;
+    const secondScope = `scope:v1:${"b".repeat(64)}`;
+    let resolveFirst: (identity: IdentityGetResponse) => void = () => {};
+    fetchAssistantIdentity.mockImplementationOnce(
+      () =>
+        new Promise<IdentityGetResponse>((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    fetchAssistantIdentity.mockResolvedValueOnce({
+      ...IDENTITY,
+      name: "New Connection",
+    });
+    const { result, rerender } = renderHook(
+      ({ scopeId }: { scopeId: string }) =>
+        useAssistantIdentityInit({
+          assistantId: ASSISTANT_ID,
+          assistantStateKind: "active",
+          ownerScopeId: scopeId,
+        }),
+      { wrapper, initialProps: { scopeId: firstScope } },
+    );
+    await waitFor(() => {
+      expect(fetchAssistantIdentity).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({ scopeId: secondScope });
+    await waitFor(() => {
+      expect(result.current.notificationName).toEqual({
+        name: "New Connection",
+        owner: { scopeId: secondScope, assistantId: ASSISTANT_ID },
+      });
+    });
+
+    resolveFirst({ ...IDENTITY, name: "Old Connection" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current.notificationName?.name).toBe("New Connection");
+    expect(result.current.notificationName?.owner.scopeId).toBe(secondScope);
+  });
+
+  test("a global store write after a scope switch cannot relabel the scoped name", async () => {
+    identityResult = IDENTITY;
+    const firstScope = `scope:v1:${"a".repeat(64)}`;
+    const secondScope = `scope:v1:${"b".repeat(64)}`;
+    const { result, rerender } = renderHook(
+      ({ scopeId }: { scopeId: string }) =>
+        useAssistantIdentityInit({
+          assistantId: ASSISTANT_ID,
+          assistantStateKind: "active",
+          ownerScopeId: scopeId,
+        }),
+      { wrapper, initialProps: { scopeId: firstScope } },
+    );
+    await waitFor(() => {
+      expect(result.current.notificationName?.owner.scopeId).toBe(firstScope);
+    });
+
+    rerender({ scopeId: secondScope });
+    await waitFor(() => {
+      expect(result.current.notificationName).toEqual({
+        name: IDENTITY.name,
+        owner: { scopeId: secondScope, assistantId: ASSISTANT_ID },
+      });
+    });
+
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("Out Of Band", IDENTITY.version, ASSISTANT_ID);
+    });
+    expect(result.current.notificationName).toEqual({
+      name: IDENTITY.name,
+      owner: { scopeId: secondScope, assistantId: ASSISTANT_ID },
+    });
   });
 
   // A refetch that succeeds has to lift the bit, or every surface that acted
