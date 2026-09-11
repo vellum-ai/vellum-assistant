@@ -29,6 +29,7 @@ import {
   useConversationListQuery,
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { useConversationStore } from "@/stores/conversation-store";
 import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
 
 export function useActiveConversation(
@@ -76,6 +77,9 @@ export function useActiveConversation(
       return;
     }
     if (activeConversation) {
+      return;
+    }
+    if (useConversationStore.getState().draftConversationIds.has(conversationId)) {
       return;
     }
     if (fetchedConversationIdRef.current === conversationId) {
