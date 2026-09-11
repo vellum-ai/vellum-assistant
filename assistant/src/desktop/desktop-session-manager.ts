@@ -6,7 +6,7 @@
  * last one leaves so a reconnect is instant.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { terminateProcessTree } from "../util/host-process.js";
@@ -18,6 +18,7 @@ import {
   resolveDesktopBinaries,
 } from "./desktop-dependencies.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
+import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
 
 const log = getLogger("desktop-session");
 
@@ -80,13 +81,15 @@ export type DesktopChildRole =
   | "window-manager"
   | "compositor"
   | "panel"
+  | "wallpaper"
   | "clipboard"
   | "browser";
 
-/** Children whose death costs the dock's looks, not the desktop. */
+/** Optional desktop decoration processes. */
 const COSMETIC_ROLES: ReadonlySet<DesktopChildRole> = new Set([
   "compositor",
   "panel",
+  "wallpaper",
 ]);
 
 /** The slice of `Bun.Subprocess` the manager drives, so tests can fake it. */
@@ -161,8 +164,12 @@ interface DesktopSessionManagerOptions {
   readonly readyDeadlineMs?: number;
   readonly killGraceMs?: number;
   readonly profileDir?: string;
-  /** Where the generated tint2rc, its launchers and their icons are written. */
+  /** Directory for dock config, launchers, icons and wallpaper. */
   readonly panelConfigDir?: string;
+  readonly renderWallpaper?: (
+    width: number,
+    height: number,
+  ) => Promise<Buffer | null>;
   /** Where the children's allowlisted env is read from. */
   readonly sourceEnv?: NodeJS.ProcessEnv;
 }
@@ -185,6 +192,7 @@ export class DesktopSessionManager {
   private binaries: DesktopBinaries | null = null;
   /** Whether this tree has already had its one dock start attempted. */
   private panelStarted = false;
+  private wallpaperStarting: { generation: number } | null = null;
 
   private readonly spawn: NonNullable<DesktopSessionManagerOptions["spawn"]>;
   private readonly which: NonNullable<DesktopSessionManagerOptions["which"]>;
@@ -202,6 +210,9 @@ export class DesktopSessionManager {
   private readonly killGraceMs: number;
   private readonly profileDir: string;
   private readonly panelConfigDir: string;
+  private readonly renderWallpaper: NonNullable<
+    DesktopSessionManagerOptions["renderWallpaper"]
+  >;
   private readonly sourceEnv: NodeJS.ProcessEnv;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
@@ -219,6 +230,8 @@ export class DesktopSessionManager {
     this.panelConfigDir =
       options.panelConfigDir ?? join(getDataDir(), "desktop-panel");
     this.sourceEnv = options.sourceEnv ?? process.env;
+    this.renderWallpaper =
+      options.renderWallpaper ?? renderCurrentDesktopWallpaper;
   }
 
   // ── Viewer slot ────────────────────────────────────────────────────
@@ -260,6 +273,7 @@ export class DesktopSessionManager {
       return Promise.reject(ingressClosedError());
     }
     if (this.running) {
+      void this.refreshWallpaper(this.childEnv(), this.generation);
       void this.ensureBrowser(this.childEnv(), this.generation);
       return Promise.resolve();
     }
@@ -313,7 +327,39 @@ export class DesktopSessionManager {
     }
     this.running = true;
     log.info({ display: DESKTOP_DISPLAY }, "Desktop started");
+    void this.refreshWallpaper(env, generation);
     void this.ensureBrowser(env, generation);
+  }
+
+  private async refreshWallpaper(
+    env: Record<string, string>,
+    generation: number,
+  ): Promise<void> {
+    if (this.wallpaperStarting?.generation === generation) {
+      return;
+    }
+    const pending = { generation };
+    this.wallpaperStarting = pending;
+    try {
+      const png = await this.renderWallpaper(DESKTOP_WIDTH, DESKTOP_HEIGHT);
+      if (!png || this.generation !== generation || !this.binaries) {
+        return;
+      }
+      mkdirSync(this.panelConfigDir, { recursive: true });
+      const path = join(this.panelConfigDir, "wallpaper.png");
+      writeFileSync(path, png);
+      this.launchCosmetic(
+        "wallpaper",
+        [this.binaries.wallpaper, "--no-fehbg", "--bg-fill", path],
+        env,
+      );
+    } catch (err) {
+      log.warn({ err }, "Desktop wallpaper could not be applied");
+    } finally {
+      if (this.wallpaperStarting === pending) {
+        this.wallpaperStarting = null;
+      }
+    }
   }
 
   private async waitForVnc(generation: number): Promise<boolean> {
@@ -423,6 +469,9 @@ export class DesktopSessionManager {
       return;
     }
     this.children.delete(role);
+    if (role === "wallpaper" && outcome === 0) {
+      return;
+    }
     if (role === "browser") {
       log.info({ outcome }, "Desktop browser exited");
       this.onBrowserExit();
