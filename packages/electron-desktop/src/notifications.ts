@@ -12,7 +12,9 @@ import {
   NOTIFICATIONS_SHOW,
   type NotificationCategory,
   type NotificationActionEvent,
+  type NotificationIdentity,
   type NotificationNameProvenance,
+  type NotificationSender,
   type ShowNotificationPayload,
   prepareNotificationIdentityPayloadSchema,
   resolveNotificationDeliveryKey,
@@ -210,6 +212,34 @@ const showPayloadSchema = z.tuple([
 // ---------------------------------------------------------------------------
 
 export type { NotificationActionEvent };
+
+/**
+ * Check whether a captured renderer sender still matches the exact prepared
+ * native identity. Permission prompts use this after the user answers so a
+ * scope transition cannot decorate the confirmation with stale identity.
+ */
+export const isPreparedNotificationSenderCurrent = (
+  identity: NotificationIdentity,
+  sender: NotificationSender,
+): boolean => {
+  const normalizedIdentity = normalizeNotificationIdentity(identity);
+  if (!normalizedIdentity || sender.id !== normalizedIdentity.nativeSenderId) {
+    return false;
+  }
+  const prepared = getPreparedNotificationIdentity(normalizedIdentity);
+  if (
+    !prepared?.avatar ||
+    prepared.name !== sender.name ||
+    prepared.avatar.avatarHash !== sender.avatarHash
+  ) {
+    return false;
+  }
+  const avatarPng = Buffer.from(sender.avatarBase64, "base64");
+  const digest = createHash("sha256").update(avatarPng).digest("hex");
+  return (
+    digest === sender.avatarHash && avatarPng.equals(prepared.avatar.avatarPng)
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Dedup / cooldown

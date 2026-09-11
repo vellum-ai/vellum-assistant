@@ -139,6 +139,7 @@ const {
   NOTIFICATION_CATEGORIES,
   __resetForTesting,
   __setDeliveryTimeoutForTesting,
+  isPreparedNotificationSenderCurrent,
 } = await import("./notifications");
 
 type NotificationCreateOptions =
@@ -668,6 +669,25 @@ describe("sender", () => {
 
   afterEach(() => {
     setPlatform(realPlatform);
+  });
+
+  test("checks a captured sender against the current prepared identity", () => {
+    prepareIdentity({
+      identity,
+      scopeEpoch: 1,
+      identityRevision: 1,
+      name: sender.name,
+      nameProvenance: "identity-store",
+      avatar: {
+        avatarBase64: sender.avatarBase64,
+        avatarHash: sender.avatarHash,
+      },
+    });
+
+    expect(isPreparedNotificationSenderCurrent(identity, sender)).toBe(true);
+
+    resetIdentities({ scopeId: identity.scopeId, scopeEpoch: 2 });
+    expect(isPreparedNotificationSenderCurrent(identity, sender)).toBe(false);
   });
 
   test("the captured schema accepts a sender and drops a partial one", () => {

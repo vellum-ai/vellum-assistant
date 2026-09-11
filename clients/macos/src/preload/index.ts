@@ -284,11 +284,20 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:permissions:getState",
       ) as Promise<SystemPermissionsState>,
-    request: (kind: SystemPermissionKind): Promise<SystemPermissionStateItem> =>
-      ipcRenderer.invoke(
-        "vellum:permissions:request",
-        kind,
-      ) as Promise<SystemPermissionStateItem>,
+    request: (
+      kind: SystemPermissionKind,
+      presentation?: Parameters<VellumBridge["permissions"]["request"]>[1],
+    ): Promise<SystemPermissionStateItem> =>
+      (presentation
+        ? ipcRenderer.invoke(
+            "vellum:permissions:request",
+            kind,
+            presentation,
+          )
+        : ipcRenderer.invoke(
+            "vellum:permissions:request",
+            kind,
+          )) as Promise<SystemPermissionStateItem>,
     openSettings: (
       kind: SystemPermissionKind,
     ): Promise<SystemPermissionStateItem> =>

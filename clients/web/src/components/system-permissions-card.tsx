@@ -2,11 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useTranslation, type TFunction } from "@/i18n";
 import {
+  resolveAssistantAvatarOwnerScopeId,
+  resolveAssistantNotificationPlatformId,
+} from "@/hooks/use-assistant-avatar";
+import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
+import {
   getUnreadBadgeSurface,
   setDockBadge,
   supportsUnreadBadges,
 } from "@/runtime/dock";
 import { detectElectronHostOS } from "@/runtime/platform-detection";
+import {
+  createNotificationIdentity,
+  getNotificationIdentitySnapshot,
+} from "@/runtime/notification-avatar";
 import {
   openSystemPermissionSettings,
   requestSystemPermission,
@@ -14,6 +23,10 @@ import {
   type SystemPermissionKind,
   type SystemPermissionStateItem,
 } from "@/runtime/system-permissions";
+import { useAuthStore } from "@/stores/auth-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useRequestOrganizationId } from "@/stores/organization-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   getDeviceBool,
   setDeviceBool,
@@ -234,8 +247,15 @@ export function SystemPermissionsCard({
   const { pendingKind, run } = usePendingKind();
   const [notificationBadgesEnabled, setNotificationBadgesEnabled] =
     useNotificationBadgesEnabled();
+  const pushAvatarSender = useClientFeatureFlagStore.use.pushAvatarSender();
+  const selectedAssistantId =
+    useResolvedAssistantsStore.use.selectedAssistantId();
+  const assistants = useResolvedAssistantsStore.use.assistants();
+  const authUser = useAuthStore.use.user();
+  const requestOrganizationId = useRequestOrganizationId();
 
-  const isWindowsHost = detectElectronHostOS() === "windows";
+  const hostOS = detectElectronHostOS();
+  const isWindowsHost = hostOS === "windows";
   const visibleSystemRows = useMemo(
     () =>
       SYSTEM_PERMISSION_ROWS.filter(
@@ -327,7 +347,57 @@ export function SystemPermissionsCard({
     ) {
       await openSystemPermissionSettings(meta.sourceKind);
     } else {
-      await requestSystemPermission(meta.sourceKind);
+      const presentation = (() => {
+        if (
+          meta.sourceKind !== "notifications" ||
+          hostOS !== "macos" ||
+          !pushAvatarSender
+        ) {
+          return undefined;
+        }
+        const assistant = assistants.find(
+          (candidate) => candidate.id === selectedAssistantId,
+        );
+        const scopeId = resolveAssistantAvatarOwnerScopeId(
+          assistant,
+          authUser?.kind === "platform" ? authUser.id : null,
+          requestOrganizationId,
+          getSelfHostedIngressUrl() ??
+            (typeof globalThis.location === "undefined"
+              ? null
+              : globalThis.location.href),
+        );
+        if (!assistant || !scopeId) {
+          return undefined;
+        }
+        const identity = createNotificationIdentity(
+          scopeId,
+          assistant.id,
+          resolveAssistantNotificationPlatformId(assistant),
+        );
+        if (!identity) {
+          return undefined;
+        }
+        const snapshot = getNotificationIdentitySnapshot(identity);
+        if (!snapshot?.name || !snapshot.avatar) {
+          return undefined;
+        }
+        return {
+          presentation: "assistant" as const,
+          identity,
+          sender: {
+            id: identity.nativeSenderId,
+            name: snapshot.name,
+            avatarBase64: snapshot.avatar.avatarBase64,
+            avatarHash: snapshot.avatar.avatarHash,
+          },
+        };
+      })();
+      if (presentation) {
+        await requestSystemPermission(meta.sourceKind, presentation);
+      } else {
+        await requestSystemPermission(meta.sourceKind);
+      }
     }
     await refresh();
   };

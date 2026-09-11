@@ -332,7 +332,13 @@ export interface VellumBridge {
   };
   permissions: {
     getState(): Promise<SystemPermissionsState>;
-    request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
+    request(
+      kind: SystemPermissionKind,
+      presentation?: Pick<
+        ShowNotificationPayload,
+        "presentation" | "identity" | "sender"
+      >,
+    ): Promise<SystemPermissionStateItem>;
     openSettings(
       kind: SystemPermissionKind,
     ): Promise<SystemPermissionStateItem>;
