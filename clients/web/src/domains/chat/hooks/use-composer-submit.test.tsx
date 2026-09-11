@@ -450,6 +450,26 @@ describe("useComposerSubmit during dictation", () => {
     expect(sendMessage.mock.calls[0]?.[0]).toBe("typed by hand");
   });
 
+  test("a held key's dictation elsewhere does not hold up an ordinary send", async () => {
+    // The bridge's hidden recorder is running a hold into another app. The
+    // composer's draft is unrelated to it and goes out at once.
+    useComposerStore.getState().setInput("typed while a hold runs");
+    let stopped = false;
+    useVoiceRecordingStore.getState().startRecording({ hold: true });
+    unregisterVoiceTarget = registerPushToTalkTarget({
+      start: () => {},
+      stop: () => {
+        stopped = true;
+      },
+    });
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(stopped).toBe(false);
+    expect(sendMessage.mock.calls[0]?.[0]).toBe("typed while a hold runs");
+  });
+
   test("a thread switch during the wait cancels the send and keeps the words", async () => {
     // The composer is shared across threads: the transcript lands in whatever
     // thread is active once it arrives, while the send that was pressed still

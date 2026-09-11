@@ -46,7 +46,7 @@ describe("finishActiveDictation", () => {
       setTimeout(() => store.getState().finalize(), 0);
     });
 
-    expect(await finishActiveDictation(1000)).toBe("delivered");
+    expect(await finishActiveDictation()).toBe("delivered");
   });
 
   test("settles even when the stop finalizes synchronously", async () => {
@@ -56,7 +56,7 @@ describe("finishActiveDictation", () => {
       store.getState().finalize();
     });
 
-    expect(await finishActiveDictation(1000)).toBe("delivered");
+    expect(await finishActiveDictation()).toBe("delivered");
   });
 
   test("reports no transcript when the session fails", async () => {
@@ -66,7 +66,7 @@ describe("finishActiveDictation", () => {
       setTimeout(() => store.getState().fail("audio-capture"), 0);
     });
 
-    expect(await finishActiveDictation(1000)).toBe("no-transcript");
+    expect(await finishActiveDictation()).toBe("no-transcript");
   });
 
   test("reports no transcript when the session ends with nothing to insert", async () => {
@@ -77,16 +77,35 @@ describe("finishActiveDictation", () => {
       setTimeout(() => store.getState().reset(), 0);
     });
 
-    expect(await finishActiveDictation(1000)).toBe("no-transcript");
+    expect(await finishActiveDictation()).toBe("no-transcript");
   });
 
-  test("gives up rather than guessing when the stop never lands", async () => {
-    store.getState().startRecording();
-    // A stop pressed on an instance that owns no recorder is a no-op, so the
-    // phase never moves.
-    unregister = withTarget(() => {});
+  test("leaves a held key's session alone: it is not the composer's", async () => {
+    // The bridge's hidden recorder runs every hold, into another app. The
+    // composer's target cannot stop that recorder, and its words are not
+    // this composer's content, so the send goes out as if no mic were open.
+    store.getState().startRecording({ hold: true });
+    let stopped = false;
+    unregister = withTarget(() => {
+      stopped = true;
+    });
 
-    expect(await finishActiveDictation(20)).toBe("no-transcript");
+    expect(await finishActiveDictation()).toBe("none");
+    expect(stopped).toBe(false);
+    expect(store.getState().phase).toBe("recording");
+  });
+
+  test("waits out a slow transcription rather than dropping it on a clock", async () => {
+    store.getState().startRecording();
+    unregister = withTarget(() => {
+      store.getState().stopRecording();
+      // Longer than any fixed ceiling a test would tolerate is not the
+      // point; the point is that nothing but the button's own finalize
+      // settles the wait.
+      setTimeout(() => store.getState().finalize(), 60);
+    });
+
+    expect(await finishActiveDictation()).toBe("delivered");
   });
 
   test("waits out a session already transcribing without stopping it again", async () => {
@@ -98,7 +117,7 @@ describe("finishActiveDictation", () => {
     });
     setTimeout(() => store.getState().finalize(), 0);
 
-    expect(await finishActiveDictation(1000)).toBe("delivered");
+    expect(await finishActiveDictation()).toBe("delivered");
     expect(stopped).toBe(false);
   });
 });

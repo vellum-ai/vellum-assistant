@@ -185,11 +185,13 @@ mock.module("@/domains/chat/voice/voice-room/voice-first-run-card", () => ({
 // `.use.phase()` and `.use.setAudioLevel()` selectors are consumed by the
 // composer.
 let mockVoicePhase = "idle";
+let mockVoiceHold = false;
 const setAudioLevelSpy = mock((_level: number) => undefined);
 mock.module("@/domains/chat/voice/voice-recording-store", () => ({
   useVoiceRecordingStore: {
     use: {
       phase: () => mockVoicePhase,
+      hold: () => mockVoiceHold,
       setAudioLevel: () => setAudioLevelSpy,
     },
   },
@@ -328,6 +330,7 @@ function resetLiveVoiceMocks() {
   mockNativePickersAvailable = false;
   mockIsNativePlatform = false;
   mockVoicePhase = "idle";
+  mockVoiceHold = false;
   mockPreflightVerdict = { status: "ready" };
   preflightSpy.mockClear();
   navigateSpy.mockClear();
@@ -3011,6 +3014,23 @@ describe("ChatComposer — live-voice integration", () => {
     // waits for them before it reads the composer.
     const send = getByLabelText("Send message") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
+  });
+
+  test("a held key's dictation into another app does not light Send", () => {
+    // GIVEN the bridge's hidden recorder is running a hold. The store is
+    // window-global, so this composer sees the phase, but the session is
+    // not its content and its target cannot stop that recorder.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoicePhase = "recording";
+    mockVoiceHold = true;
+
+    // WHEN the composer renders with an empty draft
+    const { queryByLabelText } = renderVoiceComposer();
+
+    // THEN there is nothing to send: the slot holds the voice-mode entry
+    // point exactly as it does with no microphone open at all.
+    expect(queryByLabelText("Send message")).toBeNull();
+    expect(queryByLabelText("Start voice mode")).not.toBeNull();
   });
 
   test("electron dictation uses the system overlay instead of the inline composer preview", () => {

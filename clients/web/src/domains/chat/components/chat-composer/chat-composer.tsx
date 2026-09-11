@@ -384,6 +384,13 @@ export function ChatComposer({
   const voicePhase = useVoiceRecordingStore.use.phase();
   const isVoiceActive =
     voicePhase === "recording" || voicePhase === "processing";
+  // The recording store is window-global and shared with the bridge's hidden
+  // recorder, which a held voice key drives into whatever app is in front.
+  // That session is flagged `hold` as it starts, and it is not this
+  // composer's content: its words land at a cursor elsewhere, and its
+  // recorder is not the one the composer's target can stop.
+  const voiceHold = useVoiceRecordingStore.use.hold();
+  const ownsDictation = isVoiceActive && !voiceHold;
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
   // amplitude analysis rather than opening a second getUserMedia request.
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
@@ -824,16 +831,16 @@ export function ChatComposer({
   // Send) for the whole turn.
   const interruptOnSend = useInterruptOnSend();
   const busyRowActive = isAssistantBusy && !interruptOnSend;
-  // Words already spoken are content the composer does not hold yet, so a
-  // live dictation session makes the send slot pressable on its own: Send
-  // there means "finish, then send", and `useComposerSubmit` awaits the
-  // transcript before it reads the draft (LUM-3432). Without this the send
-  // arrow stays disabled -- or cedes the slot to voice mode -- for the whole
-  // of an empty-composer dictation, which is most of them. Deliberately not
-  // folded into `canSendMessageContent`: the busy row's stop/send swap below
-  // is about a draft that is ready to queue right now, and a session still
-  // being spoken is not that.
-  const canSendOrFinishDictation = canSendMessageContent || isVoiceActive;
+  // Words already spoken are content the composer does not hold yet, so the
+  // composer's own dictation session makes the send slot pressable on its
+  // own: Send there means "finish, then send", and `useComposerSubmit`
+  // awaits the transcript before it reads the draft (LUM-3432). Without this
+  // the send arrow stays disabled, or cedes the slot to voice mode, for the
+  // whole of an empty-composer dictation, which is most of them.
+  // Deliberately not folded into `canSendMessageContent`: the busy row's
+  // stop/send swap below is about a draft that is ready to queue right now,
+  // and a session still being spoken is not that.
+  const canSendOrFinishDictation = canSendMessageContent || ownsDictation;
   // The busy row holds exactly one control, and stop is the default: it is the
   // only escape from a turn already running. Send takes the slot only where it
   // is strictly better, which is where the keyboard cannot submit AND pressing
@@ -1508,7 +1515,7 @@ export function ChatComposer({
               attachmentsUploadingCount,
               cmdEnterMode,
               hasStagedContext,
-              dictationInFlight: isVoiceActive,
+              dictationInFlight: ownsDictation,
             },
           );
           if (decision === "ignore") {
