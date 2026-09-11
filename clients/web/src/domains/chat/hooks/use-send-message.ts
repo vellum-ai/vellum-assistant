@@ -927,8 +927,8 @@ export function useSendMessage({
         // started and the optimistic row goes with the transcript on a
         // switch, so the copy the refusal hands back
         // (`QueuedSendRecoveryWatcher`) is kept from before the request goes
-        // out, and let go once the daemon answers with anything but a queue.
-        // A hidden send has no user text to hand back.
+        // out and stays until an echo or correlated failure makes persistence
+        // authoritative. A hidden send has no user text to hand back.
         if (!isHidden) {
           useComposerStore.getState().recordQueuedSend(clientMessageId, {
             assistantId,
@@ -999,11 +999,6 @@ export function useSendMessage({
             });
           });
           if (!postResult.queued) {
-            // The daemon processed the message directly (turn finished
-            // between the client-side isSending check and the POST
-            // arriving). A message the daemon runs is never refused as a
-            // queued one, so the copy kept for that refusal goes.
-            useComposerStore.getState().dropQueuedSend(clientMessageId);
             // Clear the optimistic queue status and let the existing SSE
             // stream deliver the response.
             //
@@ -1241,16 +1236,14 @@ export function useSendMessage({
 
         resolvedId = result.resolvedConversationId;
 
-        // A direct send normally has already persisted by the time the POST
-        // answers, so its recovery copy can go. An interrupt is accepted before
-        // its detached handoff persists the message and can still fail there,
-        // so it keeps the copy until the echo or correlated failure settles it.
-        // Every retained copy is filed under the row the daemon named.
+        // Acceptance does not prove persistence: the daemon can answer an
+        // interrupt before its detached handoff writes the message, including
+        // when another client owns the turn and this tab still looks idle. The
+        // copy stays until an echo or correlated failure settles it. File it
+        // under the authoritative row the daemon named in the meantime.
         if (!isHidden) {
           const composer = useComposerStore.getState();
-          if (!result.queued && !interruptsRunningTurn) {
-            composer.dropQueuedSend(clientMessageId);
-          } else if (resolvedId && resolvedId !== activeConversationId) {
+          if (resolvedId && resolvedId !== activeConversationId) {
             const kept = composer.takeQueuedSend(clientMessageId);
             if (kept !== null) {
               composer.recordQueuedSend(clientMessageId, {

@@ -676,7 +676,7 @@ export function useDocumentComposerSubmit({
       // connection nothing is listening to. A move to another document moves
       // both, since the reply toast is meant to outlive closing the document.
       const sameAssistant = !assistantChanged();
-      if (!sameAssistant && result.queued === true && detachedPayload) {
+      if (!sameAssistant && detachedPayload) {
         useDocumentComposerReplyStore
           .getState()
           .recordDetachedQueuedSend(

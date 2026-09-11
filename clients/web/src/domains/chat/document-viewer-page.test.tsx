@@ -19,6 +19,7 @@ import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import type { DocumentsByIdGetResponse } from "@/generated/daemon/types.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
+import { useViewerStore } from "@/stores/viewer-store";
 
 const daemonSdk = await import("@/generated/daemon/sdk.gen");
 
@@ -26,15 +27,36 @@ type DocumentResult = { data: DocumentsByIdGetResponse | null };
 
 let documentResult: () => Promise<DocumentResult> = () =>
   Promise.reject(new Error("not stubbed"));
+const conversationsPostMock = mock(async (_options: unknown) => ({
+  data: { id: "conv-minted" },
+}));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   documentsByIdGet: () => documentResult(),
+  conversationsPost: (options: unknown) => conversationsPostMock(options),
 }));
 
-// The editor is a heavy Tiptap tree with nothing to say about the record.
-mock.module("./components/document-viewer-container", () => ({
-  DocumentViewerContainer: () => <div data-testid="viewer" />,
+const compatibilityUtils = await import("@/lib/backwards-compat/utils");
+let assistantVersionKnown = true;
+const whenAssistantVersionKnownForMock = mock(async (_assistantId: string) => {});
+mock.module("@/lib/backwards-compat/utils", () => ({
+  ...compatibilityUtils,
+  assistantVersionKnownFor: () => assistantVersionKnown,
+  whenAssistantVersionKnownFor: (assistantId: string) =>
+    whenAssistantVersionKnownForMock(assistantId),
+}));
+
+const toastModule = await import(
+  "@vellumai/design-library/components/toast"
+);
+const toastErrorMock = mock((..._args: unknown[]) => {});
+mock.module("@vellumai/design-library/components/toast", () => ({
+  ...toastModule,
+  toast: {
+    ...toastModule.toast,
+    error: (...args: unknown[]) => toastErrorMock(...args),
+  },
 }));
 
 let mockIsMobile = false;
@@ -43,10 +65,18 @@ mock.module("@/hooks/use-is-mobile", () => ({
 }));
 
 let composerPanelProps: Record<string, unknown> | null = null;
+let viewerProps: Record<string, unknown> | null = null;
 mock.module("@/domains/chat/components/document-composer-panel", () => ({
   DocumentComposerPanel: (props: Record<string, unknown>) => {
     composerPanelProps = props;
     return <div data-testid="doc-composer-panel" />;
+  },
+}));
+
+mock.module("./components/document-viewer-container", () => ({
+  DocumentViewerContainer: (props: Record<string, unknown>) => {
+    viewerProps = props;
+    return <div data-testid="viewer" />;
   },
 }));
 
@@ -102,8 +132,14 @@ function unseenFor(conversationId: string): string[] {
 beforeEach(() => {
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
+  useViewerStore.getState().reset();
   mockIsMobile = false;
+  assistantVersionKnown = true;
   composerPanelProps = null;
+  viewerProps = null;
+  conversationsPostMock.mockClear();
+  whenAssistantVersionKnownForMock.mockClear();
+  toastErrorMock.mockClear();
 });
 
 afterEach(() => {
@@ -111,6 +147,25 @@ afterEach(() => {
 });
 
 describe("DocumentViewerPage", () => {
+  test("does not submit feedback while the assistant version is unknown", async () => {
+    assistantVersionKnown = false;
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("viewer");
+
+    const submitFeedback = viewerProps?.onSubmitFeedback;
+    expect(typeof submitFeedback).toBe("function");
+    await act(async () => {
+      await (submitFeedback as () => Promise<void>)();
+    });
+
+    expect(whenAssistantVersionKnownForMock).toHaveBeenCalledWith("asst-1");
+    expect(conversationsPostMock).not.toHaveBeenCalled();
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+  });
+
   test("clears the unseen change for the document it loaded", async () => {
     useUnseenDocumentChangesStore
       .getState()

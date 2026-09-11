@@ -455,6 +455,30 @@ describe("useSendMessage: a stale send through the queue branch", () => {
     ]);
   });
 
+  test("the active path keeps a direct acceptance until persistence is authoritative", async () => {
+    // Another client may own a turn while this tab still looks idle. The
+    // server can therefore accept this as an interrupt before its detached
+    // handoff has persisted, despite the local path being the active one.
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    useAssistantFeatureFlagStore.getState().setFlags({ interruptOnSend: true });
+    postResponse = ACCEPTED_DIRECTLY;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("accepted by the server");
+    });
+
+    expect([...useComposerStore.getState().queuedSends.values()]).toEqual([
+      {
+        assistantId: "assistant-1",
+        conversationId: SEND_CONVERSATION,
+        content: "accepted by the server",
+        attachments: [],
+      },
+    ]);
+  });
+
   test("an accepted interrupt keeps its payload until the detached send settles", async () => {
     useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
     useTurnStore.setState({ phase: "streaming", activeTurnId: "own-turn" });
@@ -516,7 +540,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
     expect(useComposerStore.getState().queuedSends.size).toBe(1);
   });
 
-  test("a directly-processed response lets the copy go", async () => {
+  test("a directly-accepted response keeps the copy until persistence is authoritative", async () => {
     postResponse = ACCEPTED_DIRECTLY;
     const { result } = renderSendFor(SEND_CONVERSATION);
 
@@ -524,8 +548,10 @@ describe("useSendMessage: a stale send through the queue branch", () => {
       await result.current.sendMessage("ran at once");
     });
 
-    // A message the daemon runs is never refused as a queued one.
-    expect(useComposerStore.getState().queuedSends.size).toBe(0);
+    // Another client can own a turn this tab has not observed yet, so even a
+    // locally direct response can be an interrupt whose detached handoff has
+    // not persisted. The stream decides whether the copy can go.
+    expect(useComposerStore.getState().queuedSends.size).toBe(1);
   });
 
   test("a POST the daemon refuses leaves no copy behind", async () => {

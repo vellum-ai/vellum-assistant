@@ -3548,7 +3548,7 @@ describe("an attempt nothing can retry", () => {
     expect(detachedSends().size).toBe(0);
   });
 
-  test("a send the daemon accepts after an assistant switch leaves no copy behind", async () => {
+  test("an accepted send after an assistant switch stays available for reconciliation", async () => {
     // GIVEN a send in flight under the first assistant.
     const settle = deferPostChatMessage();
     useComposerStore.getState().setInput("for the first assistant", "document");
@@ -3559,6 +3559,10 @@ describe("an attempt nothing can retry", () => {
       submitted = result.current.submit();
     });
     await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    const clientMessageId = sentOptions(0).clientMessageId;
+    if (clientMessageId === undefined) {
+      throw new Error("expected the document send's nonce");
+    }
 
     // WHEN the user switches assistants and only then does the daemon accept
     // the message.
@@ -3569,9 +3573,20 @@ describe("an attempt nothing can retry", () => {
       await submitted;
     });
 
-    // THEN the daemon holds the message, so nothing is held or kept for it.
+    // THEN the response alone does not discard the payload: an interrupt can
+    // answer before its detached handoff persists, and switch-back
+    // reconciliation decides the authoritative outcome.
     expect(takeHeldMessage(SURFACE_ID)).toBeNull();
     expect(detachedSends().size).toBe(0);
+    expect(detachedQueuedSends().get(clientMessageId)).toEqual({
+      conversationId: "conv-a",
+      payload: {
+        assistantId: ASSISTANT_ID,
+        surfaceId: SURFACE_ID,
+        content: "for the first assistant",
+        attachments: [],
+      },
+    });
   });
 
   test("a queued response after an assistant switch keeps the send for reconciliation", async () => {

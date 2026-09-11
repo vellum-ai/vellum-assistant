@@ -31,6 +31,7 @@ import {
 } from "@/domains/chat/utils/document-conversation";
 import { MIN_VERSION as SERVER_MINT_MIN_VERSION } from "@/lib/backwards-compat/server-minted-conversation";
 import {
+  assistantVersionKnownFor,
   assistantScopedSupports,
   whenAssistantVersionKnownFor,
 } from "@/lib/backwards-compat/utils";
@@ -200,6 +201,10 @@ export function DocumentViewerPage() {
       // materializes a legacy draft actually succeeds.
       await whenAssistantVersionKnownFor(assistantId);
       if (assistantChanged()) {
+        return;
+      }
+      if (!assistantVersionKnownFor(assistantId)) {
+        toast.error(t("documentComposer.sendFailed"));
         return;
       }
       const resolvedId = resolveDocumentConversationId(doc, assistantId);
