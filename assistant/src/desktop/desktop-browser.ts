@@ -77,6 +77,21 @@ function frames(tree: FrameTree): FrameTree["frame"][] {
   );
 }
 
+const createdTabSchema = z.object({
+  tabId: z
+    .union([z.number(), z.string().regex(/^\d+$/).transform(Number)])
+    .pipe(z.number().int().positive()),
+});
+
+async function createTab(
+  client: CdpClient,
+  signal: AbortSignal,
+): Promise<number> {
+  return createdTabSchema.parse(
+    await client.send("Vellum.createTab", {}, signal),
+  ).tabId;
+}
+
 export class DesktopBrowser {
   private observation?: Observation;
   private tab?: number;
@@ -114,6 +129,9 @@ export class DesktopBrowser {
     signal: AbortSignal,
   ): Promise<Record<string, unknown>> {
     const action = desktopBrowserActionSchema.parse(input);
+    if (action.action === "observe") {
+      await this.bridge.waitUntilReady(actor, signal);
+    }
     const client: CdpClient = {
       send: (method, params, childSignal) =>
         this.bridge.send(
@@ -173,8 +191,7 @@ export class DesktopBrowser {
           throw new Error(result.errorText);
         }
       } else if (action.action === "new_tab") {
-        const result = await send<{ tabId: number }>("Vellum.createTab");
-        this.tab = result.tabId;
+        this.tab = await createTab(client, signal);
       } else if (action.action === "select_tab") {
         if (!action.tab_id) {
           throw new Error("select_tab requires tab_id");
@@ -310,12 +327,7 @@ export class DesktopBrowser {
       if (requestedTab !== undefined) {
         throw new Error("Requested desktop browser tab is unavailable");
       }
-      const created = await client.send<{ tabId: number }>(
-        "Vellum.createTab",
-        {},
-        signal,
-      );
-      this.tab = created.tabId;
+      this.tab = await createTab(client, signal);
     } else {
       this.tab = tab.tabId;
     }

@@ -52,6 +52,8 @@ input scopes. Browser observations include page text, controls, tabs, and
 frames. They contain no unconditional image. Element references bind to tab,
 frame, document loader, and connection generation.
 
+A browser observation waits up to 30 seconds for a connection bound to its
+guardian. Take control and caller cancellation interrupt this startup wait.
 The native connection automatically restarts after disconnect and discards
 outstanding requests. There is no action retry after dispatch. A command may
 have reached Chrome even if cancellation or a timeout prevents its response.
@@ -75,8 +77,9 @@ Scoped tests cover capability/guardian binding, callback connection binding,
 reconnect invalidation, queued cancellation, shared X11/browser ownership,
 actionability rejection, input release, persistent signing identity, and capability rotation. The Linux-only
 repository-root `scripts/smoke-desktop-extension.ts` uses a temporary workspace and real Chrome
-on `:99` to exercise signed policy installation, native bootstrap, AX reading,
-semantic click, stale-reference rejection, and input cleanup after a held-key
+on `:99` to exercise signed policy installation, cold native bootstrap without
+caller retries, AX reading,
+semantic click, numeric new-tab identity, stale-reference rejection, and input cleanup after a held-key
 tab closes. It runs the real gateway signer IPC
 and capability ingress handler with a stub runtime forwarding hop and guardian
 lookup. Production Desktop modal integration remains a separate validation step.

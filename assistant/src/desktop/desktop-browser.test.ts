@@ -9,7 +9,8 @@ function fixture() {
   let loader = "document-1";
   const bridge = {
     generation: 1,
-    send: async (method: string) => {
+    waitUntilReady: async () => {},
+    send: async (method: string): Promise<unknown> => {
       calls.push(method);
       if (method === "Vellum.listTabs") {
         return {
@@ -146,4 +147,56 @@ test("scroll without a direction is rejected before mouse input", async () => {
     f.execute({ action: "scroll", observation_id: observed.observation_id }),
   ).rejects.toThrow("direction");
   expect(f.calls).not.toContain("Input.dispatchMouseEvent");
+});
+
+test("new tabs retain numeric identity while an HTTP tab is open", async () => {
+  const f = fixture();
+  const first = await f.execute({ action: "observe" });
+  const originalSend = f.bridge.send;
+  const targets: Array<{ method: string; tab?: string }> = [];
+  f.bridge.send = async (
+    method: string,
+    _params?: Record<string, unknown>,
+    tab?: string,
+  ) => {
+    targets.push({ method, tab });
+    if (method === "Vellum.createTab") {
+      return { tabId: "43" };
+    }
+    if (method === "Vellum.listTabs") {
+      return {
+        tabs: [
+          { tabId: 42, url: "https://example.com", active: false },
+          { tabId: 43, url: "about:blank", active: true },
+        ],
+      };
+    }
+    return originalSend(method);
+  };
+  const created = await f.execute({
+    action: "new_tab",
+    observation_id: first.observation_id,
+  });
+  expect(created.tab_id).toBe(43);
+  await f.execute({
+    action: "navigate",
+    url: "https://example.org",
+    observation_id: created.observation_id,
+  });
+  expect(targets.find((call) => call.method === "Page.navigate")?.tab).toBe(
+    "43",
+  );
+});
+
+test("initial observation waits for browser readiness before sending commands", async () => {
+  const f = fixture();
+  let ready!: () => void;
+  f.bridge.waitUntilReady = () =>
+    new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+  const pending = f.execute({ action: "observe" });
+  expect(f.calls).toEqual([]);
+  ready();
+  expect((await pending).tab_id).toBe(42);
 });

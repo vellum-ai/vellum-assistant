@@ -119,3 +119,38 @@ describe("managed desktop browser connection", () => {
     await expect(f.exchange("connect")).rejects.toThrow("capability");
   });
 });
+
+test("readiness waits for the matching guardian connection", async () => {
+  const bridge = new DesktopBrowserBridge();
+  const token = bridge.start();
+  let ready = false;
+  const waiting = bridge
+    .waitUntilReady("user-123", new AbortController().signal)
+    .then(() => {
+      ready = true;
+    });
+  await bridge.exchange(
+    { token, connection: "wrong-guardian", kind: "connect" },
+    "user-other",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(ready).toBe(false);
+  await bridge.exchange(
+    { token, connection: "matching-guardian", kind: "connect" },
+    "user-123",
+  );
+  await waiting;
+  expect(ready).toBe(true);
+  bridge.stop();
+});
+
+test("readiness is bounded and cancellation interrupts startup", async () => {
+  const bridge = new DesktopBrowserBridge();
+  await expect(
+    bridge.waitUntilReady("user-123", new AbortController().signal, 1),
+  ).rejects.toThrow("ready in time");
+  const controller = new AbortController();
+  const waiting = bridge.waitUntilReady("user-123", controller.signal);
+  controller.abort(new Error("Take control"));
+  await expect(waiting).rejects.toThrow("Take control");
+});

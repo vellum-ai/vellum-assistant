@@ -129,18 +129,7 @@ try {
       "conv-123",
       AbortSignal.timeout(15_000),
     );
-  let observed: Record<string, unknown> | undefined;
-  for (let attempt = 0; attempt < 90; attempt++) {
-    try {
-      observed = await execute({ action: "observe" });
-      break;
-    } catch (err) {
-      if (attempt === 89) {
-        throw err;
-      }
-      await Bun.sleep(1000);
-    }
-  }
+  const observed = await execute({ action: "observe" });
   assert(observed);
   assert(String(observed.text).includes("Example reading content"));
   const elements = observed.elements as { eid: string; name: string }[];
@@ -166,6 +155,9 @@ try {
     action: "new_tab",
     observation_id: fresh.observation_id,
   });
+  assert.equal(typeof temporary.tab_id, "number");
+  assert.notEqual(temporary.tab_id, fresh.tab_id);
+  assert.equal(temporary.url, "about:blank");
   await desktopBrowserBridge.send(
     "Input.dispatchKeyEvent",
     {
@@ -192,7 +184,7 @@ try {
     AbortSignal.timeout(15_000),
   );
   console.log(
-    "PASS: signed policy install, native bootstrap, page reading, semantic click, stale-reference rejection, and closed-tab input cleanup in visible Chrome on :99",
+    "PASS: signed policy install, cold native bootstrap, page reading, semantic click, new-tab identity, stale-reference rejection, and closed-tab input cleanup in visible Chrome on :99",
   );
 } finally {
   desktopBrowserBridge.stop();

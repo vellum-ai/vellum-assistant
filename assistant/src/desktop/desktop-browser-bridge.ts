@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 type Envelope = Record<string, unknown>;
 type Pending = {
@@ -120,6 +121,37 @@ export class DesktopBrowserBridge {
     return { messages: this.queue.splice(0) };
   }
 
+  private isConnected(actor: string): boolean {
+    return (
+      Boolean(this.connection) &&
+      this.guardian === actor &&
+      Date.now() - this.lastPoll <= 15_000
+    );
+  }
+
+  async waitUntilReady(
+    actor: string,
+    signal: AbortSignal,
+    timeoutMs = 30_000,
+  ): Promise<void> {
+    const deadline = AbortSignal.timeout(timeoutMs);
+    const interrupted = AbortSignal.any([signal, deadline]);
+    try {
+      interrupted.throwIfAborted();
+      while (!this.isConnected(actor)) {
+        await delay(50, undefined, { signal: interrupted });
+      }
+    } catch (error) {
+      signal.throwIfAborted();
+      if (deadline.aborted) {
+        throw new Error(
+          "The managed desktop browser did not become ready in time",
+        );
+      }
+      throw error;
+    }
+  }
+
   async send<T>(
     method: string,
     params: Record<string, unknown> | undefined,
@@ -129,11 +161,7 @@ export class DesktopBrowserBridge {
     signal: AbortSignal,
   ): Promise<T> {
     signal.throwIfAborted();
-    if (
-      !this.connection ||
-      this.guardian !== actor ||
-      Date.now() - this.lastPoll > 15_000
-    ) {
+    if (!this.isConnected(actor)) {
       throw new Error(
         "The managed desktop browser is not connected for this guardian. Observe again when it is ready.",
       );
