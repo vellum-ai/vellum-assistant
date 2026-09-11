@@ -1,8 +1,8 @@
 /**
  * Telemetry for the app-download nudges, riding the existing onboarding funnel
- * pipeline: same event shape, ingest path, and analytics-consent gating as
- * `tips-telemetry.ts`. The backend stores `step_name`/`funnel_version` as open
- * strings, so these need no backend change and land in `onboarding_raw`.
+ * pipeline with its event shape, ingest path, and analytics-consent gating. The
+ * backend stores `step_name`/`funnel_version` as open strings, so these need no
+ * backend change and land in `onboarding_raw`.
  *
  * `screen` carries both dimensions as `<surface>:<target>` (`banner:ios`,
  * `settings:android`), so one query can split click-through by where the nudge

@@ -346,4 +346,10 @@ export function runStorageMigrations(): void {
   removeKey("app.discordNudge.bannerDismissed");
   removeKey("app.discordNudge.firstSeenAt");
   removeKey("app.nudgeLegacy.cleaned");
+
+  // Proactive tips state has no active reader.
+  removeKey("device:tips:records");
+  removeKey("device:tips:enabled");
+  removeKey("device:tips:first_seen_at");
+  removeKey("vellum:ff-str:proactiveTips");
 }

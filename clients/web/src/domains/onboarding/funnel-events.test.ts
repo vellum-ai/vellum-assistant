@@ -87,8 +87,8 @@ describe("onboarding funnel events", () => {
   });
 
   test("stamps arbitrary variant arms beyond the pre-chat union", () => {
-    // Other funnels (e.g. tips) ride the same emitter with their own arms;
-    // the ingest stores ab_variant as an open string.
+    // Experiment funnels ride the same emitter with their own arms; the ingest
+    // stores ab_variant as an open string.
     const event = buildOnboardingFunnelEvent(
       ONBOARDING_FUNNEL_STEPS.privacyTos,
       { variant: "on" },

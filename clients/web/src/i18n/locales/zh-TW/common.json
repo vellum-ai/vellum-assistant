@@ -723,22 +723,6 @@
     "system": "系統",
     "velvet": "絲絨"
   },
-  "tipCard": {
-    "computerUseBodyLinux": "在這台電腦上，我可以處理檔案、終端機和瀏覽器。",
-    "computerUseBodyMacos": "在此 Mac 上，我可以為您控制應用程式和桌面。",
-    "computerUseBodyWindows": "在此電腦上，我可以為您控制應用程式和桌面。",
-    "computerUseTitleLinux": "讓我使用這台電腦",
-    "computerUseTitleMacos": "讓我使用您的 Mac",
-    "computerUseTitleWindows": "讓我使用您的電腦",
-    "dismiss": "關閉",
-    "nextTip": "下一個提示",
-    "pluginsBodyLinux": "從個人理財副駕駛到每日家庭簡報。",
-    "pluginsBodyMacos": "從個人理財副駕駛到常駐 MacBook 瀏海區域的模式。",
-    "pluginsBodyWindows": "從個人理財副駕駛到每日家庭簡報。",
-    "quickInputBody": "按下 {shortcut}，即可從任何應用程式向我傳送快速訊息。",
-    "quickInputBodyWithoutShortcut": "使用快速輸入，即可從任何應用程式向我傳送快速訊息。",
-    "previousTip": "上一個提示"
-  },
   "ttsProviderForm": {
     "apiKey": "API 金鑰",
     "apiKeyRequired": "測試前請為此供應商儲存 API 金鑰。",

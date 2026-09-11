@@ -84,14 +84,14 @@ describe("beginScope", () => {
     useClientFeatureFlagStore.getState().beginScope("anonymous:org:none");
     useClientFeatureFlagStore
       .getState()
-      .setStringFlags({ proactiveTips: "on" }, "anonymous:org:none");
+      .setStringFlags({ visionMode: "on" }, "anonymous:org:none");
 
     useClientFeatureFlagStore
       .getState()
       .beginScope("user:user-123:org:org-abc");
 
-    expect(useClientFeatureFlagStore.getState().stringFlags.proactiveTips).toBe(
-      CLIENT_STRING_FLAG_DEFAULTS.proactiveTips,
+    expect(useClientFeatureFlagStore.getState().stringFlags.visionMode).toBe(
+      CLIENT_STRING_FLAG_DEFAULTS.visionMode,
     );
   });
 
@@ -155,10 +155,10 @@ describe("scope guarding", () => {
 
     useClientFeatureFlagStore
       .getState()
-      .setStringFlags({ proactiveTips: "on" }, "anonymous:org:none");
+      .setStringFlags({ visionMode: "on" }, "anonymous:org:none");
 
-    expect(useClientFeatureFlagStore.getState().stringFlags.proactiveTips).toBe(
-      CLIENT_STRING_FLAG_DEFAULTS.proactiveTips,
+    expect(useClientFeatureFlagStore.getState().stringFlags.visionMode).toBe(
+      CLIENT_STRING_FLAG_DEFAULTS.visionMode,
     );
   });
 

@@ -126,7 +126,7 @@ export interface ChatBodyProps {
    * rendered in flow directly above the composer, so the flex column sizes
    * the transcript around it. Omitted by the app-editing side panel.
    * While mounted (non-empty state), visibility is mirrored into the shared
-   * banner-visibility store so tip surfaces can stay mutually exclusive.
+   * banner-visibility store so activation surfaces stay mutually exclusive.
    */
   bannerSlot?: ReactNode;
 
@@ -291,7 +291,7 @@ export function ChatBody({
       : "flex min-h-0 flex-1 flex-col";
 
   // Mirror the mounted banner — not the candidate slot — into the shared
-  // store so tip surfaces stay mutually exclusive with nudge banners.
+  // store so activation surfaces stay mutually exclusive with nudge banners.
   // Register/unregister (a count) tolerates concurrent instances (main +
   // side panel) without a last-write-wins race. Layout effect so consumers
   // see the update before paint and never render a frame over the banner.
