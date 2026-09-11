@@ -325,6 +325,12 @@ export interface DocumentComposerReplyActions {
   ) => PendingDocumentReplyPayload | null;
   /** Forget a queued send retained across an assistant switch. */
   dropDetachedQueuedSend: (clientMessageId: string) => boolean;
+  /** Keep an accepted queued send while its assistant stream is detached. */
+  recordDetachedQueuedSend: (
+    clientMessageId: string,
+    conversationId: string,
+    payload: PendingDocumentReplyPayload,
+  ) => void;
   /**
    * Drop every pending send and every handed-off conversation, for an
    * assistant switch no reply can arrive across. The message of a send the
@@ -929,6 +935,18 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         return { detachedQueuedSends: next };
       });
       return true;
+    },
+
+    recordDetachedQueuedSend: (
+      clientMessageId,
+      conversationId,
+      payload,
+    ) => {
+      set((s) => {
+        const next = new Map(s.detachedQueuedSends);
+        next.set(clientMessageId, { conversationId, payload });
+        return { detachedQueuedSends: next };
+      });
     },
 
     clearAwaitingReplies: () => {

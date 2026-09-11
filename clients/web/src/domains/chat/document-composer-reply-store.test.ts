@@ -1307,6 +1307,15 @@ describe("takeDetachedSend", () => {
 });
 
 describe("dropDetachedQueuedSend", () => {
+  test("records a queued send under its nonce while its stream is detached", () => {
+    getState().recordDetachedQueuedSend("cm-1", "conv-1", SENT_PAYLOAD);
+
+    expect(getState().detachedQueuedSends.get("cm-1")).toEqual({
+      conversationId: "conv-1",
+      payload: SENT_PAYLOAD,
+    });
+  });
+
   test("forgets the retained queued send named by nonce", () => {
     getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
     getState().markReplyQueued("conv-1", "cm-1");

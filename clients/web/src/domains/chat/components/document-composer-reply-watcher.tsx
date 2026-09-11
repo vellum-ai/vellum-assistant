@@ -213,6 +213,11 @@ export function DocumentComposerReplyWatcher() {
           if (message?.queueStatus === "queued") {
             continue;
           }
+          if (message !== undefined && snapshot?.processing === true) {
+            replyStore.dropDetachedQueuedSend(clientMessageId);
+            replyStore.markReplyRunning(conversationId, clientMessageId);
+            continue;
+          }
           if (message === undefined && snapshot?.processing !== false) {
             // The send can be between dequeue and persistence. Only an idle
             // snapshot with neither a queued nor persisted row proves it died.

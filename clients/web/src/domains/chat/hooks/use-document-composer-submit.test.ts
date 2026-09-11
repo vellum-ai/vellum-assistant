@@ -381,6 +381,11 @@ function detachedSends() {
   return useDocumentComposerReplyStore.getState().detachedSends;
 }
 
+/** Queued messages kept while their assistant's stream is detached. */
+function detachedQueuedSends() {
+  return useDocumentComposerReplyStore.getState().detachedQueuedSends;
+}
+
 /**
  * What an assistant switch does to the stores before the host renders the
  * incoming assistant: every wait the outgoing assistant's sends raised is
@@ -3567,6 +3572,45 @@ describe("an attempt nothing can retry", () => {
     // THEN the daemon holds the message, so nothing is held or kept for it.
     expect(takeHeldMessage(SURFACE_ID)).toBeNull();
     expect(detachedSends().size).toBe(0);
+  });
+
+  test("a queued response after an assistant switch keeps the send for reconciliation", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    const clientMessageId = sentOptions(0).clientMessageId;
+    if (clientMessageId === undefined) {
+      throw new Error("expected the document send's nonce");
+    }
+
+    switchAssistantAway();
+    rerender({ assistantId: "assistant-2" });
+    await act(async () => {
+      settle({
+        ok: true,
+        queued: true,
+        assistantId: ASSISTANT_ID,
+        conversationId: "conv-a",
+      });
+      await submitted;
+    });
+
+    expect(detachedSends().size).toBe(0);
+    expect(detachedQueuedSends().get(clientMessageId)).toEqual({
+      conversationId: "conv-a",
+      payload: {
+        assistantId: ASSISTANT_ID,
+        surfaceId: SURFACE_ID,
+        content: "for the first assistant",
+        attachments: [],
+      },
+    });
   });
 
   test("a send refused after an assistant switch is held for its document once", async () => {

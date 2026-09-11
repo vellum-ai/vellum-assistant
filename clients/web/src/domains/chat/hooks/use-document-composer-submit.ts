@@ -615,7 +615,7 @@ export function useDocumentComposerSubmit({
       );
       // The daemon answered, so the message is either with it or, refused,
       // handled below from `sentPayload`.
-      useDocumentComposerReplyStore
+      const detachedPayload = useDocumentComposerReplyStore
         .getState()
         .takeDetachedSend(clientMessageId);
 
@@ -676,6 +676,15 @@ export function useDocumentComposerSubmit({
       // connection nothing is listening to. A move to another document moves
       // both, since the reply toast is meant to outlive closing the document.
       const sameAssistant = !assistantChanged();
+      if (!sameAssistant && result.queued === true && detachedPayload) {
+        useDocumentComposerReplyStore
+          .getState()
+          .recordDetachedQueuedSend(
+            clientMessageId,
+            conversationId,
+            detachedPayload,
+          );
+      }
       // The assistant is the source of truth for the id: a legacy
       // `conversationKey` send for a fresh draft comes back with the row the
       // daemon minted rather than the key that went out, so the wait moves

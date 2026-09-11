@@ -2039,6 +2039,44 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(queued("conv-1")).toBe(false);
     });
 
+    test("switching back keeps a persisted send while its turn is processing", async () => {
+      fetchConversationMessagesMock = mock(
+        async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+          messages: [
+            {
+              id: "msg-1",
+              clientMessageId: "cm-1",
+              role: "user",
+              timestamp: new Date().toISOString(),
+              attachments: [],
+            },
+          ],
+          processing: true,
+        }),
+      );
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+
+      await waitFor(() => expect(detachedQueuedFor("cm-1")).toBeUndefined());
+      expect(awaiting("conv-1")).toBe(true);
+      expect(queued("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    });
+
     test("leaving every assistant drops held messages and a send's own", () => {
       useDocumentComposerReplyStore
         .getState()
