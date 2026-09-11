@@ -29,7 +29,6 @@ const SHUTTING_DOWN = {
 
 const profileDir = mkdtempSync(join(tmpdir(), "desktop-session-test-"));
 const panelConfigDir = mkdtempSync(join(tmpdir(), "desktop-panel-test-"));
-const tint2rcPath = join(panelConfigDir, "tint2rc");
 afterAll(() => {
   rmSync(profileDir, { recursive: true, force: true });
   rmSync(panelConfigDir, { recursive: true, force: true });
@@ -211,7 +210,6 @@ describe("DesktopSessionManager process tree", () => {
       "window-manager",
       "compositor",
       "clipboard",
-      "panel",
       "browser",
     ] as const) {
       expect(h.child(role).request.env).toEqual({
@@ -222,14 +220,19 @@ describe("DesktopSessionManager process tree", () => {
       });
     }
     expect(h.child("window-manager").request.cmd).toEqual(["/usr/bin/openbox"]);
-    // The compositor precedes the dock: without one already running, tint2
-    // gets no ARGB visual and the rounded translucent dock renders square.
+    // The compositor precedes the dock so it has an ARGB visual.
     expect(h.child("compositor").request.cmd).toEqual(["/usr/bin/xcompmgr"]);
     expect(h.child("panel").request.cmd).toEqual([
-      "/usr/bin/tint2",
-      "-c",
-      tint2rcPath,
+      "/usr/bin/dbus-run-session",
+      "--",
+      "/usr/bin/plank",
     ]);
+    expect(h.child("panel").request.env).toEqual({
+      ...h.child("browser").request.env,
+      XDG_CONFIG_HOME: panelConfigDir,
+      XDG_DATA_HOME: panelConfigDir,
+      GSETTINGS_BACKEND: "keyfile",
+    });
     expect(h.child("clipboard").request.cmd).toEqual([
       "/usr/bin/tigervncconfig",
       "-nowin",
@@ -261,7 +264,7 @@ describe("DesktopSessionManager process tree", () => {
       missingBinaries: [
         "Xtigervnc",
         "xcompmgr",
-        "tint2",
+        "plank",
         "tigervncconfig",
         "vncconfig",
         "xterm",
@@ -278,48 +281,29 @@ describe("DesktopSessionManager process tree", () => {
     await h.manager.ensureDesktopRunning();
     await settle();
 
-    const tint2rc = readFileSync(tint2rcPath, "utf8");
-    expect(tint2rc).toContain("panel_position = bottom center horizontal");
-    expect(tint2rc).toContain("panel_shrink = 1");
-    expect(tint2rc).toContain("panel_layer = top");
-    expect(tint2rc).toContain("autohide = 0");
-    // Icon-only: no window titles, and no clock or tray in the item list.
-    expect(tint2rc).toContain("panel_items = LT");
-    expect(tint2rc).toContain("task_text = 0");
-    expect(tint2rc).toContain(
-      `launcher_item_app = ${join(panelConfigDir, "chromium.desktop")}`,
-    );
-    expect(tint2rc).toContain(
-      `launcher_item_app = ${join(panelConfigDir, "terminal.desktop")}`,
-    );
-
     const chromium = readFileSync(
-      join(panelConfigDir, "chromium.desktop"),
+      join(panelConfigDir, "applications", "google-chrome.desktop"),
       "utf8",
     );
     expect(chromium).toContain(`Exec="/fake/chromium"`);
     expect(chromium).toContain(`"--user-data-dir=${profileDir}"`);
-    expect(chromium).toContain(`Icon=${join(panelConfigDir, "browser.png")}`);
+    expect(chromium).toContain("Icon=/fake/product_logo_64.png");
 
     const terminal = readFileSync(
-      join(panelConfigDir, "terminal.desktop"),
+      join(panelConfigDir, "applications", "xterm.desktop"),
       "utf8",
     );
     expect(terminal).toContain(`Exec="/usr/bin/xterm"`);
     expect(terminal).toContain(`Icon=${join(panelConfigDir, "terminal.png")}`);
 
-    // The icons are decoded from source constants, so check they land as whole
-    // PNGs: tint2 renders a launcher with an unreadable icon blank.
-    for (const icon of ["browser.png", "terminal.png"]) {
-      const bytes = readFileSync(join(panelConfigDir, icon));
-      expect([...bytes.subarray(0, 8)]).toEqual([
-        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-      ]);
-      // The trailing IEND chunk, so a truncated constant cannot pass.
-      expect([...bytes.subarray(-12)]).toEqual([
-        0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-      ]);
-    }
+    const bytes = readFileSync(join(panelConfigDir, "terminal.png"));
+    expect([...bytes.subarray(0, 8)]).toEqual([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ]);
+    // A complete IEND chunk catches a truncated icon.
+    expect([...bytes.subarray(-12)]).toEqual([
+      0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ]);
   });
 
   test("a VNC port that never opens fails the start and kills the X server, and a retry works", async () => {
@@ -457,8 +441,8 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.count("x-server")).toBe(2);
   });
 
-  test("a panel exit under a viewer leaves the desktop running", async () => {
-    const h = newManager();
+  test("a panel exit keeps applications alive until their group is cleaned up at teardown", async () => {
+    const h = newManager({ exitOnTerm: true });
     const { viewer, lost } = newViewer();
     h.manager.acquireViewerSlot(viewer);
     await h.manager.ensureDesktopRunning();
@@ -473,6 +457,12 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.count("panel")).toBe(1);
     await h.manager.ensureDesktopRunning();
     expect(h.count("x-server")).toBe(1);
+
+    await h.manager.destroy();
+    expect(h.killed.filter((k) => k.child === h.child("panel"))).toEqual([
+      { child: h.child("panel"), signal: "SIGTERM" },
+      { child: h.child("panel"), signal: "SIGKILL" },
+    ]);
   });
 
   test("a browser exit with nobody watching keeps the desktop and the next viewer gets a fresh one", async () => {
@@ -574,13 +564,16 @@ describe("DesktopSessionManager process tree", () => {
     });
   });
 
-  test("destroy skips the hard kill when every child exits on SIGTERM", async () => {
+  test("destroy still clears dock descendants when every direct child exits on SIGTERM", async () => {
     const h = newManager({ exitOnTerm: true });
     await h.manager.ensureDesktopRunning();
     await settle();
 
     await h.manager.destroy();
-    expect(h.killed.map((k) => k.signal)).toEqual(Array(6).fill("SIGTERM"));
+    expect(h.killed.filter((k) => k.signal === "SIGTERM")).toHaveLength(6);
+    expect(h.killed.filter((k) => k.signal === "SIGKILL")).toEqual([
+      { child: h.child("panel"), signal: "SIGKILL" },
+    ]);
   });
 });
 

@@ -28,7 +28,8 @@ const DESKTOP_BINARIES = {
   xServer: ["Xtigervnc"],
   windowManager: ["openbox"],
   compositor: ["xcompmgr"],
-  panel: ["tint2"],
+  panel: ["plank"],
+  panelSession: ["dbus-run-session"],
   clipboard: ["tigervncconfig", "vncconfig"],
   terminal: ["xterm"],
   wallpaper: ["feh"],
@@ -40,7 +41,9 @@ const DESKTOP_PACKAGES = [
   "openbox",
   "tigervnc-standalone-server",
   "tigervnc-common",
-  "tint2",
+  "plank",
+  "bamfdaemon",
+  "dbus-daemon",
   "xauth",
   "xcompmgr",
   "xfonts-base",
@@ -102,7 +105,8 @@ export class DesktopDependencyInstaller {
           return (
             existsSync(desktopChromePath() + ".ready") &&
             existsSync(desktopChromePath()) &&
-            existsSync("/usr/share/fonts/X11/misc/fonts.dir")
+            existsSync("/usr/share/fonts/X11/misc/fonts.dir") &&
+            existsSync("/usr/share/dbus-1/services/org.ayatana.bamf.service")
           );
         } catch {
           return false;
