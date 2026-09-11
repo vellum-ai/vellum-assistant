@@ -55,6 +55,7 @@ const { loadRawConfig } = await import("../../config/loader.js");
 const { ROUTES } = await import("../../runtime/routes/mcp-auth-routes.js");
 const { McpOAuthProvider } = await import("../mcp-oauth-provider.js");
 const { beginMcpConnection } = await import("../connection-lifecycle.js");
+const { withMcpCredentialLock } = await import("../credential-coordination.js");
 const {
   setMcpAuthPending,
   setMcpAuthComplete,
@@ -105,7 +106,10 @@ function seed() {
     credentials.set(`mcp:example:${key}`, "{}");
   }
 }
-beforeEach(() => {
+beforeEach(async () => {
+  await withMcpCredentialLock("example", async (lease) => {
+    lease.setPendingCancellation(null);
+  });
   credentials.clear();
   failedKeys = new Set();
   saveHook = undefined;
@@ -389,6 +393,51 @@ describe("MCP connection teardown", () => {
       startCallback.mockRestore();
     }
   });
+  test("authorization recovers persisted cleanup without an in-memory attempt", async () => {
+    const serverId = "restarted-cancellation";
+    setConfig("mcp", {
+      servers: {
+        ...savedServers(),
+        [serverId]: {
+          transport: {
+            type: "streamable-http",
+            url: "https://mcp.example.com/mcp",
+          },
+        },
+      },
+    });
+    credentials.set(`mcp:${serverId}:tokens`, "{}");
+    failedKeys.add(`mcp:${serverId}:tokens`);
+    await withMcpCredentialLock(serverId, async (lease) => {
+      lease.setPendingCancellation("persisted-attempt");
+    });
+    expect(getMcpAuthState(serverId)).toBeNull();
+    expect(
+      () => new McpOAuthProvider(serverId, "https://mcp.example.com/mcp"),
+    ).toThrow("cleanup is pending");
+    expect(
+      await handler("internal_mcp_auth_cancel", {
+        serverId,
+        attemptId: "unrelated-attempt",
+      }),
+    ).toEqual({ cancelled: false });
+    await expect(
+      handler("internal_mcp_auth_start", { serverId }),
+    ).rejects.toThrow("credential cleanup failed");
+    expect(getMcpAuthState(serverId)).toBeNull();
+    await withMcpCredentialLock(serverId, async (lease) => {
+      expect(lease.pendingCancellation()).toBe("persisted-attempt");
+    });
+    failedKeys.clear();
+    await beginMcpConnection(serverId);
+    expect(credentials.has(`mcp:${serverId}:tokens`)).toBe(false);
+    await withMcpCredentialLock(serverId, async (lease) => {
+      expect(lease.pendingCancellation()).toBeNull();
+    });
+    expect(
+      new McpOAuthProvider(serverId, "https://mcp.example.com/mcp"),
+    ).toBeDefined();
+  });
   test("a stale cleanup retry cannot cancel or clear a newer attempt", async () => {
     setMcpAuthPending("example", "https://auth.example.com", "failed-attempt");
     failedKeys.add("mcp:example:tokens");
@@ -397,6 +446,7 @@ describe("MCP connection teardown", () => {
       "credential cleanup failed",
     );
     failedKeys.clear();
+    await beginMcpConnection("example");
     setMcpAuthPending("example", "https://auth.example.com", "new-attempt");
     const closeNew = mock(() => {});
     registerMcpAuthCancellation("example", "new-attempt", closeNew);

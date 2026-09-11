@@ -3,7 +3,10 @@ import type { McpConfig } from "../config/schemas/mcp.js";
 import { reloadMcpServers } from "../daemon/mcp-reload-service.js";
 import { Mutex } from "../util/mutex.js";
 import { withMcpConfigWrite } from "./config-write-lock.js";
-import { withMcpCredentialLock } from "./credential-coordination.js";
+import {
+  type McpCredentialLease,
+  withMcpCredentialLock,
+} from "./credential-coordination.js";
 import {
   cancelCurrentMcpAuth,
   getMcpAuthState,
@@ -38,11 +41,16 @@ export async function withMcpServerOperation<T>(
 
 /** Called inside the server operation lock before a new authorization attempt. */
 export async function beginMcpConnection(serverId: string): Promise<void> {
-  const state = getMcpAuthState(serverId);
-  if (state?.status === "error" && state.cancellationCleanupPending) {
-    await cancelMcpConnectionAttempt(serverId, state.attemptId);
-  }
   return withMcpCredentialLock(serverId, async (lease) => {
+    const state = getMcpAuthState(serverId);
+    const pending =
+      lease.pendingCancellation() ??
+      (state?.status === "error" && state.cancellationCleanupPending
+        ? state.attemptId
+        : null);
+    if (pending) {
+      await cleanupMcpCancellation(serverId, pending, lease);
+    }
     lease.advance();
   });
 }
@@ -60,35 +68,46 @@ export async function cancelMcpConnectionAttempt(
   serverId: string,
   attemptId: string,
 ): Promise<boolean> {
-  const { deleteMcpOAuthCredentials } = await import("./mcp-oauth-provider.js");
   return withMcpCredentialLock(serverId, async (lease) => {
+    const pending = lease.pendingCancellation();
     const state = getMcpAuthState(serverId);
-    if (
-      state?.attemptId !== attemptId ||
-      !(
-        state.status === "pending" ||
-        (state.status === "error" && state.cancellationCleanupPending)
-      )
-    ) {
+    const cancellableAttempt =
+      pending ??
+      (state?.status === "pending" ||
+      (state?.status === "error" && state.cancellationCleanupPending)
+        ? state.attemptId
+        : null);
+    if (cancellableAttempt !== attemptId) {
       return false;
     }
-    cancelCurrentMcpAuth(serverId);
-    setMcpAuthCancellationCleanupPending(serverId, attemptId, true);
-    lease.advance();
-    try {
-      const result = await deleteMcpOAuthCredentials(serverId);
-      if (!result.ok) {
-        throw new Error(
-          "Authorization cancelled, but credential cleanup failed; retry cancelling",
-        );
-      }
-      setMcpAuthCancellationCleanupPending(serverId, attemptId, false);
-      return true;
-    } finally {
-      lease.advance();
-      await publishMcpChanged();
-    }
+    await cleanupMcpCancellation(serverId, attemptId, lease);
+    return true;
   });
+}
+
+async function cleanupMcpCancellation(
+  serverId: string,
+  attemptId: string,
+  lease: McpCredentialLease,
+): Promise<void> {
+  const { deleteMcpOAuthCredentials } = await import("./mcp-oauth-provider.js");
+  lease.setPendingCancellation(attemptId);
+  cancelCurrentMcpAuth(serverId);
+  setMcpAuthCancellationCleanupPending(serverId, attemptId, true);
+  lease.advance();
+  try {
+    const result = await deleteMcpOAuthCredentials(serverId);
+    if (!result.ok) {
+      throw new Error(
+        "Authorization cancelled, but credential cleanup failed; retry cancelling",
+      );
+    }
+    lease.setPendingCancellation(null);
+    setMcpAuthCancellationCleanupPending(serverId, attemptId, false);
+  } finally {
+    lease.advance();
+    await publishMcpChanged();
+  }
 }
 
 /** The caller validates workspace ownership while holding the server lock. */
@@ -120,6 +139,7 @@ export async function teardownMcpConnection(
               false,
             );
           }
+          lease.setPendingCancellation(null);
           const authState = getMcpAuthState(serverId);
           if (
             authState?.status === "error" &&

@@ -12,6 +12,7 @@ interface CredentialLock {
   owner_pid: number | null;
   owner_token: string | null;
   owner_instance: string | null;
+  cancellation_attempt: string | null;
 }
 
 function processInstance(pid: number): string | null {
@@ -82,7 +83,8 @@ function openCoordination(): Database {
     generation TEXT NOT NULL,
     owner_pid INTEGER,
     owner_token TEXT,
-    owner_instance TEXT
+    owner_instance TEXT,
+    cancellation_attempt TEXT
   )`);
     db.transaction(() => {
       const columns = db
@@ -90,6 +92,11 @@ function openCoordination(): Database {
         .all();
       if (!columns.some((column) => column.name === "owner_instance")) {
         db.exec("ALTER TABLE credential_locks ADD COLUMN owner_instance TEXT");
+      }
+      if (!columns.some((column) => column.name === "cancellation_attempt")) {
+        db.exec(
+          "ALTER TABLE credential_locks ADD COLUMN cancellation_attempt TEXT",
+        );
       }
     }).immediate();
     return db;
@@ -111,7 +118,7 @@ function ensureLock(db: Database, key: string): CredentialLock {
     .query<
       CredentialLock,
       [string]
-    >("SELECT generation, owner_pid, owner_token, owner_instance FROM credential_locks WHERE server_key = ?")
+    >("SELECT generation, owner_pid, owner_token, owner_instance, cancellation_attempt FROM credential_locks WHERE server_key = ?")
     .get(key)!;
 }
 
@@ -140,24 +147,26 @@ function ownerIsAlive(owner: CredentialLock): boolean {
   return instance === null || `os:${instance}` === recordedInstance;
 }
 
-export function readMcpCredentialGeneration(serverId: string): string {
+function readCredentialLock(serverId: string): CredentialLock {
   const db = openCoordination();
   try {
-    return ensureLock(db, keyFor(serverId)).generation;
+    return ensureLock(db, keyFor(serverId));
   } finally {
     db.close();
   }
 }
 
-interface CredentialLease {
+export interface McpCredentialLease {
   generation(): string;
   advance(): void;
+  pendingCancellation(): string | null;
+  setPendingCancellation(attemptId: string | null): void;
 }
 
 /** SQLite arbitrates async CES writers across the assistant and its workers. */
 export async function withMcpCredentialLock<T>(
   serverId: string,
-  operation: (lease: CredentialLease) => Promise<T>,
+  operation: (lease: McpCredentialLease) => Promise<T>,
   timeoutMs = 10_000,
 ): Promise<T> {
   const db = openCoordination();
@@ -197,6 +206,12 @@ export async function withMcpCredentialLock<T>(
     return await withCredentialCompletion(() =>
       operation({
         generation: () => ensureLock(db, key).generation,
+        pendingCancellation: () => ensureLock(db, key).cancellation_attempt,
+        setPendingCancellation: (attemptId) => {
+          db.query(
+            "UPDATE credential_locks SET cancellation_attempt = ? WHERE server_key = ? AND owner_token = ?",
+          ).run(attemptId, key, token);
+        },
         advance: () => {
           db.query(
             "UPDATE credential_locks SET generation = ? WHERE server_key = ? AND owner_token = ?",
@@ -226,13 +241,22 @@ export function createMcpCredentialFence(
   serverId: string,
   isCurrent: () => boolean | Promise<boolean> = () => true,
 ): McpCredentialFence {
-  const generation = readMcpCredentialGeneration(serverId);
+  const initial = readCredentialLock(serverId);
+  if (initial.cancellation_attempt) {
+    throw new Error("MCP authorization cleanup is pending; retry connecting");
+  }
+  const generation = initial.generation;
   let closed = false;
   return {
     write: (operation) =>
       withMcpCredentialLock(serverId, async (lease) => {
         const current = await isCurrent();
-        if (closed || generation !== lease.generation() || !current) {
+        if (
+          closed ||
+          generation !== lease.generation() ||
+          lease.pendingCancellation() ||
+          !current
+        ) {
           throw new Error("MCP connection changed; retry connecting");
         }
         return operation();

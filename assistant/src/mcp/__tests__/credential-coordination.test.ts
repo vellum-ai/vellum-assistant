@@ -58,6 +58,7 @@ describe("MCP credential coordination", () => {
     );
     try {
       db.exec("ALTER TABLE credential_locks DROP COLUMN owner_instance");
+      db.exec("ALTER TABLE credential_locks DROP COLUMN cancellation_attempt");
       const before = db
         .query(
           "SELECT server_key, generation FROM credential_locks ORDER BY server_key",
@@ -78,8 +79,47 @@ describe("MCP credential coordination", () => {
           .all()
           .filter((column) => column.name === "owner_instance"),
       ).toHaveLength(1);
+      expect(
+        db
+          .query<{ name: string }, []>("PRAGMA table_info(credential_locks)")
+          .all()
+          .filter((column) => column.name === "cancellation_attempt"),
+      ).toHaveLength(1);
     } finally {
       db.close();
+    }
+  });
+
+  test("pending cancellation survives a crashed owner and blocks new providers", async () => {
+    const existing = createMcpCredentialFence("persisted-cancellation");
+    const worker =
+      child(`await withMcpCredentialLock("persisted-cancellation", async (lease) => {
+      lease.setPendingCancellation("cancel-attempt");
+      console.log("PERSISTED"); await Bun.stdin.text();
+    });`);
+    try {
+      expect(await readLine(worker.stdout.getReader())).toBe("PERSISTED");
+      worker.kill();
+      await worker.exited;
+      expect(() => createMcpCredentialFence("persisted-cancellation")).toThrow(
+        "cleanup is pending",
+      );
+      let wrote = false;
+      await expect(
+        existing.write(async () => {
+          wrote = true;
+        }),
+      ).rejects.toThrow("MCP connection changed");
+      expect(wrote).toBe(false);
+      await withMcpCredentialLock("persisted-cancellation", async (lease) => {
+        expect(lease.pendingCancellation()).toBe("cancel-attempt");
+        lease.setPendingCancellation(null);
+        lease.advance();
+      });
+      const fresh = createMcpCredentialFence("persisted-cancellation");
+      expect(await fresh.write(async () => "connected")).toBe("connected");
+    } finally {
+      worker.kill();
     }
   });
 
