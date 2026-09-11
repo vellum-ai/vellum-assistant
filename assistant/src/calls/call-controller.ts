@@ -89,6 +89,11 @@ import {
   extractBalancedJson,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
+import {
+  createFrontDoorLegCoordinator,
+  type FrontDoorLegCoordinator,
+  type SpokenEscalationBridge,
+} from "./voice-leg-coordinator.js";
 import { createProgressCadence } from "./voice-progress-cadence.js";
 import {
   CONVERSATION_BUSY_MESSAGE,
@@ -96,12 +101,7 @@ import {
   type VoiceTurnCallbacks,
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
-import {
-  createFrontDoorVerdictMachine,
-  ESCALATION_CONTINUATION_CONTENT,
-  resolveSpokenEscalationBridge,
-  type VoiceRoutingLeg,
-} from "./voice-triage-escalate.js";
+import { type VoiceRoutingLeg } from "./voice-triage-escalate.js";
 
 const log = getLogger("call-controller");
 
@@ -1039,8 +1039,13 @@ export class CallController {
 
     // Transcript row ids reported by the bridge. The escalated leg persists
     // a hidden continuation prompt rather than the caller's words, so only
-    // the front-door leg's user row is the utterance.
-    const legCallbacks = (routingLeg: VoiceRoutingLeg): VoiceTurnCallbacks => ({
+    // the front-door leg's user row is the utterance; and a front-door leg
+    // that handed off owns the bridge row, not the answer, so its assistant
+    // row is not the turn's.
+    const legCallbacks = (
+      routingLeg: VoiceRoutingLeg,
+      handedOff: () => boolean,
+    ): VoiceTurnCallbacks => ({
       persisted_user_message_id: (messageId) => {
         if (!this.isCurrentRun(runVersion) || routingLeg === "escalated") {
           return;
@@ -1048,7 +1053,7 @@ export class CallController {
         outcome.userMessageId = messageId;
       },
       persisted_assistant_message_id: (messageId) => {
-        if (!this.isCurrentRun(runVersion)) {
+        if (!this.isCurrentRun(runVersion) || handedOff()) {
           return;
         }
         outcome.assistantMessageId = messageId;
@@ -1084,12 +1089,39 @@ export class CallController {
       },
     });
 
+    // Speak the escalation bridge so the strong-model call has no dead air.
+    // The model's own holding phrase is real assistant speech and stays in
+    // the turn's text, matching the row the bridge's transcript hygiene
+    // keeps for it; the canned fallback is audio-only, matching the row it
+    // deletes.
+    const speakEscalationBridge = (bridge: SpokenEscalationBridge): void => {
+      if (bridge.usesFallback) {
+        speakFixedPhrase(bridge.spokenBridge, bridge.language);
+        return;
+      }
+      fullResponseText += `${bridge.spokenBridge} `;
+      flushSafeText(fullResponseText, { force: true });
+      // Force-synthesize the bridge now. On the synthesized-TTS path text is
+      // held in pendingSynthText until a sentence boundary, so an
+      // unpunctuated bridge would otherwise sit unspoken until the post-leg
+      // drain, leaving the caller in silence during the escalated model's
+      // call: the exact gap the bridge exists to mask.
+      if (synthProvider) {
+        const { segments } = extractSpeakableSegments(pendingSynthText, true);
+        pendingSynthText = "";
+        enqueueSynthesisSegments(synthProvider, segments);
+      }
+    };
+
+    // The escalated leg, once the front-door leg hands off. Started from
+    // inside the hand-off; awaited by the turn after the front-door leg
+    // settles.
+    let escalatedLeg: Promise<void> | null = null;
+
     // Run one leg through the session bridge, streaming its deltas through
-    // the shared TTS closures above. Resolves with the capped holding phrase
-    // when a front-door leg handed off (empty when the model gave none), or
-    // null when the leg answered. Errors cancel and drain this turn's
+    // the shared TTS closures above. Errors cancel and drain this turn's
     // synthesis before propagating.
-    const runVoiceLeg = async (leg: PhoneVoiceLeg): Promise<string | null> => {
+    const runVoiceLeg = async (leg: PhoneVoiceLeg): Promise<void> => {
       // Reasoning models can inline <think> spans in the content stream when
       // a profile has not opted into parseThinkTags. Neither the spoken path
       // nor the post-turn consumers of fullResponseText (transcripts,
@@ -1097,53 +1129,54 @@ export class CallController {
       // are fed only filtered text. One filter per leg: a span never straddles
       // the hand-off.
       const reasoningFilter = createReasoningTagFilter();
-      // Verdict-first: a front-door leg's leading tokens decide the turn's
-      // fate, so its raw stream is a control plane until they classify. Only
-      // text the machine releases is spoken or recorded.
-      const verdict =
-        leg.routingLeg === "front-door"
-          ? createFrontDoorVerdictMachine(false)
-          : null;
-      let escalationBridge: string | null = null;
       let legHandle: VoiceTurnHandle | null = null;
+      // Verdict-first: a front-door leg's leading tokens decide the turn's
+      // fate, so its raw stream is a control plane until they classify. The
+      // shared coordinator reads it and sequences the hand-off; only text it
+      // releases is spoken or recorded. Phone has no partial transcripts,
+      // so the hold verdict is never taught.
+      const coordinator: FrontDoorLegCoordinator | null =
+        leg.routingLeg === "front-door"
+          ? createFrontDoorLegCoordinator({
+              holdEnabled: false,
+              host: {
+                isLive: () =>
+                  this.isCurrentRun(runVersion) && !runSignal.aborted,
+                language: () => this.resolveSynthesisLanguage(),
+                progress: cadence,
+                onAnswerText: (text) => {
+                  fullResponseText += text;
+                  flushSafeText(fullResponseText);
+                },
+                abortLeg: () => legHandle?.abort(),
+                speakBridge: speakEscalationBridge,
+                startEscalatedLeg: (escalated) => {
+                  const started = runVoiceLeg(escalated);
+                  // Awaited by the turn; the rejection is observed there.
+                  started.catch(() => {});
+                  escalatedLeg = started;
+                },
+              },
+            })
+          : null;
 
       const legComplete = new Promise<void>((resolve, reject) => {
-        // Once the front-door leg hands off, nothing more from it is spoken,
-        // recorded, or acted on. Abort it so a model that keeps generating
-        // past the bridge cap adds no latency before the escalated leg
-        // starts.
-        const handOff = (bridge: string): void => {
-          if (escalationBridge !== null) {
-            return;
-          }
-          escalationBridge = bridge;
-          legHandle?.abort();
-          resolve();
-        };
-
         const ingest = (speakable: string): void => {
           if (speakable.length > 0) {
             deltaEpoch += 1;
           }
-          if (verdict === null) {
-            fullResponseText += speakable;
-            flushSafeText(fullResponseText);
+          if (coordinator !== null) {
+            coordinator.push(speakable);
             return;
           }
-          const step = verdict.push(speakable);
-          if (step.kind === "answer") {
-            fullResponseText += step.text;
-            flushSafeText(fullResponseText);
-          } else if (
-            (step.kind === "escalate" || step.kind === "bridge") &&
-            step.bridge !== null
-          ) {
-            handOff(step.bridge);
-          }
+          fullResponseText += speakable;
+          flushSafeText(fullResponseText);
         };
 
         const onTextDelta = (text: string): void => {
-          if (!this.isCurrentRun(runVersion) || escalationBridge !== null) {
+          // Once the front-door leg hands off, nothing more from it is
+          // spoken, recorded, or acted on.
+          if (!this.isCurrentRun(runVersion) || coordinator?.handedOff) {
             return;
           }
           ingest(reasoningFilter.push(text));
@@ -1156,7 +1189,7 @@ export class CallController {
           if (
             !this.isCurrentRun(runVersion) ||
             runSignal.aborted ||
-            escalationBridge !== null
+            coordinator?.handedOff
           ) {
             resolve();
             return;
@@ -1164,17 +1197,7 @@ export class CallController {
           // A held "[..." tail that never completed a marker is real text,
           // released to both consumers before the leg settles.
           ingest(reasoningFilter.flush());
-          if (verdict !== null) {
-            // A front-door leg that stopped mid-bridge (a bare escalate
-            // verdict, or a holding phrase with no sentence terminator) hands
-            // off with whatever arrived; the canned fallback covers an empty
-            // bridge.
-            const step = verdict.finish();
-            if (step.kind === "bridge") {
-              handOff(step.bridge);
-              return;
-            }
-          }
+          coordinator?.complete();
           resolve();
         };
 
@@ -1206,12 +1229,15 @@ export class CallController {
           onTextDelta,
           onComplete,
           onError,
-          callbacks: legCallbacks(leg.routingLeg),
+          callbacks: legCallbacks(
+            leg.routingLeg,
+            () => coordinator?.handedOff === true,
+          ),
           signal: runSignal,
         })
           .then((handle) => {
             legHandle = handle;
-            if (this.isCurrentRun(runVersion) && escalationBridge === null) {
+            if (this.isCurrentRun(runVersion) && !coordinator?.handedOff) {
               this.currentTurnHandle = handle;
             } else {
               // Superseded, or the front-door leg handed off before its
@@ -1255,7 +1281,6 @@ export class CallController {
         await synthesisChain.catch(() => {});
         throw err;
       }
-      return escalationBridge;
     };
 
     // Superseded mid-stream (barge-in): drain the segment chain (queued
@@ -1272,60 +1297,15 @@ export class CallController {
     // in the turn it occurs; the front-door leg is toolless and quick, so in
     // practice the escalated leg's tool loops are what it covers.
     cadence.arm();
-    const escalationBridge = await runVoiceLeg({
-      content,
-      routingLeg: "front-door",
-    });
+    await runVoiceLeg({ content, routingLeg: "front-door" });
     if (!this.isCurrentRun(runVersion)) {
       return settleSuperseded();
     }
 
-    if (escalationBridge !== null) {
-      // The front-door model handed off. Speak the bridge so the strong-model
-      // call has no dead air: the model's own holding phrase is real assistant
-      // speech and stays in the turn's text, matching the row the bridge's
-      // transcript hygiene keeps for it; the canned fallback is audio-only,
-      // matching the row it deletes.
-      // The bridge holds the floor: pending narration would only stack a
-      // second filler on top of it. Re-armed once the escalated leg starts;
-      // audible-silence gating keeps it quiet until the bridge has played.
-      cadence.clear();
-      const {
-        spokenBridge,
-        usesFallback: usesFallbackBridge,
-        language: bridgeLanguage,
-      } = resolveSpokenEscalationBridge(
-        escalationBridge,
-        this.resolveSynthesisLanguage(),
-      );
-      if (usesFallbackBridge) {
-        speakFixedPhrase(spokenBridge, bridgeLanguage);
-      } else {
-        fullResponseText += `${spokenBridge} `;
-        flushSafeText(fullResponseText, { force: true });
-        // Force-synthesize the bridge now. On the synthesized-TTS path text
-        // is held in pendingSynthText until a sentence boundary, so an
-        // unpunctuated bridge would otherwise sit unspoken until the
-        // post-leg drain, leaving the caller in silence during the escalated
-        // model's call: the exact gap the bridge exists to mask.
-        if (synthProvider) {
-          const { segments } = extractSpeakableSegments(pendingSynthText, true);
-          pendingSynthText = "";
-          enqueueSynthesisSegments(synthProvider, segments);
-        }
-      }
-      // The bridge is the turn's spoken acknowledgement: narration keeps
-      // `minGapMs` from it rather than following it back to back.
-      cadence.noteFloorHolder();
-      // The bridge phrase the caller just heard is handed along so the
-      // escalated continuation rule can quote it and ban a re-announcing
-      // echo. The bridge pins this leg to the conversation's own profile.
-      cadence.arm();
-      await runVoiceLeg({
-        content: ESCALATION_CONTINUATION_CONTENT,
-        routingLeg: "escalated",
-        spokenEscalationBridge: spokenBridge,
-      });
+    // The front-door model handed off: the coordinator spoke the bridge and
+    // started the escalated leg, which answers for real.
+    if (escalatedLeg !== null) {
+      await escalatedLeg;
       if (!this.isCurrentRun(runVersion)) {
         return settleSuperseded();
       }
