@@ -1851,11 +1851,6 @@
     "removeBindingAriaLabel": "Eliminar asignación de {label}",
     "resetShortcutAriaLabel": "Restablecer {label} al valor predeterminado"
   },
-  "showTipsRow": {
-    "ariaLabel": "Mostrar consejos",
-    "description": "Consejos ocasionales en la barra lateral que destacan funciones que aún no has probado.",
-    "label": "Mostrar consejos"
-  },
   "soundsSections": {
     "addSound": "Agregar sonido",
     "allSoundsAdded": "Todos los sonidos agregados",
