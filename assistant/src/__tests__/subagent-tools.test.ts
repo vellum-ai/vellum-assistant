@@ -3447,8 +3447,9 @@ describe("Subagent advisor-role consult", () => {
   });
 
   test("advisor consults still run when the parent conversation is gone", async () => {
-    // The parent is looked up only for its warm skill catalog, so an evicted
-    // conversation costs a section of the context pack, not the consult.
+    // Advisor consults do not look up the parent conversation for a skill
+    // catalog snapshot. An evicted parent still gets a consult; the context
+    // pack loads the catalog from disk independently.
     mockFindConversation = () => undefined;
     const { captured, restore } = stubSpawn();
     try {
