@@ -50,7 +50,12 @@ async function setup() {
     configFile: false as const,
     logLevel: "silent" as const,
     plugins: [openApiCodegenPlugin()],
-    server: { host: "127.0.0.1", port: 0, strictPort: true },
+    server: {
+      host: "127.0.0.1",
+      port: 0,
+      strictPort: true,
+      watch: { ignored: [path.join(root, "client.js")] },
+    },
     optimizeDeps: { noDiscovery: true, include: [] },
   };
 }
@@ -94,6 +99,9 @@ test("queues schema changes that arrive during generation", async () => {
   );
   server = await createServer(config);
   await server.listen(0);
+  expect((await server.transformRequest("/client.js"))?.code).toContain(
+    '"initial"',
+  );
   await writeFile(path.join(fixture, "assistant/openapi.yaml"), "assistant");
   const gateway = path.join(fixture, "gateway/openapi.yaml");
   let gatewayChanged = false;

@@ -42,6 +42,10 @@ export function openApiCodegenPlugin(): Plugin {
                   maxBuffer: 10 * 1024 * 1024,
                 },
               );
+              for (const environment of Object.values(server.environments)) {
+                environment.moduleGraph.invalidateAll();
+              }
+              server.ws.send({ type: "full-reload" });
             } catch (error) {
               if (!pending) {
                 throw error;
@@ -61,7 +65,7 @@ export function openApiCodegenPlugin(): Plugin {
           config.logger.error(error.message);
           server.ws.send({
             type: "error",
-            err: { message: error.message, stack: error.stack },
+            err: { message: error.message, stack: error.stack ?? "" },
           });
         });
       };

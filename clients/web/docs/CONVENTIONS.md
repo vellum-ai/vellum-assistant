@@ -963,8 +963,9 @@ automatically through Vite and [npm lifecycle hooks](https://docs.npmjs.com/cli/
 - **Vite development server**: regenerates before serving, including when
   Vite is launched directly. Changes to the committed OpenAPI specs or
   generator configuration queue client regeneration. Changes received during
-  generation trigger another pass, and Vite watches the generated output for
-  browser updates. This keeps clients current across branch switches.
+  generation trigger another pass. Each successful pass invalidates Vite's
+  module cache and reloads connected browsers to keep clients current across
+  branch switches.
 - **`pretypecheck`**: runs before every `bun run typecheck`; regenerates
   for the same reason. A bare `bunx tsc --noEmit` bypasses this hook, so
   prefer `bun run typecheck`.
