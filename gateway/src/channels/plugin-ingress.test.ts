@@ -171,6 +171,26 @@ describe("parsePluginIngressManifest", () => {
     ).toThrow(/only valid for websocket/);
   });
 
+  it("accepts a bearer verification descriptor", () => {
+    const manifest = parsePluginIngressManifest({
+      routes: [
+        {
+          path: "shortcut-health",
+          kind: "http",
+          verification: {
+            kind: "bearer",
+            secret: { field: "shortcut_ingress_token" },
+          },
+          description: "shortcut automation deliveries",
+        },
+      ],
+    });
+    expect(manifest.routes[0]!.verification).toEqual({
+      kind: "bearer",
+      secret: { field: "shortcut_ingress_token" },
+    });
+  });
+
   it("accepts a standard-webhooks verification descriptor", () => {
     const manifest = parsePluginIngressManifest({
       routes: [
