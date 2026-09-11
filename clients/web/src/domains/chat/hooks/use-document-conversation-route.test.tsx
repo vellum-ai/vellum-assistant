@@ -160,6 +160,7 @@ function Harness() {
       <div data-testid="url">
         {location.pathname}
         {location.search}
+        {location.hash}
       </div>
       <div data-testid="status">
         {session.isLoading ? "loading" : (session.error ?? "ready")}
@@ -212,14 +213,16 @@ function renderRoute(
   showingDocument = true,
   fromLibrary = false,
   returnTo = "/assistant/library",
+  initialEntry?: string,
 ) {
   const queryClient = new QueryClient();
   return render(
     <MemoryRouter
       initialEntries={[
-        fromLibrary
-          ? "/assistant/library"
-          : `/assistant/conversations/${conversationId}?document=surface-1&documentReturn=${encodeURIComponent(returnTo)}${showingDocument ? "" : "&documentView=chat"}`,
+        initialEntry ??
+          (fromLibrary
+            ? "/assistant/library"
+            : `/assistant/conversations/${conversationId}?document=surface-1&documentReturn=${encodeURIComponent(returnTo)}${showingDocument ? "" : "&documentView=chat"}`),
       ]}
     >
       <Routes>
@@ -293,6 +296,104 @@ afterEach(() => {
 });
 
 describe("document conversation route", () => {
+  test.each([
+    {
+      name: "chat-info",
+      open: () =>
+        useViewerStore
+          .getState()
+          .openChatInfo({
+            assistantId: "assistant-1",
+            conversationId: "conv-1",
+          }),
+      close: () => useViewerStore.getState().closeChatInfo(),
+    },
+    {
+      name: "subagent-detail",
+      open: () => useViewerStore.getState().openSubagentDetail("subagent-1"),
+      close: () => useViewerStore.getState().closeSubagentDetail(),
+    },
+    {
+      name: "app",
+      open: () => useViewerStore.getState().openApp("app-1"),
+      close: () => useViewerStore.getState().closeApp(),
+    },
+  ])(
+    "desktop $name replacement clears document intent and does not reopen on remount",
+    async ({ name, open, close }) => {
+      viewport.set({ narrow: false, coarsePointer: false });
+      const page = renderRoute(
+        "conv-1",
+        true,
+        false,
+        "/assistant/library",
+        "/assistant/conversations/conv-1?document=surface-1&documentReturn=%2Fassistant%2Flibrary&documentView=document&keep=1#section",
+      );
+      await waitFor(() =>
+        expect(page.getByTestId("status").textContent).toBe("ready"),
+      );
+      act(open);
+      await waitFor(() =>
+        expect(page.getByTestId("url").textContent).toBe(
+          "/assistant/conversations/conv-1?keep=1#section",
+        ),
+      );
+      expect(useViewerStore.getState().mainView).toBe(name);
+      expect(useViewerStore.getState().openedDocumentState).toBeNull();
+      act(close);
+      expect(useViewerStore.getState().mainView).toBe("chat");
+      const cleanUrl = page.getByTestId("url").textContent!;
+      page.unmount();
+      renderRoute("conv-1", true, false, "/assistant/library", cleanUrl);
+      await act(async () => {});
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(useViewerStore.getState().mainView).toBe("chat");
+    },
+  );
+
+  test("opening a desktop panel cancels a pending document load without replacing the panel later", async () => {
+    viewport.set({ narrow: false, coarsePointer: false });
+    let finishLoad!: (value: { data: DocumentContent }) => void;
+    load.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLoad = resolve;
+        }),
+    );
+    const page = renderRoute();
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    act(() => useViewerStore.getState().openSubagentDetail("subagent-1"));
+    await waitFor(() =>
+      expect(page.getByTestId("url").textContent).toBe(
+        "/assistant/conversations/conv-1",
+      ),
+    );
+    await act(async () => finishLoad({ data: documentData }));
+    expect(useViewerStore.getState().mainView).toBe("subagent-detail");
+    expect(useViewerStore.getState().activeSubagentId).toBe("subagent-1");
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+  });
+
+  test.each(["mobile", "transcript"])(
+    "keeps the document session for a panel over %s",
+    async (presentation) => {
+      viewport.set({
+        narrow: presentation === "mobile",
+        coarsePointer: presentation === "mobile",
+      });
+      const page = renderRoute("conv-1", presentation !== "transcript");
+      await waitFor(() =>
+        expect(page.getByTestId("status").textContent).toBe("ready"),
+      );
+      const url = page.getByTestId("url").textContent;
+      const document = useViewerStore.getState().openedDocumentState;
+      act(() => useViewerStore.getState().openSubagentDetail("subagent-1"));
+      await act(async () => {});
+      expect(page.getByTestId("url").textContent).toBe(url);
+      expect(useViewerStore.getState().openedDocumentState).toBe(document);
+    },
+  );
+
   test.each(["ready", "loading", "stacked overlay"])(
     "Android Back closes the %s document session through its return route",
     async (state) => {

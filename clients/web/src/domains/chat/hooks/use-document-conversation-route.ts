@@ -7,16 +7,15 @@ import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore, type DocumentTarget } from "@/stores/viewer-store";
-import { routes } from "@/utils/routes";
+import { documentEntryUrl } from "@/utils/document-navigation";
 
 import {
   documentRequestScope,
   resolveDocumentConversation,
 } from "../document-conversation";
 import {
-  DOCUMENT_RETURN_PARAM,
+  clearDocumentConversationUrl,
   closeDocumentInConversation,
-  documentReturnPath,
   getDocumentConversationRoute,
   markOpenedDocumentViewed,
   setDocumentConversationPresentation,
@@ -75,6 +74,34 @@ export function useDocumentConversationRoute() {
   useEffect(() => clearOwnedDocument, [clearOwnedDocument]);
 
   useEffect(() => {
+    if (isMobile || !surfaceId || !showingDocument) {
+      return;
+    }
+    return useViewerStore.subscribe((viewer, previous) => {
+      const target = ownedTargetRef.current;
+      if (
+        previous.mainView !== "document" ||
+        viewer.mainView === "document" ||
+        viewer.mainView === "chat" ||
+        target === null ||
+        viewer.activeDocumentTarget !== target
+      ) {
+        return;
+      }
+      scopeRef.current?.dispose();
+      clearOwnedDocument();
+      clearDocumentConversationUrl(navigate, location);
+    });
+  }, [
+    isMobile,
+    surfaceId,
+    showingDocument,
+    clearOwnedDocument,
+    navigate,
+    location,
+  ]);
+
+  useEffect(() => {
     const wasMobile = wasMobileRef.current;
     wasMobileRef.current = isMobile;
     if (wasMobile || !isMobile || surfaceId || !assistantId) {
@@ -89,10 +116,7 @@ export function useDocumentConversationRoute() {
     ) {
       return;
     }
-    const params = new URLSearchParams({
-      [DOCUMENT_RETURN_PARAM]: documentReturnPath(pathname),
-    });
-    void navigate(`${routes.document(opened.surfaceId)}?${params}`, {
+    void navigate(documentEntryUrl(opened.surfaceId, pathname), {
       replace: true,
     });
   }, [isMobile, surfaceId, assistantId, pathname, navigate]);
@@ -138,10 +162,7 @@ export function useDocumentConversationRoute() {
           return;
         }
         if (linkedId !== conversationId) {
-          const params = new URLSearchParams({
-            [DOCUMENT_RETURN_PARAM]: returnTo,
-          });
-          void navigate(`${routes.document(surfaceId)}?${params}`, {
+          void navigate(documentEntryUrl(surfaceId, returnTo), {
             replace: true,
             state: navigationState,
           });

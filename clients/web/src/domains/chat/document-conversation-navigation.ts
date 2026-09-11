@@ -37,6 +37,14 @@ export function closeDocumentInConversation(
   location: Pick<Location, "pathname" | "search" | "hash" | "state">,
 ): void {
   useViewerStore.getState().closeDocument();
+  clearDocumentConversationUrl(navigate, location);
+}
+
+/** Removes document intent without changing the active viewer surface. */
+export function clearDocumentConversationUrl(
+  navigate: NavigateFunction,
+  location: Pick<Location, "pathname" | "search" | "hash" | "state">,
+): void {
   const params = new URLSearchParams(location.search);
   const documentParams = [
     DOCUMENT_PARAM,

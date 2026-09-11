@@ -34,6 +34,7 @@ import { DocumentChatContent } from "./document-chat-content";
 import type * as Editor from "./tiptap-document-editor";
 import type * as Chat from "./chat-route-content";
 import type * as Progress from "./progress-stack";
+import type * as ChatInfo from "./chat-info-panel";
 import type { DocumentViewerContainerHandle } from "./document-viewer-container";
 import { useOpenDocumentFromChat } from "../hooks/use-open-app-from-chat";
 
@@ -52,6 +53,14 @@ mock.module(
 mock.module(
   "./progress-stack",
   (): Partial<typeof Progress> => ({ ProgressStack: () => null }),
+);
+mock.module(
+  "./chat-info-panel",
+  (): Partial<typeof ChatInfo> => ({
+    ChatInfoPanel: ({ onClose }) => (
+      <button onClick={onClose}>Close chat info</button>
+    ),
+  }),
 );
 const comments = await import("../api/document-comments");
 mock.module(
@@ -102,7 +111,7 @@ mock.module(
 );
 
 // Keep the production layout, route controller, drawer and editor/save hook.
-// Only the unrelated chat content and Tiptap input boundary are stubbed.
+// Unrelated chat content, Chat Info and the Tiptap input boundary are stubbed.
 mock.module(
   "./chat-route-content",
   (): Partial<typeof Chat> => ({
@@ -276,6 +285,42 @@ function renderLayout(mobile: boolean, urlBacked = true) {
 }
 
 describe("document viewport handoff", () => {
+  test("replacing a desktop document flushes edits without closing the new panel", async () => {
+    renderLayout(false);
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: "Document body" }),
+      { target: { value: "Latest edited body" } },
+    );
+    act(() =>
+      useViewerStore.getState().openChatInfo({
+        assistantId: "assistant-1",
+        conversationId: "conv-1",
+      }),
+    );
+    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+    const close = await screen.findByRole("button", {
+      name: "Close chat info",
+    });
+    expect(screen.getByTestId("url").textContent).toBe(
+      "/assistant/conversations/conv-1",
+    );
+    expect(useViewerStore.getState().mainView).toBe("chat-info");
+    expect(
+      Boolean(screen.queryByRole("textbox", { name: "Document body" })),
+    ).toBe(false);
+    await act(async () => finishWrite());
+    expect(saved.content).toBe("Latest edited body");
+    fireEvent.click(close);
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(screen.getByTestId("url").textContent).toBe(
+      "/assistant/conversations/conv-1",
+    );
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(
+      Boolean(screen.queryByRole("textbox", { name: "Document body" })),
+    ).toBe(false);
+  });
+
   test.each([
     { mobile: true, urlBacked: true, stage: "debouncing" },
     { mobile: true, urlBacked: true, stage: "in flight" },

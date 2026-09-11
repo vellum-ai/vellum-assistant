@@ -44,7 +44,12 @@ Chat Info stays mounted while document entry resolves, then closes immediately
 before navigation. Closing it manually cancels the pending entry request.
 The desktop drawer's close button and Escape action remove document URL intent
 while preserving the current conversation, unrelated search parameters and
-fragment. The mobile document session handles unclaimed Escape from the keyboard
+fragment. Opening another desktop viewer replaces the document session, cancels
+its pending load and removes its URL intent without closing the replacement.
+Pending editor saves still drain on unmount. Closing the replacement or refreshing
+does not reopen the document. Mobile overlays and transcript presentation retain
+their associated document session.
+The mobile document session handles unclaimed Escape from the keyboard
 or Android Back through the same return action as its close button. Other active
 overlays and controls that claim Escape take priority. Loading and failed mobile
 document loads offer Close document; errors also offer Retry. Close cancels the
