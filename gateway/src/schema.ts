@@ -1159,51 +1159,7 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      "/v1/desktop/setup": {
-        get: {
-          summary: "Get desktop setup status",
-          operationId: "desktopSetupStatus",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": {
-              description: "Desktop setup status for the bound guardian",
-            },
-          },
-        },
-        post: {
-          summary: "Install desktop components",
-          operationId: "desktopSetupInstall",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": {
-              description:
-                "Current status of the shared background installation",
-            },
-          },
-        },
-      },
-      "/v1/desktop/apps": {
-        get: {
-          summary: "List desktop apps",
-          operationId: "desktopAppsList",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": {
-              description: "App availability for the bound guardian",
-            },
-          },
-        },
-        post: {
-          summary: "Add or open a desktop app",
-          operationId: "desktopAppsAction",
-          security: [{ BearerAuth: [] }],
-          responses: {
-            "200": {
-              description: "Current desktop application availability",
-            },
-          },
-        },
-      },
+      ...buildDesktopControlSchema(),
       "/v1/desktop/stream": {
         get: {
           summary: "Assistant desktop stream WebSocket",
@@ -4991,4 +4947,77 @@ export function buildSchema(): Record<string, unknown> {
       },
     },
   };
+}
+
+function buildDesktopControlSchema(): Record<string, unknown> {
+  const resources = {
+    setup: {
+      get: {
+        summary: "Get desktop setup status",
+        operationId: "desktopSetupStatus",
+        security: [{ BearerAuth: [] }],
+        responses: {
+          "200": {
+            description: "Desktop setup status for the bound guardian",
+          },
+        },
+      },
+      post: {
+        summary: "Install desktop components",
+        operationId: "desktopSetupInstall",
+        security: [{ BearerAuth: [] }],
+        responses: {
+          "200": {
+            description: "Current status of the shared background installation",
+          },
+        },
+      },
+    },
+    apps: {
+      get: {
+        summary: "List desktop apps",
+        operationId: "desktopAppsList",
+        security: [{ BearerAuth: [] }],
+        responses: {
+          "200": {
+            description: "App availability for the bound guardian",
+          },
+        },
+      },
+      post: {
+        summary: "Add or open a desktop app",
+        operationId: "desktopAppsAction",
+        security: [{ BearerAuth: [] }],
+        responses: {
+          "200": {
+            description: "Current desktop application availability",
+          },
+        },
+      },
+    },
+  };
+  return Object.fromEntries(
+    Object.entries(resources).flatMap(([resource, operations]) => [
+      [`/v1/desktop/${resource}`, operations],
+      [
+        `/v1/assistants/{assistantId}/desktop/${resource}`,
+        {
+          parameters: [
+            {
+              name: "assistantId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          ...Object.fromEntries(
+            Object.entries(operations).map(([method, operation]) => [
+              method,
+              { ...operation, operationId: `${operation.operationId}Scoped` },
+            ]),
+          ),
+        },
+      ],
+    ]),
+  );
 }

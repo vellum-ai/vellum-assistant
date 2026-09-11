@@ -133,7 +133,11 @@ function extractTableRoutes(table: RouteDefinition[]): ExtractedRoute[] {
       return [{ path: route.path, method }];
     }
     const converted = regexToOpenApiPath(
-      route.path.source.replace(/^\^/, "").replace(/\$$/, ""),
+      route.path.source
+        .replace(/^\^/, "")
+        .replace(/\$$/, "")
+        .replace(/\\\//g, "/")
+        .replace(/(?<!\()\[\^\/\]\+/g, "([^/]+)"),
     );
     return converted ? [{ path: converted, method }] : [];
   });
@@ -180,9 +184,7 @@ function regexToOpenApiPath(escaped: string): string | null {
   // but they do not change the structural path shape we compare to the schema.
   path = path.replace(/\(\?(?:=|!|<=|<!).*?\)/g, "");
 
-  // Replace capture groups with numbered params.
-  // Handles `([^/]+)` (single segment), `(.+)` (greedy), and `(.+?)`
-  // (non-greedy, used when an optional trailing slash sits outside the group).
+  // Replace segment patterns and greedy capture groups with numbered params.
   let paramIndex = 0;
   path = path.replace(/\(\[\^\/\]\+\)|\(\.\+\??\)/g, () => {
     paramIndex++;
@@ -377,6 +379,22 @@ describe("route-schema sync guard", () => {
     );
 
     expect(unserved).toEqual(["/a2a/message:send"]);
+  });
+
+  test("scoped desktop routes are checked for missing schema paths", () => {
+    const scoped = extractTableRoutes(
+      createDesktopControlRoutes(makeConfig()),
+    ).filter((route) => route.path.startsWith("/v1/assistants/"));
+    expect(scoped).toHaveLength(4);
+    const withoutScopedDesktop = new Set(
+      [...schemaPaths].filter(
+        (path) => !path.startsWith("/v1/assistants/{assistantId}/desktop/"),
+      ),
+    );
+    for (const route of scoped) {
+      expect(resolveSchemaPath(route.path, schemaPaths)).not.toBeNull();
+      expect(resolveSchemaPath(route.path, withoutScopedDesktop)).toBeNull();
+    }
   });
 
   test("regex route normalization ignores negative lookaheads", () => {
