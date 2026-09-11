@@ -24,7 +24,6 @@
     "machineDowngradeFeature": "您的助理將減少 CPU 和記憶體 - 它將調整為較小的運算設定檔。",
     "pickTiersError": "請選擇機器和儲存層級以繼續。",
     "planUpdated": "方案已更新。",
-    "updateFailed": "無法更新方案。請再試一次。",
     "upgradeFailed": "無法開始升級。請再試一次。",
     "upgradePlanTitle": "升級方案"
   },
@@ -597,6 +596,7 @@
   },
   "customPlanModal": {
     "cancel": "取消",
+    "changeFailed": "無法變更方案。請再試一次。",
     "comparedToPrevious": "與之前相比 {delta} ({previous})",
     "continue": "繼續",
     "learnMore": "深入了解",
