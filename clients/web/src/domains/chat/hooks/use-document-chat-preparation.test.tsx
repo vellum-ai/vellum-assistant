@@ -42,6 +42,8 @@ function selectOwner(owner = OWNER) {
   useConversationStore.setState({ activeConversationId: owner.conversationId });
   useViewerStore.setState({
     mainView: "document",
+    openedAppState: null,
+    isAppMinimized: false,
     openedDocumentState: {
       source: "document",
       assistantId: owner.assistantId,
@@ -51,6 +53,13 @@ function selectOwner(owner = OWNER) {
       content: "Loaded paragraph",
     },
   });
+}
+
+function openMinimizedApp() {
+  const viewer = useViewerStore.getState();
+  viewer.openApp("app-1");
+  viewer.setLoadedApp({ appId: "app-1", dirName: "example-app", name: "Example app", html: "<html></html>" });
+  viewer.minimizeApp();
 }
 
 function renderPreparedComposer() {
@@ -100,6 +109,72 @@ afterEach(() => {
 });
 
 describe("shared document preparation and composer submit", () => {
+  test.each(["send", "voice"])("a minimized app retains document preparation for %s", async (action) => {
+    const saving = deferred<DocumentEditorSnapshot>();
+    const { result, flush, release, sendMessage } = renderPreparedComposer();
+    act(openMinimizedApp);
+    expect(useViewerStore.getState().mainView).toBe("app");
+    flush.mockImplementationOnce(() => saving.promise);
+    let pending!: Promise<void | boolean>;
+    act(() => { pending = action === "send" ? result.current.submitMessage() : result.current.prepareVoice(); });
+    await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
+    expect(result.current.preparing).toBe(true);
+    expect(useComposerStore.getState().input).toBe("Revise this paragraph");
+    expect(useComposerStore.getState().attachments).toEqual([ATTACHMENT]);
+    expect(sendMessage).not.toHaveBeenCalled();
+    await act(async () => {
+      saving.resolve(SNAPSHOT);
+      expect(await pending).toBe(action === "voice" ? true : undefined);
+    });
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledTimes(action === "send" ? 1 : 0);
+    expect(useComposerStore.getState().input).toBe(action === "send" ? "" : "Revise this paragraph");
+  });
+
+  test("a minimized app keeps a failed save editable and retries through normal send", async () => {
+    const { result, flush, sendMessage } = renderPreparedComposer();
+    act(openMinimizedApp);
+    flush.mockRejectedValueOnce(new Error("save failed"));
+    await act(async () => result.current.submitMessage());
+    expect(result.current.error).not.toBeNull();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().input).toBe("Revise this paragraph");
+    expect(useComposerStore.getState().attachments).toEqual([ATTACHMENT]);
+    await act(async () => result.current.submitMessage());
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeNull();
+  });
+
+  test.each(["restore", "assistant", "conversation", "document"])(
+    "%s changes during a minimized-app save still cancel losslessly",
+    async (change) => {
+      const saving = deferred<DocumentEditorSnapshot>();
+      const { result, flush, release, sendMessage } = renderPreparedComposer();
+      act(openMinimizedApp);
+      flush.mockImplementationOnce(() => saving.promise);
+      let pending!: Promise<void>;
+      act(() => { pending = result.current.submitMessage(); });
+      await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
+      act(() => {
+        if (change === "restore") { useViewerStore.getState().toggleAppMinimized(); }
+        if (change === "assistant") { useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" }); }
+        if (change === "conversation") { useConversationStore.setState({ activeConversationId: "conversation-2" }); }
+        if (change === "document") { useViewerStore.setState({ openedDocumentState: null }); }
+      });
+      await act(async () => { saving.resolve(SNAPSHOT); await pending; });
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(useComposerStore.getState().input).toBe("Revise this paragraph");
+      expect(useComposerStore.getState().attachments).toEqual([ATTACHMENT]);
+      if (change === "restore") {
+        expect(result.current.preparing).toBe(false);
+        act(() => useViewerStore.getState().minimizeApp());
+        await act(async () => result.current.submitMessage());
+        expect(sendMessage).toHaveBeenCalledTimes(1);
+      }
+    },
+  );
+
   test.each(["sent", "rejected"])(
     "holds a queued document lease until delivery starts after the previous send is %s",
     async (outcome) => {

@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import { useConversationStore } from "@/stores/conversation-store";
+import { paneState } from "@/stores/pane-state";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { t } from "@/i18n";
@@ -64,16 +65,26 @@ export function useDocumentChatPreparation({
       const owner = ownerRef.current;
       const isCurrent = () => {
         const viewer = useViewerStore.getState();
+        const conversation = useConversationStore.getState();
         const doc = viewer.openedDocumentState;
+        const hasMinimizedApp =
+          paneState({
+            mainView: viewer.mainView,
+            appId: viewer.openedAppState?.appId ?? null,
+            conversationId: conversation.activeConversationId,
+            boundConversationId: conversation.editingConversationId,
+            isAppMinimized: viewer.isAppMinimized,
+          }).presentation === "bottom";
         return (
           mountedRef.current &&
           ownerRef.current === owner &&
           editorRef.current === editor &&
           useResolvedAssistantsStore.getState().activeAssistantId ===
             assistantId &&
-          useConversationStore.getState().activeConversationId ===
-            conversationId &&
-          (viewer.mainView === "document" || viewer.mainView === "chat") &&
+          conversation.activeConversationId === conversationId &&
+          (viewer.mainView === "document" ||
+            viewer.mainView === "chat" ||
+            hasMinimizedApp) &&
           doc?.source === "document" &&
           doc.assistantId === assistantId &&
           doc.surfaceId === surfaceId &&
@@ -91,9 +102,9 @@ export function useDocumentChatPreparation({
         lease.release();
         if (pendingRef.current === attempt) {
           pendingRef.current = null;
-        }
-        if (isCurrent()) {
-          setStatus({ kind: "idle" });
+          if (mountedRef.current && ownerRef.current === owner) {
+            setStatus({ kind: "idle" });
+          }
         }
       };
       try {

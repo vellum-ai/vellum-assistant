@@ -96,6 +96,10 @@ Live-voice entry awaits the same flush before
 starting the conversation session; dictation writes to the existing chat input.
 Sending during dictation finishes the transcript before document preparation.
 An owner change during either wait leaves the message in the ordinary draft.
+The retained document also prepares sends and voice entry while an app is
+minimized to its strip, using the shared pane arrangement to recognize the exposed
+conversation. Restoring the full app during a save cancels preparation and clears
+its pending status, so minimizing again leaves the composer ready to retry.
 
 Once preparation succeeds, `useComposerSubmit` and `useSendMessage` own sending.
 There is no document delivery endpoint, pending-message store, reply watcher or
