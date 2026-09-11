@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import {
   saveDocumentContent,
+  trackDocumentSave,
   type DocumentSaveTarget,
 } from "@/domains/chat/api/document-save";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -170,6 +171,7 @@ export function useDocumentEditorSave({
         }
       });
     activeSaveRef.current = save;
+    trackDocumentSave(targetRef.current, save);
     return save;
   }, [clearTimers]);
 

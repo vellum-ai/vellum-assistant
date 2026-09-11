@@ -9,9 +9,13 @@ const saveDocumentContent = mock(
   async (_target: DocumentSaveTarget, _markdown: string): Promise<void> => {},
 );
 const captureError = mock(() => {});
+const documentSave = await import("@/domains/chat/api/document-save");
 mock.module(
   "@/domains/chat/api/document-save",
-  (): Partial<typeof DocumentSave> => ({ saveDocumentContent }),
+  (): Partial<typeof DocumentSave> => ({
+    ...documentSave,
+    saveDocumentContent,
+  }),
 );
 mock.module(
   "@/lib/sentry/capture-error",

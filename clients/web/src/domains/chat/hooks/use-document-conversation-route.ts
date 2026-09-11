@@ -21,6 +21,7 @@ import {
   showDocumentInConversation,
 } from "../document-conversation-navigation";
 import { useUnseenDocumentChangesStore } from "../unseen-document-changes-store";
+import { waitForDocumentSaves } from "../api/document-save";
 
 function markOpenedDocumentViewed(
   assistantId: string | null,
@@ -77,20 +78,14 @@ export function useDocumentConversationRoute() {
     }
     const scope = documentRequestScope(assistantId);
     scopeRef.current = scope;
-    const opened = useViewerStore.getState().openedDocumentState;
-    if (
-      opened?.source === "document" &&
-      opened.assistantId === assistantId &&
-      opened.surfaceId === surfaceId &&
-      opened.conversationId === conversationId
-    ) {
-      setStatus({ owner, kind: "ready" });
-      return scope.dispose;
-    }
     useViewerStore.getState().openDocument();
     setStatus({ owner, kind: "loading" });
     void (async () => {
       try {
+        await waitForDocumentSaves({ assistantId, surfaceId });
+        if (!scope.isCurrent()) {
+          return;
+        }
         const { data } = await documentsByIdGet({
           path: { assistant_id: assistantId, id: surfaceId },
           throwOnError: true,

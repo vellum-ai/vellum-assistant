@@ -16,6 +16,43 @@ export interface DocumentSaveTarget {
   title: string;
 }
 
+type DocumentIdentity = Pick<DocumentSaveTarget, "assistantId" | "surfaceId">;
+const pendingSaves = new Map<string, Set<Promise<unknown>>>();
+
+function documentSaveKey(target: DocumentIdentity): string {
+  return JSON.stringify([target.assistantId, target.surfaceId]);
+}
+
+/** Tracks a complete editor drain, including revisions queued during a write. */
+export function trackDocumentSave(
+  target: DocumentIdentity,
+  save: Promise<unknown>,
+): void {
+  const key = documentSaveKey(target);
+  const saves = pendingSaves.get(key) ?? new Set<Promise<unknown>>();
+  saves.add(save);
+  pendingSaves.set(key, saves);
+  const release = () => {
+    saves.delete(save);
+    if (saves.size === 0 && pendingSaves.get(key) === saves) {
+      pendingSaves.delete(key);
+    }
+  };
+  void save.then(release, release);
+}
+
+/** A remounted editor reads only after this document's local writes settle. */
+export async function waitForDocumentSaves(
+  target: DocumentIdentity,
+): Promise<void> {
+  const key = documentSaveKey(target);
+  let saves = pendingSaves.get(key);
+  while (saves) {
+    await Promise.all(saves);
+    saves = pendingSaves.get(key);
+  }
+}
+
 /** Words in a markdown body, the count the documents API stores. */
 export function markdownWordCount(markdown: string): number {
   return markdown

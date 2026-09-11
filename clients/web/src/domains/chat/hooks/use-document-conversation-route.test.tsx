@@ -296,7 +296,7 @@ describe("document conversation route", () => {
     );
     expect(useConversationStore.getState().activeConversationId).toBe("conv-1");
     expect(useViewerStore.getState().mainView).toBe("document");
-    expect(load).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledTimes(1);
   });
   test("loading a transcript with a reopen target does not mark the hidden document viewed", async () => {
     useUnseenDocumentChangesStore
@@ -361,11 +361,20 @@ describe("document conversation route", () => {
         }),
     );
     const page = renderRoute();
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
     fireEvent.click(page.getByText("Close"));
     await page.findByTestId("library");
     await act(async () => resolveLoad({ data: documentData }));
     expect(useViewerStore.getState().openedDocumentState).toBeNull();
     expect(page.queryByTestId("url")).toBeNull();
+  });
+
+  test("closing before the save wait settles skips the document request", async () => {
+    const page = renderRoute();
+    fireEvent.click(page.getByText("Close"));
+    await page.findByTestId("library");
+    expect(load).not.toHaveBeenCalled();
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
   });
 
   test("a document URL for a different conversation goes through the entry adapter", async () => {
