@@ -1,7 +1,7 @@
 /**
  * On-demand assistant desktop: Xtigervnc (VNC on loopback only, so the
  * authenticated `/v1/desktop/stream` upgrade is the sole way in), openbox, the
- * xcompmgr compositor, the tint2 dock, the tigervncconfig clipboard bridge and
+ * xcompmgr compositor, the Plank dock, the tigervncconfig clipboard bridge and
  * Google Chrome, started by the first viewer and lingering after the
  * last one leaves so a reconnect is instant.
  */
@@ -430,9 +430,8 @@ export class DesktopSessionManager {
       return;
     }
     this.panelStarted = true;
-    let configPath: string;
     try {
-      configPath = writeDesktopPanelConfig({
+      writeDesktopPanelConfig({
         configDir: this.panelConfigDir,
         chromiumPath,
         chromiumProfileDir: this.profileDir,
@@ -442,7 +441,16 @@ export class DesktopSessionManager {
       log.warn({ err }, "Desktop dock config could not be written");
       return;
     }
-    this.launchCosmetic("panel", [binaries.panel, "-c", configPath], env);
+    this.launchCosmetic(
+      "panel",
+      [binaries.panelSession, "--", binaries.panel],
+      {
+        ...env,
+        XDG_CONFIG_HOME: this.panelConfigDir,
+        XDG_DATA_HOME: this.panelConfigDir,
+        GSETTINGS_BACKEND: "keyfile",
+      },
+    );
   }
 
   /** Spawn a child the desktop looks worse without but works fine without. */
