@@ -120,19 +120,24 @@ function ownerIsAlive(owner: CredentialLock): boolean {
   if (pid === null) {
     return false;
   }
+  const prefix = `${owner.owner_token}:`;
+  const recordedInstance =
+    owner.owner_token && owner.owner_instance?.startsWith(prefix)
+      ? owner.owner_instance.slice(prefix.length)
+      : null;
   if (pid === process.pid) {
-    return owner.owner_instance === currentProcessInstance();
+    return recordedInstance === currentProcessInstance();
   }
   try {
     process.kill(pid, 0);
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
-  if (!owner.owner_instance?.startsWith("os:")) {
+  if (!recordedInstance?.startsWith("os:")) {
     return true;
   }
   const instance = processInstance(pid);
-  return instance === null || `os:${instance}` === owner.owner_instance;
+  return instance === null || `os:${instance}` === recordedInstance;
 }
 
 export function readMcpCredentialGeneration(serverId: string): string {
@@ -158,7 +163,7 @@ export async function withMcpCredentialLock<T>(
   const db = openCoordination();
   const key = keyFor(serverId);
   const token = randomUUID();
-  const instance = currentProcessInstance();
+  const instance = `${token}:${currentProcessInstance()}`;
   const deadline = Date.now() + timeoutMs;
   let acquired = false;
   try {

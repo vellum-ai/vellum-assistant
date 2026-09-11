@@ -95,7 +95,7 @@ describe("MCP credential coordination", () => {
       ).run(
         process.pid,
         "previous-lease",
-        "previous-process-instance",
+        "previous-lease:os:previous-process-instance",
         createHash("sha256").update(serverId).digest("hex"),
       );
       expect(
@@ -146,6 +146,38 @@ describe("MCP credential coordination", () => {
       worker.kill();
     }
   });
+
+  test.each(["os:previous-process", "previous-lease:os:previous-process"])(
+    "a live legacy writer is protected from stale identity metadata: %s",
+    async (staleInstance) => {
+      const serverId = "mixed-version-owner";
+      const worker =
+        child(`await withMcpCredentialLock(${JSON.stringify(serverId)}, async () => {
+        console.log("LOCKED"); await Bun.stdin.text();
+      });`);
+      const db = new Database(
+        join(getSignalsDir(), "mcp-credential-coordination.sqlite"),
+      );
+      try {
+        expect(await readLine(worker.stdout.getReader())).toBe("LOCKED");
+        db.query(
+          "UPDATE credential_locks SET owner_token = ?, owner_instance = ? WHERE server_key = ?",
+        ).run(
+          "legacy-reclaimed-lease",
+          staleInstance,
+          createHash("sha256").update(serverId).digest("hex"),
+        );
+        await expect(
+          withMcpCredentialLock(serverId, async () => {}, 0),
+        ).rejects.toThrow("storage is busy");
+      } finally {
+        worker.kill("SIGKILL");
+        await worker.exited;
+        db.close();
+      }
+      await withMcpCredentialLock(serverId, async () => {});
+    },
+  );
 
   test("a dead owner's lock is reclaimed without stealing another live owner's lease", async () => {
     const worker =
