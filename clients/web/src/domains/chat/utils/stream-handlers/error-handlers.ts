@@ -128,11 +128,14 @@ function handleMessageScopedError(
   // is showing now.
   if (clientMessageId && !failedSend) {
     const composer = useComposerStore.getState();
-    const recoveryWasClaimed =
-      composer.claimedQueuedSendIds.has(clientMessageId);
-    const held = composer.takeQueuedSend(clientMessageId);
+    const held = composer.queuedSends.get(clientMessageId);
     if (held) {
-      if (!recoveryWasClaimed) {
+      const claimed = composer.settleClaimedFailedSend(
+        clientMessageId,
+        "failed",
+      );
+      composer.takeQueuedSend(clientMessageId);
+      if (claimed === null) {
         composer.dropFailedSendByClientMessageId(clientMessageId);
         composer.stashFailedSend(held.assistantId, held.conversationId, {
           content: held.content,

@@ -3,7 +3,10 @@ import { useCallback, useEffect } from "react";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { fetchConversationMessages } from "@/domains/chat/api/messages";
-import { useComposerStore } from "@/domains/chat/composer-store";
+import {
+  isClaimedQueuedSend,
+  useComposerStore,
+} from "@/domains/chat/composer-store";
 import { isMessageScopedError } from "@/domains/chat/utils/message-scoped-error";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -14,12 +17,15 @@ import { useTranslation } from "@/i18n";
 /** Settle every local recovery copy after history or the stream finds the row. */
 function acceptQueuedSend(clientMessageId: string): void {
   const composer = useComposerStore.getState();
-  const recoveryWasClaimed =
-    composer.claimedQueuedSendIds.has(clientMessageId);
-  const held = composer.takeQueuedSend(clientMessageId);
-  if (held === null) {
+  const held = composer.queuedSends.get(clientMessageId);
+  if (held === undefined) {
     return;
   }
+  const claimed = composer.settleClaimedFailedSend(
+    clientMessageId,
+    "accepted",
+  );
+  composer.takeQueuedSend(clientMessageId);
   const payload = {
     content: held.content,
     attachments: held.attachments,
@@ -37,11 +43,14 @@ function acceptQueuedSend(clientMessageId: string): void {
   const activeConversationId =
     useConversationStore.getState().activeConversationId;
   if (
-    recoveryWasClaimed &&
-    activeAssistantId === held.assistantId &&
-    activeConversationId === held.conversationId
+    claimed?.wasActiveBatch === true &&
+    activeAssistantId === claimed.assistantId &&
+    activeConversationId === claimed.conversationId
   ) {
-    composer.replaceRecoveredPayload(payload);
+    composer.replaceRecoveredPayload(
+      claimed.before,
+      claimed.after ?? undefined,
+    );
   }
 }
 
@@ -135,7 +144,7 @@ export function QueuedSendRecoveryWatcher() {
           // stream. Keep the accepted-send nonce alive, but expose a recovery
           // correlated with it so a late echo can retract the exact draft.
           if (
-            !composer.claimedQueuedSendIds.has(clientMessageId) &&
+            !isClaimedQueuedSend(composer, clientMessageId) &&
             composer.stashFailedSend(
               send.assistantId,
               send.conversationId,
@@ -231,10 +240,12 @@ export function QueuedSendRecoveryWatcher() {
     ) {
       return;
     }
-    const recoveryWasClaimed =
-      composer.claimedQueuedSendIds.has(clientMessageId);
+    const claimed = composer.settleClaimedFailedSend(
+      clientMessageId,
+      "failed",
+    );
     composer.takeQueuedSend(clientMessageId);
-    if (!recoveryWasClaimed) {
+    if (claimed === null) {
       composer.dropFailedSendByClientMessageId(clientMessageId);
       composer.stashFailedSend(held.assistantId, held.conversationId, {
         content: held.content,

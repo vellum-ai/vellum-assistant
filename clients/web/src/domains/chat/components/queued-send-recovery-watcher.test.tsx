@@ -50,7 +50,7 @@ mock.module("@/domains/chat/api/messages", () => ({
     fetchConversationMessagesMock(...args),
 }));
 
-const { failedSendFor, useComposerStore } =
+const { failedSendFor, isClaimedQueuedSend, useComposerStore } =
   await import("@/domains/chat/composer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useResolvedAssistantsStore } =
@@ -159,7 +159,7 @@ beforeEach(() => {
   useComposerStore.setState({
     queuedSends: new Map(),
     failedSendsByConversation: new Map(),
-    claimedQueuedSendIds: new Set(),
+    claimedFailedSendBatches: new Map(),
   });
   useConversationStore.getState().reset();
   useConversationStore.getState().setActiveConversationId("conv-open");
@@ -179,7 +179,7 @@ afterEach(() => {
   useComposerStore.setState({
     queuedSends: new Map(),
     failedSendsByConversation: new Map(),
-    claimedQueuedSendIds: new Set(),
+    claimedFailedSendBatches: new Map(),
   });
 });
 
@@ -313,6 +313,65 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(stillQueued("nonce-1")).toBe(false);
   });
 
+  test("late echoes subtract their own components from a recovered batch", () => {
+    const secondAttachment = { ...attachment, id: "srv-second" };
+    const first = {
+      content: "first failed send",
+      attachments: [attachment],
+    };
+    const second = {
+      content: "second failed send",
+      attachments: [secondAttachment],
+    };
+    useConversationStore.getState().setActiveConversationId("conv-left");
+    useComposerStore.getState().recordQueuedSend("nonce-1", {
+      assistantId: "assistant-1",
+      conversationId: "conv-left",
+      ...first,
+    });
+    useComposerStore.getState().recordQueuedSend("nonce-2", {
+      assistantId: "assistant-1",
+      conversationId: "conv-left",
+      ...second,
+    });
+    useComposerStore
+      .getState()
+      .stashFailedSend("assistant-1", "conv-left", first, "nonce-1");
+    useComposerStore
+      .getState()
+      .stashFailedSend("assistant-1", "conv-left", second, "nonce-2");
+    const recovered = useComposerStore
+      .getState()
+      .takeFailedSend("assistant-1", "conv-left");
+    if (recovered === null) {
+      throw new Error("expected a recovered chat send batch");
+    }
+    useComposerStore.getState().setInput(recovered.content);
+    useComposerStore
+      .getState()
+      .restoreAttachmentsIfEmpty(recovered.attachments);
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishUserMessageEcho("conv-left", "nonce-1");
+
+    expect(useComposerStore.getState().input).toBe(second.content);
+    expect(useComposerStore.getState().attachments[0]).toMatchObject({
+      kind: "uploaded",
+      id: secondAttachment.id,
+    });
+    expect(isClaimedQueuedSend(useComposerStore.getState(), "nonce-1")).toBe(
+      false,
+    );
+    expect(isClaimedQueuedSend(useComposerStore.getState(), "nonce-2")).toBe(
+      true,
+    );
+
+    publishUserMessageEcho("conv-left", "nonce-2");
+
+    expect(useComposerStore.getState().input).toBe("");
+    expect(useComposerStore.getState().attachments).toEqual([]);
+  });
+
   test("leaving every assistant clears all held chat sends", () => {
     recordQueuedSend("nonce-1", "conv-left");
     useComposerStore.getState().stashFailedSend(
@@ -339,7 +398,7 @@ describe("QueuedSendRecoveryWatcher", () => {
     const composer = useComposerStore.getState();
     expect(composer.queuedSends).toEqual(new Map());
     expect(composer.failedSendsByConversation).toEqual(new Map());
-    expect(composer.claimedQueuedSendIds).toEqual(new Set());
+    expect(composer.claimedFailedSendBatches).toEqual(new Map());
   });
 
   test("an assistant switch keeps recovery scoped to its originating assistant", () => {

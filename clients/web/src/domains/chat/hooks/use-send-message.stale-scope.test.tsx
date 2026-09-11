@@ -27,7 +27,11 @@ import { useEffect, type ReactNode } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { failedSendFor, useComposerStore } from "@/domains/chat/composer-store";
+import {
+  failedSendFor,
+  isClaimedQueuedSend,
+  useComposerStore,
+} from "@/domains/chat/composer-store";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import {
@@ -239,7 +243,7 @@ beforeEach(() => {
   useComposerStore.setState({
     input: "",
     queuedSends: new Map(),
-    claimedQueuedSendIds: new Set(),
+    claimedFailedSendBatches: new Map(),
     failedSendsByConversation: new Map(),
   });
 
@@ -878,9 +882,7 @@ describe("useSendMessage: a send whose POST throws", () => {
       .getState()
       .takeFailedSend("assistant-1", SEND_CONVERSATION);
     expect(
-      useComposerStore
-        .getState()
-        .claimedQueuedSendIds.has(clientMessageId),
+      isClaimedQueuedSend(useComposerStore.getState(), clientMessageId),
     ).toBe(true);
   });
 
@@ -950,9 +952,7 @@ describe("useSendMessage: a send whose POST throws", () => {
       .getState()
       .takeFailedSend("assistant-1", SEND_CONVERSATION);
     expect(
-      useComposerStore
-        .getState()
-        .claimedQueuedSendIds.has(clientMessageId),
+      isClaimedQueuedSend(useComposerStore.getState(), clientMessageId),
     ).toBe(true);
   });
 });

@@ -423,7 +423,10 @@ export function DocumentComposerReplyWatcher() {
         replyStore,
         clientMessageId,
       );
-      const claimed = replyStore.settleClaimedFailedSend(clientMessageId);
+      const claimed = replyStore.settleClaimedFailedSend(
+        clientMessageId,
+        "failed",
+      );
       if (!failed && !detached && !provisional && !claimed) {
         return;
       }

@@ -27,6 +27,13 @@
 
 import { create } from "zustand";
 
+import {
+  claimFailedSendBatch,
+  type ClaimedFailedSendBatch,
+  type CorrelatedFailedSend,
+  mergeFailedSendEntries,
+  settleClaimedFailedSendBatch,
+} from "@/domains/chat/failed-send-recovery";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { createSelectors } from "@/utils/create-selectors";
 
@@ -86,16 +93,8 @@ export interface PendingDocumentReply {
   payload?: PendingDocumentReplyPayload;
 }
 
-interface FailedDocumentSend {
-  payload: PendingDocumentReplyPayload;
-  /** The ambiguous send this recovery belongs to, until the stream decides
-   * whether the assistant accepted it. */
-  clientMessageId?: string;
-}
-
-interface ClaimedDocumentSendBatch {
-  entries: readonly FailedDocumentSend[];
-}
+type FailedDocumentSend =
+  CorrelatedFailedSend<PendingDocumentReplyPayload>;
 
 export interface ClaimedDocumentSendTransition {
   assistantId: string;
@@ -131,7 +130,7 @@ export interface DocumentComposerReplyState {
    */
   claimedFailedSendBatches: ReadonlyMap<
     string,
-    readonly ClaimedDocumentSendBatch[]
+    readonly ClaimedFailedSendBatch<PendingDocumentReplyPayload>[]
   >;
   /** The document composer currently mounted in the shared document slot. */
   activeDocumentComposer: {
@@ -297,6 +296,7 @@ export interface DocumentComposerReplyActions {
    */
   settleClaimedFailedSend: (
     clientMessageId: string,
+    outcome?: "accepted" | "failed",
   ) => ClaimedDocumentSendTransition | null;
   /**
    * Take the message held for `surfaceId` under `assistantId`, removing it,
@@ -391,7 +391,7 @@ export function heldMessageFor(
   const held = state.failedSends.get(heldKey(assistantId, surfaceId));
   return held === undefined
     ? undefined
-    : mergeFailedSendList(held);
+    : mergeFailedSendEntries(held);
 }
 
 /** The unclaimed recovery copy correlated with `clientMessageId`, if any. */
@@ -452,37 +452,6 @@ function indexOfAwaitedSend(
     pending.some((p) => p.clientMessageId !== undefined);
   return noncesDecide ? -1 : fallback;
 }
-
-/**
- * Two messages held for one assistant's surface as a single message, `older`
- * first: the drafts joined by a blank line when both carry text, and the
- * attachments run one list after the other.
- */
-function mergeFailedSendList(
-  entries: readonly FailedDocumentSend[],
-): PendingDocumentReplyPayload {
-  const cached = mergedFailedSendCache.get(entries);
-  if (cached !== undefined) {
-    return cached;
-  }
-  const first = entries[0].payload;
-  const merged = {
-    assistantId: first.assistantId,
-    surfaceId: first.surfaceId,
-    content: entries
-      .map((entry) => entry.payload.content)
-      .filter((content) => content !== "")
-      .join("\n\n"),
-    attachments: entries.flatMap((entry) => entry.payload.attachments),
-  };
-  mergedFailedSendCache.set(entries, merged);
-  return merged;
-}
-
-const mergedFailedSendCache = new WeakMap<
-  readonly FailedDocumentSend[],
-  PendingDocumentReplyPayload
->();
 
 /** The map with `conversationId`'s list replaced, or removed when empty. */
 function withPending(
@@ -838,52 +807,25 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       return true;
     },
 
-    settleClaimedFailedSend: (clientMessageId) => {
-      const match = [...get().claimedFailedSendBatches].find(([, batches]) =>
-        batches.some((batch) =>
-          batch.entries.some(
-            (entry) => entry.clientMessageId === clientMessageId,
-          ),
-        ),
+    settleClaimedFailedSend: (clientMessageId, outcome = "accepted") => {
+      const settled = settleClaimedFailedSendBatch(
+        get().claimedFailedSendBatches,
+        clientMessageId,
+        outcome,
       );
-      if (!match) {
+      if (settled === null) {
         return null;
       }
-      const [key, batches] = match;
-      const batchIndex = batches.findIndex((batch) =>
-        batch.entries.some(
-          (entry) => entry.clientMessageId === clientMessageId,
-        ),
-      );
-      const batch = batches[batchIndex];
-      const before = mergeFailedSendList(batch.entries);
-      const remaining = batch.entries.filter(
-        (entry) => entry.clientMessageId !== clientMessageId,
-      );
-      const after =
-        remaining.length === 0 ? null : mergeFailedSendList(remaining);
+      const { transition: settledTransition } = settled;
+      const { before, after, wasActiveBatch } = settledTransition;
       const transition: ClaimedDocumentSendTransition = {
         assistantId: before.assistantId,
         surfaceId: before.surfaceId,
         before,
         after,
-        wasActiveBatch: batchIndex === batches.length - 1,
+        wasActiveBatch,
       };
-      set((s) => {
-        const next = new Map(s.claimedFailedSendBatches);
-        const nextBatches = [...batches];
-        if (remaining.some((entry) => entry.clientMessageId !== undefined)) {
-          nextBatches[batchIndex] = { entries: remaining };
-        } else {
-          nextBatches.splice(batchIndex, 1);
-        }
-        if (nextBatches.length === 0) {
-          next.delete(key);
-        } else {
-          next.set(key, nextBatches);
-        }
-        return { claimedFailedSendBatches: next };
-      });
+      set({ claimedFailedSendBatches: settled.claimed });
       return transition;
     },
 
@@ -899,15 +841,16 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         if (!held.some((entry) => entry.clientMessageId !== undefined)) {
           return { failedSends: next };
         }
-        const claimed = new Map(s.claimedFailedSendBatches);
-        const batches = claimed.get(key) ?? [];
-        claimed.set(key, [...batches, { entries: held }]);
         return {
           failedSends: next,
-          claimedFailedSendBatches: claimed,
+          claimedFailedSendBatches: claimFailedSendBatch(
+            s.claimedFailedSendBatches,
+            key,
+            held,
+          ),
         };
       });
-      return mergeFailedSendList(held);
+      return mergeFailedSendEntries(held);
     },
 
     setActiveDocumentComposer: (assistantId, surfaceId) => {

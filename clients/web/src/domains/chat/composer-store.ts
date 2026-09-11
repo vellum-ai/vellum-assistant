@@ -33,6 +33,14 @@ import {
   prepareImageAttachmentForUpload,
 } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
 import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
+import {
+  claimFailedSendBatch,
+  type ClaimedFailedSendBatch,
+  type CorrelatedFailedSend,
+  hasClaimedFailedSend,
+  mergeFailedSendEntries,
+  settleClaimedFailedSendBatch,
+} from "@/domains/chat/failed-send-recovery";
 import { sniffBlobMimeType } from "@/utils/mime-sniff";
 
 // ---------------------------------------------------------------------------
@@ -103,10 +111,7 @@ export interface FailedSendPayload {
   attachments: DisplayAttachment[];
 }
 
-interface HeldFailedSend extends FailedSendPayload {
-  /** The ambiguous queued send this recovery belongs to, when one exists. */
-  clientMessageId?: string;
-}
+type HeldFailedSend = CorrelatedFailedSend<FailedSendPayload>;
 
 /** What an accepted send carried, plus the conversation it went to, so the
  *  message can be handed back to that thread from anywhere if persistence
@@ -115,6 +120,14 @@ export interface QueuedSendPayload extends FailedSendPayload {
   /** The assistant the send went to, whose drafts a restored copy lives in. */
   assistantId: string;
   conversationId: string;
+}
+
+export interface ClaimedChatSendTransition {
+  assistantId: string;
+  conversationId: string;
+  before: FailedSendPayload;
+  after: FailedSendPayload | null;
+  wasActiveBatch: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,8 +292,11 @@ export interface ComposerState {
    * leaving that conversation clears the optimistic row.
    */
   queuedSends: ReadonlyMap<string, QueuedSendPayload>;
-  /** Queued sends whose recovery payload is already visible in its composer. */
-  claimedQueuedSendIds: ReadonlySet<string>;
+  /** Recovery batches already copied into their conversation's composer. */
+  claimedFailedSendBatches: ReadonlyMap<
+    string,
+    readonly ClaimedFailedSendBatch<FailedSendPayload>[]
+  >;
 }
 
 export interface ComposerActions {
@@ -441,6 +457,11 @@ export interface ComposerActions {
   ) => boolean;
   /** Drop the provisional recovery correlated with `clientMessageId`. */
   dropFailedSendByClientMessageId: (clientMessageId: string) => boolean;
+  /** Resolve one accepted or definitively failed component of a shown batch. */
+  settleClaimedFailedSend: (
+    clientMessageId: string,
+    outcome: "accepted" | "failed",
+  ) => ClaimedChatSendTransition | null;
 
   // --- Accepted sends awaiting authoritative persistence ---
   /**
@@ -478,7 +499,30 @@ export function failedSendFor(
   const held = state.failedSendsByConversation.get(
     failedSendKey(assistantId, conversationId),
   );
-  return held === undefined ? undefined : mergeFailedSendList(held);
+  return held === undefined ? undefined : mergeFailedSendEntries(held);
+}
+
+/** Whether the shown recovery batch still contains `clientMessageId`. */
+export function isClaimedQueuedSend(
+  state: Pick<ComposerState, "claimedFailedSendBatches">,
+  clientMessageId: string,
+): boolean {
+  return hasClaimedFailedSend(
+    state.claimedFailedSendBatches,
+    clientMessageId,
+  );
+}
+
+/** The assistant and conversation encoded by {@link failedSendKey}. */
+function failedSendContext(key: string): {
+  assistantId: string;
+  conversationId: string;
+} {
+  const separator = key.indexOf("\u0000");
+  return {
+    assistantId: key.slice(0, separator),
+    conversationId: key.slice(separator + 1),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -513,7 +557,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   documentAttachmentLastError: null,
   failedSendsByConversation: new Map(),
   queuedSends: new Map(),
-  claimedQueuedSendIds: new Set(),
+  claimedFailedSendBatches: new Map(),
 
   // --- Draft input actions ---
   setInput: (value, slot = "main") => {
@@ -969,7 +1013,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       }
       stashed = true;
       const next = new Map(s.failedSendsByConversation);
-      next.set(key, [...held, { ...payload, clientMessageId }]);
+      next.set(key, [...held, { payload, clientMessageId }]);
       return { failedSendsByConversation: next };
     });
     return stashed;
@@ -984,24 +1028,24 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     set((s) => {
       const next = new Map(s.failedSendsByConversation);
       next.delete(key);
-      const claimed = new Set(s.claimedQueuedSendIds);
-      for (const entry of held) {
-        if (entry.clientMessageId !== undefined) {
-          claimed.add(entry.clientMessageId);
-        }
-      }
       return {
         failedSendsByConversation: next,
-        claimedQueuedSendIds: claimed,
+        claimedFailedSendBatches: claimFailedSendBatch(
+          s.claimedFailedSendBatches,
+          key,
+          held,
+        ),
       };
     });
-    return mergeFailedSendList(held);
+    return mergeFailedSendEntries(held);
   },
 
   dropFailedSend: (assistantId, conversationId, payload) => {
     const key = failedSendKey(assistantId, conversationId);
     const held = get().failedSendsByConversation.get(key);
-    const index = held?.findIndex((entry) => sameFailedSend(entry, payload));
+    const index = held?.findIndex((entry) =>
+      sameFailedSend(entry.payload, payload),
+    );
     if (held === undefined || index === undefined || index === -1) {
       return false;
     }
@@ -1044,13 +1088,29 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     return true;
   },
 
+  settleClaimedFailedSend: (clientMessageId, outcome) => {
+    const settled = settleClaimedFailedSendBatch(
+      get().claimedFailedSendBatches,
+      clientMessageId,
+      outcome,
+    );
+    if (settled === null) {
+      return null;
+    }
+    set({ claimedFailedSendBatches: settled.claimed });
+    return {
+      ...failedSendContext(settled.transition.key),
+      before: settled.transition.before,
+      after: settled.transition.after,
+      wasActiveBatch: settled.transition.wasActiveBatch,
+    };
+  },
+
   recordQueuedSend: (clientMessageId, payload) => {
     set((s) => {
       const next = new Map(s.queuedSends);
       next.set(clientMessageId, payload);
-      const claimed = new Set(s.claimedQueuedSendIds);
-      claimed.delete(clientMessageId);
-      return { queuedSends: next, claimedQueuedSendIds: claimed };
+      return { queuedSends: next };
     });
   },
 
@@ -1062,9 +1122,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     set((s) => {
       const next = new Map(s.queuedSends);
       next.delete(clientMessageId);
-      const claimed = new Set(s.claimedQueuedSendIds);
-      claimed.delete(clientMessageId);
-      return { queuedSends: next, claimedQueuedSendIds: claimed };
+      return { queuedSends: next };
     });
     return held;
   },
@@ -1073,12 +1131,11 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     if (!get().queuedSends.has(clientMessageId)) {
       return;
     }
+    get().settleClaimedFailedSend(clientMessageId, "failed");
     set((s) => {
       const next = new Map(s.queuedSends);
       next.delete(clientMessageId);
-      const claimed = new Set(s.claimedQueuedSendIds);
-      claimed.delete(clientMessageId);
-      return { queuedSends: next, claimedQueuedSendIds: claimed };
+      return { queuedSends: next };
     });
   },
 
@@ -1087,14 +1144,14 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       if (
         s.failedSendsByConversation.size === 0 &&
         s.queuedSends.size === 0 &&
-        s.claimedQueuedSendIds.size === 0
+        s.claimedFailedSendBatches.size === 0
       ) {
         return s;
       }
       return {
         failedSendsByConversation: new Map(),
         queuedSends: new Map(),
-        claimedQueuedSendIds: new Set(),
+        claimedFailedSendBatches: new Map(),
       };
     });
   },
@@ -1105,34 +1162,6 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 // ---------------------------------------------------------------------------
 
 type ComposerSetFn = (fn: (s: ComposerState) => Partial<ComposerState>) => void;
-
-/**
- * Two messages held for one conversation as a single message, `older` first:
- * the drafts joined by a blank line when both carry text, and the attachments
- * run one list after the other.
- */
-function mergeFailedSendList(
-  payloads: readonly FailedSendPayload[],
-): FailedSendPayload {
-  const cached = mergedFailedSendCache.get(payloads);
-  if (cached !== undefined) {
-    return cached;
-  }
-  const merged = {
-    content: payloads
-      .map((payload) => payload.content)
-      .filter((content) => content !== "")
-      .join("\n\n"),
-    attachments: payloads.flatMap((payload) => payload.attachments),
-  };
-  mergedFailedSendCache.set(payloads, merged);
-  return merged;
-}
-
-const mergedFailedSendCache = new WeakMap<
-  readonly FailedSendPayload[],
-  FailedSendPayload
->();
 
 /** Whether a held recovery is still exactly the send an eventual echo names. */
 function sameFailedSend(

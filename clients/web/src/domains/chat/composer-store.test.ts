@@ -75,8 +75,12 @@ mock.module(
 import type { UploadedAttachment } from "@/domains/chat/composer-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
-const { MAX_ATTACHMENT_BYTES, failedSendFor, useComposerStore } =
-  await import("@/domains/chat/composer-store");
+const {
+  MAX_ATTACHMENT_BYTES,
+  failedSendFor,
+  isClaimedQueuedSend,
+  useComposerStore,
+} = await import("@/domains/chat/composer-store");
 
 function getStore() {
   return useComposerStore.getState();
@@ -99,7 +103,7 @@ beforeEach(() => {
   useComposerStore.setState({
     failedSendsByConversation: new Map(),
     queuedSends: new Map(),
-    claimedQueuedSendIds: new Set(),
+    claimedFailedSendBatches: new Map(),
   });
   localSettingsStore.clear();
   uploadChatAttachmentMock.mockClear();
@@ -112,7 +116,7 @@ afterEach(() => {
   useComposerStore.setState({
     failedSendsByConversation: new Map(),
     queuedSends: new Map(),
-    claimedQueuedSendIds: new Set(),
+    claimedFailedSendBatches: new Map(),
   });
   localSettingsStore.clear();
 });
@@ -1447,11 +1451,12 @@ describe("stashFailedSend and takeFailedSend", () => {
     expect(getStore().takeFailedSend("assistant-1", "conv-1")).toEqual(
       payload,
     );
-    expect(getStore().claimedQueuedSendIds.has("nonce-1")).toBe(true);
+    expect(isClaimedQueuedSend(getStore(), "nonce-1")).toBe(true);
 
+    getStore().settleClaimedFailedSend("nonce-1", "accepted");
     getStore().takeQueuedSend("nonce-1");
 
-    expect(getStore().claimedQueuedSendIds.has("nonce-1")).toBe(false);
+    expect(isClaimedQueuedSend(getStore(), "nonce-1")).toBe(false);
   });
 
   test("a provisional recovery is unique by nonce and can be retracted by it", () => {

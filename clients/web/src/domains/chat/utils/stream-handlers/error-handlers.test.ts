@@ -9,7 +9,11 @@ import {
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { failedSendFor, useComposerStore } from "@/domains/chat/composer-store";
+import {
+  failedSendFor,
+  isClaimedQueuedSend,
+  useComposerStore,
+} from "@/domains/chat/composer-store";
 import type { ChatError } from "@/domains/chat/types";
 import type {
   DisplayAttachment,
@@ -53,7 +57,7 @@ describe("handleStreamError", () => {
     useComposerStore.setState({
       failedSendsByConversation: new Map(),
       queuedSends: new Map(),
-      claimedQueuedSendIds: new Set(),
+      claimedFailedSendBatches: new Map(),
     });
   });
   afterEach(() => {
@@ -61,7 +65,7 @@ describe("handleStreamError", () => {
     useComposerStore.setState({
       failedSendsByConversation: new Map(),
       queuedSends: new Map(),
-      claimedQueuedSendIds: new Set(),
+      claimedFailedSendBatches: new Map(),
     });
   });
 
@@ -403,9 +407,9 @@ describe("handleStreamError", () => {
       failedSendFor(useComposerStore.getState(), "assistant-1", "conv-queued"),
     ).toBeUndefined();
     expect(useComposerStore.getState().queuedSends.has("client-1")).toBe(false);
-    expect(
-      useComposerStore.getState().claimedQueuedSendIds.has("client-1"),
-    ).toBe(false);
+    expect(isClaimedQueuedSend(useComposerStore.getState(), "client-1")).toBe(
+      false,
+    );
     expect(ctx.setError).toHaveBeenCalledWith({
       message: "Failed to persist message.",
       code: undefined,
