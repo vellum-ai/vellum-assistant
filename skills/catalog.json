@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T14:11:35.000Z"
+      "updatedAt": "2026-09-11T17:47:34.000Z"
     },
     {
       "id": "notion",
@@ -870,7 +870,7 @@
     {
       "id": "slack",
       "name": "slack",
-      "description": "Read, send, and manage Slack messages via the Web API",
+      "description": "Send, read, and manage Slack messages",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "💬",
@@ -880,7 +880,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T20:37:43.000Z"
+      "updatedAt": "2026-09-11T17:47:34.000Z"
     },
     {
       "id": "slack-app-setup",
@@ -1078,7 +1078,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T20:47:04.000Z"
+      "updatedAt": "2026-09-10T21:49:56.000Z"
     },
     {
       "id": "vellum-conversation-management",
@@ -1215,7 +1215,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T20:47:04.000Z"
+      "updatedAt": "2026-09-10T21:49:56.000Z"
     },
     {
       "id": "vellum-skills-catalog",
