@@ -51,7 +51,8 @@ local schema is initialized idempotently; no application database migration or
 existing plugin conversion is required. A compare-and-swap update arbitrates
 ownership without holding a SQL transaction across process inspection or network
 I/O. A dead owner or changed process-start identity can be reclaimed atomically;
-a live owner is never stolen on timeout. Linux identity includes the boot ID.
+a live owner is never stolen on timeout. Process identity is qualified by its
+lease token so older writers cannot inherit stale identity metadata. Linux identity includes the boot ID.
 If another process's identity cannot be read, PID liveness remains the conservative
 fallback. Handles are closed after each operation.
 
