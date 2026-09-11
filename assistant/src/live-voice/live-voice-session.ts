@@ -5693,6 +5693,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
 
+    // The bridge is the turn's spoken acknowledgement: narration keeps
+    // `minGapMs` from it rather than following it back to back.
+    activeTurn.progress.noteFloorHolder();
+
     // No overrideProfile here: the bridge pins the escalated leg to the
     // conversation's own profile, the model the caller's typed turns already
     // run on (see voice-triage-escalate.ts). The bridge phrase the caller

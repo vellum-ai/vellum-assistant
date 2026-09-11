@@ -1314,6 +1314,9 @@ export class CallController {
           enqueueSynthesisSegments(synthProvider, segments);
         }
       }
+      // The bridge is the turn's spoken acknowledgement: narration keeps
+      // `minGapMs` from it rather than following it back to back.
+      cadence.noteFloorHolder();
       // The bridge phrase the caller just heard is handed along so the
       // escalated continuation rule can quote it and ban a re-announcing
       // echo. The bridge pins this leg to the conversation's own profile.

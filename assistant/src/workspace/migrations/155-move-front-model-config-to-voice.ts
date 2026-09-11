@@ -12,8 +12,8 @@ const log = getLogger("workspace-migration-155");
  * The front-door tuning (endpointing budgets and progress narration cadence)
  * is read by phone calls as well as live voice, so it lives under a
  * transport-agnostic key. A `voice.frontModel` already present wins field by
- * field; the old block is removed either way so raw-config saves stop
- * writing it back.
+ * field; the `liveVoice` block is removed either way so raw-config saves do
+ * not write it back.
  */
 export const moveFrontModelConfigToVoiceMigration: WorkspaceMigration = {
   id: "155-move-front-model-config-to-voice",
@@ -65,8 +65,8 @@ export const moveFrontModelConfigToVoiceMigration: WorkspaceMigration = {
   },
   retryFailedCheckpoint: true,
   down(_workspaceDir: string): void {
-    // Forward-only: the schema no longer carries liveVoice.frontModel, so
-    // moving it back would only be stripped on the next load.
+    // Forward-only: the schema reads voice.frontModel and strips unknown
+    // liveVoice keys, so a block moved back is dropped on the next load.
   },
 };
 

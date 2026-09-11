@@ -4562,6 +4562,9 @@ describe("call-controller", () => {
           return { turnId: "run-front", abort: () => {} };
         }
         // The escalated leg runs a tool; narration must land while it runs.
+        // The bridge just spoken is a floor holder, so the tool starts after
+        // the (test-short) minimum gap.
+        await new Promise((r) => setTimeout(r, 25));
         opts.callbacks?.tool_use_start?.("calendar_list", { toolUseId: "c1" });
         await pollUntil(() =>
           relay.sentTokens.some((t) =>
