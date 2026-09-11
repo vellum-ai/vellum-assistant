@@ -301,7 +301,8 @@ async function registerTapListeners(): Promise<void> {
       "localNotificationActionPerformed",
       (action) => {
         const extra = action.notification.extra as
-          NotificationTapPayload | undefined;
+          | NotificationTapPayload
+          | undefined;
         if (extra) {
           dispatchNotificationTap(extra);
         }
@@ -520,6 +521,14 @@ function senderPayload(
   };
 }
 
+function browserNotificationIcon(
+  resolution: NotificationSenderResolution | null,
+): string | undefined {
+  return resolution?.presentation === "assistant" && resolution.sender
+    ? `data:image/png;base64,${resolution.sender.avatarBase64}`
+    : undefined;
+}
+
 /**
  * Display a native notification. On Capacitor iOS this schedules via
  * `UNUserNotificationCenter`; on desktop browsers it calls the Web
@@ -673,12 +682,23 @@ export async function postLocalNotification(
     // keep distinct notifications distinct.
     const tag =
       args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
+    const options: NotificationOptions = {
+      body: args.body,
+      tag,
+      data: tapPayload,
+    };
+    const icon = browserNotificationIcon(senderResolution);
     try {
-      const n = new Notification(args.title, {
-        body: args.body,
-        tag,
-        data: tapPayload,
-      });
+      let n: Notification;
+      if (icon) {
+        try {
+          n = new Notification(args.title, { ...options, icon });
+        } catch {
+          n = new Notification(args.title, options);
+        }
+      } else {
+        n = new Notification(args.title, options);
+      }
       n.onclick = () => {
         window.focus();
         dispatchNotificationTap(tapPayload);

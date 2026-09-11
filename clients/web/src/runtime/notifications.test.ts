@@ -63,9 +63,7 @@ mock.module("@/runtime/android-notification-channels", () => ({
 mock.module("@/i18n", () => ({
   ...i18nRuntime,
   t: (key: string) =>
-    key === "localNotification.goToConversation"
-      ? "Go to Conversation"
-      : key,
+    key === "localNotification.goToConversation" ? "Go to Conversation" : key,
 }));
 
 // ── @capacitor/local-notifications ───────────────────────────────────────────
@@ -87,7 +85,9 @@ interface RegisterActionTypesArg {
   }>;
 }
 const scheduleMock = mock(async (_arg: ScheduleArg) => {});
-const registerActionTypesMock = mock(async (_arg: RegisterActionTypesArg) => {});
+const registerActionTypesMock = mock(
+  async (_arg: RegisterActionTypesArg) => {},
+);
 type LocalActionListener = (action: {
   notification: { extra?: unknown };
 }) => void;
@@ -161,16 +161,68 @@ const baseArgs = {
 function testIdentity(
   scopeId = "notification:scope:test",
   assistantId = "assistant-1",
+  nativeSenderId = "123e4567-e89b-12d3-a456-426614174000",
 ): NotificationIdentity {
   const identity = createNotificationIdentity(
     scopeId,
     assistantId,
-    "123e4567-e89b-12d3-a456-426614174000",
+    nativeSenderId,
   );
   if (!identity) {
     throw new Error("Expected a notification identity");
   }
   return identity;
+}
+
+interface BrowserNotificationCall {
+  title: string;
+  options?: NotificationOptions;
+}
+
+interface BrowserNotificationInstance {
+  onclick: (() => void) | null;
+  close: () => void;
+}
+
+async function withBrowserNotificationMock(
+  run: (
+    calls: BrowserNotificationCall[],
+    instances: BrowserNotificationInstance[],
+  ) => Promise<void>,
+  onConstruct?: (
+    title: string,
+    options: NotificationOptions | undefined,
+    attempt: number,
+  ) => void,
+): Promise<void> {
+  const originalNotification = globalThis.Notification;
+  const calls: BrowserNotificationCall[] = [];
+  const instances: BrowserNotificationInstance[] = [];
+  class TestNotification {
+    static permission: NotificationPermission = "granted";
+    static requestPermission = async (): Promise<NotificationPermission> =>
+      "granted";
+    onclick: (() => void) | null = null;
+    close = mock(() => {});
+
+    constructor(title: string, options?: NotificationOptions) {
+      calls.push({ title, options });
+      onConstruct?.(title, options, calls.length);
+      instances.push(this);
+    }
+  }
+  Object.defineProperty(globalThis, "Notification", {
+    configurable: true,
+    value: TestNotification,
+  });
+  try {
+    await run(calls, instances);
+  } finally {
+    Object.defineProperty(globalThis, "Notification", {
+      configurable: true,
+      value: originalNotification,
+    });
+  }
 }
 
 beforeEach(() => {
@@ -443,9 +495,9 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
         },
       ],
     });
-    expect(
-      scheduleMock.mock.calls[0]?.[0].notifications[0]?.actionTypeId,
-    ).toBe(NOTIFICATION_INTENT_ACTION_TYPE_ID);
+    expect(scheduleMock.mock.calls[0]?.[0].notifications[0]?.actionTypeId).toBe(
+      NOTIFICATION_INTENT_ACTION_TYPE_ID,
+    );
   });
 
   test("registers the action type even when the banner has no conversation", async () => {
@@ -717,9 +769,9 @@ describe("postLocalNotification scoped presentation policy", () => {
     expect(
       showMock.mock.calls.map(([payload]) => payload.presentation),
     ).toEqual(["app", "assistant", "app", "assistant"]);
-    expect(showMock.mock.calls.map(([payload]) => Boolean(payload.sender))).toEqual(
-      [false, true, false, true],
-    );
+    expect(
+      showMock.mock.calls.map(([payload]) => Boolean(payload.sender)),
+    ).toEqual([false, true, false, true]);
   });
 
   test("keeps a legacy flag-off Electron call shape compatible", async () => {
@@ -765,6 +817,182 @@ describe("postLocalNotification local-surface presentation flags", () => {
   });
 });
 
+describe("postLocalNotification browser avatar icons", () => {
+  const avatar = {
+    avatarBase64: "iVBORw==",
+    avatarHash: "c".repeat(64),
+  };
+  const icon = `data:image/png;base64,${avatar.avatarBase64}`;
+
+  function prepareIdentity(
+    identity: NotificationIdentity,
+    withAvatar = true,
+  ): void {
+    const publication = beginNotificationIdentityPublication(identity);
+    publishPreparedNotificationIdentity(publication, {
+      name: "Assistant",
+      nameProvenance: "identity-store",
+      ...(withAvatar ? { avatar } : {}),
+    });
+  }
+
+  beforeEach(() => {
+    nativePlatform = false;
+  });
+
+  test("uses only local-notification-avatar across all flag combinations", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity);
+    const combinations = [
+      { pushAvatarSender: false, localNotificationAvatar: false },
+      { pushAvatarSender: true, localNotificationAvatar: false },
+      { pushAvatarSender: false, localNotificationAvatar: true },
+      { pushAvatarSender: true, localNotificationAvatar: true },
+    ];
+
+    await withBrowserNotificationMock(async (calls) => {
+      for (const combination of combinations) {
+        useClientFeatureFlagStore.setState(combination);
+        await postLocalNotification({
+          ...baseArgs,
+          deliveryId: `delivery-browser-${combination.pushAvatarSender}-${combination.localNotificationAvatar}`,
+          identity,
+          assistantName: "Assistant",
+        });
+      }
+
+      expect(calls.map(({ options }) => options?.icon)).toEqual([
+        undefined,
+        undefined,
+        icon,
+        icon,
+      ]);
+      expect(calls.map(({ title }) => title)).toEqual([
+        "Reminder",
+        "Reminder",
+        "Reminder",
+        "Reminder",
+      ]);
+    });
+  });
+
+  test("keeps prepared avatars isolated to their exact assistant identity", async () => {
+    const first = testIdentity();
+    const second = testIdentity(
+      "notification:scope:test",
+      "assistant-2",
+      "123e4567-e89b-12d3-a456-426614174002",
+    );
+    prepareIdentity(second);
+    useClientFeatureFlagStore.setState({ localNotificationAvatar: true });
+
+    await withBrowserNotificationMock(async (calls) => {
+      await postLocalNotification({
+        ...baseArgs,
+        deliveryId: "delivery-browser-first",
+        identity: first,
+        assistantName: "First Assistant",
+      });
+      await postLocalNotification({
+        ...baseArgs,
+        assistantId: "assistant-2",
+        deliveryId: "delivery-browser-second",
+        identity: second,
+        assistantName: "Second Assistant",
+      });
+
+      expect(calls.map(({ options }) => options?.icon)).toEqual([
+        undefined,
+        icon,
+      ]);
+    });
+  });
+
+  test("preserves plain browser options when the exact identity has no avatar", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity, false);
+    useClientFeatureFlagStore.setState({ localNotificationAvatar: true });
+
+    await withBrowserNotificationMock(async (calls) => {
+      await postLocalNotification({
+        ...baseArgs,
+        identity,
+        assistantName: "Assistant",
+      });
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.options).toMatchObject({
+        body: "Stand up",
+        tag: "delivery-1",
+      });
+      expect(calls[0]?.options?.icon).toBeUndefined();
+      expect(calls[0]?.options).not.toHaveProperty("badge");
+    });
+  });
+
+  test("retries once without the icon after synchronous constructor rejection", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity);
+    useClientFeatureFlagStore.setState({ localNotificationAvatar: true });
+
+    await withBrowserNotificationMock(
+      async (calls, instances) => {
+        await postLocalNotification({
+          ...baseArgs,
+          identity,
+          assistantName: "Assistant",
+        });
+
+        expect(calls).toHaveLength(2);
+        expect(calls[0]?.options?.icon).toBe(icon);
+        expect(calls[1]?.options?.icon).toBeUndefined();
+        expect(calls[1]?.options).toEqual({
+          body: calls[0]?.options?.body,
+          tag: calls[0]?.options?.tag,
+          data: calls[0]?.options?.data,
+        });
+        expect(instances).toHaveLength(1);
+        expect(ackArgs.at(-1)?.body.success).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(calls).toHaveLength(2);
+      },
+      (_title, options, attempt) => {
+        if (attempt === 1 && options?.icon) {
+          throw new TypeError("icon rejected");
+        }
+      },
+    );
+  });
+
+  test("supplies the same verified icon across notification pipeline events", async () => {
+    const identity = testIdentity();
+    prepareIdentity(identity);
+    useClientFeatureFlagStore.setState({ localNotificationAvatar: true });
+
+    await withBrowserNotificationMock(async (calls) => {
+      for (const sourceEventName of [
+        "reminder.fired",
+        "credential.health_alert",
+        "telegram.webhook_health_alert",
+        "activity.failed",
+      ]) {
+        await postLocalNotification({
+          ...baseArgs,
+          deliveryId: `delivery-browser-${sourceEventName}`,
+          identity,
+          assistantName: "Assistant",
+          sourceEventName,
+        });
+      }
+
+      expect(calls).toHaveLength(4);
+      for (const call of calls) {
+        expect(call.options?.icon).toBe(icon);
+      }
+    });
+  });
+});
+
 describe("notification tap listener adapters", () => {
   async function flushTapQueue(): Promise<void> {
     await Promise.resolve();
@@ -773,7 +1001,8 @@ describe("notification tap listener adapters", () => {
 
   test("forwards Electron action identity and conversation metadata", async () => {
     const identity = testIdentity();
-    let actionListener: ((event: NotificationActionEvent) => void) | null = null;
+    let actionListener: ((event: NotificationActionEvent) => void) | null =
+      null;
     const show = mock(async (_payload: ShowNotificationPayload) => ({
       success: true,
     }));
@@ -821,14 +1050,16 @@ describe("notification tap listener adapters", () => {
 
   test("retries Electron action registration after a rejected preload", async () => {
     const identity = testIdentity();
-    let actionListener: ((event: NotificationActionEvent) => void) | null = null;
+    let actionListener: ((event: NotificationActionEvent) => void) | null =
+      null;
     const show = mock(async (_payload: ShowNotificationPayload) => ({
       success: true,
     }));
     const onAction = mock(
       (
         _listener: (event: NotificationActionEvent) => void,
-      ): (() => void) | Promise<never> => () => {},
+      ): (() => void) | Promise<never> =>
+        () => {},
     );
     onAction.mockImplementationOnce(async () => {
       throw new Error("preload unavailable");
@@ -938,10 +1169,21 @@ describe("notification tap listener adapters", () => {
   test("browser onclick dispatches original scoped metadata only once", async () => {
     nativePlatform = false;
     const identity = testIdentity();
+    const publication = beginNotificationIdentityPublication(identity);
+    publishPreparedNotificationIdentity(publication, {
+      name: "Assistant",
+      nameProvenance: "identity-store",
+      avatar: {
+        avatarBase64: "iVBORw==",
+        avatarHash: "d".repeat(64),
+      },
+    });
+    useClientFeatureFlagStore.setState({ localNotificationAvatar: true });
     const received: NotificationTapPayload[] = [];
     const createdNotifications: Array<{
       onclick: (() => void) | null;
       close: () => void;
+      options?: NotificationOptions;
     }> = [];
     let notificationCount = 0;
     const originalNotification = globalThis.Notification;
@@ -951,9 +1193,11 @@ describe("notification tap listener adapters", () => {
         "granted";
       onclick: (() => void) | null = null;
       close = mock(() => {});
+      options?: NotificationOptions;
 
-      constructor(_title: string, _options?: NotificationOptions) {
+      constructor(_title: string, options?: NotificationOptions) {
         notificationCount += 1;
+        this.options = options;
         createdNotifications.push(this);
       }
     }
@@ -986,6 +1230,8 @@ describe("notification tap listener adapters", () => {
           identity,
         }),
       ]);
+      expect(notification.options?.icon).toBe("data:image/png;base64,iVBORw==");
+      expect(notification.options?.data).toMatchObject({ identity });
       expect(notificationCount).toBe(1);
       expect(scheduleMock).not.toHaveBeenCalled();
     } finally {
