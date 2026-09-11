@@ -125,10 +125,21 @@ const spawnMock = mock(
     _parentConversationId: string,
     _sendToVellum: (msg: unknown) => void,
     _options?: { parentToolUseId?: string; model?: string },
-  ) => ({
-    acpSessionId: "acp-session-test",
-    protocolSessionId: "proto-session-test",
-  }),
+  ): Promise<{
+    acpSessionId: string;
+    protocolSessionId: string;
+    requestedModel?: string;
+    effectiveModel?: string;
+    modelWarning?: string;
+  }> => {
+    const requestedModel = _options?.model?.trim() || undefined;
+    return {
+      acpSessionId: "acp-session-test",
+      protocolSessionId: "proto-session-test",
+      requestedModel,
+      effectiveModel: "opus",
+    };
+  },
 );
 
 // Spread the real module's exports so transitive importers that pull other
@@ -201,6 +212,8 @@ describe("executeAcpSpawn - happy path", () => {
     const payload = JSON.parse(result.content);
     expect(payload.acpSessionId).toBe("acp-session-test");
     expect(payload.status).toBe("running");
+    expect(payload.requestedModel).toBeNull();
+    expect(payload.effectiveModel).toBe("opus");
     // The real adapter binary is spawned (no `bun x` wrapper).
     const agentConfigArg = spawnMock.mock.calls[0][1] as { command: string };
     expect(agentConfigArg.command).toBe("claude-agent-acp");
@@ -472,6 +485,25 @@ describe("executeAcpSpawn - model selection", () => {
       parentToolUseId: "toolu_model",
       model: "opus",
     });
+    const payload = JSON.parse(result.content);
+    expect(payload.requestedModel).toBe("opus");
+    expect(payload.effectiveModel).toBe("opus");
+    expect(payload.message).toContain(
+      'The top-level ACP session reports "opus" as its effective model.',
+    );
+  });
+
+  test("reports the manager-normalized requested model", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "  opus  " },
+      makeContext(),
+    );
+
+    expect(spawnMock.mock.calls[0][6]).toEqual({
+      parentToolUseId: undefined,
+      model: "  opus  ",
+    });
+    expect(JSON.parse(result.content).requestedModel).toBe("opus");
   });
 
   test("a null model is treated as omitted", async () => {
@@ -489,6 +521,8 @@ describe("executeAcpSpawn - model selection", () => {
     spawnMock.mockImplementationOnce(async () => ({
       acpSessionId: "acp-session-test",
       protocolSessionId: "proto-session-test",
+      requestedModel: "nope",
+      effectiveModel: "opus",
       modelWarning: "Unknown model: nope",
     }));
 
@@ -502,12 +536,15 @@ describe("executeAcpSpawn - model selection", () => {
     expect(payload.message).toContain(
       "The requested model was not applied: Unknown model: nope",
     );
+    expect(payload.requestedModel).toBe("nope");
+    expect(payload.effectiveModel).toBe("opus");
   });
 
   test("the note relays a no-selector warning without calling it a refusal", async () => {
     spawnMock.mockImplementationOnce(async () => ({
       acpSessionId: "acp-session-test",
       protocolSessionId: "proto-session-test",
+      requestedModel: "opus",
       modelWarning:
         'Agent "claude" does not support model selection, so the session is running on the agent\'s own model.',
     }));
@@ -532,6 +569,26 @@ describe("executeAcpSpawn - model selection", () => {
     const payload = JSON.parse(result.content);
     expect(payload.message).not.toContain(
       "The requested model was not applied",
+    );
+  });
+
+  test("reports when the adapter does not identify the effective model", async () => {
+    spawnMock.mockImplementationOnce(async () => ({
+      acpSessionId: "acp-session-test",
+      protocolSessionId: "proto-session-test",
+      requestedModel: "sonnet",
+    }));
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "sonnet" },
+      makeContext(),
+    );
+
+    const payload = JSON.parse(result.content);
+    expect(payload.requestedModel).toBe("sonnet");
+    expect(payload.effectiveModel).toBeNull();
+    expect(payload.message).toContain(
+      "The top-level ACP session did not report an effective model.",
     );
   });
 });

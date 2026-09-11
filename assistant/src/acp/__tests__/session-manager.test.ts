@@ -246,22 +246,27 @@ describe("AcpSessionManager: model selection at spawn", () => {
   }): Promise<{
     state: AcpSessionState;
     sent: AssistantEvent[];
+    requestedModel?: string;
+    effectiveModel?: string;
     modelWarning?: string;
   }> {
     const manager = new AcpSessionManager(5);
     const sent: AssistantEvent[] = [];
-    const { acpSessionId, modelWarning } = await manager.spawn(
-      opts.agentId ?? "agent-model",
-      { command: "echo", args: ["hi"], model: opts.agentModel },
-      "task",
-      "/tmp",
-      opts.conversationId,
-      (msg) => sent.push(msg),
-      opts.requestedModel ? { model: opts.requestedModel } : {},
-    );
+    const { acpSessionId, requestedModel, effectiveModel, modelWarning } =
+      await manager.spawn(
+        opts.agentId ?? "agent-model",
+        { command: "echo", args: ["hi"], model: opts.agentModel },
+        "task",
+        "/tmp",
+        opts.conversationId,
+        (msg) => sent.push(msg),
+        opts.requestedModel ? { model: opts.requestedModel } : {},
+      );
     return {
       state: manager.getStatus(acpSessionId) as AcpSessionState,
       sent,
+      requestedModel,
+      effectiveModel,
       modelWarning,
     };
   }
@@ -274,13 +279,34 @@ describe("AcpSessionManager: model selection at spawn", () => {
   test("state carries the model and options the adapter reported", async () => {
     scriptedConfigOptions = [[modelOption("opus")]];
 
-    const { state } = await spawnWithModel({ conversationId: "conv-report" });
+    const { effectiveModel, state } = await spawnWithModel({
+      conversationId: "conv-report",
+    });
 
     expect(state.model).toBe("opus");
+    expect(effectiveModel).toBe("opus");
     expect(state.availableModels).toEqual(MODEL_OPTION_MODELS);
     // Nothing was requested and the adapter is already on a model, so it was
     // never asked to change.
     expect(setConfigOptionCalls).toEqual([]);
+  });
+
+  test("the spawn result owns requested-model normalization", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+
+    const manager = new AcpSessionManager(5);
+    const result = await manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-normalized-request",
+      () => {},
+      { model: "  opus  " },
+    );
+
+    expect(result.requestedModel).toBe("opus");
+    expect(selectedValue()).toBe("opus");
   });
 
   test("the model event follows the spawned event", async () => {
@@ -372,12 +398,13 @@ describe("AcpSessionManager: model selection at spawn", () => {
     // The adapter resolves the alias it was handed to a full model id.
     setConfigOptionResult = [modelOption("claude-opus-4-5")];
 
-    const { state } = await spawnWithModel({
+    const { effectiveModel, state } = await spawnWithModel({
       conversationId: "conv-pin",
       requestedModel: "opus",
     });
 
     expect(state.model).toBe("claude-opus-4-5");
+    expect(effectiveModel).toBe("claude-opus-4-5");
   });
 
   test("an inherited model the adapter refuses warns nobody", async () => {
@@ -417,6 +444,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
     expect(result.modelWarning).toBe(
       "Invalid value for config option model: nope",
     );
+    expect(result.effectiveModel).toBe("opus");
     const state = manager.getStatus(result.acpSessionId) as AcpSessionState;
     // The run is live on whatever the adapter chose for itself.
     expect(state.status).toBe("running");
