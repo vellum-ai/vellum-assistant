@@ -54,6 +54,8 @@ export {
 
 export { systemLocales } from "@/i18n/system-locale";
 
+export { formatList } from "@/i18n/format-list";
+
 export {
   DEFAULT_NAMESPACE,
   NAMESPACES,

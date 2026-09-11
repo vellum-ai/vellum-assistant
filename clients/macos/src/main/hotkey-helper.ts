@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import {
   FN_CLAIMANT_BUNDLE_IDS,
+  FN_CLAIMANT_QUIT_BUNDLE_IDS,
   HELPER_APPS_FRONTMOST,
   HELPER_APPS_QUIT,
   HELPER_APPS_RUNNING,
@@ -401,14 +402,16 @@ const runningApps = async (bundleIds: string[]): Promise<string[]> => {
 
 /**
  * Ask an application to quit. `false` when it was not running or the helper
- * could not ask, and `false` without asking for any app outside the voice
- * key's claimants: this is the one thing the renderer can do to another app,
- * and the allowlist is held here rather than trusted from there.
+ * could not ask, and `false` without asking for any app outside the claimants
+ * the voice key offers to quit: this is the one thing the renderer can do to
+ * another app, and the allowlist is held here rather than trusted from there.
+ * A claimant that is only named (a keyboard tool holding the key on purpose)
+ * is refused the same way.
  */
 const quitApp = async (bundleId: string): Promise<boolean> => {
-  if (!FN_CLAIMANT_BUNDLE_IDS.includes(bundleId)) {
+  if (!FN_CLAIMANT_QUIT_BUNDLE_IDS.includes(bundleId)) {
     log.warn(
-      `[mac-helper] refused to quit ${bundleId}: not a voice key claimant`,
+      `[mac-helper] refused to quit ${bundleId}: not a voice key claimant offered a quit`,
     );
     return false;
   }

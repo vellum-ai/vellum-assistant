@@ -1,4 +1,4 @@
-import { currentLocale } from "@/i18n";
+import { formatList } from "@/i18n";
 import { ApiError } from "@/utils/api-errors";
 
 /**
@@ -38,8 +38,5 @@ export function credentialInUseConnections(error: unknown): string[] | null {
  * sentence rather than a comma-separated dump.
  */
 export function formatConnectionNames(connections: string[]): string {
-  return new Intl.ListFormat(currentLocale(), {
-    style: "long",
-    type: "conjunction",
-  }).format(connections);
+  return formatList(connections);
 }

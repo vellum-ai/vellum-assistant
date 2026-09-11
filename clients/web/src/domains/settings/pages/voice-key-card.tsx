@@ -29,6 +29,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { DetailCard } from "@/components/detail-card";
 import { ActivationKeyOption } from "@/domains/settings/pages/activation-key-option";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { VoiceKeyTest } from "@/domains/settings/pages/voice-key-test";
 import { useTranslation } from "@/i18n";
 import {
   openKeyboardSettings,
@@ -227,6 +228,13 @@ export function VoiceKeyCard() {
   const fnStartsDictation =
     isFn && fnState?.fnUsageType === FN_USAGE_START_DICTATION;
 
+  const keyLabel =
+    key.kind === "off"
+      ? null
+      : isFn
+        ? t("voiceKeyCard.fnLabel")
+        : modifierLabel(key.modifiers);
+
   return (
     <DetailCard
       title={t("voiceKeyCard.title")}
@@ -298,6 +306,10 @@ export function VoiceKeyCard() {
             <Info className="mt-0.5 h-3 w-3 shrink-0" />
             <span>{t("voiceKeyCard.refusedNote")}</span>
           </div>
+        )}
+
+        {keyLabel !== null && granted && !refused && (
+          <VoiceKeyTest keyLabel={keyLabel} />
         )}
 
         {fnSentToNoAction && (

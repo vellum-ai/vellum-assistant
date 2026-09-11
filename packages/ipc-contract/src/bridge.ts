@@ -283,8 +283,9 @@ export interface VellumBridge {
     apps?: {
       running(bundleIds: readonly string[]): Promise<string[]>;
       /**
-       * Ask an application to quit. Only the apps in `FN_CLAIMANTS` can be
-       * asked; anything else resolves `false` without asking.
+       * Ask an application to quit. Only the `FN_CLAIMANTS` marked
+       * `quittable` can be asked; anything else resolves `false` without
+       * asking.
        */
       quit(bundleId: string): Promise<boolean>;
       /** The bundle identifier of the application in front, or `null`. */

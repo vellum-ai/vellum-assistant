@@ -2249,6 +2249,13 @@
     "title": "Tecla de voz",
     "voiceOverNote": "Control y Opción es la tecla modificadora de VoiceOver. Si usas VoiceOver, sus comandos tomarán estas teclas primero."
   },
+  "voiceKeyTest": {
+    "arrived": "{key} llegó a Vellum.",
+    "button": "Probar la tecla",
+    "neverArrived": "{key} nunca llegó a Vellum. Revisa Teclas modificadoras en Teclado, dentro de Ajustes del Sistema, y las herramientas de teclado que uses.",
+    "neverArrivedClaimed": "{key} nunca llegó a Vellum. Puede que {apps} la esté tomando primero.",
+    "waiting": "Mantén pulsada {key} ahora."
+  },
   "voicePickerCard": {
     "changeButton": "Cambiar",
     "creditsNote": "Usa créditos de Vellum, a través de proveedores como ElevenLabs y Deepgram.",

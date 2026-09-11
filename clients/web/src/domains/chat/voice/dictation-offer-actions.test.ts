@@ -13,7 +13,11 @@ import {
   useDictationOfferStore,
 } from "@/domains/chat/voice/dictation-offer-store";
 
-const WISPR = { bundleId: "com.electron.wispr-flow", name: "Wispr Flow" };
+const WISPR = {
+  bundleId: "com.electron.wispr-flow",
+  name: "Wispr Flow",
+  quittable: true,
+};
 
 function deps(front: string | null) {
   const calls: string[] = [];

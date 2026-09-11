@@ -2260,6 +2260,13 @@
     "title": "Voice Key",
     "voiceOverNote": "Control and Option is VoiceOver's modifier key. If you use VoiceOver, its commands will take these keys first."
   },
+  "voiceKeyTest": {
+    "arrived": "{key} reached Vellum.",
+    "button": "Test the key",
+    "neverArrived": "{key} never reached Vellum. Check Modifier Keys under Keyboard in System Settings, and any keyboard tools you run.",
+    "neverArrivedClaimed": "{key} never reached Vellum. {apps} may be taking it first.",
+    "waiting": "Hold {key} now."
+  },
   "voicePickerCard": {
     "changeButton": "Change",
     "creditsNote": "Uses Vellum credits, through providers like ElevenLabs and Deepgram.",

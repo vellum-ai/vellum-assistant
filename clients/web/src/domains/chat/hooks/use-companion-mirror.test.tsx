@@ -317,7 +317,11 @@ describe("the middle of a turn, where the client looks idle", () => {
  * is waiting on.
  */
 describe("the dictation offer the companion mirror publishes", () => {
-  const WISPR = { bundleId: "com.electron.wispr-flow", name: "Wispr Flow" };
+  const WISPR = {
+    bundleId: "com.electron.wispr-flow",
+    name: "Wispr Flow",
+    quittable: true,
+  };
 
   test("says nothing while none stands", () => {
     render(<Mirror />);

@@ -155,8 +155,14 @@ mock.module("@/runtime/input-activity", () => ({
 }));
 
 let runningClaimant: { bundleId: string; name: string } | null = null;
-mock.module("@/domains/chat/voice/fn-claimants", () => ({
-  FN_CLAIMANTS: [{ bundleId: "com.electron.wispr-flow", name: "Wispr Flow" }],
+mock.module("@/runtime/fn-claimants", () => ({
+  FN_CLAIMANTS: [
+    {
+      bundleId: "com.electron.wispr-flow",
+      name: "Wispr Flow",
+      quittable: true,
+    },
+  ],
   findRunningFnClaimant: async () => runningClaimant,
 }));
 

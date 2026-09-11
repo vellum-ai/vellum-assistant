@@ -23,7 +23,11 @@ const {
   useDictationOfferStore,
 } = await import("@/domains/chat/voice/dictation-offer-store");
 
-const WISPR = { bundleId: "com.electron.wispr-flow", name: "Wispr Flow" };
+const WISPR = {
+  bundleId: "com.electron.wispr-flow",
+  name: "Wispr Flow",
+  quittable: true,
+};
 
 beforeEach(() => {
   setInputActivityWatch.mockClear();
