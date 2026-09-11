@@ -5,7 +5,13 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { useImperativeHandle, type Ref } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
@@ -99,8 +105,8 @@ function documentSurface(
   };
 }
 
-function renderPage(surfaceId: string) {
-  return render(
+function pageTree(surfaceId: string) {
+  return (
     <MemoryRouter initialEntries={[`/assistant/documents/${surfaceId}`]}>
       <Routes>
         <Route
@@ -116,8 +122,13 @@ function renderPage(surfaceId: string) {
           element={<DocumentViewerPage />}
         />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderPage(surfaceId: string) {
+  const page = render(pageTree(surfaceId));
+  return { ...page, rerenderPage: () => page.rerender(pageTree(surfaceId)) };
 }
 
 function Destination() {
@@ -159,6 +170,21 @@ afterEach(() => {
 });
 
 describe("DocumentViewerPage", () => {
+  test("crossing the mobile breakpoint keeps the mounted desktop editor and its edits", async () => {
+    let fetches = 0;
+    documentResult = () => {
+      fetches += 1;
+      return Promise.resolve({ data: documentSurface() });
+    };
+    const page = renderPage("surf-1");
+    const editor = await page.findByTestId("viewer");
+    mobile = true;
+    await act(async () => page.rerenderPage());
+    expect(page.getByTestId("viewer")).toBe(editor);
+    expect(page.queryByTestId("chat-route")).toBeNull();
+    expect(fetches).toBe(1);
+    expect(createConversation).not.toHaveBeenCalled();
+  });
   test("mobile enters the linked conversation with refreshable document intent", async () => {
     mobile = true;
     useUnseenDocumentChangesStore

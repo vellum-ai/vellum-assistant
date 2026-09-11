@@ -11,6 +11,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import type { DocumentContent } from "@/types/document-types";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { useUnseenDocumentChangesStore } from "../unseen-document-changes-store";
 
 const documentData: DocumentContent = {
   success: true,
@@ -62,11 +63,11 @@ function Harness() {
   );
 }
 
-function renderRoute(conversationId = "conv-1") {
+function renderRoute(conversationId = "conv-1", showingDocument = true) {
   return render(
     <MemoryRouter
       initialEntries={[
-        `/assistant/conversations/${conversationId}?document=surface-1&documentReturn=%2Fassistant%2Flibrary`,
+        `/assistant/conversations/${conversationId}?document=surface-1&documentReturn=%2Fassistant%2Flibrary${showingDocument ? "" : "&documentView=chat"}`,
       ]}
     >
       <Routes>
@@ -93,6 +94,7 @@ beforeEach(() => {
   selection = useResolvedAssistantsStore.getState();
   viewer = useViewerStore.getState();
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+  useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   useViewerStore.setState({
     mainView: "chat",
     openedDocumentState: null,
@@ -108,6 +110,25 @@ afterEach(() => {
 });
 
 describe("document conversation route", () => {
+  test("loading a transcript with a reopen target does not mark the hidden document viewed", async () => {
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-1", "surface-1");
+    const page = renderRoute("conv-1", false);
+    await waitFor(() =>
+      expect(page.getByTestId("status").textContent).toBe("ready"),
+    );
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(
+      useUnseenDocumentChangesStore
+        .getState()
+        .changedDocuments["conv-1"]?.has("surface-1"),
+    ).toBe(true);
+    fireEvent.click(page.getByText("Reopen document"));
+    expect(
+      useUnseenDocumentChangesStore.getState().changedDocuments["conv-1"],
+    ).toBeUndefined();
+  });
   test("refresh loads the document into the current linked session", async () => {
     const page = renderRoute();
     await waitFor(() =>
@@ -130,10 +151,16 @@ describe("document conversation route", () => {
     fireEvent.click(page.getByText("View conversation"));
     expect(page.getByTestId("url").textContent).toContain("documentView=chat");
     expect(useViewerStore.getState().mainView).toBe("chat");
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-1", "surface-1");
     fireEvent.click(page.getByText("Reopen document"));
     expect(useViewerStore.getState().mainView).toBe("document");
     expect(useViewerStore.getState().openedDocumentState).toBe(opened);
     expect(load).toHaveBeenCalledTimes(1);
+    expect(
+      useUnseenDocumentChangesStore.getState().changedDocuments["conv-1"],
+    ).toBeUndefined();
   });
 
   test("closing during refresh cannot reopen the document when the request settles", async () => {
@@ -159,6 +186,9 @@ describe("document conversation route", () => {
   });
 
   test("a failed load is retryable in the same session", async () => {
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged("conv-1", "surface-1");
     load.mockImplementationOnce(async () => {
       throw new Error("offline");
     });
@@ -168,6 +198,11 @@ describe("document conversation route", () => {
         "Unable to open",
       ),
     );
+    expect(
+      useUnseenDocumentChangesStore
+        .getState()
+        .changedDocuments["conv-1"]?.has("surface-1"),
+    ).toBe(true);
     fireEvent.click(page.getByText("Retry"));
     await waitFor(() =>
       expect(page.getByTestId("status").textContent).toBe("ready"),

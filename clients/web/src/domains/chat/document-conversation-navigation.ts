@@ -57,6 +57,7 @@ export function showDocumentInConversation(
   document: DocumentContent,
   conversationId: string,
   assistantId: string,
+  presentation: "document" | "chat" = "document",
 ): void {
   useViewerStore.getState().openDocument();
   useViewerStore.setState({
@@ -70,9 +71,13 @@ export function showDocumentInConversation(
     documentName: document.title,
     content: document.content,
   });
-  useUnseenDocumentChangesStore
-    .getState()
-    .clearDocumentEverywhere(document.surfaceId);
+  if (presentation === "document") {
+    useUnseenDocumentChangesStore
+      .getState()
+      .clearDocumentEverywhere(document.surfaceId);
+  } else {
+    useViewerStore.getState().setMainView("chat");
+  }
 }
 
 export function navigateToDocumentConversation(

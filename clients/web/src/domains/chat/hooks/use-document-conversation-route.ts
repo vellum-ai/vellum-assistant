@@ -20,6 +20,21 @@ import {
   getDocumentConversationRoute,
   showDocumentInConversation,
 } from "../document-conversation-navigation";
+import { useUnseenDocumentChangesStore } from "../unseen-document-changes-store";
+
+function markOpenedDocumentViewed(
+  assistantId: string | null,
+  surfaceId: string,
+) {
+  const opened = useViewerStore.getState().openedDocumentState;
+  if (
+    opened?.source === "document" &&
+    opened.assistantId === assistantId &&
+    opened.surfaceId === surfaceId
+  ) {
+    useUnseenDocumentChangesStore.getState().clearDocumentEverywhere(surfaceId);
+  }
+}
 
 /** Owns document URL intent inside the existing conversation session. */
 export function useDocumentConversationRoute() {
@@ -100,10 +115,12 @@ export function useDocumentConversationRoute() {
           });
           return;
         }
-        showDocumentInConversation(data, conversationId, assistantId);
-        if (!showingDocumentRef.current) {
-          useViewerStore.getState().setMainView("chat");
-        }
+        showDocumentInConversation(
+          data,
+          conversationId,
+          assistantId,
+          showingDocumentRef.current ? "document" : "chat",
+        );
         setStatus({ owner, kind: "ready" });
       } catch (error) {
         if (scope.isCurrent()) {
@@ -134,11 +151,14 @@ export function useDocumentConversationRoute() {
       useViewerStore
         .getState()
         .setMainView(showingDocument ? "document" : "chat");
+      if (showingDocument) {
+        markOpenedDocumentViewed(assistantId, surfaceId);
+      }
     } else if (lastSurfaceRef.current) {
       useViewerStore.getState().closeDocument();
     }
     lastSurfaceRef.current = surfaceId;
-  }, [surfaceId, showingDocument]);
+  }, [surfaceId, showingDocument, assistantId]);
 
   const closeDocument = useCallback(() => {
     scopeRef.current?.dispose();
@@ -160,12 +180,15 @@ export function useDocumentConversationRoute() {
         return;
       }
       useViewerStore.getState().setMainView(view);
+      if (view === "document") {
+        markOpenedDocumentViewed(assistantId, surfaceId);
+      }
       void navigate(
         documentConversationUrl(conversationId, surfaceId, returnTo, view),
         { replace: true },
       );
     },
-    [conversationId, surfaceId, navigate, returnTo],
+    [conversationId, surfaceId, navigate, returnTo, assistantId],
   );
   const viewConversation = useCallback(
     () => setPresentation("chat"),

@@ -50,6 +50,8 @@ export function DocumentViewerPage() {
   const navigate = useNavigate();
   const { pathname, search } = useLocation();
   const isMobile = useIsMobile();
+  // The route host stays stable while the user edits, even across a breakpoint.
+  const [entryMode] = useState(isMobile ? "conversation" : "standalone");
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantsHydrated =
     useResolvedAssistantsStore.use.assistantsHydrated();
@@ -94,7 +96,7 @@ export function DocumentViewerPage() {
         if (!scope.isCurrent()) {
           return;
         }
-        if (isMobile) {
+        if (entryMode === "conversation") {
           const linkedId = await resolveDocumentConversation({
             assistantId,
             document: data,
@@ -118,7 +120,11 @@ export function DocumentViewerPage() {
         useUnseenDocumentChangesStore
           .getState()
           .clearDocumentEverywhere(surfaceId);
-        setState({ kind: "ready", doc: data, needsConversation: isMobile });
+        setState({
+          kind: "ready",
+          doc: data,
+          needsConversation: entryMode === "conversation",
+        });
       } catch (error) {
         if (scope.isCurrent()) {
           captureError(error, { context: "document_viewer_page" });
@@ -132,7 +138,7 @@ export function DocumentViewerPage() {
     assistantId,
     assistantsHydrated,
     readiness,
-    isMobile,
+    entryMode,
     navigate,
     returnTo,
     attempt,
