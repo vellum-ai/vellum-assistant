@@ -18,6 +18,7 @@ import {
   isEscalationBridgeComplete,
   MAX_ESCALATION_BRIDGE_CHARS,
   needsFallbackBridge,
+  resolveSpokenEscalationBridge,
   spokenBridgeText,
 } from "../voice-triage-escalate.js";
 
@@ -279,6 +280,34 @@ describe("fallbackEscalationBridgeFor", () => {
     expect(fallbackEscalationBridgeFor("ko")).toBe(FALLBACK_ESCALATION_BRIDGE);
     expect(fallbackEscalationBridgeFor("")).toBe(FALLBACK_ESCALATION_BRIDGE);
     expect(fallbackEscalationBridgeFor("en")).toBe(FALLBACK_ESCALATION_BRIDGE);
+  });
+});
+
+describe("resolveSpokenEscalationBridge", () => {
+  test("a real capped bridge is spoken as the model's own speech", () => {
+    expect(resolveSpokenEscalationBridge("Let me check that.", "es")).toEqual({
+      spokenBridge: "Let me check that.",
+      usesFallback: false,
+    });
+  });
+
+  test("an empty or too-short bridge falls back to the localized canned phrase, audio-only", () => {
+    expect(resolveSpokenEscalationBridge("", "es")).toEqual({
+      spokenBridge: FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE.es,
+      usesFallback: true,
+    });
+    expect(resolveSpokenEscalationBridge("Ok", undefined)).toEqual({
+      spokenBridge: FALLBACK_ESCALATION_BRIDGE,
+      usesFallback: true,
+    });
+  });
+
+  test("a canned phrase the table lacks for the caller's language is English and says so", () => {
+    expect(resolveSpokenEscalationBridge("", "ko")).toEqual({
+      spokenBridge: FALLBACK_ESCALATION_BRIDGE,
+      usesFallback: true,
+      language: "en",
+    });
   });
 });
 

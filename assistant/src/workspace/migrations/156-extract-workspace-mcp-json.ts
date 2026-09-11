@@ -11,7 +11,7 @@ const WORKSPACE_MCP_FILENAME = "mcp.json";
 const AGENT_PLUGINS_MCP_SCHEMA_URL =
   "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
 
-const log = getLogger("workspace-migration-155");
+const log = getLogger("workspace-migration-156");
 
 /**
  * Move user-owned MCP servers from `config.json` into a spec-pure
@@ -20,7 +20,7 @@ const log = getLogger("workspace-migration-155");
  * credential-store migration can lift them on the next MCP reload.
  */
 export const extractWorkspaceMcpJsonMigration: WorkspaceMigration = {
-  id: "155-extract-workspace-mcp-json",
+  id: "156-extract-workspace-mcp-json",
   description:
     "Extract workspace MCP servers from config.json into a spec-pure mcp.json",
   run(workspaceDir: string): void {
@@ -186,7 +186,7 @@ function readJsonObject(path: string): Record<string, unknown> | null {
 }
 
 function atomicWrite(path: string, value: unknown): void {
-  const tmpPath = `${path}.migration-155.tmp`;
+  const tmpPath = `${path}.migration-156.tmp`;
   writeFileSync(tmpPath, JSON.stringify(value, null, 2) + "\n");
   renameSync(tmpPath, path);
 }

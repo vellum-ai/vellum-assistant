@@ -405,6 +405,7 @@ declare global {
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
+        release?(): void;
         startVoice?(): void;
         toggleWatch?(pick?: CompanionCapturePick): void;
         listCaptureSources?(): Promise<CompanionCaptureSources>;

@@ -213,6 +213,7 @@ describe("currentTierRows", () => {
     storageTier: "s",
     storageGib: 30,
     creditTier: "credits_50",
+    hasPlatformFee: true,
     ...over,
   });
 
@@ -335,6 +336,7 @@ describe("currentPlanFeatures", () => {
     storageTier: "s",
     storageGib: 30,
     creditTier: "credits_50",
+    hasPlatformFee: true,
   };
 
   test("replaces every capability row it has a real value for", () => {

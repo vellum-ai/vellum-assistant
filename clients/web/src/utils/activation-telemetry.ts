@@ -20,9 +20,9 @@
  * at the start and hand it back at emit time, which overrides the resolution
  * below; synchronous callers keep using it.
  *
- * Lives beside `tips-telemetry.ts` rather than inside the activation domain
- * for the same reason that one does: the funnel emitter belongs to the
- * onboarding domain, and a domain module may not reach across to another.
+ * Lives in shared utilities rather than inside the activation domain because
+ * the funnel emitter belongs to the onboarding domain, and one domain module
+ * may not reach across to another.
  */
 
 import { emitOnboardingFunnelStepCompleted } from "@/domains/onboarding/funnel-events";
@@ -101,8 +101,8 @@ export function emitActivationEvent(
       funnelVersion: ACTIVATION_FUNNEL_VERSION,
       // The list a task belongs to is the dimension every funnel is split by,
       // so it rides `screen`; an event scoped to a task or a surface qualifies
-      // it with that, the same dimension-in-`screen` pattern the tips and tour
-      // funnels use.
+      // it with that, using the same dimension-in-`screen` pattern as other
+      // funnel events.
       screen: qualifier ? `${listId}/${qualifier}` : listId,
       variant: arm,
     },

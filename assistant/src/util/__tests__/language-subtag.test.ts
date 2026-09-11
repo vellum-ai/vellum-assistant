@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { baseLanguageSubtag, localizedOrDefault } from "../language-subtag.js";
+import {
+  baseLanguageSubtag,
+  fixedPhraseLanguage,
+  localizedOrDefault,
+} from "../language-subtag.js";
 
 describe("baseLanguageSubtag", () => {
   test("lowercases a bare tag", () => {
@@ -50,5 +54,23 @@ describe("localizedOrDefault", () => {
     );
     expect(localizedOrDefault(table, "toString", "fallback")).toBe("fallback");
     expect(localizedOrDefault(table, "__proto__", "fallback")).toBe("fallback");
+  });
+});
+
+describe("fixedPhraseLanguage", () => {
+  const table = { en: "one", es: "uno" };
+
+  test("pins English when the speaker's language has no table entry", () => {
+    expect(fixedPhraseLanguage(table, "ko")).toBe("en");
+    expect(fixedPhraseLanguage(table, "ar-EG")).toBe("en");
+  });
+
+  test("rides the speaker's language when the table covers it", () => {
+    expect(fixedPhraseLanguage(table, "es")).toBeUndefined();
+    expect(fixedPhraseLanguage(table, "es-419")).toBeUndefined();
+  });
+
+  test("carries no hint when the language is unknown", () => {
+    expect(fixedPhraseLanguage(table, undefined)).toBeUndefined();
   });
 });

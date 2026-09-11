@@ -16,6 +16,7 @@ import {
   companionCardSideFor,
   companionNearEdgeFor,
   companionScaleFor,
+  type CompanionDock,
   type CompanionSize,
   type CompanionSizeAxis,
   type CompanionSurfaceState,
@@ -396,17 +397,27 @@ type GlowWindow = {
   focus: () => void;
 };
 let glow: GlowWindow | null = null;
+/**
+ * Every other window main has opened, by kind: the frame, and the edges a
+ * call's drag can drop the bar on. `glow` is the frame's own alias, since most
+ * cases about a second window are about that one.
+ */
+const others = new Map<string, GlowWindow>();
 const glowPushes: CompanionSurfaceState[] = [];
 /** The BrowserWindow options the frame was last opened with. */
 let glowOptions: Record<string, unknown> | undefined;
 
 const openGlow = (options: {
+  kind: string;
   position?: { x: number; y: number } | (() => { x: number; y: number });
   width: number;
   height: number;
   browserWindow?: Record<string, unknown>;
 }): GlowWindow => {
-  glowOptions = options.browserWindow;
+  const frame = options.kind === "companion-watch-frame";
+  if (frame) {
+    glowOptions = options.browserWindow;
+  }
   const at =
     typeof options.position === "function"
       ? options.position()
@@ -429,7 +440,10 @@ const openGlow = (options: {
     },
     close: () => {
       window.closed = true;
-      glow = null;
+      others.delete(options.kind);
+      if (frame) {
+        glow = null;
+      }
     },
     isDestroyed: () => false,
     on: () => {},
@@ -460,9 +474,16 @@ const openGlow = (options: {
       }
     },
   };
-  glow = window;
+  others.set(options.kind, window);
+  if (frame) {
+    glow = window;
+  }
   return window;
 };
+
+/** The edges a call's drag can drop the bar on, while a drag is in flight. */
+const zonesWindow = (): GlowWindow | null =>
+  others.get("companion-dock-zones") ?? null;
 
 mock.module("@vellumai/electron-desktop/floating-window", () => ({
   createFloatingWindow: (options: {
@@ -480,7 +501,11 @@ mock.module("@vellumai/electron-desktop/floating-window", () => ({
     return surface;
   },
   getFloatingWindow: (kind: string) =>
-    kind === "companion" ? (companionOpen ? surface : null) : glow,
+    kind === "companion"
+      ? companionOpen
+        ? surface
+        : null
+      : (others.get(kind) ?? null),
 }));
 
 mock.module("@vellumai/electron-desktop/avatar", () => ({
@@ -521,11 +546,21 @@ const sizes: Record<CompanionSizeAxis, CompanionSize> = {
   options: "small",
 };
 
+/**
+ * The edge the store holds for the call bar, which is what the next call reads
+ * and what a drop writes.
+ */
+let storedDock: CompanionDock = "bottom";
+
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   readCompanionSize: (axis: CompanionSizeAxis) => sizes[axis],
   readCompanionHidden: () => false,
   writeCompanionSize: (axis: CompanionSizeAxis, size: CompanionSize) => {
     sizes[axis] = size;
+  },
+  readCompanionCallDock: () => storedDock,
+  writeCompanionCallDock: (dock: CompanionDock) => {
+    storedDock = dock;
   },
   writeCompanionHidden: () => {},
   // Stubbed rather than omitted, like every other export here: the module
@@ -543,7 +578,9 @@ const {
   avatarOffsetFor,
   companionContextMenuTemplate,
   defaultAvatarCentre,
+  dockedAvatarCentre,
   geometryFor,
+  nearestDock,
   placeCanvas,
   callOnUpdate,
   callSurfaceFor,
@@ -587,6 +624,7 @@ beforeEach(() => {
   nearestDisplay = NEAREST_DISPLAY;
   boundsSet.length = 0;
   glow = null;
+  others.clear();
   glowPushes.length = 0;
   displays = [
     {
@@ -1199,6 +1237,273 @@ describe("the surface a call takes", () => {
     send("vellum:voiceActivity:start", START);
     expect(centre()).toEqual(bottomCentre);
     send("vellum:voiceActivity:end");
+  });
+});
+
+/**
+ * The edge a call's bar rests on. The bottom by default, and any of the four
+ * once the user has dragged the bar there mid-call and let go: the drag moves
+ * the surface as freely as an idle drag does, the edges are shown for as long
+ * as it is in flight, and the release docks the bar to the nearest one. The
+ * sides stand the bar up, which is a canvas of another shape.
+ *
+ * Under "Reduce motion", as the call's cases are, so each move lands in the
+ * beat it is asked for.
+ */
+describe("the edge a call's bar docks to", () => {
+  const SCREEN = { x: 0, y: 0, width: 1440, height: 900 };
+  const SIDE = geometryFor("small", "small", "left");
+  /** The canvas main is drawing in, read off the last bounds it asked for. */
+  const canvas = (): typeof GEOMETRY =>
+    boundsSet.at(-1)?.height === SIDE.canvasHeight ? SIDE : GEOMETRY;
+  const centre = (): { x: number; y: number } => ({
+    x: origin.x + canvas().canvasWidth / 2,
+    y: origin.y + avatarOffsetFor(state().cardGrowth, canvas()),
+  });
+  /** Where a dock lands the avatar, read back the way `avatarCentre` reads it. */
+  const landing = (
+    dock: CompanionDock,
+    geometry: typeof GEOMETRY = GEOMETRY,
+  ): { x: number; y: number } => {
+    const placed = placeCanvas(
+      dockedAvatarCentre(dock, SCREEN, geometry),
+      SCREEN,
+      geometry,
+    );
+    return {
+      x: placed.origin.x + geometry.canvasWidth / 2,
+      y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, geometry),
+    };
+  };
+  /** Drag the bar so the avatar rests on a point, mid-call or not. */
+  const dragTo = (point: { x: number; y: number }): void => {
+    send("vellum:companion:moveBy", point.x - centre().x, point.y - centre().y);
+  };
+  const release = (): void => {
+    send("vellum:companion:release");
+  };
+
+  beforeEach(() => {
+    mainWindowOpen = true;
+    storedDock = "bottom";
+  });
+
+  /**
+   * Leave the bar docked to the bottom for the next case, the way a fresh
+   * install has it. The module holds the dock it was last dropped on, and a
+   * reset mid-call is the one way back that goes through the store.
+   */
+  afterEach(() => {
+    send("vellum:voiceActivity:end");
+    send("vellum:voiceActivity:control", { action: "endSession" });
+    send("vellum:companion:startVoice");
+    resetCompanionSurfacePosition();
+    send("vellum:voiceActivity:control", { action: "endSession" });
+    storedDock = "bottom";
+  });
+
+  describe("geometryFor", () => {
+    test("builds the ordinary canvas for the top and bottom", () => {
+      expect(geometryFor("small", "small", "top")).toEqual(GEOMETRY);
+      expect(geometryFor("small", "small", "bottom")).toEqual(GEOMETRY);
+    });
+
+    /**
+     * The column is centred on the avatar, so the canvas has to reach as far
+     * below it as above; and it has to hold half the column, the gap and the
+     * whole creature standing at its end.
+     */
+    test("builds a canvas symmetric about the avatar for a side", () => {
+      for (const dock of ["left", "right"] as const) {
+        const side = geometryFor("small", "small", dock);
+        expect(side.riseAbove).toBe(side.dropBelow);
+        expect(side.canvasHeight).toBe(side.riseAbove * 2);
+        expect(side.canvasWidth).toBe(GEOMETRY.canvasWidth);
+        const scale = companionScaleFor(side.optionsBox);
+        expect(side.riseAbove).toBeGreaterThanOrEqual(
+          (COMPANION_BASE_MAX_PILL_WIDTH * scale) / 2 + side.avatarBox,
+        );
+      }
+    });
+  });
+
+  describe("dockedAvatarCentre", () => {
+    test("is the bottom centre for the bottom", () => {
+      expect(dockedAvatarCentre("bottom", SCREEN, GEOMETRY)).toEqual(
+        defaultAvatarCentre(SCREEN, GEOMETRY),
+      );
+    });
+
+    /** As high as the canvas above the avatar lets the window server go. */
+    test("settles as high as the work area allows for the top", () => {
+      const top = landing("top");
+      expect(top.x).toBe(SCREEN.width / 2);
+      expect(top.y).toBe(SCREEN.y + DROP_BELOW);
+    });
+
+    test("stands the sides at the display's vertical centre, a margin in", () => {
+      const reach = companionLowerReachFor(SIDE.avatarBox, SIDE.optionsBox);
+      expect(dockedAvatarCentre("left", SCREEN, SIDE)).toEqual({
+        x: 2 + reach,
+        y: SCREEN.height / 2,
+      });
+      expect(dockedAvatarCentre("right", SCREEN, SIDE)).toEqual({
+        x: SCREEN.width - 2 - reach,
+        y: SCREEN.height / 2,
+      });
+    });
+  });
+
+  describe("nearestDock", () => {
+    test("is the edge the point is closest to", () => {
+      expect(nearestDock({ x: 700, y: 850 }, SCREEN)).toBe("bottom");
+      expect(nearestDock({ x: 700, y: 40 }, SCREEN)).toBe("top");
+      expect(nearestDock({ x: 30, y: 450 }, SCREEN)).toBe("left");
+      expect(nearestDock({ x: 1400, y: 450 }, SCREEN)).toBe("right");
+    });
+
+    test("resolves a tie to the bottom, the shape the bar is designed around", () => {
+      expect(nearestDock({ x: 720, y: 450 }, SCREEN)).toBe("bottom");
+    });
+
+    test("measures against the work area it is given, not the origin", () => {
+      const second = { x: 1440, y: 0, width: 1920, height: 1080 };
+      expect(nearestDock({ x: 1460, y: 500 }, second)).toBe("left");
+    });
+  });
+
+  test("a call goes to the remembered edge rather than the bottom", () => {
+    storedDock = "top";
+    // The dock is read once at load, so this case reaches it the way a drop
+    // does; the store's read is `window-state.test.ts`'s subject.
+    send("vellum:voiceActivity:start", START);
+    dragTo({ x: 700, y: 30 });
+    release();
+    send("vellum:voiceActivity:end");
+    send("vellum:companion:startVoice");
+    expect(centre()).toEqual(landing("top"));
+    expect(state().dock).toBe("top");
+  });
+
+  /**
+   * The window is built with the call and kept hidden, so the drag has a
+   * window to show rather than one to build and load.
+   */
+  test("a drag mid-call shows the edges and names the one it is heading for", () => {
+    expect(zonesWindow()).toBeNull();
+    send("vellum:companion:startVoice");
+    expect(zonesWindow()?.visible).toBe(false);
+    expect(zonesWindow()?.bounds).toEqual(SCREEN);
+    dragTo({ x: 100, y: 450 });
+    const zones = zonesWindow();
+    expect(zones?.visible).toBe(true);
+    expect(zones?.level).toEqual(["floating", -1]);
+    expect(state().docking).toBe("left");
+    dragTo({ x: 700, y: 60 });
+    expect(state().docking).toBe("top");
+  });
+
+  /**
+   * A click on the creature mid-call is a press the renderer reports moves
+   * for, jitter and all, and it must not flash the edges or move the bar.
+   */
+  test("a press that barely moves is a click, not a drag", () => {
+    send("vellum:companion:startVoice");
+    const docked = centre();
+    send("vellum:companion:moveBy", 1, -1);
+    expect(zonesWindow()?.visible).toBe(false);
+    expect(state().docking).toBeUndefined();
+    release();
+    expect(centre()).toEqual({ x: docked.x + 1, y: docked.y - 1 });
+    expect(state().dock).toBe("bottom");
+  });
+
+  test("an idle drag shows no edges", () => {
+    dragTo({ x: 100, y: 450 });
+    expect(zonesWindow()).toBeNull();
+    expect(state().docking).toBeUndefined();
+    release();
+    expect(state().dock).toBe("bottom");
+  });
+
+  test("the release docks the bar to the edge it was heading for and remembers it", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 100, y: 450 });
+    release();
+    expect(zonesWindow()?.visible).toBe(false);
+    expect(state().docking).toBeUndefined();
+    expect(state().dock).toBe("left");
+    expect(storedDock).toBe("left");
+    expect(centre()).toEqual(landing("left", SIDE));
+  });
+
+  /** The column needs a canvas of its own shape, and the row wants the old one back. */
+  test("a side dock stands the canvas up for the call and lays it back down after", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 1400, y: 450 });
+    release();
+    expect(boundsSet.at(-1)?.height).toBe(SIDE.canvasHeight);
+    expect(state().avatarBox).toBe(SIDE.avatarBox);
+    send("vellum:voiceActivity:end");
+    expect(boundsSet.at(-1)?.height).toBe(GEOMETRY.canvasHeight);
+  });
+
+  test("goes home after a call docked to a side", () => {
+    dragTo({ x: 300, y: 200 });
+    const home = centre();
+    send("vellum:companion:startVoice");
+    dragTo({ x: 1400, y: 450 });
+    release();
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(home);
+  });
+
+  test("the next call stands the bar up on the side it was left on", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 1400, y: 450 });
+    release();
+    send("vellum:voiceActivity:end");
+    send("vellum:companion:startVoice");
+    expect(centre()).toEqual(landing("right", SIDE));
+    expect(boundsSet.at(-1)?.height).toBe(SIDE.canvasHeight);
+  });
+
+  test("a call ending under a drag takes the edges down with it", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 100, y: 450 });
+    expect(zonesWindow()?.visible).toBe(true);
+    send("vellum:voiceActivity:end");
+    expect(zonesWindow()).toBeNull();
+    expect(state().docking).toBeUndefined();
+    // A release arriving after the call has nothing left to dock.
+    release();
+    expect(state().dock).toBe("bottom");
+  });
+
+  test("a reset mid-call puts the bar back on the bottom for this call and the next", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 100, y: 450 });
+    release();
+    expect(state().dock).toBe("left");
+    resetCompanionSurfacePosition();
+    expect(state().dock).toBe("bottom");
+    expect(storedDock).toBe("bottom");
+    expect(centre()).toEqual(landing("bottom"));
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(landing("bottom"));
+  });
+
+  test("the edges follow a drag onto another display", () => {
+    send("vellum:companion:startVoice");
+    const second = displays[1];
+    if (second === undefined) {
+      throw new Error("Expected a second display");
+    }
+    dragTo({ x: 100, y: 450 });
+    nearestDisplay = second;
+    dragTo({ x: 1500, y: 500 });
+    expect(zonesWindow()?.bounds).toEqual(second.workArea);
+    expect(state().docking).toBe("left");
   });
 });
 

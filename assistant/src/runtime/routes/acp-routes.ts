@@ -287,7 +287,13 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   );
 
   const manager = getAcpSessionManager();
-  const { acpSessionId, protocolSessionId, modelWarning } = await manager.spawn(
+  const {
+    acpSessionId,
+    protocolSessionId,
+    requestedModel,
+    effectiveModel,
+    modelWarning,
+  } = await manager.spawn(
     agent,
     agentConfig,
     task,
@@ -304,6 +310,8 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
     acpSessionId,
     protocolSessionId,
     agent,
+    requestedModel: requestedModel ?? null,
+    effectiveModel: effectiveModel ?? null,
     ...(modelWarning ? { modelWarning } : {}),
   };
 }
@@ -679,6 +687,16 @@ export const ROUTES: RouteDefinition[] = [
       acpSessionId: z.string(),
       protocolSessionId: z.string(),
       agent: z.string(),
+      requestedModel: z
+        .string()
+        .nullable()
+        .describe("The model explicitly requested for this spawn, if any."),
+      effectiveModel: z
+        .string()
+        .nullable()
+        .describe(
+          "The top-level session model reported by the ACP adapter, if any.",
+        ),
       modelWarning: z
         .string()
         .optional()

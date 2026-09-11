@@ -173,6 +173,20 @@ describe("removePersistedPairedGatewayCredential", () => {
 });
 
 describe("runStorageMigrations", () => {
+  test("removes proactive tips state", () => {
+    localStorage.setItem("device:tips:records", '{"quick-input":{}}');
+    localStorage.setItem("device:tips:enabled", "false");
+    localStorage.setItem("device:tips:first_seen_at", "1700000000000");
+    localStorage.setItem("vellum:ff-str:proactiveTips", "on");
+
+    runStorageMigrations();
+
+    expect(localStorage.getItem("device:tips:records")).toBeNull();
+    expect(localStorage.getItem("device:tips:enabled")).toBeNull();
+    expect(localStorage.getItem("device:tips:first_seen_at")).toBeNull();
+    expect(localStorage.getItem("vellum:ff-str:proactiveTips")).toBeNull();
+  });
+
   test("migrates sidebar keys", () => {
     localStorage.setItem("assistantSidebarCollapsed", "true");
     localStorage.setItem("assistantSidebarWidth", "300");
@@ -422,7 +436,7 @@ describe("runStorageMigrations", () => {
     expect(localStorage.getItem("vellum:skills:tipDismissed")).toBe("true");
   });
 
-  test("does not touch device: keys", () => {
+  test("does not touch unrelated device: keys", () => {
     localStorage.setItem("device:theme", "dark");
     localStorage.setItem("device:timezone", "UTC");
 

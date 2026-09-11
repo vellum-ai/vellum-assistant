@@ -103,8 +103,8 @@ export const RESEARCH_ONBOARDING_CHECKIN_STEP = {
  * chat surface-action path when the user clicks one of the work / personal /
  * both options the "Let's chat" greeting renders (see `first-run-scope.ts`) —
  * so it lives outside RESEARCH_ONBOARDING_FUNNEL_STEPS and takes the next free
- * index. The chosen scope rides `screen`, the same dimension-in-`screen`
- * pattern the tips and tour funnels use.
+ * index. The chosen scope rides `screen`, using the same dimension-in-`screen`
+ * pattern as other funnel events.
  */
 export const FIRST_MESSAGE_SCOPE_STEP = {
   stepName: "first_message_scope_selected",
@@ -122,22 +122,21 @@ export type OnboardingFunnelStepOutcome = "completed" | "skipped";
 /**
  * A/B arm stamped on the event. The ingest stores `ab_variant` as an open
  * CharField; the `OnboardingFunnelVariant` union documents the pre-chat arms
- * while `(string & {})` admits other funnels' arms (e.g. tips flag variants).
+ * while `(string & {})` admits experiment arms from other funnels.
  */
 export type OnboardingFunnelAbVariant = OnboardingFunnelVariant | (string & {});
 
 export interface OnboardingFunnelStepCompletedOptions {
   userId?: string | null;
-  /** A/B arm stamped as `ab_variant`; defaults to control. The tips funnel
-   * passes its flag arm here. */
+  /** A/B arm stamped as `ab_variant`; defaults to control. */
   variant?: OnboardingFunnelAbVariant;
   /** Funnel this step belongs to; defaults to the pre-chat funnel version. */
   funnelVersion?: string;
   /** Completed vs skipped; omitted when the funnel doesn't distinguish. */
   outcome?: OnboardingFunnelStepOutcome;
   /**
-   * Emitted `screen` when it differs from the step name — e.g. the tips
-   * funnel puts the tip id in `screen` and the action in `step_name`.
+   * Emitted `screen` when it differs from the step name, such as when a funnel
+   * puts a selected option in `screen` and the action in `step_name`.
    */
   screen?: string;
 }
@@ -270,8 +269,8 @@ export function emitResearchOnboardingCheckinCalendarOpened(
 
 /**
  * Emit the first-run scope option click. The chosen scope rides the event's
- * `screen` field — the same dimension-in-`screen` pattern the tips and tour
- * funnels use — so analysts read the scope from `screen`, not `step_name`.
+ * `screen` field, using the same dimension-in-`screen` pattern as other funnel
+ * events, so analysts read the scope from `screen`, not `step_name`.
  * Stamped with the research funnel version and `control` variant like the
  * in-flow steps, so click-through rate is derivable against their completion
  * rows in the same funnel. `userId` keys the row to the clicking user; when

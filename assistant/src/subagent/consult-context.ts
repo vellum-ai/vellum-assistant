@@ -33,7 +33,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { SkillSummary } from "../config/skills.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { truncate as truncateText } from "../util/truncate.js";
@@ -56,15 +55,6 @@ export interface AdvisorContextSources {
    * from the catalog section, mirroring the `skill_load` gate.
    */
   enabledPluginSet?: ReadonlySet<string> | null;
-  /**
-   * Pre-resolved skill catalog, typically the parent conversation's warm
-   * `skillProjectionCache.catalog`. Passing it keeps the synchronous on-disk
-   * catalog scan out of the consult path (and matches the catalog view the
-   * parent turn's tool projection used). When absent, the section falls back
-   * to a fresh `loadSkillCatalog()` scan, the same call every agent turn's
-   * projection already makes.
-   */
-  skillCatalog?: readonly SkillSummary[];
 }
 
 /** Cap a block so the assembled context never balloons the consult prompt. */
@@ -114,7 +104,6 @@ async function buildToolsSection(
  */
 async function buildSkillsSection(
   enabledPluginSet: ReadonlySet<string> | null | undefined,
-  preResolvedCatalog: readonly SkillSummary[] | undefined,
 ): Promise<string | null> {
   try {
     const [
@@ -130,19 +119,17 @@ async function buildSkillsSection(
     ]);
     const config = getConfig();
     const pluginScope = enabledPluginSet ?? null;
-    const catalog = (preResolvedCatalog ?? loadSkillCatalog()).filter(
-      (skill) => {
-        if (
-          pluginScope !== null &&
-          skill.owner?.kind === "plugin" &&
-          !pluginScope.has(skill.owner.id)
-        ) {
-          return false;
-        }
-        const flagKey = skillFlagKey(skill);
-        return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
-      },
-    );
+    const catalog = loadSkillCatalog().filter((skill) => {
+      if (
+        pluginScope !== null &&
+        skill.owner?.kind === "plugin" &&
+        !pluginScope.has(skill.owner.id)
+      ) {
+        return false;
+      }
+      const flagKey = skillFlagKey(skill);
+      return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
+    });
     if (catalog.length === 0) {
       return null;
     }
@@ -384,7 +371,7 @@ export async function buildAdvisorContext(
   const sections = await Promise.all(
     [
       buildToolsSection(sources.allowedToolNames),
-      buildSkillsSection(sources.enabledPluginSet, sources.skillCatalog),
+      buildSkillsSection(sources.enabledPluginSet),
       buildWorkspaceSection(sources),
     ].map((section) => withSectionTimeout(section, sectionTimeoutMs)),
   );

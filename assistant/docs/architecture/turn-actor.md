@@ -60,14 +60,21 @@ and restore the prior value afterwards, each guarding the restore so a turn that
 started in between is not clobbered. They are supplying the acting actor for
 their run, and are covered by this contract.
 
-A queued message commits to a run at its drain, not at its enqueue. The drains
-(`drainSingleMessage` and `drainBatch` in `conversation-process.ts`) stamp the
-queued sender the way `processMessage` stamps its committing actor, and re-scope
-the resident history to them, so a turn drained behind another actor's turn
-runs as its sender everywhere the resting actor is read, not only in the
-per-turn snapshot. A steered drain skips the re-scope: its sender owned the
-turn it cut off, and the resident history may carry the in-memory repair of the
-abandoned `tool_use`.
+The queue drains are deliberately not in that set. `drainSingleMessage` and
+`drainBatch` carry the queued sender on the per-turn field and into the run,
+and leave the resting slot alone: at the point they stamp, the drain has not
+yet proved it holds the processing lock. Its `isProcessing()` check is a
+time-of-check guard whose documented backstop is the persist that can still
+fail busy, and the requeue on that path restores the queue and the steer flag
+only. A drain that stamped the slot would therefore leave the conversation
+attributed to a sender whose turn never ran.
+
+The consequence is that a cross-actor drain runs against history scoped for the
+previous actor, because `ensureActorScopedHistory` reads the slot. That is a
+real defect and it is LUM-3344's, which owns the fix: scope the transcript at
+assembly time from the turn's actor, rather than mutating a shared transcript
+and tracking who it was scoped for. Do not close it by making the drain stamp
+the slot first.
 
 `call-controller` keeps its own `trustContext` on its own object and never reads
 the conversation's. It is outside this contract.

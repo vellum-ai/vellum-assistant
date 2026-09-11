@@ -17,6 +17,8 @@ import {
   getRequestByPendingQuestionOrNull,
   listGuardianRequestDeliveriesOrEmpty,
 } from "../channels/gateway-guardian-requests.js";
+import { loadConfig } from "../config/loader.js";
+import type { VoiceProgressConfig } from "../config/schemas/voice.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -64,6 +66,10 @@ import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import {
+  createVoiceProgressNarrator,
+  type VoiceProgressNarrator,
+} from "./progress-narration.js";
+import {
   findPlayableTelephonyTtsFallbackProvider,
   resolveCallTtsProvider,
   resolveSynthesisFormats,
@@ -84,10 +90,18 @@ import {
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
 import {
+  createFrontDoorLegCoordinator,
+  type FrontDoorLegCoordinator,
+  type SpokenEscalationBridge,
+} from "./voice-leg-coordinator.js";
+import { createProgressCadence } from "./voice-progress-cadence.js";
+import {
   CONVERSATION_BUSY_MESSAGE,
   startVoiceTurn,
+  type VoiceTurnCallbacks,
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
+import { type VoiceRoutingLeg } from "./voice-triage-escalate.js";
 
 const log = getLogger("call-controller");
 
@@ -117,6 +131,32 @@ interface PendingEndCall {
   cancelled: boolean;
   /** Settles the teardown's current in-flight wait (drain cap or listen window). */
   wake: (() => void) | null;
+}
+
+/**
+ * What one voice turn produced, across both of its legs when it escalated.
+ * Feeds post-turn marker detection and the call event log.
+ */
+interface VoiceTurnOutcome {
+  /**
+   * The filtered response text: what the caller heard, plus the control
+   * markers the model emitted for the controller to act on.
+   */
+  text: string;
+  /** Persisted row of the caller's utterance, when the bridge reported it. */
+  userMessageId: string | null;
+  /**
+   * Persisted row of the leg that answered: the escalated leg's when the
+   * turn escalated, else the front-door leg's own.
+   */
+  assistantMessageId: string | null;
+}
+
+/** One leg of a triaged phone turn, as handed to the session bridge. */
+interface PhoneVoiceLeg {
+  content: string;
+  routingLeg: VoiceRoutingLeg;
+  spokenEscalationBridge?: string;
 }
 
 export class CallController {
@@ -203,6 +243,11 @@ export class CallController {
    * resolution only.
    */
   private resolveSynthesisLanguage: () => string | undefined;
+  /** Spoken progress narration (voice.frontModel.progress), null when off. */
+  private readonly progressNarrator: VoiceProgressNarrator | null;
+  private readonly progressConfig: VoiceProgressConfig;
+  /** Rotates the static narration fallback across turns. */
+  private progressPhraseCounter = 0;
 
   constructor(
     callSessionId: string,
@@ -213,6 +258,9 @@ export class CallController {
       assistantId?: string;
       trustContext?: TrustContext;
       resolveSynthesisLanguage?: () => string | undefined;
+      /** Test seam: an explicit null disables narration for the call. */
+      progressNarrator?: VoiceProgressNarrator | null;
+      progressConfig?: VoiceProgressConfig;
     },
   ) {
     this.callSessionId = callSessionId;
@@ -225,6 +273,12 @@ export class CallController {
     this.resolveSynthesisLanguage =
       opts?.resolveSynthesisLanguage ??
       (() => resolveTelephonySynthesisLanguage());
+    this.progressConfig =
+      opts?.progressConfig ?? loadConfig().voice.frontModel.progress;
+    this.progressNarrator =
+      opts?.progressNarrator !== undefined
+        ? opts.progressNarrator
+        : createVoiceProgressNarrator({ config: this.progressConfig });
 
     // Resolve the conversation ID and skipDisclosure from the call session
     const session = getCallSession(callSessionId);
@@ -434,37 +488,35 @@ export class CallController {
   }
 
   /**
-   * Handle a barge-in attempt from inbound caller audio.
+   * Handle a barge-in from sustained inbound caller speech.
    *
-   * Only interrupts the in-flight turn when the assistant is actively
-   * speaking. When the controller is idle or still processing (no TTS
-   * output yet), the barge-in is ignored — this prevents false
-   * interruption on initial inbound media frames that arrive before
-   * the assistant has had a chance to produce its first response.
+   * Interrupts the in-flight turn whether the assistant is audibly speaking
+   * or still thinking (processing, no audio yet), so a caller can cut in
+   * before the assistant starts talking. With no turn in flight the
+   * barge-in is ignored. The transport's sustained-speech guard is what
+   * keeps a stray frame from cancelling a still-starting turn; the state
+   * gate only says whether there is anything to cancel.
    *
-   * @param onAccepted Invoked synchronously after the speaking gate
-   *   passes but before {@link handleInterrupt} runs. Transports use this
-   *   to flush queued outbound audio without wiping the end-of-turn mark
-   *   that handleInterrupt enqueues — and without flushing at all when
-   *   the barge-in is ignored.
-   * @returns `true` if the barge-in was accepted (assistant was speaking),
-   *   `false` if it was ignored (assistant idle or processing).
+   * @param onAccepted Invoked synchronously after the gate passes but
+   *   before {@link handleInterrupt} runs. Transports use this to flush
+   *   queued outbound audio without wiping the end-of-turn mark that
+   *   handleInterrupt enqueues, and without flushing at all when the
+   *   barge-in is ignored.
+   * @returns `true` if the barge-in was accepted (a turn was in flight),
+   *   `false` if it was ignored (assistant idle).
    */
   handleBargeIn(onAccepted?: () => void): boolean {
-    if (this.state !== "speaking") {
+    if (this.state === "idle") {
       log.debug(
-        {
-          callSessionId: this.callSessionId,
-          state: this.state,
-        },
-        "Barge-in ignored — assistant not speaking",
+        { callSessionId: this.callSessionId },
+        "Barge-in ignored: no turn in flight",
       );
       return false;
     }
 
     log.info(
-      { callSessionId: this.callSessionId },
-      "Barge-in accepted — interrupting assistant speech",
+      { callSessionId: this.callSessionId, state: this.state },
+      "Barge-in accepted: interrupting the assistant's turn",
     );
     onAccepted?.();
     this.handleInterrupt();
@@ -472,11 +524,12 @@ export class CallController {
   }
 
   /**
-   * Handle caller interrupting the assistant's speech.
+   * Handle caller interrupting the assistant's turn.
    *
    * This is the hard interrupt path used for explicit teardown and
    * internal abort scenarios. For barge-in from inbound audio, prefer
-   * {@link handleBargeIn} which gates on the speaking state.
+   * {@link handleBargeIn}, which ignores an idle controller and relies on
+   * the transport's sustained-speech guard to vouch for the interruption.
    */
   handleInterrupt(): void {
     const wasSpeaking = this.state === "speaking";
@@ -602,6 +655,9 @@ export class CallController {
     }
     const runVersion = ++this.llmRunVersion;
     const runSignal = this.abortController.signal;
+    // Stamped before any pre-bridge work so the bridge's dispatch-timing log
+    // attributes the whole turn, TTS provider resolution included.
+    const launchedAtMs = Date.now();
 
     // Clear silence timer while actively processing. The caller said
     // something (or a turn was triggered), so silence detection should
@@ -614,19 +670,21 @@ export class CallController {
     try {
       // Stay in `processing` through the lock-wait and LLM generation; flip to
       // `speaking` only when real outbound audio/tokens start (see
-      // beginSpeaking). This keeps barge-in from aborting a silent turn.
+      // beginSpeaking). The transport reads the state to know whether audio
+      // is audible; either phase is interruptible by sustained caller speech.
       this.state = "processing";
 
-      const fullResponseText = await this.streamTtsTokens(
+      const outcome = await this.streamTtsTokens(
         content,
         runVersion,
         runSignal,
+        launchedAtMs,
       );
       if (!this.isCurrentRun(runVersion)) {
         return;
       }
 
-      await this.handleTurnCompletion(fullResponseText);
+      await this.handleTurnCompletion(outcome);
     } catch (err: unknown) {
       this.currentTurnHandle = null;
       // Aborted requests are expected (interruptions, rapid utterances)
@@ -685,15 +743,25 @@ export class CallController {
   }
 
   /**
-   * Stream TTS tokens from the conversation pipeline, buffering to strip
-   * control markers before they reach the relay. Returns the full
-   * accumulated response text for post-turn marker detection.
+   * Run one turn through the conversation pipeline and stream its speech to
+   * the transport, buffering to strip control markers before they reach the
+   * relay.
+   *
+   * Every turn opens on the front-door leg: a fast, toolless model that
+   * either answers outright or hands off with a spoken holding phrase to an
+   * escalated leg on the conversation's own model. Both legs stream through
+   * the same TTS machinery and share this turn's single end-of-turn signal,
+   * so the caller never gets a listening window between the bridge and the
+   * answer. Phone turns commit on the STT provider's utterance-boundary
+   * final and carry no partial transcript, so the front-door leg never
+   * holds: routing is escalate-only.
    */
   private async streamTtsTokens(
     content: string,
     runVersion: number,
     runSignal: AbortSignal,
-  ): Promise<string> {
+    launchedAtMs: number,
+  ): Promise<VoiceTurnOutcome> {
     // Resolve the active TTS provider through the global abstraction.
     // The catalog's callMode determines the call path: synthesized-play
     // providers synthesize each speakable segment via the provider API as
@@ -713,12 +781,17 @@ export class CallController {
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
     // could be the start of a control marker.
     let fullResponseText = "";
-    // Reasoning models can inline <think> spans in the content stream when a
-    // profile has not opted into parseThinkTags. Neither the spoken path nor
-    // the post-turn consumers of fullResponseText (transcripts,
-    // assistant_spoke, END_CALL/ASK_GUARDIAN detection) may see them: both
-    // are fed only filtered text.
-    const reasoningFilter = createReasoningTagFilter();
+    const outcome: VoiceTurnOutcome = {
+      text: "",
+      userMessageId: null,
+      assistantMessageId: null,
+    };
+    // Audio bookkeeping for progress narration: segments handed to synthesis
+    // but not yet emitted, text deltas seen (a narration generated while the
+    // model was already speaking is stale), and whether the turn is over.
+    let segmentsInFlight = 0;
+    let deltaEpoch = 0;
+    let turnSettled = false;
 
     // Synthesized path: text is split at speakable boundaries as it streams
     // and each segment is synthesized while the LLM keeps generating. The
@@ -754,6 +827,7 @@ export class CallController {
     const speakSegmentViaPcmFallback = async (
       failedProviderId: string,
       segment: string,
+      language: string | undefined,
     ): Promise<void> => {
       if (pcmFallbackProvider === undefined) {
         pcmFallbackProvider =
@@ -785,6 +859,7 @@ export class CallController {
         segment,
         runVersion,
         audioFormat,
+        language,
       );
       if (fallbackStatus !== "ok") {
         // The fallback provider is failing too — stop retrying.
@@ -792,9 +867,12 @@ export class CallController {
       }
     };
 
+    // `language` overrides the turn's synthesis language for a fixed phrase
+    // whose text is not in the caller's language; undefined rides the turn's.
     const enqueueSynthesisSegments = (
       ttsProvider: TtsProvider,
       segments: string[],
+      language?: string,
     ): void => {
       for (const rawSegment of segments) {
         // Sanitized per segment (not per delta) so markdown spanning deltas
@@ -804,21 +882,23 @@ export class CallController {
           continue;
         }
         firstSynthSegmentEnqueued = true;
+        segmentsInFlight += 1;
         synthesisChain = synthesisChain.then(async () => {
-          if (
-            !this.isCurrentRun(runVersion) ||
-            synthesisFailure ||
-            synthesisCancelled
-          ) {
-            return;
-          }
           try {
+            if (
+              !this.isCurrentRun(runVersion) ||
+              synthesisFailure ||
+              synthesisCancelled
+            ) {
+              return;
+            }
             if (!synthesisFellBack) {
               const status = await this.synthesizeAndStreamAudio(
                 ttsProvider,
                 segment,
                 runVersion,
                 audioFormat,
+                language,
               );
               if (status === "ok") {
                 return;
@@ -844,9 +924,14 @@ export class CallController {
               this.transport.sendTextToken(`${segment} `, false);
               return;
             }
-            await speakSegmentViaPcmFallback(ttsProvider.id, segment);
+            await speakSegmentViaPcmFallback(ttsProvider.id, segment, language);
           } catch (err) {
             synthesisFailure = { err };
+          } finally {
+            segmentsInFlight -= 1;
+            // The segment's audio has been handed off; the transport's
+            // playback tail covers what is still playing.
+            cadence.noteAudioSettled();
           }
         });
       }
@@ -872,8 +957,73 @@ export class CallController {
         }
         this.beginSpeakingOnAudioStart(runVersion);
         this.transport.sendTextToken(cleaned, false);
+        cadence.noteAudioSettled();
       }
     };
+
+    /**
+     * Speak a fixed phrase from a localized table (already one complete
+     * sentence, no markers) outside the model-text stream. `language` is the
+     * hint the phrase must carry: "en" when the table lacked the caller's
+     * language, so the English text is not rendered under a ko/ar/ta hint
+     * (on the native route that is the transport's system-copy contract);
+     * undefined rides the turn's language like model text.
+     */
+    const speakFixedPhrase = (
+      text: string,
+      language: string | undefined,
+    ): boolean => {
+      const cleaned = sanitizeForTts(text).trim();
+      if (cleaned.length === 0) {
+        return false;
+      }
+      if (synthProvider) {
+        enqueueSynthesisSegments(synthProvider, [cleaned], language);
+        return true;
+      }
+      this.beginSpeakingOnAudioStart(runVersion);
+      this.transport.sendTextToken(`${cleaned} `, false, {
+        systemCopy: language !== undefined,
+      });
+      cadence.noteAudioSettled();
+      return true;
+    };
+
+    // Spoken progress narration for the turn's dead air (tool loops on the
+    // escalated leg). The shared cadence owns the timing; this host supplies
+    // the phone's view of audible silence: nothing buffered toward a
+    // sentence, no segment mid-synthesis, and the transport's queue empty
+    // with its playback-tail estimate expired.
+    const callerTranscript =
+      content === CALL_OPENING_MARKER ||
+      content === CALL_VERIFICATION_COMPLETE_MARKER
+        ? ""
+        : content;
+    const cadence = createProgressCadence({
+      config: this.progressConfig,
+      narrator: this.progressNarrator,
+      nextFallbackPhraseIndex: () => this.progressPhraseCounter++,
+      host: {
+        turnId: `${this.callSessionId}#${runVersion}`,
+        launchedAtMs,
+        signal: runSignal,
+        canNarrate: () => this.isCurrentRun(runVersion) && !turnSettled,
+        isAudioIdle: () =>
+          pendingSynthText.length === 0 &&
+          segmentsInFlight === 0 &&
+          (this.transport.isPlaybackIdle?.() ?? true),
+        playbackTailUntilMs: () => this.transport.playbackTailUntilMs?.() ?? 0,
+        transcriptSoFar: () => callerTranscript,
+        language: () => this.resolveSynthesisLanguage(),
+        deltaEpoch: () => deltaEpoch,
+        speak: speakFixedPhrase,
+      },
+    });
+    const settleTurn = (): void => {
+      turnSettled = true;
+      cadence.clear();
+    };
+    runSignal.addEventListener("abort", settleTurn, { once: true });
 
     // Speech goes out through the shared control-marker holdback: text up to
     // a possibly-streaming marker flushes, the marker itself is stripped, and
@@ -887,100 +1037,285 @@ export class CallController {
       emitSafeChunk(chunk);
     });
 
-    // Use a promise to track completion of the voice turn
-    const turnComplete = new Promise<void>((resolve, reject) => {
-      const onTextDelta = (text: string): void => {
+    // Transcript row ids reported by the bridge. The escalated leg persists
+    // a hidden continuation prompt rather than the caller's words, so only
+    // the front-door leg's user row is the utterance; and a front-door leg
+    // that handed off owns the bridge row, not the answer, so its assistant
+    // row is not the turn's.
+    const legCallbacks = (
+      routingLeg: VoiceRoutingLeg,
+      handedOff: () => boolean,
+    ): VoiceTurnCallbacks => ({
+      persisted_user_message_id: (messageId) => {
+        if (!this.isCurrentRun(runVersion) || routingLeg === "escalated") {
+          return;
+        }
+        outcome.userMessageId = messageId;
+      },
+      persisted_assistant_message_id: (messageId) => {
+        if (!this.isCurrentRun(runVersion) || handedOff()) {
+          return;
+        }
+        outcome.assistantMessageId = messageId;
+      },
+      // Tool activity lands in the call event log, the call's own record of
+      // what happened on the line: the call summary and status surfaces
+      // read it, and it is what the caller sat in silence through.
+      tool_use_start: (toolName, detail) => {
         if (!this.isCurrentRun(runVersion)) {
           return;
         }
-        // One filter feeds both consumers: the spoken stream and the text
-        // used for transcripts, assistant_spoke, and END_CALL/ASK_GUARDIAN
-        // marker detection. A control marker inside a reasoning span must
-        // never trigger a real action the caller did not hear.
-        const speakable = reasoningFilter.push(text);
-        fullResponseText += speakable;
-        flushSafeText(fullResponseText);
-      };
-
-      const onComplete = (): void => {
-        resolve();
-      };
-
-      const onError = (message: string): void => {
-        reject(new Error(message));
-      };
-
-      // Start the voice turn through the session bridge
-      startVoiceTurn({
-        conversationId: this.conversationId,
-        callSessionId: this.callSessionId,
-        content,
-        assistantId: this.assistantId,
-        trustContext: this.trustContext ?? undefined,
-        isInbound: this.isInbound,
-        task: this.task,
-        skipDisclosure: this.skipDisclosure,
-        onTextDelta,
-        onComplete,
-        onError,
-        signal: runSignal,
-      })
-        .then((handle) => {
-          if (this.isCurrentRun(runVersion)) {
-            this.currentTurnHandle = handle;
-          } else {
-            // Turn was superseded before handle arrived; abort immediately
-            handle.abort();
-          }
-        })
-        .catch((err) => {
-          reject(err);
+        recordCallEvent(this.callSessionId, "tool_use_started", {
+          toolName,
+          ...(detail?.toolUseId !== undefined
+            ? { toolUseId: detail.toolUseId }
+            : {}),
         });
-
-      // Defensive: if the turn is aborted (e.g. barge-in) and the event
-      // sink callbacks are never invoked, resolve the promise so it
-      // doesn't hang forever.
-      runSignal.addEventListener(
-        "abort",
-        () => {
-          resolve();
-        },
-        { once: true },
-      );
+        cadence.toolStarted(toolName, detail?.toolUseId);
+      },
+      tool_result: (event) => {
+        if (!this.isCurrentRun(runVersion)) {
+          return;
+        }
+        recordCallEvent(this.callSessionId, "tool_use_completed", {
+          toolName: event.toolName,
+          ...(event.toolUseId !== undefined
+            ? { toolUseId: event.toolUseId }
+            : {}),
+          ...(event.isError !== undefined ? { isError: event.isError } : {}),
+          resultPreview: event.resultPreview,
+        });
+        cadence.toolFinished(event);
+      },
     });
 
-    // Eagerly mark the rejection as handled so runtimes (e.g. bun) don't
-    // flag it as an unhandled rejection when onError fires synchronously
-    // inside the Promise constructor before this await adds its handler.
-    // The await below still re-throws, caught by the outer try-catch.
-    turnComplete.catch(() => {});
-    try {
-      await turnComplete;
-    } catch (err) {
-      // Cancel and settle this turn's synthesis before the error reaches
-      // the outer handler, so no straggling segment plays the partial
-      // answer over the recovery prompt. While this run is current no
-      // newer run's synthesis can be in flight, so the abort is safe.
-      if (this.isCurrentRun(runVersion)) {
-        synthesisCancelled = true;
-        this.abortActiveSynthesis();
+    // Speak the escalation bridge so the strong-model call has no dead air.
+    // The model's own holding phrase is real assistant speech and stays in
+    // the turn's text, matching the row the bridge's transcript hygiene
+    // keeps for it; the canned fallback is audio-only, matching the row it
+    // deletes.
+    const speakEscalationBridge = (bridge: SpokenEscalationBridge): void => {
+      if (bridge.usesFallback) {
+        speakFixedPhrase(bridge.spokenBridge, bridge.language);
+        return;
       }
+      fullResponseText += `${bridge.spokenBridge} `;
+      flushSafeText(fullResponseText, { force: true });
+      // Force-synthesize the bridge now. On the synthesized-TTS path text is
+      // held in pendingSynthText until a sentence boundary, so an
+      // unpunctuated bridge would otherwise sit unspoken until the post-leg
+      // drain, leaving the caller in silence during the escalated model's
+      // call: the exact gap the bridge exists to mask.
+      if (synthProvider) {
+        const { segments } = extractSpeakableSegments(pendingSynthText, true);
+        pendingSynthText = "";
+        enqueueSynthesisSegments(synthProvider, segments);
+      }
+    };
+
+    // The escalated leg, once the front-door leg hands off. Started from
+    // inside the hand-off; awaited by the turn after the front-door leg
+    // settles.
+    let escalatedLeg: Promise<void> | null = null;
+
+    // Run one leg through the session bridge, streaming its deltas through
+    // the shared TTS closures above. Errors cancel and drain this turn's
+    // synthesis before propagating.
+    const runVoiceLeg = async (leg: PhoneVoiceLeg): Promise<void> => {
+      // Reasoning models can inline <think> spans in the content stream when
+      // a profile has not opted into parseThinkTags. Neither the spoken path
+      // nor the post-turn consumers of fullResponseText (transcripts,
+      // assistant_spoke, END_CALL/ASK_GUARDIAN detection) may see them: both
+      // are fed only filtered text. One filter per leg: a span never straddles
+      // the hand-off.
+      const reasoningFilter = createReasoningTagFilter();
+      let legHandle: VoiceTurnHandle | null = null;
+      // Verdict-first: a front-door leg's leading tokens decide the turn's
+      // fate, so its raw stream is a control plane until they classify. The
+      // shared coordinator reads it and sequences the hand-off; only text it
+      // releases is spoken or recorded. Phone has no partial transcripts,
+      // so the hold verdict is never taught.
+      const coordinator: FrontDoorLegCoordinator | null =
+        leg.routingLeg === "front-door"
+          ? createFrontDoorLegCoordinator({
+              holdEnabled: false,
+              host: {
+                isLive: () =>
+                  this.isCurrentRun(runVersion) && !runSignal.aborted,
+                language: () => this.resolveSynthesisLanguage(),
+                progress: cadence,
+                onAnswerText: (text) => {
+                  fullResponseText += text;
+                  flushSafeText(fullResponseText);
+                },
+                abortLeg: () => legHandle?.abort(),
+                speakBridge: speakEscalationBridge,
+                startEscalatedLeg: (escalated) => {
+                  const started = runVoiceLeg(escalated);
+                  // Awaited by the turn; the rejection is observed there.
+                  started.catch(() => {});
+                  escalatedLeg = started;
+                },
+              },
+            })
+          : null;
+
+      const legComplete = new Promise<void>((resolve, reject) => {
+        const ingest = (speakable: string): void => {
+          if (speakable.length > 0) {
+            deltaEpoch += 1;
+          }
+          if (coordinator !== null) {
+            coordinator.push(speakable);
+            return;
+          }
+          fullResponseText += speakable;
+          flushSafeText(fullResponseText);
+        };
+
+        const onTextDelta = (text: string): void => {
+          // Once the front-door leg hands off, nothing more from it is
+          // spoken, recorded, or acted on.
+          if (!this.isCurrentRun(runVersion) || coordinator?.handedOff) {
+            return;
+          }
+          ingest(reasoningFilter.push(text));
+        };
+
+        const onComplete = (): void => {
+          // A cancelled leg (barge-in, teardown) never hands off: a dead turn
+          // must not spawn an escalated leg. The bridge reports its own
+          // abort here too, which the hand-off already settled.
+          if (
+            !this.isCurrentRun(runVersion) ||
+            runSignal.aborted ||
+            coordinator?.handedOff
+          ) {
+            resolve();
+            return;
+          }
+          // A held "[..." tail that never completed a marker is real text,
+          // released to both consumers before the leg settles.
+          ingest(reasoningFilter.flush());
+          coordinator?.complete();
+          resolve();
+        };
+
+        const onError = (message: string): void => {
+          reject(new Error(message));
+        };
+
+        startVoiceTurn({
+          conversationId: this.conversationId,
+          callSessionId: this.callSessionId,
+          // The call session is the phone analogue of a live-voice session:
+          // its id joins the turn's telemetry row to the call, and the entry
+          // names the direction the call came from.
+          voiceTelemetry: {
+            sessionId: this.callSessionId,
+            entry: this.isInbound ? "phone_inbound" : "phone_outbound",
+          },
+          content: leg.content,
+          assistantId: this.assistantId,
+          trustContext: this.trustContext ?? undefined,
+          isInbound: this.isInbound,
+          task: this.task,
+          skipDisclosure: this.skipDisclosure,
+          launchedAtMs,
+          routingLeg: leg.routingLeg,
+          ...(leg.spokenEscalationBridge !== undefined
+            ? { spokenEscalationBridge: leg.spokenEscalationBridge }
+            : {}),
+          onTextDelta,
+          onComplete,
+          onError,
+          callbacks: legCallbacks(
+            leg.routingLeg,
+            () => coordinator?.handedOff === true,
+          ),
+          signal: runSignal,
+        })
+          .then((handle) => {
+            legHandle = handle;
+            if (this.isCurrentRun(runVersion) && !coordinator?.handedOff) {
+              this.currentTurnHandle = handle;
+            } else {
+              // Superseded, or the front-door leg handed off before its
+              // handle arrived: abort immediately.
+              handle.abort();
+            }
+          })
+          .catch((err) => {
+            reject(err);
+          });
+
+        // Defensive: if the turn is aborted (e.g. barge-in) and the event
+        // sink callbacks are never invoked, resolve the promise so it
+        // doesn't hang forever.
+        runSignal.addEventListener(
+          "abort",
+          () => {
+            resolve();
+          },
+          { once: true },
+        );
+      });
+
+      // Eagerly mark the rejection as handled so runtimes (e.g. bun) don't
+      // flag it as an unhandled rejection when onError fires synchronously
+      // inside the Promise constructor before this await adds its handler.
+      // The await below still re-throws, caught by the outer try-catch.
+      legComplete.catch(() => {});
+      try {
+        await legComplete;
+      } catch (err) {
+        // Cancel and settle this turn's synthesis before the error reaches
+        // the outer handler, so no straggling segment plays the partial
+        // answer over the recovery prompt. While this run is current no
+        // newer run's synthesis can be in flight, so the abort is safe.
+        if (this.isCurrentRun(runVersion)) {
+          synthesisCancelled = true;
+          this.abortActiveSynthesis();
+        }
+        settleTurn();
+        await synthesisChain.catch(() => {});
+        throw err;
+      }
+    };
+
+    // Superseded mid-stream (barge-in): drain the segment chain (queued
+    // links short-circuit on staleness) so this turn's synthesis fully
+    // settles instead of racing the next turn.
+    const settleSuperseded = async (): Promise<VoiceTurnOutcome> => {
+      settleTurn();
       await synthesisChain.catch(() => {});
-      throw err;
-    }
+      outcome.text = fullResponseText;
+      return outcome;
+    };
+
+    // Narration speaks into the turn's audible dead air on a cadence wherever
+    // in the turn it occurs; the front-door leg is toolless and quick, so in
+    // practice the escalated leg's tool loops are what it covers.
+    cadence.arm();
+    await runVoiceLeg({ content, routingLeg: "front-door" });
     if (!this.isCurrentRun(runVersion)) {
-      // Superseded mid-stream (barge-in): drain the segment chain — queued
-      // links short-circuit on staleness — so this turn's synthesis fully
-      // settles instead of racing the next turn.
-      await synthesisChain.catch(() => {});
-      return fullResponseText;
+      return settleSuperseded();
     }
 
-    // Final sweep: release any held-back partial tag to both consumers. A
-    // held "[..." tail that never completed a marker is real text, so the
-    // forced flush speaks it instead of dropping it.
-    const filterTail = reasoningFilter.flush();
-    fullResponseText += filterTail;
+    // The front-door model handed off: the coordinator spoke the bridge and
+    // started the escalated leg, which answers for real.
+    if (escalatedLeg !== null) {
+      await escalatedLeg;
+      if (!this.isCurrentRun(runVersion)) {
+        return settleSuperseded();
+      }
+    }
+
+    // The turn's legs are done: no narration past this point.
+    settleTurn();
+
+    // Final sweep: a held "[..." tail that never completed a marker is real
+    // text, so the forced flush speaks it instead of dropping it.
     flushSafeText(fullResponseText, { force: true });
 
     // Synthesized path: force-extract whatever never reached a speakable
@@ -1003,7 +1338,8 @@ export class CallController {
     // doesn't inject its end-of-turn marker (or fallback text) into the next
     // turn's output stream.
     if (!this.isCurrentRun(runVersion)) {
-      return fullResponseText;
+      outcome.text = fullResponseText;
+      return outcome;
     }
 
     // Signal end of this turn's speech.  An empty token with `last: true`
@@ -1020,7 +1356,8 @@ export class CallController {
       this.lastSentWasOpener = false;
     }
 
-    return fullResponseText;
+    outcome.text = fullResponseText;
+    return outcome;
   }
 
   /**
@@ -1044,6 +1381,7 @@ export class CallController {
     text: string,
     runVersion: number,
     format: CallAudioFormat = "mp3",
+    languageOverride?: string,
   ): Promise<SegmentSynthesisStatus> {
     let sink: AudioStoreSink | null = null;
     let playUrlSent = false;
@@ -1065,7 +1403,9 @@ export class CallController {
 
       this.activeSynthesisAbort = abortController;
 
-      const language = this.resolveSynthesisLanguage();
+      // A fixed phrase whose text is not in the caller's language carries
+      // its own hint; model text rides the turn's resolved language.
+      const language = languageOverride ?? this.resolveSynthesisLanguage();
       // A language-known segment may select the synthesizing provider's
       // configured per-language voice; no entry keeps the provider default.
       const voiceId = resolveTelephonyLanguageVoice(provider.id, language);
@@ -1153,12 +1493,19 @@ export class CallController {
    * (ASK_GUARDIAN_APPROVAL / ASK_GUARDIAN), call finalization (END_CALL),
    * and normal idle transition.
    */
-  private async handleTurnCompletion(fullResponseText: string): Promise<void> {
-    const responseText = fullResponseText;
+  private async handleTurnCompletion(outcome: VoiceTurnOutcome): Promise<void> {
+    const responseText = outcome.text;
 
-    // Record the assistant response event
+    // Record the assistant response event, keyed to the conversation rows it
+    // mirrors when the bridge reported them.
     recordCallEvent(this.callSessionId, "assistant_spoke", {
       text: responseText,
+      ...(outcome.userMessageId !== null
+        ? { userMessageId: outcome.userMessageId }
+        : {}),
+      ...(outcome.assistantMessageId !== null
+        ? { assistantMessageId: outcome.assistantMessageId }
+        : {}),
     });
     const spokenText = sanitizeForTts(
       stripInternalSpeechMarkers(responseText),
@@ -1563,9 +1910,11 @@ export class CallController {
   /**
    * Flip from the pre-speech `processing` phase to `speaking` at the moment the
    * first real outbound audio/token is emitted. Guarded so a superseded or
-   * aborted (idle) turn never (re)enters `speaking`, and so barge-in
-   * (handleBargeIn, gated on `speaking`) can't abort a turn that is still
-   * waiting for the processing lock or generating with no audio yet.
+   * aborted (idle) turn never (re)enters `speaking`. The state tells the
+   * transport whether audio is audible (it decides what a barge-in has to
+   * clear and whether an end-of-turn mark is owed); a barge-in itself may
+   * abort a turn in either phase once the transport's sustained-speech
+   * guard has vouched for it.
    */
   private beginSpeaking(runVersion: number): void {
     if (!this.isCurrentRun(runVersion)) {

@@ -1003,6 +1003,31 @@ export const COMPANION_CARD_GROWTHS = ["up", "down"] as const;
 export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
 
 /**
+ * Which edge of the display the call's bar rests on.
+ *
+ * A call takes the surface to an edge the way a meeting's controls sit on one,
+ * and the user picks which by dropping the bar there mid-call. `bottom` is the
+ * shape the bar is designed around. Along the top and bottom the bar keeps its
+ * row; along the sides it stands up as a column, since a row lying against a
+ * side edge would reach into the middle of the screen.
+ *
+ * Main decides and remembers it, for the reason it decides the growths: the
+ * edge is a fact about where the window was put, and the renderer has to be
+ * told it to draw the bar the way the window was placed for.
+ */
+export const COMPANION_DOCKS = ["bottom", "top", "left", "right"] as const;
+
+export type CompanionDock = (typeof COMPANION_DOCKS)[number];
+
+/**
+ * Whether a dock stands the bar up. Named once, since both sides of the bridge
+ * branch on it: main sizes the canvas for the column and the renderer draws
+ * one.
+ */
+export const companionDockIsSide = (dock: CompanionDock): boolean =>
+  dock === "left" || dock === "right";
+
+/**
  * How big the companion is drawn, as a named step rather than a number.
  *
  * Named rather than free, because the avatar's box is not a style: it is the
@@ -2020,6 +2045,26 @@ export interface CompanionSurfaceState {
    * this.
    */
   cardGrowth: CompanionCardGrowth;
+  /**
+   * Which edge of the display the call's bar rests on. See
+   * {@link CompanionDock}.
+   *
+   * Optional, and absence means a shell that predates the docks, which the
+   * renderer reads as `bottom`: the one edge every shell has ever put the bar
+   * on.
+   */
+  dock?: CompanionDock;
+  /**
+   * The edge a call's drag would drop the bar on if the hand let go now, or
+   * absent while no such drag is in flight.
+   *
+   * Set for the length of the drag and cleared on the release, so the window
+   * that shows the four edges as places to drop on knows which one to light.
+   * Absent rather than `null` outside a drag, for the reason `dock` is
+   * optional: a shell that has never heard of docks pushes the same shape as
+   * one between drags.
+   */
+  docking?: CompanionDock;
   /**
    * The avatar's box in points, which is the creature's whole scale.
    *

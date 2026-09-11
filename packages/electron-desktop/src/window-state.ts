@@ -2,10 +2,12 @@ import { BrowserWindow, screen, type Rectangle } from "electron";
 import Store from "electron-store";
 
 import {
+  COMPANION_DOCKS,
   COMPANION_SIZE_AXES,
   COMPANION_SIZES,
   DEFAULT_COMPANION_SIZE,
   titleBarOverlayThemeSchema,
+  type CompanionDock,
   type CompanionSize,
   type CompanionSizeAxis,
   type TitleBarOverlayTheme,
@@ -60,6 +62,11 @@ interface StoreSchema {
   // recorded there would start again from the top every time it did. Optional:
   // absent means it has not run (see `readCompanionIntroSeen`).
   companionIntroSeen?: boolean;
+  // Which edge of the display the companion's call bar rests on, as the user
+  // last dropped it. Main's for the reason the sizes are: the call places the
+  // window and sizes its canvas by it. Optional: absent means the bottom (see
+  // `readCompanionCallDock`).
+  companionCallDock?: CompanionDock;
   // How the Windows title-bar overlay's caption buttons are painted, as last
   // published by the renderer's active theme. A main-process concern for the
   // same reason the flags above are: the overlay's colors are constructor
@@ -210,6 +217,33 @@ export const writeCompanionIntroSeen = (): void => {
 };
 
 /**
+ * Which edge of the display the call bar rests on.
+ *
+ * Validated the way the sizes are: the value picks a placement and a canvas
+ * shape, and one this build does not know would place the bar nowhere. Absent
+ * and unknown both read as the bottom, the one edge every build has put the
+ * bar on.
+ */
+export const readCompanionCallDock = (): CompanionDock => {
+  const stored: CompanionDock | undefined = store().get("companionCallDock");
+  return stored !== undefined && COMPANION_DOCKS.includes(stored)
+    ? stored
+    : "bottom";
+};
+
+/**
+ * Persist the edge the bar was dropped on. No-op when the effective value is
+ * unchanged, so a drop back onto the edge it was already on does not churn the
+ * store file.
+ */
+export const writeCompanionCallDock = (dock: CompanionDock): void => {
+  if (readCompanionCallDock() === dock) {
+    return;
+  }
+  store().set("companionCallDock", dock);
+};
+
+/**
  * Persist one axis's size. No-op only when that axis's own key already says so.
  *
  * The axis's own key rather than the effective value, because that value falls
@@ -318,8 +352,7 @@ const isSavedWindowState = (value: unknown): value is SavedWindowState => {
     isUsableDimension(state.width) &&
     isUsableDimension(state.height) &&
     typeof state.isFullScreen === "boolean" &&
-    (state.isMaximized === undefined ||
-      typeof state.isMaximized === "boolean")
+    (state.isMaximized === undefined || typeof state.isMaximized === "boolean")
   );
 };
 

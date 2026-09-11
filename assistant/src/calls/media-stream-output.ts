@@ -327,6 +327,14 @@ export class MediaStreamOutput implements CallTransport {
   /** True when the queue drain loop is actively running. */
   private draining = false;
 
+  /**
+   * Estimated wall-clock instant the audio already sent to Twilio finishes
+   * playing to the caller. Frames leave faster than real time and Twilio
+   * buffers them, so the only local view of "still audible" is this running
+   * sum of sent frame durations; a `clear` drops the buffer and resets it.
+   */
+  private playbackTailAtMs = 0;
+
   /** Abort controller for the currently in-flight synthesis/fetch. */
   private activePlaybackAbort: AbortController | null = null;
 
@@ -659,6 +667,7 @@ export class MediaStreamOutput implements CallTransport {
       return;
     }
     this.sendClearCommand();
+    this.playbackTailAtMs = 0;
     // Twilio drops its buffered audio (and the marks within it) on `clear`, so
     // any end-of-turn mark already sent will never echo. Treat those as drained
     // so a pending end-call drain wait resolves instead of stalling on the cap.
@@ -717,6 +726,24 @@ export class MediaStreamOutput implements CallTransport {
   }
 
   /**
+   * Whether no speech is buffered toward a sentence, queued, being
+   * synthesized or fetched, or (estimatedly) still playing at Twilio.
+   */
+  isPlaybackIdle(): boolean {
+    return (
+      this.textBuffer.length === 0 &&
+      this.playbackQueue.length === 0 &&
+      !this.draining &&
+      Date.now() >= this.playbackTailAtMs
+    );
+  }
+
+  /** See {@link CallTransport.playbackTailUntilMs}. */
+  playbackTailUntilMs(): number {
+    return this.playbackTailAtMs;
+  }
+
+  /**
    * Runtime check for closed state. Used instead of direct property access
    * in async methods because TypeScript's control flow analysis cannot
    * track that `this.state` may change between `await` points.
@@ -772,6 +799,7 @@ export class MediaStreamOutput implements CallTransport {
     this.playbackQueue.length = 0;
     this.playbackVersion++;
     this.audioStartCallback = null;
+    this.playbackTailAtMs = 0;
     if (this.activePlaybackAbort) {
       this.activePlaybackAbort.abort();
       this.activePlaybackAbort = null;
@@ -854,6 +882,10 @@ export class MediaStreamOutput implements CallTransport {
     for (const frame of frames) {
       this.sendAudioPayload(frame);
     }
+    const durationMs =
+      (frames.length * MULAW_FRAME_SIZE * 1000) / TELEPHONY_SAMPLE_RATE_HZ;
+    this.playbackTailAtMs =
+      Math.max(Date.now(), this.playbackTailAtMs) + durationMs;
   }
 
   /**
