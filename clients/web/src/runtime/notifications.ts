@@ -29,6 +29,7 @@ import {
 } from "@capacitor/local-notifications";
 import type { PushNotificationSchema } from "@capacitor/push-notifications";
 import type {
+  NotificationDeliveryResult,
   NotificationIdentity,
   ShowNotificationPayload,
 } from "@vellumai/ipc-contract";
@@ -55,11 +56,18 @@ import {
   type NotificationTapHandler,
   type NotificationTapPayload,
 } from "@/runtime/notification-taps";
-import { isNativeAndroid } from "@/runtime/platform-detection";
+import {
+  isNativeAndroid,
+  isNativeIOS,
+} from "@/runtime/platform-detection";
 import {
   extractPushConversationId,
   hasSessionConfirmedRemotePushRegistration,
 } from "@/runtime/push-registration";
+import {
+  allowsLegacyNotificationFallback,
+  postSenderNotification,
+} from "@/runtime/sender-notification";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 export type { NotificationTapPayload } from "@/runtime/notification-taps";
@@ -376,6 +384,30 @@ async function scheduleNativeDelivery(
   await pending;
 }
 
+async function scheduleLegacyNativeNotification(
+  correlationId: string | undefined,
+  notification: LocalNotificationSchema,
+): Promise<void> {
+  if (correlationId && isNativeAndroid()) {
+    await scheduleNativeDelivery(correlationId, notification);
+    return;
+  }
+  await ensureAndroidAlertsChannel();
+  await LocalNotifications.schedule({ notifications: [notification] });
+}
+
+function nativeDeliveryFailure(
+  result: Exclude<
+    NotificationDeliveryResult,
+    { status: "posted" } | { status: "duplicate" }
+  >,
+): string {
+  if (result.status === "blocked" || result.status === "unavailable") {
+    return result.reason ?? `Native notification ${result.status}`;
+  }
+  return result.errorMessage ?? `Native notification ${result.status}`;
+}
+
 /**
  * Resolve the conversation this notification should deep-link to.
  *
@@ -662,11 +694,47 @@ export async function postLocalNotification(
     try {
       await ensureConversationActionType();
       const correlationId = args.correlationId ?? args.deliveryId;
-      if (correlationId && isNativeAndroid()) {
-        await scheduleNativeDelivery(correlationId, notification);
+      const useIOSNativeOwner =
+        isNativeIOS() &&
+        useClientFeatureFlagStore.getState().localNotificationAvatar;
+      if (useIOSNativeOwner) {
+        const nativeResult = await postSenderNotification({
+          correlationId: args.correlationId,
+          deliveryId: args.deliveryId,
+          requestKey: seed,
+          id: notification.id,
+          title: notification.title,
+          body: notification.body,
+          extra: tapPayload,
+          ...(notification.actionTypeId
+            ? { actionTypeId: notification.actionTypeId }
+            : {}),
+          presentation: senderResolution?.presentation ?? "app",
+          ...(senderResolution ? { identity: senderResolution.identity } : {}),
+          ...(senderResolution?.presentation === "assistant"
+            ? {
+                name: senderResolution.name,
+                nameProvenance: senderResolution.nameProvenance,
+                ...(senderResolution.suppressGroupTitle
+                  ? { suppressGroupTitle: true }
+                  : {}),
+                ...(senderResolution.sender
+                  ? { sender: senderResolution.sender }
+                  : {}),
+              }
+            : {}),
+        });
+        if (allowsLegacyNotificationFallback(nativeResult)) {
+          await scheduleLegacyNativeNotification(correlationId, notification);
+        } else if (
+          nativeResult.status !== "posted" &&
+          nativeResult.status !== "duplicate"
+        ) {
+          success = false;
+          errorMessage = nativeDeliveryFailure(nativeResult);
+        }
       } else {
-        await ensureAndroidAlertsChannel();
-        await LocalNotifications.schedule({ notifications: [notification] });
+        await scheduleLegacyNativeNotification(correlationId, notification);
       }
     } catch (err) {
       // Never block the SSE loop on notification failures, but record the

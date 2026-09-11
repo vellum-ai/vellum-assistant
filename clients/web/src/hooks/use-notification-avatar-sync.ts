@@ -20,6 +20,7 @@ import {
   type NotificationIdentityScopeInput,
 } from "@/runtime/notification-avatar";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
+import { installSenderNotificationIdentityAdapter } from "@/runtime/sender-notification";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import type {
   AvatarImageMeta,
@@ -181,6 +182,12 @@ export function useNotificationAvatarSync(
   const cachedAvatar = useRef<CachedPreparedAvatar | null>(null);
   const redrawnKey = useRef<string | null>(null);
   const [redraws, setRedraws] = useState(0);
+
+  useEffect(() => {
+    if (localNotificationAvatar) {
+      installSenderNotificationIdentityAdapter();
+    }
+  }, [localNotificationAvatar]);
 
   useEffect(
     () => () => {

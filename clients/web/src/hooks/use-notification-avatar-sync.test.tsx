@@ -31,6 +31,11 @@ mock.module("@/runtime/popout-window", () => ({
   isPopoutWindowLifetime: () => popoutWindow,
 }));
 
+const installSenderNotificationIdentityAdapter = mock(() => {});
+mock.module("@/runtime/sender-notification", () => ({
+  installSenderNotificationIdentityAdapter,
+}));
+
 let rasterized: Uint8Array | null = AVATAR_PNG;
 /** Set to stall the rasterizer so the mid-render window can be observed. */
 let rasterizeGate: Promise<void> | null = null;
@@ -139,6 +144,7 @@ beforeEach(() => {
   rasterizeGate = null;
   rasterizeThrows = false;
   rasterizeNotificationAvatar.mockClear();
+  installSenderNotificationIdentityAdapter.mockClear();
   __clearNotificationIdentitySnapshotsForTests();
   useClientFeatureFlagStore.setState({
     pushAvatarSender: true,
@@ -156,6 +162,20 @@ afterEach(() => {
 });
 
 describe("useNotificationAvatarSync", () => {
+  test("connects the iOS identity adapter only while local avatars are enabled", async () => {
+    electronHost = false;
+    useClientFeatureFlagStore.setState({
+      pushAvatarSender: false,
+      localNotificationAvatar: true,
+    });
+
+    render();
+
+    await waitFor(() => {
+      expect(installSenderNotificationIdentityAdapter).toHaveBeenCalledTimes(1);
+    });
+  });
+
   test("holds the composited avatar, its hash and its assistant on Electron with the flag on", async () => {
     render();
 
@@ -200,6 +220,7 @@ describe("useNotificationAvatarSync", () => {
     await waitFor(() => {
       expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
     });
+    expect(installSenderNotificationIdentityAdapter).not.toHaveBeenCalled();
     expect(getNotificationAvatar()).toBeNull();
   });
 

@@ -11,9 +11,11 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   NotificationActionEvent,
+  NotificationDeliveryResult,
   NotificationIdentity,
   ShowNotificationPayload,
 } from "@vellumai/ipc-contract";
+import type { SenderNotificationPostRequest } from "@/runtime/sender-notification";
 
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import * as i18nRuntime from "@/i18n";
@@ -38,6 +40,7 @@ let nativeAndroid = false;
 mock.module("@/runtime/platform-detection", () => ({
   ...platformDetection,
   isNativeAndroid: () => nativeAndroid,
+  isNativeIOS: () => nativePlatform && !nativeAndroid,
 }));
 
 // ── push-registration read-only helpers ──────────────────────────────────────
@@ -64,6 +67,19 @@ mock.module("@/i18n", () => ({
   ...i18nRuntime,
   t: (key: string) =>
     key === "localNotification.goToConversation" ? "Go to Conversation" : key,
+}));
+
+let senderNotificationResult: NotificationDeliveryResult = {
+  status: "posted",
+};
+const postSenderNotificationMock = mock(
+  async (_payload: SenderNotificationPostRequest) => senderNotificationResult,
+);
+mock.module("@/runtime/sender-notification", () => ({
+  postSenderNotification: postSenderNotificationMock,
+  allowsLegacyNotificationFallback: (result: NotificationDeliveryResult) =>
+    result.status === "unavailable" ||
+    (result.status === "failed" && !result.postingMayHaveBegun),
 }));
 
 // ── @capacitor/local-notifications ───────────────────────────────────────────
@@ -234,6 +250,8 @@ beforeEach(() => {
   ackMock.mockClear();
   ackArgs.length = 0;
   ensureAndroidAlertsChannelMock.mockClear();
+  postSenderNotificationMock.mockClear();
+  senderNotificationResult = { status: "posted" };
   localActionListener = null;
   addLocalListenerMock.mockReset();
   addLocalListenerMock.mockImplementation(
@@ -787,8 +805,17 @@ describe("postLocalNotification scoped presentation policy", () => {
 });
 
 describe("postLocalNotification local-surface presentation flags", () => {
-  test("uses local-notification-avatar only off Electron across all flag combinations", async () => {
+  test("uses the iOS owner only with local-notification-avatar across all flag combinations", async () => {
     const identity = testIdentity();
+    const publication = beginNotificationIdentityPublication(identity);
+    publishPreparedNotificationIdentity(publication, {
+      name: "Prepared Assistant",
+      nameProvenance: "identity-store",
+      avatar: {
+        avatarBase64: "iVBORw==",
+        avatarHash: "f".repeat(64),
+      },
+    });
     const combinations = [
       { pushAvatarSender: false, localNotificationAvatar: false },
       { pushAvatarSender: true, localNotificationAvatar: false },
@@ -806,14 +833,216 @@ describe("postLocalNotification local-surface presentation flags", () => {
       });
     }
 
+    expect(scheduleMock).toHaveBeenCalledTimes(2);
     expect(
       scheduleMock.mock.calls.map(
         ([request]) => request.notifications[0]?.extra?.presentation,
       ),
-    ).toEqual(["app", "app", "assistant", "assistant"]);
-    for (const [request] of scheduleMock.mock.calls) {
-      expect(request.notifications[0]?.extra?.identity).toEqual(identity);
+    ).toEqual(["app", "app"]);
+    expect(postSenderNotificationMock).toHaveBeenCalledTimes(2);
+    for (const [request] of postSenderNotificationMock.mock.calls) {
+      expect(request).toMatchObject({
+        presentation: "assistant",
+        identity,
+        name: "Event Name",
+        nameProvenance: "event",
+        sender: {
+          id: identity.nativeSenderId,
+          name: "Event Name",
+          avatarHash: "f".repeat(64),
+        },
+      });
     }
+  });
+});
+
+describe("postLocalNotification iOS sender owner", () => {
+  const avatar = {
+    avatarBase64: "iVBORw==",
+    avatarHash: "e".repeat(64),
+  };
+
+  beforeEach(() => {
+    useClientFeatureFlagStore.setState({
+      pushAvatarSender: false,
+      localNotificationAvatar: true,
+    });
+  });
+
+  test("submits the complete notification and tap identity to the native owner", async () => {
+    const identity = testIdentity();
+    const publication = beginNotificationIdentityPublication(identity);
+    publishPreparedNotificationIdentity(publication, { avatar });
+
+    await postLocalNotification({
+      ...baseArgs,
+      identity,
+      deepLinkMetadata: { conversationId: "conv-xyz" },
+    });
+
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(postSenderNotificationMock).toHaveBeenCalledTimes(1);
+    const payload = postSenderNotificationMock.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      correlationId: undefined,
+      deliveryId: "delivery-1",
+      requestKey: "delivery-1",
+      title: "Reminder",
+      body: "Stand up",
+      actionTypeId: NOTIFICATION_INTENT_ACTION_TYPE_ID,
+      presentation: "assistant",
+      identity,
+      name: "Reminder",
+      nameProvenance: "title",
+      suppressGroupTitle: true,
+      sender: {
+        id: identity.nativeSenderId,
+        name: "Reminder",
+        ...avatar,
+      },
+      extra: {
+        conversationId: "conv-xyz",
+        sourceEventName: "reminder.fired",
+        deliveryId: "delivery-1",
+        presentation: "assistant",
+        identity,
+        nameProvenance: "title",
+        suppressGroupTitle: true,
+      },
+    });
+    expect(Number.isInteger(payload?.id)).toBe(true);
+    expect(ackArgs).toHaveLength(1);
+    expect(ackArgs[0]?.body).toEqual({
+      deliveryId: "delivery-1",
+      success: true,
+    });
+  });
+
+  test("lets matching native memory supply bytes missing from the renderer", async () => {
+    const identity = testIdentity();
+
+    await postLocalNotification({
+      ...baseArgs,
+      identity,
+      assistantName: "Assistant",
+    });
+
+    const payload = postSenderNotificationMock.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      presentation: "assistant",
+      identity,
+      name: "Assistant",
+      nameProvenance: "event",
+    });
+    expect(payload).not.toHaveProperty("sender");
+    expect(scheduleMock).not.toHaveBeenCalled();
+  });
+
+  test("uses the native owner for health and failure notification pipelines", async () => {
+    const identity = testIdentity();
+    for (const sourceEventName of [
+      "credential.health_alert",
+      "telegram.webhook_health_alert",
+      "activity.failed",
+    ]) {
+      await postLocalNotification({
+        ...baseArgs,
+        deliveryId: `delivery-${sourceEventName}`,
+        identity,
+        assistantName: "Assistant",
+        sourceEventName,
+      });
+    }
+
+    expect(postSenderNotificationMock).toHaveBeenCalledTimes(3);
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(ackArgs).toHaveLength(3);
+  });
+
+  test("falls back to the legacy scheduler when the shell is unavailable", async () => {
+    senderNotificationResult = {
+      status: "unavailable",
+      reason: "sender_notification_unavailable",
+    };
+
+    await postLocalNotification(baseArgs);
+
+    expect(postSenderNotificationMock).toHaveBeenCalledTimes(1);
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+    expect(ackArgs[0]?.body.success).toBe(true);
+  });
+
+  test("falls back after native confirms posting never began", async () => {
+    senderNotificationResult = {
+      status: "failed",
+      postingMayHaveBegun: false,
+      errorMessage: "request_rejected",
+    };
+
+    await postLocalNotification(baseArgs);
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+    expect(ackArgs).toHaveLength(1);
+    expect(ackArgs[0]?.body.success).toBe(true);
+  });
+
+  test("acks a native duplicate as the already-owned successful delivery", async () => {
+    senderNotificationResult = { status: "duplicate" };
+
+    await postLocalNotification(baseArgs);
+
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(ackArgs).toHaveLength(1);
+    expect(ackArgs[0]?.body).toEqual({
+      deliveryId: "delivery-1",
+      success: true,
+    });
+  });
+
+  test("does not fall back after a blocked or ambiguous native result", async () => {
+    for (const result of [
+      { status: "blocked" as const, reason: "authorization_denied" },
+      {
+        status: "failed" as const,
+        postingMayHaveBegun: true,
+        errorMessage: "native_write_failed",
+      },
+      {
+        status: "unknown" as const,
+        errorMessage: "sender_notification_watchdog_expired",
+      },
+    ]) {
+      senderNotificationResult = result;
+      await postLocalNotification({
+        ...baseArgs,
+        deliveryId: `delivery-${result.status}`,
+      });
+    }
+
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(ackArgs).toHaveLength(3);
+    expect(ackArgs.map(({ body }) => body.success)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+    expect(ackArgs.map(({ body }) => body.errorMessage)).toEqual([
+      "authorization_denied",
+      "native_write_failed",
+      "sender_notification_watchdog_expired",
+    ]);
+  });
+
+  test("keeps hidden registered remote delivery ahead of native ownership", async () => {
+    sessionConfirmedAssistantId = "assistant-1";
+    setVisibility("hidden");
+
+    await postLocalNotification({ ...baseArgs, remotePushDispatched: true });
+
+    expect(postSenderNotificationMock).not.toHaveBeenCalled();
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(ackArgs).toHaveLength(1);
+    expect(ackArgs[0]?.body.success).toBe(true);
   });
 });
 
