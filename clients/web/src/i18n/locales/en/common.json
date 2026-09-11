@@ -130,6 +130,7 @@
     "clear": "Clear",
     "clearSearch": "Clear search",
     "closeSearch": "Close search",
+    "contentSearchUnavailable": "Message content search is unavailable. Showing title matches only.",
     "noResults": "No results",
     "placeholder": "Search conversations, memories…",
     "searchAriaLabel": "Search",

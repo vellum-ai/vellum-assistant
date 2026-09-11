@@ -130,6 +130,7 @@
     "clear": "清除",
     "clearSearch": "清除搜索",
     "closeSearch": "关闭搜索",
+    "contentSearchUnavailable": "消息内容搜索不可用。仅显示标题匹配项。",
     "noResults": "无结果",
     "placeholder": "搜索对话、记忆…",
     "searchAriaLabel": "搜索",

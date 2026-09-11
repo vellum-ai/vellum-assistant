@@ -93,6 +93,13 @@ export interface CommandPaletteProps {
   sections: CommandPaletteSection[];
   /** Whether a server search is currently in-flight. */
   isSearching?: boolean;
+  /**
+   * Whether the daemon could match message content for `sections`. False means
+   * it matched conversation titles only, so the list is short for a reason the
+   * user cannot see and the palette says so instead of implying nothing
+   * matched. Defaults to true so hosts that pass no search state are unchanged.
+   */
+  contentSearchAvailable?: boolean;
   /** Called when an item is selected (clicked or Enter pressed). */
   onItemSelect?: (item: CommandPaletteItemData, index: number) => void;
   /** Key-down handler from useCommandPalette for keyboard navigation. */
@@ -188,6 +195,7 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
   selectedIndex,
   sections,
   isSearching = false,
+  contentSearchAvailable = true,
   onItemSelect,
   onKeyDown,
   surface = "overlay",
@@ -351,17 +359,38 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
       }
       role="listbox"
     >
-      {sections.length === 0 ? (
-        <div className="px-3 py-6 text-center">
+      {/* A degraded content lane is worth saying even when titles matched: a
+          short list otherwise reads as a complete answer. Suppressed while a
+          search is in flight, when the flag still describes the previous one. */}
+      {!contentSearchAvailable && !isSearching ? (
+        <div
+          role="status"
+          className="mx-1 mb-1 rounded-md bg-[var(--background-tertiary)] px-3 py-2"
+        >
           <Typography
-            variant="body-medium-lighter"
-            className="text-[var(--content-tertiary)]"
+            variant="body-small-default"
+            className="text-[var(--content-secondary)]"
           >
-            {isSearching
-              ? t("commandPalette.searching")
-              : t("commandPalette.noResults")}
+            {t("commandPalette.contentSearchUnavailable")}
           </Typography>
         </div>
+      ) : null}
+      {sections.length === 0 ? (
+        // With content matching down, "No results" would be a claim about the
+        // corpus this search cannot support; the notice above already explains
+        // the empty list, so do not contradict it.
+        !contentSearchAvailable && !isSearching ? null : (
+          <div className="px-3 py-6 text-center">
+            <Typography
+              variant="body-medium-lighter"
+              className="text-[var(--content-tertiary)]"
+            >
+              {isSearching
+                ? t("commandPalette.searching")
+                : t("commandPalette.noResults")}
+            </Typography>
+          </div>
+        )
       ) : (
         sections.map((section) => (
           <div key={section.id} role="group" aria-label={section.label}>

@@ -83,12 +83,16 @@ export const LEXICAL_BACKFILL_COMPLETE_KEY =
  * instance.
  *
  * Gates two things: the one-time startup auto-enqueue (skip when already
- * complete) and — critically — the message-search read backend. An upgraded
- * instance whose backfill has not finished must keep reading from SQLite FTS,
- * because a `qdrant`-backed read against the still-filling `messages_lexical`
- * collection returns an empty result (not a throw), so the Qdrant-error degrade
- * path never fires and content search would silently return nothing. Switch
- * reads to Qdrant only once this marker confirms the index is fully populated.
+ * complete) and, critically, the message-search read backend. A read against
+ * a still-filling `messages_lexical` collection returns an empty result rather
+ * than throwing, so the Qdrant-error degrade path never fires and content
+ * search would silently miss older messages. Treat the index as a read source
+ * only once this marker confirms it is fully populated.
+ *
+ * This is one of two inputs to that decision. The other is whether Qdrant is
+ * running at all (`embeddings/qdrant-availability.ts`); both are required,
+ * because since migration 313 dropped `messages_fts` there is no other source
+ * of message-content matches to fall back to.
  */
 export function isLexicalBackfillComplete(): boolean {
   return getMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY) === "1";

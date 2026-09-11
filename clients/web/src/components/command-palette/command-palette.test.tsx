@@ -435,3 +435,71 @@ describe("CommandPalette keyboard hints", () => {
     expect(keyboardHints()).toEqual([]);
   });
 });
+
+describe("CommandPalette degraded content search", () => {
+  /** Palette with the content lane reported down, rendering `sections`. */
+  function degradedPalette(sections: typeof SECTIONS | [] = SECTIONS) {
+    return (
+      <CommandPalette
+        isOpen
+        onClose={() => undefined}
+        query="flux"
+        onQueryChange={() => undefined}
+        selectedIndex={0}
+        sections={sections}
+        contentSearchAvailable={false}
+        onKeyDown={() => undefined}
+      />
+    );
+  }
+
+  test("says nothing when the content lane is healthy", () => {
+    // The control: without it, a notice rendered unconditionally would still
+    // satisfy every assertion below.
+    render(paletteElement(true));
+
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  test("replaces the no-results claim when content matching is down", () => {
+    // "No results" asserts something about the corpus that a title-only
+    // search cannot support, which is the bug this surface exists to fix.
+    render(degradedPalette([]));
+
+    expect(screen.queryByText("No results")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain(
+      "Showing title matches only",
+    );
+  });
+
+  test("still warns when title matches came back", () => {
+    // The dangerous case: a short list that looks like a complete answer.
+    render(degradedPalette());
+
+    expect(screen.getByText("New Conversation")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain(
+      "Showing title matches only",
+    );
+  });
+
+  test("holds the warning while a new search is in flight", () => {
+    // The flag still describes the previous search until the next one lands,
+    // so showing it here would attach a stale warning to a pending query.
+    render(
+      <CommandPalette
+        isOpen
+        onClose={() => undefined}
+        query="flux"
+        onQueryChange={() => undefined}
+        selectedIndex={0}
+        sections={[]}
+        contentSearchAvailable={false}
+        isSearching
+        onKeyDown={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText("Searching\u2026")).toBeTruthy();
+  });
+});
