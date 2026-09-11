@@ -72,7 +72,9 @@ beforeEach(() => {
   useChatSessionStore.getState().setOptimisticSends([]);
   useChatSessionStore.getState().setError(null);
   useComposerStore.getState().setInput("");
-  useResolvedAssistantsStore.getState().setActiveAssistantId(null);
+  useResolvedAssistantsStore
+    .getState()
+    .setActiveAssistantId("assistant-1");
   useViewerStore.setState({ openedDocumentState: null });
   window.sessionStorage.clear();
 

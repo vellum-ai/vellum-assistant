@@ -338,10 +338,10 @@ export function useDocumentComposerSubmit({
       ),
     };
     let preflightPayloadHeld = false;
-    const holdAbandonedPreflight = () => {
+    const holdAbandonedPreflight = (ownerMovedOn = false) => {
       if (
         preflightPayloadHeld ||
-        currentAssistantIdRef.current !== null ||
+        (!ownerMovedOn && currentAssistantIdRef.current !== null) ||
         useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
       ) {
         return;
@@ -371,6 +371,8 @@ export function useDocumentComposerSubmit({
       if (!assistantVersionKnownFor(assistantId)) {
         if (ownsSlotNow()) {
           setStatus("error");
+        } else {
+          holdAbandonedPreflight(true);
         }
         toast.error(t("documentComposer.sendFailed"));
         return;
@@ -459,6 +461,8 @@ export function useDocumentComposerSubmit({
         // link stays best-effort and the send goes out either way.
         if (ownsSlotNow()) {
           setStatus("error");
+        } else {
+          holdAbandonedPreflight(true);
         }
         toast.error(t("documentComposer.sendFailed"));
         return;
@@ -480,6 +484,8 @@ export function useDocumentComposerSubmit({
       ) {
         if (ownsSlotNow()) {
           setStatus("error");
+        } else {
+          holdAbandonedPreflight(true);
         }
         toast.error(t("documentComposer.sendFailed"));
         return;

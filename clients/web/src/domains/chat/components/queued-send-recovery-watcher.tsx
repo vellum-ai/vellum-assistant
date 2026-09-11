@@ -33,11 +33,7 @@ function acceptQueuedSend(clientMessageId: string): void {
   if (!composer.dropFailedSendByClientMessageId(clientMessageId)) {
     composer.dropFailedSend(held.assistantId, held.conversationId, payload);
   }
-  composer.clearRestoredDraft(
-    held.assistantId,
-    held.conversationId,
-    held.content,
-  );
+  composer.clearRestoredDraft(clientMessageId);
   const activeAssistantId =
     useResolvedAssistantsStore.getState().activeAssistantId;
   const activeConversationId =
@@ -188,9 +184,9 @@ export function QueuedSendRecoveryWatcher() {
 
     // The echo is the daemon speaking for the message: it is persisted, and
     // the client copy has nothing left to answer for. A draft written back
-    // for it while its request looked lost goes too, while it still reads
-    // exactly the sent text, so a message the daemon took is never offered
-    // for sending twice.
+    // for it while its request looked lost goes too, while that draft still
+    // belongs to this send, so a message the daemon took is never offered for
+    // sending twice.
     if (event.type === "user_message_echo") {
       const { clientMessageId } = event;
       if (clientMessageId === undefined) {
@@ -207,7 +203,7 @@ export function QueuedSendRecoveryWatcher() {
       if (clientMessageId === undefined) {
         return;
       }
-      useComposerStore.getState().dropQueuedSend(clientMessageId);
+      acceptQueuedSend(clientMessageId);
       return;
     }
 

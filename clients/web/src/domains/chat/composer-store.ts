@@ -340,13 +340,18 @@ export interface ComposerActions {
    * persisted entry, so the message waits where its own conversation will look
    * for it rather than being filed under a stranger.
    */
-  restoreFailedDraft: (assistantId: string, key: string, text: string) => void;
+  restoreFailedDraft: (
+    assistantId: string,
+    key: string,
+    text: string,
+    clientMessageId?: string,
+  ) => void;
   /**
-   * Take back a draft `restoreFailedDraft` wrote, once the daemon turns out to
-   * have taken the message after all: the draft goes only while it still
-   * reads exactly `text`, so a draft the user has edited since stays.
+   * Take back the draft a queued send wrote, once the assistant turns out to
+   * have taken that message after all. A draft without matching provenance,
+   * including one the user replaced with the same text, stays.
    */
-  clearRestoredDraft: (assistantId: string, key: string, text: string) => void;
+  clearRestoredDraft: (clientMessageId: string) => void;
   /**
    * Replace a recovered payload only while `slot` still contains it exactly.
    * User edits or newly staged attachments always win.
@@ -533,6 +538,38 @@ function failedSendContext(key: string): {
 let draftsMap = new Map<string, string>();
 /** The assistant ID whose drafts are currently loaded. */
 let currentAssistantId: string | null = null;
+/** The conversation whose draft the main composer currently displays. */
+let activeDraftConversationKey: string | null = null;
+/** Draft writes owned by a queued send, keyed by that send's nonce. */
+const restoredDraftOrigins = new Map<
+  string,
+  { assistantId: string; key: string; text: string }
+>();
+
+function forgetRestoredDraftOrigins(assistantId: string, key: string): void {
+  for (const [clientMessageId, origin] of restoredDraftOrigins) {
+    if (origin.assistantId === assistantId && origin.key === key) {
+      restoredDraftOrigins.delete(clientMessageId);
+    }
+  }
+}
+
+function forgetChangedRestoredDraftOrigins(
+  assistantId: string,
+  key: string,
+  text: string,
+): void {
+  for (const [clientMessageId, origin] of restoredDraftOrigins) {
+    if (
+      origin.assistantId === assistantId &&
+      origin.key === key &&
+      origin.text !== text
+    ) {
+      restoredDraftOrigins.delete(clientMessageId);
+    }
+  }
+}
+
 /**
  * Blob URLs for preview images, keyed by attachment local id and tagged with
  * the composer slot that created them. Revoked per attachment on removal and
@@ -568,12 +605,26 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       }));
       return;
     }
-    set((s) => ({
-      input: typeof value === "function" ? value(s.input) : value,
-    }));
+    set((s) => {
+      const input = typeof value === "function" ? value(s.input) : value;
+      if (
+        input !== s.input &&
+        currentAssistantId !== null &&
+        activeDraftConversationKey !== null
+      ) {
+        forgetRestoredDraftOrigins(
+          currentAssistantId,
+          activeDraftConversationKey,
+        );
+      }
+      return { input };
+    });
   },
 
   saveDraft: (key, text) => {
+    if (currentAssistantId !== null) {
+      forgetChangedRestoredDraftOrigins(currentAssistantId, key, text);
+    }
     if (text.trim()) {
       draftsMap.set(key, text);
     } else {
@@ -585,13 +636,16 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   },
 
   clearDraft: (key) => {
+    if (currentAssistantId !== null) {
+      forgetRestoredDraftOrigins(currentAssistantId, key);
+    }
     draftsMap.delete(key);
     if (currentAssistantId) {
       persistDrafts(currentAssistantId, draftsMap);
     }
   },
 
-  restoreFailedDraft: (assistantId, key, text) => {
+  restoreFailedDraft: (assistantId, key, text, clientMessageId) => {
     if (!text.trim()) {
       return;
     }
@@ -607,16 +661,27 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     }
     drafts.set(key, text);
     persistDrafts(assistantId, drafts);
+    if (clientMessageId !== undefined) {
+      forgetRestoredDraftOrigins(assistantId, key);
+      restoredDraftOrigins.set(clientMessageId, { assistantId, key, text });
+    }
   },
 
-  clearRestoredDraft: (assistantId, key, text) => {
-    const drafts =
-      assistantId === currentAssistantId ? draftsMap : loadDrafts(assistantId);
-    if (drafts.get(key) !== text) {
+  clearRestoredDraft: (clientMessageId) => {
+    const origin = restoredDraftOrigins.get(clientMessageId);
+    if (origin === undefined) {
       return;
     }
-    drafts.delete(key);
-    persistDrafts(assistantId, drafts);
+    restoredDraftOrigins.delete(clientMessageId);
+    const drafts =
+      origin.assistantId === currentAssistantId
+        ? draftsMap
+        : loadDrafts(origin.assistantId);
+    if (drafts.get(origin.key) !== origin.text) {
+      return;
+    }
+    drafts.delete(origin.key);
+    persistDrafts(origin.assistantId, drafts);
   },
 
   replaceRecoveredPayload: (current, replacement, slot = "main") => {
@@ -637,12 +702,20 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 
   handleConversationSwitch: ({ previousKey, nextKey }) => {
     const isSwitch = previousKey !== null && previousKey !== nextKey;
+    activeDraftConversationKey = nextKey;
     if (!isSwitch || !previousKey) {
       return;
     }
 
     // Save outgoing conversation's draft.
     const currentInput = get().input;
+    if (currentAssistantId !== null) {
+      forgetChangedRestoredDraftOrigins(
+        currentAssistantId,
+        previousKey,
+        currentInput,
+      );
+    }
     if (currentInput.trim()) {
       draftsMap.set(previousKey, currentInput);
     } else {
@@ -670,6 +743,11 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     if (currentAssistantId && currentAssistantId !== assistantId) {
       const input = get().input;
       if (currentConversationKey) {
+        forgetChangedRestoredDraftOrigins(
+          currentAssistantId,
+          currentConversationKey,
+          input,
+        );
         if (input.trim()) {
           draftsMap.set(currentConversationKey, input);
         } else {
@@ -683,6 +761,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     }
     draftsMap = loadDrafts(assistantId);
     currentAssistantId = assistantId;
+    activeDraftConversationKey = null;
   },
 
   clearRestoredDraftNotice: () => {
@@ -690,6 +769,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   },
 
   restoreDraftIfEmpty: (key) => {
+    activeDraftConversationKey = key;
     const saved = draftsMap.get(key);
     if (saved && saved.trim() && !get().input.trim()) {
       set({ input: saved, restoredDraftConversationId: key });
@@ -1131,6 +1211,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     if (!get().queuedSends.has(clientMessageId)) {
       return;
     }
+    restoredDraftOrigins.delete(clientMessageId);
     get().settleClaimedFailedSend(clientMessageId, "failed");
     set((s) => {
       const next = new Map(s.queuedSends);
@@ -1140,6 +1221,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   },
 
   clearHeldSends: () => {
+    restoredDraftOrigins.clear();
     set((s) => {
       if (
         s.failedSendsByConversation.size === 0 &&

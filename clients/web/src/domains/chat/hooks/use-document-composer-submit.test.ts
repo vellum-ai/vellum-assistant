@@ -293,11 +293,19 @@ function deferConversationsPost(): () => void {
 }
 
 /** Points the document link at a promise the test resolves by hand. */
-function deferDocumentLink(): () => void {
+function deferDocumentLink(success = true): () => void {
   let settle: () => void = () => {};
-  const pending = new Promise<{ data: { success: boolean } }>((resolve) => {
-    settle = () => resolve({ data: { success: true } });
-  });
+  const pending = new Promise<{ data: { success: boolean } }>(
+    (resolve, reject) => {
+      settle = () => {
+        if (success) {
+          resolve({ data: { success: true } });
+        } else {
+          reject(new Error("link failed"));
+        }
+      };
+    },
+  );
   documentsByIdConversationsPostMock.mockImplementationOnce(
     async () => pending,
   );
@@ -2809,6 +2817,44 @@ describe("a send that outlives its owner", () => {
     );
     expect(result.current.status).toBe("idle");
     expect(isAwaitingReply(sentConversationId)).toBe(true);
+  });
+
+  test("a failed link after a document switch holds the first document's message", async () => {
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    const settleLink = deferDocumentLink(false);
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "",
+    });
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() =>
+      expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(1),
+    );
+
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+
+    await act(async () => {
+      settleLink();
+      await submitted;
+    });
+
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
+      surfaceId: SURFACE_ID,
+      content: "about the first doc",
+      attachments: [],
+    });
+    expect(useComposerStore.getState().documentInput).toBe(
+      "about the second doc",
+    );
+    expect(result.current.status).toBe("idle");
   });
 
   test("a send that lands after an assistant switch moves neither the wait nor the mark onto the answered row", async () => {

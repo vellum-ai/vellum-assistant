@@ -973,11 +973,14 @@ describe("clearRestoredDraft", () => {
     useComposerStore.getState().loadAssistantDrafts("assistant-1", null);
     useComposerStore
       .getState()
-      .restoreFailedDraft("assistant-1", "conv-1", "sent after all");
+      .restoreFailedDraft(
+        "assistant-1",
+        "conv-1",
+        "sent after all",
+        "nonce-1",
+      );
 
-    useComposerStore
-      .getState()
-      .clearRestoredDraft("assistant-1", "conv-1", "sent after all");
+    useComposerStore.getState().clearRestoredDraft("nonce-1");
 
     useComposerStore
       .getState()
@@ -989,11 +992,21 @@ describe("clearRestoredDraft", () => {
     useComposerStore.getState().loadAssistantDrafts("assistant-1", null);
     useComposerStore
       .getState()
-      .restoreFailedDraft("assistant-1", "conv-1", "edited since");
-
+      .restoreFailedDraft(
+        "assistant-1",
+        "conv-1",
+        "sent after all",
+        "nonce-1",
+      );
     useComposerStore
       .getState()
-      .clearRestoredDraft("assistant-1", "conv-1", "sent after all");
+      .handleConversationSwitch({ previousKey: "conv-0", nextKey: "conv-1" });
+    useComposerStore.getState().setInput("edited since");
+    useComposerStore
+      .getState()
+      .handleConversationSwitch({ previousKey: "conv-1", nextKey: "conv-0" });
+
+    useComposerStore.getState().clearRestoredDraft("nonce-1");
 
     useComposerStore
       .getState()
@@ -1005,17 +1018,47 @@ describe("clearRestoredDraft", () => {
     useComposerStore.getState().loadAssistantDrafts("assistant-1", null);
     useComposerStore
       .getState()
-      .restoreFailedDraft("assistant-2", "conv-9", "sent after all");
+      .restoreFailedDraft(
+        "assistant-2",
+        "conv-9",
+        "sent after all",
+        "nonce-1",
+      );
 
-    useComposerStore
-      .getState()
-      .clearRestoredDraft("assistant-2", "conv-9", "sent after all");
+    useComposerStore.getState().clearRestoredDraft("nonce-1");
 
     useComposerStore.getState().loadAssistantDrafts("assistant-2", null);
     useComposerStore
       .getState()
       .handleConversationSwitch({ previousKey: "conv-0", nextKey: "conv-9" });
     expect(useComposerStore.getState().input).toBe("");
+  });
+
+  test("leaves a replacement draft that repeats the restored text", () => {
+    useComposerStore.getState().loadAssistantDrafts("assistant-1", null);
+    useComposerStore
+      .getState()
+      .restoreFailedDraft(
+        "assistant-1",
+        "conv-1",
+        "sent after all",
+        "nonce-1",
+      );
+    useComposerStore
+      .getState()
+      .handleConversationSwitch({ previousKey: "conv-0", nextKey: "conv-1" });
+    useComposerStore.getState().setInput("");
+    useComposerStore.getState().setInput("sent after all");
+    useComposerStore
+      .getState()
+      .handleConversationSwitch({ previousKey: "conv-1", nextKey: "conv-0" });
+
+    useComposerStore.getState().clearRestoredDraft("nonce-1");
+
+    useComposerStore
+      .getState()
+      .handleConversationSwitch({ previousKey: "conv-0", nextKey: "conv-1" });
+    expect(useComposerStore.getState().input).toBe("sent after all");
   });
 });
 

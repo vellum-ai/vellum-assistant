@@ -425,6 +425,7 @@ describe("QueuedSendRecoveryWatcher", () => {
         "assistant-1",
         "conv-left",
         "parked behind the running turn",
+        "nonce-1",
       );
     render(<QueuedSendRecoveryWatcher />);
 
@@ -445,7 +446,21 @@ describe("QueuedSendRecoveryWatcher", () => {
     recordQueuedSend("nonce-1", "conv-left");
     useComposerStore
       .getState()
-      .restoreFailedDraft("assistant-1", "conv-left", "edited since");
+      .restoreFailedDraft(
+        "assistant-1",
+        "conv-left",
+        "parked behind the running turn",
+        "nonce-1",
+      );
+    useComposerStore.getState().handleConversationSwitch({
+      previousKey: "conv-other",
+      nextKey: "conv-left",
+    });
+    useComposerStore.getState().setInput("edited since");
+    useComposerStore.getState().handleConversationSwitch({
+      previousKey: "conv-left",
+      nextKey: "conv-other",
+    });
     render(<QueuedSendRecoveryWatcher />);
 
     publishUserMessageEcho("conv-left", "nonce-1");
@@ -544,12 +559,55 @@ describe("QueuedSendRecoveryWatcher", () => {
     // It never runs, so no failure is coming for it and nothing is owed to the
     // conversation it was written in.
     recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore.getState().stashFailedSend(
+      "assistant-1",
+      "conv-left",
+      {
+        content: "parked behind the running turn",
+        attachments: [attachment],
+      },
+      "nonce-1",
+    );
     render(<QueuedSendRecoveryWatcher />);
 
     publishMessageQueuedDeleted("conv-left", "nonce-1");
 
     expect(stillQueued("nonce-1")).toBe(false);
     expect(heldFor("conv-left")).toBeUndefined();
+  });
+
+  test("a deleted queued message retracts its claimed recovery", () => {
+    useConversationStore.getState().setActiveConversationId("conv-left");
+    recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore.getState().stashFailedSend(
+      "assistant-1",
+      "conv-left",
+      {
+        content: "parked behind the running turn",
+        attachments: [attachment],
+      },
+      "nonce-1",
+    );
+    const recovered = useComposerStore
+      .getState()
+      .takeFailedSend("assistant-1", "conv-left");
+    if (recovered === null) {
+      throw new Error("expected a recovered queued send");
+    }
+    useComposerStore.getState().setInput(recovered.content);
+    useComposerStore
+      .getState()
+      .restoreAttachmentsIfEmpty(recovered.attachments);
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishMessageQueuedDeleted("conv-left", "nonce-1");
+
+    expect(useComposerStore.getState().input).toBe("");
+    expect(useComposerStore.getState().attachments).toEqual([]);
+    expect(isClaimedQueuedSend(useComposerStore.getState(), "nonce-1")).toBe(
+      false,
+    );
+    expect(stillQueued("nonce-1")).toBe(false);
   });
 
   test("a deletion carrying no nonce names no send to let go", () => {
