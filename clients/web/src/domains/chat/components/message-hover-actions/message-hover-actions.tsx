@@ -21,7 +21,6 @@ import {
   useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
-import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -127,7 +126,6 @@ export function MessageHoverActions({
   // (and only touch TanStack Query) for bookmarkable rows; that keeps the
   // unsupported-assistant and no-conversation paths free of any query client.
   const canBookmark = useCanBookmark(message, conversationId);
-  const canReadAloud = useCanUseInternalThreadActions();
 
   // Flat plain-text body derived from the message's text blocks (empty for a
   // row deleted on its channel); this is the copy payload and mirrors the
@@ -211,7 +209,7 @@ export function MessageHoverActions({
         </button>
       )}
 
-      {hasCopyableText && message.id && canReadAloud && (
+      {hasCopyableText && message.id && (
         <MessageReadAloudButton
           messageId={message.id}
           text={content}
