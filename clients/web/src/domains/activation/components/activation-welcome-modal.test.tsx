@@ -146,7 +146,9 @@ describe("ActivationWelcomeModal", () => {
     expect(useActivationUiStore.getState().expandedTaskId).toBe(
       FIXTURE_STARTER_IDS[0],
     );
-    expect(queryAllByRole("button", { name: "Write your own" })).toHaveLength(1);
+    expect(queryAllByRole("button", { name: "Write your own" })).toHaveLength(
+      1,
+    );
     expect(queryAllByLabelText("Custom:")).toHaveLength(0);
   });
 
@@ -158,7 +160,9 @@ describe("ActivationWelcomeModal", () => {
     expect(useActivationUiStore.getState().expandedTaskId).toBe(
       FIXTURE_STARTER_IDS[1],
     );
-    expect(queryAllByRole("button", { name: "Write your own" })).toHaveLength(1);
+    expect(queryAllByRole("button", { name: "Write your own" })).toHaveLength(
+      1,
+    );
     expect(queryAllByLabelText("Custom:")).toHaveLength(0);
   });
 
@@ -308,7 +312,9 @@ describe("ActivationWelcomeModal", () => {
     expect(getByTestId("location").textContent).toBe("/assistant/suggestions");
   });
 
-  test("a successful launch toasts a way into the conversation", async () => {
+  // The launched row flips to Working with its own Open link; a toast on top
+  // would announce the same thing twice.
+  test("a successful launch does not toast", async () => {
     const success = mock<typeof toast.success>((_message, _options) => "");
     const original = toast.success;
     toast.success = success;
@@ -317,10 +323,7 @@ describe("ActivationWelcomeModal", () => {
       await act(async () => {
         fireEvent.click(getByText(starters[0]!.chip));
       });
-      expect(success).toHaveBeenCalled();
-      const firstCall = success.mock.calls[0];
-      expect(firstCall?.[0]).toBe("Running in the sidebar");
-      expect(firstCall?.[1]?.action?.label).toBe("Open");
+      expect(success).not.toHaveBeenCalled();
     } finally {
       toast.success = original;
     }
@@ -356,9 +359,7 @@ describe("ActivationWelcomeModal", () => {
       "all-done",
     );
     expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
-    expect(
-      getByRole("button", { name: "See the full list" }),
-    ).not.toBeNull();
+    expect(getByRole("button", { name: "See the full list" })).not.toBeNull();
   });
 
   // "Welcome!" over a checklist the user has just finished reads as a surface

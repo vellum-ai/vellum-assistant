@@ -480,29 +480,18 @@ export function useLaunchActivationTask(
 /**
  * What a checklist launch says once it has settled.
  *
- * Success names the sidebar thread and offers it. A failure that already
- * linked a conversation offers that thread back. A launch with nothing to
- * report (the same task already running) stays quiet.
+ * Success says nothing: the row the user launched from flips to Working with
+ * its own way into the thread, and a toast on top of that is a second
+ * announcement of the same fact. A failure that already linked a conversation
+ * offers that thread back. A launch with nothing to report (the same task
+ * already running) stays quiet.
  */
 export function toastActivationLaunchResult(
   result: LaunchActivationTaskResult,
   t: TFunction<"activation">,
   onOpenConversation: (conversationId: string) => void,
 ): void {
-  if (result.ok) {
-    toast.success(t("launch.running"), {
-      ...(result.conversationId
-        ? {
-            action: {
-              label: t("row.open"),
-              onClick: () => onOpenConversation(result.conversationId!),
-            },
-          }
-        : {}),
-    });
-    return;
-  }
-  if (!result.error) {
+  if (result.ok || !result.error) {
     return;
   }
   toast.error(result.error, {

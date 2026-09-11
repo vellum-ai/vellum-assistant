@@ -209,7 +209,9 @@ describe("ActivationListRoute", () => {
     expect(navigated).toEqual([]);
   });
 
-  test("a successful launch toasts a way into the conversation", async () => {
+  // The launched row flips to Working with its own Open link; a toast on top
+  // would announce the same thing twice.
+  test("a successful launch does not toast", async () => {
     launchOutcome = { ok: true, conversationId: "conv-new-1" };
     renderRoute();
 
@@ -218,13 +220,10 @@ describe("ActivationListRoute", () => {
     );
 
     await waitFor(() => {
-      expect(toasts).toHaveLength(1);
+      expect(launched).toEqual([FIXTURE_STARTER_IDS[0]]);
     });
-    expect(toasts[0]?.message).toBe("Running in the sidebar");
-    expect(toasts[0]?.actionLabel).toBe("Open");
-
-    toasts[0]?.onAction?.();
-    expect(navigated).toEqual(["conv-new-1"]);
+    expect(toasts).toHaveLength(0);
+    expect(navigated).toEqual([]);
   });
 
   test("a finished row opens the conversation it ran in", () => {

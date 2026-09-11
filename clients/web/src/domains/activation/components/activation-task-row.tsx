@@ -25,7 +25,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowUp, CircleCheck, Loader2 } from "lucide-react";
+import { ArrowUp, CircleCheck, Loader2, Pencil } from "lucide-react";
 import {
   Button,
   cn,
@@ -70,7 +70,7 @@ export type ActivationRowSurface = "modal" | "list";
  * edge: the row insets itself by 12px, then leads with the task icon's 26px
  * circle and a 12px gap.
  */
-const BODY_INSET = "pt-3 pr-3 pb-4 pl-[50px]";
+const BODY_INSET = "pr-3 pb-4 pl-[50px]";
 
 export interface ActivationTaskRowProps {
   task: ActivationTask;
@@ -171,31 +171,40 @@ export function ActivationTaskRow({
     </ExternalAnchor>
   ) : null;
 
+  // The header opens the thread too, but nothing about a status pill says so.
+  // The link is the visible way in, on working and done rows alike.
+  const openLink = conversationId ? (
+    <Button
+      variant="link"
+      className="text-body-medium-default [--vbtn-fg:var(--content-secondary)]"
+      onClick={() => onOpenConversation?.(conversationId)}
+    >
+      {t("row.open")}
+    </Button>
+  ) : null;
+
   let statusBody: ReactNode = null;
   if (working) {
     statusBody = (
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <ProcessStatusPill
           state="working"
           label={t("row.working")}
           count={steps}
         />
-        {conversationId ? (
-          <Button
-            variant="link"
-            className="text-body-medium-default [--vbtn-fg:var(--content-secondary)]"
-            onClick={() => onOpenConversation?.(conversationId)}
-          >
-            {t("row.open")}
-          </Button>
-        ) : null}
+        {openLink}
       </div>
     );
   } else if (done) {
-    statusBody = artifact ? (
-      <LocalFileCard {...artifactFileCardProps(artifact, assistantId)} />
-    ) : (
-      <ProcessStatusPill state="done" label={t("row.done")} count={steps} />
+    statusBody = (
+      <div className="flex flex-wrap items-center gap-3">
+        {artifact ? (
+          <LocalFileCard {...artifactFileCardProps(artifact, assistantId)} />
+        ) : (
+          <ProcessStatusPill state="done" label={t("row.done")} count={steps} />
+        )}
+        {openLink}
+      </div>
     );
   }
 
@@ -214,7 +223,9 @@ export function ActivationTaskRow({
     body = (
       <div className="flex w-full flex-col items-start gap-3">
         {callToAction}
-        <div className="flex w-full flex-col items-start gap-1">
+        {/* The two ways to start sit on one line as a pair of pills: the
+            suggestion, and an outlined one that turns into the field. */}
+        <div className="flex w-full flex-wrap items-center gap-2">
           <ConversationStarterChip
             label={task.chip}
             variant="compact"
@@ -222,58 +233,60 @@ export function ActivationTaskRow({
             onSelect={() => onLaunch?.()}
             className="bg-[var(--feed-digest-weak)] [--vbtn-fg:var(--feed-digest-strong)]"
           />
-          {customOpen ? (
-            <div className="mt-2 flex w-full flex-col gap-1">
-              <Typography
-                as="label"
-                variant="label-medium-default"
-                htmlFor={customId}
-                className="text-[var(--content-secondary)]"
-              >
-                {t("row.customLabel")}
-              </Typography>
-              <div className="relative flex w-full items-center">
-                <Input
-                  id={customId}
-                  fullWidth
-                  autoFocus
-                  value={custom}
-                  placeholder={t("row.customPlaceholder")}
-                  disabled={pending}
-                  onChange={(event) => setCustom(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      submitCustom();
-                    }
-                  }}
-                  className="pr-11"
-                />
-                {/* Floats over the field's right edge, as in the mock: the
-                    field runs full width underneath it. */}
-                <Button
-                  variant="primary"
-                  size="compact"
-                  iconOnly={<ArrowUp />}
-                  aria-label={t("row.send")}
-                  disabled={pending || custom.trim().length === 0}
-                  onClick={submitCustom}
-                  className="absolute right-1.5 h-7 w-7 rounded-[7px]"
-                />
-              </div>
-            </div>
-          ) : (
+          {customOpen ? null : (
             <Button
-              variant="link"
+              variant="outlined"
               size="compact"
+              leftIcon={<Pencil />}
               disabled={pending}
-              className="h-auto min-h-0 px-0 text-label-medium-default [--vbtn-fg:var(--content-tertiary)]"
+              className="h-auto min-h-0 rounded-[var(--radius-pill)] border-[var(--border-base)] px-2 py-1 text-label-medium-default [--vbtn-fg:var(--content-secondary)]"
               onClick={() => setCustomOpen(true)}
             >
               {t("row.writeYourOwn")}
             </Button>
           )}
         </div>
+        {customOpen ? (
+          <div className="flex w-full flex-col gap-1">
+            <Typography
+              as="label"
+              variant="label-medium-default"
+              htmlFor={customId}
+              className="text-[var(--content-secondary)]"
+            >
+              {t("row.customLabel")}
+            </Typography>
+            <div className="relative flex w-full items-center">
+              <Input
+                id={customId}
+                fullWidth
+                autoFocus
+                value={custom}
+                placeholder={t("row.customPlaceholder")}
+                disabled={pending}
+                onChange={(event) => setCustom(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitCustom();
+                  }
+                }}
+                className="pr-11"
+              />
+              {/* Floats over the field's right edge, as in the mock: the
+                    field runs full width underneath it. */}
+              <Button
+                variant="primary"
+                size="compact"
+                iconOnly={<ArrowUp />}
+                aria-label={t("row.send")}
+                disabled={pending || custom.trim().length === 0}
+                onClick={submitCustom}
+                className="absolute right-1.5 h-7 w-7 rounded-[7px]"
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -292,10 +305,7 @@ export function ActivationTaskRow({
   return (
     <div className={cn("flex flex-col", className)}>
       <ListRow
-        className={cn(
-          "items-start rounded-none px-3 py-4",
-          body !== null && "pb-0",
-        )}
+        className="items-start rounded-none px-3 py-4"
         leading={
           <ActivationTaskIcon
             icon={task.icon}
