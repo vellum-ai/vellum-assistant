@@ -341,3 +341,30 @@ test("desktop loss clears a failed cleanup lease so the next session can restart
   await observe(f.control);
   expect(f.started).toHaveBeenCalledTimes(2);
 });
+
+test.each(["browser", "desktop"] as const)(
+  "a reused %s lease follows the current turn's cancellation",
+  async (mode) => {
+    const f = fixture();
+    const first = new AbortController();
+    const second = new AbortController();
+    const run = (signal: AbortSignal) =>
+      mode === "browser"
+        ? f.control.runBrowser(context(signal), async () => ({
+            content: "ok",
+            isError: false,
+          }))
+        : f.control.execute({ action: "observe" }, context(signal));
+    await run(first.signal);
+    await run(second.signal);
+    first.abort();
+    await f.control.allowAssistant();
+    expect(f.control.getStatus().state).toBe("assistant");
+    expect(f.released).not.toHaveBeenCalled();
+    second.abort();
+    await f.control.allowAssistant();
+    expect(f.control.getStatus().state).toBe("idle");
+    expect(f.released).toHaveBeenCalledTimes(1);
+    expect(f.input.setViewerInput.mock.calls.at(-1)).toEqual([true]);
+  },
+);

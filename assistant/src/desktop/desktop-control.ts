@@ -152,6 +152,17 @@ export class DesktopControl {
     );
   }
 
+  private bindCancellation(owner: Owner, signal?: AbortSignal): void {
+    owner.removeAbortListener();
+    const cancel = () => this.cancel(owner);
+    signal?.addEventListener("abort", cancel, { once: true });
+    owner.removeAbortListener = () =>
+      signal?.removeEventListener("abort", cancel);
+    if (signal?.aborted) {
+      cancel();
+    }
+  }
+
   private async claim(context: ToolContext): Promise<Owner> {
     const holder: DesktopViewer = {
       onDesktopLost: () => {
@@ -174,10 +185,8 @@ export class DesktopControl {
       throw new Error("The desktop is busy or shutting down");
     }
     this.owner = owner;
+    this.bindCancellation(owner, context.signal);
     const cancel = () => this.cancel(owner);
-    context.signal?.addEventListener("abort", cancel, { once: true });
-    owner.removeAbortListener = () =>
-      context.signal?.removeEventListener("abort", cancel);
     this.watchdog = setInterval(() => {
       try {
         if (
@@ -271,6 +280,9 @@ export class DesktopControl {
       }
       if (!this.owner && action.action !== "observe") {
         throw new Error("Observe the desktop before acting");
+      }
+      if (this.owner) {
+        this.bindCancellation(this.owner, context.signal);
       }
       const owner = this.owner ?? (await this.claim(context));
       const signal = context.signal

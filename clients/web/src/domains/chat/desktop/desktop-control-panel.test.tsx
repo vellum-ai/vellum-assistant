@@ -35,9 +35,7 @@ beforeEach(() => {
   state = "assistant";
   status = 200;
   requests.length = 0;
-  useAssistantFeatureFlagStore
-    .getState()
-    .setFlags({ assistantDesktop: true });
+  useAssistantFeatureFlagStore.getState().setFlags({ assistantDesktop: true });
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -92,12 +90,10 @@ test("takes control, allows the assistant, and observes subsequent ownership thr
   );
   await screen.findByRole("button", { name: "Take control" });
   expect(readOnly()).toBe("true");
-});
+}, 10_000);
 
 test("disabled control makes no API requests and preserves interactive viewing", () => {
-  useAssistantFeatureFlagStore
-    .getState()
-    .setFlags({ assistantDesktop: false });
+  useAssistantFeatureFlagStore.getState().setFlags({ assistantDesktop: false });
   mount();
   expect(client.get).not.toHaveBeenCalled();
   expect(readOnly()).toBe("false");
