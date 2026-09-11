@@ -9,6 +9,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { readAvatarState } from "../avatar/avatar-manifest.js";
+import { resolveNotificationAccentHex } from "../avatar/notification-avatar.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { connectCdpWsTransport } from "../tools/browser/cdp-client/cdp-inspect/ws-transport.js";
 import { terminateProcessTree } from "../util/host-process.js";
@@ -34,6 +36,7 @@ import {
 } from "./desktop-display.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
+import { writeDesktopWindowTheme } from "./desktop-window-theme.js";
 
 const log = getLogger("desktop-session");
 
@@ -412,7 +415,20 @@ export class DesktopSessionManager {
           `Desktop VNC server not ready on port ${DESKTOP_VNC_PORT} after ${this.readyDeadlineMs}ms`,
         );
       }
-      this.launch("window-manager", [this.binaries.windowManager], env);
+      const windowManagerCommand = [this.binaries.windowManager];
+      try {
+        windowManagerCommand.push(
+          "--config-file",
+          writeDesktopWindowTheme(
+            this.panelConfigDir,
+            env.HOME,
+            resolveNotificationAccentHex(readAvatarState()),
+          ),
+        );
+      } catch (err) {
+        log.warn({ err }, "Desktop window theme could not be applied");
+      }
+      this.launch("window-manager", windowManagerCommand, env);
       // Before the dock, which only gets the ARGB visual its rounded corners
       // and translucency need if a compositor is already running.
       this.launchCosmetic("compositor", [this.binaries.compositor], env);

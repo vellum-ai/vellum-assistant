@@ -40,6 +40,7 @@ const DESKTOP_BINARIES = {
 const DESKTOP_PACKAGES = [
   "dbus-x11",
   "feh",
+  "gnome-mines",
   "openbox",
   "tigervnc-standalone-server",
   "tigervnc-common",
@@ -109,6 +110,7 @@ export class DesktopDependencyInstaller {
           return (
             existsSync(desktopChromePath() + ".ready") &&
             existsSync(desktopChromePath()) &&
+            existsSync("/usr/games/gnome-mines") &&
             existsSync("/usr/share/fonts/X11/misc/fonts.dir") &&
             existsSync("/usr/share/dbus-1/services/org.ayatana.bamf.service")
           );

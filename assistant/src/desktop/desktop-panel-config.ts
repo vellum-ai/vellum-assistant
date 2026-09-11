@@ -55,6 +55,7 @@ export function writeDesktopPanelConfig(
   mkdirSync(applicationsDir, { recursive: true });
   const chromiumEntry = join(applicationsDir, "google-chrome.desktop");
   const terminalEntry = join(applicationsDir, "xterm.desktop");
+  const minesEntry = join(applicationsDir, "org.gnome.Mines.desktop");
   writeFileSync(
     chromiumEntry,
     desktopEntry({
@@ -87,6 +88,16 @@ export function writeDesktopPanelConfig(
     }),
   );
 
+  writeFileSync(
+    minesEntry,
+    desktopEntry({
+      name: "Mines",
+      windowClass: "org.gnome.Mines",
+      icon: "/usr/share/icons/hicolor/scalable/apps/org.gnome.Mines.svg",
+      exec: "/usr/games/gnome-mines",
+    }),
+  );
+
   const launchersDir = join(configDir, "plank", "dock1", "launchers");
   const settingsDir = join(configDir, "glib-2.0", "settings");
   mkdirSync(launchersDir, { recursive: true });
@@ -97,11 +108,12 @@ export function writeDesktopPanelConfig(
   }
   seedFile(join(launchersDir, "chrome.dockitem"), dockItem(chromiumEntry));
   seedFile(join(launchersDir, "terminal.dockitem"), dockItem(terminalEntry));
+  seedFile(join(launchersDir, "mines.dockitem"), dockItem(minesEntry));
   seedFile(
     join(settingsDir, "keyfile"),
     [
       "[net/launchpad/plank/docks/dock1]",
-      "dock-items=['chrome.dockitem', 'terminal.dockitem']",
+      "dock-items=['chrome.dockitem', 'terminal.dockitem', 'mines.dockitem']",
       "icon-size=48",
       "hide-mode='none'",
       "theme='Matte'",

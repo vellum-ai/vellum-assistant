@@ -58,6 +58,7 @@ test("upgrades a generated tint2 desktop without disturbing its profile or custo
 
   // An unpinned app must stay unpinned after a restart or interrupted upgrade.
   rmSync(join(pinsDir, "chrome.dockitem"));
+  rmSync(join(pinsDir, "mines.dockitem"));
   const customSettings = settings.replace("icon-size=48", "icon-size=64");
   writeFileSync(settingsPath, customSettings);
   migrateDesktopDockMigration.run(workspace);
@@ -66,6 +67,7 @@ test("upgrades a generated tint2 desktop without disturbing its profile or custo
     chromiumPath: "/opt/chrome-v2/chrome",
   });
   expect(() => readFileSync(join(pinsDir, "chrome.dockitem"))).toThrow();
+  expect(() => readFileSync(join(pinsDir, "mines.dockitem"))).toThrow();
   expect(readFileSync(settingsPath, "utf8")).toBe(customSettings);
   expect(
     readFileSync(
