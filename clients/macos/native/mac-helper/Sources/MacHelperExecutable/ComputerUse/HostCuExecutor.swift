@@ -87,13 +87,12 @@ enum HostCuActionRunner {
                 return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
             }
 
-            // Stand down while the person at the machine is using it. This runs
-            // before the verifier so a refusal the model is told to retry never
-            // reaches ActionVerifier.actionHistory: recording it would let three
-            // waits in a row trip the repeat detector and block the action for
-            // good, long after the user went idle. Checking it here also skips
-            // the AX walk that coordinate resolution would otherwise do.
-            if ActionExecutor.takesOverFromUser(agentAction.type), ActionExecutor.userIsCurrentlyActive() {
+            // Stand down while the person at the machine is using it. Both
+            // checks run before the verifier, because it records every action
+            // it allows: a refusal banked there would let three of the retries
+            // this error asks for trip the repeat detector and block the action
+            // for good, long after the user went idle.
+            let standDown: () async -> HostCuResultPayload = {
                 log.info("[\(stepNumber)] Standing down: the user is using the machine")
                 let obs = await buildObservation(
                     enumerator: enumerator,
@@ -104,6 +103,13 @@ enum HostCuActionRunner {
                     conversationId: conversationId
                 )
                 return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+            }
+            let takesOver = ActionExecutor.takesOverFromUser(agentAction.type)
+
+            // Refuse early when we can, which also skips the AX walk that
+            // coordinate resolution would otherwise do on the way to nothing.
+            if takesOver, ActionExecutor.userIsCurrentlyActive() {
+                return await standDown()
             }
 
             // Resolve element IDs to coordinates if needed
@@ -144,6 +150,14 @@ enum HostCuActionRunner {
                     conversationId: conversationId
                 )
                 return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+            }
+
+            // Check again. Resolution above awaits an accessibility walk that
+            // can run for seconds, and the machine is not ours during it, so a
+            // person who started typing midway through would otherwise be
+            // interrupted by an action cleared before they touched anything.
+            if takesOver, ActionExecutor.userIsCurrentlyActive() {
+                return await standDown()
             }
 
             // VERIFY (local safety check)
