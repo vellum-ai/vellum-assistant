@@ -2259,6 +2259,62 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(queued("conv-1")).toBe(false);
     });
 
+    test("an older reconciliation cannot undo a newer queued snapshot", async () => {
+      let resolveFirst: (snapshot: ConversationSnapshot) => void = () => {};
+      let resolveSecond: (snapshot: ConversationSnapshot) => void = () => {};
+      fetchConversationMessagesMock = mock(
+        async (..._args: unknown[]): Promise<ConversationSnapshot> =>
+          new Promise((resolve) => {
+            if (fetchConversationMessagesMock.mock.calls.length === 1) {
+              resolveFirst = resolve;
+            } else {
+              resolveSecond = resolve;
+            }
+          }),
+      );
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+      await waitFor(() =>
+        expect(fetchConversationMessagesMock).toHaveBeenCalledTimes(2),
+      );
+
+      await act(async () => {
+        resolveSecond({
+          messages: [
+            {
+              id: "msg-1",
+              clientMessageId: "cm-1",
+              role: "user",
+              timestamp: new Date().toISOString(),
+              attachments: [],
+              queueStatus: "queued",
+              queuePosition: 1,
+            },
+          ],
+          processing: true,
+        });
+      });
+      await act(async () => {
+        resolveFirst({ messages: [], processing: false });
+      });
+
+      expect(awaiting("conv-1")).toBe(true);
+      expect(queued("conv-1")).toBe(true);
+      expect(detachedQueuedFor("cm-1")).toBeDefined();
+      expect(heldFor("surf-1")).toBeUndefined();
+      expect(toastErrorMock).not.toHaveBeenCalled();
+    });
+
     test("switching back keeps a persisted send while its turn is processing", async () => {
       fetchConversationMessagesMock = mock(
         async (..._args: unknown[]): Promise<ConversationSnapshot> => ({

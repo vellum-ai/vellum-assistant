@@ -495,14 +495,19 @@ afterEach(() => {
 });
 
 describe("document save coordination", () => {
-  test("waits for pending document edits before posting the message", async () => {
-    let finishSave: () => void = () => {};
-    const beforeSubmit = mock(
-      () =>
-        new Promise<void>((resolve) => {
-          finishSave = resolve;
-        }),
-    );
+  test("flushes before preflight and again before posting the message", async () => {
+    let finishInitialSave: () => void = () => {};
+    let finishFinalSave: () => void = () => {};
+    const beforeSubmit = mock(() => {
+      const callNumber = beforeSubmit.mock.calls.length;
+      return new Promise<void>((resolve) => {
+        if (callNumber === 1) {
+          finishInitialSave = resolve;
+        } else {
+          finishFinalSave = resolve;
+        }
+      });
+    });
     const { result } = renderSubmit("conv-existing", true, beforeSubmit);
     useComposerStore.getState().setInput("review this", "document");
 
@@ -516,7 +521,13 @@ describe("document save coordination", () => {
     expect(result.current.status).toBe("sending");
 
     await act(async () => {
-      finishSave();
+      finishInitialSave();
+    });
+    await waitFor(() => expect(beforeSubmit).toHaveBeenCalledTimes(2));
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishFinalSave();
       await submitted;
     });
 
@@ -612,7 +623,10 @@ describe("conversation id resolution", () => {
         return defaultPostChatMessage(..._args);
       },
     );
-    const { result } = renderSubmit("");
+    const beforeSubmit = mock(async () => {
+      callOrder.push("beforeSubmit");
+    });
+    const { result } = renderSubmit("", true, beforeSubmit);
     useComposerStore.getState().setInput("hello", "document");
 
     await act(async () => {
@@ -628,8 +642,10 @@ describe("conversation id resolution", () => {
     // injector reads the link during prompt assembly, so the row and the link
     // both exist before the first turn starts.
     expect(callOrder).toEqual([
+      "beforeSubmit",
       "conversationsPost",
       "documentsByIdConversationsPost",
+      "beforeSubmit",
       "postChatMessage",
     ]);
     expect(cachedIdAtSend[0]).toBe(MINTED_CONVERSATION_ID);

@@ -486,6 +486,12 @@ export function useDocumentComposerSubmit({
         return;
       }
 
+      await beforeSubmit?.();
+      if (assistantChanged()) {
+        holdAbandonedPreflight();
+        return;
+      }
+
       // `requireLink` decided whether a row was minted for this send, and
       // `postChatMessage` picks its own wire field off the same store the
       // moment it runs. Both reads are synchronous against one snapshot, so

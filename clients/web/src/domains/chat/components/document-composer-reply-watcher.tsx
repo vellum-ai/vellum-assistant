@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
@@ -182,9 +182,10 @@ export function DocumentComposerReplyWatcher() {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
   const isOrgReady = useIsOrgReady();
+  const reconciliationGenerationRef = useRef(0);
 
   const reconcileDetachedQueuedReplies = useCallback(
-    async (assistantId: string): Promise<void> => {
+    async (assistantId: string, generation: number): Promise<void> => {
       if (!isOrgReady) {
         return;
       }
@@ -238,6 +239,7 @@ export function DocumentComposerReplyWatcher() {
           continue;
         }
         if (
+          reconciliationGenerationRef.current !== generation ||
           useResolvedAssistantsStore.getState().activeAssistantId !==
           assistantId
         ) {
@@ -326,6 +328,17 @@ export function DocumentComposerReplyWatcher() {
     [isOrgReady, t],
   );
 
+  const startDetachedReconciliation = useCallback(
+    (activeAssistantId: string | null) => {
+      reconciliationGenerationRef.current += 1;
+      const generation = reconciliationGenerationRef.current;
+      if (activeAssistantId !== null) {
+        void reconcileDetachedQueuedReplies(activeAssistantId, generation);
+      }
+    },
+    [reconcileDetachedQueuedReplies],
+  );
+
   // One SSE connection follows the active assistant, so a wait held across a
   // switch never sees its reply and would toast on an unrelated turn. The
   // active assistant can change on routes that mount no conversation view
@@ -335,9 +348,9 @@ export function DocumentComposerReplyWatcher() {
     let ownerAssistantId =
       useResolvedAssistantsStore.getState().activeAssistantId;
     if (ownerAssistantId !== null) {
-      void reconcileDetachedQueuedReplies(ownerAssistantId);
+      startDetachedReconciliation(ownerAssistantId);
     }
-    return useResolvedAssistantsStore.subscribe((state) => {
+    const unsubscribe = useResolvedAssistantsStore.subscribe((state) => {
       const { activeAssistantId } = state;
       if (activeAssistantId === ownerAssistantId) {
         return;
@@ -370,11 +383,13 @@ export function DocumentComposerReplyWatcher() {
         }
       }
       ownerAssistantId = activeAssistantId;
-      if (activeAssistantId !== null) {
-        void reconcileDetachedQueuedReplies(activeAssistantId);
-      }
+      startDetachedReconciliation(activeAssistantId);
     });
-  }, [reconcileDetachedQueuedReplies]);
+    return () => {
+      reconciliationGenerationRef.current += 1;
+      unsubscribe();
+    };
+  }, [startDetachedReconciliation]);
 
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
@@ -587,7 +602,7 @@ export function DocumentComposerReplyWatcher() {
     const activeAssistantId =
       useResolvedAssistantsStore.getState().activeAssistantId;
     if (activeAssistantId !== null) {
-      void reconcileDetachedQueuedReplies(activeAssistantId);
+      startDetachedReconciliation(activeAssistantId);
     }
     // A handoff leaves the marker up for the queued work it announces, and the
     // conversation is named as handed off. The next terminal there that is not
