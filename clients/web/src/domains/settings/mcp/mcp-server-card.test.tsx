@@ -1,34 +1,19 @@
-/**
- * Tests for the MCP server row's authentication states.
- *
- * The three states are worth pinning because two of the inputs disagree: the
- * list route reports `hasOAuth` from the tokens stored on disk, while the
- * health check reports whether those tokens still work. A row that reads the
- * grant alone claims to be authenticated with credentials the server has
- * already rejected, and takes away the only way back in.
- */
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
-
-import type { McpServerEntry } from "@/domains/settings/mcp/mcp-api";
-import { McpServerCard } from "@/domains/settings/mcp/mcp-server-card";
-
-const noop = () => {};
+import type { McpServerEntry } from "./mcp-api";
+import { McpServerCard } from "./mcp-server-card";
 
 const handlers = {
-  toolsSummary: undefined,
-  onRemove: noop,
-  onConfigure: noop,
-  onAuthenticate: noop,
-  onRevokeOAuth: noop,
+  onRemove: mock(() => {}),
+  onConfigure: mock(() => {}),
+  onAuthenticate: mock(() => {}),
   isAuthenticating: false,
-  isRevoking: false,
 };
 
 function server(overrides: Partial<McpServerEntry> = {}): McpServerEntry {
   return {
-    id: "figma",
+    id: "example-meeting-notes",
     status: "connected",
     transport: { type: "streamable-http", url: "https://example.com/mcp" },
     hasOAuth: false,
@@ -40,33 +25,33 @@ function server(overrides: Partial<McpServerEntry> = {}): McpServerEntry {
 
 afterEach(() => {
   cleanup();
+  handlers.onRemove.mockClear();
+  handlers.onConfigure.mockClear();
+  handlers.onAuthenticate.mockClear();
 });
 
-describe("McpServerCard authentication states", () => {
-  test("a working grant reads as authenticated, with nothing left to do", () => {
+describe("McpServerCard", () => {
+  test("a working grant offers Configure without OAuth or technical metadata", () => {
     render(<McpServerCard {...handlers} server={server({ hasOAuth: true })} />);
 
-    screen.getByText("Authenticated");
-    expect(screen.queryByText("Authenticate")).toBeNull();
-    expect(screen.queryByText("Re-auth")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+    expect(handlers.onConfigure).toHaveBeenCalledWith("example-meeting-notes");
+    expect(screen.queryByText("Authenticated")).toBeNull();
+    expect(screen.queryByText("streamable-http")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Authenticate|Re-auth|Revoke/ })).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByText(/registered tools/i)).toBeNull();
   });
 
-  test("no grant at all offers first-time authentication", () => {
-    render(
-      <McpServerCard {...handlers} server={server({ status: "needs-auth" })} />,
-    );
+  test("a missing grant offers one labeled action to finish connecting", () => {
+    render(<McpServerCard {...handlers} server={server({ status: "needs-auth" })} />);
 
-    screen.getByText("Needs Auth");
-    screen.getByText("Authenticate");
-    // Nothing is stored, so there is nothing to revoke.
-    expect(screen.queryByLabelText("Revoke")).toBeNull();
+    screen.getByText("Needs attention");
+    fireEvent.click(screen.getByRole("button", { name: "Finish connecting" }));
+    expect(handlers.onAuthenticate).toHaveBeenCalledWith("example-meeting-notes");
   });
 
-  /* Expired or server-side-revoked tokens arrive as `hasOAuth: true` next to a
-     `needs-auth` status. Reading the grant alone would show "Needs Auth" and
-     "Authenticated" at once and drop the re-auth control, leaving revoking as
-     the only route back in. */
-  test("a stale grant still offers the way back in", () => {
+  test("a stale grant offers Reconnect", () => {
     render(
       <McpServerCard
         {...handlers}
@@ -74,15 +59,12 @@ describe("McpServerCard authentication states", () => {
       />,
     );
 
-    expect(screen.queryByText("Authenticated")).toBeNull();
-    screen.getByText("Needs Auth");
-    screen.getByText("Re-auth");
-    // Revoking follows the stored tokens rather than the health check: stale
-    // credentials are exactly what someone would want to clear.
-    screen.getByLabelText("Revoke");
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    expect(handlers.onAuthenticate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByLabelText("Revoke")).toBeNull();
   });
 
-  test("a local stdio server is never asked to sign in", () => {
+  test("a local server opens Configure instead of starting OAuth", () => {
     render(
       <McpServerCard
         {...handlers}
@@ -90,6 +72,32 @@ describe("McpServerCard authentication states", () => {
       />,
     );
 
-    expect(screen.queryByText("Authenticate")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+    expect(handlers.onConfigure).toHaveBeenCalledTimes(1);
+    expect(handlers.onAuthenticate).not.toHaveBeenCalled();
+  });
+
+  test("authentication in progress keeps a labeled disabled action", () => {
+    render(
+      <McpServerCard
+        {...handlers}
+        server={server({ status: "needs-auth" })}
+        isAuthenticating
+      />,
+    );
+
+    expect((screen.getByRole("button", { name: "Connecting..." }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("the actions menu keeps Configure and removal reachable during recovery", async () => {
+    render(<McpServerCard {...handlers} server={server({ status: "needs-auth" })} />);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions for example-meeting-notes" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Configure" }));
+    expect(handlers.onConfigure).toHaveBeenCalledTimes(1);
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More actions for example-meeting-notes" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove integration" }));
+    expect(handlers.onRemove).toHaveBeenCalledWith("example-meeting-notes");
   });
 });

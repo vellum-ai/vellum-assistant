@@ -13,6 +13,10 @@ import { MemoryRouter } from "react-router";
 
 let assistantFlags: Record<string, boolean> = {};
 let flagsHydrated = true;
+let configuredServers: Array<import("./mcp-api").McpServerEntry> = [];
+const fetchTools = mock(async () => ({
+  servers: [], totalToolCount: 0, totalEstimatedTokens: 0,
+}));
 
 const navigateToNewConversation = mock((..._args: unknown[]) => {});
 mock.module("@/utils/conversation-navigation", () => ({
@@ -66,12 +70,8 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 }));
 
 mock.module("./mcp-api", () => ({
-  fetchMcpServers: mock(async () => ({ servers: [] })),
-  fetchMcpToolsSummary: mock(async () => ({
-    servers: [],
-    totalToolCount: 0,
-    totalEstimatedTokens: 0,
-  })),
+  fetchMcpServers: mock(async () => ({ servers: configuredServers })),
+  fetchMcpToolsSummary: fetchTools,
   addMcpServer: mock(async () => {}),
   startMcpAuth: mock(async () => ({
     auth_url: "https://example.com/oauth",
@@ -80,7 +80,6 @@ mock.module("./mcp-api", () => ({
   pollMcpAuthStatus: mock(async () => ({ status: "pending" })),
   reloadMcpServers: mock(async () => {}),
   removeMcpServer: mock(async () => {}),
-  revokeMcpOAuth: mock(async () => {}),
   updateMcpServer: mock(async () => {}),
 }));
 
@@ -102,9 +101,26 @@ afterEach(() => {
   assistantFlags = {};
   flagsHydrated = true;
   navigateToNewConversation.mockClear();
+  configuredServers = [];
+  fetchTools.mockClear();
 });
 
 describe("McpPage", () => {
+  test("fetches tool summaries only after Configure opens", async () => {
+    configuredServers = [{
+      id: "example-integration", status: "connected",
+      transport: { type: "streamable-http", url: "https://example.com/mcp" },
+      hasOAuth: false, hasStaticAuth: false, authType: "none",
+    }];
+    render(<McpPage />, { wrapper: Wrapper });
+
+    const configure = await screen.findByRole("button", { name: "Configure" });
+    expect(fetchTools).not.toHaveBeenCalled();
+    fireEvent.click(configure);
+    await waitFor(() => expect(fetchTools).toHaveBeenCalledTimes(1));
+    screen.getByText("Registered tools");
+  });
+
   test("hides the add server button when the mcpAddServer flag is off", async () => {
     assistantFlags = { mcpAddServer: false };
 
