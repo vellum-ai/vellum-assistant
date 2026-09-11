@@ -1,6 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { waitFor } from "@testing-library/react";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { build, createServer, type ViteDevServer } from "vite";
@@ -77,6 +84,34 @@ test("fails startup when generation fails instead of serving stale clients", asy
   );
   await writeFile(path.join(config.root, "generate.ts"), "process.exit(1)");
   await expect(createServer(config)).rejects.toThrow();
+});
+
+test("an edit during startup generation is included before serving", async () => {
+  const config = await setup();
+  const generator = path.join(config.root, "generate.ts");
+  await writeFile(
+    generator,
+    (await readFile(generator, "utf8")).replace(
+      'await Bun.write("client.js",',
+      'await Bun.write("read-started", "ready"); while (!(await Bun.file("continue").exists())) { await Bun.sleep(5); } await Bun.write("client.js",',
+    ),
+  );
+  const starting = createServer(config);
+  try {
+    await waitFor(async () =>
+      expect(
+        await readFile(path.join(config.root, "read-started"), "utf8"),
+      ).toBe("ready"),
+    );
+    await writeFile(path.join(fixture, "assistant/openapi.yaml"), "updated");
+  } finally {
+    await writeFile(path.join(config.root, "continue"), "ready");
+    server = await starting;
+  }
+  await server.listen();
+  expect((await server.transformRequest("/client.js"))?.code).toContain(
+    '"updated"',
+  );
 });
 
 test("production builds do not invoke development code generation", async () => {
