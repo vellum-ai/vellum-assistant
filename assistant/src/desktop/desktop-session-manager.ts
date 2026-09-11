@@ -1,18 +1,20 @@
 /**
  * On-demand assistant desktop: Xtigervnc (VNC on loopback only, so the
  * authenticated `/v1/desktop/stream` upgrade is the sole way in), openbox, the
- * xcompmgr compositor, the tint2 dock, the tigervncconfig clipboard bridge and
+ * xcompmgr compositor, the Plank dock, the tigervncconfig clipboard bridge and
  * Google Chrome, started by the first viewer and lingering after the
  * last one leaves so a reconnect is instant.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getIsContainerized } from "../config/env-registry.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
+import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
 import {
   desktopChromePath,
   resolveDesktopBinaries,
@@ -22,6 +24,7 @@ import {
   DESKTOP_OVERRIDABLE_PARAMETERS,
 } from "./desktop-display.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
+import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
 
 const log = getLogger("desktop-session");
 
@@ -83,13 +86,15 @@ export type DesktopChildRole =
   | "window-manager"
   | "compositor"
   | "panel"
+  | "wallpaper"
   | "clipboard"
   | "browser";
 
-/** Children whose death costs the dock's looks, not the desktop. */
+/** Optional desktop decoration processes. */
 const COSMETIC_ROLES: ReadonlySet<DesktopChildRole> = new Set([
   "compositor",
   "panel",
+  "wallpaper",
 ]);
 
 /** The slice of `Bun.Subprocess` the manager drives, so tests can fake it. */
@@ -164,8 +169,12 @@ interface DesktopSessionManagerOptions {
   readonly readyDeadlineMs?: number;
   readonly killGraceMs?: number;
   readonly profileDir?: string;
-  /** Where the generated tint2rc, its launchers and their icons are written. */
+  /** Directory for dock config, launchers, icons and wallpaper. */
   readonly panelConfigDir?: string;
+  readonly renderWallpaper?: (
+    width: number,
+    height: number,
+  ) => Promise<Buffer | null>;
   /** Where the children's allowlisted env is read from. */
   readonly sourceEnv?: NodeJS.ProcessEnv;
 }
@@ -189,6 +198,10 @@ export class DesktopSessionManager {
   private binaries: DesktopBinaries | null = null;
   /** Whether this tree has already had its one dock start attempted. */
   private panelStarted = false;
+  private wallpaperStarting: {
+    generation: number;
+    refreshQueued: boolean;
+  } | null = null;
 
   private readonly spawn: NonNullable<DesktopSessionManagerOptions["spawn"]>;
   private readonly which: NonNullable<DesktopSessionManagerOptions["which"]>;
@@ -206,6 +219,9 @@ export class DesktopSessionManager {
   private readonly killGraceMs: number;
   private readonly profileDir: string;
   private readonly panelConfigDir: string;
+  private readonly renderWallpaper: NonNullable<
+    DesktopSessionManagerOptions["renderWallpaper"]
+  >;
   private readonly sourceEnv: NodeJS.ProcessEnv;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
@@ -213,7 +229,18 @@ export class DesktopSessionManager {
     this.which = options.which ?? Bun.which;
     this.probeVncPort = options.probeVncPort ?? probeLoopbackPort;
     this.resolveChromePath =
-      options.resolveChromePath ?? (async () => desktopChromePath());
+      options.resolveChromePath ??
+      (async () => {
+        if (process.platform === "linux" && getIsContainerized()) {
+          // Google Chrome reads policies from /etc even when its deb is extracted.
+          try {
+            writeDesktopChromePolicy("/etc/opt/chrome/policies/managed");
+          } catch (err) {
+            log.warn({ err }, "Desktop Chrome policy could not be applied");
+          }
+        }
+        return desktopChromePath();
+      });
     this.killProcessGroup = options.killProcessGroup ?? killProcessGroup;
     this.lingerMs = options.lingerMs ?? DESKTOP_LINGER_MS;
     this.readyDeadlineMs = options.readyDeadlineMs ?? VNC_READY_DEADLINE_MS;
@@ -223,6 +250,8 @@ export class DesktopSessionManager {
     this.panelConfigDir =
       options.panelConfigDir ?? join(getDataDir(), "desktop-panel");
     this.sourceEnv = options.sourceEnv ?? process.env;
+    this.renderWallpaper =
+      options.renderWallpaper ?? renderCurrentDesktopWallpaper;
   }
 
   // ── Viewer slot ────────────────────────────────────────────────────
@@ -286,6 +315,7 @@ export class DesktopSessionManager {
       return Promise.reject(ingressClosedError());
     }
     if (this.running) {
+      void this.refreshWallpaper(this.childEnv(), this.generation);
       void this.ensureBrowser(this.childEnv(), this.generation);
       return Promise.resolve();
     }
@@ -339,7 +369,52 @@ export class DesktopSessionManager {
     }
     this.running = true;
     log.info({ display: DESKTOP_DISPLAY }, "Desktop started");
+    void this.refreshWallpaper(env, generation);
     void this.ensureBrowser(env, generation);
+  }
+
+  private async refreshWallpaper(
+    env: Record<string, string>,
+    generation: number,
+  ): Promise<void> {
+    if (this.wallpaperStarting?.generation === generation) {
+      this.wallpaperStarting.refreshQueued = true;
+      return;
+    }
+    const pending = { generation, refreshQueued: false };
+    this.wallpaperStarting = pending;
+    try {
+      const png = await this.renderWallpaper(DESKTOP_WIDTH, DESKTOP_HEIGHT);
+      if (
+        !png ||
+        pending.refreshQueued ||
+        this.generation !== generation ||
+        !this.binaries
+      ) {
+        return;
+      }
+      mkdirSync(this.panelConfigDir, { recursive: true });
+      const path = join(this.panelConfigDir, "wallpaper.png");
+      writeFileSync(path, png);
+      this.launchCosmetic(
+        "wallpaper",
+        [this.binaries.wallpaper, "--no-fehbg", "--bg-fill", path],
+        env,
+      );
+    } catch (err) {
+      log.warn({ err }, "Desktop wallpaper could not be applied");
+    } finally {
+      if (this.wallpaperStarting === pending) {
+        this.wallpaperStarting = null;
+        if (
+          pending.refreshQueued &&
+          this.generation === generation &&
+          this.running
+        ) {
+          void this.refreshWallpaper(env, generation);
+        }
+      }
+    }
   }
 
   private async waitForVnc(generation: number): Promise<boolean> {
@@ -394,9 +469,8 @@ export class DesktopSessionManager {
       return;
     }
     this.panelStarted = true;
-    let configPath: string;
     try {
-      configPath = writeDesktopPanelConfig({
+      writeDesktopPanelConfig({
         configDir: this.panelConfigDir,
         chromiumPath,
         chromiumProfileDir: this.profileDir,
@@ -406,7 +480,16 @@ export class DesktopSessionManager {
       log.warn({ err }, "Desktop dock config could not be written");
       return;
     }
-    this.launchCosmetic("panel", [binaries.panel, "-c", configPath], env);
+    this.launchCosmetic(
+      "panel",
+      [binaries.panelSession, "--", binaries.panel],
+      {
+        ...env,
+        XDG_CONFIG_HOME: this.panelConfigDir,
+        XDG_DATA_HOME: this.panelConfigDir,
+        GSETTINGS_BACKEND: "keyfile",
+      },
+    );
   }
 
   /** Spawn a child the desktop looks worse without but works fine without. */
@@ -448,7 +531,13 @@ export class DesktopSessionManager {
     if (this.children.get(role) !== child) {
       return;
     }
-    this.children.delete(role);
+    // Dock-launched applications can outlive the panel's session wrapper.
+    if (role !== "panel") {
+      this.children.delete(role);
+    }
+    if (role === "wallpaper" && outcome === 0) {
+      return;
+    }
     if (role === "browser") {
       log.info({ outcome }, "Desktop browser exited");
       this.onBrowserExit();
@@ -543,12 +632,15 @@ export class DesktopSessionManager {
         return child.exited.catch(() => 0).then(() => alive.delete(role));
       }),
     );
-    await this.waitForExits(exits);
-    if (alive.size === 0) {
-      return;
-    }
-    for (const child of alive.values()) {
-      this.killProcessGroup(child, "SIGKILL");
+    const panel = children.get("panel");
+    await this.waitForExits(
+      panel ? Promise.all([exits, sleep(this.killGraceMs)]) : exits,
+    );
+    for (const [role, child] of children) {
+      // A reaped panel does not prove its application process group is empty.
+      if (role === "panel" || alive.has(role)) {
+        this.killProcessGroup(child, "SIGKILL");
+      }
     }
     await this.waitForExits(exits);
     if (alive.size > 0) {
