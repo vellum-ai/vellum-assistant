@@ -4,6 +4,7 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 
 import { ShareFeedbackModalLazy } from "@/components/share-feedback-modal-lazy";
 import { useAppTheme } from "@/hooks/use-app-theme";
+import { useCompanionIntroHoldProof } from "@/hooks/use-companion-intro-hold-proof";
 import { useDownloadFeedback } from "@/hooks/use-download-feedback";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
@@ -273,6 +274,10 @@ export function RootLayout() {
   // surface is on screen for as long as the app is, including on routes with no
   // transcript rendered.
   useCompanionMirror();
+  // The companion's introduction asks for the voice key to be held, and this
+  // window is the one the key's edges reach. Mounted beside the mirror for the
+  // same reason: the surface is on screen for as long as the app is.
+  useCompanionIntroHoldProof();
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Id of the assistant a tray "Retire <assistant>…" command targets. The tray

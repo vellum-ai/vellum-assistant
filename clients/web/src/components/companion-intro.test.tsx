@@ -1,12 +1,35 @@
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
+
+import { HOLD_PROOF_WINDOW_MS } from "@/hooks/use-hold-proof-deadline";
+import { writeVoiceKey } from "@/utils/voice-key";
 
 import { CompanionIntro } from "./companion-intro";
 import { CompanionSurface } from "./companion-surface";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+});
+
+/** The card's controls, in reading order, by their labels. */
+const buttonsOf = (container: HTMLElement): HTMLButtonElement[] =>
+  Array.from(container.querySelectorAll("button"));
+
+const labelsOf = (container: HTMLElement): string[] =>
+  buttonsOf(container).map((button) => button.textContent ?? "");
+
+const press = (container: HTMLElement, label: string): void => {
+  const button = buttonsOf(container).find(
+    (each) => each.textContent === label,
+  );
+  if (!button) {
+    throw new Error(`Expected a control labelled ${label}`);
+  }
+  fireEvent.click(button);
+};
 
 /** The introduction's card, which hangs off the avatar rather than the pill. */
 const cardOf = (container: HTMLElement): HTMLElement => {
@@ -93,5 +116,89 @@ describe("the companion introduction's clearance", () => {
     // baseline, so its half box plus the gap: 22 + 12 points, over the 2.5
     // scale the options box leaves the canvas at.
     expect(cardOf(container).style.transform).toBe("translateY(13.6px)");
+  });
+});
+
+/**
+ * The hold beat is the one beat a press does not walk past. The key does, from
+ * the app's window, so what the card owns is the ask, the wait, and what it
+ * says when the wait runs out.
+ */
+describe("the companion introduction's hold beat", () => {
+  test("asks for the key by name and offers no way past it but the key", () => {
+    const { container } = render(<CompanionIntro beat="hold" />);
+
+    expect(cardOf(container).textContent).toContain("Hold Fn to dictate");
+    expect(labelsOf(container)).toEqual(["Skip"]);
+  });
+
+  test("names a custom key the same way", () => {
+    writeVoiceKey({ kind: "modifierOnly", modifiers: ["control", "option"] });
+    const { container } = render(<CompanionIntro beat="hold" />);
+
+    expect(cardOf(container).textContent).toContain("Hold Ctrl+Alt to dictate");
+  });
+
+  test("says the key never came once the wait runs out, and offers the settings and another wait", () => {
+    const onOpenKeyboardSettings = mock(() => {});
+    jest.useFakeTimers();
+    try {
+      const { container } = render(
+        <CompanionIntro
+          beat="hold"
+          onOpenKeyboardSettings={onOpenKeyboardSettings}
+        />,
+      );
+      act(() => {
+        jest.advanceTimersByTime(HOLD_PROOF_WINDOW_MS + 1);
+      });
+
+      const card = cardOf(container);
+      expect(card.textContent).toContain("Fn never reached me");
+      expect(card.textContent).toContain("Input Monitoring");
+      expect(labelsOf(container)).toEqual([
+        "Open Keyboard settings",
+        "Skip",
+        "Try again",
+      ]);
+
+      press(container, "Open Keyboard settings");
+      expect(onOpenKeyboardSettings).toHaveBeenCalledTimes(1);
+
+      // Another wait is the same ask again, and it runs out the same way.
+      press(container, "Try again");
+      expect(cardOf(container).textContent).toContain("Hold Fn to dictate");
+      expect(labelsOf(container)).toEqual(["Skip"]);
+
+      act(() => {
+        jest.advanceTimersByTime(HOLD_PROOF_WINDOW_MS + 1);
+      });
+      expect(cardOf(container).textContent).toContain("Fn never reached me");
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // Nothing could prove a key that is switched off, so the beat is not a
+  // wait: it walks itself past, and main resolves the press against its own
+  // beat so a stale one moves nothing else.
+  test("walks past itself when the key is off", () => {
+    writeVoiceKey({ kind: "off" });
+    const onAdvance = mock((_action: string) => {});
+    render(<CompanionIntro beat="hold" onAdvance={onAdvance} />);
+
+    expect(onAdvance).toHaveBeenCalledTimes(1);
+    expect(onAdvance).toHaveBeenCalledWith("next");
+  });
+
+  test("every other beat still walks on a press", () => {
+    const onAdvance = mock((_action: string) => {});
+    const { container } = render(
+      <CompanionIntro beat="talk" onAdvance={onAdvance} />,
+    );
+
+    expect(labelsOf(container)).toEqual(["Skip", "Next"]);
+    press(container, "Next");
+    expect(onAdvance).toHaveBeenCalledWith("next");
   });
 });

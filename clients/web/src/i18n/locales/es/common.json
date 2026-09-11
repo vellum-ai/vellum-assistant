@@ -138,6 +138,14 @@
   "companionIntro": {
     "ariaLabel": "Te presento a tu compañero",
     "done": "Entendido",
+    "hold": {
+      "body": "Pruébalo ahora. Sigo en cuanto me llegue.",
+      "openKeyboardSettings": "Abrir ajustes de Teclado",
+      "title": "Mantén {key} para dictar",
+      "tryAgain": "Reintentar",
+      "unreachedBody": "Reasignada, tomada por otra app o sin Monitorización de entrada.",
+      "unreachedTitle": "{key} nunca me llegó"
+    },
     "meet": {
       "body": "Me quedo en tu escritorio, aunque Vellum no esté a la vista.",
       "title": "Este soy yo",

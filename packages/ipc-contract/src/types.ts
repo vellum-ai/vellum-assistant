@@ -2001,28 +2001,45 @@ export const WATCH_FLAG = "teach";
  * place the user is not looking when the surface matters.
  *
  * A list rather than a count, because each beat names the control it sits over
- * and the renderer spotlights that control by name. Two of them have no
- * control to spotlight: `meet` is the avatar itself, and `menu` is about a
- * press rather than a control drawn on the pill.
+ * and the renderer spotlights that control by name. Three of them have no
+ * control to spotlight: `meet` is the avatar itself, `hold` is the voice key on
+ * the user's own keyboard, and `menu` is about a press rather than a control
+ * drawn on the pill.
+ *
+ * `hold` is the one beat that is not walked past with a press. It asks for the
+ * voice key to be held and moves on only when a real hold edge arrives
+ * (`holdProven` in {@link COMPANION_INTRO_ACTIONS}), because every other check
+ * the app makes on the key is about permissions and registration, and a key
+ * that is remapped at the system level passes all of them while never sending
+ * a press. Holding it is the one check that catches every cause.
  *
  * `menu` is last and is the answer to "how do I make this go away" and "how do
  * I make it a different size". A surface that sits above every other window has
  * to say where its own off switch is, and the right-click menu it points at is
  * the only part of this the user cannot find by looking at the pill.
  */
-export const COMPANION_INTRO_BEATS = ["meet", "talk", "menu"] as const;
+export const COMPANION_INTRO_BEATS = ["meet", "talk", "hold", "menu"] as const;
 
 export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
 
 /**
  * What a press on the introduction asks for.
  *
- * Two intents rather than a beat to jump to, because the renderer does not hold
+ * Intents rather than a beat to jump to, because the renderer does not hold
  * the running position: main does, so the renderer says which way to go and
  * main resolves it against the beat it is actually on. A stale press from a
  * renderer a beat behind then lands where the user could see it would.
+ *
+ * `holdProven` is not a press. It is the app's window reporting that the voice
+ * key's hold edge reached it, and it moves the run on only from the `hold`
+ * beat: the window that owns the key cannot see which beat the surface is on,
+ * so it reports every edge and main keeps the ones the run is waiting for.
  */
-export const COMPANION_INTRO_ACTIONS = ["next", "dismiss"] as const;
+export const COMPANION_INTRO_ACTIONS = [
+  "next",
+  "dismiss",
+  "holdProven",
+] as const;
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 
