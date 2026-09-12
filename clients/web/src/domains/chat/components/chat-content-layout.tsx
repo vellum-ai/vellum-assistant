@@ -198,20 +198,27 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const isMobile = useIsMobile();
+  const documentPreparation = useDocumentChatPreparation({
+    assistantId,
+    conversationId: activeConversationId,
+    documentConversationId: documentRoute.surfaceId
+      ? activeConversationId
+      : openedDocumentState?.source === "document"
+        ? openedDocumentState.conversationId
+        : null,
+    surfaceId:
+      documentRoute.surfaceId ??
+      (openedDocumentState?.source === "document"
+        ? openedDocumentState.surfaceId
+        : null),
+    editorRef: documentEditorRef,
+  });
   const { runPrepared: runDocumentFeedback, error: documentFeedbackError } =
-    useDocumentChatPreparation({
-      assistantId,
-      conversationId: activeConversationId,
-      documentConversationId:
-        openedDocumentState?.source === "document"
-          ? openedDocumentState.conversationId
-          : null,
-      surfaceId:
-        !isMobile && openedDocumentState?.source === "document"
-          ? openedDocumentState.surfaceId
-          : null,
-      editorRef: documentEditorRef,
-    });
+    documentPreparation;
+  const documentSessionPreparation =
+    documentRoute.surfaceId && (isMobile || mainView === "document")
+      ? documentPreparation
+      : null;
   const navigate = useNavigate();
   const location = useLocation();
   const editApp = useEditApp();
@@ -455,7 +462,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     return (
       <WorkspacePanes
         presentation="side"
-        secondary={<ChatMainPanel {...props} documentRoute={documentRoute} />}
+        secondary={
+          <ChatMainPanel
+            {...props}
+            documentRoute={documentRoute}
+            documentEditorRef={documentEditorRef}
+            documentPreparation={documentSessionPreparation}
+          />
+        }
         primary={
           <AppViewerContainer
             appId={openedAppState.appId}
@@ -520,7 +534,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const chatContent = (
     <SideControlPlacementBoundary className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       <ProgressStack placement="column" />
-      <ChatMainPanel {...props} documentRoute={documentRoute} />
+      <ChatMainPanel
+        {...props}
+        documentRoute={documentRoute}
+        documentEditorRef={documentEditorRef}
+        documentPreparation={documentSessionPreparation}
+      />
     </SideControlPlacementBoundary>
   );
 
@@ -754,7 +773,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   ) {
     rightPanel = (
       <div className="flex h-full min-h-0 flex-col">
-        {documentFeedbackError && (
+        {!documentSessionPreparation && documentFeedbackError && (
           <Notice tone="error" className="shrink-0">
             {documentFeedbackError}
           </Notice>

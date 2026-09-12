@@ -8,6 +8,7 @@ import {
   test,
 } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Notice } from "@vellumai/design-library";
 import {
   act,
   cleanup,
@@ -39,8 +40,9 @@ import type * as Chat from "./chat-route-content";
 import type * as Progress from "./progress-stack";
 import type * as ChatInfo from "./chat-info-panel";
 import type * as Surfaces from "../api/surfaces";
-import type { DocumentViewerContainerHandle } from "./document-viewer-container";
 import { useOpenDocumentFromChat } from "../hooks/use-open-app-from-chat";
+import { useComposerSubmit } from "../hooks/use-composer-submit";
+import { useComposerStore } from "../composer-store";
 
 const useReadiness = create<{ value: Readiness.OrgHeaderReadiness }>(() => ({
   value: "ready",
@@ -145,13 +147,30 @@ mock.module(
 mock.module(
   "./chat-route-content",
   (): Partial<typeof Chat> => ({
-    ChatMainPanel: ({ documentRoute }) => {
+    ChatMainPanel: ({
+      documentRoute,
+      documentEditorRef,
+      documentPreparation,
+    }) => {
       useDocumentEditorSync();
       const isMobile = useIsMobile();
       const location = useLocation();
       const opened = useViewerStore.use.openedDocumentState();
-      const editorRef = useRef<DocumentViewerContainerHandle>(null);
       const openDocument = useOpenDocumentFromChat();
+      const composer = useComposerSubmit({
+        assistantId: "assistant-1",
+        activeConversationId: "conv-1",
+        inputRef: { current: null },
+        sendMessage: send,
+        scrollToLatest: () => {},
+        isEditing: false,
+        editingMessageId: null,
+        cancelEditing: () => {},
+        canUndoEdit: false,
+        sendDisabled: false,
+        typingDisabled: false,
+        prepareSend: documentPreparation?.prepareSend,
+      });
       return (
         <>
           <div data-testid="url">
@@ -164,6 +183,29 @@ mock.module(
           <button onClick={() => void openDocument("surface-2")}>
             Open another document
           </button>
+          <button onClick={() => void composer.submitMessage()}>
+            Send chat
+          </button>
+          <button
+            onClick={async () => {
+              if (
+                !documentPreparation ||
+                (await documentPreparation.prepareVoice())
+              ) {
+                startVoice();
+              }
+            }}
+          >
+            Start voice
+          </button>
+          <button onClick={documentRoute.viewConversation}>
+            View conversation
+          </button>
+          {documentPreparation?.error && (
+            <Notice tone="error" data-testid="preparation-error">
+              {documentPreparation.error}
+            </Notice>
+          )}
           {isMobile && documentRoute.surfaceId && (
             <DocumentChatContent
               assistantId="assistant-1"
@@ -171,7 +213,7 @@ mock.module(
               document={opened}
               loading={documentRoute.isLoading}
               error={documentRoute.error}
-              editorRef={editorRef}
+              editorRef={documentEditorRef}
               onClose={documentRoute.closeDocument}
               onRetry={documentRoute.reloadDocument}
               onSubmitFeedback={() => {}}
@@ -201,6 +243,11 @@ const original: DocumentContent = {
   updatedAt: 1,
 };
 let saved: DocumentContent;
+let sentDocument: DocumentContent | undefined;
+const send = mock(async (_content: string) => {
+  sentDocument = { ...saved };
+});
+const startVoice = mock(() => ({ ...saved }));
 let pendingWrite: Promise<void> | undefined;
 let finishWrite: () => void;
 let failWrite: (error: Error) => void;
@@ -227,6 +274,13 @@ const viewer = useViewerStore.getState();
 let queryClient: QueryClient;
 
 beforeEach(() => {
+  send.mockClear();
+  sentDocument = undefined;
+  startVoice.mockClear();
+  useComposerStore.setState({
+    input: "Revise this paragraph",
+    attachments: [],
+  });
   downloadDocumentPdf.mockClear();
   useReadiness.setState({ value: "ready" });
   saved = { ...original };
@@ -276,6 +330,7 @@ afterEach(async () => {
   useResolvedAssistantsStore.setState(selection, true);
   useConversationStore.setState(conversation, true);
   useViewerStore.setState(viewer, true);
+  useComposerStore.setState({ input: "", attachments: [] });
 });
 
 function renderLayout(mobile: boolean, urlBacked = true) {
@@ -305,6 +360,40 @@ function renderLayout(mobile: boolean, urlBacked = true) {
 }
 
 describe("document viewport handoff", () => {
+  for (const urlBacked of [true, false]) {
+    test.todo(
+      `refreshes a mounted editor after a remote client save (URL-backed: ${urlBacked})`,
+      async () => {
+        renderLayout(false, urlBacked);
+        if (!urlBacked) {
+          fireEvent.click(
+            screen.getByRole("button", { name: "Open document" }),
+          );
+        }
+        const editor = await screen.findByRole("textbox", {
+          name: "Document body",
+        });
+        await act(async () => {
+          saved = { ...saved, content: "Remote client body" };
+          publish("sse.event", {
+            id: "event-remote-save",
+            emittedAt: new Date().toISOString(),
+            message: {
+              type: "sync_changed",
+              tags: ["documents:list"],
+              originClientId: "client-other",
+            },
+          });
+        });
+        await waitFor(() =>
+          expect((editor as HTMLTextAreaElement).value).toBe(
+            "Remote client body",
+          ),
+        );
+      },
+    );
+  }
+
   test.each([
     { mobile: true, remoteSave: false },
     { mobile: false, remoteSave: false },
@@ -729,6 +818,122 @@ async function exportDocument() {
   await user.click(screen.getByRole("button", { name: "Document options" }));
   await user.click(await screen.findByText("Export"));
 }
+
+describe("document session chat handoff", () => {
+  test.each([
+    { mobile: false, rename: false, action: "send" },
+    { mobile: false, rename: true, action: "send" },
+    { mobile: false, rename: false, action: "voice" },
+    { mobile: false, rename: true, action: "voice" },
+    { mobile: true, rename: false, action: "send" },
+    { mobile: true, rename: false, action: "voice" },
+  ])(
+    "flushes the mounted editor before handoff: %j",
+    async ({ mobile, rename, action }) => {
+      renderLayout(mobile);
+      const editor = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      if (rename) {
+        await renameDocument("Latest handoff title");
+      } else {
+        fireEvent.change(editor, { target: { value: "Latest handoff body" } });
+      }
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: action === "send" ? "Send chat" : "Start voice",
+        }),
+      );
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      expect(send).not.toHaveBeenCalled();
+      expect(startVoice).not.toHaveBeenCalled();
+      expect(useComposerStore.getState().input).toBe("Revise this paragraph");
+      await act(async () => finishWrite());
+      if (action === "send") {
+        await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+        expect(sentDocument).toMatchObject({
+          title: rename ? "Latest handoff title" : "Notes",
+          content: rename ? "Original body" : "Latest handoff body",
+        });
+      } else {
+        await waitFor(() => expect(startVoice).toHaveBeenCalledTimes(1));
+        expect(startVoice.mock.results[0]!.value).toMatchObject({
+          title: rename ? "Latest handoff title" : "Notes",
+          content: rename ? "Original body" : "Latest handoff body",
+        });
+      }
+    },
+  );
+
+  test.each([
+    { action: "send", outcome: "failed" },
+    { action: "voice", outcome: "failed" },
+    { action: "send", outcome: "closed" },
+    { action: "voice", outcome: "closed" },
+    { action: "send", outcome: "switched assistant" },
+    { action: "voice", outcome: "switched assistant" },
+  ])(
+    "cancels desktop handoff without clearing the draft: %j",
+    async ({ action, outcome }) => {
+      renderLayout(false);
+      fireEvent.change(
+        await screen.findByRole("textbox", { name: "Document body" }),
+        { target: { value: "Unsaved body" } },
+      );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: action === "send" ? "Send chat" : "Start voice",
+        }),
+      );
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        if (outcome === "failed") {
+          failWrite(new Error("offline"));
+        } else {
+          if (outcome === "closed") {
+            useViewerStore.getState().closeDocument();
+          } else {
+            useResolvedAssistantsStore.setState({
+              activeAssistantId: "assistant-2",
+            });
+          }
+          finishWrite();
+        }
+      });
+      if (outcome === "failed") {
+        await screen.findByTestId("preparation-error");
+      }
+      expect(send).not.toHaveBeenCalled();
+      expect(startVoice).not.toHaveBeenCalled();
+      expect(useComposerStore.getState().input).toBe("Revise this paragraph");
+    },
+  );
+
+  test("ordinary desktop drawers do not attach document preparation to chat", async () => {
+    renderLayout(false, false);
+    fireEvent.click(screen.getByRole("button", { name: "Open document" }));
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: "Document body" }),
+      { target: { value: "Drawer edit" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send chat" }));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  test("a desktop transcript without a mounted editor can send normally", async () => {
+    renderLayout(false);
+    await screen.findByRole("textbox", { name: "Document body" });
+    fireEvent.click(screen.getByRole("button", { name: "View conversation" }));
+    await waitFor(() =>
+      expect(
+        Boolean(screen.queryByRole("textbox", { name: "Document body" })),
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send chat" }));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+  });
+});
 
 describe("document PDF export saves", () => {
   test.each([

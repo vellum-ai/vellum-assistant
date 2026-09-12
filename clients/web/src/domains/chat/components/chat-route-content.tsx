@@ -39,7 +39,7 @@ import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
-import { useDocumentChatPreparation } from "@/domains/chat/hooks/use-document-chat-preparation";
+import type { useDocumentChatPreparation } from "@/domains/chat/hooks/use-document-chat-preparation";
 import type { useDocumentConversationRoute } from "@/domains/chat/hooks/use-document-conversation-route";
 import type { DocumentViewerContainerHandle } from "./document-viewer-container";
 import { DocumentChatContent } from "./document-chat-content";
@@ -326,8 +326,12 @@ export function ChatMainPanel({
   didOnboarding,
   onboardingConversationId,
   documentRoute,
+  documentEditorRef,
+  documentPreparation,
 }: ChatMainPanelProps & {
   documentRoute: ReturnType<typeof useDocumentConversationRoute>;
+  documentEditorRef: RefObject<DocumentViewerContainerHandle | null>;
+  documentPreparation: ReturnType<typeof useDocumentChatPreparation> | null;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -443,13 +447,6 @@ export function ChatMainPanel({
   const isMobile = useIsMobile();
   const needsUserInput = useInteractionStore(hasActiveInteraction);
   const openedDocumentState = useViewerStore.use.openedDocumentState();
-  const documentEditorRef = useRef<DocumentViewerContainerHandle | null>(null);
-  const documentPreparation = useDocumentChatPreparation({
-    assistantId,
-    conversationId: activeConversationId,
-    surfaceId: isMobile ? documentRoute.surfaceId : null,
-    editorRef: documentEditorRef,
-  });
   const openedAppState = useViewerStore.use.openedAppState();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
 
@@ -1130,10 +1127,7 @@ export function ChatMainPanel({
     // sent inside the detection debounce window are still caught. No
     // secrets → returns true, fully inert.
     beforeSend: draftSecretDetection.checkBeforeSend,
-    prepareSend:
-      isMobile && documentRoute.surfaceId
-        ? documentPreparation.prepareSend
-        : undefined,
+    prepareSend: documentPreparation?.prepareSend,
   });
 
   // "Send anyway" on the blocked notice: arm the single-use client bypass
@@ -1403,9 +1397,8 @@ export function ChatMainPanel({
       typingDisabled={typingDisabled}
       sendDisabled={
         sendDisabled ||
-        documentPreparation.preparing ||
-        (isMobile &&
-          !!documentRoute.surfaceId &&
+        !!documentPreparation?.preparing ||
+        (!!documentPreparation &&
           (documentRoute.isLoading || !!documentRoute.error))
       }
       onAddAttachmentFiles={handleDroppedFiles}
@@ -1415,11 +1408,7 @@ export function ChatMainPanel({
       onVoiceInterimTranscript={setVoiceInterim}
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
-      onBeforeLiveVoiceStart={
-        isMobile && documentRoute.surfaceId
-          ? documentPreparation.prepareVoice
-          : undefined
-      }
+      onBeforeLiveVoiceStart={documentPreparation?.prepareVoice}
       onStopGenerating={handleStopGenerating}
       isAssistantBusy={isAssistantBusy}
       assistantId={assistantId}
@@ -1474,7 +1463,7 @@ export function ChatMainPanel({
       }
       noticesAboveFormSlot={
         <>
-          {documentPreparation.error && (
+          {documentPreparation?.error && (
             <Notice tone="error">{documentPreparation.error}</Notice>
           )}
           {draftSecretDetection.matches.length > 0 &&
@@ -1578,7 +1567,7 @@ export function ChatMainPanel({
       : undefined;
 
   const handleDocumentFeedback = async () => {
-    await documentPreparation.runPrepared((snapshot) => {
+    await documentPreparation?.runPrepared((snapshot) => {
       if (activeConversationId && documentRoute.surfaceId) {
         navigate(
           documentConversationUrl(
@@ -1632,7 +1621,7 @@ export function ChatMainPanel({
               documentRoute.showingDocument ? "document" : "conversation"
             }
             status={
-              documentPreparation.preparing
+              documentPreparation?.preparing
                 ? "preparing"
                 : needsUserInput
                   ? "needs-input"
