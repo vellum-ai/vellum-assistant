@@ -13,8 +13,11 @@ describe("forwardComputerUseProxyTool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("no proxy resolver available");
-    expect(result.content).toContain("computer_use_click");
+    expect(result.content).toContain(
+      "The Vellum desktop app is needed to view or control your screen",
+    );
+    expect(result.content).toContain("https://www.vellum.ai/downloads");
+    expect(result.content).not.toContain("computer_use_click");
   });
 
   test("forwards to proxyToolResolver when present", async () => {

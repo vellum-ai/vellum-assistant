@@ -6,7 +6,7 @@ import { supportsHostProxy } from "../../channels/types.js";
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
-import { desktopClientName } from "../client-os.js";
+import { formatDesktopAppRequired } from "../capability-offer.js";
 import { declareDaemonActivityField } from "../schema-transforms.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type {
@@ -126,7 +126,7 @@ export const hostFileTransferTool = {
       !HostTransferProxy.instance.isAvailable()
     ) {
       return {
-        content: `Error: no client with host_file capability is connected. Connect a ${desktopClientName(context)} client to use host_file from a non-desktop interface.`,
+        content: formatDesktopAppRequired("files"),
         isError: true,
       };
     }
