@@ -231,8 +231,13 @@ export interface BundledSection {
   /**
    * When true, a system-prompt cache breakpoint falls *after* this
    * section: the renderer ends the current cache block here, so
-   * everything up to and including this section forms a stable cached
-   * prefix and later (more volatile) sections form their own block.
+   * everything up to and including this section forms the stable head
+   * and later sections form their own block. The head's cache is shared
+   * by every conversation on the workspace; the block behind it holds
+   * what differs between conversations, and a conversation keeps sending
+   * the copy it started with (`Conversation.buildCurrentSystemPrompt`),
+   * because a change anywhere in the system prompt re-writes the cache
+   * for the whole history behind it.
    *
    * Workspace overrides control this via frontmatter
    * `cache_breakpoint: true` — an override file without the field
@@ -500,10 +505,11 @@ You can still be genuinely helpful — answer general questions, do research, an
     body: "",
     workspacePath: "channels/{{channelSlug}}.md",
     // Default cache breakpoint: sections 00–11 (instructions, identity,
-    // soul, personas) are stable within a conversation; 12+ (voice
-    // markers, bootstrap, connected services) change mid-session.
-    // Splitting here keeps the large stable prefix cached when a
-    // volatile section busts.
+    // soul, personas) are the stable head every conversation on the
+    // workspace shares; 12+ (voice markers, bootstrap, connected
+    // services) differ between conversations. A conversation holds the
+    // 12+ block fixed for its own life, so a workspace change there is
+    // seen by the next conversation, never re-written into a running one.
     cacheBreakpoint: true,
   },
   {
@@ -549,7 +555,7 @@ You can still be genuinely helpful — answer general questions, do research, an
         | OnboardingContext
         | undefined;
       const parts: string[] = [
-        "# First-Run Ritual\n\nBOOTSTRAP.md is present — this is your first conversation. Follow its instructions.",
+        "# First-Run Ritual\n\nThis is your first conversation. Follow the instructions below.",
       ];
       const voiceBlock = onboarding?.tone
         ? BOOTSTRAP_VOICE_BLOCKS[onboarding.tone]
