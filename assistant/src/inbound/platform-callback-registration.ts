@@ -18,7 +18,8 @@
  * the platform can register a route that points at this instance.
  */
 
-import { getPlatformAssistantId, getPlatformBaseUrl } from "../config/env.js";
+import { getPlatformBaseUrl } from "../config/env.js";
+import { resolvePlatformAssistantId } from "../config/platform-identity.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { ipcRegisterWebhookRoute } from "../ipc/gateway-client.js";
@@ -45,11 +46,11 @@ export interface PlatformCallbackRegistrationContext {
 
 export async function resolvePlatformCallbackRegistrationContext(): Promise<PlatformCallbackRegistrationContext> {
   const platform = getIsPlatform();
-  const [storedBaseUrlRaw, storedAssistantIdRaw, storedAssistantApiKeyRaw] =
+  const [storedBaseUrlRaw, storedAssistantApiKeyRaw, assistantId] =
     await Promise.all([
       getSecureKeyAsync(credentialKey("vellum", "platform_base_url")),
-      getSecureKeyAsync(credentialKey("vellum", "platform_assistant_id")),
       getSecureKeyAsync(credentialKey("vellum", "assistant_api_key")),
+      resolvePlatformAssistantId(),
     ]);
 
   const storedBaseUrl = storedBaseUrlRaw?.trim();
@@ -57,8 +58,6 @@ export async function resolvePlatformCallbackRegistrationContext(): Promise<Plat
     /\/+$/,
     "",
   );
-  const assistantId =
-    getPlatformAssistantId().trim() || storedAssistantIdRaw?.trim() || "";
   const envAssistantCredential = process.env.ASSISTANT_API_KEY?.trim();
   const assistantCredential =
     storedAssistantApiKeyRaw?.trim() || envAssistantCredential || undefined;

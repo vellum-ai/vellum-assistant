@@ -24,7 +24,9 @@ mock.module("../providers/platform-proxy/context.js", () => ({
   resolveManagedProxyContext: () => mockResolveManagedProxyContext(),
 }));
 
+const actualEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
+  ...actualEnv,
   getPlatformAssistantId: () => mockAssistantId,
 }));
 

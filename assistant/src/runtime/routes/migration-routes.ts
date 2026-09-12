@@ -22,7 +22,7 @@ import { PassThrough, Readable } from "node:stream";
 
 import { z } from "zod";
 
-import { getPlatformAssistantId } from "../../config/env.js";
+import { resolvePlatformAssistantId } from "../../config/platform-identity.js";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { runAsyncSqlite } from "../../persistence/db-async-query.js";
@@ -236,28 +236,15 @@ interface ExportManifestInputs {
 /**
  * Resolve the `assistant.id` for an export.
  *
- * Mirrors `platform/client.ts`'s precedence: in-memory override (set at
- * daemon startup or by secret-routes) → credential store → daemon-internal
- * fallback. The schema requires `id` to be non-empty, so we fall back to
+ * In-memory identity (validate rehydration or secret-routes) first, then
+ * a vault leftover until hatch stops writing `platform_assistant_id`.
+ * The schema requires `id` to be non-empty, so we fall back to
  * `DAEMON_INTERNAL_ASSISTANT_ID` rather than the empty string.
  */
 async function resolveAssistantId(): Promise<string> {
-  const inMemory = getPlatformAssistantId();
-  if (inMemory) {
-    return inMemory;
-  }
-  try {
-    const stored = await getSecureKeyAsync(
-      credentialKey("vellum", "platform_assistant_id"),
-    );
-    if (stored) {
-      return stored;
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to read platform_assistant_id from credential store; falling back to daemon-internal id",
-    );
+  const resolved = await resolvePlatformAssistantId();
+  if (resolved) {
+    return resolved;
   }
   return DAEMON_INTERNAL_ASSISTANT_ID;
 }
