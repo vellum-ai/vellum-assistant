@@ -164,6 +164,8 @@ export interface ChatComposerProps {
   voiceInterim?: string;
   onVoiceError?: (code: string | null) => void;
   onVoiceBeforeStart?: () => boolean | Promise<boolean>;
+  /** Prepare the conversation's visible context before live voice can start a turn. */
+  onBeforeLiveVoiceStart?: () => Promise<boolean>;
 
   onStopGenerating: () => void;
   /**
@@ -347,6 +349,7 @@ export function ChatComposer({
   voiceInterim,
   onVoiceError,
   onVoiceBeforeStart,
+  onBeforeLiveVoiceStart,
   onStopGenerating,
   isAssistantBusy,
   assistantId,
@@ -540,6 +543,14 @@ export function ChatComposer({
     let readiness;
     try {
       readiness = await voiceReadiness(assistantId);
+      if (
+        readiness.allowed &&
+        onBeforeLiveVoiceStart &&
+        !(await onBeforeLiveVoiceStart())
+      ) {
+        starter?.cancelPrewarm();
+        return;
+      }
     } finally {
       liveVoicePreflightPendingRef.current = false;
     }
@@ -590,7 +601,7 @@ export function ChatComposer({
       entry: "composer",
       seedText: voiceEntryGreetingSeed(latest.conversationIsEmpty),
     });
-  }, [assistantId, conversationId]);
+  }, [assistantId, conversationId, onBeforeLiveVoiceStart]);
   /**
    * In-flight reclaim, so unmounting cancels it. The start on the far side of
    * the await reads this composer's chat identity, and a composer that has

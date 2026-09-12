@@ -13,7 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { ChannelReference } from "@/domains/chat/channel-sidecar/channel-reference";
 import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel-reference-store";
@@ -29,6 +29,7 @@ import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-sto
 import {
   useComposerSubmit,
   type UseComposerSubmitParams,
+  type ComposerSendPreparation,
 } from "./use-composer-submit";
 
 const SYNTHETIC_PROJECT_KEY =
@@ -109,6 +110,131 @@ afterEach(() => {
   unregisterVoiceTarget?.();
   unregisterVoiceTarget = null;
   useVoiceRecordingStore.getState().reset();
+});
+
+describe("context preparation", () => {
+  test.each(["handoff", "before-queue"])(
+    "releases a prepared send once when %s throws and allows retry",
+    async (failure) => {
+      useComposerStore.getState().setInput("Revise the paragraph");
+      const release = mock(() => {});
+      const prepareSend = mock(async () => ({
+        isCurrent: () => true,
+        release,
+      }));
+      const scrollToLatest = mock(() => {});
+      const { result, sendMessage } = renderSubmit({
+        prepareSend,
+        scrollToLatest,
+      });
+      const error = new Error("send failed");
+      if (failure === "handoff") {
+        sendMessage.mockImplementationOnce(() => {
+          expect(release).not.toHaveBeenCalled();
+          throw error;
+        });
+      } else {
+        scrollToLatest.mockImplementationOnce(() => {
+          expect(release).not.toHaveBeenCalled();
+          throw error;
+        });
+      }
+      await expect(result.current.submitMessage()).rejects.toBe(error);
+      expect(release).toHaveBeenCalledTimes(1);
+      useComposerStore.getState().setInput("Try again");
+      await submit(result);
+      expect(prepareSend).toHaveBeenCalledTimes(2);
+      expect(release).toHaveBeenCalledTimes(2);
+      expect(sendMessage.mock.calls.at(-1)?.[0]).toBe("Try again");
+    },
+  );
+
+  test("flushes before clearing text and attachments, then uses the shared send once", async () => {
+    useComposerStore.getState().setInput("Revise the paragraph");
+    useComposerStore.setState({ attachments: [uploadedAttachment] });
+    let resolvePreparation!: (value: ComposerSendPreparation) => void;
+    const release = mock(() => {});
+    const prepareSend = mock(
+      () =>
+        new Promise<ComposerSendPreparation>((resolve) => {
+          resolvePreparation = resolve;
+        }),
+    );
+    const { result, sendMessage } = renderSubmit({ prepareSend });
+    const pending = result.current.submitMessage();
+    expect(useComposerStore.getState().input).toBe("Revise the paragraph");
+    expect(useComposerStore.getState().attachments).toHaveLength(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+    await result.current.submitMessage();
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    resolvePreparation({ isCurrent: () => true, release });
+    await pending;
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[1]?.[0]?.id).toBe(uploadedAttachment.id);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(useComposerStore.getState().input).toBe("");
+  });
+
+  test.each(["cancel", "close", "edit", "unmount"])(
+    "keeps the draft when preparation ends after %s",
+    async (reason) => {
+      useComposerStore.getState().setInput("Keep this message");
+      useComposerStore.setState({ attachments: [uploadedAttachment] });
+      let resolvePreparation!: (value: ComposerSendPreparation | null) => void;
+      const release = mock(() => {});
+      const { result, sendMessage } = renderSubmit({
+        prepareSend: () =>
+          new Promise((resolve) => {
+            resolvePreparation = resolve;
+          }),
+      });
+      const pending = result.current.submitMessage();
+      await waitFor(() => expect(resolvePreparation).toBeFunction());
+      if (reason === "edit") {
+        useComposerStore.getState().setInput("A newer draft");
+      }
+      if (reason === "unmount") {
+        cleanup();
+      }
+      resolvePreparation(
+        reason === "cancel"
+          ? null
+          : { isCurrent: () => reason !== "close", release },
+      );
+      await pending;
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(useComposerStore.getState().input).toBe(
+        reason === "edit" ? "A newer draft" : "Keep this message",
+      );
+      expect(useComposerStore.getState().attachments).toHaveLength(1);
+    },
+  );
+
+  test("cancelling a message edit during document preparation leaves the message intact", async () => {
+    useComposerStore.getState().setInput("A revised message");
+    let resolvePreparation!: (value: ComposerSendPreparation) => void;
+    const release = mock(() => {});
+    const cancelEditing = mock(() => {});
+    const { result, sendMessage, rerenderWith } = renderSubmit({
+      isEditing: true,
+      editingMessageId: "msg-1",
+      canUndoEdit: true,
+      cancelEditing,
+      prepareSend: () =>
+        new Promise((resolve) => {
+          resolvePreparation = resolve;
+        }),
+    });
+    const pending = result.current.submitMessage();
+    await waitFor(() => expect(resolvePreparation).toBeFunction());
+    rerenderWith({ isEditing: false, editingMessageId: null });
+    resolvePreparation({ isCurrent: () => true, release });
+    await pending;
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(cancelEditing).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(useComposerStore.getState().input).toBe("A revised message");
+  });
 });
 
 describe("useComposerSubmit beforeSend gate", () => {
@@ -381,6 +507,53 @@ function recordingWithTranscript(transcript: string | null): void {
 }
 
 describe("useComposerSubmit during dictation", () => {
+  test("finishes dictation before preparing the document and sending", async () => {
+    useComposerStore.getState().setInput("Please");
+    recordingWithTranscript("revise this paragraph");
+    const release = mock(() => {});
+    const prepareSend = mock(async () => {
+      expect(useComposerStore.getState().input).toBe(
+        "Please revise this paragraph",
+      );
+      return { isCurrent: () => true, release };
+    });
+    const { result, sendMessage } = renderSubmit({ prepareSend });
+    await submit(result);
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[0]).toBe("Please revise this paragraph");
+  });
+
+  test.each(["document close", "assistant switch", "unmount"])(
+    "cancels before document preparation when %s happens during dictation",
+    async (reason) => {
+      useComposerStore.setState({ attachments: [uploadedAttachment] });
+      recordingWithTranscript("Keep these spoken words");
+      const prepareSend = mock(async () => ({
+        isCurrent: () => true,
+        release: () => {},
+      }));
+      const { result, sendMessage, rerenderWith } = renderSubmit({
+        prepareSend,
+      });
+      const pending = result.current.submitMessage();
+      if (reason === "document close") {
+        rerenderWith({ prepareSend: undefined });
+      } else if (reason === "assistant switch") {
+        rerenderWith({ assistantId: "assistant-2" });
+      } else {
+        cleanup();
+      }
+      await act(async () => {
+        await pending;
+      });
+      expect(prepareSend).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+      expect(useComposerStore.getState().input).toBe("Keep these spoken words");
+      expect(useComposerStore.getState().attachments).toHaveLength(1);
+    },
+  );
+
   test("sends the finished transcript, not the draft that was on screen", async () => {
     useComposerStore.getState().setInput("");
     recordingWithTranscript("the whole request, spoken in full");

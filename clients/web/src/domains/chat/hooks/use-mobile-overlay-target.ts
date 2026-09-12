@@ -4,7 +4,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 
 /**
  * Resolves the mobile overlay portal target after DOM commit so chat-side
- * full-screen overlays (`MobileDocumentOverlay`, `MobileSubagentDetailOverlay`,
+ * full-screen overlays (`MobileWorkspaceFilePreviewOverlay`, `MobileSubagentDetailOverlay`,
  * `MobileAppOverlay`) can be portaled into `RootLayout`'s `#viewport-overlays`
  * container, outside the main content wrapper.
  *

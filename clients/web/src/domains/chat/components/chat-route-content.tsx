@@ -39,6 +39,16 @@ import { useTranscriptData } from "@/domains/chat/hooks/use-transcript-data";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useChatEmptyState } from "@/domains/chat/hooks/use-chat-empty-state";
 import { useComposerSubmit } from "@/domains/chat/hooks/use-composer-submit";
+import type { useDocumentChatPreparation } from "@/domains/chat/hooks/use-document-chat-preparation";
+import type { useDocumentConversationRoute } from "@/domains/chat/hooks/use-document-conversation-route";
+import type { DocumentViewerContainerHandle } from "./document-viewer-container";
+import { DocumentChatContent } from "./document-chat-content";
+import { DocumentChatNavigation } from "./document-chat-navigation";
+import { getDocumentFeedbackPrompt } from "../document-conversation";
+import {
+  documentConversationUrl,
+  getDocumentConversationRoute,
+} from "../document-conversation-navigation";
 import { useDraftSecretDetection } from "@/domains/chat/hooks/use-draft-secret-detection";
 import type { SendChatMessageOptions } from "@/domains/chat/hooks/use-send-message";
 import {
@@ -102,7 +112,7 @@ import type { DetectedSecret } from "@vellumai/service-contracts/secret-detectio
 import type { ThreadSuggestion } from "@/domains/chat/suggestions/types";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
-import { BottomSheet } from "@vellumai/design-library";
+import { BottomSheet, Notice } from "@vellumai/design-library";
 import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
@@ -126,7 +136,10 @@ import {
 } from "@/domains/chat/utils/error-classification";
 import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
-import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  hasActiveInteraction,
+  useInteractionStore,
+} from "@/domains/chat/interaction-store";
 import type {
   DisplayAttachment,
   DisplayMessage,
@@ -160,7 +173,7 @@ import {
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
 import {
-  openDocumentFromChat,
+  useOpenDocumentFromChat,
   useOpenAppFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
@@ -312,7 +325,14 @@ export function ChatMainPanel({
   onboardingChoiceEligible,
   didOnboarding,
   onboardingConversationId,
-}: ChatMainPanelProps) {
+  documentRoute,
+  documentEditorRef,
+  documentPreparation,
+}: ChatMainPanelProps & {
+  documentRoute: ReturnType<typeof useDocumentConversationRoute>;
+  documentEditorRef: RefObject<DocumentViewerContainerHandle | null>;
+  documentPreparation: ReturnType<typeof useDocumentChatPreparation> | null;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation("chat");
@@ -424,6 +444,9 @@ export function ChatMainPanel({
   // Store reads — viewer
   // -------------------------------------------------------------------------
   const mainView = useViewerStore.use.mainView();
+  const isMobile = useIsMobile();
+  const needsUserInput = useInteractionStore(hasActiveInteraction);
+  const openedDocumentState = useViewerStore.use.openedDocumentState();
   const openedAppState = useViewerStore.use.openedAppState();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
 
@@ -463,14 +486,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Action callbacks
   // -------------------------------------------------------------------------
-  const handleOpenDocument = useCallback(
-    (surfaceId: string) => {
-      if (assistantId) {
-        void openDocumentFromChat(assistantId, surfaceId);
-      }
-    },
-    [assistantId],
-  );
+  const handleOpenDocument = useOpenDocumentFromChat();
 
   const { overlays: activeProcessOverlays, hasAny: hasActiveProcess } =
     useActiveProcessSlots(isPopout);
@@ -984,7 +1000,7 @@ export function ChatMainPanel({
       : undefined;
   const activeProfileModel = useActiveProfileModel(
     assistantId,
-    activeConversation?.conversationId,
+    activeConversationId ?? undefined,
     activeDraftProfile,
   );
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
@@ -1079,6 +1095,7 @@ export function ChatMainPanel({
   // Scroll coordination
   // -------------------------------------------------------------------------
   const scrollCoordinator = useTranscriptScroll({
+    isVisible: !(isMobile && documentRoute.showingDocument),
     transcriptRef,
     items: transcriptItems,
     conversationId: activeConversationId,
@@ -1110,6 +1127,7 @@ export function ChatMainPanel({
     // sent inside the detection debounce window are still caught. No
     // secrets → returns true, fully inert.
     beforeSend: draftSecretDetection.checkBeforeSend,
+    prepareSend: documentPreparation?.prepareSend,
   });
 
   // "Send anyway" on the blocked notice: arm the single-use client bypass
@@ -1156,7 +1174,6 @@ export function ChatMainPanel({
     useClientFeatureFlagStore.use.newThreadSuggestions();
   // Called unconditionally — the desktop drawer vs mobile sheet choice below
   // branches on this, but the hook must run on every render.
-  const isMobile = useIsMobile();
   const [selectedSuggestion, setSelectedSuggestion] =
     useState<ThreadSuggestion | null>(null);
 
@@ -1378,7 +1395,12 @@ export function ChatMainPanel({
       onSubmit={handleFormSubmit}
       inputRef={inputRef}
       typingDisabled={typingDisabled}
-      sendDisabled={sendDisabled}
+      sendDisabled={
+        sendDisabled ||
+        !!documentPreparation?.preparing ||
+        (!!documentPreparation &&
+          (documentRoute.isLoading || !!documentRoute.error))
+      }
       onAddAttachmentFiles={handleDroppedFiles}
       voiceInputRef={voiceInputRef}
       voiceInterim={voiceInterim ?? undefined}
@@ -1386,6 +1408,7 @@ export function ChatMainPanel({
       onVoiceInterimTranscript={setVoiceInterim}
       onVoiceError={setVoiceError}
       onVoiceBeforeStart={handleVoiceBeforeStart}
+      onBeforeLiveVoiceStart={documentPreparation?.prepareVoice}
       onStopGenerating={handleStopGenerating}
       isAssistantBusy={isAssistantBusy}
       assistantId={assistantId}
@@ -1440,6 +1463,9 @@ export function ChatMainPanel({
       }
       noticesAboveFormSlot={
         <>
+          {documentPreparation?.error && (
+            <Notice tone="error">{documentPreparation.error}</Notice>
+          )}
           {draftSecretDetection.matches.length > 0 &&
             // A blocked send always surfaces the notice — even when the
             // passive warning for these values was previously dismissed.
@@ -1540,6 +1566,23 @@ export function ChatMainPanel({
       ? "var(--app-strip-h, 64px)"
       : undefined;
 
+  const handleDocumentFeedback = async () => {
+    await documentPreparation?.runPrepared((snapshot) => {
+      if (activeConversationId && documentRoute.surfaceId) {
+        navigate(
+          documentConversationUrl(
+            activeConversationId,
+            documentRoute.surfaceId,
+            getDocumentConversationRoute(location.search).returnTo,
+            "chat",
+            getDocumentFeedbackPrompt(snapshot.title),
+          ),
+          { replace: true, state: location.state },
+        );
+      }
+    });
+  };
+
   const chatBody = (
     <ChatBody
       variant={variant}
@@ -1551,6 +1594,46 @@ export function ChatMainPanel({
           : isInMaintenanceWithNoMessages,
       }}
       composerSlot={composerNode}
+      documentSlot={
+        isMobile && documentRoute.surfaceId ? (
+          <DocumentChatContent
+            assistantId={assistantId}
+            surfaceId={documentRoute.surfaceId}
+            document={openedDocumentState}
+            loading={documentRoute.isLoading}
+            error={documentRoute.error}
+            editorRef={documentEditorRef}
+            onClose={documentRoute.closeDocument}
+            onRetry={documentRoute.reloadDocument}
+            onSubmitFeedback={() => {
+              void handleDocumentFeedback();
+            }}
+          />
+        ) : undefined
+      }
+      documentPresentation={
+        documentRoute.showingDocument ? "document" : "conversation"
+      }
+      sessionNavigationSlot={
+        isMobile && documentRoute.surfaceId ? (
+          <DocumentChatNavigation
+            presentation={
+              documentRoute.showingDocument ? "document" : "conversation"
+            }
+            status={
+              documentPreparation?.preparing
+                ? "preparing"
+                : needsUserInput
+                  ? "needs-input"
+                  : isAssistantBusy
+                    ? "working"
+                    : "idle"
+            }
+            onViewConversation={documentRoute.viewConversation}
+            onReopenDocument={documentRoute.reopenDocument}
+          />
+        ) : undefined
+      }
       pluginPillsSlot={newChatPluginsSlot}
       dragHandlers={attachmentDropHandlers}
       isAttachmentDragOver={isAttachmentDragOver}

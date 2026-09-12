@@ -80,6 +80,13 @@ export interface ChatBodyProps {
    */
   composerSlot: ReactNode;
 
+  /** Alternative content above the same mounted composer stack. */
+  documentSlot?: ReactNode;
+  /** Selects the visible region while keeping both content trees mounted. */
+  documentPresentation?: "document" | "conversation";
+  /** Session navigation/status, visible in either content presentation. */
+  sessionNavigationSlot?: ReactNode;
+
   /**
    * Optional CSS length reserved at the bottom of the panel (applied as
    * `padding-bottom` on the outer container). Used on mobile while the app
@@ -210,6 +217,9 @@ export function ChatBody({
   variant,
   scrollAreaProps,
   composerSlot,
+  documentSlot,
+  documentPresentation = "document",
+  sessionNavigationSlot,
   bottomInset,
   dragHandlers,
   isAttachmentDragOver,
@@ -232,13 +242,16 @@ export function ChatBody({
   activeProcessOverlaysSlot,
 }: ChatBodyProps) {
   const { t } = useTranslation("chat");
-  const isEmptyState = scrollAreaProps.showEmptyState;
+  const showingDocument =
+    documentSlot != null && documentPresentation === "document";
+  const isEmptyState = !showingDocument && scrollAreaProps.showEmptyState;
   const keyboardOpen = useKeyboardOpen();
   // Banners (app-download nudge, GitHub star, Discord) show once the user
   // sends a message and the empty state clears. They stay out of the empty
   // state, where the outer container centers greeting + composer + starters
   // as one group and a banner above the composer would split it.
-  const bannerRendered = !isEmptyState && Boolean(bannerSlot);
+  const bannerRendered =
+    !showingDocument && !isEmptyState && Boolean(bannerSlot);
 
   // When the empty state is visible, center greeting + composer + starters
   // as one group. `safe center` falls back to start-alignment when the
@@ -346,7 +359,7 @@ export function ChatBody({
     // nothing measured. The pill is the opposite and floats, so it anchors
     // to the top of this group to clear the banner.
     <div className="relative">
-      {showScrollToLatest && !isEmptyState && (
+      {showScrollToLatest && !isEmptyState && !showingDocument && (
         <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center">
           <div className="pointer-events-auto pb-2.5">
             <ScrollToLatestButton
@@ -371,6 +384,7 @@ export function ChatBody({
           )
         }
       >
+        {sessionNavigationSlot}
         {genericChatError && (
           <div className="mb-2">
             <Notice
@@ -389,7 +403,8 @@ export function ChatBody({
         <ChannelReferenceChip />
         <StagedQuotesStrip />
         {composerSlot}
-        {pluginPillsSlot &&
+        {!showingDocument &&
+          pluginPillsSlot &&
           renderCollapse(
             "new-chat-plugins",
             keyboardOpen,
@@ -407,7 +422,9 @@ export function ChatBody({
     >
       <div className="flex flex-col items-center gap-2 text-[var(--content-default)]">
         <Paperclip className="h-6 w-6" />
-        <span className="text-body-medium-default">{t("chatBody.dropFiles")}</span>
+        <span className="text-body-medium-default">
+          {t("chatBody.dropFiles")}
+        </span>
       </div>
     </div>
   );
@@ -423,9 +440,37 @@ export function ChatBody({
     >
       <div className={innerClass}>
         <div className={groupClass}>
-          <ChatScrollArea {...scrollAreaProps} />
+          <div
+            key="transcript"
+            hidden={showingDocument}
+            inert={showingDocument || undefined}
+            className={
+              showingDocument
+                ? "hidden"
+                : isEmptyState
+                  ? "contents"
+                  : "flex min-h-0 flex-1 flex-col"
+            }
+          >
+            <ChatScrollArea {...scrollAreaProps} />
+          </div>
+          {documentSlot != null && (
+            <div
+              key="document"
+              data-slot="document-content"
+              hidden={!showingDocument}
+              inert={!showingDocument || undefined}
+              className={
+                showingDocument
+                  ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+                  : "hidden"
+              }
+            >
+              {documentSlot}
+            </div>
+          )}
 
-          {!isEmptyState && activeProcessOverlaysSlot && (
+          {!showingDocument && !isEmptyState && activeProcessOverlaysSlot && (
             <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center gap-2 px-3 pt-2">
               {/* Registry-driven row of active background-process overlays. The
                   caller owns which kinds it covers and their order; each overlay
@@ -434,7 +479,9 @@ export function ChatBody({
             </div>
           )}
 
-          {renderComposerStack(isDockedEmpty ? null : startersSlot)}
+          {renderComposerStack(
+            showingDocument || isDockedEmpty ? null : startersSlot,
+          )}
         </div>
         {isDockedEmpty &&
           startersSlot &&

@@ -1,4 +1,13 @@
 {
+  "documentChat": {
+    "saving": "Saving document…",
+    "saveFailed": "Couldn't save the document. Your message is still here. Try sending again.",
+    "needsInput": "Needs your input",
+    "working": "Assistant is working",
+    "repliesInConversation": "Replies appear in the conversation",
+    "viewConversation": "View conversation",
+    "reopenDocument": "Reopen document"
+  },
   "acpChatPlanBlock": {
     "plan": "Plan"
   },
@@ -769,6 +778,16 @@
     "saved": "Saved",
     "saving": "Saving…",
     "wordCount": "{count, plural, one {# word} other {# words}}"
+  },
+  "documentConversation": {
+    "unavailable": "Unable to open the document conversation. Please try again.",
+    "updateRequired": "Update your assistant to start a linked conversation.",
+    "prepareFailed": "Could not prepare the document conversation. Your edits are still available.",
+    "feedbackPrompt": "Please review and address my comments on \"{title}\".",
+    "missing": "This document's conversation is unavailable. You can keep editing or start a new linked conversation.",
+    "start": "Start a linked conversation",
+    "retry": "Try again",
+    "back": "Go back"
   },
   "documentViewerPage": {
     "exportFailed": "Failed to export PDF",

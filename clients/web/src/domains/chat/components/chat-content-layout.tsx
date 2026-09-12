@@ -10,16 +10,23 @@
  * directly from stores: no props required for layout decisions.
  */
 
-import { lazy, useCallback, useEffect, type ReactNode } from "react";
+import { lazy, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
+import { Notice } from "@vellumai/design-library";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
 import { CHAT_INFO_DRAWER_WIDTH_PX } from "@/domains/chat/components/chat-info-drawer-width";
 import { ProgressStack } from "@/domains/chat/components/progress-stack";
 import { SideControlPlacementBoundary } from "@/domains/chat/components/side-control-placement";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { AppViewerContainer } from "@/components/app-viewer-container";
-import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
+import {
+  DocumentViewerContainer,
+  type DocumentViewerContainerHandle,
+} from "@/domains/chat/components/document-viewer-container";
+import { DocumentChatContent } from "./document-chat-content";
+import { useDocumentConversationRoute } from "../hooks/use-document-conversation-route";
+import { useDocumentChatPreparation } from "../hooks/use-document-chat-preparation";
 import { FilePreviewContainer } from "@/domains/chat/components/local-file/preview/file-preview-container";
 import {
   ChatMainPanel,
@@ -44,7 +51,9 @@ import { ChannelSetupPanel } from "@/domains/chat/components/channel-setup-panel
 import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-notify";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useOverlayEscape } from "../hooks/use-overlay-escape";
 import { routes } from "@/utils/routes";
+import { getDocumentFeedbackPrompt } from "../document-conversation";
 import { skillDetailBackState } from "@/utils/skills";
 
 // Import thunks for the lazy panel chunks, shared by the React.lazy wrappers
@@ -142,6 +151,8 @@ export function rightDrawerWidthProfile(
 // ---------------------------------------------------------------------------
 
 export function ChatContentLayout(props: ChatMainPanelProps) {
+  const documentRoute = useDocumentConversationRoute();
+  const documentEditorRef = useRef<DocumentViewerContainerHandle>(null);
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
@@ -187,6 +198,27 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
 
   const isMobile = useIsMobile();
+  const documentPreparation = useDocumentChatPreparation({
+    assistantId,
+    conversationId: activeConversationId,
+    documentConversationId: documentRoute.surfaceId
+      ? activeConversationId
+      : openedDocumentState?.source === "document"
+        ? openedDocumentState.conversationId
+        : null,
+    surfaceId:
+      documentRoute.surfaceId ??
+      (openedDocumentState?.source === "document"
+        ? openedDocumentState.surfaceId
+        : null),
+    editorRef: documentEditorRef,
+  });
+  const { runPrepared: runDocumentFeedback, error: documentFeedbackError } =
+    documentPreparation;
+  const documentSessionPreparation =
+    documentRoute.surfaceId && (isMobile || mainView === "document")
+      ? documentPreparation
+      : null;
   const navigate = useNavigate();
   const location = useLocation();
   const editApp = useEditApp();
@@ -236,9 +268,21 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     [navigate, isMobile],
   );
 
-  const handleCloseDocument = useCallback(() => {
-    useViewerStore.getState().closeDocument();
-  }, []);
+  const handleCloseDocument = documentRoute.closeDocument;
+  const handleDocumentFeedback = useCallback(() => {
+    const opened = useViewerStore.getState().openedDocumentState;
+    if (opened?.source !== "document") {
+      return;
+    }
+    void runDocumentFeedback((snapshot) => {
+      void navigate(
+        routes.conversationWithPrompt(
+          opened.conversationId,
+          getDocumentFeedbackPrompt(snapshot.title),
+        ),
+      );
+    });
+  }, [navigate, runDocumentFeedback]);
 
   const onCloseSubagentDetail = useCallback(() => {
     useViewerStore.getState().closeSubagentDetail();
@@ -360,26 +404,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // stacked panels (tool detail → document → chat) one layer at a time.
   // -------------------------------------------------------------------------
 
-  useEffect(() => {
-    if (isMobile) {
-      return;
+  useOverlayEscape(!isMobile, () => {
+    const viewer = useViewerStore.getState();
+    if (viewer.mainView === "document") {
+      handleCloseDocument();
+      return true;
     }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) {
-        return;
-      }
-      // Don't intercept IME composition (CJK input confirmation).
-      if (event.isComposing || event.keyCode === 229) {
-        return;
-      }
-      const viewer = useViewerStore.getState();
-      if (viewer.closeActiveOverlay()) {
-        event.preventDefault();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isMobile]);
+    return viewer.closeActiveOverlay();
+  });
 
   // Warm the lazy side-panel chunks while the browser is idle so the first
   // open renders immediately instead of stalling on a dynamic import.
@@ -430,7 +462,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     return (
       <WorkspacePanes
         presentation="side"
-        secondary={<ChatMainPanel {...props} />}
+        secondary={
+          <ChatMainPanel
+            {...props}
+            documentRoute={documentRoute}
+            documentEditorRef={documentEditorRef}
+            documentPreparation={documentSessionPreparation}
+          />
+        }
         primary={
           <AppViewerContainer
             appId={openedAppState.appId}
@@ -495,7 +534,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const chatContent = (
     <SideControlPlacementBoundary className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
       <ProgressStack placement="column" />
-      <ChatMainPanel {...props} />
+      <ChatMainPanel
+        {...props}
+        documentRoute={documentRoute}
+        documentEditorRef={documentEditorRef}
+        documentPreparation={documentSessionPreparation}
+      />
     </SideControlPlacementBoundary>
   );
 
@@ -506,15 +550,30 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // lightweight) right-pane subtree changes; the transcript keeps its DOM and
   // scroll position. The drawer eases its width 0 ⇄ target, so opening/closing
   // reflows the chat in lockstep; drag-to-resize + width persistence are
-  // built in. On mobile these panels render via portal overlays, so the
-  // drawer stays closed (`open=false`) and the chat fills the width.
+  // built in. On mobile the document fills the chat's transcript region;
+  // other panels use portal overlays. The drawer stays closed and chat fills
+  // the width.
   //
   // (app-editing and the full-width app viewer keep their own returns above:
   // they replace or split the chat differently and are entered far less often,
   // so an occasional chat remount on those transitions is acceptable.)
   let rightPanel: ReactNode = null;
   if (!isMobile) {
-    if (mainView === "document" && openedDocumentState && assistantId) {
+    if (mainView === "document" && documentRoute.surfaceId && assistantId) {
+      rightPanel = (
+        <DocumentChatContent
+          assistantId={assistantId}
+          surfaceId={documentRoute.surfaceId}
+          document={openedDocumentState}
+          loading={documentRoute.isLoading}
+          error={documentRoute.error}
+          editorRef={documentEditorRef}
+          onClose={handleCloseDocument}
+          onRetry={documentRoute.reloadDocument}
+          onSubmitFeedback={handleDocumentFeedback}
+        />
+      );
+    } else if (mainView === "document" && openedDocumentState && assistantId) {
       // A workspace file is shown read-only, in a panel that fetches its own
       // bytes.
       if (openedDocumentState.source === "workspace-file-preview") {
@@ -535,6 +594,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         rightPanel = (
           <DocumentViewerContainer
             key={`document:${openedDocumentState.surfaceId}`}
+            handleRef={documentEditorRef}
             source="document"
             documentName={openedDocumentState.documentName}
             content={openedDocumentState.content}
@@ -550,15 +610,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
                   documentName,
                 )
             }
-            onSubmitFeedback={() => {
-              const prompt = `Please review and address my comments on "${openedDocumentState.documentName}".`;
-              navigate(
-                routes.conversationWithPrompt(
-                  openedDocumentState.conversationId,
-                  prompt,
-                ),
-              );
-            }}
+            onSubmitFeedback={handleDocumentFeedback}
           />
         );
       }
@@ -714,6 +766,23 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     }
   }
 
+  if (
+    rightPanel &&
+    mainView === "document" &&
+    openedDocumentState?.source === "document"
+  ) {
+    rightPanel = (
+      <div className="flex h-full min-h-0 flex-col">
+        {!documentSessionPreparation && documentFeedbackError && (
+          <Notice tone="error" className="shrink-0">
+            {documentFeedbackError}
+          </Notice>
+        )}
+        {rightPanel}
+      </div>
+    );
+  }
+
   // One drawer instance across every panel, so switching profiles moves the
   // width the hook reports and motion eases it rather than remounting.
   const widthProfile = rightDrawerWidthProfile(mainView);
@@ -724,7 +793,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       defaultWidth={widthProfile.defaultWidth}
       open={rightPanel != null}
       left={chatContent}
-      right={rightPanel}
+      // Release desktop editors before the mobile route waits for their saves.
+      right={isMobile ? <></> : rightPanel}
     />
   );
 }

@@ -1,14 +1,19 @@
 import { useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { LibraryView } from "@/domains/library/library-view";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
+import {
+  documentEntryState,
+  documentEntryUrl,
+} from "@/utils/document-navigation";
 
 export function LibraryPage() {
   const assistantId = useActiveAssistantId();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleNewConversation = useCallback(
     (initialMessage?: string) => {
@@ -19,9 +24,11 @@ export function LibraryPage() {
 
   const handleOpenDocument = useCallback(
     (documentSurfaceId: string) => {
-      void navigate(routes.document(documentSurfaceId));
+      void navigate(documentEntryUrl(documentSurfaceId, location.pathname), {
+        state: documentEntryState(location, documentSurfaceId),
+      });
     },
-    [navigate],
+    [navigate, location],
   );
 
   // Clicking an app navigates to /assistant/library/:appId, where
