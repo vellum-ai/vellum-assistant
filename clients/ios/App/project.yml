@@ -67,6 +67,20 @@ targetTemplates:
           - "capacitor.config.json"
           - "config.xml"
           - "public"
+          - "Shared/AvatarCache.swift"
+          - "Shared/CommunicationContent.swift"
+          - "Shared/SenderPayload.swift"
+          - "LocalNotificationCoordinator.swift"
+          - "SenderNotificationPlugin.swift"
+      # The local sender owner is app-only. Listing its files here keeps both
+      # the coordinator and Capacitor plugin out of every extension target.
+      - path: App/LocalNotificationCoordinator.swift
+      - path: App/SenderNotificationPlugin.swift
+      # Notification communication helpers are listed file by file so their
+      # membership stays explicit across the app and extension targets.
+      - path: App/Shared/AvatarCache.swift
+      - path: App/Shared/CommunicationContent.swift
+      - path: App/Shared/SenderPayload.swift
       # Capacitor-managed resources. These are produced by `bunx cap
       # sync ios` and gitignored, so they may not exist when xcodegen
       # runs locally before the first sync. `optional: true` lets
@@ -144,6 +158,10 @@ targetTemplates:
       # already sweep the same directory up via `AppEnvironment`'s `App`
       # source path.
       - path: App/Shared
+        excludes:
+          - AvatarCache.swift
+          - CommunicationContent.swift
+          - SenderPayload.swift
     settings:
       configs:
         Debug:
@@ -162,9 +180,9 @@ targetTemplates:
 
   # Notification Service Extension. iOS runs it for every push carrying
   # `mutable-content: 1`. One per environment for the same prefix rule as
-  # VoiceActivity. From `App/Shared` it compiles only `AppGroupID.swift`, so it
-  # can resolve the container it shares with its host app; the App Intents and
-  # ActivityKit files there belong to VoiceActivity.
+  # VoiceActivity. From `App/Shared` it compiles the App Group identifier and
+  # notification communication helpers it shares with the host app. The App
+  # Intents and ActivityKit files there belong to VoiceActivity.
   NotificationServiceEnvironment:
     type: app-extension
     platform: iOS
@@ -175,6 +193,9 @@ targetTemplates:
       - path: App/Shared
         includes:
           - AppGroupID.swift
+          - AvatarCache.swift
+          - CommunicationContent.swift
+          - SenderPayload.swift
     settings:
       configs:
         Debug:
@@ -322,11 +343,12 @@ targets:
       - path: AppTests
       - path: App/Attribution.swift
       - path: App/NotificationCategories.swift
-      # The Foundation-only halves of the Notification Service Extension. The
-      # Intents rewrite next to them stays out: donating an interaction needs a
+      - path: App/LocalNotificationCoordinator.swift
+      # The Foundation-only notification helpers. The Intents rewrite stays
+      # out: donating an interaction needs a
       # real notification, which a host-less bundle has no way to produce.
-      - path: NotificationService/AvatarCache.swift
-      - path: NotificationService/SenderPayload.swift
+      - path: App/Shared/AvatarCache.swift
+      - path: App/Shared/SenderPayload.swift
       - path: App/Shared
         includes:
           - AppGroupID.swift

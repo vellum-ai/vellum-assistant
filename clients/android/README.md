@@ -405,17 +405,41 @@ one natively must never claim it. The claim is deliberately not gated on
 shape, while the capability says which tokens could render one, so a shell that
 can render natively says so whether the flag is on or off.
 
-`SafeMessagingService` routes each push to exactly one renderer. A push whose
-payload carries a Firebase notification block, or a data-only push the web
-layer can render right now, goes to `PushNotificationsPlugin`. Everything else
-is rendered natively, including a data-only push that arrives while the app is
-on screen but the bridge is not up yet, so a cold start never drops one. "Right
-now" means an activity of ours is resumed and the web runtime holds a foreground
-push handler, which it asserts through
-`AndroidPushRegistration.setForegroundHandler` for exactly as long as it holds
-one. Those foreground pushes are drawn by the web layer and carry no avatar
-treatment, an accepted scope cut. A native render that throws falls through to
-`PushNotificationsPlugin` rather than losing the push.
+The token capability is not live foreground ownership. New web code negotiates
+that separately with a versioned, page-generation-bound
+`AndroidPushRegistration.setNotificationOwnership` handshake only after the
+coordinator-backed local route is ready. The identity adapter is installed
+before the first asynchronous capability or foreground announcement. Page
+start, renderer loss, activity destruction, and bridge destruction enqueue a
+serialized clear. A stale call from an older page generation cannot restore
+ownership. These clears do not reset retained delivery results. Ownership
+negotiation is intentionally independent of `local-notification-avatar`, so
+turning assistant presentation off cannot send a local request back through an
+unshared deduplication lane.
+
+`SafeMessagingService` routes each push to exactly one owner. A push carrying a
+Firebase notification block keeps the existing `PushNotificationsPlugin`
+route. Data-only FCM and app-originated local requests after the ownership
+handshake use the process-wide `NotificationDeliveryCoordinator`. Both
+normalize the first semantically present correlation id, delivery id, or
+request key with the same trim and 512 UTF-16 code-unit bound. An overlength
+higher-precedence candidate fails closed rather than falling through. This full
+string key is separate from the numeric Android notification id, and the
+original SSE delivery id remains the acknowledgment id.
+`local-notification-avatar` controls whether a qualifying local request asks
+for assistant presentation. With it off, the same coordinator posts the app or
+plain presentation.
+
+Negotiated foreground data-only FCM visits the web runtime only for the same
+active-conversation, chat-route, and page-visible suppression decision used by
+SSE. If display is still required, it returns to the shared native coordinator
+for the only banner and channel-owned sound. Bounded process-RAM focus
+tombstones use the canonical key across FCM-first and SSE-first arrival, so
+navigating away between matching events does not reopen display. Before live
+ownership, compatibility routes remain available. After a coordinator claim,
+every success, duplicate, blocked result, timeout, malformed bridge response,
+or failure remains native-owned and cannot schedule a JavaScript fallback.
+Only a native process restart clears the bounded coordinator memory.
 
 `NativePushRenderer` posts the native notification. With a sender it is a
 `MessagingStyle` conversation: the avatar is the large icon, the assistant's
@@ -425,12 +449,10 @@ channel a payload may name: it is created if it is missing, because from API 26
 posting to a channel that does not exist is a silent no-op, and any other name
 posts here anyway and is logged once. Existing is not enough, since the voice
 session channel and Firebase's own fallback both exist and both post silently.
-The notification id walks the same seed chain the web layer hashes: the
-`delivery_id`, then the Firebase message id, then the composite of the source
-event with the copy. Every rung is trimmed on both sides, so padded copy cannot
-split one delivery in two. A payload carrying no `delivery_id` therefore keys on
-the Firebase message id, which is per-delivery, so it does not collapse onto the
-conversation either.
+The coordinator's full key and Android's numeric notification id serve
+different purposes. The coordinator prevents duplicate ownership across FCM
+and SSE without hashing away the full correlation identity. The numeric id
+still gives Android a stable integer for posting and replacement.
 
 Each conversation notification also publishes a long-lived dynamic shortcut,
 which is what gives Android the conversation treatment. The shortcut intent is
@@ -467,7 +489,10 @@ avatar.
 ### Device QA checklist
 
 Native rendering needs a physical device with Play services and a data-only
-push from a lower environment. Verify:
+push from a lower environment. This local checklist supplements the canonical
+[notification avatar and local delivery QA ledger](../../docs/notification-avatar-local-qa.md),
+which owns statuses, the two-flag matrix, compatibility cases, and rollout
+gates. Verify:
 
 - Killed, background, and foreground delivery each post exactly one banner,
   never two.
@@ -489,6 +514,13 @@ push from a lower environment. Verify:
   publishes no launcher shortcut.
 - On API 24 or 25 the notification plays the default sound.
 - A push naming an unknown channel still arrives, on `vellum-alerts`.
+- Focused delivery suppresses both FCM-first and SSE-first orders while the
+  matching conversation route is visible, without losing the original SSE
+  acknowledgment id.
+- Reloading the WebView clears page ownership but does not make an already
+  claimed full key eligible for another banner or sound.
+- All four combinations of `push-avatar-sender` and
+  `local-notification-avatar` preserve exactly one delivery owner.
 
 ## Structure
 

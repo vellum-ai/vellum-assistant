@@ -149,6 +149,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(VoiceLiveActivityPlugin.class);
         registerPlugin(SelfHostedServersPlugin.class);
         registerPlugin(SafePushNotificationsPlugin.class);
+        registerPlugin(AndroidSenderNotificationPlugin.class);
         super.load();
     }
 
@@ -272,6 +273,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onDestroy() {
+        clearNotificationBridgeState(bridge);
         launchScreenHandler.removeCallbacksAndMessages(null);
         if (webChromeClient != null) {
             webChromeClient.destroy();
@@ -282,6 +284,14 @@ public class MainActivity extends BridgeActivity {
             unreachableDialog = null;
         }
         super.onDestroy();
+    }
+
+    private static void clearNotificationBridgeState(Bridge bridge) {
+        if (bridge == null) {
+            AndroidPushRegistrationPlugin.clearBridgeState();
+            return;
+        }
+        AndroidPushRegistrationPlugin.clearBridgeStateSerialized(bridge::execute);
     }
 
     private void configureServer(URI selectedServer) {
@@ -554,18 +564,20 @@ public class MainActivity extends BridgeActivity {
 
     private static final class SelfHostedWebViewClient extends BridgeWebViewClient {
         private final MainActivity activity;
+        private final Bridge bridge;
         private String mainFrameUrl;
         private boolean mainFrameFailed;
 
         SelfHostedWebViewClient(Bridge bridge, MainActivity activity) {
             super(bridge);
+            this.bridge = bridge;
             this.activity = activity;
         }
 
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             VoiceAudioSessionPlugin.releaseForPageLoad(activity);
-            AndroidPushRegistrationPlugin.clearForegroundHandler();
+            clearNotificationBridgeState(bridge);
             activity.scheduleLaunchScreenFallback(LAUNCH_SCREEN_TIMEOUT_MS);
             mainFrameUrl = url;
             mainFrameFailed = false;
@@ -587,6 +599,7 @@ public class MainActivity extends BridgeActivity {
             android.webkit.RenderProcessGoneDetail detail
         ) {
             VoiceAudioSessionPlugin.releaseForPageLoad(activity);
+            clearNotificationBridgeState(bridge);
             return super.onRenderProcessGone(view, detail);
         }
 

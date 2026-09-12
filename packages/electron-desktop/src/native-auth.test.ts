@@ -76,6 +76,11 @@ const {
   generateState,
   installNativeAuth,
 } = await import("./native-auth");
+const {
+  __resetNotificationIdentityMemoryForTesting,
+  getPreparedNotificationIdentity,
+  prepareNotificationIdentity,
+} = await import("./notification-identity-memory");
 
 configureNativeAuth({
   activateWindow: () => {
@@ -104,6 +109,7 @@ configureNativeAuth({
 
 afterEach(() => {
   __resetForTesting();
+  __resetNotificationIdentityMemoryForTesting();
   store.saved.length = 0;
   store.clearCalls = 0;
   lastOpenedUrl = "";
@@ -172,6 +178,18 @@ describe("installNativeAuth session-token wiring", () => {
   });
 
   test("signOut clears the persisted token", async () => {
+    const identity = {
+      scopeId: `scope:v1:${"a".repeat(64)}`,
+      assistantId: "assistant-a",
+      nativeSenderId: "native-a",
+    };
+    prepareNotificationIdentity({
+      identity,
+      scopeEpoch: 1,
+      identityRevision: 1,
+      name: "Alice",
+      nameProvenance: "identity-store",
+    });
     installNativeAuth();
 
     const signOut = ipcHandlers["vellum:auth:signOut"];
@@ -179,6 +197,16 @@ describe("installNativeAuth session-token wiring", () => {
 
     await signOut([]);
     expect(store.clearCalls).toBe(1);
+    expect(getPreparedNotificationIdentity(identity)).toBeNull();
+    expect(
+      prepareNotificationIdentity({
+        identity,
+        scopeEpoch: 1,
+        identityRevision: 2,
+        name: "Late name",
+        nameProvenance: "identity-store",
+      }),
+    ).toBe(false);
   });
 
   test("cancelOAuth stops an active loopback flow", async () => {

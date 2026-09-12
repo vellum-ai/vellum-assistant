@@ -6,6 +6,8 @@ import ai.vellum.assistant.R;
 import ai.vellum.assistant.SelfHostedServer;
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -26,6 +28,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Renders a data-only push. With a sender the notification is a
@@ -44,6 +47,7 @@ public final class NativePushRenderer {
      * dynamic push can only ever evict another dynamic one.
      */
     private static final int MAX_CONVERSATION_SHORTCUTS = 2;
+    private static final String NOTIFICATION_INTENT_ACTION_TYPE = "notificationIntent";
 
     private NativePushRenderer() {}
 
@@ -53,14 +57,69 @@ public final class NativePushRenderer {
      * download.
      */
     public static boolean canPost(Context context) {
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED
-        ) {
-            return false;
+        return notificationAccessBlockReason(context) == null;
+    }
+
+    /** A bridge result reason when Android cannot accept this notification. */
+    @Nullable
+    public static String postBlockReason(Context context, @Nullable String requestedChannelId) {
+        String accessBlock = notificationAccessBlockReason(context);
+        if (accessBlock != null) {
+            return accessBlock;
         }
-        return NotificationManagerCompat.from(context).areNotificationsEnabled();
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return null;
+        }
+        AndroidNotificationChannelsPlugin.ensureAlertsChannel(context, requestedChannelId);
+        NotificationManager manager = (NotificationManager) context.getSystemService(
+            Context.NOTIFICATION_SERVICE
+        );
+        NotificationChannel channel = manager == null
+            ? null
+            : manager.getNotificationChannel(AndroidNotificationChannelsPlugin.ALERTS_CHANNEL_ID);
+        return deliveryBlockReason(
+            true,
+            true,
+            channel != null,
+            channel == null ? 0 : channel.getImportance()
+        );
+    }
+
+    @Nullable
+    private static String notificationAccessBlockReason(Context context) {
+        boolean permissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+            || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED;
+        boolean notificationsEnabled = NotificationManagerCompat.from(context)
+            .areNotificationsEnabled();
+        return deliveryBlockReason(
+            permissionGranted,
+            notificationsEnabled,
+            true,
+            NotificationManager.IMPORTANCE_DEFAULT
+        );
+    }
+
+    @Nullable
+    static String deliveryBlockReason(
+        boolean permissionGranted,
+        boolean notificationsEnabled,
+        boolean channelPresent,
+        int channelImportance
+    ) {
+        if (!permissionGranted) {
+            return "authorization_denied";
+        }
+        if (!notificationsEnabled) {
+            return "notifications_disabled";
+        }
+        if (!channelPresent) {
+            return "channel_unavailable";
+        }
+        if (channelImportance == NotificationManager.IMPORTANCE_NONE) {
+            return "channel_disabled";
+        }
+        return null;
     }
 
     /**
@@ -75,11 +134,70 @@ public final class NativePushRenderer {
         PushDataMessage message,
         @Nullable Bitmap avatar
     ) {
+        PushDataMessage.Sender sender = message.sender;
+        show(
+            context,
+            remoteMessage.getData(),
+            remoteMessage.getMessageId(),
+            message,
+            avatar,
+            message.notificationId(),
+            false,
+            null,
+            sender == null ? null : sender.id,
+            sender == null ? null : sender.name
+        );
+    }
+
+    /**
+     * Posts from resolved data and message-id inputs so local and FCM callers
+     * share the same notification construction.
+     */
+    @SuppressLint("MissingPermission")
+    public static void show(
+        Context context,
+        @Nullable Map<String, String> data,
+        @Nullable String messageId,
+        PushDataMessage message,
+        @Nullable Bitmap avatar
+    ) {
+        PushDataMessage.Sender sender = message.sender;
+        show(
+            context,
+            data,
+            messageId,
+            message,
+            avatar,
+            message.notificationId(),
+            false,
+            null,
+            sender == null ? null : sender.id,
+            sender == null ? null : sender.name
+        );
+    }
+
+    /**
+     * Local bridge entry point. Remote callers retain the default group title
+     * and message id, while local callers can preserve their numeric id and
+     * registered action treatment.
+     */
+    @SuppressLint("MissingPermission")
+    public static void show(
+        Context context,
+        @Nullable Map<String, String> data,
+        @Nullable String messageId,
+        PushDataMessage message,
+        @Nullable Bitmap avatar,
+        int notificationId,
+        boolean suppressGroupTitle,
+        @Nullable String actionTypeId,
+        @Nullable String senderId,
+        @Nullable String senderName
+    ) {
         AndroidNotificationChannelsPlugin.ensureAlertsChannel(context, message.channelId);
         NotificationManagerCompat manager = NotificationManagerCompat.from(context);
 
-        int notificationId = message.notificationId();
-        Intent launchIntent = PushTapIntents.launchIntent(context, remoteMessage);
+        Intent launchIntent = PushTapIntents.launchIntent(context, data, messageId);
         PendingIntent contentIntent = launchIntent == null
             ? null
             : PushTapIntents.pendingIntent(context, launchIntent, notificationId);
@@ -102,9 +220,11 @@ public final class NativePushRenderer {
         if (message.unreadCount != null && message.unreadCount > 0) {
             builder.setNumber(message.unreadCount);
         }
+        if (showsAction(actionTypeId) && contentIntent != null) {
+            builder.addAction(0, "Go to Conversation", contentIntent);
+        }
 
-        PushDataMessage.Sender sender = message.sender;
-        if (sender == null) {
+        if (!hasSender(senderId, senderName)) {
             builder
                 .setContentTitle(message.title)
                 .setContentText(body)
@@ -118,29 +238,42 @@ public final class NativePushRenderer {
         // callback window gives up. The conversation treatment does not depend
         // on it.
         IconCompat icon = avatar == null ? null : IconCompat.createWithBitmap(avatar);
-        Person.Builder personBuilder = new Person.Builder().setKey(sender.id).setName(sender.name);
+        Person.Builder personBuilder = new Person.Builder().setKey(senderId).setName(senderName);
         if (icon != null) {
             personBuilder.setIcon(icon);
         }
         Person person = personBuilder.build();
-        builder
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setStyle(
-                new NotificationCompat.MessagingStyle(
-                    new Person.Builder()
-                        .setName(context.getString(R.string.notification_self_name))
-                        .build()
-                )
-                    .setGroupConversation(true)
-                    .setConversationTitle(message.title)
-                    .addMessage(body, System.currentTimeMillis(), person)
-            );
-        String shortcutId = pushShortcut(context, message, sender, person, icon);
+        NotificationCompat.MessagingStyle style = new NotificationCompat.MessagingStyle(
+            new Person.Builder()
+                .setName(context.getString(R.string.notification_self_name))
+                .build()
+        ).setGroupConversation(true);
+        if (showsConversationTitle(suppressGroupTitle)) {
+            style.setConversationTitle(message.title);
+        }
+        style.addMessage(body, System.currentTimeMillis(), person);
+        builder.setCategory(NotificationCompat.CATEGORY_MESSAGE).setStyle(style);
+        String shortcutId = pushShortcut(context, message, senderId, person, icon);
         if (shortcutId != null) {
             builder.setShortcutId(shortcutId);
         }
 
         manager.notify(notificationId, builder.build());
+    }
+
+    static boolean showsAction(@Nullable String actionTypeId) {
+        return NOTIFICATION_INTENT_ACTION_TYPE.equals(actionTypeId);
+    }
+
+    static boolean showsConversationTitle(boolean suppressGroupTitle) {
+        return !suppressGroupTitle;
+    }
+
+    static boolean hasSender(@Nullable String senderId, @Nullable String senderName) {
+        return senderId != null
+            && !senderId.trim().isEmpty()
+            && senderName != null
+            && !senderName.trim().isEmpty();
     }
 
     /** Forgets every conversation shortcut this renderer owns. */
@@ -156,7 +289,7 @@ public final class NativePushRenderer {
     private static String pushShortcut(
         Context context,
         PushDataMessage message,
-        PushDataMessage.Sender sender,
+        String senderId,
         Person person,
         @Nullable IconCompat icon
     ) {
@@ -170,7 +303,7 @@ public final class NativePushRenderer {
         if (intent == null) {
             return null;
         }
-        String shortcutId = PushDataMessage.shortcutId(sender.id, conversationId);
+        String shortcutId = PushDataMessage.shortcutId(senderId, conversationId);
         // Trimming is housekeeping: a failure there must not cost this
         // notification the shortcut that gives it the conversation treatment.
         NativeFailureGuard.run(

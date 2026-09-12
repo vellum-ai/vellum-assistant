@@ -1,5 +1,5 @@
 /**
- * Clear user-scoped browser storage on logout.
+ * Clear user-scoped browser storage and process memory on logout.
  *
  * All app-owned localStorage keys use one of two prefixes:
  * - `vellum:` — user-scoped, cleared on logout
@@ -23,6 +23,7 @@
  */
 
 import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import { resetNotificationIdentitySession } from "@/runtime/notification-avatar";
 import { clearCameraGateDebug } from "@/stores/camera-gate-debug-store";
 import { clearUserScopedOverrides } from "@/utils/typed-storage";
 
@@ -73,6 +74,8 @@ function isUserScopedKey(key: string): boolean {
 }
 
 export function clearUserScopedStorage(): void {
+  resetNotificationIdentitySession();
+
   // The takeover avatar stash can outlive `sessionStorage.clear()` through its
   // in-memory mirror when the write never reached storage.
   clearTakeoverAvatarStash();

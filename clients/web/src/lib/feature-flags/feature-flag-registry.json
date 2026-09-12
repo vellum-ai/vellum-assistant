@@ -443,6 +443,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "local-notification-avatar",
+      "scope": "client",
+      "key": "local-notification-avatar",
+      "label": "Local Notification Avatar",
+      "description": "Shows the assistant name and avatar in notifications posted locally by native clients and supported browsers. Independent of remote push avatar presentation.",
+      "defaultEnabled": false
+    },
+    {
       "id": "channel-conversation-sidecar",
       "scope": "client",
       "key": "channel-conversation-sidecar",

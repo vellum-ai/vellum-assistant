@@ -18,6 +18,7 @@ public class AndroidPushRegistrationPlugin extends Plugin {
      * natively must never claim it.
      */
     static final String NATIVE_NOTIFICATION_RENDER = "native-notification-render";
+    static final int NOTIFICATION_OWNERSHIP_VERSION = 1;
 
     /**
      * Whether the web runtime currently holds a handler for foreground pushes.
@@ -25,6 +26,8 @@ public class AndroidPushRegistrationPlugin extends Plugin {
      * instead: a push handed to a torn-down handler is simply lost.
      */
     private static volatile boolean foregroundHandler;
+    private static volatile boolean notificationOwnership;
+    private static int bridgeGeneration;
 
     @PluginMethod
     public void register(PluginCall call) {
@@ -56,6 +59,20 @@ public class AndroidPushRegistrationPlugin extends Plugin {
         call.resolve();
     }
 
+    @PluginMethod
+    public void getNotificationOwnershipGeneration(PluginCall call) {
+        call.resolve(notificationOwnershipGenerationPayload());
+    }
+
+    @PluginMethod
+    public void setNotificationOwnership(PluginCall call) {
+        Integer version = call.getInt("version");
+        Integer generation = call.getInt("generation");
+        Boolean active = call.getBoolean("active");
+        boolean accepted = negotiateNotificationOwnership(version, generation, active);
+        call.resolve(notificationOwnershipPayload(accepted));
+    }
+
     static void setForegroundHandler(boolean active) {
         foregroundHandler = active;
     }
@@ -64,9 +81,43 @@ public class AndroidPushRegistrationPlugin extends Plugin {
         return foregroundHandler;
     }
 
-    /** A page load takes the handler with it without running its own teardown. */
-    public static void clearForegroundHandler() {
+    public static boolean hasNotificationOwnership() {
+        return notificationOwnership;
+    }
+
+    static synchronized boolean negotiateNotificationOwnership(
+        Integer version,
+        Integer generation,
+        Boolean active
+    ) {
+        if (
+            version == null
+                || version != NOTIFICATION_OWNERSHIP_VERSION
+                || generation == null
+                || generation != bridgeGeneration
+                || active == null
+        ) {
+            return false;
+        }
+        notificationOwnership = active;
+        return true;
+    }
+
+    static synchronized int bridgeGeneration() {
+        return bridgeGeneration;
+    }
+
+    public static synchronized void clearBridgeState() {
         foregroundHandler = false;
+        notificationOwnership = false;
+        bridgeGeneration = bridgeGeneration == Integer.MAX_VALUE
+            ? 0
+            : bridgeGeneration + 1;
+    }
+
+    static void clearBridgeStateSerialized(Consumer<Runnable> bridgeExecutor) {
+        clearBridgeState();
+        bridgeExecutor.accept(AndroidPushRegistrationPlugin::clearBridgeState);
     }
 
     static JSObject capabilitiesPayload() {
@@ -75,6 +126,27 @@ public class AndroidPushRegistrationPlugin extends Plugin {
         JSObject payload = new JSObject();
         payload.put("capabilities", capabilities);
         return payload;
+    }
+
+    static synchronized JSObject notificationOwnershipGenerationPayload() {
+        return new JSObject()
+            .put("version", NOTIFICATION_OWNERSHIP_VERSION)
+            .put("generation", bridgeGeneration);
+    }
+
+    static synchronized JSObject notificationOwnershipPayload(boolean accepted) {
+        JSObject payload = new JSObject();
+        payload.put("version", NOTIFICATION_OWNERSHIP_VERSION);
+        payload.put("generation", bridgeGeneration);
+        payload.put("active", notificationOwnership);
+        payload.put("accepted", accepted);
+        return payload;
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        clearBridgeState();
+        super.handleOnDestroy();
     }
 
     private void invokeSafely(PluginCall call, Consumer<PushNotificationsPlugin> operation) {

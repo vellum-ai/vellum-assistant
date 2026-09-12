@@ -16,10 +16,14 @@
  * - hooks/use-notification-intent-sync.ts — sibling local-notification path
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { useLocation } from "react-router";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { postForegroundRemotePush } from "@/runtime/notifications";
+import {
+  isFocusedNotificationConversation,
+  postForegroundRemotePush,
+} from "@/runtime/notifications";
 import {
   registerForRemotePush,
   setForegroundPushHandler,
@@ -31,6 +35,12 @@ import {
  * @param assistantId — current assistant; `null` disables registration
  */
 export function usePushRegistration(assistantId: string | null): void {
+  const { pathname } = useLocation();
+  const pathnameRef = useRef(pathname);
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
+
   useBusSubscription("app.resume", () => {
     if (assistantId) {
       void registerForRemotePush(assistantId);
@@ -41,7 +51,12 @@ export function usePushRegistration(assistantId: string | null): void {
     if (!assistantId) {
       return;
     }
-    setForegroundPushHandler(postForegroundRemotePush);
+    setForegroundPushHandler((notification) => {
+      postForegroundRemotePush(notification, {
+        shouldSuppressConversation: (conversationId) =>
+          isFocusedNotificationConversation(conversationId, pathnameRef.current),
+      });
+    });
     void registerForRemotePush(assistantId);
     return () => setForegroundPushHandler(null);
   }, [assistantId]);

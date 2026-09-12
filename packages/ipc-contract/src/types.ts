@@ -260,11 +260,7 @@ export type HotkeyEventState = "down" | "up";
 
 /** A modifier key a binding can be built from, as the helpers name them. */
 export type KeyboardModifier =
-  | "function"
-  | "control"
-  | "shift"
-  | "option"
-  | "command";
+  "function" | "control" | "shift" | "option" | "command";
 
 export type VoiceModeChordModifier = KeyboardModifier;
 
@@ -337,8 +333,7 @@ export interface HotkeyEvent {
 
 /** Whether a helper took a binding, or why it did not. */
 export type HotkeyRegistrationResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
 
@@ -347,8 +342,7 @@ export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
  * with nothing else. `off` is a binding the user has cleared.
  */
 export type ModifierHold =
-  | { kind: "off" }
-  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+  { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
 
@@ -450,11 +444,7 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  | "suspend"
-  | "resume"
-  | "lock"
-  | "unlock"
-  | "active";
+  "suspend" | "resume" | "lock" | "unlock" | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -532,8 +522,7 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -555,8 +544,7 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  | DictationOverlayState
-  | { kind: "dismiss" };
+  DictationOverlayState | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -750,28 +738,120 @@ export const NOTIFICATION_AVATAR_HASH_PATTERN = /^[0-9a-f]{64}$/;
 export const NOTIFICATION_AVATAR_BASE64_MAX_CHARS =
   Math.ceil(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES / 3) * 4;
 
+export const NOTIFICATION_IDENTITY_MAX_CHARS = 512;
+export const NOTIFICATION_SENDER_NAME_MAX_CHARS = 256;
+export const NOTIFICATION_DELIVERY_KEY_MAX_CHARS = 512;
+
+export const NOTIFICATION_PRESENTATIONS = ["assistant", "app"] as const;
+export type NotificationPresentation =
+  (typeof NOTIFICATION_PRESENTATIONS)[number];
+
+export const NOTIFICATION_NAME_PROVENANCES = [
+  "event",
+  "identity-store",
+  "verified-memory",
+  "title",
+] as const;
+export type NotificationNameProvenance =
+  (typeof NOTIFICATION_NAME_PROVENANCES)[number];
+
+export const VERIFIED_NOTIFICATION_NAME_PROVENANCES = [
+  "event",
+  "identity-store",
+  "verified-memory",
+] as const;
+export type VerifiedNotificationNameProvenance =
+  (typeof VERIFIED_NOTIFICATION_NAME_PROVENANCES)[number];
+
+/** Stable routing identity captured before notification work becomes async. */
+export interface NotificationIdentity {
+  scopeId: string;
+  assistantId: string;
+  nativeSenderId: string;
+}
+
+export interface NotificationAvatar {
+  /** Base64 PNG with no data URL prefix. */
+  avatarBase64: string;
+  /** SHA-256 of the PNG as 64 lowercase hex characters. */
+  avatarHash: string;
+}
+
 /**
  * The assistant a notification is from, for the platforms that render a sender
  * rather than the app: its name goes on the first line and its notification
  * avatar becomes the icon.
  */
-export interface NotificationSender {
+export interface NotificationSender extends NotificationAvatar {
   id: string;
   name: string;
-  /**
-   * The notification avatar as a base64 PNG with no data prefix, the same
-   * shape {@link VoiceActivityStart.avatarBase64} travels in. The renderer
-   * composites it (avatar on an accent-tinted disc) because main has no
-   * canvas.
-   */
-  avatarBase64: string;
-  /**
-   * SHA-256 of the PNG, 64 lowercase hex characters, so a host can name a
-   * cache file by it. The schema enforces the shape, because the file name is
-   * what it becomes.
-   */
-  avatarHash: string;
 }
+
+/**
+ * A verified identity snapshot prepared before a notification is posted.
+ * Hosts keep these snapshots in process memory only.
+ */
+export interface PrepareNotificationIdentityPayload {
+  identity: NotificationIdentity;
+  scopeEpoch: number;
+  identityRevision: number;
+  /** Identifies one renderer lifetime for native generation translation. */
+  publisherSessionId?: string;
+  name?: string;
+  nameProvenance?: VerifiedNotificationNameProvenance;
+  avatar?: NotificationAvatar;
+}
+
+/** Invalidates one assistant or every assistant in a captured scope. */
+export interface ResetNotificationIdentitiesPayload {
+  scopeId: string;
+  scopeEpoch: number;
+  /** Identifies one renderer lifetime for native generation translation. */
+  publisherSessionId?: string;
+  assistantId?: string;
+  /** Revision tombstone for a targeted reset within the current scope epoch. */
+  identityRevision?: number;
+}
+
+/** Starts one renderer lifetime before it can publish native identity state. */
+export interface RegisterNotificationIdentityPublisherPayload {
+  publisherSessionId: string;
+}
+
+export interface NotificationDeliveryIdentifiers {
+  correlationId?: string;
+  deliveryId?: string;
+  requestKey?: string;
+}
+
+/** Resolve the full process-local deduplication key without truncation. */
+export function resolveNotificationDeliveryKey(
+  identifiers: NotificationDeliveryIdentifiers,
+): string | null {
+  for (const candidate of [
+    identifiers.correlationId,
+    identifiers.deliveryId,
+    identifiers.requestKey,
+  ]) {
+    const trimmed = candidate?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+export type NotificationDeliveryResult =
+  | { status: "posted" }
+  | { status: "duplicate" }
+  | { status: "blocked"; reason?: string }
+  | {
+      status: "failed";
+      postingMayHaveBegun: boolean;
+      errorMessage?: string;
+    }
+  | { status: "unknown"; errorMessage?: string }
+  | { status: "unavailable"; reason?: string };
 
 /** Renderer → main payload for posting a native notification. */
 export interface ShowNotificationPayload {
@@ -782,6 +862,16 @@ export interface ShowNotificationPayload {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  correlationId?: string;
+  requestKey?: string;
+  /** Absent on legacy payloads. Missing presentation never enables cache use. */
+  presentation?: NotificationPresentation;
+  /** Scoped routing identity for prepared sender lookup and tap handling. */
+  identity?: NotificationIdentity;
+  /** Identifies which name source was selected for assistant presentation. */
+  nameProvenance?: NotificationNameProvenance;
+  /** Omits duplicate group/subtitle text when the title supplies the name. */
+  suppressGroupTitle?: boolean;
   /**
    * Absent unless the renderer has a notification avatar to send, which leaves
    * the notification with the app icon and the title on line one.
@@ -814,6 +904,9 @@ export interface NotificationActionEvent {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  correlationId?: string;
+  requestKey?: string;
+  identity?: NotificationIdentity;
 }
 
 // ---------------------------------------------------------------------------
@@ -868,12 +961,7 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "available"
-  | "downloading"
-  | "downloaded"
-  | "error";
+  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -937,8 +1025,7 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  | { ok: true; lockfile: Lockfile }
-  | { ok: false; error: string };
+  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"
@@ -1490,8 +1577,7 @@ export type DictationOfferAnswer = "use" | "quit" | "copy" | "dismiss";
  * so by the time a target exists the tab has become a window.
  */
 export type WatchCaptureTarget =
-  | { kind: "display"; displayId: number }
-  | { kind: "window"; windowId: number };
+  { kind: "display"; displayId: number } | { kind: "window"; windowId: number };
 
 /**
  * Which edge of a drawing an `annotateShare` command is: the hand still on
@@ -1634,8 +1720,7 @@ export interface CompanionCoachmarkPoint {
  * place.
  */
 export type CompanionCoachmark =
-  | CompanionCoachmarkRegion
-  | CompanionCoachmarkPoint;
+  CompanionCoachmarkRegion | CompanionCoachmarkPoint;
 
 /**
  * How many marks stand at once, and how long a caption may be.
@@ -1663,10 +1748,7 @@ export const COMPANION_COACHMARK_CAPTION_MAX = 80;
  * many words that it must not reach into the windows for anything.
  */
 export type CoachmarkRefusal =
-  | "unshared"
-  | "not-this-call"
-  | "stale-surface"
-  | "superseded";
+  "unshared" | "not-this-call" | "stale-surface" | "superseded";
 
 /**
  * One thing to point at: a control named, or a rectangle given.

@@ -28,7 +28,11 @@ import {
   type LocalNotificationSchema,
 } from "@capacitor/local-notifications";
 import type { PushNotificationSchema } from "@capacitor/push-notifications";
-import type { NotificationSender } from "@vellumai/ipc-contract";
+import type {
+  NotificationDeliveryResult,
+  NotificationIdentity,
+  ShowNotificationPayload,
+} from "@vellumai/ipc-contract";
 
 import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
@@ -37,27 +41,44 @@ import {
   ANDROID_ALERTS_CHANNEL_ID,
   ensureAndroidAlertsChannel,
 } from "@/runtime/android-notification-channels";
+import {
+  allowsLegacyAndroidNotificationFallback,
+  postAndroidSenderNotification,
+} from "@/runtime/android-sender-notification";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
-import { getNotificationAvatar } from "@/runtime/notification-avatar";
-import { isNativeAndroid } from "@/runtime/platform-detection";
+import { getNotificationIdentitySnapshot } from "@/runtime/notification-avatar";
+import {
+  resolveNotificationSender,
+  type OwnedNotificationName,
+  type NotificationSenderResolution,
+} from "@/runtime/notification-sender";
+import {
+  __resetNotificationTapsForTests,
+  dispatchNotificationTap,
+  registerNotificationTapHandler,
+  type NotificationTapHandler,
+  type NotificationTapPayload,
+} from "@/runtime/notification-taps";
+import {
+  isNativeAndroid,
+  isNativeIOS,
+} from "@/runtime/platform-detection";
 import {
   extractPushConversationId,
+  extractScopedPushTapPayload,
   hasSessionConfirmedRemotePushRegistration,
 } from "@/runtime/push-registration";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import {
+  allowsLegacyNotificationFallback,
+  postSenderNotification,
+} from "@/runtime/sender-notification";
+import { isVisibleToUser } from "@/runtime/window-attention";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { isConversationChatPath } from "@/utils/routes";
 
-/**
- * Payload stored alongside each native notification so the tap handler can
- * deep-link back to the originating conversation. Kept intentionally small —
- * iOS truncates `userInfo` payloads and we don't need the full daemon event.
- */
-export interface NotificationTapPayload {
-  conversationId?: string;
-  sourceEventName: string;
-  deliveryId?: string;
-}
+export type { NotificationTapPayload } from "@/runtime/notification-taps";
 
 /**
  * Capacitor / APNs category for the "Go to Conversation" action. Must stay
@@ -77,10 +98,77 @@ let pendingPermissionRequest: Promise<PermissionState> | null = null;
 let tapListenersRegistered = false;
 let conversationActionTypeRegistered = false;
 let conversationActionTypePromise: Promise<void> | null = null;
-let tapHandler: ((payload: NotificationTapPayload) => void) | null = null;
 const recentNativeDeliveryIds = new Set<string>();
 const nativeDeliveryPromises = new Map<string, Promise<void>>();
 const MAX_RECENT_DELIVERY_IDS = 128;
+const NOTIFICATION_DELIVERY_KEY_MAX_CHARACTERS = 512;
+const focusedNotificationDeliveryKeys = new Set<string>();
+const MAX_FOCUSED_NOTIFICATION_DELIVERY_KEYS = 128;
+const INVALID_NOTIFICATION_IDENTITY_SENTINEL = Object.freeze({});
+
+type NotificationIdentifier =
+  | { status: "absent" }
+  | { status: "invalid"; value: string }
+  | { status: "valid"; value: string };
+
+function notificationIdentifier(value: string | undefined): NotificationIdentifier {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return { status: "absent" };
+  }
+  return trimmed.length <= NOTIFICATION_DELIVERY_KEY_MAX_CHARACTERS
+    ? { status: "valid", value: trimmed }
+    : { status: "invalid", value: trimmed };
+}
+
+function notificationDeliveryKey(
+  correlationId: string | undefined,
+  deliveryId: string | undefined,
+  requestKey?: string,
+): NotificationIdentifier {
+  for (const candidate of [correlationId, deliveryId, requestKey]) {
+    const identifier = notificationIdentifier(candidate);
+    if (identifier.status !== "absent") {
+      return identifier;
+    }
+  }
+  return { status: "absent" };
+}
+
+function retainFocusedNotificationDeliveryKey(key: string): void {
+  focusedNotificationDeliveryKeys.delete(key);
+  focusedNotificationDeliveryKeys.add(key);
+  if (
+    focusedNotificationDeliveryKeys.size >
+    MAX_FOCUSED_NOTIFICATION_DELIVERY_KEYS
+  ) {
+    const oldest = focusedNotificationDeliveryKeys.values().next().value;
+    if (oldest) {
+      focusedNotificationDeliveryKeys.delete(oldest);
+    }
+  }
+}
+
+/** Share focused-chat suppression across the foreground FCM and SSE routes. */
+export function shouldSuppressFocusedNotificationDelivery(
+  correlationId: string | undefined,
+  deliveryId: string | undefined,
+  focused: boolean,
+): boolean {
+  const key = notificationDeliveryKey(correlationId, deliveryId);
+  if (key.status !== "valid") {
+    return focused;
+  }
+  if (focusedNotificationDeliveryKeys.has(key.value)) {
+    retainFocusedNotificationDeliveryKey(key.value);
+    return true;
+  }
+  if (!focused) {
+    return false;
+  }
+  retainFocusedNotificationDeliveryKey(key.value);
+  return true;
+}
 
 /**
  * True when the current host supports system notifications at all (Electron
@@ -273,16 +361,18 @@ async function registerTapListeners(): Promise<void> {
   // `NotificationTapPayload` so the same `tapHandler` is invoked
   // regardless of platform. The listener is permanent (app lifetime).
   if (isElectron() && window.vellum?.notifications) {
-    window.vellum.notifications.onAction((event) => {
-      if (!tapHandler) {
-        return;
-      }
-      tapHandler({
-        conversationId: event.conversationId,
-        sourceEventName: `electron:${event.category}:${event.kind}`,
-        deliveryId: event.deliveryId,
+    try {
+      await window.vellum.notifications.onAction((event) => {
+        dispatchNotificationTap({
+          conversationId: event.conversationId,
+          sourceEventName: `electron:${event.category}:${event.kind}`,
+          deliveryId: event.deliveryId,
+          identity: event.identity,
+        });
       });
-    });
+    } catch {
+      tapListenersRegistered = false;
+    }
     return;
   }
 
@@ -295,15 +385,17 @@ async function registerTapListeners(): Promise<void> {
       "localNotificationActionPerformed",
       (action) => {
         const extra = action.notification.extra as
-          NotificationTapPayload | undefined;
-        if (extra && tapHandler) {
-          tapHandler(extra);
+          | NotificationTapPayload
+          | undefined;
+        if (extra) {
+          dispatchNotificationTap(extra);
         }
       },
     );
   } catch {
     // Listener registration is best-effort — a failure here means taps
     // won't deep-link, but banners will still fire.
+    tapListenersRegistered = false;
   }
 }
 
@@ -315,9 +407,9 @@ async function registerTapListeners(): Promise<void> {
  * closures always see the latest callback.
  */
 export function setNotificationTapHandler(
-  handler: (payload: NotificationTapPayload) => void,
+  handler: NotificationTapHandler,
 ): void {
-  tapHandler = handler;
+  registerNotificationTapHandler(handler);
   void registerTapListeners();
 }
 
@@ -368,6 +460,30 @@ async function scheduleNativeDelivery(
   await pending;
 }
 
+async function scheduleLegacyNativeNotification(
+  correlationId: string | undefined,
+  notification: LocalNotificationSchema,
+): Promise<void> {
+  if (correlationId && isNativeAndroid()) {
+    await scheduleNativeDelivery(correlationId, notification);
+    return;
+  }
+  await ensureAndroidAlertsChannel();
+  await LocalNotifications.schedule({ notifications: [notification] });
+}
+
+function nativeDeliveryFailure(
+  result: Exclude<
+    NotificationDeliveryResult,
+    { status: "posted" } | { status: "duplicate" }
+  >,
+): string {
+  if (result.status === "blocked" || result.status === "unavailable") {
+    return result.reason ?? `Native notification ${result.status}`;
+  }
+  return result.errorMessage ?? `Native notification ${result.status}`;
+}
+
 /**
  * Resolve the conversation this notification should deep-link to.
  *
@@ -390,13 +506,33 @@ export function extractConversationId(
   return undefined;
 }
 
+export function isFocusedNotificationConversation(
+  conversationId: string,
+  pathname: string,
+): boolean {
+  return (
+    conversationId === useConversationStore.getState().activeConversationId &&
+    isConversationChatPath(pathname) &&
+    isVisibleToUser()
+  );
+}
+
 export interface PostLocalNotificationArgs {
   title: string;
   body: string;
   sourceEventName: string;
+  /** Verified assistant name carried by this notification event. */
+  assistantName?: string;
   deliveryId?: string;
   correlationId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  /** Routing identity captured by the event subscriber before any await. */
+  identity?: NotificationIdentity;
+  /** Identity-store name captured for the same scoped routing identity. */
+  identityStoreName?: OwnedNotificationName | null;
+  /** Preserve a present untrusted push identity so tap routing fails closed. */
+  requiresScopedIdentity?: boolean;
+  rawIdentity?: unknown;
   /**
    * When set alongside `deliveryId`, `postLocalNotification` sends a
    * `notification_intent_result` ack to the daemon after scheduling the
@@ -416,6 +552,11 @@ export interface PostLocalNotificationArgs {
   /** Native platforms that accepted this delivery for remote push. */
   remotePushPlatforms?: ("ios" | "android")[];
 }
+
+export type NotificationSoundDisposition =
+  | "web-sound"
+  | "native-owned"
+  | "silent";
 
 /**
  * POST `notification_intent_result` to the daemon via the cloud platform's
@@ -450,44 +591,69 @@ export async function sendNotificationIntentAck(
   }
 }
 
-/**
- * The assistant to post the Electron notification as, when there is one to
- * post as: `useNotificationAvatarSync` holds an avatar only on Electron with
- * `push-avatar-sender` on, so an empty holder is what keeps the payload
- * unchanged everywhere else. The flag is read again here because the holder
- * outlives the moment it is turned off.
- *
- * `assistantId` is the assistant this notification is for, and it is the only
- * id the payload carries. The name and the face are attached only when the
- * hydrated identity and the held avatar both say they belong to that
- * assistant: the identity store and the avatar holder are written at
- * different moments during a switch, so anything looser lets the sender wear
- * one assistant's name over another's face.
- */
-function senderPayload(assistantId: string | undefined): {
-  sender?: NotificationSender;
-} {
-  if (!assistantId || !useClientFeatureFlagStore.getState().pushAvatarSender) {
+type SenderPayload = Pick<
+  ShowNotificationPayload,
+  | "presentation"
+  | "identity"
+  | "nameProvenance"
+  | "suppressGroupTitle"
+  | "sender"
+>;
+
+function resolveSenderAtIntent(
+  args: PostLocalNotificationArgs,
+  electronHost: boolean,
+): NotificationSenderResolution | null {
+  if (
+    !args.identity ||
+    (args.assistantId !== undefined &&
+      args.identity.assistantId !== args.assistantId)
+  ) {
+    return null;
+  }
+  const flags = useClientFeatureFlagStore.getState();
+  const presentationEnabled = electronHost
+    ? flags.pushAvatarSender
+    : flags.localNotificationAvatar;
+  return resolveNotificationSender({
+    presentation: presentationEnabled ? "assistant" : "app",
+    identity: args.identity,
+    assistantName: args.assistantName,
+    identityStoreName: args.identityStoreName,
+    verifiedSnapshot: getNotificationIdentitySnapshot(args.identity),
+    title: args.title,
+  });
+}
+
+function senderPayload(
+  resolution: NotificationSenderResolution | null,
+): SenderPayload {
+  if (!resolution) {
     return {};
   }
-  const avatar = getNotificationAvatar();
-  const identity = useAssistantIdentityStore.getState();
-  if (
-    !avatar ||
-    !identity.name ||
-    avatar.assistantId !== assistantId ||
-    identity.assistantId !== assistantId
-  ) {
-    return {};
+  if (resolution.presentation === "app") {
+    return {
+      presentation: "app",
+      identity: resolution.identity,
+    };
   }
   return {
-    sender: {
-      id: assistantId,
-      name: identity.name,
-      avatarBase64: avatar.avatarBase64,
-      avatarHash: avatar.avatarHash,
-    },
+    presentation: "assistant",
+    identity: resolution.identity,
+    nameProvenance: resolution.nameProvenance,
+    ...(resolution.suppressGroupTitle
+      ? { suppressGroupTitle: resolution.suppressGroupTitle }
+      : {}),
+    ...(resolution.sender ? { sender: resolution.sender } : {}),
   };
+}
+
+function browserNotificationIcon(
+  resolution: NotificationSenderResolution | null,
+): string | undefined {
+  return resolution?.presentation === "assistant" && resolution.sender
+    ? `data:image/png;base64,${resolution.sender.avatarBase64}`
+    : undefined;
 }
 
 /**
@@ -498,7 +664,12 @@ function senderPayload(assistantId: string | undefined): {
  */
 export async function postLocalNotification(
   args: PostLocalNotificationArgs,
-): Promise<void> {
+): Promise<NotificationSoundDisposition> {
+  const electronHost = isElectron();
+  const senderResolution = resolveSenderAtIntent(args, electronHost);
+  const presentationPayload = senderPayload(senderResolution);
+  const { sender: _sender, ...tapPresentationPayload } = presentationPayload;
+
   if (!isNotificationsSupported()) {
     if (args.assistantId && args.deliveryId) {
       await sendNotificationIntentAck(
@@ -508,14 +679,14 @@ export async function postLocalNotification(
         "Notifications not supported on this client",
       );
     }
-    return;
+    return "web-sound";
   }
 
   // Electron path: route through the main-process bridge which uses
   // `electron.Notification` (supports macOS action buttons). Permission
   // is handled by the main process — we skip the renderer permission
   // dance entirely.
-  if (isElectron() && window.vellum?.notifications) {
+  if (electronHost && window.vellum?.notifications) {
     let success = true;
     let errorMessage: string | undefined;
     try {
@@ -526,7 +697,7 @@ export async function postLocalNotification(
         deliveryId: args.deliveryId,
         conversationId: extractConversationId(args.deepLinkMetadata),
         deepLinkMetadata: args.deepLinkMetadata,
-        ...senderPayload(args.assistantId),
+        ...presentationPayload,
       });
       success = result.success;
       errorMessage = result.errorMessage;
@@ -542,7 +713,7 @@ export async function postLocalNotification(
         errorMessage,
       );
     }
-    return;
+    return "web-sound";
   }
 
   // Snapshot before the awaits below: the remote-push dedup skip must see
@@ -559,18 +730,23 @@ export async function postLocalNotification(
         "Notification authorization denied",
       );
     }
-    return;
+    return "web-sound";
   }
 
   const conversationId = extractConversationId(args.deepLinkMetadata);
-  const tapPayload: NotificationTapPayload = {
+  const tapPayload = {
     conversationId,
     sourceEventName: args.sourceEventName,
     deliveryId: args.deliveryId,
-  };
+    ...tapPresentationPayload,
+    ...(args.requiresScopedIdentity
+      ? { identity: args.rawIdentity as NotificationIdentity }
+      : {}),
+  } satisfies NotificationTapPayload;
 
   let success = true;
   let errorMessage: string | undefined;
+  let nativeSoundOwned = false;
 
   if (isNativePlatform()) {
     // Foreground native pushes use a local banner. Hidden pushes use the OS
@@ -597,13 +773,34 @@ export async function postLocalNotification(
           true,
         );
       }
-      return;
+      return isNativeAndroid() ? "native-owned" : "web-sound";
     }
 
-    const seed =
-      args.correlationId ??
-      args.deliveryId ??
-      `${args.sourceEventName}:${args.title}:${args.body}`;
+    const fallbackRequestKey = `${args.sourceEventName}:${args.title}:${args.body}`;
+    const key = notificationDeliveryKey(
+      args.correlationId,
+      args.deliveryId,
+      fallbackRequestKey,
+    );
+    if (key.status !== "valid") {
+      if (args.assistantId && args.deliveryId) {
+        await sendNotificationIntentAck(
+          args.assistantId,
+          args.deliveryId,
+          false,
+          "Invalid notification delivery key",
+        );
+      }
+      return "silent";
+    }
+    const correlation = notificationIdentifier(args.correlationId);
+    const delivery = notificationIdentifier(args.deliveryId);
+    const correlationId =
+      correlation.status === "valid" ? correlation.value : undefined;
+    const normalizedDeliveryId =
+      delivery.status === "valid" ? delivery.value : undefined;
+    const seed = key.value;
+    const requestKey = key.value;
     const notification: LocalNotificationSchema = {
       id: toNotificationId(seed),
       title: args.title,
@@ -615,13 +812,115 @@ export async function postLocalNotification(
       ...(isNativeAndroid() ? { channelId: ANDROID_ALERTS_CHANNEL_ID } : {}),
     };
     try {
-      await ensureConversationActionType();
-      const correlationId = args.correlationId ?? args.deliveryId;
-      if (correlationId && isNativeAndroid()) {
-        await scheduleNativeDelivery(correlationId, notification);
+      const legacyCorrelationId = correlationId ?? normalizedDeliveryId;
+      const useIOSNativeOwner =
+        isNativeIOS() &&
+        useClientFeatureFlagStore.getState().localNotificationAvatar;
+      if (isNativeAndroid()) {
+        const nativeResult = await postAndroidSenderNotification({
+          correlationId,
+          deliveryId: normalizedDeliveryId,
+          requestKey,
+          id: notification.id,
+          title: notification.title,
+          body: notification.body,
+          extra: tapPayload,
+          ...(notification.actionTypeId
+            ? { actionTypeId: notification.actionTypeId }
+            : {}),
+          channelId: notification.channelId,
+          ...(notification.actionTypeId
+            ? { category: notification.actionTypeId }
+            : {}),
+          conversationId,
+          deepLinkMetadata: args.deepLinkMetadata,
+          presentation: senderResolution?.presentation ?? "app",
+          ...(senderResolution ? { identity: senderResolution.identity } : {}),
+          ...(senderResolution?.presentation === "assistant"
+            ? {
+                name: senderResolution.name,
+                nameProvenance: senderResolution.nameProvenance,
+                ...(senderResolution.suppressGroupTitle
+                  ? { suppressGroupTitle: true }
+                  : {}),
+                ...(senderResolution.sender
+                  ? { sender: senderResolution.sender }
+                  : {}),
+              }
+            : {}),
+        });
+        if (allowsLegacyAndroidNotificationFallback(nativeResult)) {
+          await ensureConversationActionType();
+          await scheduleLegacyNativeNotification(
+            legacyCorrelationId,
+            notification,
+          );
+          nativeSoundOwned = true;
+        } else {
+          if (
+            nativeResult.status !== "posted" &&
+            nativeResult.status !== "duplicate"
+          ) {
+            success = false;
+            errorMessage = nativeDeliveryFailure(nativeResult);
+          }
+          if (args.assistantId && args.deliveryId) {
+            await sendNotificationIntentAck(
+              args.assistantId,
+              args.deliveryId,
+              success,
+              errorMessage,
+            );
+          }
+          return "native-owned";
+        }
       } else {
-        await ensureAndroidAlertsChannel();
-        await LocalNotifications.schedule({ notifications: [notification] });
+        await ensureConversationActionType();
+      }
+      if (useIOSNativeOwner) {
+        const nativeResult = await postSenderNotification({
+          correlationId,
+          deliveryId: normalizedDeliveryId,
+          requestKey,
+          id: notification.id,
+          title: notification.title,
+          body: notification.body,
+          extra: tapPayload,
+          ...(notification.actionTypeId
+            ? { actionTypeId: notification.actionTypeId }
+            : {}),
+          presentation: senderResolution?.presentation ?? "app",
+          ...(senderResolution ? { identity: senderResolution.identity } : {}),
+          ...(senderResolution?.presentation === "assistant"
+            ? {
+                name: senderResolution.name,
+                nameProvenance: senderResolution.nameProvenance,
+                ...(senderResolution.suppressGroupTitle
+                  ? { suppressGroupTitle: true }
+                  : {}),
+                ...(senderResolution.sender
+                  ? { sender: senderResolution.sender }
+                  : {}),
+              }
+            : {}),
+        });
+        if (allowsLegacyNotificationFallback(nativeResult)) {
+          await scheduleLegacyNativeNotification(
+            legacyCorrelationId,
+            notification,
+          );
+        } else if (
+          nativeResult.status !== "posted" &&
+          nativeResult.status !== "duplicate"
+        ) {
+          success = false;
+          errorMessage = nativeDeliveryFailure(nativeResult);
+        }
+      } else if (!isNativeAndroid()) {
+        await scheduleLegacyNativeNotification(
+          legacyCorrelationId,
+          notification,
+        );
       }
     } catch (err) {
       // Never block the SSE loop on notification failures, but record the
@@ -637,17 +936,26 @@ export async function postLocalNotification(
     // keep distinct notifications distinct.
     const tag =
       args.deliveryId ?? `${args.sourceEventName}:${args.title}:${args.body}`;
+    const options: NotificationOptions = {
+      body: args.body,
+      tag,
+      data: tapPayload,
+    };
+    const icon = browserNotificationIcon(senderResolution);
     try {
-      const n = new Notification(args.title, {
-        body: args.body,
-        tag,
-        data: tapPayload,
-      });
+      let n: Notification;
+      if (icon) {
+        try {
+          n = new Notification(args.title, { ...options, icon });
+        } catch {
+          n = new Notification(args.title, options);
+        }
+      } else {
+        n = new Notification(args.title, options);
+      }
       n.onclick = () => {
         window.focus();
-        if (tapHandler) {
-          tapHandler(tapPayload);
-        }
+        dispatchNotificationTap(tapPayload);
         n.close();
       };
     } catch (err) {
@@ -666,10 +974,16 @@ export async function postLocalNotification(
       errorMessage,
     );
   }
+  return nativeSoundOwned ? "native-owned" : "web-sound";
+}
+
+export interface ForegroundRemotePushContext {
+  shouldSuppressConversation?: (conversationId: string) => boolean;
 }
 
 export function postForegroundRemotePush(
   notification: PushNotificationSchema,
+  context: ForegroundRemotePushContext = {},
 ): void {
   if (!isNativeAndroid()) {
     return;
@@ -685,9 +999,60 @@ export function postForegroundRemotePush(
     const trimmed = typeof value === "string" ? value.trim() : "";
     return trimmed === "" ? undefined : trimmed;
   };
-  const deliveryId = text(data.delivery_id) ?? text(notification.id);
+  const dataDeliveryId =
+    typeof data.delivery_id === "string" ? data.delivery_id : undefined;
+  const dataDeliveryIdentifier = notificationIdentifier(dataDeliveryId);
+  const messageIdentifier = notificationIdentifier(
+    typeof notification.id === "string" ? notification.id : undefined,
+  );
+  const messageDeliveryKey =
+    messageIdentifier.status === "absent"
+      ? undefined
+      : `fcm-message:${messageIdentifier.value}`;
+  const deliveryId =
+    dataDeliveryIdentifier.status === "absent"
+      ? messageDeliveryKey
+      : dataDeliveryIdentifier.value;
   const sourceEventName = text(data.source_event_name) ?? "remote_push";
   const conversationId = extractPushConversationId(data);
+  if (
+    shouldSuppressFocusedNotificationDelivery(
+      deliveryId,
+      undefined,
+      conversationId !== undefined &&
+        context.shouldSuppressConversation?.(conversationId) === true,
+    )
+  ) {
+    return;
+  }
+  const scopedTap = extractScopedPushTapPayload(data);
+  const requiresScopedIdentity = Object.prototype.hasOwnProperty.call(
+    data,
+    "identity",
+  ) && scopedTap === null;
+  const deepLinkValue = data.deep_link;
+  let deepLinkMetadata: Record<string, unknown> | undefined;
+  if (typeof deepLinkValue === "object" && deepLinkValue !== null) {
+    deepLinkMetadata = deepLinkValue as Record<string, unknown>;
+  } else if (typeof deepLinkValue === "string") {
+    try {
+      const parsed = JSON.parse(deepLinkValue) as unknown;
+      if (typeof parsed === "object" && parsed !== null) {
+        deepLinkMetadata = parsed as Record<string, unknown>;
+      }
+    } catch {
+      deepLinkMetadata = undefined;
+    }
+  }
+
+  const resolvedDeepLinkMetadata = deepLinkMetadata
+    ? conversationId &&
+      extractConversationId(deepLinkMetadata) !== conversationId
+      ? { ...deepLinkMetadata, conversationId }
+      : deepLinkMetadata
+    : conversationId
+      ? { conversationId }
+      : undefined;
 
   void postLocalNotification({
     // A data-only push carries no notification block, so the copy the OS
@@ -695,9 +1060,15 @@ export function postForegroundRemotePush(
     title: text(notification.title) ?? text(data.title) ?? "Vellum",
     body: text(notification.body) ?? text(data.body) ?? "",
     sourceEventName,
+    assistantName: text(data.sender_name),
     deliveryId,
     correlationId: deliveryId,
-    deepLinkMetadata: conversationId ? { conversationId } : undefined,
+    deepLinkMetadata: resolvedDeepLinkMetadata,
+    identity: scopedTap?.identity,
+    requiresScopedIdentity,
+    rawIdentity: requiresScopedIdentity
+      ? INVALID_NOTIFICATION_IDENTITY_SENTINEL
+      : undefined,
   });
 }
 
@@ -707,7 +1078,8 @@ export function __resetNotificationsStateForTests(): void {
   tapListenersRegistered = false;
   conversationActionTypeRegistered = false;
   conversationActionTypePromise = null;
-  tapHandler = null;
+  __resetNotificationTapsForTests();
   recentNativeDeliveryIds.clear();
   nativeDeliveryPromises.clear();
+  focusedNotificationDeliveryKeys.clear();
 }

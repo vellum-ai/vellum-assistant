@@ -6,6 +6,13 @@ import {
 } from "@/lib/billing/takeover-avatar-stash";
 import type { CharacterTraits } from "@/types/avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import {
+  __clearNotificationIdentitySnapshotsForTests,
+  beginNotificationIdentityPublication,
+  createNotificationIdentity,
+  getNotificationIdentitySnapshot,
+  publishPreparedNotificationIdentity,
+} from "@/runtime/notification-avatar";
 
 import { clearUserScopedStorage } from "./session-cleanup";
 
@@ -16,16 +23,36 @@ const STASH_TRAITS: CharacterTraits = {
 };
 
 beforeEach(() => {
+  __clearNotificationIdentitySnapshotsForTests();
   localStorage.clear();
   sessionStorage.clear();
 });
 
 afterEach(() => {
+  __clearNotificationIdentitySnapshotsForTests();
   localStorage.clear();
   sessionStorage.clear();
 });
 
 describe("clearUserScopedStorage", () => {
+  test("clears process-local notification identity memory", () => {
+    const identity = createNotificationIdentity(
+      '["account","user-123","org-abc"]',
+      "assistant-1",
+      "00000000-0000-4000-8000-000000000001",
+    )!;
+    const publication = beginNotificationIdentityPublication(identity);
+    publishPreparedNotificationIdentity(publication, {
+      name: "Assistant One",
+      nameProvenance: "identity-store",
+    });
+    expect(getNotificationIdentitySnapshot(identity)).not.toBeNull();
+
+    clearUserScopedStorage();
+
+    expect(getNotificationIdentitySnapshot(identity)).toBeNull();
+  });
+
   test("clears sessionStorage entirely", () => {
     sessionStorage.setItem("vellum:edit-chat:asst-1:app-1", "conv-xyz");
     sessionStorage.setItem("arbitrary-session-key", "data");

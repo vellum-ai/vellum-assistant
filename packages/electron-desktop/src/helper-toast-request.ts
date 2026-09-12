@@ -13,10 +13,11 @@ export interface HelperToastRequest {
 
 /**
  * With the avatar staged on disk the assistant is the sender, so its name is
- * the toast title, the conversation title drops to the subtitle, and the
- * picture travels as a path the helper reads. Without a sender, or when the
- * avatar could not be staged, the toast keeps the conversation title and
- * carries neither, which is each helper's plain app-icon layout.
+ * the toast title, the conversation title becomes a subtitle when it is
+ * distinct, and the picture travels as a path the helper reads. Without a
+ * sender, or when the avatar could not be staged, the toast keeps the
+ * conversation title and carries neither, which is each helper's plain
+ * app-icon layout.
  */
 export const buildHelperToastRequest = (
   options: NotificationCreateOptions,
@@ -37,7 +38,7 @@ export const buildHelperToastRequest = (
     return {
       token,
       title: options.sender.name,
-      subtitle: options.title,
+      ...(!options.suppressGroupTitle ? { subtitle: options.title } : {}),
       body: options.body,
       actions,
       avatarPath,

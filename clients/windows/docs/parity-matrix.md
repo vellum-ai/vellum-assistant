@@ -12,6 +12,22 @@ Evidence columns name the focused test (under `src/`) or the packaged smoke
 (`scripts/package-smoke.ts`, run by `.github/workflows/windows-package-smoke.yaml`)
 that exercises the Windows behavior.
 
+## Notification sender parity
+
+Under `push-avatar-sender`, Windows consumes the same optional exact sender
+payload as macOS through the shared Electron notification module. The native
+helper stages the verified avatar for the toast app-logo slot, promotes the
+assistant name to the title, and uses the conversation title as the subtitle.
+Actions, tap identifiers, and delivery acknowledgments keep their existing
+owners. If the sender is absent or malformed, the plain route receives no
+sender decoration. `local-notification-avatar` does not select the Windows
+helper route, and the macOS grant-time sender confirmation has no Windows
+counterpart.
+
+The packaged Windows result remains `NOT RUN`. Its required cases and rollout
+status are recorded in the canonical
+[notification avatar and local delivery QA ledger](../../../docs/notification-avatar-local-qa.md).
+
 ## Renderer bridge
 
 | Bridge key                                                            | Windows module                                                                                         | macOS counterpart                           | Evidence                                                                        |
