@@ -871,6 +871,15 @@ async function main() {
       auth: "edge",
       handler: () => handleWhoami(),
     },
+    // Assistant-scoped mirror: self-hosted clients emit /v1/assistants/<id>/whoami
+    // and rewriteForSelfHostedIngress preserves that path, so a flat-only route
+    // would fall through to the runtime proxy and 404. The assistant id is discarded.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/whoami\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      handler: () => handleWhoami(),
+    },
 
     // ── Process status ──
     {

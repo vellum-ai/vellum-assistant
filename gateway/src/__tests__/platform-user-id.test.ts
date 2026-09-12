@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 
-import "./test-preload.js";
+import { testSecurityDir } from "./test-preload.js";
 
 import { credentialKey } from "../credential-key.js";
 
@@ -102,6 +104,37 @@ describe("readStoredPlatformUserId", () => {
     await expect(readStoredPlatformUserId()).resolves.toEqual({
       userId: OWNER_ID,
       unreachable: false,
+    });
+  });
+
+  test("does not rewrite the identity file when live ids are unchanged", async () => {
+    setLiveIdentity({ userId: OWNER_ID });
+    await readStoredPlatformUserId();
+
+    const path = join(testSecurityDir, "platform-identity.json");
+    const before = readFileSync(path, "utf-8");
+    const mtimeBefore = statSync(path).mtimeMs;
+
+    await readStoredPlatformUserId();
+    _dropPlatformIdentityMemoryForTest();
+    await readStoredPlatformUserId();
+
+    expect(readFileSync(path, "utf-8")).toBe(before);
+    expect(statSync(path).mtimeMs).toBe(mtimeBefore);
+  });
+
+  test("rewrites the identity file when live ids change", async () => {
+    setLiveIdentity({ userId: OWNER_ID });
+    await readStoredPlatformUserId();
+
+    setLiveIdentity({ userId: "user-456" });
+    await readStoredPlatformUserId();
+
+    const path = join(testSecurityDir, "platform-identity.json");
+    expect(JSON.parse(readFileSync(path, "utf-8"))).toEqual({
+      assistantId: null,
+      userId: "user-456",
+      organizationId: null,
     });
   });
 });

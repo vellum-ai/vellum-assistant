@@ -44,6 +44,14 @@ function hasAnyId(identity: PlatformIdentity): boolean {
   );
 }
 
+function identitiesEqual(a: PlatformIdentity, b: PlatformIdentity): boolean {
+  return (
+    a.assistantId === b.assistantId &&
+    a.userId === b.userId &&
+    a.organizationId === b.organizationId
+  );
+}
+
 function parseStoredIdentity(raw: string): PlatformIdentity {
   const parsed: unknown = JSON.parse(raw);
   if (!parsed || typeof parsed !== "object") {
@@ -71,7 +79,23 @@ function readIdentityFile(): PlatformIdentity {
   }
 }
 
+function cachedIdentity(): PlatformIdentity {
+  if (memory && hasAnyId(memory)) {
+    return memory;
+  }
+  const fromFile = readIdentityFile();
+  if (hasAnyId(fromFile)) {
+    memory = fromFile;
+  }
+  return fromFile;
+}
+
 function persistIdentity(identity: PlatformIdentity): void {
+  const cached = cachedIdentity();
+  if (identitiesEqual(cached, identity)) {
+    memory = identity;
+    return;
+  }
   memory = identity;
   try {
     mkdirSync(getGatewaySecurityDir(), { recursive: true });
@@ -86,17 +110,6 @@ function persistIdentity(identity: PlatformIdentity): void {
   } catch (err) {
     log.warn({ err }, "failed to persist platform identity");
   }
-}
-
-function cachedIdentity(): PlatformIdentity {
-  if (memory && hasAnyId(memory)) {
-    return memory;
-  }
-  const fromFile = readIdentityFile();
-  if (hasAnyId(fromFile)) {
-    memory = fromFile;
-  }
-  return fromFile;
 }
 
 export type PlatformIdentityRead = {

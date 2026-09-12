@@ -1,5 +1,5 @@
 /**
- * GET /v1/whoami — bound platform identity for this assistant.
+ * GET /v1/whoami: bound platform identity for this assistant.
  *
  * Returns assistant, user, and organization ids from the gateway-local
  * identity store (live vault read with a durable last-known file). Callers
