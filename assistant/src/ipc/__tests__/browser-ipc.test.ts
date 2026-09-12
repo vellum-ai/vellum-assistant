@@ -32,6 +32,7 @@ let mockConversation: {
   trustContext?: { trustClass: string };
   transportInterface?: string;
   getTurnActorPrincipalId?: () => string | undefined;
+  abortController?: AbortController;
 } | null = null;
 
 let mockFindConversationCalls: string[] = [];
@@ -63,6 +64,18 @@ mock.module("../../daemon/conversation-registry.js", () => ({
   findConversation: (conversationId: string) => {
     mockFindConversationCalls.push(conversationId);
     return mockConversation ?? undefined;
+  },
+}));
+
+let desktopContext: import("../../tools/types.js").ToolContext | undefined;
+mock.module("../../desktop/desktop-browser-operations.js", () => ({
+  executeDesktopBrowserOperation: async (
+    _operation: string,
+    _input: Record<string, unknown>,
+    context: import("../../tools/types.js").ToolContext,
+  ) => {
+    desktopContext = context;
+    return { content: "desktop", isError: false };
   },
 }));
 
@@ -421,4 +434,27 @@ describe("browser_execute route", () => {
     expect(mockOperationCalls).toHaveLength(1);
     expect(mockOperationCalls[0].input).toEqual({});
   });
+});
+
+test("desktop route preserves guardian ownership and live-turn cancellation", async () => {
+  const abortController = new AbortController();
+  mockConversation = {
+    trustContext: { trustClass: "guardian" },
+    getTurnActorPrincipalId: () => "user-123",
+    abortController,
+  };
+  const result = await callHandler(
+    { operation: "snapshot", desktop: true, conversationId: "conv-desktop" },
+    { "x-vellum-actor-principal-id": "user-other" },
+  );
+  expect(result).toMatchObject({ content: "desktop" });
+  expect(mockOperationCalls).toHaveLength(0);
+  expect(desktopContext).toMatchObject({
+    conversationId: "conv-desktop",
+    sourceActorPrincipalId: "user-123",
+    trustClass: "guardian",
+  });
+  expect(desktopContext?.signal?.aborted).toBe(false);
+  abortController.abort();
+  expect(desktopContext?.signal?.aborted).toBe(true);
 });

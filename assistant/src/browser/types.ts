@@ -1,3 +1,10 @@
+import type { ScopedCdpClient } from "../tools/browser/cdp-client/types.js";
+import type { ToolContext } from "../tools/types.js";
+
+export interface BrowserOperationContext extends ToolContext {
+  cdpClient?: ScopedCdpClient;
+}
+
 /**
  * Canonical browser operation identifiers and typed metadata.
  *

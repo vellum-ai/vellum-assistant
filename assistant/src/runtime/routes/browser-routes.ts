@@ -16,10 +16,11 @@ import {
   BROWSER_OPERATIONS,
   type BrowserOperation,
 } from "../../browser/types.js";
-import { findConversation } from "../../daemon/conversation-registry.js";
+import { executeDesktopBrowserOperation } from "../../desktop/desktop-browser-operations.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
+import { resolveBrowserContext } from "./browser-context.js";
+export { browserCliConversationKey } from "./browser-context.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param validation ─────────────────────────────────────────────────
@@ -29,17 +30,8 @@ const BrowserExecuteParams = z.object({
   input: z.record(z.string(), z.unknown()).default({}),
   sessionId: z.string().min(1).default("default"),
   conversationId: z.string().min(1).optional(),
+  desktop: z.boolean().optional(),
 });
-
-// ── Conversation key ─────────────────────────────────────────────────
-
-/**
- * Build a deterministic conversation key from a session ID.
- * All CLI browser calls with the same session share browser state.
- */
-export function browserCliConversationKey(sessionId: string): string {
-  return `browser-cli:${sessionId}`;
-}
 
 // ── Screenshot extraction ────────────────────────────────────────────
 
@@ -70,45 +62,21 @@ function extractScreenshots(
 async function handleBrowserExecute({
   body = {},
   headers = {},
+  abortSignal,
 }: RouteHandlerArgs) {
-  const { operation, input, sessionId, conversationId } =
+  const { operation, input, sessionId, conversationId, desktop } =
     BrowserExecuteParams.parse(body);
 
-  // When the caller passes a live conversation ID (e.g. from
-  // __CONVERSATION_ID in a nested bash invocation), reuse that
-  // conversation's trust context and transport interface.
-  const conversation = conversationId
-    ? findConversation(conversationId)
-    : undefined;
-
-  const resolvedConversationId = conversation
-    ? conversationId!
-    : browserCliConversationKey(sessionId);
-
-  // Actor principal lets host-browser routing enforce same-actor ownership.
-  // A live conversation's turn actor owns the request (e.g. a nested-bash
-  // browser call inherits the conversation's actor), so it wins over the
-  // request header — which over IPC may carry a synthetic local-guardian id
-  // injected for header-less local callers. Resolve through the local-guardian
-  // translation so the value matches the actorPrincipalId host_browser clients
-  // register with (dev-bypass otherwise mismatches).
-  const headerActor =
-    headers["x-vellum-actor-principal-id"]?.trim() || undefined;
-  const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
-    conversation?.getTurnActorPrincipalId() ?? headerActor,
+  const context = await resolveBrowserContext(
+    conversationId,
+    sessionId,
+    headers,
+    abortSignal,
   );
-
-  const result = await executeBrowserOperation(
-    operation as BrowserOperation,
-    input,
-    {
-      workingDir: process.cwd(),
-      conversationId: resolvedConversationId,
-      trustClass: conversation?.trustContext?.trustClass ?? "unknown",
-      transportInterface: conversation?.transportInterface,
-      sourceActorPrincipalId,
-    },
-  );
+  const execute = desktop
+    ? executeDesktopBrowserOperation
+    : executeBrowserOperation;
+  const result = await execute(operation as BrowserOperation, input, context);
 
   const screenshots = extractScreenshots(result.contentBlocks);
 

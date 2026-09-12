@@ -106,7 +106,13 @@
     "installBackground": "La instalación continúa si cierras esta ventana.",
     "installFailed": "La instalación falló. Inténtalo de nuevo para terminar.",
     "setupRequestFailed": "No se pudo comprobar la instalación. Vuelve a conectar para intentarlo de nuevo.",
-    "setupUnsupported": "La instalación requiere un contenedor Linux x64 o ARM64 con acceso de administrador."
+    "setupUnsupported": "La instalación requiere un contenedor Linux x64 o ARM64 con acceso de administrador.",
+    "assistantControlling": "El asistente está controlando este escritorio",
+    "userControlling": "Tienes el control. Permite al asistente continuar cuando estés listo.",
+    "controlReady": "Puedes ver al asistente trabajar aquí.",
+    "takeControl": "Tomar el control",
+    "allowAssistant": "Permitir al asistente",
+    "controlFailed": "No se pudo actualizar el control del escritorio. Vuelve a conectar para intentarlo de nuevo."
   },
   "assistantNavItem": {
     "newChat": "Chat nuevo"

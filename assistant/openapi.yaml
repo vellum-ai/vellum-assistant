@@ -4146,6 +4146,8 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
               required:
                 - operation
       responses:
@@ -4181,7 +4183,7 @@ paths:
     post:
       operationId: browser_tabs_post
       summary: Manage browser tabs
-      description: List, create, select, or close browser tabs via the Chrome extension backend.
+      description: List, create, select, or close browser tabs in the Chrome extension or streamed desktop browser.
       tags:
         - browser
       requestBody:
@@ -4205,6 +4207,8 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
                 tabId:
                   type: number
                 url:
@@ -11960,6 +11964,65 @@ paths:
                       additionalProperties: false
                 required:
                   - defers
+                additionalProperties: false
+  /v1/desktop/control:
+    get:
+      operationId: desktop_control_get
+      summary: Get desktop control status
+      tags:
+        - desktop
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - idle
+                      - assistant
+                      - human
+                required:
+                  - state
+                additionalProperties: false
+    post:
+      operationId: desktop_control_post
+      summary: Hand desktop control between the user and assistant
+      tags:
+        - desktop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - take
+                    - allow
+              required:
+                - action
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - idle
+                      - assistant
+                      - human
+                required:
+                  - state
                 additionalProperties: false
   /v1/desktop/setup:
     get:

@@ -57,6 +57,7 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
   let vncReady = true;
   let chromiumPath: () => Promise<string> = async () => "/fake/chromium";
   const manager = new DesktopSessionManager({
+    allocateDebugPort: async () => 9222,
     spawn: (role, request) => {
       if (options.failSpawn?.includes(role)) {
         throw new Error(`spawn ${role} failed`);
