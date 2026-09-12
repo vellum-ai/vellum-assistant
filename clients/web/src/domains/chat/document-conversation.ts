@@ -4,6 +4,8 @@ import {
   documentsByIdConversationsPost,
 } from "@/generated/daemon/sdk.gen";
 import { t } from "@/i18n";
+import { subscribe } from "@/lib/event-bus";
+import type { DocumentContent } from "@/types/document-types";
 import {
   assistantScopedSupports,
   whenAssistantVersionKnownFor,
@@ -116,6 +118,59 @@ export async function resolveDocumentConversation(
     }
   }
   return null;
+}
+
+/** Publishes a loaded document only after its link and streamed edits settle. */
+export async function loadDocumentConversation({
+  assistantId,
+  surfaceId,
+  isCurrent,
+  onReady,
+}: {
+  assistantId: string;
+  surfaceId: string;
+  isCurrent: () => boolean;
+  onReady: (document: DocumentContent, conversationId: string | null) => void;
+}): Promise<void> {
+  let changed = false;
+  const unsubscribe = subscribe("sse.event", ({ message }) => {
+    if (
+      isCurrent() &&
+      message.type === "document_editor_update" &&
+      message.surfaceId === surfaceId
+    ) {
+      changed = true;
+    }
+  });
+  try {
+    const { loadDocumentContent } = await import("./api/document-load");
+    while (isCurrent()) {
+      changed = false;
+      const document = await loadDocumentContent({
+        assistantId,
+        surfaceId,
+        isCurrent,
+      });
+      if (!document || !isCurrent()) {
+        return;
+      }
+      const conversationId = await resolveDocumentConversation({
+        assistantId,
+        document,
+        isCurrent,
+      });
+      if (!isCurrent()) {
+        return;
+      }
+      if (changed) {
+        continue;
+      }
+      onReady(document, conversationId);
+      return;
+    }
+  } finally {
+    unsubscribe();
+  }
 }
 
 /** Explicit recovery action for a document whose linked conversation is gone. */

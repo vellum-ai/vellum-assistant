@@ -23,7 +23,7 @@ import {
 
 import {
   documentRequestScope,
-  resolveDocumentConversation,
+  loadDocumentConversation,
 } from "../document-conversation";
 import {
   documentReturnPath,
@@ -31,7 +31,6 @@ import {
   navigateToDocumentConversation,
   setDocumentConversationPresentation,
 } from "../document-conversation-navigation";
-import { loadDocumentContent } from "../api/document-load";
 
 /** Opens `appId` under `assistantId` in the viewer panel. */
 export async function openAppFromChat(
@@ -108,38 +107,29 @@ export function useOpenDocumentFromChat(
           });
           return;
         }
-        const data = await loadDocumentContent({
+        await loadDocumentConversation({
           assistantId,
           surfaceId,
           isCurrent: scope.isCurrent,
+          onReady: (data, linkedId) => {
+            const returnTo = documentReturnPath(location.pathname);
+            const state = documentEntryState(location, surfaceId);
+            beforeOpen?.();
+            if (linkedId) {
+              navigateToDocumentConversation(
+                navigate,
+                data,
+                linkedId,
+                assistantId,
+                returnTo,
+                false,
+                state,
+              );
+            } else {
+              void navigate(documentEntryUrl(surfaceId, returnTo), { state });
+            }
+          },
         });
-        if (!data || !scope.isCurrent()) {
-          return;
-        }
-        const linkedId = await resolveDocumentConversation({
-          assistantId,
-          document: data,
-          isCurrent: scope.isCurrent,
-        });
-        if (!scope.isCurrent()) {
-          return;
-        }
-        const returnTo = documentReturnPath(location.pathname);
-        const state = documentEntryState(location, surfaceId);
-        beforeOpen?.();
-        if (linkedId) {
-          navigateToDocumentConversation(
-            navigate,
-            data,
-            linkedId,
-            assistantId,
-            returnTo,
-            false,
-            state,
-          );
-        } else {
-          void navigate(documentEntryUrl(surfaceId, returnTo), { state });
-        }
       } catch (error) {
         if (scope.isCurrent()) {
           captureError(error, { context: "open_document_from_chat" });

@@ -23,6 +23,8 @@ import { create } from "zustand";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
+import { publish } from "@/lib/event-bus";
 import type * as Readiness from "@/hooks/use-is-org-ready";
 import { liveViewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -144,6 +146,7 @@ mock.module(
   "./chat-route-content",
   (): Partial<typeof Chat> => ({
     ChatMainPanel: ({ documentRoute }) => {
+      useDocumentEditorSync();
       const isMobile = useIsMobile();
       const location = useLocation();
       const opened = useViewerStore.use.openedDocumentState();
@@ -202,6 +205,14 @@ let pendingWrite: Promise<void> | undefined;
 let finishWrite: () => void;
 let failWrite: (error: Error) => void;
 let linked: boolean;
+let pendingConversationRead: Promise<void> | undefined;
+const conversationLoad = mock(async () => {
+  await pendingConversationRead;
+  return {
+    data: { conversation: { id: "conv-1" } },
+    response: new Response(null, { status: linked ? 200 : 404 }),
+  };
+});
 const load = mock(async () => ({ data: { ...saved } }));
 const write = mock(
   async ({ body }: { body: { title: string; content: string } }) => {
@@ -220,6 +231,8 @@ beforeEach(() => {
   useReadiness.setState({ value: "ready" });
   saved = { ...original };
   linked = true;
+  pendingConversationRead = undefined;
+  conversationLoad.mockClear();
   load.mockClear();
   write.mockClear();
   pendingWrite = new Promise((resolve, reject) => {
@@ -243,10 +256,7 @@ beforeEach(() => {
       return load();
     }
     if (options.url.endsWith("/conversations/{id}")) {
-      return {
-        data: { conversation: { id: "conv-1" } },
-        response: new Response(null, { status: linked ? 200 : 404 }),
-      };
+      return conversationLoad();
     }
     throw new Error(`Unexpected request: ${options.url}`);
   }) as typeof daemonClient.get);
@@ -295,6 +305,51 @@ function renderLayout(mobile: boolean, urlBacked = true) {
 }
 
 describe("document viewport handoff", () => {
+  test.each([true, false])(
+    "keeps assistant updates received during conversation resolution (mobile: %s)",
+    async (mobile) => {
+      let finishConversation!: () => void;
+      pendingConversationRead = new Promise((resolve) => {
+        finishConversation = resolve;
+      });
+      const page = renderLayout(mobile);
+      await waitFor(() => expect(conversationLoad).toHaveBeenCalledTimes(1));
+      expect(load).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        saved = { ...saved, content: "Latest assistant body" };
+        publish("sse.event", {
+          id: "event-update",
+          emittedAt: new Date().toISOString(),
+          message: {
+            type: "document_editor_update",
+            surfaceId: "surface-1",
+            conversationId: "conv-1",
+            markdown: "Latest assistant body",
+            mode: "replace",
+          },
+        });
+        finishConversation();
+      });
+      const editor = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      expect((editor as HTMLTextAreaElement).value).toBe(
+        "Latest assistant body",
+      );
+      expect(load).toHaveBeenCalledTimes(2);
+      fireEvent.change(editor, {
+        target: {
+          value: `${(editor as HTMLTextAreaElement).value} plus local edit`,
+        },
+      });
+      await act(async () => finishWrite());
+      page.unmount();
+      await waitFor(() =>
+        expect(saved.content).toBe("Latest assistant body plus local edit"),
+      );
+    },
+  );
+
   test.each([false, true])(
     "reopening the same desktop document retains its unsaved editor (URL-backed: %s)",
     async (urlBacked) => {

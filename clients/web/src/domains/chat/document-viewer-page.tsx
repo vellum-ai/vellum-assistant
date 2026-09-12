@@ -24,6 +24,7 @@ import {
 import {
   documentRequestScope,
   getDocumentFeedbackPrompt,
+  loadDocumentConversation,
   resolveDocumentConversation,
   startDocumentConversation,
 } from "./document-conversation";
@@ -95,24 +96,8 @@ export function DocumentViewerPage() {
     requestRef.current = scope;
     void (async () => {
       try {
-        const data = await loadDocumentContent({
-          assistantId,
-          surfaceId,
-          isCurrent: scope.isCurrent,
-        });
-        if (!data || !scope.isCurrent()) {
-          return;
-        }
-        if (entryMode === "conversation") {
-          const linkedId = await resolveDocumentConversation({
-            assistantId,
-            document: data,
-            isCurrent: scope.isCurrent,
-          });
-          if (!scope.isCurrent()) {
-            return;
-          }
-          if (linkedId) {
+        const onReady = (data: DocumentContent, linkedId: string | null) => {
+          if (entryMode === "conversation" && linkedId) {
             navigateToDocumentConversation(
               navigate,
               data,
@@ -124,15 +109,24 @@ export function DocumentViewerPage() {
             );
             return;
           }
+          useUnseenDocumentChangesStore
+            .getState()
+            .clearDocumentEverywhere(surfaceId);
+          setState({
+            kind: "ready",
+            doc: data,
+            needsConversation: entryMode === "conversation",
+          });
+        };
+        const options = { assistantId, surfaceId, isCurrent: scope.isCurrent };
+        if (entryMode === "conversation") {
+          await loadDocumentConversation({ ...options, onReady });
+        } else {
+          const data = await loadDocumentContent(options);
+          if (data && scope.isCurrent()) {
+            onReady(data, null);
+          }
         }
-        useUnseenDocumentChangesStore
-          .getState()
-          .clearDocumentEverywhere(surfaceId);
-        setState({
-          kind: "ready",
-          doc: data,
-          needsConversation: entryMode === "conversation",
-        });
       } catch (error) {
         if (scope.isCurrent()) {
           captureError(error, { context: "document_viewer_page" });

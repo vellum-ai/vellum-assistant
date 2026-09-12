@@ -18,7 +18,7 @@ import {
 
 import {
   documentRequestScope,
-  resolveDocumentConversation,
+  loadDocumentConversation,
 } from "../document-conversation";
 import {
   clearDocumentConversationUrl,
@@ -29,7 +29,6 @@ import {
   showDocumentInConversation,
   returnFromDocument,
 } from "../document-conversation-navigation";
-import { loadDocumentContent } from "../api/document-load";
 import { useOverlayEscape } from "./use-overlay-escape";
 
 /** Owns document URL intent inside the existing conversation session. */
@@ -158,37 +157,29 @@ export function useDocumentConversationRoute() {
     setStatus({ owner, kind: "loading" });
     void (async () => {
       try {
-        const data = await loadDocumentContent({
+        await loadDocumentConversation({
           assistantId,
           surfaceId,
           isCurrent: scope.isCurrent,
+          onReady: (data, linkedId) => {
+            if (linkedId !== conversationId) {
+              void navigate(documentEntryUrl(surfaceId, returnTo), {
+                replace: true,
+                state: navigationState,
+              });
+              return;
+            }
+            showDocumentInConversation(
+              data,
+              conversationId,
+              assistantId,
+              showingDocumentRef.current ? "document" : "chat",
+            );
+            ownedTargetRef.current =
+              useViewerStore.getState().activeDocumentTarget;
+            setStatus({ owner, kind: "ready" });
+          },
         });
-        if (!data || !scope.isCurrent()) {
-          return;
-        }
-        const linkedId = await resolveDocumentConversation({
-          assistantId,
-          document: data,
-          isCurrent: scope.isCurrent,
-        });
-        if (!scope.isCurrent()) {
-          return;
-        }
-        if (linkedId !== conversationId) {
-          void navigate(documentEntryUrl(surfaceId, returnTo), {
-            replace: true,
-            state: navigationState,
-          });
-          return;
-        }
-        showDocumentInConversation(
-          data,
-          conversationId,
-          assistantId,
-          showingDocumentRef.current ? "document" : "chat",
-        );
-        ownedTargetRef.current = useViewerStore.getState().activeDocumentTarget;
-        setStatus({ owner, kind: "ready" });
       } catch (error) {
         if (scope.isCurrent()) {
           captureError(error, { context: "document_conversation_route" });

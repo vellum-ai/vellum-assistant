@@ -20,6 +20,13 @@ Fresh chat entry, the document session and standalone recovery page read through
 `loadDocumentContent`, which refetches after pending local save drains settle
 and checks request ownership before and after fetching. The retained viewer
 snapshot is not a freshness signal. Save waits are scoped by assistant and surface.
+`loadDocumentConversation` keeps loading and link resolution in one operation.
+Updates for the loading surface invalidate that operation through the existing
+SSE bus, causing a fresh save-aware read and link validation before publication.
+Its ready callback publishes synchronously before the update listener is released;
+unrelated surfaces do not trigger reads. Cancellation and errors release the
+listener without publishing stale content. The helper is shared by route entry,
+chat cards, Chat Info and mobile document recovery.
 A failed drain retains the original editor's save callback and dirty revision in
 memory. Retry or reopening reattempts that drain before fetching, so the server's
 older body cannot replace an unsaved edit. Success releases the callback; ending
