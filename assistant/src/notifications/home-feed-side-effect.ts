@@ -275,6 +275,11 @@ async function resolveOwnedConversationMessageId(
   sourceConversationId: string | undefined,
   summary: string,
 ): Promise<string | undefined> {
+  // The completed reply is already the source conversation's canonical row.
+  // This signal's body is a compact push preview, not conversation content.
+  if (signal.sourceEventName === "chat.assistant_reply") {
+    return undefined;
+  }
   if (vellumDelivery?.conversationId) {
     return vellumDelivery.conversationId === sourceConversationId
       ? vellumDelivery.messageId
