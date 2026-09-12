@@ -1,10 +1,17 @@
 /**
- * TTL-cached wrapper around readCredential(account) that provides
+ * TTL-cached wrapper around readCredentialResult(account) that provides
  * per-key caching with in-flight deduplication, force refresh,
  * and invalidation with watcher hooks.
+ *
+ * A vault outage must not look like a missing credential. When the reader
+ * reports `unreachable`, the cache keeps the last successful value so
+ * webhook verification and outbound channel calls keep working.
  */
 
-import { readCredential } from "./credential-reader.js";
+import { readCredentialResult } from "./credential-reader.js";
+import { getLogger } from "./logger.js";
+
+const log = getLogger("credential-cache");
 
 interface CacheEntry {
   value: string | undefined;
@@ -92,19 +99,43 @@ export class CredentialCache {
    */
   private fetch(key: string): Promise<string | undefined> {
     const existing = this.inflight.get(key);
-    if (existing) return existing;
+    if (existing) {
+      return existing;
+    }
 
     const gen = this.generation;
-    const promise = readCredential(key).then(
-      (value) => {
-        if (this.generation === gen) {
+    const promise = readCredentialResult(key).then(
+      (result) => {
+        if (this.generation !== gen) {
+          return result.unreachable ? undefined : result.value;
+        }
+        this.inflight.delete(key);
+
+        if (result.unreachable) {
+          const previous = this.cache.get(key);
+          if (previous && previous.value !== undefined) {
+            log.warn(
+              { account: key },
+              "credential vault unreachable; using last known value",
+            );
+            this.cache.set(key, {
+              value: previous.value,
+              expiresAt: Date.now() + this.ttlMs,
+            });
+            return previous.value;
+          }
           this.cache.set(key, {
-            value,
+            value: undefined,
             expiresAt: Date.now() + this.ttlMs,
           });
-          this.inflight.delete(key);
+          return undefined;
         }
-        return value;
+
+        this.cache.set(key, {
+          value: result.value,
+          expiresAt: Date.now() + this.ttlMs,
+        });
+        return result.value;
       },
       (err) => {
         if (this.generation === gen) {
