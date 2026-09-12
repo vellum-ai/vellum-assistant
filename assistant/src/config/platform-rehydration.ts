@@ -11,8 +11,7 @@
  *
  * Bound platform ids come from `POST /v1/internal/assistants/validate/`,
  * which trades the assistant API key for assistant/organization/user ids.
- * Vault leftovers for those three fields are a last-resort fallback so a
- * validate outage does not drop identity on existing installs.
+ * If validate omits an id, that field is read from the credential store.
  *
  * Each field is best-effort: a credential-store read failure is logged and
  * skipped so a single missing value never blocks startup.

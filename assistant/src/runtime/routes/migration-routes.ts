@@ -237,9 +237,9 @@ interface ExportManifestInputs {
  * Resolve the `assistant.id` for an export.
  *
  * In-memory identity (validate rehydration or secret-routes) first, then
- * a vault leftover until hatch stops writing `platform_assistant_id`.
- * The schema requires `id` to be non-empty, so we fall back to
- * `DAEMON_INTERNAL_ASSISTANT_ID` rather than the empty string.
+ * the vault copy of `platform_assistant_id`. The schema requires `id` to be
+ * non-empty, so we fall back to `DAEMON_INTERNAL_ASSISTANT_ID` rather than
+ * the empty string.
  */
 async function resolveAssistantId(): Promise<string> {
   const resolved = await resolvePlatformAssistantId();

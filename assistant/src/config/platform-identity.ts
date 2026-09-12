@@ -3,8 +3,8 @@
  *
  * Django maps an assistant API key to these ids via
  * `POST /v1/internal/assistants/validate/`. Process startup rehydrates from
- * that endpoint. Vault leftovers (`vellum:platform_*`) are a last-resort
- * fallback until hatch stops writing them.
+ * that endpoint. Resolution prefers the in-memory ids, then the vault
+ * copies of `vellum:platform_*`.
  */
 
 import { credentialKey } from "../security/credential-key.js";
