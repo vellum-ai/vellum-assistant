@@ -608,22 +608,17 @@ describe("HostBrowserProxy", () => {
         },
       ];
 
-      const resultPromise = proxy.request(
+      const result = await proxy.request(
         { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
         "session-1",
         undefined,
         "user-1",
       );
 
-      // Auto-resolution filters out the cross-user candidate, so the
-      // proxy falls into the existing "no active extension connection"
-      // rejection — we never broadcast to a different actor's client.
-      await expect(resultPromise).rejects.toThrow(
-        "no active extension connection",
-      );
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content).toContain("belongs to this user");
       expect(getPublishedMessages()).toHaveLength(0);
     });
-
     test("prefers the chrome-extension client over a more-recently-active macOS bridge", async () => {
       // Mock `listClientsByCapability` returns mockClients in array
       // order, which mirrors production's `lastActiveAt`-desc ordering.
@@ -720,11 +715,6 @@ describe("HostBrowserProxy", () => {
     });
 
     test("rejects when caller has actor but no host_browser-capable client is connected for that actor", async () => {
-      // Same-user filter returns empty even though listClientsByCapability
-      // would return a non-empty list (because that list is for a
-      // different actor). The unfiltered fallback path runs only when
-      // the caller has no actor — we don't silently broadcast to anyone
-      // when the caller IS authenticated to a specific actor.
       mockClients = [
         {
           clientId: "other-user-ext",
@@ -734,16 +724,15 @@ describe("HostBrowserProxy", () => {
         },
       ];
 
-      const resultPromise = proxy.request(
+      const result = await proxy.request(
         { cdpMethod: "Page.navigate", cdpParams: { url: "https://a.test" } },
         "session-1",
         undefined,
         "user-1",
       );
 
-      await expect(resultPromise).rejects.toThrow(
-        "no active extension connection",
-      );
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content).toContain("belongs to this user");
       expect(getPublishedMessages()).toHaveLength(0);
     });
   });

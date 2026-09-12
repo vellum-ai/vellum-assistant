@@ -26,7 +26,7 @@ afterAll(() => {
 });
 
 describe("always-loaded tool count", () => {
-  test("should be exactly 14 with recall occupying the existing slot", async () => {
+  test("should be exactly 19 with recall occupying the existing slot", async () => {
     await initializeTools();
     const allDefs = getAllToolDefinitions();
 
@@ -44,20 +44,24 @@ describe("always-loaded tool count", () => {
     );
     const activeNames = activeTools.map((t) => t.name).sort();
 
-    // Host tools (host_bash, host_file_*) are excluded when no client is
-    // connected — without a human in the loop, the guardian auto-approve
-    // path would allow unchecked host command execution.
-    //
     // `watch_retro_report` survives this baseline for the same reason the
     // ui_* tools do: a watch retrospective runs clientless, so it can only
     // report through a tool that survives this baseline. The ui_* tools are
     // here because background UI surfaces persist and return instead of
     // awaiting action, so they no longer need a connected client.
+    // Host tool definitions stay on the wire for background turns: schemas
+    // are cache-stable, and the shared execution gate rejects host tools on
+    // explicitly non-interactive turns before any proxy dispatch.
     const expectedNames = [
       "bash",
       "file_edit",
       "file_read",
       "file_write",
+      "host_bash",
+      "host_file_edit",
+      "host_file_read",
+      "host_file_transfer",
+      "host_file_write",
       "recall",
       "remember",
       "skill_execute",
@@ -72,6 +76,6 @@ describe("always-loaded tool count", () => {
 
     expect(activeNames).toEqual(expectedNames);
     expect(activeNames.filter((name) => name === "recall")).toHaveLength(1);
-    expect(activeTools.length).toBe(14);
+    expect(activeTools.length).toBe(19);
   });
 });
