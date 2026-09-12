@@ -1,4 +1,4 @@
-import { readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -14,14 +14,6 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string, maxLen = 500) => value.slice(0, maxLen),
 }));
 
-// The config routes under test read and write the workspace config.json via
-// the real loader (`loadRawConfig`/`saveRawConfig`). Tests seed the raw file
-// directly (the fixtures are raw-file shapes, including deliberately
-// malformed trees, so the whole file is replaced rather than composed via
-// `setConfig`) and detect commits by comparing the on-disk text against the
-// seeded snapshot — `saveRawConfig` pretty-prints, so any commit changes the
-// text.
-let rawConfig: Record<string, unknown> = {};
 let seededRawText = "";
 let mtimeSeq = 0;
 
@@ -29,19 +21,23 @@ function configJsonPath(): string {
   return join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
 }
 
-/** Write `raw` to the workspace config.json as the seeded pre-test state. */
+function mcpJsonPath(): string {
+  return join(process.env.VELLUM_WORKSPACE_DIR!, "mcp.json");
+}
+
 function seedRawConfig(raw: Record<string, unknown>): void {
-  rawConfig = raw;
   seededRawText = JSON.stringify(raw);
+  mkdirSync(process.env.VELLUM_WORKSPACE_DIR!, { recursive: true });
   writeFileSync(configJsonPath(), seededRawText);
-  // Distinct mtime per write so the loader's file-signature cache can never
-  // read two consecutive seeds as identical.
   mtimeSeq += 1;
   const stamp = new Date(Date.now() + mtimeSeq);
   utimesSync(configJsonPath(), stamp, stamp);
 }
 
-/** The raw config a route commit persisted, or null when nothing was saved. */
+function seedWorkspaceMcp(document: unknown): void {
+  writeFileSync(mcpJsonPath(), JSON.stringify(document, null, 2) + "\n");
+}
+
 function committedRaw(): Record<string, unknown> | null {
   const text = readFileSync(configJsonPath(), "utf8");
   if (text === seededRawText) {
@@ -119,11 +115,6 @@ const configGetRoute = findRoute("config_get");
 const configPatchRoute = findRoute("config_patch");
 const configSetRoute = findRoute("config_set");
 
-/**
- * Config responses inject the code-catalog default profiles into
- * `llm.profiles` (the effective wire view). These tests pin the MCP secret
- * boundary, so drop the injected block before whole-response comparisons.
- */
 function withoutWireProfiles(
   result: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -134,21 +125,18 @@ function withoutWireProfiles(
 describe("MCP config secret boundary", () => {
   beforeEach(() => {
     seedRawConfig({});
+    rmSync(mcpJsonPath(), { force: true });
   });
 
-  test("config_get omits legacy MCP transport headers from settings-read responses", () => {
-    seedRawConfig({
-      mcp: {
-        servers: {
-          remote: {
-            transport: {
-              type: "streamable-http",
-              url: "https://mcp.example.com",
-              headers: {
-                Authorization: "Bearer mcp-secret",
-                "X-API-Key": "mcp-api-secret",
-              },
-            },
+  test("config_get omits MCP headers from the mcp.json overlay", () => {
+    seedWorkspaceMcp({
+      mcpServers: {
+        remote: {
+          type: "streamable-http",
+          url: "https://mcp.example.com",
+          headers: {
+            Authorization: "Bearer mcp-secret",
+            "X-API-Key": "mcp-api-secret",
           },
         },
       },
@@ -167,41 +155,15 @@ describe("MCP config secret boundary", () => {
     });
   });
 
-  test("config_get omits headers inside malformed MCP server trees", () => {
-    seedRawConfig({
-      mcp: {
-        servers: [
-          {
-            transport: {
-              headers: { Authorization: "Bearer malformed-secret" },
-            },
-          },
-        ],
-      },
-    });
-
-    const result = configGetRoute.handler({}) as Record<string, unknown>;
-
-    expect(JSON.stringify(result)).not.toContain("malformed-secret");
-    expect(withoutWireProfiles(result)).toEqual({
-      mcp: {
-        servers: [
-          {
-            transport: {},
-          },
-        ],
-      },
-    });
-  });
-
-  test("config_get preserves an MCP server named headers", () => {
+  test("config_get ignores leftover config.json mcp so its headers cannot leak", () => {
     seedRawConfig({
       mcp: {
         servers: {
-          headers: {
+          remote: {
             transport: {
               type: "streamable-http",
               url: "https://mcp.example.com",
+              headers: { Authorization: "Bearer leftover-secret" },
             },
           },
         },
@@ -210,21 +172,44 @@ describe("MCP config secret boundary", () => {
 
     const result = configGetRoute.handler({}) as Record<string, unknown>;
 
-    expect(withoutWireProfiles(result)).toEqual(rawConfig);
+    expect(JSON.stringify(result)).not.toContain("leftover-secret");
+    expect(
+      (result.mcp as { servers: Record<string, unknown> }).servers,
+    ).toEqual({});
+  });
+
+  test("config_get preserves an MCP server named headers", () => {
+    seedWorkspaceMcp({
+      mcpServers: {
+        headers: {
+          type: "streamable-http",
+          url: "https://mcp.example.com",
+        },
+      },
+    });
+
+    const result = configGetRoute.handler({}) as Record<string, unknown>;
+
+    expect(withoutWireProfiles(result).mcp).toEqual({
+      servers: {
+        headers: {
+          transport: {
+            type: "streamable-http",
+            url: "https://mcp.example.com",
+          },
+        },
+      },
+    });
   });
 
   test("config_get preserves non-credential headers env vars", () => {
-    seedRawConfig({
-      mcp: {
-        servers: {
-          local: {
-            transport: {
-              type: "stdio",
-              command: "npx",
-              env: {
-                headers: "not-a-transport-header",
-              },
-            },
+    seedWorkspaceMcp({
+      mcpServers: {
+        local: {
+          type: "stdio",
+          command: "npx",
+          env: {
+            headers: "not-a-transport-header",
           },
         },
       },
@@ -232,7 +217,20 @@ describe("MCP config secret boundary", () => {
 
     const result = configGetRoute.handler({}) as Record<string, unknown>;
 
-    expect(withoutWireProfiles(result)).toEqual(rawConfig);
+    expect(withoutWireProfiles(result).mcp).toEqual({
+      servers: {
+        local: {
+          transport: {
+            type: "stdio",
+            command: "npx",
+            args: [],
+            env: {
+              headers: "not-a-transport-header",
+            },
+          },
+        },
+      },
+    });
   });
 
   test("config_patch rejects MCP transport headers so generic writes cannot reintroduce plaintext credentials", async () => {
@@ -256,7 +254,7 @@ describe("MCP config secret boundary", () => {
     expect(committedRaw()).toBeNull();
   });
 
-  test("config_patch allows an MCP server named headers when its value has no header credentials", async () => {
+  test("config_patch strips mcp so a full-config round trip cannot write it back", async () => {
     const result = await configPatchRoute.handler({
       body: {
         mcp: {
@@ -272,68 +270,25 @@ describe("MCP config secret boundary", () => {
       },
     });
 
-    expect(withoutWireProfiles(result as Record<string, unknown>)).toEqual({
-      mcp: {
-        servers: {
-          headers: {
-            transport: {
-              type: "streamable-http",
-              url: "https://mcp.example.com",
-            },
-          },
-        },
-      },
-    });
+    expect(committedRaw()?.mcp).toBeUndefined();
+    expect(
+      (result as { mcp: { servers: Record<string, unknown> } }).mcp.servers,
+    ).toEqual({});
   });
 
-  test("config_patch allows non-credential headers env vars", async () => {
-    const result = await configPatchRoute.handler({
-      body: {
-        mcp: {
-          servers: {
-            local: {
-              transport: {
-                type: "stdio",
-                command: "npx",
-                env: {
-                  headers: "not-a-transport-header",
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    expect(withoutWireProfiles(result as Record<string, unknown>)).toEqual({
-      mcp: {
-        servers: {
-          local: {
-            transport: {
-              type: "stdio",
-              command: "npx",
-              env: {
-                headers: "not-a-transport-header",
-              },
-            },
-          },
-        },
-      },
-    });
-  });
-
-  test("config_set rejects malformed MCP server trees containing headers", async () => {
+  test("config_set rejects MCP server writes", async () => {
     await expect(
       configSetRoute.handler({
         body: {
           path: "mcp.servers",
-          value: [
-            {
+          value: {
+            remote: {
               transport: {
-                headers: { Authorization: "Bearer malformed-secret" },
+                type: "streamable-http",
+                url: "https://mcp.example.com",
               },
             },
-          ],
+          },
         },
       }),
     ).rejects.toThrow(BadRequestError);
@@ -341,19 +296,6 @@ describe("MCP config secret boundary", () => {
   });
 
   test("config_set rejects direct MCP transport header paths", async () => {
-    seedRawConfig({
-      mcp: {
-        servers: {
-          remote: {
-            transport: {
-              type: "streamable-http",
-              url: "https://mcp.example.com",
-            },
-          },
-        },
-      },
-    });
-
     await expect(
       configSetRoute.handler({
         body: {

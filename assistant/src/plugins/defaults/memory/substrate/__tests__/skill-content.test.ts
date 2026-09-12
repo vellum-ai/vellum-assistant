@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
+import { setWorkspaceMcp } from "../../../../../__tests__/helpers/set-workspace-mcp.js";
 import type { SkillCapabilityInput } from "../skill-content.js";
 
 describe("buildSkillContent", () => {
@@ -90,14 +90,12 @@ describe("augmentMcpSetupDescription", () => {
   });
 
   test("appends 'Configured: <names>' for mcp-setup with configured servers", async () => {
-    setConfig("mcp", {
-      servers: {
-        "example-server": {
-          transport: { type: "stdio", command: "example-cmd" },
-        },
-        "another-server": {
-          transport: { type: "stdio", command: "another-cmd" },
-        },
+    setWorkspaceMcp({
+      "example-server": {
+        transport: { type: "stdio", command: "example-cmd", args: [] },
+      },
+      "another-server": {
+        transport: { type: "stdio", command: "another-cmd", args: [] },
       },
     });
     const { augmentMcpSetupDescription } = await import("../skill-content.js");

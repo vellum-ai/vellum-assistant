@@ -24,15 +24,12 @@ mock.module("../mcp/mcp-auth-state.js", () => ({
   getMcpAuthState: mockGetMcpAuthState,
 }));
 
-import { setConfig } from "./helpers/set-config.js";
+import { setWorkspaceMcp } from "./helpers/set-workspace-mcp.js";
 
-// Seed the MCP server the routes look up via `loadRawConfig()` into the
-// workspace config for real.
-setConfig("mcp", {
-  servers: {
-    "my-server": {
-      transport: { type: "sse", url: "https://mcp.example.com" },
-    },
+// Seed the MCP server the routes look up via workspace mcp.json.
+setWorkspaceMcp({
+  "my-server": {
+    transport: { type: "sse", url: "https://mcp.example.com" },
   },
 });
 

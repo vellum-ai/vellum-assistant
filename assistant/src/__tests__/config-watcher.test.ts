@@ -113,8 +113,11 @@ mock.module("../providers/registry.js", () => ({
   resolveProviderFromConnection: async () => null,
 }));
 
+let mcpReloadCallCount = 0;
 mock.module("../daemon/mcp-reload-service.js", () => ({
-  reloadMcpServers: async () => {},
+  reloadMcpServers: async () => {
+    mcpReloadCallCount += 1;
+  },
 }));
 
 mock.module("../signals/conversation-undo.js", () => ({
@@ -179,6 +182,7 @@ function findFileWatch(filePath: string): CapturedFileWatch | undefined {
 
 const WORKSPACE_FILES = new Set([
   "config.json",
+  "mcp.json",
   "SOUL.md",
   "IDENTITY.md",
   "ui/theme.json",
@@ -235,6 +239,7 @@ beforeEach(() => {
   evictCallCount = 0;
   identityCallCount = 0;
   themeCallCount = 0;
+  mcpReloadCallCount = 0;
   watcher = new ConfigWatcher(undefined, TEST_DEBOUNCE_MS);
 });
 
@@ -266,9 +271,9 @@ describe("ConfigWatcher workspace file handlers", () => {
 
   test("unregistered workspace files are not subscribed (only the registered handler set is)", () => {
     watcher.start();
-    // Per-file watching only registers config.json, SOUL.md, IDENTITY.md,
-    // and ui/theme.json. The whole workspace dir must not be watched
-    // either — that was the ENXIO-on-Unix-sockets bug.
+    // Per-file watching only registers config.json, mcp.json, SOUL.md,
+    // IDENTITY.md, and ui/theme.json. The whole workspace dir must not
+    // be watched either: that was the ENXIO-on-Unix-sockets bug.
     expect(findFileWatch(join(WORKSPACE_DIR, "OTHER.md"))).toBeUndefined();
     expect(findWatcher(WORKSPACE_DIR)).toBeUndefined();
   });
@@ -278,6 +283,14 @@ describe("ConfigWatcher workspace file handlers", () => {
     simulateFileChange(WORKSPACE_DIR, "ui/theme.json");
     await new Promise((r) => setTimeout(r, WAIT_MS));
     expect(themeCallCount).toBe(1);
+    expect(evictCallCount).toBe(0);
+  });
+
+  test("mcp.json change reloads MCP servers without evicting conversations", async () => {
+    watcher.start();
+    simulateFileChange(WORKSPACE_DIR, "mcp.json");
+    await new Promise((r) => setTimeout(r, WAIT_MS));
+    expect(mcpReloadCallCount).toBe(1);
     expect(evictCallCount).toBe(0);
   });
 

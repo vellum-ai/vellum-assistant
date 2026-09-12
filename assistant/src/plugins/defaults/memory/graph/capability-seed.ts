@@ -16,6 +16,7 @@ import {
   loadSkillCatalog,
   type SkillSummary,
 } from "../../../../config/skills.js";
+import { loadWorkspaceMcpConfig } from "../../../../mcp/workspace-mcp-config.js";
 import {
   enqueueMemoryJob,
   upsertEmbedGraphNodeJob,
@@ -131,12 +132,9 @@ export function seedSkillGraphNodes(): void {
       const input = fromSkillSummary(summary);
 
       if (summary.id === "mcp-setup") {
-        const servers = config.mcp?.servers;
-        if (servers) {
-          const names = Object.keys(servers);
-          if (names.length > 0) {
-            input.description += ` Configured: ${names.join(", ")}`;
-          }
+        const names = Object.keys(loadWorkspaceMcpConfig().servers);
+        if (names.length > 0) {
+          input.description += ` Configured: ${names.join(", ")}`;
         }
       }
 

@@ -20,7 +20,7 @@ interface McpServerEntry {
     command?: string;
     args?: string[];
   };
-  /** Workspace `config.json` or a plugin's `mcp.json`. */
+  /** Workspace `mcp.json` or a plugin's `mcp.json`. */
   source?: "workspace" | "plugin";
   /** Plugin that declared the server, when `source` is `plugin`. */
   pluginName?: string;

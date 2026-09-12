@@ -323,7 +323,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-12T13:17:35.000Z"
+      "updatedAt": "2026-09-12T13:56:38.000Z"
     },
     {
       "id": "gmail-trigger",
@@ -579,7 +579,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-09-09T20:26:37.000Z"
+      "updatedAt": "2026-09-10T13:30:30.000Z"
     },
     {
       "id": "meme-generator",
@@ -765,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-11T18:15:10.000Z"
+      "updatedAt": "2026-09-11T21:15:40.000Z"
     },
     {
       "id": "public-ingress",
