@@ -754,88 +754,85 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   //
   // Expected behavior (PR 2 fix): After progress + context_too_large,
   // the system should still attempt compaction before surfacing error.
-  test.todo(
-    "context too large after progress triggers compaction retry instead of immediate failure",
-    async () => {
-      const events: AssistantEvent[] = [];
-      let reducerCalled = false;
+  test("context too large after progress triggers compaction retry instead of immediate failure", async () => {
+    const events: AssistantEvent[] = [];
+    let reducerCalled = false;
 
-      mockReducerStepFn = (msgs: Message[]) => {
-        reducerCalled = true;
-        return {
+    mockReducerStepFn = (msgs: Message[]) => {
+      reducerCalled = true;
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 50_000,
+        compactionResult: {
+          compacted: true,
           messages: msgs,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 50_000,
-          compactionResult: {
-            compacted: true,
-            messages: msgs,
-            compactedPersistedMessages: 5,
-            summaryText: "Summary",
-            previousEstimatedInputTokens: 190_000,
-            estimatedInputTokens: 50_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 10,
-            summaryCalls: 1,
-            summaryInputTokens: 500,
-            summaryOutputTokens: 200,
-            summaryModel: "mock-model",
-          },
-        };
+          compactedPersistedMessages: 5,
+          summaryText: "Summary",
+          previousEstimatedInputTokens: 190_000,
+          estimatedInputTokens: 50_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 10,
+          summaryCalls: 1,
+          summaryInputTokens: 500,
+          summaryOutputTokens: 200,
+          summaryModel: "mock-model",
+        },
       };
+    };
 
-      // Run 1 makes progress (a tool turn) then the following provider call
-      // rejects with a context_too_large error; after the convergence reducer
-      // compacts, the rerun recovers with plain text.
-      const { provider } = createMockProvider([
-        toolUseResponse("tu-progress", "bash", { command: "ls" }),
-        new Error("prompt is too long: 242201 tokens > 200000 maximum"),
-        textResponse("recovered after compaction"),
-      ]);
+    // Run 1 makes progress (a tool turn) then the following provider call
+    // rejects with a context_too_large error; after the convergence reducer
+    // compacts, the rerun recovers with plain text.
+    const { provider } = createMockProvider([
+      toolUseResponse("tu-progress", "bash", { command: "ls" }),
+      new Error("prompt is too long: 242201 tokens > 200000 maximum"),
+      textResponse("recovered after compaction"),
+    ]);
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        loopTools: [
-          {
-            name: "bash",
-            description: "Run a shell command",
-            input_schema: {
-              type: "object",
-              properties: { command: { type: "string" } },
-            },
+    const ctx = makeCtx({
+      loopProvider: provider,
+      loopTools: [
+        {
+          name: "bash",
+          description: "Run a shell command",
+          input_schema: {
+            type: "object",
+            properties: { command: { type: "string" } },
           },
-        ],
-        toolExecutor: async () => ({
-          content: "file1.ts\nfile2.ts",
-          isError: false,
-        }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+        },
+      ],
+      toolExecutor: async () => ({
+        content: "file1.ts\nfile2.ts",
+        isError: false,
+      }),
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => ({ compacted: false }),
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // BUG: Currently the reducer is NOT called when progress was made before
-      // context_too_large. The error is surfaced immediately.
-      // After PR 2 fix, the reducer SHOULD be called to attempt compaction.
-      expect(reducerCalled).toBe(true);
+    // BUG: Currently the reducer is NOT called when progress was made before
+    // context_too_large. The error is surfaced immediately.
+    // After PR 2 fix, the reducer SHOULD be called to attempt compaction.
+    expect(reducerCalled).toBe(true);
 
-      // BUG: Currently a conversation_error IS emitted instead of retrying.
-      // After PR 2 fix, there should be no conversation_error.
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-    },
-  );
+    // BUG: Currently a conversation_error IS emitted instead of retrying.
+    // After PR 2 fix, there should be no conversation_error.
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+  });
 
   // ── Test 2 ────────────────────────────────────────────────────────
   // When estimation says we're within budget but the provider rejects, the
@@ -920,88 +917,85 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   // of 242k (1.31x the estimate of 185k), the target is adjusted downward
   // based on the observed mismatch (190k / 1.31 ≈ 145k) so the reducer
   // converges toward the real ceiling rather than the optimistic estimate.
-  test.todo(
-    "forced compaction targets a lower budget when estimation has been inaccurate",
-    async () => {
-      const events: AssistantEvent[] = [];
-      let capturedTargetTokens: number | undefined;
+  test("forced compaction targets a lower budget when estimation has been inaccurate", async () => {
+    const events: AssistantEvent[] = [];
+    let capturedTargetTokens: number | undefined;
 
-      // Estimator says 185k (below 190k budget = 200k * 0.95)
-      mockEstimateTokens = 185_000;
+    // Estimator says 185k (below 190k budget = 200k * 0.95)
+    mockEstimateTokens = 185_000;
 
-      // Reducer captures the targetTokens from the config
-      mockReducerStepFn = (msgs: Message[], cfg: unknown) => {
-        capturedTargetTokens = (cfg as { targetTokens: number }).targetTokens;
-        return {
+    // Reducer captures the targetTokens from the config
+    mockReducerStepFn = (msgs: Message[], cfg: unknown) => {
+      capturedTargetTokens = (cfg as { targetTokens: number }).targetTokens;
+      return {
+        messages: msgs,
+        tier: "forced_compaction",
+        state: {
+          appliedTiers: ["forced_compaction"],
+          injectionMode: "full",
+          exhausted: false,
+        },
+        estimatedTokens: 100_000,
+        compactionResult: {
+          compacted: true,
           messages: msgs,
-          tier: "forced_compaction",
-          state: {
-            appliedTiers: ["forced_compaction"],
-            injectionMode: "full",
-            exhausted: false,
-          },
-          estimatedTokens: 100_000,
-          compactionResult: {
-            compacted: true,
-            messages: msgs,
-            compactedPersistedMessages: 10,
-            summaryText: "Summary",
-            previousEstimatedInputTokens: 185_000,
-            estimatedInputTokens: 100_000,
-            maxInputTokens: 200_000,
-            thresholdTokens: 160_000,
-            compactedMessages: 20,
-            summaryCalls: 1,
-            summaryInputTokens: 800,
-            summaryOutputTokens: 300,
-            summaryModel: "mock-model",
-          },
-        };
+          compactedPersistedMessages: 10,
+          summaryText: "Summary",
+          previousEstimatedInputTokens: 185_000,
+          estimatedInputTokens: 100_000,
+          maxInputTokens: 200_000,
+          thresholdTokens: 160_000,
+          compactedMessages: 20,
+          summaryCalls: 1,
+          summaryInputTokens: 800,
+          summaryOutputTokens: 300,
+          summaryModel: "mock-model",
+        },
       };
+    };
 
-      // The provider rejects the first call with a context_too_large error
-      // (actual tokens 242201, far above the 185k estimate); after forced
-      // compaction re-targets a lower budget, the rerun recovers with text.
-      const { provider, calls } = createMockProvider([
-        new Error("prompt is too long: 242201 tokens > 200000 maximum"),
-        textResponse("recovered"),
-      ]);
+    // The provider rejects the first call with a context_too_large error
+    // (actual tokens 242201, far above the 185k estimate); after forced
+    // compaction re-targets a lower budget, the rerun recovers with text.
+    const { provider, calls } = createMockProvider([
+      new Error("prompt is too long: 242201 tokens > 200000 maximum"),
+      textResponse("recovered"),
+    ]);
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+    const ctx = makeCtx({
+      loopProvider: provider,
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => ({ compacted: false }),
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // The reducer should have been called with a corrected target
-      expect(capturedTargetTokens).toBeDefined();
+    // The reducer should have been called with a corrected target
+    expect(capturedTargetTokens).toBeDefined();
 
-      // preflightBudget = 200_000 * 0.95 = 190_000
-      // estimationErrorRatio = 242201 / 185000 ≈ 1.309
-      // correctedTarget = floor(190000 / 1.309) ≈ 145_130
-      // The corrected target must be LESS than the uncorrected preflightBudget
-      const preflightBudget = 190_000;
-      expect(capturedTargetTokens!).toBeLessThan(preflightBudget);
+    // preflightBudget = 200_000 * 0.95 = 190_000
+    // estimationErrorRatio = 242201 / 185000 ≈ 1.309
+    // correctedTarget = floor(190000 / 1.309) ≈ 145_130
+    // The corrected target must be LESS than the uncorrected preflightBudget
+    const preflightBudget = 190_000;
+    expect(capturedTargetTokens!).toBeLessThan(preflightBudget);
 
-      // Verify the approximate corrected value (190000 / (242201/185000))
-      const expectedCorrectedTarget = Math.floor(
-        preflightBudget / (242201 / 185_000),
-      );
-      expect(capturedTargetTokens!).toBe(expectedCorrectedTarget);
+    // Verify the approximate corrected value (190000 / (242201/185000))
+    const expectedCorrectedTarget = Math.floor(
+      preflightBudget / (242201 / 185_000),
+    );
+    expect(capturedTargetTokens!).toBe(expectedCorrectedTarget);
 
-      // Should recover without conversation_error
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-      expect(calls.length).toBe(2);
-    },
-  );
+    // Should recover without conversation_error
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+    expect(calls.length).toBe(2);
+  });
 
   // ── Test 4 ────────────────────────────────────────────────────────
   // A realistic 75+ message conversation with many tool calls where
@@ -1090,106 +1084,103 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   // Expected behavior (PR 2 fix): Even after all tiers are exhausted,
   // if progress was made, attempt emergency compaction with
   // `minKeepRecentUserTurns: 0` as a last resort.
-  test.todo(
-    "exhausted reducer tiers with progress still attempts emergency compaction",
-    async () => {
-      const events: AssistantEvent[] = [];
-      let emergencyCompactCalled = false;
+  test("exhausted reducer tiers with progress still attempts emergency compaction", async () => {
+    const events: AssistantEvent[] = [];
+    let emergencyCompactCalled = false;
 
-      // Start with reducer already exhausted
-      mockReducerStepFn = (msgs: Message[]) => {
-        return {
-          messages: msgs,
-          tier: "injection_downgrade",
-          state: {
-            appliedTiers: [
-              "forced_compaction",
-              "tool_result_truncation",
-              "media_stubbing",
-              "injection_downgrade",
-            ],
-            injectionMode: "minimal",
-            exhausted: true,
-          },
-          estimatedTokens: 195_000,
-        };
+    // Start with reducer already exhausted
+    mockReducerStepFn = (msgs: Message[]) => {
+      return {
+        messages: msgs,
+        tier: "injection_downgrade",
+        state: {
+          appliedTiers: [
+            "forced_compaction",
+            "tool_result_truncation",
+            "media_stubbing",
+            "injection_downgrade",
+          ],
+          injectionMode: "minimal",
+          exhausted: true,
+        },
+        estimatedTokens: 195_000,
       };
+    };
 
-      // Run 1 makes progress (a tool turn) then the following provider call
-      // rejects with context_too_large; after emergency compaction the rerun
-      // recovers with plain text.
-      const { provider } = createMockProvider([
-        toolUseResponse("tu-1", "bash", { command: "find . -name '*.ts'" }),
-        new Error("context_length_exceeded"),
-        textResponse("recovered"),
-      ]);
+    // Run 1 makes progress (a tool turn) then the following provider call
+    // rejects with context_too_large; after emergency compaction the rerun
+    // recovers with plain text.
+    const { provider } = createMockProvider([
+      toolUseResponse("tu-1", "bash", { command: "find . -name '*.ts'" }),
+      new Error("context_length_exceeded"),
+      textResponse("recovered"),
+    ]);
 
-      const ctx = makeCtx({
-        loopProvider: provider,
-        loopTools: [
-          {
-            name: "bash",
-            description: "Run a shell command",
-            input_schema: {
-              type: "object",
-              properties: { command: { type: "string" } },
-            },
+    const ctx = makeCtx({
+      loopProvider: provider,
+      loopTools: [
+        {
+          name: "bash",
+          description: "Run a shell command",
+          input_schema: {
+            type: "object",
+            properties: { command: { type: "string" } },
           },
-        ],
-        toolExecutor: async () => ({
-          content: "file1.ts\nfile2.ts\nfile3.ts",
-          isError: false,
-        }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async (
-            _msgs: Message[],
-            _signal: AbortSignal,
-            opts?: Record<string, unknown>,
-          ) => {
-            if (opts?.force && opts?.minKeepRecentUserTurns === 0) {
-              emergencyCompactCalled = true;
-              return {
-                compacted: true,
-                messages: [
-                  {
-                    role: "user",
-                    content: [{ type: "text", text: "Hello" }],
-                  },
-                ] as Message[],
-                compactedPersistedMessages: 50,
-                summaryText: "Emergency summary",
-                previousEstimatedInputTokens: 195_000,
-                estimatedInputTokens: 50_000,
-                maxInputTokens: 200_000,
-                thresholdTokens: 160_000,
-                compactedMessages: 50,
-                summaryCalls: 1,
-                summaryInputTokens: 1000,
-                summaryOutputTokens: 300,
-                summaryModel: "mock-model",
-              };
-            }
-            return { compacted: false };
-          },
-        } as unknown as Conversation["contextWindowManager"],
-      });
+        },
+      ],
+      toolExecutor: async () => ({
+        content: "file1.ts\nfile2.ts\nfile3.ts",
+        isError: false,
+      }),
+      contextWindowManager: {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (
+          _msgs: Message[],
+          _signal: AbortSignal,
+          opts?: Record<string, unknown>,
+        ) => {
+          if (opts?.force && opts?.minKeepRecentUserTurns === 0) {
+            emergencyCompactCalled = true;
+            return {
+              compacted: true,
+              messages: [
+                {
+                  role: "user",
+                  content: [{ type: "text", text: "Hello" }],
+                },
+              ] as Message[],
+              compactedPersistedMessages: 50,
+              summaryText: "Emergency summary",
+              previousEstimatedInputTokens: 195_000,
+              estimatedInputTokens: 50_000,
+              maxInputTokens: 200_000,
+              thresholdTokens: 160_000,
+              compactedMessages: 50,
+              summaryCalls: 1,
+              summaryInputTokens: 1000,
+              summaryOutputTokens: 300,
+              summaryModel: "mock-model",
+            };
+          }
+          return { compacted: false };
+        },
+      } as unknown as Conversation["contextWindowManager"],
+    });
 
-      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-      // BUG: Currently when progress was made + all tiers exhausted,
-      // emergency compaction is NOT attempted. The error is surfaced directly.
-      // After PR 2 fix, emergency compaction should be attempted.
-      expect(emergencyCompactCalled).toBe(true);
+    // BUG: Currently when progress was made + all tiers exhausted,
+    // emergency compaction is NOT attempted. The error is surfaced directly.
+    // After PR 2 fix, emergency compaction should be attempted.
+    expect(emergencyCompactCalled).toBe(true);
 
-      // BUG: Currently a conversation_error IS emitted.
-      const conversationError = events.find(
-        (e) => e.type === "conversation_error",
-      );
-      expect(conversationError).toBeUndefined();
-    },
-  );
+    // BUG: Currently a conversation_error IS emitted.
+    const conversationError = events.find(
+      (e) => e.type === "conversation_error",
+    );
+    expect(conversationError).toBeUndefined();
+  });
 
   // ── Test 6 ────────────────────────────────────────────────────────
   // Tests mid-loop budget check via onCheckpoint.
