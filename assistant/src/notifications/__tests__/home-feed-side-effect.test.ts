@@ -268,7 +268,11 @@ describe("writeHomeFeedItemForSignal", () => {
       },
     });
 
-    const item = await writeHomeFeedItemForSignal(signal, decision);
+    const item = await writeHomeFeedItemForSignal(
+      signal,
+      decision,
+      makeVellumDelivery(),
+    );
 
     expect(item).not.toBeNull();
     expect(appendCalls).toHaveLength(1);
@@ -277,7 +281,10 @@ describe("writeHomeFeedItemForSignal", () => {
       "The deployment completed successfully.",
     );
     expect(appendCalls[0]!.conversationId).toBe("conv-source-1");
-    expect(conversationLookups).toEqual(["conv-source-1"]);
+    expect(appendCalls[0]!.metadata?.notificationConversationMessageId).toBeUndefined();
+    expect(messageAppends).toEqual([]);
+    expect(messagesInvalidated).toEqual([]);
+    expect(conversationLookups).toEqual(["conv-source-1", "conv-source-1"]);
   });
 
   test("isAsyncBackground hint writes even when sourceContextId does not resolve", async () => {
