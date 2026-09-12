@@ -127,6 +127,7 @@ let linked: boolean;
 let documentConversationId: string;
 let queryClient: QueryClient;
 let documentLoads: number;
+let pendingSessionRead: Promise<void> | null;
 
 beforeEach(() => {
   viewport.set({ narrow: true, coarsePointer: true });
@@ -145,6 +146,7 @@ beforeEach(() => {
   linked = true;
   documentConversationId = "conv-linked";
   documentLoads = 0;
+  pendingSessionRead = null;
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -154,6 +156,9 @@ beforeEach(() => {
   }) => {
     if (options.url.endsWith("/documents/{id}")) {
       documentLoads++;
+      if (documentLoads === 2 && pendingSessionRead) {
+        await pendingSessionRead;
+      }
       return {
         data: {
           success: true,
@@ -259,11 +264,18 @@ describe("document navigation history", () => {
   ])(
     "closing a click-opened document pops its entry from %s",
     async (origin) => {
+      let finishSessionRead!: () => void;
+      pendingSessionRead = new Promise<void>((resolve) => {
+        finishSessionRead = resolve;
+      });
       const router = renderHistory(["/assistant", origin]);
       fireEvent.click(screen.getByRole("button", { name: "Open document" }));
-      await waitFor(() =>
-        expect(useViewerStore.getState().openedDocumentState).not.toBeNull(),
+      await waitFor(() => expect(documentLoads).toBe(2));
+      expect(Boolean(screen.queryByRole("button", { name: "Feedback" }))).toBe(
+        false,
       );
+      await act(async () => finishSessionRead());
+      await screen.findByRole("button", { name: "Feedback" });
       const loads = documentLoads;
       const state = router.state.location.state;
       expect(hasDocumentReturnEntry(state, "surface-1", origin)).toBe(true);

@@ -72,11 +72,15 @@ async function existingConversation(
 async function linkDocumentConversation(
   { assistantId, document, isCurrent }: DocumentConversationOptions,
   conversationId: string,
+  linkedConversationIds?: Set<string>,
 ) {
   if (!isCurrent()) {
     return null;
   }
-  if (conversationId !== document.conversationId) {
+  if (
+    conversationId !== document.conversationId &&
+    !linkedConversationIds?.has(conversationId)
+  ) {
     const supportsLink =
       await resolveSupportsDocumentConversationLink(assistantId);
     if (!isCurrent()) {
@@ -88,6 +92,7 @@ async function linkDocumentConversation(
         body: { conversationId },
         throwOnError: true,
       });
+      linkedConversationIds?.add(conversationId);
     }
   }
   return isCurrent() ? conversationId : null;
@@ -96,6 +101,13 @@ async function linkDocumentConversation(
 /** Resolves an existing conversation only. Opening a document never creates one. */
 export async function resolveDocumentConversation(
   options: DocumentConversationOptions,
+): Promise<string | null> {
+  return resolveAndLinkDocumentConversation(options);
+}
+
+async function resolveAndLinkDocumentConversation(
+  options: DocumentConversationOptions,
+  linkedConversationIds?: Set<string>,
 ): Promise<string | null> {
   const { assistantId, document, isCurrent } = options;
   const cached = getEditChatConversationId(assistantId, document.surfaceId);
@@ -115,7 +127,11 @@ export async function resolveDocumentConversation(
       return null;
     }
     if (conversationId) {
-      return linkDocumentConversation(options, conversationId);
+      return linkDocumentConversation(
+        options,
+        conversationId,
+        linkedConversationIds,
+      );
     }
   }
   return null;
@@ -134,6 +150,8 @@ export async function loadDocumentConversation({
   onReady: (document: DocumentContent, conversationId: string | null) => void;
 }): Promise<void> {
   let changed = false;
+  // Link writes emit list invalidations without changing the document's owner.
+  const linkedConversationIds = new Set<string>();
   const unsubscribe = subscribe("sse.event", ({ message }) => {
     if (
       isCurrent() &&
@@ -157,11 +175,10 @@ export async function loadDocumentConversation({
       if (!document || !isCurrent()) {
         return;
       }
-      const conversationId = await resolveDocumentConversation({
-        assistantId,
-        document,
-        isCurrent,
-      });
+      const conversationId = await resolveAndLinkDocumentConversation(
+        { assistantId, document, isCurrent },
+        linkedConversationIds,
+      );
       if (!isCurrent()) {
         return;
       }

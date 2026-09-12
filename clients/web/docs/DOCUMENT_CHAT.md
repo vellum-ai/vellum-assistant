@@ -26,6 +26,11 @@ Streamed updates for the loading surface and `sync_changed` invalidations tagged
 a fresh save-aware read and link validation before publication. The list tag has
 no surface ID, so it conservatively invalidates any in-progress document load,
 including saves from another client.
+Each load remembers its successful conversation links across revalidation passes.
+The link endpoint emits a list invalidation without changing the document's owning
+conversation ID, so revalidation checks the conversation again without repeating
+the same link write. Document updates still trigger fresh reads, and a later load
+validates and links independently.
 Its ready callback publishes synchronously before the update listener is released;
 unrelated streamed surfaces and sync tags do not trigger reads. Cancellation and
 errors release the listener without publishing stale content. The helper is shared

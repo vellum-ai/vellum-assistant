@@ -12,7 +12,9 @@ import { waitFor } from "@testing-library/react";
 import { publish } from "@/lib/event-bus";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { DocumentContent } from "@/types/document-types";
+import { setEditChatConversationId } from "@/utils/edit-chat-session";
 
 const original: DocumentContent = {
   success: true,
@@ -30,10 +32,12 @@ const conversation = mock(async ({ path }: { path: { id: string } }) => ({
   data: { conversation: { id: path.id } },
   response: new Response(null, { status: 200 }),
 }));
+const link = mock(async () => ({ data: { success: true } }));
 const { loadDocumentConversation, documentRequestScope } =
   await import("./document-conversation");
 
 const selection = useResolvedAssistantsStore.getState();
+const identity = useAssistantIdentityStore.getState();
 const isCurrent = mock(() => true);
 const onReady = mock(
   (_document: DocumentContent, _conversationId: string | null) => {},
@@ -107,7 +111,19 @@ beforeEach(() => {
     }
     throw new Error(`Unexpected request: ${options.url}`);
   }) as typeof daemonClient.get);
+  spyOn(daemonClient, "post").mockImplementation((async (options: {
+    url: string;
+  }) => {
+    if (options.url.endsWith("/documents/{id}/conversations")) {
+      return link();
+    }
+    throw new Error(`Unexpected request: ${options.url}`);
+  }) as typeof daemonClient.post);
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+  useAssistantIdentityStore.setState({
+    assistantId: "assistant-1",
+    version: "0.11.12",
+  });
   document = { ...original };
   read.mockReset();
   read.mockImplementation(async () => ({ data: { ...document } }));
@@ -119,15 +135,58 @@ beforeEach(() => {
   isCurrent.mockReset();
   isCurrent.mockImplementation(() => true);
   onReady.mockClear();
+  link.mockReset();
+  link.mockImplementation(async () => ({ data: { success: true } }));
   window.sessionStorage.clear();
 });
 afterEach(() => {
   mock.restore();
   useResolvedAssistantsStore.setState(selection, true);
+  useAssistantIdentityStore.setState(identity, true);
   window.sessionStorage.clear();
 });
 
 describe("loadDocumentConversation", () => {
+  test.each([false, true])(
+    "a replacement link invalidation settles without repeated writes (concurrent edit: %s)",
+    async (concurrentEdit) => {
+      setEditChatConversationId("assistant-1", "surface-1", "conv-replacement");
+      conversation.mockImplementation(async ({ path }) => ({
+        data: { conversation: { id: path.id } },
+        response: new Response(null, {
+          status: path.id === "conv-1" ? 404 : 200,
+        }),
+      }));
+      link.mockImplementation(async () => {
+        if (link.mock.calls.length > 1) {
+          throw new Error("Repeated link write");
+        }
+        invalidate(["documents:list"]);
+        return { data: { success: true } };
+      });
+      read.mockImplementation(async () => {
+        const snapshot = { ...document };
+        if (concurrentEdit && read.mock.calls.length === 2) {
+          update("Updated while revalidating", "sync");
+        }
+        return { data: snapshot };
+      });
+
+      await loadDocumentConversation(options);
+
+      expect(link).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(concurrentEdit ? 3 : 2);
+      expect(onReady).toHaveBeenCalledTimes(1);
+      expect(onReady).toHaveBeenCalledWith(document, "conv-replacement");
+      expect(document.conversationId).toBe("conv-1");
+
+      link.mockClear();
+      await loadDocumentConversation(options);
+      expect(link).toHaveBeenCalledTimes(1);
+      expect(onReady).toHaveBeenCalledTimes(2);
+    },
+  );
+
   test("an unchanged load fetches once and releases its update listener", async () => {
     await loadDocumentConversation(options);
     expect(read).toHaveBeenCalledTimes(1);
