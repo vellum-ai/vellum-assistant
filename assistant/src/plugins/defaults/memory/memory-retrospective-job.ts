@@ -131,6 +131,10 @@ export const STALE_SOURCE_PROCESSING_OVERRIDE_MS = 6 * 60 * 60 * 1000;
 /** Watchdog check_name for the per-run retrospective outcome counter. */
 const MEMORY_RETROSPECTIVE_RUN_CHECK_NAME = "memory_retrospective_run";
 
+/** Watchdog check_name for aggregate skill-tool activity in a fork run. */
+const MEMORY_RETROSPECTIVE_SKILL_ACTIVITY_CHECK_NAME =
+  "memory_retrospective_skill_activity";
+
 /**
  * The agent-loop exit that means the MODEL ended the run: it answered without
  * asking for another tool. Under every other exit something ended the run for
@@ -193,6 +197,7 @@ export async function memoryRetrospectiveJob(
   // resolved model) is visible without log access. The emitter itself
   // never throws — the run's outcome must reach the jobs worker
   // regardless.
+  const skillImprovementActive = isSkillImprovementActive(config);
   const emitRunOutcome = (
     outcome: string,
     detail?: { reason?: string; noFindings?: boolean },
@@ -203,6 +208,7 @@ export async function memoryRetrospectiveJob(
         value: 1,
         detail: {
           outcome,
+          skill_improvement_active: skillImprovementActive,
           ...(detail?.reason ? { reason: detail.reason.slice(0, 200) } : {}),
           ...(detail?.noFindings !== undefined
             ? { noFindings: detail.noFindings }
@@ -628,6 +634,10 @@ export async function runForkBasedRetrospective(
     // retrospective (the dedup baseline) stay untouched and the window
     // remains retryable.
     const runEvidence = await collectRetrospectiveRunEvidence(forkId);
+    emitRetrospectiveSkillActivity(
+      procToSkillsActive,
+      runEvidence.skillActivity,
+    );
     const reviewedNoFindings =
       runEvidence.committedTextReply &&
       runEvidence.durableToolAttemptCount === 0 &&
@@ -664,6 +674,20 @@ export async function runForkBasedRetrospective(
         },
       });
     }
+  }
+
+  if (!wakeSucceeded) {
+    let skillActivity = emptyRetrospectiveSkillActivity();
+    try {
+      skillActivity = (await collectRetrospectiveRunEvidence(forkId))
+        .skillActivity;
+    } catch (err) {
+      log.warn(
+        { err, forkId, sourceConversationId },
+        "memory-retrospective (fork): could not collect failed-run skill activity",
+      );
+    }
+    emitRetrospectiveSkillActivity(procToSkillsActive, skillActivity);
   }
 
   // Wake failed or produced no usable output. Bump `lastRunAt` only so the
@@ -1205,6 +1229,53 @@ const DURABLE_RETROSPECTIVE_TOOLS: ReadonlySet<string> = new Set([
   "scaffold_managed_skill",
 ]);
 
+type RetrospectiveSkillActivity = {
+  findSimilarSkillsAttemptCount: number;
+  findSimilarSkillsSuccessCount: number;
+  skillLoadAttemptCount: number;
+  skillLoadSuccessCount: number;
+  scaffoldManagedSkillAttemptCount: number;
+  scaffoldManagedSkillSuccessCount: number;
+};
+
+function emptyRetrospectiveSkillActivity(): RetrospectiveSkillActivity {
+  return {
+    findSimilarSkillsAttemptCount: 0,
+    findSimilarSkillsSuccessCount: 0,
+    skillLoadAttemptCount: 0,
+    skillLoadSuccessCount: 0,
+    scaffoldManagedSkillAttemptCount: 0,
+    scaffoldManagedSkillSuccessCount: 0,
+  };
+}
+
+function emitRetrospectiveSkillActivity(
+  skillImprovementActive: boolean,
+  activity: RetrospectiveSkillActivity,
+): void {
+  try {
+    recordWatchdogEvent({
+      checkName: MEMORY_RETROSPECTIVE_SKILL_ACTIVITY_CHECK_NAME,
+      value: activity.scaffoldManagedSkillSuccessCount,
+      detail: {
+        skill_improvement_active: skillImprovementActive,
+        find_similar_skills_attempt_count:
+          activity.findSimilarSkillsAttemptCount,
+        find_similar_skills_success_count:
+          activity.findSimilarSkillsSuccessCount,
+        skill_load_attempt_count: activity.skillLoadAttemptCount,
+        skill_load_success_count: activity.skillLoadSuccessCount,
+        scaffold_managed_skill_attempt_count:
+          activity.scaffoldManagedSkillAttemptCount,
+        scaffold_managed_skill_success_count:
+          activity.scaffoldManagedSkillSuccessCount,
+      },
+    });
+  } catch {
+    // Telemetry must not affect retrospective completion.
+  }
+}
+
 /**
  * Read the durable evidence a retrospective run persisted: its `remember`
  * contents plus a count of every memory-writing tool call on the run's
@@ -1226,6 +1297,8 @@ async function collectRetrospectiveRunEvidence(
   durableToolCallCount: number;
   /** Memory-writing tool calls the run attempted, regardless of outcome. */
   durableToolAttemptCount: number;
+  /** Aggregate skill-management tool activity with no user or skill content. */
+  skillActivity: RetrospectiveSkillActivity;
   /**
    * The run ENDED by answering in its own words: the last persisted
    * assistant row carries a text block with non-whitespace content. Any
@@ -1246,6 +1319,7 @@ async function collectRetrospectiveRunEvidence(
       remembers: [],
       durableToolCallCount: 0,
       durableToolAttemptCount: 0,
+      skillActivity: emptyRetrospectiveSkillActivity(),
       committedTextReply: false,
     };
   }
@@ -1254,6 +1328,7 @@ async function collectRetrospectiveRunEvidence(
     remembers: extractRememberContents(runMessages, succeededIds),
     durableToolCallCount: countDurableToolUses(runMessages, succeededIds),
     durableToolAttemptCount: countDurableToolUses(runMessages, null),
+    skillActivity: collectRetrospectiveSkillActivity(runMessages, succeededIds),
     committedTextReply: hasCommittedTextReply(runMessages),
   };
 }
@@ -1311,6 +1386,46 @@ function collectSuccessfulToolResultIds(messages: MessageLike[]): Set<string> {
     }
   }
   return ids;
+}
+
+function collectRetrospectiveSkillActivity(
+  messages: MessageLike[],
+  succeededIds: ReadonlySet<string>,
+): RetrospectiveSkillActivity {
+  const activity = emptyRetrospectiveSkillActivity();
+  for (const msg of messages) {
+    if (msg.role !== "assistant") {
+      continue;
+    }
+    for (const block of parseMessageBlocks(msg) ?? []) {
+      if (block.type !== "tool_use") {
+        continue;
+      }
+      const succeeded =
+        typeof block.id === "string" && succeededIds.has(block.id);
+      switch (block.name) {
+        case "find_similar_skills":
+          activity.findSimilarSkillsAttemptCount += 1;
+          if (succeeded) {
+            activity.findSimilarSkillsSuccessCount += 1;
+          }
+          break;
+        case "skill_load":
+          activity.skillLoadAttemptCount += 1;
+          if (succeeded) {
+            activity.skillLoadSuccessCount += 1;
+          }
+          break;
+        case "scaffold_managed_skill":
+          activity.scaffoldManagedSkillAttemptCount += 1;
+          if (succeeded) {
+            activity.scaffoldManagedSkillSuccessCount += 1;
+          }
+          break;
+      }
+    }
+  }
+  return activity;
 }
 
 /**
