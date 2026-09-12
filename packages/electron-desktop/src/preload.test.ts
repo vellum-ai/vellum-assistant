@@ -8,6 +8,7 @@ import type {
 import {
   NOTIFICATIONS_ACTION,
   NOTIFICATIONS_PREPARE_IDENTITY,
+  NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER,
   NOTIFICATIONS_RESET_IDENTITIES,
   NOTIFICATIONS_SHOW,
   WINDOW_ATTENTION,
@@ -22,7 +23,13 @@ import {
 
 test("creates the notification bridge with optional identity methods", async () => {
   const handlers = new Map<string, (event: unknown, payload: unknown) => void>();
-  const invoke = mock(() => Promise.resolve({ success: true }));
+  const invoke = mock((channel: string, _payload?: unknown) =>
+    Promise.resolve(
+      channel === NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER
+        ? true
+        : { success: true },
+    ),
+  );
   const on = mock(
     (
       channel: string,
@@ -63,14 +70,21 @@ test("creates the notification bridge with optional identity methods", async () 
   await bridge.prepareIdentity?.(preparePayload);
   await bridge.resetIdentities?.(resetPayload);
 
+  const registration = invoke.mock.calls.find(
+    ([channel]) => channel === NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER,
+  );
+  const publisherSessionId = (
+    registration?.[1] as { publisherSessionId?: string } | undefined
+  )?.publisherSessionId;
+  expect(publisherSessionId).toBeString();
   expect(invoke).toHaveBeenCalledWith(NOTIFICATIONS_SHOW, showPayload);
   expect(invoke).toHaveBeenCalledWith(
     NOTIFICATIONS_PREPARE_IDENTITY,
-    preparePayload,
+    { ...preparePayload, publisherSessionId },
   );
   expect(invoke).toHaveBeenCalledWith(
     NOTIFICATIONS_RESET_IDENTITIES,
-    resetPayload,
+    { ...resetPayload, publisherSessionId },
   );
 
   const received: unknown[] = [];

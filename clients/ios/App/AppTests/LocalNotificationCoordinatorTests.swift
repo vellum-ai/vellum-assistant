@@ -224,6 +224,74 @@ final class LocalNotificationCoordinatorTests: XCTestCase {
         XCTAssertEqual(writes[1].content.senderName, "Assistant")
     }
 
+    func testReloadedPublisherSupersedesRetainedNativeGeneration() async {
+        let writer = WriteRecorder(result: .posted)
+        let coordinator = makeCoordinator(writer: writer) { content, sender, _ in
+            var updated = content
+            updated.senderName = sender.name
+            return updated
+        }
+        let sourceId = "webview"
+        let firstRegistration = await coordinator.registerPublisherSession(
+            sourceId: sourceId,
+            sessionId: "session-a"
+        )
+        let firstPrepare = await coordinator.prepare(
+            preparedUpdate(epoch: 1, revision: 0),
+            publisherSourceId: sourceId,
+            publisherSessionId: "session-a"
+        )
+        let secondRegistration = await coordinator.registerPublisherSession(
+            sourceId: sourceId,
+            sessionId: "session-b"
+        )
+        let secondPrepare = await coordinator.prepare(
+            preparedUpdate(epoch: 1, revision: 0),
+            publisherSourceId: sourceId,
+            publisherSessionId: "session-b"
+        )
+        let delayedFirstPrepare = await coordinator.prepare(
+            preparedUpdate(epoch: 1, revision: 9),
+            publisherSourceId: sourceId,
+            publisherSessionId: "session-a"
+        )
+
+        XCTAssertTrue(firstRegistration)
+        XCTAssertTrue(firstPrepare)
+        XCTAssertTrue(secondRegistration)
+        XCTAssertTrue(secondPrepare)
+        XCTAssertFalse(delayedFirstPrepare)
+        let result = await coordinator.post(request(key: "delivery-after-reload"))
+        XCTAssertEqual(result, .posted)
+        let writes = await writer.snapshot()
+        XCTAssertEqual(writes[0].content.senderName, "Assistant")
+    }
+
+    func testPublisherRegistrationRejectsAnOlderTaskThatArrivesLate() async {
+        let writer = WriteRecorder(result: .posted)
+        let coordinator = makeCoordinator(writer: writer) { content, _, _ in content }
+
+        let current = await coordinator.registerPublisherSession(
+            sourceId: "webview",
+            sessionId: "session-b",
+            registrationGeneration: 2
+        )
+        let delayed = await coordinator.registerPublisherSession(
+            sourceId: "webview",
+            sessionId: "session-a",
+            registrationGeneration: 1
+        )
+        let currentPrepare = await coordinator.prepare(
+            preparedUpdate(epoch: 1, revision: 0),
+            publisherSourceId: "webview",
+            publisherSessionId: "session-b"
+        )
+
+        XCTAssertTrue(current)
+        XCTAssertFalse(delayed)
+        XCTAssertTrue(currentPrepare)
+    }
+
     func testPreparedIdentityMemoryEvictsTheLeastRecentOwner() async {
         let writer = WriteRecorder(result: .posted)
         let coordinator = makeCoordinator(

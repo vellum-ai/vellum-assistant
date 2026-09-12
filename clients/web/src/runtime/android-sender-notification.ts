@@ -17,6 +17,7 @@ import { setNotificationIdentityNativeAdapter } from "@/runtime/notification-ava
 const SENDER_PLUGIN_NAME = "AndroidSenderNotification";
 const CONTRACT_VERSION = 1;
 const PREPARED_IDENTITY_CAPABILITY = "preparedIdentity";
+const IDENTITY_PUBLISHER_SESSIONS_CAPABILITY = "identityPublisherSessions";
 const SINGLE_POST_OWNER_CAPABILITY = "singlePostOwner";
 const DELIVERY_STATUS_CAPABILITY = "deliveryStatus";
 const DEFAULT_WATCHDOG_MS = 2_000;
@@ -46,7 +47,9 @@ export interface AndroidSenderNotificationPostRequest
 }
 
 interface AndroidSenderNotificationPlugin {
-  getCapabilities(): Promise<AndroidSenderNotificationCapabilities>;
+  getCapabilities(payload?: {
+    publisherSessionId: string;
+  }): Promise<AndroidSenderNotificationCapabilities>;
   prepare(
     payload: PrepareNotificationIdentityPayload,
   ): Promise<{ ok?: boolean }>;
@@ -157,27 +160,30 @@ function normalizePostResult(value: unknown): NotificationDeliveryResult {
   return result;
 }
 
+function normalizeCapabilities(
+  result: AndroidSenderNotificationCapabilities,
+): ReadonlySet<string> | null {
+  if (
+    typeof result !== "object" ||
+    result === null ||
+    result.version !== CONTRACT_VERSION ||
+    !Array.isArray(result.capabilities) ||
+    !result.capabilities.every(
+      (capability): capability is string => typeof capability === "string",
+    )
+  ) {
+    return null;
+  }
+  return new Set(result.capabilities);
+}
+
 async function capabilities(): Promise<ReadonlySet<string> | null> {
   if (!isAndroidBridgeRegistered()) {
     return null;
   }
   capabilityRequest ??= Promise.resolve()
     .then(() => AndroidSenderNotification.getCapabilities())
-    .then((result) => {
-      if (typeof result !== "object" || result === null) {
-        return null;
-      }
-      if (
-        result.version !== CONTRACT_VERSION ||
-        !Array.isArray(result.capabilities) ||
-        !result.capabilities.every(
-          (capability): capability is string => typeof capability === "string",
-        )
-      ) {
-        return null;
-      }
-      return new Set(result.capabilities);
-    })
+    .then(normalizeCapabilities)
     .catch(() => null);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -229,7 +235,25 @@ export async function resetAndroidSenderNotificationIdentities(
   await callPreparedIdentityMethod(() => AndroidSenderNotification.reset(payload));
 }
 
+async function registerAndroidSenderNotificationIdentityPublisher(
+  publisherSessionId: string,
+): Promise<boolean> {
+  if (!isAndroidBridgeRegistered()) {
+    return false;
+  }
+  capabilityRequest = Promise.resolve()
+    .then(() =>
+      AndroidSenderNotification.getCapabilities({ publisherSessionId }),
+    )
+    .then(normalizeCapabilities)
+    .catch(() => null);
+  const supported = await capabilities();
+  return supported?.has(IDENTITY_PUBLISHER_SESSIONS_CAPABILITY) === true;
+}
+
 const identityAdapter = {
+  registerIdentityPublisher:
+    registerAndroidSenderNotificationIdentityPublisher,
   prepareIdentity: prepareAndroidSenderNotificationIdentity,
   resetIdentities: resetAndroidSenderNotificationIdentities,
 };

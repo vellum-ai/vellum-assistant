@@ -36,10 +36,11 @@ public class AndroidSenderNotificationPluginTest {
         JSArray capabilities = (JSArray) payload.opt("capabilities");
 
         assertEquals(1, payload.getInteger("version").intValue());
-        assertEquals(3, capabilities.length());
+        assertEquals(4, capabilities.length());
         assertEquals("preparedIdentity", capabilities.getString(0));
-        assertEquals("singlePostOwner", capabilities.getString(1));
-        assertEquals("deliveryStatus", capabilities.getString(2));
+        assertEquals("identityPublisherSessions", capabilities.getString(1));
+        assertEquals("singlePostOwner", capabilities.getString(2));
+        assertEquals("deliveryStatus", capabilities.getString(3));
         assertFalse(payload.has("notificationOwner"));
     }
 
@@ -251,6 +252,42 @@ public class AndroidSenderNotificationPluginTest {
         assertFalse(store.prepare(update(ALICE, 4, 2, "Stale", "avatar-stale")));
         assertTrue(store.prepare(update(ALICE, 5, 0, "Fresh", "avatar-2")));
         assertFalse(store.isScopeSealed("scope-1"));
+    }
+
+    @Test
+    public void reloadedPublisherSupersedesRetainedNativeGeneration() {
+        PreparedIdentityStore<String> store = store(8, 4, 8);
+        String sourceId = "webview";
+        assertTrue(store.registerPublisherSession(sourceId, "session-a"));
+        assertTrue(
+            store.prepare(
+                update(ALICE, 1, 0, "Before reload", "avatar-old"),
+                sourceId,
+                "session-a"
+            )
+        );
+        assertTrue(store.registerPublisherSession(sourceId, "session-b"));
+        assertTrue(
+            store.prepare(
+                update(ALICE, 1, 0, "After reload", "avatar-new"),
+                sourceId,
+                "session-b"
+            )
+        );
+        assertFalse(
+            store.prepare(
+                update(ALICE, 1, 9, "Delayed", "avatar-stale"),
+                sourceId,
+                "session-a"
+            )
+        );
+
+        ResolvedSender<String> sender = store.sender(
+            request(ALICE, "assistant", null, InlineSender.absent()),
+            spec -> null
+        );
+        assertEquals("After reload", sender.name);
+        assertEquals("avatar-new", sender.avatar);
     }
 
     @Test

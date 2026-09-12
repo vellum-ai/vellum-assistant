@@ -25,6 +25,9 @@ private struct SenderNotificationContent: @unchecked Sendable {
 /// callbacks, and reads this plugin's `cap_extra` payload on taps.
 @objc(SenderNotificationPlugin)
 public class SenderNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
+    private static let publisherSourceId = "capacitor-webview"
+    private static let publisherRegistrationLock = NSLock()
+    private static var publisherRegistrationGeneration = 0
     public let identifier = "SenderNotificationPlugin"
     public let jsName = "SenderNotification"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -57,14 +60,34 @@ public class SenderNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
     )
 
     @objc public func getCapabilities(_ call: CAPPluginCall) {
-        call.resolve([
+        let payload: [String: Any] = [
             "version": 1,
             "capabilities": [
                 "preparedIdentity",
+                "identityPublisherSessions",
                 "singlePostOwner",
                 "deliveryStatus",
             ],
-        ])
+        ]
+        guard call.getValue("publisherSessionId") != nil else {
+            call.resolve(payload)
+            return
+        }
+        guard let publisherSessionId = Self.identityString(
+            call.getString("publisherSessionId")
+        ) else {
+            call.resolve(payload)
+            return
+        }
+        let registrationGeneration = Self.nextPublisherRegistrationGeneration()
+        Task {
+            _ = await Self.coordinator.registerPublisherSession(
+                sourceId: Self.publisherSourceId,
+                sessionId: publisherSessionId,
+                registrationGeneration: registrationGeneration
+            )
+            call.resolve(payload)
+        }
     }
 
     @objc public func prepare(_ call: CAPPluginCall) {
@@ -95,8 +118,19 @@ public class SenderNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
             name: name,
             avatar: avatar
         )
+        let publisherSessionId = Self.identityString(
+            call.getString("publisherSessionId")
+        )
+        if call.getValue("publisherSessionId") != nil && publisherSessionId == nil {
+            call.resolve(["ok": false])
+            return
+        }
         Task {
-            let accepted = await Self.coordinator.prepare(update)
+            let accepted = await Self.coordinator.prepare(
+                update,
+                publisherSourceId: Self.publisherSourceId,
+                publisherSessionId: publisherSessionId
+            )
             call.resolve(["ok": accepted])
         }
     }
@@ -129,12 +163,21 @@ public class SenderNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
         } else {
             identityRevision = nil
         }
+        let publisherSessionId = Self.identityString(
+            call.getString("publisherSessionId")
+        )
+        if call.getValue("publisherSessionId") != nil && publisherSessionId == nil {
+            call.resolve(["ok": false])
+            return
+        }
         Task {
             let accepted = await Self.coordinator.reset(
                 scopeId: scopeId,
                 scopeEpoch: scopeEpoch,
                 assistantId: assistantId,
-                identityRevision: identityRevision
+                identityRevision: identityRevision,
+                publisherSourceId: Self.publisherSourceId,
+                publisherSessionId: publisherSessionId
             )
             call.resolve(["ok": accepted])
         }
@@ -211,6 +254,15 @@ public class SenderNotificationPlugin: CAPPlugin, CAPBridgedPlugin {
             let result = await Self.coordinator.post(request)
             call.resolve(Self.resultObject(result))
         }
+    }
+
+    private static func nextPublisherRegistrationGeneration() -> Int {
+        publisherRegistrationLock.lock()
+        defer { publisherRegistrationLock.unlock() }
+        if publisherRegistrationGeneration < Int.max {
+            publisherRegistrationGeneration += 1
+        }
+        return publisherRegistrationGeneration
     }
 
     @objc public func status(_ call: CAPPluginCall) {

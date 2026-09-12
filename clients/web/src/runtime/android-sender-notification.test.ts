@@ -263,6 +263,27 @@ describe("Android notification ownership handshake", () => {
 });
 
 describe("Android sender notification bridge", () => {
+  test("registers the renderer session through capability discovery", async () => {
+    getCapabilities.mockResolvedValue({
+      version: 1,
+      capabilities: [
+        "preparedIdentity",
+        "identityPublisherSessions",
+        "singlePostOwner",
+        "deliveryStatus",
+      ],
+    });
+    installAndroidSenderNotificationIdentityAdapter();
+    const adapter = setNotificationIdentityNativeAdapter.mock.calls[0]?.[0] as {
+      registerIdentityPublisher(sessionId: string): Promise<boolean>;
+    };
+
+    expect(await adapter.registerIdentityPublisher("session-a")).toBe(true);
+    expect(getCapabilities).toHaveBeenCalledWith({
+      publisherSessionId: "session-a",
+    });
+  });
+
   test("connects prepared identity only after capability discovery", async () => {
     installAndroidSenderNotificationIdentityAdapter();
     await prepareAndroidSenderNotificationIdentity(preparePayload);

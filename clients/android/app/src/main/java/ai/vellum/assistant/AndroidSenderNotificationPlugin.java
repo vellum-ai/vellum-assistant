@@ -38,6 +38,7 @@ public class AndroidSenderNotificationPlugin extends Plugin {
     private static final int PREPARED_IDENTITY_LIMIT = 8;
     private static final int SCOPE_LIMIT = 16;
     private static final int IDENTITY_GUARD_LIMIT = 16;
+    private static final String PUBLISHER_SOURCE_ID = "capacitor-webview";
     private static final AtomicInteger PREPARATION_THREAD_INDEX = new AtomicInteger();
     private static final ExecutorService PREPARATION_EXECUTOR = Executors.newFixedThreadPool(
         2,
@@ -82,6 +83,10 @@ public class AndroidSenderNotificationPlugin extends Plugin {
 
     @PluginMethod
     public void getCapabilities(PluginCall call) {
+        String publisherSessionId = identityString(call.getString("publisherSessionId"));
+        if (publisherSessionId != null) {
+            IDENTITIES.registerPublisherSession(PUBLISHER_SOURCE_ID, publisherSessionId);
+        }
         call.resolve(capabilitiesPayload());
     }
 
@@ -120,6 +125,12 @@ public class AndroidSenderNotificationPlugin extends Plugin {
             call.resolve(okResult(false));
             return;
         }
+        boolean hasPublisherSession = call.getData().has("publisherSessionId");
+        String publisherSessionId = identityString(call.getString("publisherSessionId"));
+        if (hasPublisherSession && publisherSessionId == null) {
+            call.resolve(okResult(false));
+            return;
+        }
         boolean accepted = IDENTITIES.prepare(
             new PreparedUpdate<>(
                 identity,
@@ -128,7 +139,9 @@ public class AndroidSenderNotificationPlugin extends Plugin {
                 name,
                 avatar,
                 avatarSpec == null ? null : avatarSpec.hash
-            )
+            ),
+            PUBLISHER_SOURCE_ID,
+            publisherSessionId
         );
         call.resolve(okResult(accepted));
     }
@@ -156,8 +169,23 @@ public class AndroidSenderNotificationPlugin extends Plugin {
             call.resolve(okResult(false));
             return;
         }
+        boolean hasPublisherSession = call.getData().has("publisherSessionId");
+        String publisherSessionId = identityString(call.getString("publisherSessionId"));
+        if (hasPublisherSession && publisherSessionId == null) {
+            call.resolve(okResult(false));
+            return;
+        }
         call.resolve(
-            okResult(IDENTITIES.reset(scopeId, scopeEpoch, assistantId, identityRevision))
+            okResult(
+                IDENTITIES.reset(
+                    scopeId,
+                    scopeEpoch,
+                    assistantId,
+                    identityRevision,
+                    PUBLISHER_SOURCE_ID,
+                    publisherSessionId
+                )
+            )
         );
     }
 
@@ -257,6 +285,7 @@ public class AndroidSenderNotificationPlugin extends Plugin {
                 "capabilities",
                 new JSArray()
                     .put("preparedIdentity")
+                    .put("identityPublisherSessions")
                     .put("singlePostOwner")
                     .put("deliveryStatus")
             );
@@ -770,6 +799,8 @@ public class AndroidSenderNotificationPlugin extends Plugin {
             new LinkedHashMap<>(16, 0.75f, true);
         private final LinkedHashMap<IdentityKey, Generation> generations =
             new LinkedHashMap<>(16, 0.75f, true);
+        private final Map<String, PublisherSourceState> publisherSources =
+            new HashMap<>();
 
         PreparedIdentityStore(int preparedLimit, int scopeLimit, int generationLimit) {
             if (preparedLimit <= 0 || scopeLimit <= 0 || generationLimit <= 0) {
@@ -780,9 +811,78 @@ public class AndroidSenderNotificationPlugin extends Plugin {
             this.generationLimit = generationLimit;
         }
 
+        synchronized boolean registerPublisherSession(String sourceId, String sessionId) {
+            if (sourceId == null || sourceId.isEmpty() || sessionId == null || sessionId.isEmpty()) {
+                return false;
+            }
+            PublisherSourceState source = publisherSources.get(sourceId);
+            if (source == null) {
+                if (publisherSources.size() >= scopeLimit) {
+                    return false;
+                }
+                publisherSources.put(sourceId, new PublisherSourceState(sessionId));
+                return true;
+            }
+            if (source.activeSessionId.equals(sessionId)) {
+                return true;
+            }
+            if (source.retiredSessionIds.containsKey(sessionId)) {
+                return false;
+            }
+            source.retiredSessionIds.put(source.activeSessionId, Boolean.TRUE);
+            while (source.retiredSessionIds.size() > 16) {
+                Iterator<String> iterator = source.retiredSessionIds.keySet().iterator();
+                if (!iterator.hasNext()) {
+                    return false;
+                }
+                iterator.next();
+                iterator.remove();
+            }
+            source.activeSessionId = sessionId;
+            source.scopes.clear();
+            return true;
+        }
+
         synchronized boolean prepare(PreparedUpdate<A> update) {
+            return prepare(update, null, null);
+        }
+
+        synchronized boolean prepare(
+            PreparedUpdate<A> update,
+            @Nullable String publisherSourceId,
+            @Nullable String publisherSessionId
+        ) {
             if (update.scopeEpoch < 0 || update.identityRevision < 0) {
                 return false;
+            }
+            if (publisherSessionId == null) {
+                if (
+                    publisherSourceId != null
+                        && publisherSources.containsKey(publisherSourceId)
+                ) {
+                    return false;
+                }
+            } else {
+                TranslatedGeneration translated = translatePublisherTarget(
+                    publisherSourceId,
+                    publisherSessionId,
+                    update.identity.scopeId,
+                    update.identity.assistantId,
+                    update.scopeEpoch,
+                    update.identityRevision,
+                    false
+                );
+                if (translated == null) {
+                    return false;
+                }
+                update = new PreparedUpdate<>(
+                    update.identity,
+                    translated.scopeEpoch,
+                    translated.identityRevision,
+                    update.name,
+                    update.avatar,
+                    update.avatarHash
+                );
             }
             ScopeState scope = acceptScope(update.identity.scopeId, update.scopeEpoch);
             if (scope == null || scope.sealed) {
@@ -851,12 +951,57 @@ public class AndroidSenderNotificationPlugin extends Plugin {
             @Nullable String assistantId,
             @Nullable Integer identityRevision
         ) {
+            return reset(scopeId, scopeEpoch, assistantId, identityRevision, null, null);
+        }
+
+        synchronized boolean reset(
+            String scopeId,
+            int scopeEpoch,
+            @Nullable String assistantId,
+            @Nullable Integer identityRevision,
+            @Nullable String publisherSourceId,
+            @Nullable String publisherSessionId
+        ) {
             if (
                 scopeEpoch < 0
                     || identityRevision != null && assistantId == null
                     || identityRevision != null && identityRevision < 0
             ) {
                 return false;
+            }
+            if (publisherSessionId == null) {
+                if (
+                    publisherSourceId != null
+                        && publisherSources.containsKey(publisherSourceId)
+                ) {
+                    return false;
+                }
+            } else if (assistantId == null) {
+                Integer translated = translatePublisherScopeReset(
+                    publisherSourceId,
+                    publisherSessionId,
+                    scopeId,
+                    scopeEpoch
+                );
+                if (translated == null) {
+                    return false;
+                }
+                scopeEpoch = translated;
+            } else {
+                TranslatedGeneration translated = translatePublisherTarget(
+                    publisherSourceId,
+                    publisherSessionId,
+                    scopeId,
+                    assistantId,
+                    scopeEpoch,
+                    identityRevision == null ? 0 : identityRevision,
+                    true
+                );
+                if (translated == null) {
+                    return false;
+                }
+                scopeEpoch = translated.scopeEpoch;
+                identityRevision = translated.identityRevision;
             }
             ScopeState currentScope = scopes.get(scopeId);
             if (
@@ -900,6 +1045,133 @@ public class AndroidSenderNotificationPlugin extends Plugin {
                 new Generation(scopeEpoch, tombstoneRevision, true)
             );
             return true;
+        }
+
+        @Nullable
+        private TranslatedGeneration translatePublisherTarget(
+            @Nullable String sourceId,
+            String sessionId,
+            String scopeId,
+            String assistantId,
+            int localEpoch,
+            int localRevision,
+            boolean tombstone
+        ) {
+            PublisherSourceState source = publisherSources.get(sourceId);
+            if (source == null || !source.activeSessionId.equals(sessionId)) {
+                return null;
+            }
+            PublisherScopeGeneration scope = source.scopes.get(scopeId);
+            if (scope == null || localEpoch > scope.localEpoch) {
+                boolean createsScope = scope == null;
+                if (createsScope && source.scopes.size() >= scopeLimit) {
+                    return null;
+                }
+                Integer nativeEpoch = createsScope
+                    ? nativeScopeEpochForTarget(scopeId)
+                    : nextNativeScopeEpoch(scopeId);
+                if (nativeEpoch == null) {
+                    return null;
+                }
+                scope = new PublisherScopeGeneration(localEpoch, nativeEpoch, false);
+                source.scopes.put(scopeId, scope);
+            } else if (localEpoch < scope.localEpoch || scope.sealed) {
+                return null;
+            }
+
+            PublisherIdentityGeneration mapped = scope.identities.get(assistantId);
+            if (mapped != null && localRevision < mapped.localRevision) {
+                return null;
+            }
+            if (mapped != null && localRevision == mapped.localRevision) {
+                if (!tombstone && mapped.tombstone) {
+                    return null;
+                }
+                if (tombstone) {
+                    mapped.tombstone = true;
+                }
+                return new TranslatedGeneration(scope.nativeEpoch, mapped.nativeRevision);
+            }
+            if (mapped == null && scope.identities.size() >= generationLimit) {
+                return null;
+            }
+            Integer nativeRevision = nextGeneration(
+                nativeIdentityRevision(scopeId, assistantId, scope.nativeEpoch)
+            );
+            if (nativeRevision == null) {
+                return null;
+            }
+            mapped = new PublisherIdentityGeneration(
+                localRevision,
+                nativeRevision,
+                tombstone
+            );
+            scope.identities.put(assistantId, mapped);
+            return new TranslatedGeneration(scope.nativeEpoch, nativeRevision);
+        }
+
+        @Nullable
+        private Integer translatePublisherScopeReset(
+            @Nullable String sourceId,
+            String sessionId,
+            String scopeId,
+            int localEpoch
+        ) {
+            PublisherSourceState source = publisherSources.get(sourceId);
+            if (source == null || !source.activeSessionId.equals(sessionId)) {
+                return null;
+            }
+            PublisherScopeGeneration mapped = source.scopes.get(scopeId);
+            if (mapped != null) {
+                if (localEpoch < mapped.localEpoch) {
+                    return null;
+                }
+                if (localEpoch == mapped.localEpoch && mapped.sealed) {
+                    return mapped.nativeEpoch;
+                }
+            } else if (source.scopes.size() >= scopeLimit) {
+                return null;
+            }
+            Integer nativeEpoch = nextNativeScopeEpoch(scopeId);
+            if (nativeEpoch == null) {
+                return null;
+            }
+            source.scopes.put(
+                scopeId,
+                new PublisherScopeGeneration(localEpoch, nativeEpoch, true)
+            );
+            return nativeEpoch;
+        }
+
+        @Nullable
+        private Integer nativeScopeEpochForTarget(String scopeId) {
+            ScopeState scope = scopes.get(scopeId);
+            if (scope == null) {
+                return 0;
+            }
+            return scope.sealed ? nextGeneration(scope.epoch) : scope.epoch;
+        }
+
+        @Nullable
+        private Integer nextNativeScopeEpoch(String scopeId) {
+            ScopeState scope = scopes.get(scopeId);
+            return nextGeneration(scope == null ? -1 : scope.epoch);
+        }
+
+        private int nativeIdentityRevision(
+            String scopeId,
+            String assistantId,
+            int scopeEpoch
+        ) {
+            Generation generation = generations.get(new IdentityKey(scopeId, assistantId));
+            return generation != null && generation.scopeEpoch == scopeEpoch
+                ? generation.identityRevision
+                : -1;
+        }
+
+        @Nullable
+        private Integer nextGeneration(int current) {
+            return current < Integer.MAX_VALUE ? current + 1 : null;
         }
 
         @Nullable
@@ -1027,6 +1299,55 @@ public class AndroidSenderNotificationPlugin extends Plugin {
         synchronized boolean isScopeSealed(String scopeId) {
             ScopeState state = scopes.get(scopeId);
             return state != null && state.sealed;
+        }
+    }
+
+    private static final class PublisherSourceState {
+        String activeSessionId;
+        final LinkedHashMap<String, Boolean> retiredSessionIds = new LinkedHashMap<>();
+        final Map<String, PublisherScopeGeneration> scopes = new HashMap<>();
+
+        PublisherSourceState(String activeSessionId) {
+            this.activeSessionId = activeSessionId;
+        }
+    }
+
+    private static final class PublisherScopeGeneration {
+        final int localEpoch;
+        final int nativeEpoch;
+        final Map<String, PublisherIdentityGeneration> identities = new HashMap<>();
+        final boolean sealed;
+
+        PublisherScopeGeneration(int localEpoch, int nativeEpoch, boolean sealed) {
+            this.localEpoch = localEpoch;
+            this.nativeEpoch = nativeEpoch;
+            this.sealed = sealed;
+        }
+    }
+
+    private static final class PublisherIdentityGeneration {
+        final int localRevision;
+        final int nativeRevision;
+        boolean tombstone;
+
+        PublisherIdentityGeneration(
+            int localRevision,
+            int nativeRevision,
+            boolean tombstone
+        ) {
+            this.localRevision = localRevision;
+            this.nativeRevision = nativeRevision;
+            this.tombstone = tombstone;
+        }
+    }
+
+    private static final class TranslatedGeneration {
+        final int scopeEpoch;
+        final int identityRevision;
+
+        TranslatedGeneration(int scopeEpoch, int identityRevision) {
+            this.scopeEpoch = scopeEpoch;
+            this.identityRevision = identityRevision;
         }
     }
 

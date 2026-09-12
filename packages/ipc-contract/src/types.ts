@@ -795,6 +795,8 @@ export interface PrepareNotificationIdentityPayload {
   identity: NotificationIdentity;
   scopeEpoch: number;
   identityRevision: number;
+  /** Identifies one renderer lifetime for native generation translation. */
+  publisherSessionId?: string;
   name?: string;
   nameProvenance?: VerifiedNotificationNameProvenance;
   avatar?: NotificationAvatar;
@@ -804,9 +806,16 @@ export interface PrepareNotificationIdentityPayload {
 export interface ResetNotificationIdentitiesPayload {
   scopeId: string;
   scopeEpoch: number;
+  /** Identifies one renderer lifetime for native generation translation. */
+  publisherSessionId?: string;
   assistantId?: string;
   /** Revision tombstone for a targeted reset within the current scope epoch. */
   identityRevision?: number;
+}
+
+/** Starts one renderer lifetime before it can publish native identity state. */
+export interface RegisterNotificationIdentityPublisherPayload {
+  publisherSessionId: string;
 }
 
 export interface NotificationDeliveryIdentifiers {

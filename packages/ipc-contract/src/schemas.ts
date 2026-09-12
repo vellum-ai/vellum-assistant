@@ -90,6 +90,7 @@ export const prepareNotificationIdentityPayloadSchema = z
     identity: notificationIdentitySchema,
     scopeEpoch: z.number().int().nonnegative().safe(),
     identityRevision: z.number().int().nonnegative().safe(),
+    publisherSessionId: boundedIdentityString.optional(),
     name: z
       .string()
       .trim()
@@ -119,6 +120,7 @@ export const resetNotificationIdentitiesPayloadSchema = z
   .object({
     scopeId: boundedIdentityString,
     scopeEpoch: z.number().int().nonnegative().safe(),
+    publisherSessionId: boundedIdentityString.optional(),
     assistantId: boundedIdentityString.optional(),
     identityRevision: z.number().int().nonnegative().safe().optional(),
   })
@@ -131,6 +133,10 @@ export const resetNotificationIdentitiesPayloadSchema = z
       });
     }
   });
+
+export const registerNotificationIdentityPublisherPayloadSchema = z.object({
+  publisherSessionId: boundedIdentityString,
+});
 
 export const showNotificationPayloadSchema = z
   .object({

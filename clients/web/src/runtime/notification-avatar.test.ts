@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { NotificationIdentity } from "@vellumai/ipc-contract";
+import type {
+  NotificationIdentity,
+  PrepareNotificationIdentityPayload,
+} from "@vellumai/ipc-contract";
 
 import {
   __clearNotificationIdentitySnapshotsForTests,
@@ -348,6 +351,43 @@ describe("notification identities", () => {
 
     resetPreparedNotificationScope(scopeId);
     expect(resetIdentities).toHaveBeenCalledTimes(1);
+  });
+
+  test("queues native publication behind eager publisher registration", async () => {
+    const scopeId = resolveNotificationIdentityScope({
+      kind: "connection",
+      url: "https://registered.example.com",
+    })!;
+    let finishRegistration: (registered: boolean) => void = () => undefined;
+    const registration = new Promise<boolean>((resolve) => {
+      finishRegistration = resolve;
+    });
+    const registerIdentityPublisher = mock(() => registration);
+    const prepareIdentity = mock(
+      (_payload: PrepareNotificationIdentityPayload) => {},
+    );
+    setNotificationIdentityNativeAdapter({
+      registerIdentityPublisher,
+      prepareIdentity,
+    });
+    const publication = beginNotificationIdentityPublication(
+      identity("registered", scopeId),
+    );
+
+    expect(
+      publishPreparedNotificationIdentity(publication, { avatar: AVATAR }),
+    ).toBe(true);
+    expect(registerIdentityPublisher).toHaveBeenCalledTimes(1);
+    expect(prepareIdentity).not.toHaveBeenCalled();
+
+    finishRegistration(true);
+    await registration;
+    await Promise.resolve();
+    expect(prepareIdentity).toHaveBeenCalledTimes(1);
+    expect(prepareIdentity.mock.calls[0]?.[0]).toMatchObject({
+      identity: publication.identity,
+      publisherSessionId: expect.any(String),
+    });
   });
 
   test("scope-local publication pressure resets the scope before reusing guards", () => {

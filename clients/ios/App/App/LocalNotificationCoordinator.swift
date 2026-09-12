@@ -202,6 +202,26 @@ actor LocalNotificationCoordinator<Content: Sendable> {
         let revisionTombstone: Bool
     }
 
+    private struct PublisherIdentityGeneration: Sendable {
+        let localRevision: Int
+        let nativeRevision: Int
+        var tombstone: Bool
+    }
+
+    private struct PublisherScopeGeneration: Sendable {
+        let localEpoch: Int
+        let nativeEpoch: Int
+        var sealed: Bool
+        var identities: [String: PublisherIdentityGeneration]
+    }
+
+    private struct PublisherSourceState: Sendable {
+        var activeSessionId: String
+        var registrationGeneration: Int?
+        var retiredSessionIds: [String]
+        var scopes: [String: PublisherScopeGeneration]
+    }
+
     private let clock: any LocalNotificationClock
     private let preparationDeadline: Duration
     private let preparedIdentityLimit: Int
@@ -216,6 +236,7 @@ actor LocalNotificationCoordinator<Content: Sendable> {
     private var scopeStates: [String: ScopeState] = [:]
     private var identityGenerations: [IdentityKey: IdentityGeneration] = [:]
     private var identityGenerationOrder: [IdentityKey] = []
+    private var publisherSources: [String: PublisherSourceState] = [:]
     private var inFlight: [String: Task<LocalNotificationDeliveryResult, Never>] = [:]
     private var completed: [String: LocalNotificationDeliveryResult] = [:]
     private var completedOrder: [String] = []
@@ -243,10 +264,85 @@ actor LocalNotificationCoordinator<Content: Sendable> {
     }
 
     @discardableResult
-    func prepare(_ update: LocalNotificationPreparedIdentityUpdate) -> Bool {
+    func registerPublisherSession(
+        sourceId: String,
+        sessionId: String,
+        registrationGeneration: Int? = nil
+    ) -> Bool {
+        guard !sourceId.isEmpty, !sessionId.isEmpty else {
+            return false
+        }
+        guard var source = publisherSources[sourceId] else {
+            guard publisherSources.count < scopeLimit else {
+                return false
+            }
+            publisherSources[sourceId] = PublisherSourceState(
+                activeSessionId: sessionId,
+                registrationGeneration: registrationGeneration,
+                retiredSessionIds: [],
+                scopes: [:]
+            )
+            return true
+        }
+        if source.activeSessionId == sessionId {
+            if let registrationGeneration {
+                if let current = source.registrationGeneration,
+                   registrationGeneration < current {
+                    return false
+                }
+                source.registrationGeneration = registrationGeneration
+                publisherSources[sourceId] = source
+            }
+            return true
+        }
+        if let registrationGeneration,
+           let current = source.registrationGeneration,
+           registrationGeneration <= current {
+            return false
+        }
+        if source.retiredSessionIds.contains(sessionId) {
+            return false
+        }
+        source.retiredSessionIds.append(source.activeSessionId)
+        if source.retiredSessionIds.count > 16 {
+            source.retiredSessionIds.removeFirst(
+                source.retiredSessionIds.count - 16
+            )
+        }
+        source.activeSessionId = sessionId
+        source.registrationGeneration = registrationGeneration
+        source.scopes.removeAll()
+        publisherSources[sourceId] = source
+        return true
+    }
+
+    @discardableResult
+    func prepare(
+        _ update: LocalNotificationPreparedIdentityUpdate,
+        publisherSourceId: String? = nil,
+        publisherSessionId: String? = nil
+    ) -> Bool {
         guard update.scopeEpoch >= 0, update.identityRevision >= 0 else {
             return false
         }
+        guard let translated = translatePublisherTarget(
+            sourceId: publisherSourceId,
+            sessionId: publisherSessionId,
+            scopeId: update.identity.scopeId,
+            assistantId: update.identity.assistantId,
+            localEpoch: update.scopeEpoch,
+            localRevision: update.identityRevision,
+            tombstone: false
+        ) else {
+            return false
+        }
+        let update = LocalNotificationPreparedIdentityUpdate(
+            identity: update.identity,
+            scopeEpoch: translated.scopeEpoch,
+            identityRevision: translated.identityRevision,
+            name: update.name,
+            avatar: update.avatar
+        )
         let key = IdentityKey(
             scopeId: update.identity.scopeId,
             assistantId: update.identity.assistantId
@@ -301,7 +397,9 @@ actor LocalNotificationCoordinator<Content: Sendable> {
         scopeId: String,
         scopeEpoch: Int,
         assistantId: String?,
-        identityRevision: Int? = nil
+        identityRevision: Int? = nil,
+        publisherSourceId: String? = nil,
+        publisherSessionId: String? = nil
     ) -> Bool {
         guard scopeEpoch >= 0,
               identityRevision == nil || assistantId != nil,
@@ -309,6 +407,35 @@ actor LocalNotificationCoordinator<Content: Sendable> {
         else {
             return false
         }
+        let translatedScopeEpoch: Int
+        var translatedIdentityRevision = identityRevision
+        if let assistantId {
+            guard let translated = translatePublisherTarget(
+                sourceId: publisherSourceId,
+                sessionId: publisherSessionId,
+                scopeId: scopeId,
+                assistantId: assistantId,
+                localEpoch: scopeEpoch,
+                localRevision: identityRevision ?? 0,
+                tombstone: true
+            ) else {
+                return false
+            }
+            translatedScopeEpoch = translated.scopeEpoch
+            translatedIdentityRevision = translated.identityRevision
+        } else {
+            guard let translated = translatePublisherScopeReset(
+                sourceId: publisherSourceId,
+                sessionId: publisherSessionId,
+                scopeId: scopeId,
+                localEpoch: scopeEpoch
+            ) else {
+                return false
+            }
+            translatedScopeEpoch = translated
+        }
+        let scopeEpoch = translatedScopeEpoch
+        let identityRevision = translatedIdentityRevision
         guard let scopeUpdate = updateScopeEpoch(scopeEpoch, scopeId: scopeId) else {
             return false
         }
@@ -343,6 +470,152 @@ actor LocalNotificationCoordinator<Content: Sendable> {
             }
         }
         return true
+    }
+
+    private func nextGeneration(_ current: Int) -> Int? {
+        current < Int.max ? current + 1 : nil
+    }
+
+    private func nativeScopeEpochForTarget(_ scopeId: String) -> Int? {
+        guard let scope = scopeStates[scopeId] else {
+            return 0
+        }
+        if let sealedEpoch = scope.sealedEpoch, scope.epoch <= sealedEpoch {
+            return nextGeneration(scope.epoch)
+        } else {
+            return scope.epoch
+        }
+    }
+
+    private func nextNativeScopeEpoch(_ scopeId: String) -> Int? {
+        nextGeneration(scopeStates[scopeId]?.epoch ?? -1)
+    }
+
+    private func nativeIdentityRevision(
+        scopeId: String,
+        assistantId: String,
+        scopeEpoch: Int
+    ) -> Int {
+        let key = IdentityKey(scopeId: scopeId, assistantId: assistantId)
+        guard let generation = identityGenerations[key],
+              generation.scopeEpoch == scopeEpoch else {
+            return -1
+        }
+        return generation.identityRevision
+    }
+
+    private func translatePublisherTarget(
+        sourceId: String?,
+        sessionId: String?,
+        scopeId: String,
+        assistantId: String,
+        localEpoch: Int,
+        localRevision: Int,
+        tombstone: Bool
+    ) -> (scopeEpoch: Int, identityRevision: Int)? {
+        guard let sessionId else {
+            if let sourceId, publisherSources[sourceId] != nil {
+                return nil
+            }
+            return (localEpoch, localRevision)
+        }
+        guard let sourceId,
+              var source = publisherSources[sourceId],
+              source.activeSessionId == sessionId else {
+            return nil
+        }
+
+        var scope = source.scopes[scopeId]
+        if scope == nil || localEpoch > scope!.localEpoch {
+            let createsScope = scope == nil
+            let nativeEpoch = createsScope
+                ? nativeScopeEpochForTarget(scopeId)
+                : nextNativeScopeEpoch(scopeId)
+            guard let nativeEpoch,
+                  !createsScope || source.scopes.count < scopeLimit else {
+                return nil
+            }
+            scope = PublisherScopeGeneration(
+                localEpoch: localEpoch,
+                nativeEpoch: nativeEpoch,
+                sealed: false,
+                identities: [:]
+            )
+        } else if localEpoch < scope!.localEpoch || scope!.sealed {
+            return nil
+        }
+
+        var mapped = scope!.identities[assistantId]
+        if let mapped, localRevision < mapped.localRevision {
+            return nil
+        }
+        if mapped?.localRevision == localRevision {
+            if mapped!.tombstone && !tombstone {
+                return nil
+            }
+            if tombstone {
+                mapped!.tombstone = true
+                scope!.identities[assistantId] = mapped
+            }
+        } else {
+            guard mapped != nil || scope!.identities.count < identityGenerationLimit,
+                  let nativeRevision = nextGeneration(nativeIdentityRevision(
+                    scopeId: scopeId,
+                    assistantId: assistantId,
+                    scopeEpoch: scope!.nativeEpoch
+                  )) else {
+                return nil
+            }
+            mapped = PublisherIdentityGeneration(
+                localRevision: localRevision,
+                nativeRevision: nativeRevision,
+                tombstone: tombstone
+            )
+            scope!.identities[assistantId] = mapped
+        }
+        source.scopes[scopeId] = scope
+        publisherSources[sourceId] = source
+        return (scope!.nativeEpoch, mapped!.nativeRevision)
+    }
+
+    private func translatePublisherScopeReset(
+        sourceId: String?,
+        sessionId: String?,
+        scopeId: String,
+        localEpoch: Int
+    ) -> Int? {
+        guard let sessionId else {
+            if let sourceId, publisherSources[sourceId] != nil {
+                return nil
+            }
+            return localEpoch
+        }
+        guard let sourceId,
+              var source = publisherSources[sourceId],
+              source.activeSessionId == sessionId else {
+            return nil
+        }
+        if let mapped = source.scopes[scopeId] {
+            if localEpoch < mapped.localEpoch {
+                return nil
+            }
+            if localEpoch == mapped.localEpoch && mapped.sealed {
+                return mapped.nativeEpoch
+            }
+        } else if source.scopes.count >= scopeLimit {
+            return nil
+        }
+        guard let nativeEpoch = nextNativeScopeEpoch(scopeId) else {
+            return nil
+        }
+        source.scopes[scopeId] = PublisherScopeGeneration(
+            localEpoch: localEpoch,
+            nativeEpoch: nativeEpoch,
+            sealed: true,
+            identities: [:]
+        )
+        publisherSources[sourceId] = source
+        return nativeEpoch
     }
 
     func post(

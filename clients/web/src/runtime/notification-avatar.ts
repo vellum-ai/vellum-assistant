@@ -80,6 +80,9 @@ export interface NotificationIdentityPublication {
 
 /** Optional native process-memory sink supplied by desktop/mobile runtimes. */
 export interface NotificationIdentityNativeAdapter {
+  registerIdentityPublisher?(
+    publisherSessionId: string,
+  ): Promise<boolean> | boolean;
   prepareIdentity?(
     payload: PrepareNotificationIdentityPayload,
   ): Promise<void> | void;
@@ -92,6 +95,27 @@ const publicationScopes = new Map<string, PublicationScope>();
 let publicationEpoch = 0;
 let publicationSessionGeneration = 0;
 let installedNativeAdapter: NotificationIdentityNativeAdapter | null = null;
+let nativePublisherRegistration: {
+  adapter: NotificationIdentityNativeAdapter;
+  result: Promise<boolean>;
+} | null = null;
+
+function createPublisherSessionId(): string {
+  const randomUuid = globalThis.crypto?.randomUUID?.();
+  if (randomUuid) {
+    return randomUuid;
+  }
+  const bytes = new Uint8Array(16);
+  globalThis.crypto?.getRandomValues?.(bytes);
+  if (bytes.some((value) => value !== 0)) {
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join(
+      "",
+    );
+  }
+  return `renderer-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
+const publisherSessionId = createPublisherSessionId();
 
 /** Stable, collision-free key for a scope and its assistant-local id. */
 export function notificationIdentityKey(
@@ -664,6 +688,33 @@ function nativeNotificationIdentityAdapter(): NotificationIdentityNativeAdapter 
   return notifications ?? null;
 }
 
+function registerNativeIdentityPublisher(
+  adapter: NotificationIdentityNativeAdapter | null,
+): Promise<boolean> {
+  if (!adapter) {
+    return Promise.resolve(false);
+  }
+  if (nativePublisherRegistration?.adapter === adapter) {
+    return nativePublisherRegistration.result;
+  }
+  const register = adapter.registerIdentityPublisher;
+  let result: Promise<boolean>;
+  if (!register) {
+    result = Promise.resolve(false);
+  } else {
+    try {
+      result = Promise.resolve(register.call(adapter, publisherSessionId)).then(
+        (registered) => registered === true,
+        () => false,
+      );
+    } catch {
+      result = Promise.resolve(false);
+    }
+  }
+  nativePublisherRegistration = { adapter, result };
+  return result;
+}
+
 function invokeNativeIdentityAdapter(
   operation: "prepareIdentity" | "resetIdentities",
   payload:
@@ -682,12 +733,22 @@ function invokeNativeIdentityAdapter(
   if (!method) {
     return;
   }
-  try {
-    const result = method.call(adapter, payload as never);
-    void Promise.resolve(result).catch(() => {});
-  } catch {
-    // An older or unavailable native host leaves the renderer snapshot usable.
+  const invoke = (registered: boolean): void => {
+    try {
+      const result = method.call(adapter, {
+        ...payload,
+        ...(registered ? { publisherSessionId } : {}),
+      } as never);
+      void Promise.resolve(result).catch(() => {});
+    } catch {
+      // An older or unavailable native host leaves the renderer snapshot usable.
+    }
+  };
+  if (!adapter.registerIdentityPublisher) {
+    invoke(false);
+    return;
   }
+  void registerNativeIdentityPublisher(adapter).then(invoke);
 }
 
 /** Install the process-memory adapter exposed by a native notification host. */
@@ -695,7 +756,14 @@ export function setNotificationIdentityNativeAdapter(
   adapter: NotificationIdentityNativeAdapter | null,
 ): void {
   installedNativeAdapter = adapter;
+  if (!adapter) {
+    nativePublisherRegistration = null;
+    return;
+  }
+  void registerNativeIdentityPublisher(adapter);
 }
+
+void registerNativeIdentityPublisher(nativeNotificationIdentityAdapter());
 
 function dispatchNotificationIdentityReset(
   payload: ResetNotificationIdentitiesPayload,
@@ -1069,6 +1137,7 @@ export function __clearNotificationIdentitySnapshotsForTests(): void {
   publicationEpoch = 0;
   publicationSessionGeneration = 0;
   installedNativeAdapter = null;
+  nativePublisherRegistration = null;
   clearNotificationAvatar();
 }
 

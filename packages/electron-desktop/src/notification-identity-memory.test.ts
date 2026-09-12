@@ -10,6 +10,7 @@ import {
   NOTIFICATION_IDENTITY_MEMORY_LIMIT,
   __resetNotificationIdentityMemoryForTesting,
   clearNotificationIdentityMemory,
+  registerNotificationIdentityPublisherSource,
   getPreparedNotificationIdentity,
   prepareNotificationIdentity,
   resetNotificationIdentities,
@@ -47,6 +48,179 @@ beforeEach(() => {
 });
 
 describe("notification identity memory", () => {
+  test("reloads can republish above retained native generations", () => {
+    const sourceId = "webcontents:1";
+    expect(
+      registerNotificationIdentityPublisherSource(sourceId, "session-a"),
+    ).toBe(true);
+    expect(
+      prepareNotificationIdentity(
+        publication({
+          scopeEpoch: 1,
+          identityRevision: 0,
+          publisherSessionId: "session-a",
+          name: "Before reload",
+        }),
+        sourceId,
+      ),
+    ).toBe(true);
+
+    expect(
+      registerNotificationIdentityPublisherSource(sourceId, "session-b"),
+    ).toBe(true);
+    expect(
+      prepareNotificationIdentity(
+        publication({
+          scopeEpoch: 1,
+          identityRevision: 0,
+          publisherSessionId: "session-b",
+          name: "After reload",
+        }),
+        sourceId,
+      ),
+    ).toBe(true);
+    expect(getPreparedNotificationIdentity(identity())?.name).toBe(
+      "After reload",
+    );
+  });
+
+  test("rejects a retired publisher even when its first prepare is delayed", () => {
+    const sourceId = "webcontents:1";
+    registerNotificationIdentityPublisherSource(sourceId, "session-a");
+    registerNotificationIdentityPublisherSource(sourceId, "session-b");
+    expect(
+      prepareNotificationIdentity(
+        publication({
+          identityRevision: 0,
+          publisherSessionId: "session-b",
+          name: "Current",
+        }),
+        sourceId,
+      ),
+    ).toBe(true);
+
+    expect(
+      prepareNotificationIdentity(
+        publication({
+          identityRevision: 9,
+          publisherSessionId: "session-a",
+          name: "Delayed",
+        }),
+        sourceId,
+      ),
+    ).toBe(false);
+    expect(getPreparedNotificationIdentity(identity())?.name).toBe("Current");
+  });
+
+  test("a popout session preserves sibling identities in the same scope", () => {
+    const mainSource = "webcontents:1";
+    const popoutSource = "webcontents:2";
+    const sibling = identity("assistant-b");
+    registerNotificationIdentityPublisherSource(mainSource, "main-session");
+    registerNotificationIdentityPublisherSource(popoutSource, "popout-session");
+    expect(
+      prepareNotificationIdentity(
+        publication({
+          identityRevision: 0,
+          publisherSessionId: "main-session",
+        }),
+        mainSource,
+      ),
+    ).toBe(true);
+    expect(
+      prepareNotificationIdentity(
+        publication({
+          identity: sibling,
+          identityRevision: 0,
+          publisherSessionId: "popout-session",
+          name: "Bob",
+        }),
+        popoutSource,
+      ),
+    ).toBe(true);
+
+    expect(getPreparedNotificationIdentity(identity())?.name).toBe("Alice");
+    expect(getPreparedNotificationIdentity(sibling)?.name).toBe("Bob");
+  });
+
+  test("session translation keeps targeted reset tombstones ordered", () => {
+    const sourceId = "webcontents:1";
+    registerNotificationIdentityPublisherSource(sourceId, "session-a");
+    expect(
+      prepareNotificationIdentity(
+        publication({
+          identityRevision: 0,
+          publisherSessionId: "session-a",
+        }),
+        sourceId,
+      ),
+    ).toBe(true);
+    expect(
+      resetNotificationIdentities(
+        {
+          scopeId: SCOPE_A,
+          scopeEpoch: 1,
+          assistantId: "assistant-a",
+          identityRevision: 1,
+          publisherSessionId: "session-a",
+        },
+        sourceId,
+      ),
+    ).toBe(true);
+    expect(
+      prepareNotificationIdentity(
+        publication({
+          identityRevision: 0,
+          publisherSessionId: "session-a",
+        }),
+        sourceId,
+      ),
+    ).toBe(false);
+    expect(getPreparedNotificationIdentity(identity())).toBeNull();
+  });
+
+  test("only a whole-scope reset clears publisher siblings", () => {
+    const sourceId = "webcontents:1";
+    const sibling = identity("assistant-b");
+    registerNotificationIdentityPublisherSource(sourceId, "session-a");
+    prepareNotificationIdentity(
+      publication({ identityRevision: 0, publisherSessionId: "session-a" }),
+      sourceId,
+    );
+    prepareNotificationIdentity(
+      publication({
+        identity: sibling,
+        identityRevision: 0,
+        publisherSessionId: "session-a",
+      }),
+      sourceId,
+    );
+
+    expect(
+      resetNotificationIdentities(
+        {
+          scopeId: SCOPE_A,
+          scopeEpoch: 2,
+          publisherSessionId: "session-a",
+        },
+        sourceId,
+      ),
+    ).toBe(true);
+    expect(getPreparedNotificationIdentity(identity())).toBeNull();
+    expect(getPreparedNotificationIdentity(sibling)).toBeNull();
+    expect(
+      prepareNotificationIdentity(
+        publication({
+          scopeEpoch: 3,
+          identityRevision: 0,
+          publisherSessionId: "session-a",
+          name: "Reopened",
+        }),
+        sourceId,
+      ),
+    ).toBe(true);
+  });
+
   test("rejects a raw non-opaque scope before retaining identity data", () => {
     expect(
       prepareNotificationIdentity(

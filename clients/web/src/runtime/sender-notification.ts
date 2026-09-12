@@ -25,6 +25,7 @@ import { setNotificationIdentityNativeAdapter } from "@/runtime/notification-ava
 const PLUGIN_NAME = "SenderNotification";
 const CONTRACT_VERSION = 1;
 const PREPARED_IDENTITY_CAPABILITY = "preparedIdentity";
+const IDENTITY_PUBLISHER_SESSIONS_CAPABILITY = "identityPublisherSessions";
 const SINGLE_POST_OWNER_CAPABILITY = "singlePostOwner";
 const DELIVERY_STATUS_CAPABILITY = "deliveryStatus";
 const DEFAULT_WATCHDOG_MS = 2_000;
@@ -50,7 +51,9 @@ export interface SenderNotificationPostRequest
 }
 
 interface SenderNotificationPlugin {
-  getCapabilities(): Promise<SenderNotificationCapabilities>;
+  getCapabilities(payload?: {
+    publisherSessionId: string;
+  }): Promise<SenderNotificationCapabilities>;
   prepare(
     payload: PrepareNotificationIdentityPayload,
   ): Promise<{ ok?: boolean }>;
@@ -142,6 +145,21 @@ function normalizePostResult(value: unknown): NotificationDeliveryResult {
   return result;
 }
 
+function normalizeCapabilities(
+  result: SenderNotificationCapabilities,
+): ReadonlySet<string> | null {
+  if (
+    result.version !== CONTRACT_VERSION ||
+    !Array.isArray(result.capabilities) ||
+    !result.capabilities.every(
+      (capability): capability is string => typeof capability === "string",
+    )
+  ) {
+    return null;
+  }
+  return new Set(result.capabilities);
+}
+
 async function beforeOwnershipCapabilities(): Promise<
   ReadonlySet<string> | null
 > {
@@ -150,18 +168,7 @@ async function beforeOwnershipCapabilities(): Promise<
   }
   capabilityRequest ??= Promise.resolve()
     .then(() => SenderNotification.getCapabilities())
-    .then((result) => {
-      if (
-        result.version !== CONTRACT_VERSION ||
-        !Array.isArray(result.capabilities) ||
-        !result.capabilities.every(
-          (capability): capability is string => typeof capability === "string",
-        )
-      ) {
-        return null;
-      }
-      return new Set(result.capabilities);
-    })
+    .then(normalizeCapabilities)
     .catch(() => null);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -213,7 +220,22 @@ export async function resetSenderNotificationIdentities(
   await callPreparedIdentityMethod(() => SenderNotification.reset(payload));
 }
 
+async function registerSenderNotificationIdentityPublisher(
+  publisherSessionId: string,
+): Promise<boolean> {
+  if (!isBridgeRegistered()) {
+    return false;
+  }
+  capabilityRequest = Promise.resolve()
+    .then(() => SenderNotification.getCapabilities({ publisherSessionId }))
+    .then(normalizeCapabilities)
+    .catch(() => null);
+  const supported = await beforeOwnershipCapabilities();
+  return supported?.has(IDENTITY_PUBLISHER_SESSIONS_CAPABILITY) === true;
+}
+
 const identityAdapter = {
+  registerIdentityPublisher: registerSenderNotificationIdentityPublisher,
   prepareIdentity: prepareSenderNotificationIdentity,
   resetIdentities: resetSenderNotificationIdentities,
 };

@@ -171,8 +171,30 @@ describe("sender notification bridge gating", () => {
 
     expect(setNotificationIdentityNativeAdapter).toHaveBeenCalledTimes(1);
     expect(setNotificationIdentityNativeAdapter.mock.calls[0]?.[0]).toEqual({
+      registerIdentityPublisher: expect.any(Function),
       prepareIdentity: prepareSenderNotificationIdentity,
       resetIdentities: resetSenderNotificationIdentities,
+    });
+  });
+
+  test("registers the renderer session through capability discovery", async () => {
+    getCapabilities.mockResolvedValue({
+      version: 1,
+      capabilities: [
+        "preparedIdentity",
+        "identityPublisherSessions",
+        "singlePostOwner",
+        "deliveryStatus",
+      ],
+    });
+    installSenderNotificationIdentityAdapter();
+    const adapter = setNotificationIdentityNativeAdapter.mock.calls[0]?.[0] as {
+      registerIdentityPublisher(sessionId: string): Promise<boolean>;
+    };
+
+    expect(await adapter.registerIdentityPublisher("session-a")).toBe(true);
+    expect(getCapabilities).toHaveBeenCalledWith({
+      publisherSessionId: "session-a",
     });
   });
 });

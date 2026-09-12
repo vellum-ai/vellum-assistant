@@ -8,6 +8,7 @@ import {
   NOTIFICATION_SENDER_NAME_MAX_CHARS,
   NOTIFICATIONS_ACTION,
   NOTIFICATIONS_PREPARE_IDENTITY,
+  NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER,
   NOTIFICATIONS_RESET_IDENTITIES,
   NOTIFICATIONS_SHOW,
   type NotificationCategory,
@@ -17,6 +18,7 @@ import {
   type NotificationSender,
   type ShowNotificationPayload,
   prepareNotificationIdentityPayloadSchema,
+  registerNotificationIdentityPublisherPayloadSchema,
   resolveNotificationDeliveryKey,
   resetNotificationIdentitiesPayloadSchema,
   showNotificationPayloadSchema,
@@ -25,9 +27,11 @@ import {
 import type { IpcHandle } from "./ipc";
 import {
   __resetNotificationIdentityMemoryForTesting,
+  forgetNotificationIdentityPublisherSource,
   getPreparedNotificationIdentity,
   normalizeNotificationIdentity,
   prepareNotificationIdentity,
+  registerNotificationIdentityPublisherSource,
   resetNotificationIdentities,
 } from "./notification-identity-memory";
 
@@ -599,21 +603,50 @@ const showNotification = (payload: ShowPayload): Promise<ShowResult> => {
 // ---------------------------------------------------------------------------
 
 let pruneTimer: NodeJS.Timeout | null = null;
+let publisherSourcesWithCleanup = new WeakSet<object>();
+
+const identityPublisherSource = (
+  sender: { id: number; once(event: "destroyed", callback: () => void): void },
+): string => {
+  const sourceId = `webcontents:${sender.id}`;
+  if (!publisherSourcesWithCleanup.has(sender)) {
+    publisherSourcesWithCleanup.add(sender);
+    sender.once("destroyed", () => {
+      forgetNotificationIdentityPublisherSource(sourceId);
+    });
+  }
+  return sourceId;
+};
 
 export const installNotifications = (): void => {
   const ipc = requireRuntime().ipc;
   ipc.handle(
+    NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER,
+    z.tuple([registerNotificationIdentityPublisherPayloadSchema]),
+    ([payload], event) =>
+      registerNotificationIdentityPublisherSource(
+        identityPublisherSource(event.sender),
+        payload.publisherSessionId,
+      ),
+  );
+  ipc.handle(
     NOTIFICATIONS_PREPARE_IDENTITY,
     z.tuple([prepareNotificationIdentityPayloadSchema]),
-    ([payload]) => {
-      prepareNotificationIdentity(payload);
+    ([payload], event) => {
+      prepareNotificationIdentity(
+        payload,
+        identityPublisherSource(event.sender),
+      );
     },
   );
   ipc.handle(
     NOTIFICATIONS_RESET_IDENTITIES,
     z.tuple([resetNotificationIdentitiesPayloadSchema]),
-    ([payload]) => {
-      resetNotificationIdentities(payload);
+    ([payload], event) => {
+      resetNotificationIdentities(
+        payload,
+        identityPublisherSource(event.sender),
+      );
     },
   );
   ipc.handle(
@@ -629,6 +662,7 @@ export const installNotifications = (): void => {
 export const __resetForTesting = (): void => {
   recentNotifications.clear();
   __resetNotificationIdentityMemoryForTesting();
+  publisherSourcesWithCleanup = new WeakSet<object>();
   deliveryTimeoutMs = DELIVERY_TIMEOUT_MS;
   if (pruneTimer) {
     clearInterval(pruneTimer);

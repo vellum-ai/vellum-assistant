@@ -16,6 +16,8 @@ export const NOTIFICATION_IDENTITY_MEMORY_LIMIT = 32;
 
 const IDENTITY_GENERATION_LIMIT = NOTIFICATION_IDENTITY_MEMORY_LIMIT * 2;
 const SCOPE_GENERATION_LIMIT = IDENTITY_GENERATION_LIMIT;
+const PUBLISHER_SOURCE_LIMIT = SCOPE_GENERATION_LIMIT;
+const RETIRED_PUBLISHER_SESSION_LIMIT = 16;
 const BASE64_PATTERN =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const OPAQUE_SCOPE_PATTERN = /^scope:v1:[a-f0-9]{64}$/;
@@ -47,12 +49,32 @@ interface IdentityGenerationGuard {
   revisionTombstone?: boolean;
 }
 
+interface PublisherIdentityGeneration {
+  localRevision: number;
+  nativeRevision: number;
+  tombstone: boolean;
+}
+
+interface PublisherScopeGeneration {
+  localEpoch: number;
+  nativeEpoch: number;
+  sealed: boolean;
+  identities: Map<string, PublisherIdentityGeneration>;
+}
+
+interface PublisherSourceState {
+  activeSessionId: string;
+  retiredSessionIds: Set<string>;
+  scopes: Map<string, PublisherScopeGeneration>;
+}
+
 const identities = new Map<string, PreparedNotificationIdentity>();
 const scopeGenerationGuards = new Map<string, ScopeGenerationGuard>();
 const identityGenerationGuards = new Map<
   string,
   IdentityGenerationGuard
 >();
+const publisherSources = new Map<string, PublisherSourceState>();
 
 const identityKey = (
   identity: Pick<NotificationIdentity, "scopeId" | "assistantId">,
@@ -132,6 +154,194 @@ const validGeneration = (
   scopeEpoch >= 0 &&
   Number.isSafeInteger(identityRevision) &&
   identityRevision >= 0;
+
+const nextSafeGeneration = (current: number): number | null =>
+  current < Number.MAX_SAFE_INTEGER ? current + 1 : null;
+
+const activatePublisherSession = (
+  sourceId: string,
+  sessionId: string,
+): PublisherSourceState | null => {
+  const normalizedSourceId = boundedIdentityPart(sourceId);
+  const normalizedSessionId = boundedIdentityPart(sessionId);
+  if (!normalizedSourceId || !normalizedSessionId) {
+    return null;
+  }
+  const existing = publisherSources.get(normalizedSourceId);
+  if (!existing) {
+    if (publisherSources.size >= PUBLISHER_SOURCE_LIMIT) {
+      return null;
+    }
+    const created = {
+      activeSessionId: normalizedSessionId,
+      retiredSessionIds: new Set<string>(),
+      scopes: new Map<string, PublisherScopeGeneration>(),
+    };
+    publisherSources.set(normalizedSourceId, created);
+    return created;
+  }
+  if (existing.activeSessionId === normalizedSessionId) {
+    return existing;
+  }
+  if (existing.retiredSessionIds.has(normalizedSessionId)) {
+    return null;
+  }
+  existing.retiredSessionIds.add(existing.activeSessionId);
+  while (
+    existing.retiredSessionIds.size > RETIRED_PUBLISHER_SESSION_LIMIT
+  ) {
+    const oldest = existing.retiredSessionIds.values().next().value as
+      | string
+      | undefined;
+    if (!oldest) {
+      return null;
+    }
+    existing.retiredSessionIds.delete(oldest);
+  }
+  existing.activeSessionId = normalizedSessionId;
+  existing.scopes.clear();
+  return existing;
+};
+
+const nativeScopeEpochForTarget = (scopeId: string): number | null => {
+  const scope = scopeGenerationGuards.get(scopeId);
+  if (!scope) {
+    return 0;
+  }
+  if (
+    scope.sealedEpoch === undefined ||
+    scope.latestEpoch > scope.sealedEpoch
+  ) {
+    return scope.latestEpoch;
+  }
+  return nextSafeGeneration(scope.latestEpoch);
+};
+
+const nextNativeScopeEpoch = (scopeId: string): number | null =>
+  nextSafeGeneration(scopeGenerationGuards.get(scopeId)?.latestEpoch ?? -1);
+
+const nativeIdentityRevision = (
+  scopeId: string,
+  assistantId: string,
+  scopeEpoch: number,
+): number => {
+  const key = identityKey({ scopeId, assistantId });
+  const generation = identityGenerationGuards.get(key);
+  const prepared = identities.get(key);
+  return Math.max(
+    generation?.scopeEpoch === scopeEpoch ? generation.identityRevision : -1,
+    prepared?.scopeEpoch === scopeEpoch ? prepared.identityRevision : -1,
+  );
+};
+
+const publisherState = (
+  sourceId: string | undefined,
+  sessionId: string | undefined,
+): PublisherSourceState | null | undefined => {
+  if (!sessionId) {
+    return sourceId && publisherSources.has(sourceId) ? null : undefined;
+  }
+  if (!sourceId) {
+    return null;
+  }
+  const source = publisherSources.get(sourceId);
+  return source?.activeSessionId === sessionId ? source : null;
+};
+
+const publisherTargetGeneration = (
+  source: PublisherSourceState,
+  scopeId: string,
+  assistantId: string,
+  localEpoch: number,
+  localRevision: number,
+  tombstone: boolean,
+): { scopeEpoch: number; identityRevision: number } | null => {
+  let scope = source.scopes.get(scopeId);
+  if (!scope || localEpoch > scope.localEpoch) {
+    const createsScope = !scope;
+    const nativeEpoch = scope
+      ? nextNativeScopeEpoch(scopeId)
+      : nativeScopeEpochForTarget(scopeId);
+    if (
+      nativeEpoch === null ||
+      (createsScope && source.scopes.size >= SCOPE_GENERATION_LIMIT)
+    ) {
+      return null;
+    }
+    scope = {
+      localEpoch,
+      nativeEpoch,
+      sealed: false,
+      identities: new Map<string, PublisherIdentityGeneration>(),
+    };
+    source.scopes.set(scopeId, scope);
+  } else if (localEpoch < scope.localEpoch || scope.sealed) {
+    return null;
+  }
+
+  const mapped = scope.identities.get(assistantId);
+  if (mapped && localRevision < mapped.localRevision) {
+    return null;
+  }
+  if (mapped && localRevision === mapped.localRevision) {
+    if (!tombstone && mapped.tombstone) {
+      return null;
+    }
+    if (tombstone) {
+      mapped.tombstone = true;
+    }
+    return {
+      scopeEpoch: scope.nativeEpoch,
+      identityRevision: mapped.nativeRevision,
+    };
+  }
+  if (
+    !mapped &&
+    scope.identities.size >= IDENTITY_GENERATION_LIMIT
+  ) {
+    return null;
+  }
+  const nativeRevision = nextSafeGeneration(
+    nativeIdentityRevision(scopeId, assistantId, scope.nativeEpoch),
+  );
+  if (nativeRevision === null) {
+    return null;
+  }
+  scope.identities.set(assistantId, {
+    localRevision,
+    nativeRevision,
+    tombstone,
+  });
+  return { scopeEpoch: scope.nativeEpoch, identityRevision: nativeRevision };
+};
+
+const publisherScopeResetGeneration = (
+  source: PublisherSourceState,
+  scopeId: string,
+  localEpoch: number,
+): number | null => {
+  const mapped = source.scopes.get(scopeId);
+  if (mapped && localEpoch < mapped.localEpoch) {
+    return null;
+  }
+  if (mapped && localEpoch === mapped.localEpoch && mapped.sealed) {
+    return mapped.nativeEpoch;
+  }
+  if (!mapped && source.scopes.size >= SCOPE_GENERATION_LIMIT) {
+    return null;
+  }
+  const nativeEpoch = nextNativeScopeEpoch(scopeId);
+  if (nativeEpoch === null) {
+    return null;
+  }
+  source.scopes.set(scopeId, {
+    localEpoch,
+    nativeEpoch,
+    sealed: true,
+    identities: new Map<string, PublisherIdentityGeneration>(),
+  });
+  return nativeEpoch;
+};
 
 const setBounded = <Key, Value>(
   map: Map<Key, Value>,
@@ -240,6 +450,7 @@ const setIdentityGenerationGuard = (
 /** Publish independently verified name and avatar fields for one exact owner. */
 export const prepareNotificationIdentity = (
   payload: PrepareNotificationIdentityPayload,
+  publisherSourceId?: string,
 ): boolean => {
   const identity = normalizeNotificationIdentity(payload.identity);
   if (
@@ -253,6 +464,30 @@ export const prepareNotificationIdentity = (
   if (!name && !avatar) {
     return false;
   }
+  const source = publisherState(
+    publisherSourceId,
+    payload.publisherSessionId,
+  );
+  if (source === null) {
+    return false;
+  }
+  const mappedGeneration = source
+    ? publisherTargetGeneration(
+        source,
+        identity.scopeId,
+        identity.assistantId,
+        payload.scopeEpoch,
+        payload.identityRevision,
+        false,
+      )
+    : {
+        scopeEpoch: payload.scopeEpoch,
+        identityRevision: payload.identityRevision,
+      };
+  if (!mappedGeneration) {
+    return false;
+  }
+  payload = { ...payload, ...mappedGeneration };
   if (!acceptScopeEpoch(identity.scopeId, payload.scopeEpoch)) {
     return false;
   }
@@ -358,6 +593,7 @@ export const getPreparedNotificationIdentity = (
 /** Reset one assistant or every assistant in an opaque scope. */
 export const resetNotificationIdentities = (
   payload: ResetNotificationIdentitiesPayload,
+  publisherSourceId?: string,
 ): boolean => {
   const scopeId = boundedIdentityPart(payload.scopeId);
   const assistantId = payload.assistantId
@@ -375,6 +611,40 @@ export const resetNotificationIdentities = (
         payload.identityRevision < 0))
   ) {
     return false;
+  }
+
+  const source = publisherState(
+    publisherSourceId,
+    payload.publisherSessionId,
+  );
+  if (source === null) {
+    return false;
+  }
+  if (source) {
+    if (assistantId) {
+      const mappedGeneration = publisherTargetGeneration(
+        source,
+        scopeId,
+        assistantId,
+        payload.scopeEpoch,
+        payload.identityRevision ?? 0,
+        true,
+      );
+      if (!mappedGeneration) {
+        return false;
+      }
+      payload = { ...payload, ...mappedGeneration };
+    } else {
+      const scopeEpoch = publisherScopeResetGeneration(
+        source,
+        scopeId,
+        payload.scopeEpoch,
+      );
+      if (scopeEpoch === null) {
+        return false;
+      }
+      payload = { ...payload, scopeEpoch };
+    }
   }
 
   const scopeUpdate = updateScopeEpoch(scopeId, payload.scopeEpoch);
@@ -434,9 +704,21 @@ export const clearNotificationIdentityMemory = (): void => {
   }
 };
 
+export const registerNotificationIdentityPublisherSource = (
+  sourceId: string,
+  sessionId: string,
+): boolean => activatePublisherSession(sourceId, sessionId) !== null;
+
+export const forgetNotificationIdentityPublisherSource = (
+  sourceId: string,
+): void => {
+  publisherSources.delete(sourceId);
+};
+
 /** Test-only full reset, including stale-work guards. */
 export const __resetNotificationIdentityMemoryForTesting = (): void => {
   identities.clear();
   scopeGenerationGuards.clear();
   identityGenerationGuards.clear();
+  publisherSources.clear();
 };

@@ -115,14 +115,14 @@ mock.module("electron", () => ({
 type HandleRegistration = {
   channel: string;
   schema: z.ZodType<unknown[]>;
-  fn: (args: unknown[]) => unknown;
+  fn: (args: unknown[], event?: unknown) => unknown;
 };
 const handleRegistrations: HandleRegistration[] = [];
 const handleMock = mock(
   (
     channel: string,
     schema: z.ZodType<unknown[]>,
-    fn: (args: unknown[]) => unknown,
+    fn: (args: unknown[], event?: unknown) => unknown,
   ) => {
     handleRegistrations.push({ channel, schema, fn });
   },
@@ -150,10 +150,17 @@ type NotificationLike = import("./notifications").NotificationLike;
 
 const SHOW_CHANNEL = "vellum:notifications:show";
 const ACTION_CHANNEL = "vellum:notifications:action";
+const REGISTER_PUBLISHER_CHANNEL =
+  "vellum:notifications:registerIdentityPublisher";
 const PREPARE_CHANNEL = "vellum:notifications:prepareIdentity";
 const RESET_CHANNEL = "vellum:notifications:resetIdentities";
 const OPAQUE_SCOPE_A = `scope:v1:${"a".repeat(64)}`;
 const OPAQUE_SCOPE_B = `scope:v1:${"b".repeat(64)}`;
+const defaultSender = {
+  id: 1,
+  once: () => undefined,
+};
+const defaultEvent = { sender: defaultSender };
 
 interface ShowResult {
   success: boolean;
@@ -178,12 +185,12 @@ const handlerFor = (channel: string): HandleRegistration => {
 
 const prepareIdentity = (payload: Record<string, unknown>): void => {
   const { schema, fn } = handlerFor(PREPARE_CHANNEL);
-  fn(schema.parse([payload]));
+  fn(schema.parse([payload]), defaultEvent);
 };
 
 const resetIdentities = (payload: Record<string, unknown>): void => {
   const { schema, fn } = handlerFor(RESET_CHANNEL);
-  fn(schema.parse([payload]));
+  fn(schema.parse([payload]), defaultEvent);
 };
 
 /** Invoke the registered show handler the way `./ipc` would (tuple arg). */
@@ -238,7 +245,11 @@ describe("installNotifications", () => {
 
   test("registers validated identity preparation and reset handlers", () => {
     expect(handleRegistrations.map((r) => r.channel)).toEqual(
-      expect.arrayContaining([PREPARE_CHANNEL, RESET_CHANNEL]),
+      expect.arrayContaining([
+        REGISTER_PUBLISHER_CHANNEL,
+        PREPARE_CHANNEL,
+        RESET_CHANNEL,
+      ]),
     );
     expect(() =>
       handlerFor(PREPARE_CHANNEL).schema.parse([

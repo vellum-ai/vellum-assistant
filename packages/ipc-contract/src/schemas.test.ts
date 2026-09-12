@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   prepareNotificationIdentityPayloadSchema,
+  registerNotificationIdentityPublisherPayloadSchema,
   resetNotificationIdentitiesPayloadSchema,
   showNotificationPayloadSchema,
 } from "./schemas";
@@ -192,6 +193,7 @@ describe("prepared notification identity schemas", () => {
         identity: IDENTITY,
         scopeEpoch: 2,
         identityRevision: 4,
+        publisherSessionId: "session-a",
         name: "Ada",
         nameProvenance: "identity-store",
         avatar: {
@@ -199,7 +201,12 @@ describe("prepared notification identity schemas", () => {
           avatarHash: HASH,
         },
       }),
-    ).toMatchObject({ identity: IDENTITY, scopeEpoch: 2, identityRevision: 4 });
+    ).toMatchObject({
+      identity: IDENTITY,
+      scopeEpoch: 2,
+      identityRevision: 4,
+      publisherSessionId: "session-a",
+    });
   });
 
   test("requires content and verified provenance for a prepared name", () => {
@@ -249,6 +256,19 @@ describe("prepared notification identity schemas", () => {
         scopeId: IDENTITY.scopeId,
         scopeEpoch: 3,
         identityRevision: 5,
+      }),
+    ).toThrow();
+  });
+
+  test("requires a bounded publisher session registration", () => {
+    expect(
+      registerNotificationIdentityPublisherPayloadSchema.parse({
+        publisherSessionId: "session-a",
+      }),
+    ).toEqual({ publisherSessionId: "session-a" });
+    expect(() =>
+      registerNotificationIdentityPublisherPayloadSchema.parse({
+        publisherSessionId: " ",
       }),
     ).toThrow();
   });

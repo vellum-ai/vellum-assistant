@@ -542,6 +542,8 @@ export interface VellumBridge {
     show(
       payload: ShowNotificationPayload,
     ): Promise<{ success: boolean; errorMessage?: string }>;
+    /** Registers this preload's renderer lifetime before identity publication. */
+    registerIdentityPublisher?(publisherSessionId?: string): Promise<boolean>;
     /** Optional until every installed desktop preload supports preparation. */
     prepareIdentity?(
       payload: PrepareNotificationIdentityPayload,
