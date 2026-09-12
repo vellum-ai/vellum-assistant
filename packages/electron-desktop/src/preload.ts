@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import type { IpcRenderer, IpcRendererEvent } from "electron";
 
 import type {
@@ -149,7 +147,7 @@ export const createUpdateBridge = (
 export const createNotificationsBridge = (
   ipc: RendererIpc,
 ): VellumBridge["notifications"] => {
-  const publisherSessionId = randomUUID();
+  const publisherSessionId = globalThis.crypto.randomUUID();
   const publisherRegistration = Promise.resolve(
     ipc.invoke(NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER, {
       publisherSessionId,
