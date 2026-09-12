@@ -30,6 +30,7 @@
  * can never abort a turn.
  */
 import { getConfigReadOnly } from "../config/loader.js";
+import { resolvePlatformAssistantIdOrNull } from "../config/platform-identity.js";
 import type { LlmRequestLogsClickHouseConfig } from "../config/schemas/llm-request-logs.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
@@ -71,7 +72,7 @@ export interface ClickHouseLlmRequestLogSinkDeps {
   resolveUrl?: () => Promise<string | null>;
   /** Override the credential read for `clickhouse:password`. */
   resolvePassword?: () => Promise<string | null>;
-  /** Override the credential read for `vellum:platform_assistant_id`. */
+  /** Override the platform assistant id (in-memory identity, then vault). */
   resolveAssistantId?: () => Promise<string | null>;
   /** Override fetch for testing. */
   fetchImpl?: ClickHouseSinkFetch;
@@ -98,8 +99,7 @@ export class ClickHouseLlmRequestLogSink implements LlmRequestLogWriter {
       deps.resolvePassword ??
       (() => readCredentialOrNull("clickhouse", "password"));
     this.resolveAssistantId =
-      deps.resolveAssistantId ??
-      (() => readCredentialOrNull("vellum", "platform_assistant_id"));
+      deps.resolveAssistantId ?? resolvePlatformAssistantIdOrNull;
     this.fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
   }
 
