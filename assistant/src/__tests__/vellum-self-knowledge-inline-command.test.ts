@@ -136,6 +136,10 @@ describe("vellum-self-knowledge skill", () => {
     const result = await executeSkillLoad({ skill: "vellum-self-knowledge" });
     expect(result.content).toContain("## Critical Rule");
     expect(result.content).toContain("Never answer from memory");
+    expect(result.content).toContain("distinct, legacy Vellum product");
+    expect(result.content).toContain(
+      "Never use it to answer questions about this Vellum",
+    );
   });
 
   // ── Resolution order ─────────────────────────────────────────────────
