@@ -79,14 +79,7 @@
 
 import { create } from "zustand";
 
-import {
-  buildSelfHostedGatewayWsUrl,
-  buildVelayWsUrl,
-  isPairedGatewayIngress,
-  mintVelayWsToken,
-  PairedVoiceUnavailableError,
-  VelayWsTokenError,
-} from "@/domains/chat/voice/live-voice/connection";
+import { resolveGatewayWsUrl } from "@/domains/chat/voice/live-voice/connection";
 import {
   LiveVoiceAudioCapture,
   isSupported as isPcmCaptureSupported,
@@ -98,10 +91,6 @@ import { beginWatchRetro } from "@/domains/chat/watch/watch-retro";
 import { supportsWatchCaptureTarget } from "@/lib/backwards-compat/watch-capture-target";
 import { supportsWatchRetroCompletion } from "@/lib/backwards-compat/watch-retro-completion";
 import { resolveSupportsWatchSessions } from "@/lib/backwards-compat/watch-sessions";
-import {
-  getSelfHostedActorToken,
-  getSelfHostedIngressUrl,
-} from "@/lib/self-hosted/connection";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { WatchCaptureTarget } from "@vellumai/ipc-contract";
 
@@ -282,44 +271,7 @@ let drainRelease: Promise<void> | null = null;
 /** The route both transports open, on the gateway either way. */
 const WATCH_STREAM_ROUTE = "/v1/watch/stream";
 
-/**
- * Build the self-hosted watch stream WebSocket URL:
- *
- *   ws(s)://<ingressHost>/v1/watch/stream?token=…&mimeType=audio/pcm&sampleRate=16000
- *
- * The same shape as `buildSttStreamWsUrl`, and through the same helper, so the
- * two audio streams cannot drift into two ideas of how to reach the gateway.
- * Exported for unit tests.
- */
-export function buildWatchStreamWsUrl({
-  ingressUrl,
-  token,
-  target,
-}: {
-  ingressUrl: string;
-  token: string;
-  target?: WatchCaptureTarget;
-}): string {
-  return buildSelfHostedGatewayWsUrl({
-    ingressUrl,
-    routePath: WATCH_STREAM_ROUTE,
-    token,
-    params: watchStreamParams(target),
-  });
-}
-
-/**
- * The stream's query parameters: the audio format, and the capture target
- * when there is one.
- *
- * One parameter per shape rather than one encoded value, so the daemon's
- * upgrade handler reads two integers and never parses a string of this
- * module's devising. Both absent is the whole screen, which is what the
- * daemon read before it knew either parameter, so an assistant that predates
- * them is handed a URL it already understands.
- *
- * Exported for unit tests.
- */
+/** Audio format and optional display or window selection for the runtime. */
 export function watchStreamParams(
   target: WatchCaptureTarget | undefined,
 ): Record<string, string> {
@@ -334,55 +286,14 @@ export function watchStreamParams(
   };
 }
 
-/**
- * Resolve the watch stream WebSocket URL for `assistantId`, choosing the
- * transport by deployment kind exactly as {@link resolveLiveVoiceWsUrl} does.
- *
- * - **Self-hosted / local** — dial the user's own gateway ingress with the
- *   actor edge JWT. No token is minted; the gateway validates the JWT and
- *   checks its principal against the guardian binding.
- * - **Managed / cloud** — mint a short-lived velay token and dial velay, which
- *   validates and consumes it, then injects the authenticated user and org as
- *   `X-Velay-*` headers. The gateway takes its managed branch on those and
- *   cross-checks the caller against the stored `platform_user_id`
- *   (`gateway/src/http/routes/guardian-pin.ts`), so the guardian-only rule is
- *   the same rule on both paths, proven two different ways.
- *
- * Throws rather than returning null, so a start that cannot resolve a URL is
- * distinguishable from one this environment simply does not support:
- *
- * - {@link PairedVoiceUnavailableError} for a paired ingress, whose proxy is
- *   HTTP-only with no loopback to fall back to. Still genuinely unsupported.
- * - {@link VelayWsTokenError} when the ingress is known but its actor token
- *   has not been provisioned yet (a brief post-hatch window), and for a mint
- *   that the platform refuses.
- *
- * Exported for unit tests.
- */
-export async function resolveWatchStreamWsUrl(
+export function resolveWatchStreamWsUrl(
   assistantId: string,
   target?: WatchCaptureTarget,
 ): Promise<string> {
-  const ingressUrl = getSelfHostedIngressUrl();
-  if (ingressUrl) {
-    if (isPairedGatewayIngress(ingressUrl)) {
-      throw new PairedVoiceUnavailableError();
-    }
-    const token = getSelfHostedActorToken();
-    if (!token) {
-      throw new VelayWsTokenError(
-        0,
-        "Self-hosted watch has no actor token yet; the gateway isn't ready.",
-      );
-    }
-    return buildWatchStreamWsUrl({ ingressUrl, token, target });
-  }
-
-  const { token } = await mintVelayWsToken(assistantId);
-  return buildVelayWsUrl({
+  return resolveGatewayWsUrl({
     assistantId,
     routePath: WATCH_STREAM_ROUTE,
-    token,
+    label: "watch",
     params: watchStreamParams(target),
   });
 }

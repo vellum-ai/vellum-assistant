@@ -16,7 +16,7 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/admin-copilot",
       "license": "MIT",
-      "icon": "🧑‍💼"
+      "icon": "\ud83e\uddd1\u200d\ud83d\udcbc"
     },
     {
       "name": "agent-wrapped",
@@ -30,7 +30,7 @@
       "license": "MIT",
       "submittedBy": "marina",
       "homepage": "https://agent-wrapped.com",
-      "icon": "🎁"
+      "icon": "\ud83c\udf81"
     },
     {
       "name": "ai-hero-engineer-kit",
@@ -39,11 +39,11 @@
         "repo": "marinatrajk/ai-hero-engineer-kit",
         "ref": "18d33c62b15a3e2cc22dc070723fe3077749dcec"
       },
-      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' — plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
+      "description": "Five engineering skills adapted from Matt Pocock's '5 Agent Skills I Use Every Day' \u2014 plans, PRDs, vertical-slice issues, TDD loop, and codebase deepening in one install.",
       "category": "developer",
       "homepage": "https://github.com/marinatrajk/ai-hero-engineer-kit",
       "license": "MIT",
-      "icon": "🧰"
+      "icon": "\ud83e\uddf0"
     },
     {
       "name": "amex-perk-reminder",
@@ -56,7 +56,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
       "license": "MIT",
-      "icon": "💳"
+      "icon": "\ud83d\udcb3"
     },
     {
       "name": "astrology-horoscope",
@@ -69,7 +69,20 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/astrology-horoscope",
       "license": "MIT",
-      "icon": "🔮"
+      "icon": "\ud83d\udd2e"
+    },
+    {
+      "name": "battleship",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/battleship",
+        "ref": "32391ea3af71597b7507bb710bd29ab8308a4604"
+      },
+      "description": "Play Battleship against your assistant. Fire shots, track hits and misses, and sink the fleet before the assistant sinks yours.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/battleship",
+      "license": "MIT",
+      "icon": "\u2693"
     },
     {
       "name": "caveman",
@@ -82,7 +95,7 @@
       "category": "productivity",
       "homepage": "https://github.com/JuliusBrussee/caveman",
       "license": "MIT",
-      "icon": "🦴"
+      "icon": "\ud83e\uddb4"
     },
     {
       "name": "coffee-aficionado",
@@ -107,7 +120,7 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/cofounder",
       "license": "MIT",
-      "icon": "🤝"
+      "icon": "\ud83e\udd1d"
     },
     {
       "name": "cognee",
@@ -120,7 +133,7 @@
       "description": "Cognee knowledge graph memory for Vellum Assistant: session-aware storage, auto-routing recall, and persistent learning across sessions. Supports local mode and Cognee Cloud.",
       "category": "memory",
       "homepage": "https://github.com/topoteretes/cognee-integrations/tree/main/integrations/vellum-assistant",
-      "icon": "🕸️"
+      "icon": "\ud83d\udd78\ufe0f"
     },
     {
       "name": "creatorland",
@@ -134,7 +147,7 @@
       "category": "marketing",
       "homepage": "https://github.com/creatorland/creatorland-mcp-skills/tree/main/plugins/creatorland-data",
       "license": "MIT",
-      "icon": "🎨"
+      "icon": "\ud83c\udfa8"
     },
     {
       "name": "dynamic-notch",
@@ -147,7 +160,7 @@
       "category": "interface",
       "homepage": "https://github.com/AnitaKirkovska/dynamic-notch",
       "license": "MIT",
-      "icon": "💻"
+      "icon": "\ud83d\udcbb"
     },
     {
       "name": "family-briefing",
@@ -160,7 +173,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/family-briefing",
       "license": "MIT",
-      "icon": "👨‍👩‍👧‍👦"
+      "icon": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66"
     },
     {
       "name": "fitness-companion",
@@ -173,7 +186,7 @@
       "category": "health",
       "homepage": "https://github.com/vellum-ai/fitness-companion",
       "license": "MIT",
-      "icon": "💪"
+      "icon": "\ud83d\udcaa"
     },
     {
       "name": "git-workflow",
@@ -186,7 +199,7 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/git-workflow",
       "license": "MIT",
-      "icon": "🔀"
+      "icon": "\ud83d\udd00"
     },
     {
       "name": "google-drive-search",
@@ -199,20 +212,7 @@
       "category": "productivity",
       "homepage": "https://github.com/ZeebBoyBlue/google-drive-search",
       "license": "Apache-2.0",
-      "icon": "🔍"
-    },
-    {
-      "name": "influencer-marketing",
-      "source": {
-        "source": "github",
-        "repo": "ZeebBoyBlue/influencer",
-        "ref": "8629b0dcfdacf62246122af2dcd7320baa6db04e"
-      },
-      "description": "Find and research influencers on Instagram, TikTok, and X/Twitter. Includes a strategy builder that walks from campaign brief to research criteria, a research skill that discovers real profiles via browser automation, scores candidates, and exports ranked shortlists, and a dashboard skill that turns the shortlist into an interactive outreach tracker.",
-      "category": "marketing",
-      "homepage": "https://github.com/ZeebBoyBlue/influencer",
-      "license": "MIT",
-      "icon": "📣"
+      "icon": "\ud83d\udd0d"
     },
     {
       "name": "imessage",
@@ -225,7 +225,20 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/imessage",
       "license": "MIT",
-      "icon": "📲"
+      "icon": "\ud83d\udcf2"
+    },
+    {
+      "name": "influencer-marketing",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/influencer",
+        "ref": "8629b0dcfdacf62246122af2dcd7320baa6db04e"
+      },
+      "description": "Find and research influencers on Instagram, TikTok, and X/Twitter. Includes a strategy builder that walks from campaign brief to research criteria, a research skill that discovers real profiles via browser automation, scores candidates, and exports ranked shortlists, and a dashboard skill that turns the shortlist into an interactive outreach tracker.",
+      "category": "marketing",
+      "homepage": "https://github.com/ZeebBoyBlue/influencer",
+      "license": "MIT",
+      "icon": "\ud83d\udce3"
     },
     {
       "name": "kitchen-companion",
@@ -238,7 +251,20 @@
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/kitchen-companion",
       "license": "MIT",
-      "icon": "🍳"
+      "icon": "\ud83c\udf73"
+    },
+    {
+      "name": "ledger",
+      "source": {
+        "source": "github",
+        "repo": "simensgreen/ledger",
+        "ref": "7fc04fd77b20ad4b27ccd51be22c101274b370f6"
+      },
+      "description": "Structured storage for Vellum agents: tables via JSON Schema, query/aggregate via JSON, named saved queries.",
+      "category": "developer",
+      "homepage": "https://github.com/simensgreen/ledger",
+      "license": "MIT",
+      "icon": "\ud83d\uddc4\ufe0f"
     },
     {
       "name": "level-up",
@@ -251,7 +277,7 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/level-up",
       "license": "MIT",
-      "icon": "🆙"
+      "icon": "\ud83c\udd99"
     },
     {
       "name": "marketing-expert",
@@ -264,7 +290,7 @@
       "category": "marketing",
       "homepage": "https://github.com/vellum-ai/marketing-expert",
       "license": "MIT",
-      "icon": "📈"
+      "icon": "\ud83d\udcc8"
     },
     {
       "name": "markitdown-vellum",
@@ -273,11 +299,11 @@
         "repo": "simensgreen/markitdown-vellum",
         "ref": "5e5a4ecfd6c60d613778106442003a1ed302fc3c"
       },
-      "description": "Convert workspace documents (PDF, DOCX, PPTX, XLSX, images, MSG, …) to markdown via @cognipeer/to-markdown, with Vellum vision OCR or Tesseract.",
+      "description": "Convert workspace documents (PDF, DOCX, PPTX, XLSX, images, MSG, \u2026) to markdown via @cognipeer/to-markdown, with Vellum vision OCR or Tesseract.",
       "category": "productivity",
       "homepage": "https://github.com/simensgreen/markitdown-vellum",
       "license": "MIT",
-      "icon": "📄"
+      "icon": "\ud83d\udcc4"
     },
     {
       "name": "model-router",
@@ -290,7 +316,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/model-router",
       "license": "MIT",
-      "icon": "🚦"
+      "icon": "\ud83d\udea6"
     },
     {
       "name": "motion-design",
@@ -303,7 +329,7 @@
       "category": "creative",
       "homepage": "https://github.com/vellum-ai/motion-design",
       "license": "MIT",
-      "icon": "🎬"
+      "icon": "\ud83c\udfac"
     },
     {
       "name": "natural",
@@ -316,7 +342,19 @@
       "category": "finance",
       "homepage": "https://www.natural.com",
       "license": "MIT",
-      "icon": "💳"
+      "icon": "\ud83d\udcb3"
+    },
+    {
+      "name": "octolens",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/octolens",
+        "ref": "d9117f5c6b97b3bff75dec1a04bedc32571c6538"
+      },
+      "description": "Social listening plugin for Octolens. Monitor brand mentions, competitor activity, and industry conversations across 13+ platforms. Query mentions, run analytics, manage keywords and feeds via REST API tools, or connect the Octolens MCP server for natural-language workflows.",
+      "category": "growth",
+      "homepage": "https://github.com/vellum-ai/octolens",
+      "license": "MIT"
     },
     {
       "name": "openseo",
@@ -330,7 +368,7 @@
       "category": "marketing",
       "homepage": "https://openseo.so",
       "license": "MIT",
-      "icon": "🔎"
+      "icon": "\ud83d\udd0e"
     },
     {
       "name": "originkit",
@@ -343,7 +381,7 @@
       "category": "productivity",
       "homepage": "https://github.com/vellum-ai/originkit",
       "license": "MIT",
-      "icon": "🧱"
+      "icon": "\ud83e\uddf1"
     },
     {
       "name": "personal-finance",
@@ -356,7 +394,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/personal-finance",
       "license": "MIT",
-      "icon": "💰"
+      "icon": "\ud83d\udcb0"
     },
     {
       "name": "plant-doctor",
@@ -369,7 +407,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/vellum-ai/plant-doctor",
       "license": "MIT",
-      "icon": "🪴"
+      "icon": "\ud83e\udeb4"
     },
     {
       "name": "polyglot",
@@ -382,7 +420,7 @@
       "category": "education",
       "homepage": "https://github.com/vellum-ai/polyglot",
       "license": "MIT",
-      "icon": "🗣️"
+      "icon": "\ud83d\udde3\ufe0f"
     },
     {
       "name": "proactive-slacks",
@@ -395,7 +433,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/proactive-slacks",
       "license": "MIT",
-      "icon": "💬"
+      "icon": "\ud83d\udcac"
     },
     {
       "name": "reading-pal",
@@ -408,7 +446,20 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/reading-pal",
       "license": "MIT",
-      "icon": "📚"
+      "icon": "\ud83d\udcda"
+    },
+    {
+      "name": "restaurant-invoice-auditor",
+      "description": "Audits restaurant food delivery slips in 14 seconds, flags silent price hikes and pack-size shrinkage, and stages approved bills in QuickBooks.",
+      "category": "commerce",
+      "icon": "\ud83e\uddfe",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/restaurant-invoice-auditor",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/restaurant-invoice-auditor",
+        "ref": "f1905e639941e98172c5032b6d722f668882d75d"
+      }
     },
     {
       "name": "simple-memory",
@@ -421,7 +472,7 @@
       "category": "memory",
       "homepage": "https://github.com/vellum-ai/simple-memory",
       "license": "MIT",
-      "icon": "🧠"
+      "icon": "\ud83e\udde0"
     },
     {
       "name": "smb-inbox-brief",
@@ -434,7 +485,7 @@
       "category": "productivity",
       "homepage": "https://github.com/AnitaKirkovska/smb-inbox-brief",
       "license": "MIT",
-      "icon": "📧"
+      "icon": "\ud83d\udce7"
     },
     {
       "name": "tennis-companion",
@@ -447,7 +498,7 @@
       "category": "health",
       "homepage": "https://github.com/vellum-ai/tennis-companion",
       "license": "MIT",
-      "icon": "🎾"
+      "icon": "\ud83c\udfbe"
     },
     {
       "name": "travel-planner",
@@ -460,7 +511,7 @@
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/travel-planner",
       "license": "MIT",
-      "icon": "✈️"
+      "icon": "\u2708\ufe0f"
     },
     {
       "name": "unabyss",
@@ -473,7 +524,7 @@
       "category": "memory",
       "homepage": "https://unabyss.com",
       "license": "MIT",
-      "icon": "🌊"
+      "icon": "\ud83c\udf0a"
     },
     {
       "name": "vellum-client-qa",
@@ -486,20 +537,7 @@
       "category": "developer",
       "homepage": "https://github.com/vellum-ai/vellum-client-qa",
       "license": "MIT",
-      "icon": "🧪"
-    },
-    {
-      "name": "ledger",
-      "source": {
-        "source": "github",
-        "repo": "simensgreen/ledger",
-        "ref": "7fc04fd77b20ad4b27ccd51be22c101274b370f6"
-      },
-      "description": "Structured storage for Vellum agents: tables via JSON Schema, query/aggregate via JSON, named saved queries.",
-      "category": "developer",
-      "homepage": "https://github.com/simensgreen/ledger",
-      "license": "MIT",
-      "icon": "🗄️"
+      "icon": "\ud83e\uddea"
     },
     {
       "name": "virlo",
@@ -513,7 +551,7 @@
       "category": "marketing",
       "homepage": "https://github.com/Virlo-AI/virlo-integrations/tree/main/integrations/vellum",
       "license": "MIT",
-      "icon": "📱"
+      "icon": "\ud83d\udcf1"
     },
     {
       "name": "writing-coach",
@@ -526,32 +564,7 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/writing-coach",
       "license": "MIT",
-      "icon": "✍️"
-    },
-    {
-      "name": "battleship",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/battleship",
-        "ref": "32391ea3af71597b7507bb710bd29ab8308a4604"
-      },
-      "description": "Play Battleship against your assistant. Fire shots, track hits and misses, and sink the fleet before the assistant sinks yours.",
-      "category": "hobby",
-      "homepage": "https://github.com/vellum-ai/battleship",
-      "license": "MIT",
-      "icon": "⚓"
-    },
-    {
-      "name": "octolens",
-      "source": {
-        "source": "github",
-        "repo": "vellum-ai/octolens",
-        "ref": "d9117f5c6b97b3bff75dec1a04bedc32571c6538"
-      },
-      "description": "Social listening plugin for Octolens. Monitor brand mentions, competitor activity, and industry conversations across 13+ platforms. Query mentions, run analytics, manage keywords and feeds via REST API tools, or connect the Octolens MCP server for natural-language workflows.",
-      "category": "growth",
-      "homepage": "https://github.com/vellum-ai/octolens",
-      "license": "MIT"
+      "icon": "\u270d\ufe0f"
     }
   ]
 }

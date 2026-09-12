@@ -1159,6 +1159,87 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/desktop/setup": {
+        get: {
+          summary: "Get desktop setup status",
+          operationId: "desktopSetupStatus",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Desktop setup status for the bound guardian",
+            },
+          },
+        },
+        post: {
+          summary: "Install desktop components",
+          operationId: "desktopSetupInstall",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description:
+                "Current status of the shared background installation",
+            },
+          },
+        },
+      },
+      "/v1/desktop/stream": {
+        get: {
+          summary: "Assistant desktop stream WebSocket",
+          description:
+            "Accepts a WebSocket upgrade from the bound guardian for a containerized assistant's on-demand desktop and proxies raw RFB (VNC) bytes bidirectionally to the assistant runtime's /v1/desktop/stream, relaying the runtime's close codes verbatim.",
+          operationId: "desktopStreamWebsocket",
+          security: [{ BearerAuth: [] }],
+          parameters: [
+            {
+              name: "token",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+              description:
+                "Edge JWT for authentication (alternative to Authorization header, since browser WebSocket upgrades cannot set custom headers).",
+            },
+          ],
+          responses: {
+            "101": {
+              description:
+                "WebSocket upgrade successful - bidirectional RFB byte proxying begins.",
+            },
+            "401": {
+              description: "Unauthorized - missing or invalid token",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "403": {
+              description: "Forbidden - caller is not the bound guardian",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "426": {
+              description:
+                "Upgrade Required - request is not a WebSocket upgrade",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+            "500": {
+              description: "WebSocket upgrade failed",
+              content: {
+                "text/plain": {
+                  schema: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/live-voice": {
         get: {
           summary: "Live voice WebSocket",

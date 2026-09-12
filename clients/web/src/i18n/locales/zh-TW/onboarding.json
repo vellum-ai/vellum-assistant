@@ -13,7 +13,8 @@
     "logIn": "登入",
     "logOut": "登出",
     "loginToUse": "登入以使用",
-    "downloadMacApp": "下載 macOS 應用程式",
+    "downloadMacOSApp": "下載 macOS 應用程式",
+    "downloadWindowsApp": "下載 Windows 應用程式",
     "claim": "認領",
     "skipForNow": "暫時跳過",
     "starting": "正在啟動…"

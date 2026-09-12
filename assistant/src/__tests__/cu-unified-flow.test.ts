@@ -224,7 +224,10 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       );
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("no desktop client connected");
+      expect(result.content).toContain(
+        "The Vellum desktop app is needed to view or control your screen",
+      );
+      expect(result.content).toContain("https://www.vellum.ai/downloads");
     });
 
     test("returns error when proxy exists but client not connected", async () => {
@@ -237,7 +240,10 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content).toContain("no desktop client connected");
+      expect(result.content).toContain(
+        "The Vellum desktop app is needed to view or control your screen",
+      );
+      expect(result.content).toContain("https://www.vellum.ai/downloads");
       proxyObj.dispose();
     });
 

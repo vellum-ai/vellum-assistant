@@ -13,26 +13,11 @@
  * depending on the route shape. Provider-side signature validation is
  * performed by the per-route handlers in the gateway runtime, not by Velay.
  *
- *   - `^/v1/watch/stream` — exact match for the browser watch-session
+ *   - `^/v1/watch/stream`: exact match for the browser watch-session
  *     WebSocket, which carries a session's narration audio.
- *
- * `/v1/watch/stream` was deliberately absent until the client could use it.
- * The note that stood here argued the entry was premature on its own, and it
- * was right: an allowlist pattern with no client that dials the route opens a
- * public managed route which still cannot carry a session, and nothing fails
- * to say so. That is no longer the case. `resolveWatchStreamWsUrl` picks the
- * velay transport for a managed assistant, and velay validates the minted
- * token on this path the way it does live voice's, so the entry is now the
- * last step of the work rather than the first.
- *
- * One claim in that note was wrong and is worth not repeating: it read as
- * though a managed assistant could not have a locally connected `host_cu`
- * desktop client. Managed assistants reach the user's machine through the
- * desktop host proxy, which is how computer use already works for them. What
- * genuinely has no transport is a *paired* assistant, whose gateway proxy is
- * HTTP-only, and the client still refuses those outright
- * (`isPairedGatewayIngress` in
- * `clients/web/src/domains/chat/voice/live-voice/connection.ts`).
+ *   - `^/v1/desktop/stream`: exact match for the browser assistant-desktop
+ *     WebSocket, a raw RFB byte pipe to the pod's VNC server. Guardian-only
+ *     at the gateway handler, the same shape as the watch stream.
  *
  * If you add a new public route to `gateway/src/index.ts` that must be
  * reachable through the Velay tunnel (i.e. anything an external provider
@@ -65,6 +50,7 @@ const VELAY_NON_WEBHOOK_ALLOWED_PATHS: readonly string[] = Object.freeze([
   "^/v1/live-voice$",
   "^/v1/stt/stream$",
   "^/v1/watch/stream$",
+  "^/v1/desktop/stream$",
   "^/assistant/credentials/enter$",
   "^/v1/credential-requests/(peek|submit)$",
 ]);

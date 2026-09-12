@@ -94,7 +94,6 @@ const { MIN_VERSION: TARGET_MIN_VERSION } =
 const { MIN_VERSION: RETRO_MIN_VERSION } =
   await import("@/lib/backwards-compat/watch-retro-completion");
 const {
-  buildWatchStreamWsUrl,
   watchStreamParams,
   isWatchSessionActive,
   resolveWatchStreamWsUrl,
@@ -383,7 +382,7 @@ describe("the watch stream URL", () => {
    * daemon reads a number and never parses a string; no pick is the URL the
    * daemon always understood.
    */
-  test("carries the capture target as the daemon reads it", () => {
+  test("carries the capture target as the daemon reads it", async () => {
     expect(watchStreamParams(undefined)).toEqual(
       LIVE_VOICE_AUDIO_FORMAT_PARAMS,
     );
@@ -396,24 +395,18 @@ describe("the watch stream URL", () => {
       captureWindowId: "4242",
     });
     const url = new URL(
-      buildWatchStreamWsUrl({
-        ingressUrl: "https://gateway.example.com",
-        token: "actor-jwt",
-        target: { kind: "window", windowId: 4242 },
+      await resolveWatchStreamWsUrl(ASSISTANT_ID, {
+        kind: "window",
+        windowId: 4242,
       }),
     );
     expect(url.searchParams.get("captureWindowId")).toBe("4242");
     expect(url.searchParams.get("captureDisplayId")).toBeNull();
   });
 
-  test("carries the actor token and the capture's audio format", () => {
-    const url = new URL(
-      buildWatchStreamWsUrl({
-        ingressUrl: "https://gateway.example.com",
-        token: "actor-jwt",
-      }),
-    );
-    expect(url.protocol).toBe("wss:");
+  test("carries the actor token and the capture's audio format", async () => {
+    const url = new URL(await resolveWatchStreamWsUrl(ASSISTANT_ID));
+    expect(url.protocol).toBe("ws:");
     expect(url.pathname).toBe("/v1/watch/stream");
     expect(url.searchParams.get("token")).toBe("actor-jwt");
     expect(url.searchParams.get("mimeType")).toBe("audio/pcm");

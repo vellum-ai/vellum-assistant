@@ -170,6 +170,22 @@ afterEach(() => {
   mockProxyAvailable = false;
 });
 
+describe("host_bash unavailable desktop-app recovery", () => {
+  test("offers the desktop app download when a web turn has no host connection", async () => {
+    const result = await hostShellTool.execute(
+      { command: "pwd" },
+      makeContext({ transportInterface: "web" }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      "The Vellum desktop app is needed to run commands on your computer",
+    );
+    expect(result.content).toContain("https://www.vellum.ai/downloads");
+    expect(result.content).toContain("Open it, then retry.");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Proxy path — background: true
 // ---------------------------------------------------------------------------

@@ -511,6 +511,14 @@
       "label": "Send User Message Tool",
       "description": "Route all user-facing assistant text through the send_user_message tool instead of streamed assistant text",
       "defaultEnabled": false
+    },
+    {
+      "id": "assistant-desktop",
+      "scope": "assistant",
+      "key": "assistant-desktop",
+      "label": "Assistant Desktop",
+      "description": "Streams an interactive desktop from a containerized assistant pod to the web client over /v1/desktop/stream. Off: no desktop affordance is rendered. On: the chat header offers a desktop panel that views and controls the pod's display.",
+      "defaultEnabled": false
     }
   ]
 }

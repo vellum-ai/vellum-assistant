@@ -92,35 +92,16 @@ mock.module("../live-voice-credential-preflight.js", () => ({
       : realPreflightModule.resolveLiveVoiceCredentialReadiness(),
 }));
 
-import { CURRENT_POLICY_EPOCH } from "../../runtime/auth/policy.js";
-import { mintToken } from "../../runtime/auth/token-service.js";
+import {
+  mintActorToken,
+  mintGatewayToken,
+  requireHttpAuth,
+  upgradeHeaders,
+  waitForClose,
+} from "../../runtime/__tests__/runtime-ws-test-utils.js";
 import { RuntimeHttpServer } from "../../runtime/http-server.js";
 
 type JsonFrame = Record<string, unknown>;
-
-const savedAuthEnv = {
-  DISABLE_HTTP_AUTH: process.env.DISABLE_HTTP_AUTH,
-};
-
-function mintGatewayToken(): string {
-  return mintToken({
-    aud: "vellum-daemon",
-    sub: "svc:gateway:self",
-    scope_profile: "gateway_ingress_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 3600,
-  });
-}
-
-function mintActorToken(): string {
-  return mintToken({
-    aud: "vellum-daemon",
-    sub: "actor:self:user-123",
-    scope_profile: "actor_client_v1",
-    policy_epoch: CURRENT_POLICY_EPOCH,
-    ttlSeconds: 3600,
-  });
-}
 
 function startFrame(conversationId = "conversation-123"): string {
   return JSON.stringify({
@@ -157,33 +138,6 @@ async function waitForOpen(ws: WebSocket, timeoutMs = 2000): Promise<void> {
       reject(new Error("WebSocket failed to open"));
     };
     ws.addEventListener("open", onOpen);
-    ws.addEventListener("error", onError);
-  });
-}
-
-async function waitForClose(ws: WebSocket, timeoutMs = 2000): Promise<void> {
-  if (ws.readyState === WebSocket.CLOSED) {
-    return;
-  }
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      reject(new Error("Timed out waiting for WebSocket close"));
-    }, timeoutMs);
-    const cleanup = () => {
-      clearTimeout(timer);
-      ws.removeEventListener("close", onClose);
-      ws.removeEventListener("error", onError);
-    };
-    const onClose = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = () => {
-      cleanup();
-      reject(new Error("WebSocket close failed"));
-    };
-    ws.addEventListener("close", onClose);
     ws.addEventListener("error", onError);
   });
 }
@@ -241,6 +195,7 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
   let baseUrl: string;
   let wsBaseUrl: string;
   let clients: WebSocket[];
+  let restoreAuthEnv: () => void;
 
   beforeAll(() => {
     shellMocksActive = true;
@@ -251,7 +206,7 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
   });
 
   beforeEach(async () => {
-    delete process.env.DISABLE_HTTP_AUTH;
+    restoreAuthEnv = requireHttpAuth();
     resolveStreamingTranscriberImpl = async () => createResolvedTranscriber();
     resolveStreamingTranscriberMock.mockClear();
     resolvedTranscribers.length = 0;
@@ -268,11 +223,7 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
       closeClient(client);
     }
     await server.stop();
-    if (savedAuthEnv.DISABLE_HTTP_AUTH === undefined) {
-      delete process.env.DISABLE_HTTP_AUTH;
-    } else {
-      process.env.DISABLE_HTTP_AUTH = savedAuthEnv.DISABLE_HTTP_AUTH;
-    }
+    restoreAuthEnv();
   });
 
   function openLiveVoiceClient(token = mintGatewayToken()): WebSocket {
@@ -284,21 +235,14 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
   }
 
   test("rejects unauthorized upgrades before creating a WebSocket", async () => {
-    const baseHeaders = {
-      Upgrade: "websocket",
-      Connection: "Upgrade",
-      "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-      "Sec-WebSocket-Version": "13",
-    };
-
     const missingToken = await fetch(`${baseUrl}/v1/live-voice`, {
-      headers: baseHeaders,
+      headers: upgradeHeaders,
     });
     expect(missingToken.status).toBe(401);
 
     const actorToken = await fetch(
       `${baseUrl}/v1/live-voice?token=${mintActorToken()}`,
-      { headers: baseHeaders },
+      { headers: upgradeHeaders },
     );
     expect(actorToken.status).toBe(401);
 
@@ -306,7 +250,7 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
       `${baseUrl}/v1/live-voice?token=${mintGatewayToken()}`,
       {
         headers: {
-          ...baseHeaders,
+          ...upgradeHeaders,
           Origin: "https://external.example.com",
         },
       },
