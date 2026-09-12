@@ -41,8 +41,10 @@ Mounted editors retain the shared editor's cross-client limitation: a
 `documents:list` invalidation refreshes list queries, not the open editor's body.
 The load-time revalidation above does not provide simultaneous-edit conflict
 resolution. Executable TODOs cover remote saves after mounting in both a
-URL-backed session and an ordinary desktop drawer. A shared-editor follow-up must
-define how remote content and unsaved local revisions are preserved together.
+URL-backed session and an ordinary desktop drawer. Simultaneous cross-client edit
+conflict handling is outside this document-chat feature's scope. A shared-editor
+follow-up must define how remote content and unsaved local revisions are preserved
+together.
 Tracking: [mounted cross-client document invalidation](https://github.com/vellum-ai/vellum-assistant/pull/42599#discussion_r3994417269).
 Reopening the associated document from Chat Info or a chat card uses that same
 presentation action, retaining the editor, original return destination and history
@@ -137,7 +139,11 @@ chat panel. Mobile document sessions and mounted URL-backed desktop drawers use
 it for both text send and live-voice entry. Ordinary desktop drawers do not attach
 preparation to the chat composer; their explicit feedback action still flushes.
 Desktop transcript presentation without a mounted document editor uses normal
-chat sending.
+chat sending after its document load settles. Widening a mobile transcript
+presentation opens the document loading drawer while the outgoing save and fresh
+read complete. Preparation stays attached during that wait. A failed save or read
+keeps handoff blocked and exposes Retry and Close; a successful load restores the
+transcript presentation and ordinary sending.
 The editing lease remains active while the message waits in the ordinary send
 chain, then releases as its send handler takes ownership, without waiting for the
 delivery response. Cancellation or a thrown handoff also releases the lease.

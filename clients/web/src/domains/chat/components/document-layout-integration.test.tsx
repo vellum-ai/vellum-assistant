@@ -177,6 +177,13 @@ mock.module(
             {location.pathname}
             {location.search}
           </div>
+          <div data-testid="document-load-state">
+            {documentRoute.isLoading
+              ? "loading"
+              : documentRoute.error
+                ? "error"
+                : "ready"}
+          </div>
           <button onClick={() => void openDocument("surface-1")}>
             Open document
           </button>
@@ -287,7 +294,8 @@ beforeEach(() => {
   linked = true;
   pendingConversationRead = undefined;
   conversationLoad.mockClear();
-  load.mockClear();
+  load.mockReset();
+  load.mockImplementation(async () => ({ data: { ...saved } }));
   write.mockClear();
   pendingWrite = new Promise((resolve, reject) => {
     finishWrite = resolve;
@@ -820,6 +828,132 @@ async function exportDocument() {
 }
 
 describe("document session chat handoff", () => {
+  test.each([
+    { action: "send", rename: false },
+    { action: "voice", rename: false },
+    { action: "send", rename: true },
+    { action: "voice", rename: true },
+  ])(
+    "a transcript presentation blocks handoff until its desktop breakpoint reload completes: %j",
+    async ({ action, rename }) => {
+      renderLayout(true);
+      const editor = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      if (rename) {
+        await renameDocument("Breakpoint title");
+      } else {
+        fireEvent.change(editor, { target: { value: "Breakpoint body" } });
+      }
+      fireEvent.click(
+        screen.getByRole("button", { name: "View conversation" }),
+      );
+      let finishRead!: () => void;
+      load.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRead = () => resolve({ data: { ...saved } });
+          }),
+      );
+      act(() => resizeViewport(false));
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      expect(useViewerStore.getState().mainView).toBe("document");
+      expect(screen.getByTestId("document-load-state").textContent).toBe(
+        "loading",
+      );
+      const handoff = () =>
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: action === "send" ? "Send chat" : "Start voice",
+          }),
+        );
+      await act(async () => handoff());
+      expect(send).not.toHaveBeenCalled();
+      expect(startVoice).not.toHaveBeenCalled();
+      expect(useComposerStore.getState().input).toBe("Revise this paragraph");
+      await act(async () => finishWrite());
+      await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+      await act(async () => handoff());
+      expect(send).not.toHaveBeenCalled();
+      expect(startVoice).not.toHaveBeenCalled();
+      await act(async () => finishRead());
+      await waitFor(() =>
+        expect(screen.getByTestId("document-load-state").textContent).toBe(
+          "ready",
+        ),
+      );
+      expect(useViewerStore.getState().mainView).toBe("chat");
+      await act(async () => handoff());
+      if (action === "send") {
+        await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+        expect(sentDocument).toMatchObject({
+          title: rename ? "Breakpoint title" : "Notes",
+          content: rename ? "Original body" : "Breakpoint body",
+        });
+      } else {
+        await waitFor(() => expect(startVoice).toHaveBeenCalledTimes(1));
+        expect(startVoice.mock.results[0]!.value).toMatchObject({
+          title: rename ? "Breakpoint title" : "Notes",
+          content: rename ? "Original body" : "Breakpoint body",
+        });
+      }
+    },
+  );
+
+  test.each(["save", "read"])(
+    "a failed transcript breakpoint %s keeps handoff blocked and offers retry",
+    async (failure) => {
+      renderLayout(true);
+      fireEvent.change(
+        await screen.findByRole("textbox", { name: "Document body" }),
+        { target: { value: "Retained breakpoint body" } },
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "View conversation" }),
+      );
+      if (failure === "read") {
+        load.mockRejectedValueOnce(new Error("offline"));
+      }
+      act(() => resizeViewport(false));
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      await act(async () => {
+        if (failure === "save") {
+          failWrite(new Error("offline"));
+        } else {
+          finishWrite();
+        }
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId("document-load-state").textContent).toBe(
+          "error",
+        ),
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Send chat" }));
+        fireEvent.click(screen.getByRole("button", { name: "Start voice" }));
+      });
+      expect(send).not.toHaveBeenCalled();
+      expect(startVoice).not.toHaveBeenCalled();
+      expect(useComposerStore.getState().input).toBe("Revise this paragraph");
+      expect(await screen.findByRole("alert")).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Close document" }),
+      ).toBeTruthy();
+      pendingWrite = Promise.resolve();
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() =>
+        expect(screen.getByTestId("document-load-state").textContent).toBe(
+          "ready",
+        ),
+      );
+      await act(async () =>
+        fireEvent.click(screen.getByRole("button", { name: "Send chat" })),
+      );
+      await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+      expect(sentDocument?.content).toBe("Retained breakpoint body");
+    },
+  );
+
   test.each([
     { mobile: false, rename: false, action: "send" },
     { mobile: false, rename: true, action: "send" },
