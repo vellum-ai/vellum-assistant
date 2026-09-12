@@ -77,6 +77,23 @@ function edit(
   });
 }
 
+function invalidate(tags: string[], originClientId?: string) {
+  publish("sse.event", {
+    id: "event-sync",
+    emittedAt: new Date().toISOString(),
+    message: { type: "sync_changed", tags, originClientId },
+  });
+}
+
+function update(markdown: string, source: "stream" | "sync") {
+  if (source === "stream") {
+    edit(markdown);
+  } else {
+    document = { ...document, content: markdown };
+    invalidate(["documents:list"], "client-other");
+  }
+}
+
 beforeEach(() => {
   spyOn(daemonClient, "get").mockImplementation((async (options: {
     url: string;
@@ -117,6 +134,7 @@ describe("loadDocumentConversation", () => {
     expect(onReady).toHaveBeenCalledWith(original, "conv-1");
     const checks = isCurrent.mock.calls.length;
     edit("After completion");
+    invalidate(["documents:list"]);
     expect(isCurrent).toHaveBeenCalledTimes(checks);
     expect(onReady).toHaveBeenCalledTimes(1);
   });
@@ -143,56 +161,65 @@ describe("loadDocumentConversation", () => {
     },
   );
 
-  test("updates during the document GET invalidate its captured snapshot", async () => {
-    const pending = deferred<{ data: DocumentContent }>();
-    read.mockImplementationOnce(() => pending.promise);
-    const loading = loadDocumentConversation(options);
-    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
-    edit("Latest body");
-    pending.resolve({ data: original });
-    await loading;
-    expect(onReady).toHaveBeenCalledWith(document, "conv-1");
-    expect(read).toHaveBeenCalledTimes(2);
-  });
+  test.each(["stream", "sync"] as const)(
+    "%s updates during the document GET invalidate its captured snapshot",
+    async (source) => {
+      const pending = deferred<{ data: DocumentContent }>();
+      read.mockImplementationOnce(() => pending.promise);
+      const loading = loadDocumentConversation(options);
+      await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+      update("Latest body", source);
+      pending.resolve({ data: original });
+      await loading;
+      expect(onReady).toHaveBeenCalledWith(document, "conv-1");
+      expect(read).toHaveBeenCalledTimes(2);
+    },
+  );
 
-  test("another update during revalidation cannot publish the intermediate body", async () => {
-    const first = deferred<Awaited<ReturnType<typeof conversation>>>();
-    conversation.mockImplementationOnce(() => first.promise);
-    const loading = loadDocumentConversation(options);
-    await waitFor(() => expect(conversation).toHaveBeenCalledTimes(1));
-    edit("First revision");
-    const second = deferred<{ data: DocumentContent }>();
-    read.mockImplementationOnce(() => second.promise);
-    first.resolve({
-      data: { conversation: { id: "conv-1" } },
-      response: new Response(null, { status: 200 }),
-    });
-    await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
-    const intermediate = { ...document };
-    edit(" plus final revision", "append");
-    second.resolve({ data: intermediate });
-    await loading;
-    expect(onReady).toHaveBeenCalledTimes(1);
-    expect(onReady.mock.calls[0]![0].content).toBe(
-      "First revision plus final revision",
-    );
-    expect(read).toHaveBeenCalledTimes(3);
-  });
+  test.each(["stream", "sync"] as const)(
+    "another %s update during revalidation cannot publish the intermediate body",
+    async (source) => {
+      const first = deferred<Awaited<ReturnType<typeof conversation>>>();
+      conversation.mockImplementationOnce(() => first.promise);
+      const loading = loadDocumentConversation(options);
+      await waitFor(() => expect(conversation).toHaveBeenCalledTimes(1));
+      update("First revision", source);
+      const second = deferred<{ data: DocumentContent }>();
+      read.mockImplementationOnce(() => second.promise);
+      first.resolve({
+        data: { conversation: { id: "conv-1" } },
+        response: new Response(null, { status: 200 }),
+      });
+      await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+      const intermediate = { ...document };
+      update("First revision plus final revision", source);
+      second.resolve({ data: intermediate });
+      await loading;
+      expect(onReady).toHaveBeenCalledTimes(1);
+      expect(onReady.mock.calls[0]![0].content).toBe(
+        "First revision plus final revision",
+      );
+      expect(read).toHaveBeenCalledTimes(3);
+    },
+  );
 
-  test("revalidation also validates a changed document conversation", async () => {
-    const pending = deferred<Awaited<ReturnType<typeof conversation>>>();
-    conversation.mockImplementationOnce(() => pending.promise);
-    const loading = loadDocumentConversation(options);
-    await waitFor(() => expect(conversation).toHaveBeenCalledTimes(1));
-    document = { ...document, conversationId: "conv-2" };
-    edit("Relinked body");
-    pending.resolve({
-      data: { conversation: { id: "conv-1" } },
-      response: new Response(null, { status: 200 }),
-    });
-    await loading;
-    expect(onReady).toHaveBeenCalledWith(document, "conv-2");
-  });
+  test.each(["stream", "sync"] as const)(
+    "%s revalidation also validates a changed document conversation",
+    async (source) => {
+      const pending = deferred<Awaited<ReturnType<typeof conversation>>>();
+      conversation.mockImplementationOnce(() => pending.promise);
+      const loading = loadDocumentConversation(options);
+      await waitFor(() => expect(conversation).toHaveBeenCalledTimes(1));
+      document = { ...document, conversationId: "conv-2" };
+      update("Relinked body", source);
+      pending.resolve({
+        data: { conversation: { id: "conv-1" } },
+        response: new Response(null, { status: 200 }),
+      });
+      await loading;
+      expect(onReady).toHaveBeenCalledWith(document, "conv-2");
+    },
+  );
 
   test.each(["closed", "assistant switched"])(
     "a %s owner cannot revalidate or publish",
@@ -206,6 +233,7 @@ describe("loadDocumentConversation", () => {
       });
       await waitFor(() => expect(conversation).toHaveBeenCalledTimes(1));
       edit("Pending update");
+      invalidate(["documents:list"]);
       if (reason === "closed") {
         scope.dispose();
       } else {
@@ -227,23 +255,61 @@ describe("loadDocumentConversation", () => {
     },
   );
 
-  test("failed revalidation releases its listener and permits a fresh retry", async () => {
+  test.each(["stream", "sync"] as const)(
+    "failed %s revalidation releases its listener and permits a fresh retry",
+    async (source) => {
+      const pending = deferred<Awaited<ReturnType<typeof conversation>>>();
+      conversation.mockImplementationOnce(() => pending.promise);
+      const loading = loadDocumentConversation(options);
+      await waitFor(() => expect(conversation).toHaveBeenCalledTimes(1));
+      update("Retain latest server body", source);
+      read.mockRejectedValueOnce(new Error("offline"));
+      pending.resolve({
+        data: { conversation: { id: "conv-1" } },
+        response: new Response(null, { status: 200 }),
+      });
+      await expect(loading).rejects.toThrow("offline");
+      expect(onReady).not.toHaveBeenCalled();
+      const checks = isCurrent.mock.calls.length;
+      update("Final server body", source);
+      expect(isCurrent).toHaveBeenCalledTimes(checks);
+      await loadDocumentConversation(options);
+      expect(onReady).toHaveBeenCalledWith(document, "conv-1");
+    },
+  );
+
+  test.each([undefined, "client-other"])(
+    "document invalidations refresh body and title during link resolution (origin: %s)",
+    async (originClientId) => {
+      const pending = deferred<Awaited<ReturnType<typeof conversation>>>();
+      conversation.mockImplementationOnce(() => pending.promise);
+      const loading = loadDocumentConversation(options);
+      await waitFor(() => expect(conversation).toHaveBeenCalledTimes(1));
+      document = { ...document, title: "Remote title", content: "Remote body" };
+      invalidate(["apps:list", "documents:list"], originClientId);
+      pending.resolve({
+        data: { conversation: { id: "conv-1" } },
+        response: new Response(null, { status: 200 }),
+      });
+      await loading;
+      expect(onReady).toHaveBeenCalledWith(document, "conv-1");
+      expect(onReady).toHaveBeenCalledTimes(1);
+      expect(read).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  test("unrelated sync tags do not invalidate a document load", async () => {
     const pending = deferred<Awaited<ReturnType<typeof conversation>>>();
     conversation.mockImplementationOnce(() => pending.promise);
     const loading = loadDocumentConversation(options);
     await waitFor(() => expect(conversation).toHaveBeenCalledTimes(1));
-    edit("Retain latest server body");
-    read.mockRejectedValueOnce(new Error("offline"));
+    invalidate(["apps:list", "conversation:conv-1:messages"]);
     pending.resolve({
       data: { conversation: { id: "conv-1" } },
       response: new Response(null, { status: 200 }),
     });
-    await expect(loading).rejects.toThrow("offline");
-    expect(onReady).not.toHaveBeenCalled();
-    const checks = isCurrent.mock.calls.length;
-    edit("Final server body");
-    expect(isCurrent).toHaveBeenCalledTimes(checks);
-    await loadDocumentConversation(options);
-    expect(onReady).toHaveBeenCalledWith(document, "conv-1");
+    await loading;
+    expect(onReady).toHaveBeenCalledWith(original, "conv-1");
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });

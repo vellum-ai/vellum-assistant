@@ -305,9 +305,14 @@ function renderLayout(mobile: boolean, urlBacked = true) {
 }
 
 describe("document viewport handoff", () => {
-  test.each([true, false])(
-    "keeps assistant updates received during conversation resolution (mobile: %s)",
-    async (mobile) => {
+  test.each([
+    { mobile: true, remoteSave: false },
+    { mobile: false, remoteSave: false },
+    { mobile: true, remoteSave: true },
+    { mobile: false, remoteSave: true },
+  ])(
+    "keeps document updates received during conversation resolution: %j",
+    async ({ mobile, remoteSave }) => {
       let finishConversation!: () => void;
       pendingConversationRead = new Promise((resolve) => {
         finishConversation = resolve;
@@ -320,13 +325,19 @@ describe("document viewport handoff", () => {
         publish("sse.event", {
           id: "event-update",
           emittedAt: new Date().toISOString(),
-          message: {
-            type: "document_editor_update",
-            surfaceId: "surface-1",
-            conversationId: "conv-1",
-            markdown: "Latest assistant body",
-            mode: "replace",
-          },
+          message: remoteSave
+            ? {
+                type: "sync_changed",
+                tags: ["documents:list"],
+                originClientId: "client-other",
+              }
+            : {
+                type: "document_editor_update",
+                surfaceId: "surface-1",
+                conversationId: "conv-1",
+                markdown: "Latest assistant body",
+                mode: "replace",
+              },
         });
         finishConversation();
       });

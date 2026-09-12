@@ -21,12 +21,15 @@ Fresh chat entry, the document session and standalone recovery page read through
 and checks request ownership before and after fetching. The retained viewer
 snapshot is not a freshness signal. Save waits are scoped by assistant and surface.
 `loadDocumentConversation` keeps loading and link resolution in one operation.
-Updates for the loading surface invalidate that operation through the existing
-SSE bus, causing a fresh save-aware read and link validation before publication.
+Streamed updates for the loading surface and `sync_changed` invalidations tagged
+`documents:list` invalidate that operation through the existing SSE bus, causing
+a fresh save-aware read and link validation before publication. The list tag has
+no surface ID, so it conservatively invalidates any in-progress document load,
+including saves from another client.
 Its ready callback publishes synchronously before the update listener is released;
-unrelated surfaces do not trigger reads. Cancellation and errors release the
-listener without publishing stale content. The helper is shared by route entry,
-chat cards, Chat Info and mobile document recovery.
+unrelated streamed surfaces and sync tags do not trigger reads. Cancellation and
+errors release the listener without publishing stale content. The helper is shared
+by route entry, chat cards, Chat Info and mobile document recovery.
 A failed drain retains the original editor's save callback and dirty revision in
 memory. Retry or reopening reattempts that drain before fetching, so the server's
 older body cannot replace an unsaved edit. Success releases the callback; ending

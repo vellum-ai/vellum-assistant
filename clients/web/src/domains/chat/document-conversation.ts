@@ -5,6 +5,7 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import { t } from "@/i18n";
 import { subscribe } from "@/lib/event-bus";
+import { SYNC_TAGS } from "@/lib/sync/types";
 import type { DocumentContent } from "@/types/document-types";
 import {
   assistantScopedSupports,
@@ -120,7 +121,7 @@ export async function resolveDocumentConversation(
   return null;
 }
 
-/** Publishes a loaded document only after its link and streamed edits settle. */
+/** Publishes a loaded document only after its link and observed writes settle. */
 export async function loadDocumentConversation({
   assistantId,
   surfaceId,
@@ -136,8 +137,10 @@ export async function loadDocumentConversation({
   const unsubscribe = subscribe("sse.event", ({ message }) => {
     if (
       isCurrent() &&
-      message.type === "document_editor_update" &&
-      message.surfaceId === surfaceId
+      ((message.type === "document_editor_update" &&
+        message.surfaceId === surfaceId) ||
+        (message.type === "sync_changed" &&
+          message.tags.includes(SYNC_TAGS.documentsList)))
     ) {
       changed = true;
     }
