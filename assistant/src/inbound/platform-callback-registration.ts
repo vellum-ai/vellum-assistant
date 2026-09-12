@@ -19,9 +19,9 @@
  */
 
 import { getPlatformBaseUrl } from "../config/env.js";
-import { resolvePlatformAssistantId } from "../config/platform-identity.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import { resolvePlatformAssistantId } from "../config/platform-identity.js";
 import { ipcRegisterWebhookRoute } from "../ipc/gateway-client.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";

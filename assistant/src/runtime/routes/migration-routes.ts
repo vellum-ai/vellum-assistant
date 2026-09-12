@@ -22,8 +22,8 @@ import { PassThrough, Readable } from "node:stream";
 
 import { z } from "zod";
 
-import { resolvePlatformAssistantId } from "../../config/platform-identity.js";
 import { invalidateConfigCache } from "../../config/loader.js";
+import { resolvePlatformAssistantId } from "../../config/platform-identity.js";
 import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { runAsyncSqlite } from "../../persistence/db-async-query.js";
 import {

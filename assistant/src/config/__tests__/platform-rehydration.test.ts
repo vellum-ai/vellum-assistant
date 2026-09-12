@@ -42,7 +42,10 @@ describe("rehydratePlatformCredentials", () => {
   const originalAssistantApiKeyEnv = process.env.ASSISTANT_API_KEY;
   const originalFetch = globalThis.fetch;
   const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
-  let fetchImpl: typeof fetch = async () =>
+  let fetchImpl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response> = async () =>
     new Response("not found", { status: 404 });
 
   beforeEach(() => {
@@ -57,7 +60,7 @@ describe("rehydratePlatformCredentials", () => {
       const url = typeof input === "string" ? input : input.toString();
       fetchCalls.push({ url, init });
       return fetchImpl(input, init);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     // Env vars take precedence over the rehydrated overrides for some fields;
     // clear them so the credential-store values are what we observe.
     delete process.env.VELLUM_PLATFORM_URL;

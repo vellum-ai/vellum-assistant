@@ -19,7 +19,10 @@ const USER_ID = "33333333-4444-4555-8666-777777777777";
 describe("fetchPlatformIdentityIds", () => {
   const originalFetch = globalThis.fetch;
   const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
-  let fetchImpl: typeof fetch = async () =>
+  let fetchImpl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response> = async () =>
     new Response("not found", { status: 404 });
 
   beforeEach(() => {
@@ -32,7 +35,7 @@ describe("fetchPlatformIdentityIds", () => {
       const url = typeof input === "string" ? input : input.toString();
       fetchCalls.push({ url, init });
       return fetchImpl(input, init);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
   });
 
   afterEach(() => {

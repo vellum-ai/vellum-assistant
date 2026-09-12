@@ -25,8 +25,8 @@
  * on first write so opting in requires no out-of-band DDL.
  */
 import type { AgentEvent } from "../agent/loop.js";
-import { resolvePlatformAssistantIdOrNull } from "../config/platform-identity.js";
 import { getConfig } from "../config/loader.js";
+import { resolvePlatformAssistantIdOrNull } from "../config/platform-identity.js";
 import type { CompactionLogsClickHouseConfig } from "../config/schemas/compaction-logs.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
