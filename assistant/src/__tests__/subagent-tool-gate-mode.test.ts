@@ -249,17 +249,21 @@ describe("createResolveToolsCallback — toolContextPin", () => {
     });
   }
 
-  test("control: without a pin, a clientless fork drops every client-gated tool but ui_show", () => {
+  test("control: without a pin, a clientless fork drops client-gated tools but keeps host and UI tools", () => {
     projectedSkillToolNames = [];
     const resolve = createResolveToolsCallback(
       CLIENT_GATED_DEFS,
       clientlessExecutionCtx(),
     )!;
 
-    // ui_show stays on the wire: background UI surfaces persist and return
-    // instead of awaiting action, so they no longer need a connected client.
+    // Host tool definitions stay on the wire for background turns, and
+    // ui_show stays because background UI surfaces persist and return. The
+    // executor rejects host tools on explicitly non-interactive turns before
+    // dispatch; ask_question and request_system_permission remain
+    // client-gated at resolution.
     expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual([
       "remember",
+      "host_bash",
       "ui_show",
     ]);
   });
@@ -296,9 +300,12 @@ describe("createResolveToolsCallback — toolContextPin", () => {
       }),
     )!;
 
-    // ui_show survives the clientless pin: it persists and returns.
+    // Host tool definitions stay on the wire for background turns, and
+    // ui_show survives the clientless pin: it persists and returns. The
+    // executor rejects host tools on explicitly non-interactive turns.
     expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual([
       "remember",
+      "host_bash",
       "ui_show",
     ]);
   });
