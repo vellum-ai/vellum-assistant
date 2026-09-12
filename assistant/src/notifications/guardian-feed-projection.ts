@@ -14,6 +14,9 @@
  * other surfaces.
  */
 
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import {
   type FeedItem,
   type FeedItemGuardianIntent,
@@ -32,6 +35,7 @@ import {
   readHomeFeed,
 } from "../home/feed-writer.js";
 import { getLogger } from "../util/logger.js";
+import { getDataDir } from "../util/platform.js";
 import {
   buildToolApprovalSourceView,
   describeSlackChatLabel,
@@ -166,11 +170,17 @@ export interface GuardianFeedReceiptParams {
  *
  * The item keeps its title and summary; `guardianRequest` flips to the
  * terminal status (which is what removes the client's action buttons),
- * and urgency drops to `medium` so the item leaves the protected
- * "Needs attention" treatment and becomes an ordinary clearable
- * notification. Returns false only when the write itself failed, so the
- * withdrawal fan-out can hold its per-request receipt back and retry
- * (same contract as the other surfaces it settles). A request with no
+ * urgency drops to `medium` so the item leaves the protected "Needs
+ * attention" treatment and becomes an ordinary clearable notification,
+ * and an item still marked `new` is marked `seen`: a request settled on
+ * any surface is no longer something the user has to review, and leaving
+ * it unread is a false attention signal. That clear happens only on the
+ * edge into terminal, so a status the user set later (including marking
+ * the receipt unread again) survives a caller that receipts twice.
+ *
+ * Returns false only when the write itself failed, so the withdrawal
+ * fan-out can hold its per-request receipt back and retry (same
+ * contract as the other surfaces it settles). A request with no
  * projection item resolves true: the pending writer converges the
  * write-vs-resolve race by re-checking canonical status after its
  * append, so there is nothing here for a retry to fix.
@@ -197,6 +207,15 @@ export async function writeGuardianFeedReceipt(
     }
     const updated = await patchFeedItemContent(itemId, {
       urgency: "medium",
+      // Only on the pending-to-terminal edge. A later receipt for the
+      // same request (the fan-out retries per surface, reconciliation
+      // heals drift) must not undo a user who marked the receipt unread
+      // again; from `new` specifically, because a pending item the user
+      // dismissed outright stays dismissed.
+      status: (existing) =>
+        existing.status === "new" && isPendingGuardianFeedItem(existing)
+          ? "seen"
+          : existing.status,
       guardianRequest: (existing) => ({
         ...existing,
         status: params.status,
@@ -268,6 +287,108 @@ export async function receiptGuardianFeedItemIfRequestTerminal(
  */
 const RECONCILE_BACKFILL_LIMIT = 50;
 
+/** Ceiling on rows healed per round, mirroring the backfill bound. */
+const LEGACY_UNREAD_HEAL_LIMIT = 50;
+
+/**
+ * Marker file recording that this assistant has finished the one-time
+ * heal below. Its presence is the whole discriminator, and it has to be
+ * recorded because it cannot be inferred: a receipt written before the
+ * receipt cleared unread and a receipt the user deliberately marked
+ * unread afterwards are byte-identical on the row. Both are a terminal
+ * projection at `status: "new"`, and both already had urgency dropped,
+ * because the pre-fix receipt writer dropped urgency too.
+ */
+const LEGACY_UNREAD_HEAL_MARKER = "guardian-receipt-unread-heal.v1.json";
+
+/**
+ * Clear unread on guardian receipts that went terminal before the
+ * receipt writer learned to do it.
+ *
+ * The edge transition in `writeGuardianFeedReceipt` only runs when a
+ * request resolves, and a receipt persisted before this feature shipped
+ * never gets another one: reconciliation skips items whose projection is
+ * already terminal, and guardian items carry no `expiresAt`, so the row
+ * would sit unread forever. That is the population the bug report is
+ * about, so the invariant is not met without this pass.
+ *
+ * Runs once per assistant, not once per boot. A recurring pass would
+ * take back a deliberate "mark unread" every minute, and a per-boot pass
+ * would take it back on the next restart; the marker is what makes a
+ * later `new` unambiguously the user's, so it is never touched.
+ *
+ * Same user-choice semantics as the edge, enforced the same way: the
+ * transition is re-evaluated inside the writer's coalescing queue, moves
+ * only `new`, and leaves `seen`, `acted_on` and `dismissed` alone.
+ * Bounded per round, and the marker is written only once a round drains
+ * with nothing left and nothing failed, so an interrupted pass resumes.
+ */
+export async function healLegacyGuardianReceiptUnread(): Promise<void> {
+  let markerPath: string;
+  try {
+    markerPath = join(getDataDir(), LEGACY_UNREAD_HEAL_MARKER);
+    if (existsSync(markerPath)) {
+      return;
+    }
+  } catch (err) {
+    log.warn({ err }, "Guardian receipt unread heal: marker unreadable");
+    return;
+  }
+
+  const stale = readHomeFeed().items.filter(
+    (item) =>
+      item.guardianRequest !== undefined &&
+      !isPendingGuardianFeedItem(item) &&
+      item.status === "new",
+  );
+
+  const batch = stale.slice(0, LEGACY_UNREAD_HEAL_LIMIT);
+  let failed = 0;
+  for (const item of batch) {
+    // Re-tested at write time rather than trusted from the read above,
+    // so a row the edge transition or the user changed in between keeps
+    // whatever it was given.
+    const updated = await patchFeedItemContent(item.id, {
+      status: (existing) =>
+        existing.status === "new" && !isPendingGuardianFeedItem(existing)
+          ? "seen"
+          : existing.status,
+    });
+    if (!updated) {
+      failed++;
+    }
+  }
+
+  if (batch.length > 0) {
+    log.info(
+      {
+        healed: batch.length - failed,
+        failed,
+        remaining: stale.length - batch.length,
+      },
+      "Cleared unread on guardian receipts that predate the receipt's unread clear",
+    );
+  }
+
+  if (failed > 0 || stale.length > batch.length) {
+    // Not finished: leave the marker off so the next round resumes.
+    return;
+  }
+
+  try {
+    mkdirSync(getDataDir(), { recursive: true });
+    writeFileSync(
+      markerPath,
+      JSON.stringify({ completedAt: new Date().toISOString() }, null, 2) + "\n",
+      "utf-8",
+    );
+  } catch (err) {
+    // The heal itself landed; only the marker is missing, so the next
+    // round repeats a pass that now has nothing to do.
+    log.warn({ err }, "Guardian receipt unread heal: marker not persisted");
+  }
+}
+
 /**
  * Converge the feed against canonical guardian state. Run from the
  * guardian expiry sweep, so drift heals on the same cadence expiry does:
@@ -285,6 +406,10 @@ const RECONCILE_BACKFILL_LIMIT = 50;
  * not be mistaken for "everything resolved".
  */
 export async function reconcileGuardianFeedProjections(): Promise<void> {
+  // Ahead of the gateway read: the heal heads off stored rows alone and
+  // must not be held up by an unreachable gateway.
+  await healLegacyGuardianReceiptUnread();
+
   let pending: GuardianRequestWire[];
   try {
     pending = await listGuardianRequests({ status: "pending" });

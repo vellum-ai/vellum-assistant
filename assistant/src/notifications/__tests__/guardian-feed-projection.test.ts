@@ -42,12 +42,18 @@ mock.module("../../channels/gateway-guardian-requests.js", () => ({
 const {
   buildPendingGuardianProjection,
   guardianFeedItemId,
+  healLegacyGuardianReceiptUnread,
   reconcileGuardianFeedProjections,
   requestIdFromGuardianFeedItemId,
   writeGuardianFeedReceipt,
 } = await import("../guardian-feed-projection.js");
-const { appendFeedItem, bulkSetFeedItemStatus, getHomeFeedPath, readHomeFeed } =
-  await import("../../home/feed-writer.js");
+const {
+  appendFeedItem,
+  bulkSetFeedItemStatus,
+  getHomeFeedPath,
+  patchFeedItemStatus,
+  readHomeFeed,
+} = await import("../../home/feed-writer.js");
 const { GUARDIAN_TERMINAL_REASON_SUPERSEDED, isPendingGuardianFeedItem } =
   await import("../../api/responses/home.js");
 type FeedItem = import("../../api/responses/home.js").FeedItem;
@@ -103,6 +109,72 @@ function pendingGuardianItem(requestId: string): FeedItem {
     guardianRequest: projection,
   };
 }
+
+/**
+ * A receipt as it was persisted before the receipt writer cleared unread:
+ * terminal projection, urgency already dropped, still `new`.
+ */
+function legacyGuardianReceiptItem(requestId: string): FeedItem {
+  const item = pendingGuardianItem(requestId);
+  return {
+    ...item,
+    urgency: "medium",
+    status: "new",
+    guardianRequest: { ...item.guardianRequest!, status: "approved" },
+  };
+}
+
+describe("healLegacyGuardianReceiptUnread", () => {
+  test("clears unread on a receipt that predates the edge transition", async () => {
+    await appendFeedItem(legacyGuardianReceiptItem("legacy-1"));
+
+    await healLegacyGuardianReceiptUnread();
+
+    expect(
+      readHomeFeed().items.find((i) => i.id === guardianFeedItemId("legacy-1"))
+        ?.status,
+    ).toBe("seen");
+  });
+
+  test("runs once per assistant, so a later mark-unread stands", async () => {
+    await appendFeedItem(legacyGuardianReceiptItem("legacy-2"));
+    const itemId = guardianFeedItemId("legacy-2");
+    await healLegacyGuardianReceiptUnread();
+
+    // The user marks the resolved receipt unread again. The pass has
+    // already recorded completion, so a second round leaves it alone.
+    await patchFeedItemStatus(itemId, "new");
+    await healLegacyGuardianReceiptUnread();
+
+    expect(readHomeFeed().items.find((i) => i.id === itemId)?.status).toBe(
+      "new",
+    );
+  });
+
+  test("never revives a dismissed receipt", async () => {
+    const item = legacyGuardianReceiptItem("legacy-3");
+    await appendFeedItem({ ...item, status: "dismissed" });
+
+    await healLegacyGuardianReceiptUnread();
+
+    expect(
+      readHomeFeed().items.find((i) => i.id === guardianFeedItemId("legacy-3"))
+        ?.status,
+    ).toBe("dismissed");
+  });
+
+  test("leaves a still-pending request alone", async () => {
+    await appendFeedItem(pendingGuardianItem("still-pending"));
+
+    await healLegacyGuardianReceiptUnread();
+
+    const item = readHomeFeed().items.find(
+      (i) => i.id === guardianFeedItemId("still-pending"),
+    );
+    expect(item?.status).toBe("new");
+    expect(item && isPendingGuardianFeedItem(item)).toBe(true);
+  });
+});
 
 describe("buildPendingGuardianProjection", () => {
   test("tool approval projects as a pending approval with source facts", () => {
@@ -262,6 +334,75 @@ describe("writeGuardianFeedReceipt", () => {
       GUARDIAN_TERMINAL_REASON_SUPERSEDED,
     );
     expect(item?.guardianRequest?.status).toBe("denied");
+  });
+
+  test("a receipt stops the item reading as unread", async () => {
+    await appendFeedItem(pendingGuardianItem("req-6"));
+    await writeGuardianFeedReceipt({
+      requestId: "req-6",
+      status: "approved",
+      decidedAction: "approve_once",
+    });
+
+    const item = readHomeFeed().items.find(
+      (i) => i.id === guardianFeedItemId("req-6"),
+    );
+    // The clients' unread test is `status === "new"`, so a receipt left
+    // at `new` keeps lighting the bell for work nobody can act on.
+    expect(item?.status).toBe("seen");
+  });
+
+  test("a terminal status nobody decided also clears unread", async () => {
+    await appendFeedItem(pendingGuardianItem("req-7"));
+    await writeGuardianFeedReceipt({ requestId: "req-7", status: "expired" });
+
+    expect(
+      readHomeFeed().items.find((i) => i.id === guardianFeedItemId("req-7"))
+        ?.status,
+    ).toBe("seen");
+  });
+
+  test("a status the user set survives a re-run of the fan-out", async () => {
+    await appendFeedItem(pendingGuardianItem("req-8"));
+    const itemId = guardianFeedItemId("req-8");
+    await writeGuardianFeedReceipt({ requestId: "req-8", status: "approved" });
+    // The user clears the receipt, then the withdrawal fan-out retries
+    // (its per-request receipt is held back until every surface settles).
+    await patchFeedItemStatus(itemId, "dismissed");
+    await writeGuardianFeedReceipt({ requestId: "req-8", status: "approved" });
+
+    expect(readHomeFeed().items.find((i) => i.id === itemId)?.status).toBe(
+      "dismissed",
+    );
+  });
+
+  test("a pending request dismissed outright is not revived by its receipt", async () => {
+    await appendFeedItem(pendingGuardianItem("req-10"));
+    const itemId = guardianFeedItemId("req-10");
+    // Bulk dismissal spares a pending guardian item, but a deliberate
+    // single-item dismissal stays available and is not undone by the
+    // resolution that follows it.
+    await patchFeedItemStatus(itemId, "dismissed");
+    await writeGuardianFeedReceipt({ requestId: "req-10", status: "denied" });
+
+    expect(readHomeFeed().items.find((i) => i.id === itemId)?.status).toBe(
+      "dismissed",
+    );
+  });
+
+  test("a receipt the user marked unread again stays unread", async () => {
+    await appendFeedItem(pendingGuardianItem("req-9"));
+    const itemId = guardianFeedItemId("req-9");
+    await writeGuardianFeedReceipt({ requestId: "req-9", status: "approved" });
+    // The bell detail's read toggle writes `new` back onto a resolved
+    // receipt. The clear runs on the edge into terminal, which has
+    // already passed, so a later receipt must not take it back.
+    await patchFeedItemStatus(itemId, "new");
+    await writeGuardianFeedReceipt({ requestId: "req-9", status: "approved" });
+
+    expect(readHomeFeed().items.find((i) => i.id === itemId)?.status).toBe(
+      "new",
+    );
   });
 
   test("a request with no item resolves true (nothing to retry)", async () => {

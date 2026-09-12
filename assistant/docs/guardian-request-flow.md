@@ -72,6 +72,22 @@ it end to end:
   same way a failed card edit does. The write-vs-resolve race converges
   from the other side too: the feed writer re-checks canonical status
   after its append.
+- The receipt is the whole retire mechanism, so everything that must
+  stop happening lives in `writeGuardianFeedReceipt`: the terminal
+  `guardianRequest.status` withdraws every client affordance, urgency
+  drops to `medium` to leave the "Needs attention" treatment, and a
+  still-`new` item is marked `seen` (unread means the user has
+  something to review, which a resolved request is not). That clear
+  runs only on the edge into terminal, so re-running the fan-out
+  neither pulls a cleared receipt back into the bell nor undoes a user
+  who marked the receipt unread again.
+- Receipts that went terminal before the receipt learned to clear unread
+  are healed once per assistant by `healLegacyGuardianReceiptUnread`,
+  which the sweep calls ahead of its gateway read. One-shot rather than
+  recurring: a pre-upgrade `new` and a `new` the user set deliberately
+  are indistinguishable on the row, so a marker file under the data dir
+  records the boundary instead. The transition is re-evaluated inside
+  the writer queue and moves only `new`, exactly as the edge does.
 - The feed writer's bulk-dismiss pass skips pending guardian items
   (`isPendingGuardianFeedItem`), so "Clear all" can never retire an
   unresolved request; only its receipt is clearable.
