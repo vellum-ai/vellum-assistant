@@ -272,6 +272,41 @@ async function openDisconnect(name: string) {
 }
 
 describe("catalog discovery and connection UI", () => {
+  test.each([
+    ["unconnected", false],
+    ["connected", true],
+  ] as const)(
+    "uses the catalog ID for branding when an older response omits icon (%s)",
+    async (_state, connected) => {
+      const definition = mcpCatalogEntry({
+        id: "mailerlite",
+        serverKey: "mailerlite",
+        displayName: "MailerLite",
+        icon: undefined,
+      });
+      catalog.entries = [definition];
+      if (connected) {
+        servers = [
+          mcpServer({
+            id: "saved-mailerlite",
+            catalog: {
+              id: definition.id,
+              serverKey: definition.serverKey,
+              definitionDigest: definition.definitionDigest,
+            },
+          }),
+        ];
+      }
+
+      showPage();
+      const title = await screen.findByText("MailerLite");
+      const image = title.closest("[data-slot=card]")?.querySelector("img");
+      expect(image?.getAttribute("src")).toContain(
+        "images/integrations/mailerlite.png",
+      );
+    },
+  );
+
   test("Configure receives optional diagnostics and tool limits without fetching details for the list", async () => {
     servers = [
       mcpServer({

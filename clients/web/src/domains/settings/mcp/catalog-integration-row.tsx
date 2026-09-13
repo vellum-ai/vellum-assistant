@@ -25,6 +25,7 @@ export function CatalogIntegrationRow({
 }) {
   const { t } = useTranslation("settings");
   const { definition, servers } = method;
+  const providerKey = definition.icon ?? definition.id;
   const busy = connections.auth.isBusy;
   if (servers.length === 1) {
     const server = servers[0]!;
@@ -32,7 +33,7 @@ export function CatalogIntegrationRow({
       <McpServerCard
         server={server}
         displayName={definition.displayName}
-        providerKey={definition.icon}
+        providerKey={providerKey}
         onConfigure={connections.setConfigureServerId}
         onAuthenticate={connections.connectServer}
         onRemove={connections.setRemoveServerId}
@@ -49,7 +50,7 @@ export function CatalogIntegrationRow({
     <IntegrationListRow
       icon={
         <McpIntegrationIcon
-          providerKey={definition.icon}
+          providerKey={providerKey}
           endpointUrl={
             definition.documents.mcp?.mcpServers?.[definition.serverKey]?.url
           }
