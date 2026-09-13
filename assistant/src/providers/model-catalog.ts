@@ -863,6 +863,10 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.03,
         },
       },
+      // Google serves this model only to accounts that had access before it
+      // was retired from new sign-ups; a newer API key gets HTTP 404 "no
+      // longer available to new users". Kept for existing keys (no shutdown
+      // date is announced), so nothing code-owned may default to it.
       {
         id: "gemini-2.5-flash-lite",
         displayName: "Gemini 2.5 Flash Lite",
@@ -2655,8 +2659,7 @@ export function supportsForcedToolChoiceWithThinking(
   return !provider.models.some(
     (model) =>
       model.supportsForcedToolChoiceWithThinking === false &&
-      (model.id === modelId ||
-        stripDateSuffix(model.id) === normalizedModelId),
+      (model.id === modelId || stripDateSuffix(model.id) === normalizedModelId),
   );
 }
 
