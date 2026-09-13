@@ -59,7 +59,7 @@ Reviewed on 2026-09-11:
 | `mailerlite.png`          | [MailerLite website favicon](https://assets.mailerlite.com/images/favicon-48x48.png)                                                                 |
 | `meltwater.ico`           | [Meltwater website favicon](https://www.meltwater.com/favicon.ico)                                                                                   |
 | `mem.png`                 | [Mem website favicon](https://mem.ai/favicons/favicon-96x96.png)                                                                                     |
-| `mercury.ico`             | [Mercury website favicon](https://mercury.com/favicon.ico)                                                                                           |
+| `mercury.png`             | [Mercury website favicon](https://mercury.com/favicon.ico)                                                                                           |
 | `navan.ico`               | [Navan website favicon](https://navan.com/favicon.ico)                                                                                               |
 | `otter.png`               | [Otter website favicon](https://cdn.prod.website-files.com/618e9316785b3582a5178502/618e94bcbca88b51e2ad81f7_favicon.png)                            |
 | `profound.ico`            | [Profound website favicon](https://www.tryprofound.com/favicon.ico)                                                                                  |
@@ -67,8 +67,11 @@ Reviewed on 2026-09-11:
 | `typeform.png`            | [Typeform website icon](https://cdn.prod.website-files.com/66ffe2174aa8e8d5661c2708/68b6f00951eb33cd19b77288_Frame%201867174.png)                    |
 | `webull.ico`              | [Webull website favicon](https://www.webull.com/favicon.ico)                                                                                         |
 
-These files are unmodified provider assets and trademarks of their respective
-owners. They are used only to identify catalog integrations.
+These files are provider assets and trademarks of their respective owners.
+They are used only to identify catalog integrations. `juicebox.png` adds an
+opaque white background behind the official mark. `mercury.png` extracts the
+official favicon's 48px frame and adds the same background. The remaining
+provider assets are unmodified.
 
 `semrush.svg` and `upwork.svg` come from the same pinned Simple Icons commit
 above under CC0-1.0. Their original paths use the catalog brand color on an

@@ -57,7 +57,7 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   mailerlite: publicAsset("/images/integrations/mailerlite.png"),
   meltwater: publicAsset("/images/integrations/meltwater.ico"),
   mem: publicAsset("/images/integrations/mem.png"),
-  mercury: publicAsset("/images/integrations/mercury.ico"),
+  mercury: publicAsset("/images/integrations/mercury.png"),
   monday: publicAsset("/images/integrations/monday.svg"),
   navan: publicAsset("/images/integrations/navan.ico"),
   notion: publicAsset("/images/integrations/notion.svg"),
