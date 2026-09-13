@@ -200,6 +200,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     useConversationStore.getState().setEditingConversationId(null);
   }, []);
 
+  const handleNavigateAppRoute = useCallback(
+    (href: string) => {
+      handleCloseApp();
+      navigate(href);
+    },
+    [handleCloseApp, navigate],
+  );
+
   const handleCloseEditPanel = useCallback(() => {
     useConversationStore.getState().setEditingConversationId(null);
     useViewerStore.getState().exitAppEditing();
@@ -438,6 +446,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             html={openedAppState.html}
             assistantId={assistantId ?? ""}
             onClose={handleCloseApp}
+            onNavigateAppRoute={handleNavigateAppRoute}
             onEdit={handleCloseEditPanel}
             onShare={handleShareApp}
             isSharing={isSharing}
@@ -471,6 +480,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             html={openedAppState.html}
             assistantId={assistantId ?? ""}
             onClose={handleCloseApp}
+            onNavigateAppRoute={handleNavigateAppRoute}
             onEdit={handleEditApp}
             onShare={handleShareApp}
             isSharing={isSharing}

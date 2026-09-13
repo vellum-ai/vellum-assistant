@@ -85,6 +85,13 @@ export function LibraryDetailPage() {
     void navigate(routes.library.root);
   }, [navigate]);
 
+  const handleNavigateAppRoute = useCallback(
+    (href: string) => {
+      void navigate(href);
+    },
+    [navigate],
+  );
+
   useEdgeSwipeBack({
     containerRef: swipeContainerRef,
     onBack: handleClose,
@@ -185,6 +192,7 @@ export function LibraryDetailPage() {
           html={app.html}
           assistantId={assistantId}
           onClose={handleClose}
+          onNavigateAppRoute={handleNavigateAppRoute}
           {...(isReadOnlyApp(app.origin)
             ? {}
             : {

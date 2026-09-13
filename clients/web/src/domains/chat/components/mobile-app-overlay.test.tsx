@@ -33,6 +33,7 @@ function renderOverlay(isAppMinimized: boolean): string {
       assistantId="assistant-1"
       onToggleMinimized={() => undefined}
       onClose={() => undefined}
+      onNavigateAppRoute={() => undefined}
       onShare={() => undefined}
       isSharing={false}
       isDeploying={false}
