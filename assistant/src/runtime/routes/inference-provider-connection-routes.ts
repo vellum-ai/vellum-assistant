@@ -183,6 +183,17 @@ async function parseCustomProviderFields(
       if (!parsed.success) {
         throw new BadRequestError(`Invalid models: ${parsed.error.message}`);
       }
+      // Only OpenCode serves both OpenAI-style transports from one origin;
+      // every other provider fixes its transport, so a stored value there
+      // would be a setting with no effect.
+      if (
+        provider !== "opencode" &&
+        parsed.data.some((m) => m.transport !== undefined)
+      ) {
+        throw new BadRequestError(
+          `models[].transport is only valid for opencode connections. Remove transport from the model entries.`,
+        );
+      }
       out.models = parsed.data;
     }
   }

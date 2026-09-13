@@ -190,3 +190,46 @@ describe("ProviderEditorContent ollama Base URL", () => {
     });
   });
 });
+
+describe("ProviderEditorContent connection models", () => {
+  test("an edit keeps each unchanged model's stored transport", async () => {
+    const connection = ollamaConnection({
+      name: "opencode",
+      provider: "opencode",
+      auth: { type: "api_key", credential: "opencode:api_key" },
+      models: [
+        { id: "custom-muse", transport: "responses" },
+        { id: "mimo-v2.5-free" },
+      ],
+    });
+    patchedConnection = connection;
+    render(
+      <Wrapper>
+        <ProviderEditorContent
+          mode="edit"
+          variant="panel"
+          connection={connection}
+          assistantId={ASSISTANT_ID}
+          existingNames={["opencode"]}
+          onSave={() => {}}
+          onCancel={() => {}}
+        />
+      </Wrapper>,
+    );
+
+    const input = getInputByPlaceholder("model-1, model-2");
+    expect(input.value).toBe("custom-muse, mimo-v2.5-free");
+    fireEvent.change(input, {
+      target: { value: "custom-muse, new-model" },
+    });
+    fireEvent.click(getButton("Save Changes"));
+
+    await waitFor(() => {
+      expect(patchCalls.length).toBe(1);
+    });
+    expect(patchCalls[0].body.models).toEqual([
+      { id: "custom-muse", transport: "responses" },
+      { id: "new-model" },
+    ]);
+  });
+});
