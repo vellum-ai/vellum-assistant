@@ -16,10 +16,10 @@ const PROVIDER_DEFAULT_MODELS: Record<string, string> = Object.fromEntries(
 // oversight (openai's balanced repeats it too: the default-profile templates
 // split those tiers by reasoning effort, not model).
 //
-// "Serves" means serves to every API key, not only keys that predate a
-// cutoff: Google's `gemini-2.5-flash-lite` undercuts every 3.x Flash-Lite
-// but answers HTTP 404 "no longer available to new users" on newer keys, so
-// the gemini column skips it.
+// "Serves" means serves to every API key: Google's `gemini-2.5-flash-lite`
+// undercuts every 3.x Flash-Lite but is limited to grandfathered accounts
+// (other keys get HTTP 404 "no longer available to new users"), so the
+// gemini column skips it.
 const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   anthropic: {
     balanced: "claude-sonnet-4-6",

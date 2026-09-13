@@ -863,9 +863,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.03,
         },
       },
-      // Google answers HTTP 404 "no longer available to new users" for this
-      // model on API keys that postdate its cutoff from new accounts, so it
-      // is user-selectable only and no intent column may resolve to it.
+      // Limited to grandfathered accounts: other API keys get HTTP 404 "no
+      // longer available to new users", so this model is user-selectable
+      // only and no intent column may resolve to it.
       {
         id: "gemini-2.5-flash-lite",
         displayName: "Gemini 2.5 Flash Lite",

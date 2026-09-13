@@ -540,10 +540,10 @@ describe("resolveDefaultProfileForProvider", () => {
     expect(entry).toBe(workspace.balanced);
   });
 
-  // Google answers HTTP 404 "no longer available to new users" for
-  // gemini-2.5-flash-lite on API keys created after it was retired from new
-  // accounts, so a default profile resolving to it lists as available and
-  // then fails every request on a fresh BYOK key (ATL-1396).
+  // Google limits gemini-2.5-flash-lite to grandfathered accounts (other API
+  // keys get HTTP 404 "no longer available to new users"), so a default
+  // profile resolving to it lists as available and fails every request on a
+  // fresh BYOK key.
   test("gemini BYOK defaults never resolve to a model Google refuses new keys", () => {
     const budget = resolveDefaultProfileForProvider(
       managedStubs(),
