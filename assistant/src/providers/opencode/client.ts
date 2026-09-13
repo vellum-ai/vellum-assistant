@@ -55,23 +55,26 @@ export function buildOpenCodeRequestHeaders(opts: {
   return headers;
 }
 
-let processSessionId: string | undefined;
+let fallbackSessionId: string | undefined;
+
+/** @internal */
+export function resetOpenCodeFallbackSessionForTests(): void {
+  fallbackSessionId = undefined;
+}
 
 /**
  * Headers for one outgoing OpenCode request. The session header is never
  * omitted, because zen/go rejects requests without `x-opencode-session`:
- * `conversationId` when the call has one, otherwise the stable per-device
- * ID, otherwise one UUID minted for the lifetime of this process. Transport
- * metadata only; nothing here enters the request body.
+ * `conversationId` when the call has one, otherwise a fallback resolved
+ * once per process (the stable per-device ID if device.json exists at that
+ * point, else a fresh UUID) and pinned, so non-conversation traffic stays on
+ * one session even if device.json is created later. Transport metadata
+ * only; nothing here enters the request body.
  */
 export function resolveOpenCodeRequestHeaders(
   conversationId?: string,
 ): Record<string, string> {
-  let fallbackSessionId = getExistingDeviceId();
-  if (!fallbackSessionId) {
-    processSessionId ??= randomUUID();
-    fallbackSessionId = processSessionId;
-  }
+  fallbackSessionId ??= getExistingDeviceId() ?? randomUUID();
   return buildOpenCodeRequestHeaders({
     conversationId,
     fallbackSessionId,
