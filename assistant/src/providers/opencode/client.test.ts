@@ -168,6 +168,39 @@ describe("OpenCodeProvider", () => {
     expect(options.headers).not.toHaveProperty("session_id");
   });
 
+  test("stamps session and request headers on a configless call", async () => {
+    const provider = new OpenCodeProvider("sk-test", "mimo-v2.5-free");
+    const seen: Array<{ options: unknown }> = [];
+    (provider as unknown as { client: unknown }).client = {
+      chat: {
+        completions: {
+          create: async (_params: unknown, options: unknown) => {
+            seen.push({ options });
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  choices: [
+                    { delta: { content: "ok" }, finish_reason: "stop" },
+                  ],
+                  usage: { prompt_tokens: 2, completion_tokens: 1 },
+                };
+              },
+            };
+          },
+        },
+      },
+    };
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "question" }] },
+    ]);
+
+    const options = seen[0]!.options as { headers?: Record<string, string> };
+    expect(options.headers?.[OPENCODE_SESSION_HEADER]).toMatch(/\S/);
+    expect(options.headers?.[OPENCODE_REQUEST_HEADER]).toMatch(/\S/);
+    expect(options.headers).not.toHaveProperty("session_id");
+  });
+
   test("backfills placeholder content after an aborted empty assistant turn", async () => {
     const provider = new OpenCodeProvider("sk-test", "mimo-v2.5-free");
     const requests: unknown[] = [];

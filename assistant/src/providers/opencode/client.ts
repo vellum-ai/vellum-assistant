@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { getExistingDeviceId } from "../../util/device-id.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
+import type {
+  Message,
+  ProviderResponse,
+  SendMessageOptions,
+} from "../types.js";
 
 export const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
 export const OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
@@ -87,6 +92,29 @@ export class OpenCodeProvider extends OpenAIChatCompletionsProvider {
       streamTimeoutMs: options.streamTimeoutMs,
       assistantReasoningField: "reasoning_content",
       omitToolChoiceWhenReasoning: true,
+    });
+  }
+
+  /**
+   * Transport-level backstop so a call that reaches this provider without
+   * going through `RetryProvider` (or with no config at all) still carries
+   * the session and request headers zen/go requires. Headers the caller
+   * already resolved (conversation-derived) win.
+   */
+  override async sendMessage(
+    messages: Message[],
+    options?: SendMessageOptions,
+  ): Promise<ProviderResponse> {
+    const config = options?.config ?? {};
+    return super.sendMessage(messages, {
+      ...options,
+      config: {
+        ...config,
+        requestHeaders: {
+          ...resolveOpenCodeRequestHeaders(),
+          ...config.requestHeaders,
+        },
+      },
     });
   }
 }
