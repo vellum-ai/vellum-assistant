@@ -129,3 +129,58 @@ describe("testInferenceConnection", () => {
     ).toBeNull();
   });
 });
+
+describe("testInferenceConnection on OpenCode", () => {
+  const OPENCODE = {
+    provider: "opencode",
+    auth: { type: "none" } as const,
+    baseUrl: "https://opencode.ai/zen/v1",
+  };
+
+  test("probes /responses for a responses-only model", async () => {
+    const calls: ProbeCall[] = [];
+    const result = await testInferenceConnection(
+      { ...OPENCODE, models: [{ id: "muse-spark-1.2-contributor-free" }] },
+      stubFetch(200, calls),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      resolved_url: "https://opencode.ai/zen/v1/responses",
+    });
+    expect(calls[0].body).toMatchObject({
+      model: "muse-spark-1.2-contributor-free",
+      input: "ping",
+      max_output_tokens: 16,
+    });
+  });
+
+  test("keeps a chat-completions model on /chat/completions", async () => {
+    const calls: ProbeCall[] = [];
+    const result = await testInferenceConnection(
+      { ...OPENCODE, models: [{ id: "mimo-v2.5-free" }] },
+      stubFetch(200, calls),
+    );
+
+    expect(result?.resolved_url).toBe(
+      "https://opencode.ai/zen/v1/chat/completions",
+    );
+    expect(calls[0].body).toMatchObject({
+      model: "mimo-v2.5-free",
+      max_tokens: 1,
+    });
+  });
+
+  test("an explicit transport on the model entry picks the probed endpoint", async () => {
+    const calls: ProbeCall[] = [];
+    const result = await testInferenceConnection(
+      {
+        ...OPENCODE,
+        models: [{ id: "mimo-v2.5-free", transport: "responses" }],
+      },
+      stubFetch(200, calls),
+    );
+
+    expect(result?.resolved_url).toBe("https://opencode.ai/zen/v1/responses");
+  });
+});

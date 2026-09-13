@@ -10,7 +10,10 @@
 import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
-import { resolveOpenCodeRequestHeaders } from "../opencode/client.js";
+import {
+  resolveOpenCodeRequestHeaders,
+  resolveOpenCodeTransport,
+} from "../opencode/client.js";
 import type { Auth, ConnectionModel } from "./auth.js";
 import { resolveAuth } from "./resolve-auth.js";
 
@@ -46,10 +49,47 @@ function hintForStatus(status: number): string {
 }
 
 /**
- * Probe a connection's custom endpoint with a minimal chat-completions
- * request (`max_tokens: 1`). Returns `null` when there is nothing to probe:
- * no custom base URL, no model id to send, or auth that cannot be resolved
- * (a missing credential surfaces through its own error path).
+ * Minimal request for the transport the model is served over. Only OpenCode
+ * serves both OpenAI-style APIs from one origin; every other custom endpoint
+ * is probed as chat completions. Responses requires at least 16 output
+ * tokens.
+ */
+function buildProbeRequest(
+  provider: string,
+  model: ConnectionModel,
+): { path: string; body: Record<string, unknown> } {
+  if (
+    provider === "opencode" &&
+    resolveOpenCodeTransport(model.id, model.transport) === "responses"
+  ) {
+    return {
+      path: "/responses",
+      body: {
+        model: model.id,
+        input: "ping",
+        max_output_tokens: 16,
+        stream: false,
+      },
+    };
+  }
+  return {
+    path: "/chat/completions",
+    body: {
+      model: model.id,
+      messages: [{ role: "user", content: "ping" }],
+      max_tokens: 1,
+      stream: false,
+    },
+  };
+}
+
+/**
+ * Probe a connection's custom endpoint with a minimal request on the
+ * transport its first model uses (chat completions with `max_tokens: 1`
+ * unless the model is served by the Responses API). Returns `null` when
+ * there is nothing to probe: no custom base URL, no model id to send, or auth
+ * that cannot be resolved (a missing credential surfaces through its own
+ * error path).
  */
 export async function testInferenceConnection(
   connection: {
@@ -60,7 +100,7 @@ export async function testInferenceConnection(
   },
   fetchImpl: typeof fetch = fetch,
 ): Promise<EndpointCheck | null> {
-  const model = connection.models?.[0]?.id;
+  const model = connection.models?.[0];
   if (!connection.baseUrl || !model) {
     return null;
   }
@@ -78,7 +118,8 @@ export async function testInferenceConnection(
   const providerHeaders =
     connection.provider === "opencode" ? resolveOpenCodeRequestHeaders() : {};
 
-  const url = `${connection.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const probe = buildProbeRequest(connection.provider, model);
+  const url = `${connection.baseUrl.replace(/\/+$/, "")}${probe.path}`;
   try {
     const res = await fetchImpl(url, {
       method: "POST",
@@ -87,12 +128,7 @@ export async function testInferenceConnection(
         ...providerHeaders,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: "ping" }],
-        max_tokens: 1,
-        stream: false,
-      }),
+      body: JSON.stringify(probe.body),
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     void res.body?.cancel();

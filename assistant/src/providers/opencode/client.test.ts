@@ -9,6 +9,8 @@ import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
   OpenAIChatCompletionsProvider,
 } from "../openai/chat-completions-provider.js";
+import { OpenAIResponsesProvider } from "../openai/responses-provider.js";
+import type { Message } from "../types.js";
 import {
   buildOpenCodeRequestHeaders,
   OPENCODE_GO_BASE_URL,
@@ -16,10 +18,62 @@ import {
   OPENCODE_SESSION_HEADER,
   OPENCODE_ZEN_BASE_URL,
   OpenCodeProvider,
+  OpenCodeResponsesProvider,
   resetOpenCodeFallbackSessionForTests,
   resolveOpenCodeBaseURL,
   resolveOpenCodeRequestHeaders,
+  resolveOpenCodeTransport,
 } from "./client.js";
+
+const USER_TURN: Message[] = [
+  { role: "user", content: [{ type: "text", text: "question" }] },
+];
+
+/** Stub both wires on an OpenCodeProvider and record which one was called. */
+function stubTransports(provider: OpenCodeProvider) {
+  const chat: unknown[] = [];
+  const responses: Array<{ params: unknown; options: unknown }> = [];
+  (provider as unknown as { client: unknown }).client = {
+    chat: {
+      completions: {
+        create: async (params: unknown) => {
+          chat.push(params);
+          return {
+            async *[Symbol.asyncIterator]() {
+              yield {
+                choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+                usage: { prompt_tokens: 2, completion_tokens: 1 },
+              };
+            },
+          };
+        },
+      },
+    },
+  };
+  const inner = (
+    provider as unknown as { getResponsesInner(): OpenCodeResponsesProvider }
+  ).getResponsesInner();
+  (inner as unknown as { client: unknown }).client = {
+    responses: {
+      create: async (params: unknown, options: unknown) => {
+        responses.push({ params, options });
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield { type: "response.output_text.delta", delta: "ok" };
+            yield {
+              type: "response.completed",
+              response: {
+                status: "completed",
+                usage: { input_tokens: 2, output_tokens: 1 },
+              },
+            };
+          },
+        };
+      },
+    },
+  };
+  return { chat, responses };
+}
 
 describe("resolveOpenCodeBaseURL", () => {
   test("defaults to OpenCode Zen", () => {
@@ -239,5 +293,129 @@ describe("OpenCodeProvider", () => {
     };
     const assistantMsg = params.messages.find((m) => m.role === "assistant")!;
     expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
+  });
+});
+
+describe("resolveOpenCodeTransport", () => {
+  test("routes the known responses-only models to the Responses API", () => {
+    expect(resolveOpenCodeTransport("muse-spark-1.2-contributor-free")).toBe(
+      "responses",
+    );
+    expect(resolveOpenCodeTransport("muse-spark-1.3-contributor-free")).toBe(
+      "responses",
+    );
+  });
+
+  test("defaults every other model to chat completions", () => {
+    expect(resolveOpenCodeTransport("mimo-v2.5-free")).toBe("chat_completions");
+    expect(resolveOpenCodeTransport("gpt-5.4")).toBe("chat_completions");
+  });
+
+  test("an explicit transport wins over the built-in default", () => {
+    expect(resolveOpenCodeTransport("mimo-v2.5-free", "responses")).toBe(
+      "responses",
+    );
+    expect(
+      resolveOpenCodeTransport(
+        "muse-spark-1.2-contributor-free",
+        "chat_completions",
+      ),
+    ).toBe("chat_completions");
+  });
+});
+
+describe("OpenCodeResponsesProvider", () => {
+  test("is the Responses transport under the opencode name on OpenCode Zen", () => {
+    const provider = new OpenCodeResponsesProvider(
+      "sk-test",
+      "muse-spark-1.2-contributor-free",
+    );
+    expect(provider).toBeInstanceOf(OpenAIResponsesProvider);
+    expect(provider.name).toBe("opencode");
+    expect(
+      (provider as unknown as { client: { baseURL?: string } }).client.baseURL,
+    ).toBe(OPENCODE_ZEN_BASE_URL);
+  });
+
+  test("keeps a configured OpenCode Go origin", () => {
+    const provider = new OpenCodeResponsesProvider(
+      "sk-test",
+      "muse-spark-1.2-contributor-free",
+      { baseURL: OPENCODE_GO_BASE_URL },
+    );
+    expect(
+      (provider as unknown as { client: { baseURL?: string } }).client.baseURL,
+    ).toBe(OPENCODE_GO_BASE_URL);
+  });
+});
+
+describe("OpenCodeProvider transport selection", () => {
+  test("sends a responses-only model through the Responses API with OpenCode headers", async () => {
+    const provider = new OpenCodeProvider(
+      "sk-test",
+      "muse-spark-1.2-contributor-free",
+    );
+    const { chat, responses } = stubTransports(provider);
+
+    const result = await provider.sendMessage(USER_TURN, {
+      config: {
+        requestHeaders: {
+          [OPENCODE_SESSION_HEADER]: "conv-xyz",
+          [OPENCODE_REQUEST_HEADER]: "req-123",
+        },
+      },
+    });
+
+    expect(chat).toHaveLength(0);
+    expect(responses).toHaveLength(1);
+    expect((responses[0]!.params as { model: string }).model).toBe(
+      "muse-spark-1.2-contributor-free",
+    );
+    const options = responses[0]!.options as {
+      headers?: Record<string, string>;
+    };
+    expect(options.headers?.[OPENCODE_SESSION_HEADER]).toBe("conv-xyz");
+    expect(options.headers?.[OPENCODE_REQUEST_HEADER]).toBe("req-123");
+    expect(options.headers).not.toHaveProperty("session_id");
+    expect(result.content).toEqual([{ type: "text", text: "ok" }]);
+  });
+
+  test("keeps a chat-completions model on the chat wire", async () => {
+    const provider = new OpenCodeProvider("sk-test", "mimo-v2.5-free");
+    const { chat, responses } = stubTransports(provider);
+
+    await provider.sendMessage(USER_TURN);
+
+    expect(chat).toHaveLength(1);
+    expect(responses).toHaveLength(0);
+  });
+
+  test("a per-call model override picks the transport that model needs", async () => {
+    const provider = new OpenCodeProvider("sk-test", "mimo-v2.5-free");
+    const { chat, responses } = stubTransports(provider);
+
+    await provider.sendMessage(USER_TURN, {
+      config: { model: "muse-spark-1.2-contributor-free" },
+    });
+
+    expect(chat).toHaveLength(0);
+    expect(responses).toHaveLength(1);
+    expect((responses[0]!.params as { model: string }).model).toBe(
+      "muse-spark-1.2-contributor-free",
+    );
+  });
+
+  test("an explicit connection transport overrides the built-in default", () => {
+    const provider = new OpenCodeProvider("sk-test", "mimo-v2.5-free", {
+      modelTransports: {
+        "mimo-v2.5-free": "responses",
+        "muse-spark-1.2-contributor-free": "chat_completions",
+      },
+    });
+    expect(provider.resolveTransport("mimo-v2.5-free")).toBe("responses");
+    expect(provider.resolveTransport("muse-spark-1.2-contributor-free")).toBe(
+      "chat_completions",
+    );
+    expect(provider.resolveTransport("gpt-5.4")).toBe("chat_completions");
   });
 });

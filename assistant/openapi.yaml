@@ -38269,6 +38269,11 @@ components:
         displayName:
           type: string
           minLength: 1
+        transport:
+          type: string
+          enum:
+            - chat_completions
+            - responses
       required:
         - id
     TelemetryJsonValue:
@@ -39400,6 +39405,11 @@ components:
         displayName:
           type: string
           minLength: 1
+        transport:
+          type: string
+          enum:
+            - chat_completions
+            - responses
       required:
         - id
       additionalProperties: false
