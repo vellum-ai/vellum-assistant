@@ -88,6 +88,7 @@ import {
 } from "../tools/registry.js";
 import { RiskLevel } from "../tools/tool-types.js";
 import type { Tool } from "../tools/types.js";
+import { uiShowTool } from "../tools/ui-surface/definitions.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 
 // ---------------------------------------------------------------------------
@@ -248,6 +249,45 @@ describe("createResolveToolsCallback — toolContextPin", () => {
       ...overrides,
     });
   }
+
+  test("Slack turns keep the same full ui_show schema while surfaces persist", () => {
+    projectedSkillToolNames = [];
+    const liveResolve = createResolveToolsCallback(
+      [uiShowTool],
+      makeProjectionCtx({
+        hasNoClient: false,
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+        },
+      }),
+    )!;
+    const clientlessResolve = createResolveToolsCallback(
+      [uiShowTool],
+      clientlessExecutionCtx({
+        channelCapabilities: {
+          channel: "slack",
+          dashboardCapable: false,
+          supportsDynamicUi: false,
+          supportsVoiceInput: false,
+        },
+      }),
+    )!;
+
+    const [liveUiShow] = liveResolve(EMPTY_HISTORY);
+    const [clientlessUiShow] = clientlessResolve(EMPTY_HISTORY);
+    expect(liveUiShow).toEqual(clientlessUiShow);
+    expect(
+      (
+        liveUiShow.input_schema as {
+          properties: { surface_type: { enum: string[] } };
+        }
+      ).properties.surface_type.enum,
+    ).toContain("choice");
+    expect(liveUiShow.description).toContain("dynamic_page");
+  });
 
   test("control: without a pin, a clientless fork drops client-gated tools but keeps host and UI tools", () => {
     projectedSkillToolNames = [];

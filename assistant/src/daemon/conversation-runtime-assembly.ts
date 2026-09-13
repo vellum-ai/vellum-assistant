@@ -822,6 +822,7 @@ export function applySightFrameRetention(
 export function buildChannelCapabilityBlock(
   caps: ChannelCapabilities,
   clientOs: string | undefined = caps.clientOS,
+  isNonInteractive = false,
 ): string | null {
   // Happy path: desktop with full capabilities and no special context — skip injection.
   if (
@@ -873,7 +874,11 @@ export function buildChannelCapabilityBlock(
       "- Do NOT reference the dashboard UI, settings panels, or visual preference pickers.",
     );
     if (!caps.supportsDynamicUi) {
-      if (caps.channel === "slack") {
+      if (isNonInteractive) {
+        lines.push(
+          "- ui_show, ui_update, and ui_dismiss persist conversation content for the next capable client that opens this conversation. Do not claim a surface is visible now or wait for an action.",
+        );
+      } else if (caps.channel === "slack") {
         lines.push(
           '- Do NOT use app_create. Only use ui_show/ui_update for card surfaces with template: "task_progress"; present all other information as text.',
         );
@@ -2852,6 +2857,7 @@ export async function applyRuntimeInjections(
       const channelCapabilityBlock = buildChannelCapabilityBlock(
         channelCapabilities,
         clientOs,
+        options.isNonInteractive === true,
       );
       if (channelCapabilityBlock !== null) {
         channelCapabilitiesCaptured = channelCapabilityBlock;

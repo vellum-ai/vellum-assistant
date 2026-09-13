@@ -62,10 +62,7 @@ import {
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
-import {
-  injectActivationMomentParam,
-  projectUiToolsForChannel,
-} from "../tools/ui-surface/channel-variants.js";
+import { injectActivationMomentParam } from "../tools/ui-surface/channel-variants.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
@@ -1147,18 +1144,12 @@ export function createResolveToolsCallback(
         : currentWorkspaceDefs
     ).filter((d) => !readOnlyHidesFromWire(d.name));
     const excluded = new Set(getConfig().tools.exclude);
-    // Swap UI surface tools for channel-appropriate variants (e.g. Slack's
-    // task_progress-only ui_show). Mirrors the pin handling in
-    // `isToolActiveForContext`: execution-gate-mode wakes pin channel
-    // capabilities to undefined, which resolves to the unprojected defs.
-    const channelForUiTools = ctx.toolContextPin
-      ? undefined
-      : ctx.channelCapabilities?.channel;
-    let allBaseDefs = projectUiToolsForChannel(
-      [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
-        (d) => !excluded.has(d.name),
-      ),
-      channelForUiTools,
+    // UI definitions stay identical across channel and background turns.
+    // Channel renderers enforce their supported surface subset at execution,
+    // while background calls persist the full surface content for the next
+    // capable client that opens the conversation.
+    let allBaseDefs = [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
+      (d) => !excluded.has(d.name),
     );
     // Activation-rail conversations carry the optional `activation_moment`
     // telemetry param on ui_show. The marker is written before the first
