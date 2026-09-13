@@ -565,8 +565,10 @@ function isMissingReasoningContentRejection(
 
 /**
  * True when the request included an assistant `reasoning` / `reasoning_content`
- * extra and the provider rejected it as an unknown message property. One retry
- * without those extras lets a strict Chat Completions schema succeed.
+ * extra and the provider rejected it as an unknown or unsupported message
+ * property. One retry without those extras lets a strict Chat Completions
+ * schema succeed. Groq phrases this as
+ * `property 'reasoning_content' is unsupported`.
  */
 function isUnknownAssistantReasoningFieldRejection(
   error: unknown,
@@ -585,7 +587,7 @@ function isUnknownAssistantReasoningFieldRejection(
   if (!haystackNamesAssistantReasoningField(haystack)) {
     return false;
   }
-  return /unknown|unexpected|unrecognized|additional propert|extra (?:field|property)|not (?:a )?valid|invalid (?:argument|parameter|field|property)/i.test(
+  return /unknown|unexpected|unrecognized|unsupported|not supported|additional propert|extra (?:field|property)|not (?:a )?valid|invalid (?:argument|parameter|field|property)/i.test(
     haystack,
   );
 }
