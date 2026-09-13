@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+
+import { getExistingDeviceId } from "../../util/device-id.js";
 import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
 
 export const OPENCODE_ZEN_BASE_URL = "https://opencode.ai/zen/v1";
@@ -27,9 +30,8 @@ export function resolveOpenCodeBaseURL(configuredBaseURL?: string): string {
  * request ids only when they exist. Never sets `session_id` (zen/go
  * returns 500 when that header is present).
  *
- * `conversationId` wins for the session header; `fallbackSessionId` (a
- * stable per-device ID supplied by the caller) covers non-conversation
- * background calls so they still identify a session to zen/go.
+ * `conversationId` wins for the session header; `fallbackSessionId` covers
+ * non-conversation calls so they still identify a session to zen/go.
  */
 export function buildOpenCodeRequestHeaders(opts: {
   conversationId?: string;
@@ -46,6 +48,30 @@ export function buildOpenCodeRequestHeaders(opts: {
     headers[OPENCODE_REQUEST_HEADER] = requestId;
   }
   return headers;
+}
+
+let processSessionId: string | undefined;
+
+/**
+ * Headers for one outgoing OpenCode request. The session header is never
+ * omitted, because zen/go rejects requests without `x-opencode-session`:
+ * `conversationId` when the call has one, otherwise the stable per-device
+ * ID, otherwise one UUID minted for the lifetime of this process. Transport
+ * metadata only; nothing here enters the request body.
+ */
+export function resolveOpenCodeRequestHeaders(
+  conversationId?: string,
+): Record<string, string> {
+  let fallbackSessionId = getExistingDeviceId();
+  if (!fallbackSessionId) {
+    processSessionId ??= randomUUID();
+    fallbackSessionId = processSessionId;
+  }
+  return buildOpenCodeRequestHeaders({
+    conversationId,
+    fallbackSessionId,
+    requestId: randomUUID(),
+  });
 }
 
 export class OpenCodeProvider extends OpenAIChatCompletionsProvider {
