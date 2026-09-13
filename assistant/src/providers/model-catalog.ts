@@ -863,10 +863,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.03,
         },
       },
-      // Google serves this model only to accounts that had access before it
-      // was retired from new sign-ups; a newer API key gets HTTP 404 "no
-      // longer available to new users". Kept for existing keys (no shutdown
-      // date is announced), so nothing code-owned may default to it.
+      // Google answers HTTP 404 "no longer available to new users" for this
+      // model on API keys that postdate its cutoff from new accounts, so it
+      // is user-selectable only and no intent column may resolve to it.
       {
         id: "gemini-2.5-flash-lite",
         displayName: "Gemini 2.5 Flash Lite",
