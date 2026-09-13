@@ -46,7 +46,7 @@ Reviewed on 2026-09-11:
 | `attio.ico`               | [Attio website favicon](https://attio.com/favicon.ico)                                                                                               |
 | `circleback.ico`          | [Circleback website favicon](https://circleback.ai/favicon.ico)                                                                                      |
 | `clay.png`                | [Clay website favicon](https://cdn.prod.website-files.com/61477f2c24a826836f969afe/6a3a92ab03ef81bab42cb009_dot-com_favicon_2026_512.png)            |
-| `craft.ico`               | [Craft website favicon](https://www.craft.do/favicon.ico)                                                                                            |
+| `craft.png`               | [Craft website favicon](https://www.craft.do/favicon.ico)                                                                                            |
 | `customer-io.png`         | [Customer.io website favicon](https://customer.io/favicon-48x48.png)                                                                                 |
 | `fireflies.ico`           | [Fireflies website favicon](https://fireflies.ai/favicon.ico)                                                                                        |
 | `gamma.png`               | [Gamma developer documentation favicon](https://developers.gamma.app/)                                                                               |
@@ -62,16 +62,17 @@ Reviewed on 2026-09-11:
 | `mercury.png`             | [Mercury website favicon](https://mercury.com/favicon.ico)                                                                                           |
 | `navan.ico`               | [Navan website favicon](https://navan.com/favicon.ico)                                                                                               |
 | `otter.png`               | [Otter website favicon](https://cdn.prod.website-files.com/618e9316785b3582a5178502/618e94bcbca88b51e2ad81f7_favicon.png)                            |
-| `profound.ico`            | [Profound website favicon](https://www.tryprofound.com/favicon.ico)                                                                                  |
+| `profound.png`            | [Profound website favicon](https://www.tryprofound.com/favicon.ico)                                                                                  |
 | `readwise.ico`            | [Readwise website favicon](https://readwise.io/favicon.ico)                                                                                          |
 | `typeform.png`            | [Typeform website icon](https://cdn.prod.website-files.com/66ffe2174aa8e8d5661c2708/68b6f00951eb33cd19b77288_Frame%201867174.png)                    |
 | `webull.ico`              | [Webull website favicon](https://www.webull.com/favicon.ico)                                                                                         |
 
 These files are provider assets and trademarks of their respective owners.
 They are used only to identify catalog integrations. `juicebox.png` adds an
-opaque white background behind the official mark. `mercury.png` extracts the
-official favicon's 48px frame and adds the same background. The remaining
-provider assets are unmodified.
+opaque white background behind the official mark. `craft.png` and
+`profound.png` extract the official favicons' 32px frames and add the same
+background. `mercury.png` extracts the official favicon's 48px frame and adds
+the same background. The remaining provider assets are unmodified.
 
 `semrush.svg` and `upwork.svg` come from the same pinned Simple Icons commit
 above under CC0-1.0. Their original paths use the catalog brand color on an
