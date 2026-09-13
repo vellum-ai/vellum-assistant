@@ -29,7 +29,7 @@ describe("model intents", () => {
       "gpt-5.6-luna",
     );
     expect(resolveModelIntent("gemini", "cost-optimized")).toBe(
-      "gemini-3.5-flash-lite",
+      "gemini-3.1-flash-lite",
     );
     expect(resolveModelIntent("gemini", "latency-optimized")).toBe(
       "gemini-3.1-flash-lite",

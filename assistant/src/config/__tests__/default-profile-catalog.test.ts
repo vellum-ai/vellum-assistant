@@ -551,7 +551,7 @@ describe("resolveDefaultProfileForProvider", () => {
       dp("gemini"),
     );
     expect(budget?.provider).toBe("gemini");
-    expect(budget?.model).toBe("gemini-3.5-flash-lite");
+    expect(budget?.model).toBe("gemini-3.1-flash-lite");
     for (const key of DEFAULT_PROFILE_KEYS) {
       const entry = resolveDefaultProfileForProvider(
         managedStubs(),
