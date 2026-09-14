@@ -36,6 +36,9 @@ import {
 
 interface UseAttachmentSquaresOptions {
   attachments: DisplayAttachment[];
+  /** Stable UI identities, aligned with attachments, for lists whose entries
+   *  can move while sharing the same stored attachment id. */
+  attachmentKeys?: readonly string[];
   /** Forwarded to the preview modal and the download helper so both can
    *  lazily fetch attachment content when `previewUrl` is missing. */
   assistantId?: string | null;
@@ -69,13 +72,19 @@ interface UseAttachmentSquaresResult {
 
 export function useAttachmentSquares({
   attachments,
+  attachmentKeys,
   assistantId,
 }: UseAttachmentSquaresOptions): UseAttachmentSquaresResult {
   const { failedIds, markFailed } = useFailedPreviewIds();
 
+  const entryKey = useCallback(
+    (id: string, index: number) =>
+      attachmentKeys?.[index] ?? previewEntryKey(id, index),
+    [attachmentKeys],
+  );
   const markImageFailed = useCallback(
-    (id: string, index: number) => markFailed(previewEntryKey(id, index)),
-    [markFailed],
+    (id: string, index: number) => markFailed(entryKey(id, index)),
+    [entryKey, markFailed],
   );
 
   const displayAttachments = useMemo(
@@ -83,16 +92,17 @@ export function useAttachmentSquares({
       failedIds.size === 0
         ? attachments
         : attachments.map((att, index) =>
-            failedIds.has(previewEntryKey(att.id, index))
+            failedIds.has(entryKey(att.id, index))
               ? { ...att, previewUrl: null }
               : att,
           ),
-    [attachments, failedIds],
+    [attachments, failedIds, entryKey],
   );
 
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
     displayAttachments,
+    attachmentKeys,
   );
 
   const renderSquare = useCallback(
@@ -102,7 +112,7 @@ export function useAttachmentSquares({
       labels?: AttachmentSquareLabels,
     ) => (
       <MessageAttachmentSquare
-        key={previewEntryKey(attachment.id, index)}
+        key={entryKey(attachment.id, index)}
         attachment={attachment}
         labels={labels}
         onPreview={() => openPreview(attachment, index)}
@@ -115,7 +125,7 @@ export function useAttachmentSquares({
         onPreviewError={() => markImageFailed(attachment.id, index)}
       />
     ),
-    [attachments, assistantId, openPreview, markImageFailed],
+    [attachments, assistantId, entryKey, openPreview, markImageFailed],
   );
 
   return {

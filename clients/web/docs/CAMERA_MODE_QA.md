@@ -422,6 +422,9 @@ Use a development build with `vision-mode` enabled.
 - [ ] Throttle the connection so pending and hydrated frames appear together.
       Hydration preserves tile height. The preview gallery includes only hydrated
       frames in chronological order, and each download matches its selected tile.
+      Keep a later preview open while earlier frames hydrate or history prepends.
+      The selected frame, counter, and next/previous navigation stay consistent,
+      including legacy frames that share an attachment id.
 - [ ] Follow links to frame 6 and the final loaded frame. Both scroll to the
       corresponding tile without expanding a group. Reload and repeat.
 - [ ] Page older history above a group, then into a standalone group. Preserve

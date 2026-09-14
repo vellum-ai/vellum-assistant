@@ -23,10 +23,14 @@ interface CameraFrameGridProps {
 export function CameraFrameGrid({ frames, assistantId }: CameraFrameGridProps) {
   const { t } = useTranslation("chat");
   const locale = formatLocale();
-  const { attachments, tiles, savedTimes } = useMemo(() => {
+  const { attachments, attachmentKeys, tiles, savedTimes } = useMemo(() => {
     const attachments: DisplayAttachment[] = [];
+    const attachmentKeys: string[] = [];
     const tiles = frames.map((frame) => {
       const attachment = frame.attachments?.[0];
+      if (attachment) {
+        attachmentKeys.push(frame.id);
+      }
       const attachmentIndex = attachment
         ? attachments.push(attachment) - 1
         : null;
@@ -46,10 +50,10 @@ export function CameraFrameGrid({ frames, assistantId }: CameraFrameGridProps) {
     const savedTimes = tiles.flatMap((tile) =>
       tile.dateTime ? [tile.dateTime] : [],
     );
-    return { attachments, tiles, savedTimes };
+    return { attachments, attachmentKeys, tiles, savedTimes };
   }, [frames, locale]);
   const { displayAttachments, renderSquare, previewModal } =
-    useAttachmentSquares({ attachments, assistantId });
+    useAttachmentSquares({ attachments, attachmentKeys, assistantId });
 
   if (tiles.length === 0) {
     return null;
