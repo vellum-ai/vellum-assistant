@@ -250,10 +250,20 @@ enum HostCuActionRunner {
                 return finish(obs)
             }
 
-            // Check again. Resolution above awaits an accessibility walk that
-            // can run for seconds, and the machine is not ours during it, so a
-            // person who started typing midway through would otherwise be
-            // interrupted by an action cleared before they touched anything.
+            // Read the settle signature before acting, for the one kind of
+            // action whose effect it can observe. This read awaits, so it sits
+            // ahead of the final activity check below rather than after it.
+            let settleBaselineStart = DispatchTime.now()
+            var settleBaseline: String?
+            if settleCanEndEarly(resolvedAction.type) {
+                settleBaseline = await focusedWindowSignature(budgetMs: SettlePolicy.baselineBudgetMs)
+            }
+            let settleBaselineMs = millisSince(settleBaselineStart)
+
+            // Check again. Resolution and the baseline read above both await,
+            // and the machine is not ours during either, so a person who
+            // started typing midway through would otherwise be interrupted by
+            // an action cleared before they touched anything.
             if takesOver, ActionExecutor.userIsCurrentlyActive() {
                 return await standDown()
             }
@@ -290,12 +300,6 @@ enum HostCuActionRunner {
                 )
                 return finish(obs)
             }
-
-            // Read the settle signature before acting, so the wait afterwards
-            // can tell an effect that landed from one it cannot see.
-            let settleBaselineStart = DispatchTime.now()
-            let settleBaseline = await focusedWindowSignature(budgetMs: SettlePolicy.baselineBudgetMs)
-            let settleBaselineMs = millisSince(settleBaselineStart)
 
             // EXECUTE
             let executeStart = DispatchTime.now()
@@ -342,6 +346,21 @@ enum HostCuActionRunner {
         return finish(obs)
     }
 
+    /// Take the observation screenshot and report how long the capture itself
+    /// took, so a caller running it beside other work can record it honestly.
+    nonisolated private static func timedCapture(
+        _ screenCapture: any ScreenCaptureProviding,
+        target: CaptureTarget?
+    ) async -> (Result<ScreenCaptureResult, any Error>, Int) {
+        let start = DispatchTime.now()
+        do {
+            let result = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: target)
+            return (.success(result), millisSince(start))
+        } catch {
+            return (.failure(error), millisSince(start))
+        }
+    }
+
     // MARK: - Settle
 
     /// Wait for the UI to come to rest after an action, and record what the
@@ -367,6 +386,10 @@ enum HostCuActionRunner {
         }
 
         do {
+            guard baseline != nil else {
+                try await sleep(millis: SettlePolicy.ceilingMs)
+                return
+            }
             try await sleep(millis: SettlePolicy.floorMs)
 
             var previous: String?
@@ -386,7 +409,22 @@ enum HostCuActionRunner {
         }
     }
 
-    private static func millisSince(_ start: DispatchTime) -> Int {
+    /// Whether an action's settle wait may end before the ceiling. Only when
+    /// the signature observes the action's own effect: typing lands in the
+    /// focused element's value. A click, key or scroll can move focus as a
+    /// side effect while the page it triggered keeps rendering, and nothing
+    /// in the signature can tell that apart from completion, so those wait
+    /// out the ceiling.
+    private static func settleCanEndEarly(_ type: ActionType) -> Bool {
+        switch type {
+        case .type:
+            return true
+        case .click, .doubleClick, .rightClick, .key, .scroll, .drag, .openApp, .runAppleScript, .wait, .done, .respond:
+            return false
+        }
+    }
+
+    nonisolated private static func millisSince(_ start: DispatchTime) -> Int {
         Int((DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000)
     }
 
@@ -634,8 +672,7 @@ enum HostCuActionRunner {
         // the same moment of the same screen through different subsystems, and
         // neither needs the other's answer. The request is identical whether or
         // not the walk finds a tree, so one call serves both outcomes.
-        let captureStartedAt = DispatchTime.now()
-        async let shot = screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
+        async let timedShot = timedCapture(screenCapture, target: captureTarget)
 
         // The tree stays inside what the screenshot shows. A window target
         // reads that window's tree, focused or not; a display target reads
@@ -657,11 +694,12 @@ enum HostCuActionRunner {
 
         // Collect the capture that ran alongside the walk. A failure still
         // leaves the screenshot nil and the tree, if there is one, intact.
-        // `capture` is measured from kickoff to pickup, so with the overlap it
-        // reads as the longer of the capture and the walk beside it.
-        do {
-            let screenshotResult = try await shot
-            timer.record(.capture, since: captureStartedAt)
+        // Its duration was measured inside its own task, so it reports the
+        // capture alone rather than however long the walk beside it took.
+        let (captureOutcome, captureMs) = await timedShot
+        timer.record(.capture, millis: captureMs)
+        switch captureOutcome {
+        case .success(let screenshotResult):
             screenshotBase64 = await timer.measure(.encode) {
                 screenshotResult.jpegData.base64EncodedString()
             }
@@ -672,8 +710,7 @@ enum HostCuActionRunner {
             let screenSize = screenCapture.screenSize()
             screenWidthPt = Int(screenSize.width)
             screenHeightPt = Int(screenSize.height)
-        } catch {
-            timer.record(.capture, since: captureStartedAt)
+        case .failure(let error):
             log.error("[\(stepNumber)] Screenshot capture failed: \(error)")
         }
 
