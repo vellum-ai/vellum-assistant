@@ -945,6 +945,14 @@ export const routeTree = [
                     path: "conversations/:conversationId",
                     Component: ChatPage,
                   },
+                  // The app the viewer shows is part of the URL so browser Back
+                  // closes it (see `useAppRouteSync`). Same component and the
+                  // same lifecycle tolerance as the conversation route above;
+                  // the extra segment only adds the `appId` param.
+                  {
+                    path: "conversations/:conversationId/app/:appId",
+                    Component: ChatPage,
+                  },
                   {
                     path: "documents/:surfaceId",
                     lazy: {
