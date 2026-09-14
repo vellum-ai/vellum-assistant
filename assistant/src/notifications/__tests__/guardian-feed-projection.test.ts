@@ -39,6 +39,20 @@ mock.module("../../channels/gateway-guardian-requests.js", () => ({
   getGuardianRequest: (id: string) => getGuardianRequestStub(id),
 }));
 
+// The heal's completion sentinel lives in the daemon checkpoint ledger. An
+// in-memory map stands in so the heal runs without a database; it is cleared
+// per test so every test starts unhealed. The spread keeps the module's other
+// exports real for transitive importers.
+const actualCheckpoints = await import("../../persistence/checkpoints.js");
+const checkpointStore = new Map<string, string>();
+mock.module("../../persistence/checkpoints.js", () => ({
+  ...actualCheckpoints,
+  getMemoryCheckpoint: (key: string) => checkpointStore.get(key) ?? null,
+  setMemoryCheckpoint: (key: string, value: string) => {
+    checkpointStore.set(key, value);
+  },
+}));
+
 const {
   buildPendingGuardianProjection,
   guardianFeedItemId,
@@ -67,6 +81,7 @@ beforeEach(() => {
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   listGuardianRequestsStub = async () => [];
   getGuardianRequestStub = async () => null;
+  checkpointStore.clear();
 });
 
 afterEach(() => {

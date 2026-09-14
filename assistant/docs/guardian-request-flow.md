@@ -85,8 +85,8 @@ it end to end:
   are healed once per assistant by `healLegacyGuardianReceiptUnread`,
   which the sweep calls ahead of its gateway read. One-shot rather than
   recurring: a pre-upgrade `new` and a `new` the user set deliberately
-  are indistinguishable on the row, so a marker file under the data dir
-  records the boundary instead. The transition is re-evaluated inside
+  are indistinguishable on the row, so a completion sentinel in the daemon
+  checkpoint ledger records the boundary instead. The transition is re-evaluated inside
   the writer queue and moves only `new`, exactly as the edge does.
 - The feed writer's bulk-dismiss pass skips pending guardian items
   (`isPendingGuardianFeedItem`), so "Clear all" can never retire an

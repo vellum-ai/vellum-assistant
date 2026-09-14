@@ -14,9 +14,6 @@
  * other surfaces.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-
 import {
   type FeedItem,
   type FeedItemGuardianIntent,
@@ -34,8 +31,11 @@ import {
   patchFeedItemContent,
   readHomeFeed,
 } from "../home/feed-writer.js";
+import {
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../persistence/checkpoints.js";
 import { getLogger } from "../util/logger.js";
-import { getDataDir } from "../util/platform.js";
 import {
   buildToolApprovalSourceView,
   describeSlackChatLabel,
@@ -291,15 +291,18 @@ const RECONCILE_BACKFILL_LIMIT = 50;
 const LEGACY_UNREAD_HEAL_LIMIT = 50;
 
 /**
- * Marker file recording that this assistant has finished the one-time
- * heal below. Its presence is the whole discriminator, and it has to be
- * recorded because it cannot be inferred: a receipt written before the
- * receipt cleared unread and a receipt the user deliberately marked
- * unread afterwards are byte-identical on the row. Both are a terminal
- * projection at `status: "new"`, and both already had urgency dropped,
- * because the pre-fix receipt writer dropped urgency too.
+ * Completion sentinel for the one-time heal below, in the daemon's
+ * checkpoint ledger (the same shape as the lexical backfill's
+ * `lexical:messages:backfill_complete`). Its presence is the whole
+ * discriminator, and it has to be recorded because it cannot be
+ * inferred: a receipt written before the receipt cleared unread and a
+ * receipt the user deliberately marked unread afterwards are
+ * byte-identical on the row. Both are a terminal projection at
+ * `status: "new"`, and both already had urgency dropped, because the
+ * pre-fix receipt writer dropped urgency too.
  */
-const LEGACY_UNREAD_HEAL_MARKER = "guardian-receipt-unread-heal.v1.json";
+const LEGACY_UNREAD_HEAL_COMPLETE_KEY =
+  "guardian_feed:receipt_unread_heal_complete";
 
 /**
  * Clear unread on guardian receipts that went terminal before the
@@ -314,24 +317,24 @@ const LEGACY_UNREAD_HEAL_MARKER = "guardian-receipt-unread-heal.v1.json";
  *
  * Runs once per assistant, not once per boot. A recurring pass would
  * take back a deliberate "mark unread" every minute, and a per-boot pass
- * would take it back on the next restart; the marker is what makes a
+ * would take it back on the next restart; the sentinel is what makes a
  * later `new` unambiguously the user's, so it is never touched.
  *
  * Same user-choice semantics as the edge, enforced the same way: the
  * transition is re-evaluated inside the writer's coalescing queue, moves
  * only `new`, and leaves `seen`, `acted_on` and `dismissed` alone.
- * Bounded per round, and the marker is written only once a round drains
+ * Bounded per round, and the sentinel is written only once a round drains
  * with nothing left and nothing failed, so an interrupted pass resumes.
  */
 export async function healLegacyGuardianReceiptUnread(): Promise<void> {
-  let markerPath: string;
   try {
-    markerPath = join(getDataDir(), LEGACY_UNREAD_HEAL_MARKER);
-    if (existsSync(markerPath)) {
+    if (getMemoryCheckpoint(LEGACY_UNREAD_HEAL_COMPLETE_KEY) === "1") {
       return;
     }
   } catch (err) {
-    log.warn({ err }, "Guardian receipt unread heal: marker unreadable");
+    // A DB that cannot answer skips the round rather than risk re-healing
+    // a row the user has since marked unread.
+    log.warn({ err }, "Guardian receipt unread heal: checkpoint unreadable");
     return;
   }
 
@@ -371,21 +374,16 @@ export async function healLegacyGuardianReceiptUnread(): Promise<void> {
   }
 
   if (failed > 0 || stale.length > batch.length) {
-    // Not finished: leave the marker off so the next round resumes.
+    // Not finished: leave the sentinel unset so the next round resumes.
     return;
   }
 
   try {
-    mkdirSync(getDataDir(), { recursive: true });
-    writeFileSync(
-      markerPath,
-      JSON.stringify({ completedAt: new Date().toISOString() }, null, 2) + "\n",
-      "utf-8",
-    );
+    setMemoryCheckpoint(LEGACY_UNREAD_HEAL_COMPLETE_KEY, "1");
   } catch (err) {
-    // The heal itself landed; only the marker is missing, so the next
+    // The heal itself landed; only the sentinel is missing, so the next
     // round repeats a pass that now has nothing to do.
-    log.warn({ err }, "Guardian receipt unread heal: marker not persisted");
+    log.warn({ err }, "Guardian receipt unread heal: checkpoint not persisted");
   }
 }
 
