@@ -942,6 +942,19 @@ describe("assistant subcommand classification", () => {
     }
   });
 
+  // The file door reads one file the bot can see into the workspace. Nothing
+  // is sent or changed on the platform, so it is below the two effect doors;
+  // the bytes land at a path the caller chooses, so it is not a plain read.
+  test("assistant channels file → medium", async () => {
+    for (const command of [
+      "assistant channels file slack F0123456789 -o /tmp/shot.png",
+      "assistant channels file slack F0123456789 --json",
+    ]) {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe("medium");
+    }
+  });
+
   // The OAuth request door reaches the same bot when --provider names a bot
   // credential, so that form is high too; a person's integration stays at
   // the door's own rating.

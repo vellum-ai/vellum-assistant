@@ -6,6 +6,7 @@ import { getLogger } from "../../../util/logger.js";
 import { directDeliveryContext } from "../callback-routing.js";
 import type { ChannelTransport } from "../channel-transport.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
+import { downloadSlackFileById } from "./file.js";
 import {
   describeSlackReactionEmoji,
   sendSlackAgentSessionStatus,
@@ -42,6 +43,10 @@ export const slackTransport: ChannelTransport = {
   },
 
   describeReactionEmoji: describeSlackReactionEmoji,
+
+  downloadFile(ref, opts) {
+    return downloadSlackFileById(ref.fileId, ref.account, opts.maxBytes);
+  },
 
   async react(target) {
     return sendSlackReaction(

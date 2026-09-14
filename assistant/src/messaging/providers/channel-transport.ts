@@ -136,6 +136,37 @@ export interface ProactiveAddress {
  * point; a transport implements only the operations its channel supports, so
  * an absent method is an absent capability.
  */
+/** A file the channel's bot can see, named in the channel's own id space. */
+export interface ChannelFileRef {
+  readonly fileId: string;
+  /** The bot account to fetch as, for a channel connected to several. */
+  readonly account?: string;
+}
+
+/** A fetched file: its bytes as base64, so the result crosses JSON intact. */
+export interface DownloadedChannelFile {
+  readonly filename: string;
+  readonly mimeType: string;
+  readonly data: string;
+  readonly size: number;
+}
+
+/** The file is larger than the caller's byte cap. */
+export class ChannelFileTooLargeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChannelFileTooLargeError";
+  }
+}
+
+/** The channel could not hand back the file: unknown id, no URL, or a refused fetch. */
+export class ChannelFileUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChannelFileUnavailableError";
+  }
+}
+
 export interface ChannelTransport {
   /** Canonical source channel id, e.g. `"slack"`. */
   readonly channel: ChannelId;
@@ -166,6 +197,19 @@ export interface ChannelTransport {
    * by one whose inbound binding is made at ingress and keyed by thread.
    */
   readonly bindsChatOnProactiveSend?: boolean;
+
+  /**
+   * Fetch a file the bot can see, by the channel's own file id, the way
+   * inbound ingest fetches an attachment: the transport resolves the URL
+   * and the credential itself, so no caller composes a credential-bearing
+   * URL. `maxBytes` is enforced before the bytes are held in memory. A
+   * channel whose files need no credential, or that has no file API, omits
+   * this, and a caller reads the omission as the capability's absence.
+   */
+  downloadFile?(
+    ref: ChannelFileRef,
+    opts: { maxBytes: number },
+  ): Promise<DownloadedChannelFile>;
 
   /** Deliver a rendered reply (text / approval / attachments). */
   deliver(

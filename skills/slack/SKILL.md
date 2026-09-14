@@ -189,15 +189,15 @@ assistant oauth request --provider slack_channel \
 
 ### Download a file
 
-A file shared in a message arrives on the message's `files` entries. Each carries `url_private_download` (or `url_private`) on `files.slack.com`, which takes the same token as the Web API, so the same command reads it. Pass the absolute URL as given and write the bytes with `-o`; the response is the file itself, not a JSON envelope.
+A file shared in a message arrives on the message's `files` entries, each with an `id`. Fetch it by that id through the file door, which resolves the download URL and the bot token inside the assistant:
 
 ```bash
-assistant oauth request --provider slack_channel \
-  -o /tmp/shot.png \
-  "https://files.slack.com/files-pri/T0123456789-F0123456789/download/shot.png"
+assistant channels file slack F0123456789 -o /tmp/shot.png
 ```
 
-The token needs `files:read`; one without it is answered with a sign-in page instead of the file. The bot has it from the app manifest. The `slack` integration requests it when it connects; a connection made before that keeps working for everything else, and every request through it comes back with a hint naming the missing scope until the person reconnects from Integrations. Pass that on rather than retrying. Do not fetch the URL with `curl` or paste a token into a shell: the command is the only place the token is allowed to be.
+Do not pass a file's `url_private` or `url_private_download` to the request command: the bot's raw door stops at the Web API host and refuses the file host, by design. The bot has `files:read` from the app manifest.
+
+Reading a file as the person who connected the `slack` integration is the exception that uses the request command with the absolute URL, since the integration has no channel door. That token needs `files:read` too; a connection made before it was requested keeps working for everything else and gets a hint naming the missing scope on every request until the person reconnects from Integrations. Pass that on rather than retrying. Do not fetch the URL with `curl` or paste a token into a shell: the command is the only place the token is allowed to be.
 
 ### Search messages
 

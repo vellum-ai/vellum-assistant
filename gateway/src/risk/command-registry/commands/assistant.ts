@@ -81,6 +81,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "channels",
   "channels list",
   "channels get",
+  "channels file",
   "channels request",
   "channels send",
   "clients",
@@ -846,6 +847,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "high",
     reason:
       "Acts as the channel's bot with any effect the bot's API allows (sends, edits, deletes, uploads, reactions, as well as reads); the effect is the endpoint's, which the command cannot tell apart",
+  },
+  {
+    path: "channels file",
+    risk: "medium",
+    reason:
+      "Reads a file the channel's bot can see into the workspace, at a path the caller chooses; nothing is sent or changed",
   },
   {
     path: "channels send",

@@ -9,22 +9,34 @@ import { migrateProviderBaseUrl, seedProviders } from "./oauth-store.js";
  */
 const STALE_GOOGLE_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
 
-/**
- * The hosts a Slack credential may be sent to, shared by the person-identity
- * `slack` provider and the `slack_channel` bot: both read messages, and a file
- * shared in a message is fetched from the file object's `url_private`,
- * `url_private_download`, or `thumb_*` URL on `files.slack.com` with the same
- * Bearer token as the Web API. Slack documents that one file host by name.
- */
-const SLACK_PROVIDER_INJECTION_TEMPLATES: NonNullable<
+type SlackInjectionTemplates = NonNullable<
   (typeof PROVIDER_SEED_DATA)[string]["injectionTemplates"]
-> = [
+>;
+
+/**
+ * The Web API host, the only host the `slack_channel` bot's raw request door
+ * may send the bot token to. A file the bot can see is fetched through the
+ * channel's file door, which resolves the file host and the credential
+ * inside the adapter, so the raw door never needs the file host.
+ */
+const SLACK_API_INJECTION_TEMPLATES: SlackInjectionTemplates = [
   {
     hostPattern: "slack.com",
     injectionType: "header",
     headerName: "Authorization",
     valuePrefix: "Bearer ",
   },
+];
+
+/**
+ * The hosts the person-identity `slack` integration may be sent to. It reads
+ * messages as the connected person, has no channel door for files, and a file
+ * shared in a message is fetched from the file object's `url_private`,
+ * `url_private_download`, or `thumb_*` URL on `files.slack.com` with the same
+ * Bearer token as the Web API. Slack documents that one file host by name.
+ */
+const SLACK_INTEGRATION_INJECTION_TEMPLATES: SlackInjectionTemplates = [
+  ...SLACK_API_INJECTION_TEMPLATES,
   {
     hostPattern: "files.slack.com",
     injectionType: "header",
@@ -245,7 +257,7 @@ export const PROVIDER_SEED_DATA: Record<
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write,files:read",
     },
     loopbackPort: 17322,
-    injectionTemplates: SLACK_PROVIDER_INJECTION_TEMPLATES,
+    injectionTemplates: SLACK_INTEGRATION_INJECTION_TEMPLATES,
     appType: "Slack App",
     identityUrl: "https://slack.com/api/auth.test",
     identityOkField: "ok",
@@ -1215,7 +1227,7 @@ export const PROVIDER_SEED_DATA: Record<
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
     defaultScopes: [],
-    injectionTemplates: SLACK_PROVIDER_INJECTION_TEMPLATES,
+    injectionTemplates: SLACK_API_INJECTION_TEMPLATES,
   },
 
   // The bot that sits in a server and talks to people there, which is a

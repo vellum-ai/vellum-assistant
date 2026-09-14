@@ -4,6 +4,7 @@
  *   list                          : overview of every channel + ready state
  *   get <channel>                 : detailed live snapshot of a single channel
  *   request <channel> <url>       : call the channel's platform API as its bot
+ *   file <channel> <file-id>      : fetch a file the bot can see, by id
  *   send <channel> <chat-id>      : post text to a chat, recorded
  *
  * `get` always re-runs remote probes (it invalidates the readiness cache
@@ -30,6 +31,7 @@ import { applyCommandHelp, subcommand } from "../../lib/cli-command-help.js";
 import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import { registerChannelsFileCommand } from "./file.js";
 import { CHANNELS_PLUGIN_SEARCH_HINT, channelsHelp } from "./index.help.js";
 import { registerChannelsRequestCommand } from "./request.js";
 import { registerChannelsSendCommand } from "./send.js";
@@ -218,6 +220,8 @@ export function registerChannelsCommand(program: Command): void {
       // -----------------------------------------------------------------------
 
       registerChannelsRequestCommand(channels);
+
+      registerChannelsFileCommand(channels);
 
       // -----------------------------------------------------------------------
       // send: post text to a chat, through the channel's transport

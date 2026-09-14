@@ -23,6 +23,7 @@ import { conversationInfo } from "./client.js";
 import type {
   SlackApiResponse,
   SlackConversationInfoResponse,
+  SlackMessage,
 } from "./types.js";
 import {
   SlackApiError,
@@ -81,6 +82,28 @@ export async function callSlackApi(
   body: Record<string, unknown>,
 ): Promise<SlackOutboundApiResponse> {
   return slackApiRequest<SlackOutboundApiResponse>("bot", method, { body });
+}
+
+/** One entry of a message's `files`, as `files.info` also returns it. */
+export type SlackFileObject = NonNullable<SlackMessage["files"]>[number];
+
+interface SlackFileInfoResponse extends SlackApiResponse {
+  file?: SlackFileObject;
+}
+
+/**
+ * Read a file's metadata as the bot. The download URL Slack returns is what
+ * the file downloader fetches with the bot token; nothing here touches it.
+ */
+export async function getSlackFileInfo(
+  fileId: string,
+): Promise<SlackFileObject | undefined> {
+  const data = await slackApiRequest<SlackFileInfoResponse>(
+    "bot",
+    "files.info",
+    { body: { file: fileId } },
+  );
+  return data.file;
 }
 
 /**

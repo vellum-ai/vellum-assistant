@@ -71,6 +71,16 @@ export function getTransportForChannel(
 }
 
 /**
+ * The channels whose transport can fetch a file by id. Asks each transport,
+ * so a channel that gains the method is offered without a list kept here.
+ */
+export function channelsWithFileDownload(): string[] {
+  return Object.entries(TRANSPORTS)
+    .filter(([, transport]) => transport.downloadFile !== undefined)
+    .map(([channel]) => channel);
+}
+
+/**
  * Whether this channel can add or remove the assistant's own emoji
  * reactions. Asks the transport rather than the channel id, so a channel
  * that gains the method starts being offered without a caller being told.

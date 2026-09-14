@@ -94,6 +94,36 @@ Examples:
   $ assistant channels request discord /users/@me --json`,
     },
     {
+      name: "file",
+      args: "<channel> <file-id>",
+      description:
+        "Fetch a file the channel's bot can see, by the channel's own file id",
+      // -o and --account are registered imperatively in file.ts beside the
+      // action, matching how request.ts attaches its request-shaping options.
+      helpText: `
+Fetches one file through the channel's own transport, the way an inbound
+attachment is fetched: the transport resolves the file's URL and the bot
+credential itself, so you name an id and never a URL, and no token is
+printed or passed on the command line. Reads through the raw request door
+are refused for file hosts; this is the door for files.
+
+The file id is the channel's own: for Slack, the "id" on an entry of a
+message's "files" (F0123456789), as conversations.history and
+conversations.replies return it. The bot needs the platform's read scope
+for files (files:read on Slack, which the app manifest grants).
+
+Without -o the bytes go to stdout. With --json the result names the file
+(channel, id, filename, mime type, size, and the output path when -o was
+given) and leaves the bytes in the file.
+
+Reads a file into the workspace, so it is classified medium risk.
+
+Examples:
+  $ assistant channels file slack F0123456789 -o /tmp/shot.png
+  $ assistant channels file slack F0123456789 -o /tmp/shot.png --json
+  $ assistant channels file slack F0123456789 > /tmp/shot.png`,
+    },
+    {
       name: "send",
       description:
         "Post text to a chat on the channel, as the assistant's bot, recorded",

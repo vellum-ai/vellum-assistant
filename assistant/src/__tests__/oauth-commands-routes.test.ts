@@ -920,11 +920,11 @@ describe("POST oauth/request", () => {
     };
   }
 
-  test("admits a Slack file URL on both seeded Slack providers", async () => {
-    // Each Slack credential reads messages, and a file shared in a message is
-    // fetched from its `url_private_download` on files.slack.com with the
-    // same token.
-    for (const provider of ["slack", "slack_channel"] as const) {
+  test("admits a Slack file URL on the seeded slack integration", async () => {
+    // The integration reads messages as the connected person and has no file
+    // door, so a file shared in a message is fetched from its
+    // `url_private_download` on files.slack.com with the same token.
+    for (const provider of ["slack"] as const) {
       mockProviders[provider] = seededProvider(provider);
       mockResolveRequests = [];
 
@@ -947,16 +947,19 @@ describe("POST oauth/request", () => {
     }
   });
 
-  test("the seeded Slack host policy admits nothing beyond the documented hosts", async () => {
+  test("the seeded slack_channel host policy admits only the API host", async () => {
     mockProviders.slack_channel = seededProvider("slack_channel");
 
-    // A lookalike, an unrelated host, and the CDN host Slack redirects file
-    // downloads to: the guard sees only the URL the caller names, and that
-    // URL is the documented file host or nothing.
+    // A lookalike, an unrelated host, the CDN host Slack redirects file
+    // downloads to, and the file host itself: the bot's raw door stops at the
+    // API host, because a file the bot can see is fetched through the
+    // channel's file door, which never hands the model a credential-bearing
+    // URL.
     for (const url of [
       "https://files.slack.com.attacker.example/files-pri/T0123-F0456/x.png",
       "https://attacker.example/files-pri/T0123-F0456/x.png",
       "https://files-origin.slack.com/files-pri/T0123-F0456/x.png",
+      "https://files.slack.com/files-pri/T0123-F0456/download/x.png",
     ]) {
       await expect(
         getRoute("POST", "oauth/request").handler(

@@ -222,3 +222,45 @@ describe("downloadSlackFile", () => {
     expect(result?.mimeType).toBe("image/webp");
   });
 });
+
+describe("byte cap", () => {
+  const file = {
+    id: "F1",
+    name: "big.bin",
+    mimetype: "application/octet-stream",
+    urlPrivateDownload:
+      "https://files.slack.com/files-pri/T-F1/download/big.bin",
+  };
+
+  test("refuses a file whose declared length is over the cap before reading it", async () => {
+    responses.push(
+      new Response(new Uint8Array(16), {
+        status: 200,
+        headers: { "content-length": "16" },
+      }),
+    );
+    await expect(
+      downloadSlackFile(file, "xoxb-test", { maxBytes: 8 }),
+    ).rejects.toThrow(/over the 8-byte limit/);
+  });
+
+  test("refuses a chunked body once it passes the cap", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(6));
+        controller.enqueue(new Uint8Array(6));
+        controller.close();
+      },
+    });
+    responses.push(new Response(stream, { status: 200 }));
+    await expect(
+      downloadSlackFile(file, "xoxb-test", { maxBytes: 8 }),
+    ).rejects.toThrow(/exceeds the 8-byte limit/);
+  });
+
+  test("returns a body within the cap", async () => {
+    responses.push(new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
+    const result = await downloadSlackFile(file, "xoxb-test", { maxBytes: 8 });
+    expect(Buffer.from(result!.data, "base64")).toEqual(Buffer.from([1, 2, 3]));
+  });
+});

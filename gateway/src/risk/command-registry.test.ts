@@ -439,6 +439,13 @@ describe("command-registry", () => {
         expect(getAssistantPath("channels send").baseRisk).toBe("high");
       });
 
+      // The file door reads a file the bot can see into the workspace: no
+      // send, no change on the platform, so it is not high; bytes land on
+      // disk at a path the caller chooses, so it is not low.
+      test("the assistant channels file door is medium risk", () => {
+        expect(getAssistantPath("channels file").baseRisk).toBe("medium");
+      });
+
       test("assistant oauth request as a channel bot escalates to high, keyed on the contract's map", () => {
         const requestSpec = oauthSpec.subcommands!.request;
         const botRule = requestSpec.argRules!.find(

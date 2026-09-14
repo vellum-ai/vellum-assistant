@@ -4822,6 +4822,73 @@ paths:
                   - assistantId
                   - hasPendingChallenge
                 additionalProperties: false
+  /v1/channels/{channel}/files/{fileId}:
+    get:
+      operationId: channels_by_channel_files_by_fileId_get
+      summary: Fetch a file a channel's bot can see
+      description:
+        Fetch a file by the channel's own file id through the channel's transport, as the assistant's bot. Bytes
+        come back base64.
+      tags:
+        - channels
+      parameters:
+        - name: channel
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channel:
+                    type: string
+                    enum:
+                      - telegram
+                      - phone
+                      - vellum
+                      - whatsapp
+                      - slack
+                      - email
+                      - platform
+                      - a2a
+                      - discord
+                      - plugin
+                  fileId:
+                    type: string
+                  filename:
+                    type: string
+                  mimeType:
+                    type: string
+                  size:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                    description: Byte length of the file
+                  body:
+                    type: string
+                    description: The file's bytes, base64
+                  bodyEncoding:
+                    type: string
+                    const: base64
+                required:
+                  - channel
+                  - fileId
+                  - filename
+                  - mimeType
+                  - size
+                  - body
+                  - bodyEncoding
+                additionalProperties: false
   /v1/channels/available:
     get:
       operationId: channels_available_get

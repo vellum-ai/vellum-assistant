@@ -16,6 +16,7 @@
  */
 
 import { getLogger } from "../../../util/logger.js";
+import { ChannelFileTooLargeError } from "../channel-transport.js";
 
 const log = getLogger("slack-download");
 
@@ -56,6 +57,7 @@ const DOWNLOAD_TIMEOUT_MS = 30_000;
 export async function downloadSlackFile(
   file: SlackFileDownloadInput,
   token: string,
+  opts: { maxBytes?: number } = {},
 ): Promise<DownloadedSlackFile | null> {
   const url = file.urlPrivateDownload ?? file.urlPrivate;
   if (!url) {
@@ -93,7 +95,11 @@ export async function downloadSlackFile(
     );
   }
 
-  const buffer = await response.arrayBuffer();
+  const buffer = await readBodyWithin(
+    response,
+    opts.maxBytes,
+    file.id ?? file.name,
+  );
   const mimeType =
     file.mimetype ||
     response.headers.get("Content-Type")?.split(";")[0]?.trim() ||
@@ -101,4 +107,54 @@ export async function downloadSlackFile(
   const filename = file.name || `slack_file_${file.id ?? "unknown"}`;
   const data = Buffer.from(buffer).toString("base64");
   return { filename, mimeType, data };
+}
+
+/**
+ * The body as bytes, refused before it is held whole when it exceeds the
+ * cap. The declared length is checked first; a chunked body is counted as it
+ * streams and cancelled at the cap, so an oversized file costs at most
+ * `maxBytes` of memory. Mirrors the gateway's `readLimitedBodyBytes`, which
+ * the assistant cannot import across the package boundary.
+ */
+async function readBodyWithin(
+  response: Response,
+  maxBytes: number | undefined,
+  label: string,
+): Promise<ArrayBuffer> {
+  if (maxBytes === undefined) {
+    return response.arrayBuffer();
+  }
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new ChannelFileTooLargeError(
+      `Slack file ${label} is ${declared} bytes, over the ${maxBytes}-byte limit`,
+    );
+  }
+  if (!response.body) {
+    return new ArrayBuffer(0);
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new ChannelFileTooLargeError(
+        `Slack file ${label} exceeds the ${maxBytes}-byte limit`,
+      );
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes.buffer;
 }
