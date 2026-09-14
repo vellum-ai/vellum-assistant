@@ -16,7 +16,6 @@ enum ExecutorError: LocalizedError {
     case appleScriptMissingScript
     case appleScriptTimeout
     case clipboardMismatch
-    case userIsActive
 
     var errorDescription: String? {
         switch self {
@@ -31,9 +30,6 @@ enum ExecutorError: LocalizedError {
         case .appleScriptMissingScript: return "run_applescript requires a script"
         case .appleScriptTimeout: return "AppleScript timed out after 5 seconds"
         case .clipboardMismatch: return "Clipboard contents changed before paste injection; aborting to prevent wrong text from being typed"
-        // Reaches the model verbatim as `executionError`, so it has to say what
-        // happened and what to do next.
-        case .userIsActive: return "The user is using the keyboard or mouse right now. Nothing was done. Wait for them to finish, then retry."
         }
     }
 }
@@ -49,17 +45,22 @@ final class ActionExecutor {
 
     // MARK: - Yielding to the user
 
+    /// What the runner reports when it stands down. Reaches the model verbatim
+    /// as `executionError`, so it has to say what happened and what to do next.
+    static let userIsActiveMessage = "The user is using the keyboard or mouse right now. Nothing was done. Wait for them to finish, then retry."
+
     /// When we last posted an event of our own. Static because a fresh
     /// `ActionExecutor` is built for every computer-use step, and the post this
-    /// has to recognize is usually the previous step's, not this one's. Only
-    /// ever touched from the main actor via `HostCuActionRunner`.
-    private nonisolated(unsafe) static var lastSyntheticPostAt: Date?
+    /// has to recognize is usually the previous step's, not this one's. Locked
+    /// because posts happen inside the nonisolated `execute` while the runner
+    /// reads it from the main actor, and two steps can interleave.
+    private static let lastSyntheticPostAt = OSAllocatedUnfairLock<Date?>(initialState: nil)
 
     /// Every synthetic event goes through here so the last-post clock can never
     /// drift out of sync with what we actually put on the wire.
     private func postSynthetic(_ event: CGEvent, tap: CGEventTapLocation = .cghidEventTap) {
         event.post(tap: tap)
-        Self.lastSyntheticPostAt = Date()
+        Self.lastSyntheticPostAt.withLock { $0 = Date() }
     }
 
     /// `kCGAnyInputEventType`, which no Swift overlay constant exposes. Asking
@@ -69,31 +70,48 @@ final class ActionExecutor {
     /// who is mid-gesture idle and inject into the gesture.
     private static let anyInputEventType = CGEventType(rawValue: ~UInt32(0))!
 
-    /// True when the person at the machine is typing or moving the mouse right
-    /// now, which is when we should stand down rather than fight them for it.
+    /// The modifiers a person holds as part of a gesture. Caps Lock stays out
+    /// because it latches for whole sessions.
+    private static let heldModifierMask: CGEventFlags = [.maskCommand, .maskShift, .maskAlternate, .maskControl]
+
+    /// True when the person at the machine is typing, moving the mouse, or
+    /// holding a button or modifier right now, which is when we should stand
+    /// down rather than fight them for it. Our own posts pair every button
+    /// down with an up and never post a modifier key, so nothing we sent is
+    /// still held by the time the next step asks.
     static func userIsCurrentlyActive() -> Bool {
+        let state = CGEventSourceStateID.combinedSessionState
         let secondsSinceLastInput = CGEventSource.secondsSinceLastEventType(
-            .combinedSessionState,
+            state,
             eventType: anyInputEventType
         )
+        let buttonHeld = [CGMouseButton.left, .right, .center].contains {
+            CGEventSource.buttonState(state, button: $0)
+        }
+        let modifierHeld = !CGEventSource.flagsState(state).intersection(heldModifierMask).isEmpty
         return UserActivityGate.userIsActive(
             now: Date(),
-            lastSyntheticPostAt: lastSyntheticPostAt,
-            secondsSinceLastInput: secondsSinceLastInput
+            lastSyntheticPostAt: lastSyntheticPostAt.withLock { $0 },
+            secondsSinceLastInput: secondsSinceLastInput,
+            buttonHeld: buttonHeld,
+            modifierHeld: modifierHeld
         )
     }
 
-    /// Whether running `type` takes the machine away from whoever is using it.
-    /// Posting to the global tap does, and so does activating an app: it moves
-    /// keyboard focus, so the next thing the user types lands somewhere they
-    /// were not looking. `runAppleScript` stays out because it is the one path
-    /// that asks an app to do something instead of seizing the input devices,
-    /// and gating it would leave the polite route as blocked as the rude one.
-    static func takesOverFromUser(_ type: ActionType) -> Bool {
-        switch type {
+    /// Whether running `action` takes the machine away from whoever is using
+    /// it. Posting to the global tap does, and so does activating an app: it
+    /// moves keyboard focus, so the next thing the user types lands somewhere
+    /// they were not looking. `runAppleScript` is gated only when the script
+    /// drives System Events or activates an app. Otherwise it asks an app to do
+    /// something instead of seizing the input devices, and gating it would
+    /// leave the polite route as blocked as the rude one.
+    static func takesOverFromUser(_ action: AgentAction) -> Bool {
+        switch action.type {
         case .click, .doubleClick, .rightClick, .type, .key, .scroll, .drag, .openApp:
             return true
-        case .runAppleScript, .wait, .done, .respond:
+        case .runAppleScript:
+            return action.script.map(AppleScriptInputTakeover.takesOver(script:)) ?? false
+        case .wait, .done, .respond:
             return false
         }
     }
@@ -104,6 +122,8 @@ final class ActionExecutor {
         let saved = CGEvent(source: nil)?.location
         defer {
             if let saved {
+                // Posting only queues the final event, so give it time to land before the warp moves the pointer.
+                usleep(40_000)
                 CGWarpMouseCursorPosition(saved)
                 CGAssociateMouseAndMouseCursorPosition(1)
             }
@@ -296,10 +316,6 @@ final class ActionExecutor {
 
     @discardableResult
     func execute(_ action: AgentAction) async throws -> String? {
-        // The activity gate deliberately does not live here. HostCuActionRunner
-        // checks it before ActionVerifier records the step, so a refusal the
-        // model is told to retry cannot fill the verifier's history with
-        // actions that never ran and trip its repeat detector.
         switch action.type {
         case .click:
             guard let x = action.x, let y = action.y else { throw ExecutorError.missingCoordinates }

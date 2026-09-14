@@ -45,8 +45,12 @@ private final class PhaseTimer {
     /// Record a phase `measure` cannot wrap, because the value it calls into is
     /// not `Sendable` and so cannot cross into the closure.
     func record(_ phase: CuPhase, since start: DispatchTime) {
-        let elapsed = DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds
-        record(phase, millis: Int(elapsed / 1_000_000))
+        record(phase, millis: Self.millis(since: start))
+    }
+
+    /// Whole milliseconds elapsed since `start`.
+    nonisolated static func millis(since start: DispatchTime) -> Int {
+        Int((DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000)
     }
 
     /// Record everything elapsed since this timer was created, which is the
@@ -171,7 +175,7 @@ enum HostCuActionRunner {
                     enumerator: enumerator,
                     screenCapture: screenCapture,
                     executionResult: nil,
-                    executionError: ExecutorError.userIsActive.errorDescription,
+                    executionError: ActionExecutor.userIsActiveMessage,
                     stepNumber: stepNumber,
                     conversationId: conversationId,
                     timer: timer,
@@ -179,11 +183,9 @@ enum HostCuActionRunner {
                 )
                 return finish(obs)
             }
-            let takesOver = ActionExecutor.takesOverFromUser(agentAction.type)
-
             // Refuse early when we can, which also skips the AX walk that
             // coordinate resolution would otherwise do on the way to nothing.
-            if takesOver, ActionExecutor.userIsCurrentlyActive() {
+            if ActionExecutor.takesOverFromUser(agentAction), ActionExecutor.userIsCurrentlyActive() {
                 return await standDown()
             }
 
@@ -237,7 +239,7 @@ enum HostCuActionRunner {
             // can run for seconds, and the machine is not ours during it, so a
             // person who started typing midway through would otherwise be
             // interrupted by an action cleared before they touched anything.
-            if takesOver, ActionExecutor.userIsCurrentlyActive() {
+            if ActionExecutor.takesOverFromUser(resolvedAction), ActionExecutor.userIsCurrentlyActive() {
                 return await standDown()
             }
 
@@ -496,14 +498,11 @@ enum HostCuActionRunner {
         target: CaptureTarget?
     ) async -> (Result<ScreenCaptureResult, any Error>, Int) {
         let start = DispatchTime.now()
-        func elapsedMs() -> Int {
-            Int((DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000)
-        }
         do {
             let result = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: target)
-            return (.success(result), elapsedMs())
+            return (.success(result), PhaseTimer.millis(since: start))
         } catch {
-            return (.failure(error), elapsedMs())
+            return (.failure(error), PhaseTimer.millis(since: start))
         }
     }
 
