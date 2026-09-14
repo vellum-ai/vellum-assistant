@@ -214,8 +214,13 @@ export async function executeFindSimilarSkills(
 
 /**
  * Read a managed skill's stored body: the SKILL.md text after its frontmatter,
- * placeholders intact. Best-effort like the author read: a missing file or
- * unparseable frontmatter resolves to undefined so one bad hit never throws.
+ * placeholders intact. Only the blank line the store writes between the
+ * frontmatter and the body, and the trailing newline it guarantees, are
+ * removed; leading spaces on the first line stay, since an indented opening
+ * line is Markdown (a code block) and a rewrite that copied it de-indented
+ * would turn it into prose. Best-effort like the author read: a missing file
+ * or unparseable frontmatter resolves to undefined so one bad hit never
+ * throws.
  */
 function readManagedSkillBody(skillId: string): string | undefined {
   try {
@@ -223,7 +228,9 @@ function readManagedSkillBody(skillId: string): string | undefined {
       join(getManagedSkillDir(skillId), "SKILL.md"),
       "utf-8",
     );
-    return parseFrontmatterFields(content)?.body.trim();
+    return parseFrontmatterFields(content)
+      ?.body.replace(/^(?:\r?\n)+/, "")
+      .replace(/(?:\r?\n)+$/, "");
   } catch {
     return undefined;
   }

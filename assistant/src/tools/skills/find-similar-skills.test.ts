@@ -14,8 +14,9 @@
  * `readInstallMeta` seam is mocked to key off the skill id (its dir basename).
  */
 
-import { basename } from "node:path";
-import { describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSource } from "../../config/skills.js";
 import type { OwnerInfo } from "../types.js";
@@ -228,6 +229,13 @@ describe("find_similar_skills — enrichment", () => {
 });
 
 describe("find_similar_skills: current skill for a refinable hit", () => {
+  afterEach(() => {
+    rmSync(join(process.env.VELLUM_WORKSPACE_DIR!, "skills"), {
+      recursive: true,
+      force: true,
+    });
+  });
+
   const refinableCatalog = () =>
     catalog(
       {
@@ -343,6 +351,49 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
       expect(skill).not.toHaveProperty("current");
     }
     expect(readBodies).toEqual([]);
+  });
+
+  test("the stored body keeps its leading indentation and drops only the store's separator newlines", async () => {
+    // The real reader, against a real SKILL.md: a body opening with an
+    // indented code block must come back indented, or a refinement that
+    // copies it turns the block into prose.
+    const skillsDir = join(process.env.VELLUM_WORKSPACE_DIR!, "skills");
+    mkdirSync(join(skillsDir, "indented"), { recursive: true });
+    writeFileSync(
+      join(skillsDir, "indented", "SKILL.md"),
+      [
+        "---",
+        'name: "Indented"',
+        'description: "Opens with a code block"',
+        "---",
+        "",
+        "    curl https://example.com/report",
+        "",
+        "Then read the output.",
+        "",
+      ].join("\n"),
+    );
+    installMetaAuthors["indented"] = "assistant";
+
+    const result = await executeFindSimilarSkills(
+      { goal: "fetch the report" },
+      makeRetrospectiveContext(),
+      {
+        nearestExistingSkills: async () => [{ skillId: "indented", score: 1 }],
+        loadCatalog: () =>
+          catalog({
+            id: "indented",
+            name: "Indented",
+            description: "Opens with a code block",
+            source: "managed",
+          }),
+      },
+    );
+
+    const { skills } = JSON.parse(result.content);
+    expect(skills[0].current.body_markdown).toBe(
+      "    curl https://example.com/report\n\nThen read the output.",
+    );
   });
 
   test("a body that cannot be read drops current, not the hit", async () => {

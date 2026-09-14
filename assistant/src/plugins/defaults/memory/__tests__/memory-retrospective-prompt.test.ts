@@ -120,6 +120,11 @@ For everything else in your review window, use the \`remember\` tool on facts, p
     expect(out).toContain(
       "rewriting `body_markdown` from `current.body_markdown` plus what you actually observed in the trace",
     );
+    // Hints are the retrieval signal; a refinement carries them forward
+    // rather than regenerating them from one trace.
+    expect(out).toContain(
+      "restate `current.activation_hints` (revised only if the procedure's triggers changed",
+    );
     // An UPDATE is announced by a notice whose only account of the change is
     // what the pass passes here, so the instruction has to ask for it.
     expect(out).toContain(
