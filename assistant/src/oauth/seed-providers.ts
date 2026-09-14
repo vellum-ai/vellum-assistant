@@ -16,7 +16,7 @@ const STALE_GOOGLE_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
  * `url_private_download`, or `thumb_*` URL on `files.slack.com` with the same
  * Bearer token as the Web API. Slack documents that one file host by name.
  */
-const SLACK_INJECTION_TEMPLATES: NonNullable<
+const SLACK_PROVIDER_INJECTION_TEMPLATES: NonNullable<
   (typeof PROVIDER_SEED_DATA)[string]["injectionTemplates"]
 > = [
   {
@@ -241,7 +241,7 @@ export const PROVIDER_SEED_DATA: Record<
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
     loopbackPort: 17322,
-    injectionTemplates: SLACK_INJECTION_TEMPLATES,
+    injectionTemplates: SLACK_PROVIDER_INJECTION_TEMPLATES,
     appType: "Slack App",
     identityUrl: "https://slack.com/api/auth.test",
     identityOkField: "ok",
@@ -1211,7 +1211,7 @@ export const PROVIDER_SEED_DATA: Record<
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
     defaultScopes: [],
-    injectionTemplates: SLACK_INJECTION_TEMPLATES,
+    injectionTemplates: SLACK_PROVIDER_INJECTION_TEMPLATES,
   },
 
   // The bot that sits in a server and talks to people there, which is a

@@ -904,19 +904,24 @@ describe("POST oauth/request", () => {
     ]);
   });
 
+  /** The provider row exactly as seeding writes it, so the seed data is what the guard reads. */
+  function seededProvider(provider: keyof typeof PROVIDER_SEED_DATA) {
+    const seed = PROVIDER_SEED_DATA[provider];
+    return {
+      ...baseProvider,
+      provider,
+      managedServiceConfigKey: null,
+      baseUrl: seed.baseUrl ?? null,
+      injectionTemplates: JSON.stringify(seed.injectionTemplates),
+    };
+  }
+
   test("admits a Slack file URL on both seeded Slack providers", async () => {
-    // The seed rows are the data under test: each Slack credential reads
-    // messages, and a file shared in a message is fetched from the file
-    // object's `url_private_download` on files.slack.com with the same token.
+    // Each Slack credential reads messages, and a file shared in a message is
+    // fetched from its `url_private_download` on files.slack.com with the
+    // same token.
     for (const provider of ["slack", "slack_channel"] as const) {
-      const seed = PROVIDER_SEED_DATA[provider];
-      mockProviders[provider] = {
-        ...baseProvider,
-        provider,
-        managedServiceConfigKey: null,
-        baseUrl: seed.baseUrl ?? null,
-        injectionTemplates: JSON.stringify(seed.injectionTemplates),
-      };
+      mockProviders[provider] = seededProvider(provider);
       mockResolveRequests = [];
 
       await getRoute("POST", "oauth/request").handler(
@@ -939,14 +944,7 @@ describe("POST oauth/request", () => {
   });
 
   test("the seeded Slack host policy admits nothing beyond the documented hosts", async () => {
-    const seed = PROVIDER_SEED_DATA.slack_channel;
-    mockProviders.slack_channel = {
-      ...baseProvider,
-      provider: "slack_channel",
-      managedServiceConfigKey: null,
-      baseUrl: seed.baseUrl ?? null,
-      injectionTemplates: JSON.stringify(seed.injectionTemplates),
-    };
+    mockProviders.slack_channel = seededProvider("slack_channel");
 
     // A lookalike, an unrelated host, and the CDN host Slack redirects file
     // downloads to: the guard sees only the URL the caller names, and that
