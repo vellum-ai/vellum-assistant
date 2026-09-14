@@ -25,6 +25,9 @@ interface MockProviderRow {
   managedServiceConfigKey: string | null;
   baseUrl: string | null;
   injectionTemplates: string | null;
+  defaultScopes?: string;
+  authorizeParams?: string | null;
+  scopeSeparator?: string;
   pingUrl: string | null;
   pingMethod: string | null;
   pingHeaders: string | null;
@@ -117,6 +120,7 @@ mock.module("../oauth/oauth-store.js", () => ({
 
 mock.module("../oauth/connection-resolver.js", () => {
   const makeConnection = () => ({
+    id: "conn-1",
     accountInfo: "user@example.com",
     request: async (req: unknown) => {
       mockResolveRequests.push(req);
@@ -961,6 +965,51 @@ describe("POST oauth/request", () => {
       ).rejects.toBeInstanceOf(BadRequestError);
     }
     expect(mockResolveRequests).toHaveLength(0);
+  });
+
+  test("names the required scopes a stored grant lacks on the request itself", async () => {
+    // A connection made before a scope was required keeps working for every
+    // call that does not need it, so the caller must be told on the request,
+    // not only by the next health check.
+    const seed = PROVIDER_SEED_DATA.slack;
+    mockProviders.slack = {
+      ...seededProvider("slack"),
+      defaultScopes: JSON.stringify(seed.defaultScopes),
+      authorizeParams: JSON.stringify(seed.authorizeParams),
+      scopeSeparator: " ",
+    };
+    const grantedBeforeFilesRead = seed
+      .authorizeParams!.user_scope.split(",")
+      .filter((scope) => scope !== "files:read");
+    mockAllConnections.slack = [
+      {
+        id: "conn-1",
+        provider: "slack",
+        grantedScopes: JSON.stringify(grantedBeforeFilesRead),
+      },
+    ];
+
+    const stale = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({ body: { provider: "slack", url: "/conversations.history" } }),
+    )) as { ok: boolean; hint?: string };
+
+    expect(stale.ok).toBe(true);
+    expect(stale.hint).toContain("files:read");
+    expect(stale.hint).toContain("oauth connect slack");
+
+    mockAllConnections.slack = [
+      {
+        id: "conn-1",
+        provider: "slack",
+        grantedScopes: JSON.stringify(
+          seed.authorizeParams!.user_scope.split(","),
+        ),
+      },
+    ];
+    const current = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({ body: { provider: "slack", url: "/conversations.history" } }),
+    )) as { hint?: string };
+    expect(current.hint).toBeUndefined();
   });
 
   test("allows cross-host absolute URLs declared by provider injection templates", async () => {

@@ -72,6 +72,30 @@ export function expectedScopesForStoredToken(
   return parsed.length > 0 ? parsed : defaultScopes;
 }
 
+/**
+ * The required scopes a stored grant lacks. Requirements come from the request
+ * that produced the stored token ({@link expectedScopesForStoredToken}), so a
+ * provider's bot-only scopes are never demanded of a user token. An empty
+ * requirement or an unrecorded grant reports nothing, because unknown scope
+ * data must never read as a failure.
+ */
+export function missingScopesForStoredToken(
+  defaultScopes: string[],
+  authorizeParams: Record<string, string> | undefined,
+  scopeSeparator: string | undefined,
+  grantedScopes: string[],
+): string[] {
+  const expected = expectedScopesForStoredToken(
+    defaultScopes,
+    authorizeParams,
+    scopeSeparator,
+  );
+  if (expected.length === 0 || grantedScopes.length === 0) {
+    return [];
+  }
+  return scopeDifference(expected, grantedScopes);
+}
+
 const GMAIL_FULL_ACCESS_SCOPE = "https://mail.google.com/";
 const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
