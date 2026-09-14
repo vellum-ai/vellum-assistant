@@ -16,6 +16,7 @@ import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
+import { desktopChromeCommand } from "./desktop-chrome-command.js";
 import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
 import {
   desktopChromePath,
@@ -711,16 +712,12 @@ function xServerCommand(executable: string): string[] {
 }
 
 function browserCommand(executable: string, profileDir: string): string[] {
-  // Root containers require --no-sandbox; set geometry before openbox maps it.
+  // Set geometry before openbox maps the window.
   return [
-    executable,
-    "--no-sandbox",
-    "--no-first-run",
-    "--disable-dev-shm-usage",
+    ...desktopChromeCommand(executable, profileDir),
     "--start-maximized",
     "--window-position=0,0",
     `--window-size=${DESKTOP_WIDTH},${DESKTOP_HEIGHT}`,
-    `--user-data-dir=${profileDir}`,
   ];
 }
 
