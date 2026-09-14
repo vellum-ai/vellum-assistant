@@ -13,7 +13,6 @@
  */
 
 import {
-  ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
   AcpCredentialFormatError,
   assertAcpCredentialFormat,
@@ -203,11 +202,9 @@ export async function persistPromptedCredential(args: {
     if (!ok) {
       return { outcome: "error", message: "failed to store credential" };
     }
-    if (service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD) {
-      const { forgetAcpClaudeRenewalStateOnForeignWrite } =
-        await import("../acp/acp-claude-oauth.js");
-      await forgetAcpClaudeRenewalStateOnForeignWrite(service, field);
-    }
+    const { clearCredentialCompanionFields } =
+      await import("../tools/credentials/store.js");
+    await clearCredentialCompanionFields(service, field);
   }
 
   // The prompt UI never puts the value in the transcript, but the flow is

@@ -10,7 +10,6 @@
 import { z } from "zod";
 
 import {
-  ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
   AcpCredentialFormatError,
   assertAcpCredentialFormat,
@@ -358,11 +357,9 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
             `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
           );
         }
-        if (service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD) {
-          const { forgetAcpClaudeRenewalStateOnForeignWrite } =
-            await import("../../acp/acp-claude-oauth.js");
-          await forgetAcpClaudeRenewalStateOnForeignWrite(service, field);
-        }
+        const { clearCredentialCompanionFields } =
+          await import("../../tools/credentials/store.js");
+        await clearCredentialCompanionFields(service, field);
         if (!isNonSecretPlatformField(service, field)) {
           // Same seam as the api_key branch: the scrub runs immediately after
           // the secure-store write, before side effects that can throw. The
@@ -618,17 +615,14 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       const field = name.slice(colonIdx + 1);
       assertMetadataWritable();
       const key = credentialKey(service, field);
-      if (service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD) {
-        const { forgetAcpClaudeRenewalStateOnAccessTokenDelete } =
-          await import("../../acp/acp-claude-oauth.js");
-        await forgetAcpClaudeRenewalStateOnAccessTokenDelete(service, field);
-      }
       const existing = await getSecureKeyAsync(key);
       if (existing === undefined) {
         throw new NotFoundError(`Credential not found: ${name}`);
       }
       const affectedConnections = assertCredentialNotInUse(key, force === true);
-      const deleteResult = await deleteSecureKeyAsync(key);
+      const { deleteCredentialPlaintext } =
+        await import("../../tools/credentials/store.js");
+      const deleteResult = await deleteCredentialPlaintext(service, field);
       if (deleteResult === "error") {
         throw new InternalError(
           `Failed to delete credential from secure storage: ${name}`,

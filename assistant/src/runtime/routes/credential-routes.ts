@@ -16,11 +16,7 @@
 
 import { z } from "zod";
 
-import {
-  ACP_OAUTH_TOKEN_FIELD,
-  ACP_SERVICE,
-  AcpCredentialFormatError,
-} from "../../acp/acp-credentials.js";
+import { AcpCredentialFormatError } from "../../acp/acp-credentials.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
   fetchManagedCatalog,
@@ -36,9 +32,7 @@ import {
 } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
-  deleteSecureKeyAsync,
   getActiveBackendInfoAsync,
-  getSecureKeyAsync,
   getSecureKeyResultAsync,
 } from "../../security/secure-keys.js";
 import {
@@ -53,6 +47,7 @@ import type { CredentialInjectionTemplate } from "../../tools/credentials/policy
 import {
   CredentialStorageError,
   InvalidCredentialInputError,
+  deleteCredentialPlaintext,
   storeCredentialValue,
 } from "../../tools/credentials/store.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -565,14 +560,7 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
 
   const key = credentialKey(service, field);
   const affectedConnections = assertCredentialNotInUse(key, force === true);
-  const existing = await getSecureKeyAsync(key);
-  if (service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD) {
-    const { forgetAcpClaudeRenewalStateOnAccessTokenDelete } =
-      await import("../../acp/acp-claude-oauth.js");
-    await forgetAcpClaudeRenewalStateOnAccessTokenDelete(service, field);
-  }
-  const deleteResult =
-    existing != null ? await deleteSecureKeyAsync(key) : "not-found";
+  const deleteResult = await deleteCredentialPlaintext(service, field);
 
   if (deleteResult === "error") {
     throw new InternalError(
