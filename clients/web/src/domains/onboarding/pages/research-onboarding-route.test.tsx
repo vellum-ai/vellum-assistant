@@ -418,6 +418,12 @@ mock.module("@/domains/onboarding/hooks/use-onboarding-stage-size", () => ({
   ),
 }));
 
+let desktopAppPlatform: "macos" | "windows" = "macos";
+
+mock.module("@/runtime/desktop-app-platform", () => ({
+  useDesktopAppPlatform: () => desktopAppPlatform,
+}));
+
 const { ResearchOnboardingRoute } =
   await import("@/domains/onboarding/pages/research-onboarding-route");
 
@@ -461,6 +467,7 @@ function doneSnapshot(): ResearchOnboardingSnapshot {
 beforeEach(() => {
   localStorage.clear();
   adoptExistingAssistant = false;
+  desktopAppPlatform = "macos";
   hasPlatformSession = true;
   platformSessionSettled = true;
   researchStatus = "idle";
@@ -748,6 +755,17 @@ describe("ResearchOnboardingRoute paid return", () => {
       screen.getByRole("link", { name: "Download the macOS app" }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  test("an at-capacity failure offers the Windows download on Windows", async () => {
+    backgroundHatch.error = PLATFORM_HOSTED_DISABLED_MESSAGE;
+    desktopAppPlatform = "windows";
+
+    render(<ResearchOnboardingRoute />);
+
+    expect(
+      await screen.findByRole("link", { name: "Download the Windows app" }),
+    ).toBeTruthy();
   });
 
   test("a healthy hatch renders no overlay", async () => {

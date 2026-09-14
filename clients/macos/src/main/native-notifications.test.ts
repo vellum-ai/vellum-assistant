@@ -280,6 +280,22 @@ describe("createNativeNotificationFactory", () => {
     expect(request.id.length).toBeGreaterThan(0);
   });
 
+  test("omits a subtitle when the title supplied the sender name", () => {
+    createNativeNotificationFactory()
+      .create(
+        options({
+          sender: { ...sender, name: "Weekly plan" },
+          suppressGroupTitle: true,
+        }),
+      )
+      .show();
+
+    const { request } = calls[0]!;
+    expect(request.title).toBe("Weekly plan");
+    expect(request.subtitle).toBeUndefined();
+    expect(request.sender?.name).toBe("Weekly plan");
+  });
+
   test("stages the avatar through the shared cache", () => {
     createNativeNotificationFactory().create(options()).show();
 

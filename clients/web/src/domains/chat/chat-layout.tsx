@@ -101,6 +101,7 @@ import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/resea
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
+import { AssistantDesktopAffordance } from "@/domains/chat/desktop/assistant-desktop-affordance";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
@@ -1150,6 +1151,7 @@ export function ChatLayout({
             <>
               {topBarRightSlot}
               {topBarPill}
+              <AssistantDesktopAffordance />
               {topBarAccessory}
             </>
           }

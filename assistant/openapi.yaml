@@ -596,6 +596,16 @@ paths:
                     type: string
                   agent:
                     type: string
+                  requestedModel:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: The model explicitly requested for this spawn, if any.
+                  effectiveModel:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: The top-level session model reported by the ACP adapter, if any.
                   modelWarning:
                     description: Why the requested model was not applied. The session is running on the agent's own model.
                     type: string
@@ -603,6 +613,8 @@ paths:
                   - acpSessionId
                   - protocolSessionId
                   - agent
+                  - requestedModel
+                  - effectiveModel
                 additionalProperties: false
   /v1/activation/dismiss:
     post:
@@ -11698,54 +11710,6 @@ paths:
                   - schedules
                   - timestamp
                 additionalProperties: false
-  /v1/debug/bash:
-    post:
-      operationId: debug_bash_post
-      summary: Execute a shell command in the assistant process
-      description: Developer debugging tool. Requires the assistant to be running with VELLUM_DEBUG=1.
-      tags:
-        - debug
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                command:
-                  type: string
-                  description: Shell command to execute via bash -c
-                timeoutMs:
-                  description: "Execution timeout in milliseconds (default: 30000)"
-                  type: number
-              required:
-                - command
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  stdout:
-                    type: string
-                  stderr:
-                    type: string
-                  exitCode:
-                    anyOf:
-                      - type: number
-                      - type: "null"
-                  timedOut:
-                    type: boolean
-                  error:
-                    type: string
-                required:
-                  - stdout
-                  - stderr
-                  - exitCode
-                  - timedOut
-                additionalProperties: false
   /v1/debug/database:
     get:
       operationId: debug_database_get
@@ -11948,6 +11912,67 @@ paths:
                       additionalProperties: false
                 required:
                   - defers
+                additionalProperties: false
+  /v1/desktop/setup:
+    get:
+      operationId: desktop_setup_get
+      summary: Get desktop setup status
+      tags:
+        - desktop
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - required
+                      - installing
+                      - ready
+                      - failed
+                      - unsupported
+                  stage:
+                    type: string
+                    enum:
+                      - packages
+                      - chrome
+                      - checking
+                required:
+                  - state
+                additionalProperties: false
+    post:
+      operationId: desktop_setup_post
+      summary: Install desktop components
+      tags:
+        - desktop
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - required
+                      - installing
+                      - ready
+                      - failed
+                      - unsupported
+                  stage:
+                    type: string
+                    enum:
+                      - packages
+                      - chrome
+                      - checking
+                required:
+                  - state
                 additionalProperties: false
   /v1/diagnostics/env-vars:
     get:

@@ -443,6 +443,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "local-notification-avatar",
+      "scope": "client",
+      "key": "local-notification-avatar",
+      "label": "Local Notification Avatar",
+      "description": "Shows the assistant name and avatar in notifications posted locally by native clients and supported browsers. Independent of remote push avatar presentation.",
+      "defaultEnabled": false
+    },
+    {
       "id": "channel-conversation-sidecar",
       "scope": "client",
       "key": "channel-conversation-sidecar",
@@ -510,6 +518,14 @@
       "key": "send-user-message",
       "label": "Send User Message Tool",
       "description": "Route all user-facing assistant text through the send_user_message tool instead of streamed assistant text",
+      "defaultEnabled": false
+    },
+    {
+      "id": "assistant-desktop",
+      "scope": "assistant",
+      "key": "assistant-desktop",
+      "label": "Assistant Desktop",
+      "description": "Streams an interactive desktop from a containerized assistant pod to the web client over /v1/desktop/stream. Off: no desktop affordance is rendered. On: the chat header offers a desktop panel that views and controls the pod's display.",
       "defaultEnabled": false
     }
   ]

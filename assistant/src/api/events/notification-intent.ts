@@ -20,6 +20,8 @@ import { z } from "zod";
 export const NotificationIntentEventSchema = z.object({
   type: z.literal("notification_intent"),
   sourceEventName: z.string(),
+  /** Verified assistant name supplied by the assistant when available. */
+  assistantName: z.string().optional(),
   title: z.string(),
   body: z.string(),
   deliveryId: z.string().optional(),

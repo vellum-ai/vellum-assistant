@@ -21,6 +21,8 @@ interface MobileAppOverlayProps {
   onToggleMinimized: () => void;
   /** Closes the overlay (resets `openedAppState` upstream). */
   onClose: () => void;
+  /** Routes a validated root-relative Vellum URL in the host client. */
+  onNavigateAppRoute: (href: string) => void;
   /** Initiates app share flow. */
   onShare: () => void;
   isSharing: boolean;
@@ -48,6 +50,7 @@ export function MobileAppOverlay({
   assistantId,
   onToggleMinimized,
   onClose,
+  onNavigateAppRoute,
   onShare,
   isSharing,
   onDeploy,
@@ -152,6 +155,7 @@ export function MobileAppOverlay({
           html={openedAppState.html}
           assistantId={assistantId ?? ""}
           onClose={onClose}
+          onNavigateAppRoute={onNavigateAppRoute}
           onEdit={onToggleMinimized}
           onShare={onShare}
           isSharing={isSharing}

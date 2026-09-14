@@ -82,6 +82,7 @@ export function PluginListRow({
           size="sm"
           external={item.external}
           icon={item.icon}
+          iconUrl={item.iconUrl}
           iconSrc={iconSrc}
           className={dimmed ? "opacity-50" : undefined}
         />

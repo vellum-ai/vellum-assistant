@@ -8,6 +8,7 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
+import { formatDesktopAppRequired } from "../capability-offer.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -31,7 +32,7 @@ function proxyExecute(toolName: string) {
   ): Promise<ToolExecutionResult> => {
     if (!context.proxyToolResolver) {
       return {
-        content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires a connected desktop client.`,
+        content: formatDesktopAppRequired("screen"),
         isError: true,
       };
     }

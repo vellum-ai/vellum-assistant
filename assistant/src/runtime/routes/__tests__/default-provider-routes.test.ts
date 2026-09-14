@@ -377,7 +377,7 @@ describe("GET config/llm/default-provider", () => {
     expect(availability(result).message).toContain("Vellum-managed");
   });
 
-  test("service_account connection → unsupported_auth even with a stored credential", async () => {
+  test("service_account connection with invalid credential → missing_credential", async () => {
     seedConnection({
       name: "gemini-personal",
       provider: "gemini",
@@ -390,7 +390,7 @@ describe("GET config/llm/default-provider", () => {
     setConfig("llm", { defaultProvider: { provider: "gemini" } });
 
     const result = await get();
-    expect(availability(result).status).toBe("unsupported_auth");
+    expect(availability(result).status).toBe("missing_credential");
     expect(availability(result).message).toContain("service-account");
   });
 

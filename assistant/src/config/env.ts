@@ -229,8 +229,8 @@ export function setPlatformAssistantId(value: string | undefined): void {
  * Platform assistant ID — UUID of this assistant on the platform.
  *
  * Resolved from the in-memory override (populated by providers-setup
- * rehydration from the credential store at daemon startup, or by
- * secret-routes when the platform pushes the value).
+ * rehydration via platform validate, or by secret-routes when the
+ * platform pushes the value).
  */
 export function getPlatformAssistantId(): string {
   return _platformAssistantIdOverride ?? "";

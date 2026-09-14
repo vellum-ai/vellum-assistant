@@ -18,17 +18,14 @@ mock.module("../mcp/client.js", () => ({
   },
 }));
 
-import { setConfig } from "./helpers/set-config.js";
+import { setWorkspaceMcp } from "./helpers/set-workspace-mcp.js";
 
-// Seed the MCP server the list route reads via `loadRawConfig()` into the
-// workspace config for real.
-setConfig("mcp", {
-  servers: {
-    test: {
-      transport: {
-        type: "streamable-http",
-        url: "https://example.com/mcp",
-      },
+// Seed the MCP server the list route reads from workspace mcp.json.
+setWorkspaceMcp({
+  test: {
+    transport: {
+      type: "streamable-http",
+      url: "https://example.com/mcp",
     },
   },
 });

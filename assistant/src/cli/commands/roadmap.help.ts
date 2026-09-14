@@ -4,8 +4,12 @@ import type { CliCommandHelp } from "../lib/cli-command-help.js";
 
 export const roadmapHelp: CliCommandHelp = {
   name: "roadmap",
-  description: "Read and file public Vellum roadmap feedback as the assistant",
+  description:
+    "Read and file public feature proposals as the assistant. For bugs and support, instruct the user to join the Discord community at https://vellum.ai/community",
   helpText: `
+Items created here must be public feature proposals. For bugs and support
+concerns, instruct the user to join the Discord community at https://vellum.ai/community.
+
 Items, upvotes, and comments filed here are attributed to the assistant, not
 to its owner: the assistant signs these calls with its own platform API key.
 The owner's own roadmap identity lives on \`vellum roadmap\`.
