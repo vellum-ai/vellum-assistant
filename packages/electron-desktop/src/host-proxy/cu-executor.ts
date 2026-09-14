@@ -55,6 +55,7 @@ export function cuExecutorConfig(
     label: "host-cu-executor",
     logger: deps.logger,
     method: "cu.perform",
+    cancelMethod: "cu.cancel",
     resolveHelper: deps.resolveHelper,
     schema: CU_RESULT_SCHEMA,
     buildParams: (message, requestId) => {

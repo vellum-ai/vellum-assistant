@@ -89,6 +89,21 @@ enum HostCuActionRunner {
     /// closed mid-flight).
     private static var lastAccess: [String: Date] = [:]
 
+    /// Requests the daemon cancelled while they were running, with when the
+    /// cancel arrived. A batch checks this between actions so Stop halts it.
+    private static var cancelledRequests: [String: Date] = [:]
+
+    /// Record a cancel for `requestId`. Entries older than a minute are
+    /// dropped, which also bounds cancels that arrive after a request ended.
+    static func cancel(requestId: String, now: Date = Date()) {
+        cancelledRequests = cancelledRequests.filter { now.timeIntervalSince($0.value) < 60 }
+        cancelledRequests[requestId] = now
+    }
+
+    private static func isCancelled(_ requestId: String) -> Bool {
+        cancelledRequests[requestId] != nil
+    }
+
     /// Idle window after which an untouched session's state is reclaimed.
     private static let sessionTTL: TimeInterval = 600
 
@@ -119,6 +134,7 @@ enum HostCuActionRunner {
         reasoning: String?
     ) async -> HostCuResultPayload {
         let timer = PhaseTimer()
+        defer { cancelledRequests.removeValue(forKey: requestId) }
         touchSession(conversationId)
         let enumerator = AccessibilityTreeEnumerator()
         let screenCapture = ScreenCapture()
@@ -192,6 +208,7 @@ enum HostCuActionRunner {
             }
             if toolName == "computer_use_sequence" || toolName == "cu_sequence" {
                 let outcome = await runSequence(
+                    requestId: requestId,
                     input: input,
                     reasoning: reasoning,
                     enumerator: enumerator,
@@ -373,6 +390,7 @@ enum HostCuActionRunner {
     /// one observation afterwards. Element IDs resolve against the last
     /// observation, which is the tree the model chose them from.
     private static func runSequence(
+        requestId: String,
         input: [String: Any],
         reasoning: String?,
         enumerator: AccessibilityTreeEnumerator,
@@ -402,6 +420,11 @@ enum HostCuActionRunner {
 
         actionLoop: for (index, action) in actions.enumerated() {
             let label = "action \(index + 1) of \(actions.count) (\(names[index]!))"
+
+            if isCancelled(requestId) {
+                stoppedAt = "Stopped at \(label): the request was cancelled."
+                break actionLoop
+            }
 
             if ActionExecutor.takesOverFromUser(action), ActionExecutor.userIsCurrentlyActive() {
                 stoppedAt = "Stopped at \(label): \(ActionExecutor.userIsActiveMessage)"
@@ -757,8 +780,10 @@ enum HostCuActionRunner {
                 windowTitle: result.windowTitle,
                 appName: result.appName
             )
-            if walkTruncated, depth < AXDepthPolicy.fullDepth {
-                axTreeText? += "\n\n(Tree cut off at depth \(depth). Call computer_use_observe with full_tree: true to see deeper elements.)"
+            if walkTruncated {
+                axTreeText? += depth < AXDepthPolicy.fullDepth
+                    ? "\n\n(Tree cut off at depth \(depth). Call computer_use_observe with full_tree: true to see deeper elements.)"
+                    : "\n\n(Tree cut off at depth \(depth), the deepest walk available. Elements below it are not listed; use a screenshot to see them.)"
             }
             let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
             currentElements = captureTarget == nil ? flat : nil

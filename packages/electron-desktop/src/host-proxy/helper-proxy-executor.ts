@@ -33,6 +33,12 @@ export interface HostHelperProxyConfig<T> {
   logger: HostProxyLogger;
   /** JSON-RPC method on the helper, e.g. "cu.perform". */
   method: string;
+  /**
+   * JSON-RPC method that tells the helper to stop a request it is still
+   * running, called best-effort on cancel. Without it a cancel only drops the
+   * late result, and a helper mid-way through several actions keeps going.
+   */
+  cancelMethod?: string;
   resolveHelper: () => CuHelperClient;
   /** Schema the helper result is validated against (tolerant of extra keys). */
   schema: z.ZodType<T>;
@@ -85,9 +91,23 @@ export class HostHelperProxyExecutor<T> implements HostProxyExecutor {
 
   handleCancel(message: HostProxySseMessage, _poster: HostProxyPoster): void {
     const requestId = message.requestId as string | undefined;
-    if (requestId) {
-      this.markCancelled(requestId);
+    if (!requestId) {
+      return;
     }
+    this.markCancelled(requestId);
+    const { cancelMethod } = this.config;
+    if (!cancelMethod) {
+      return;
+    }
+    // Best-effort: an older helper has no cancel method and answers with an
+    // error, which leaves the drop-the-result behavior above in place.
+    void Promise.resolve()
+      .then(() => this.config.resolveHelper().call(cancelMethod, { requestId }))
+      .catch((err: unknown) => {
+        this.config.logger.warn(
+          `[${this.config.label}] ${cancelMethod} failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
   }
 
   private async run(
