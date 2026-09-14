@@ -618,6 +618,11 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       const field = name.slice(colonIdx + 1);
       assertMetadataWritable();
       const key = credentialKey(service, field);
+      if (service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD) {
+        const { forgetAcpClaudeRenewalStateOnAccessTokenDelete } =
+          await import("../../acp/acp-claude-oauth.js");
+        await forgetAcpClaudeRenewalStateOnAccessTokenDelete(service, field);
+      }
       const existing = await getSecureKeyAsync(key);
       if (existing === undefined) {
         throw new NotFoundError(`Credential not found: ${name}`);

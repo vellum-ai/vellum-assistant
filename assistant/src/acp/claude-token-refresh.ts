@@ -105,7 +105,7 @@ async function doRefresh(refreshToken: string): Promise<string> {
         { err },
         "Claude OAuth refresh token was rejected; dropping it so the account reads as needing a reconnect",
       );
-      await clearAcpClaudeRefreshToken();
+      await clearAcpClaudeRefreshToken(refreshToken);
     } else {
       log.warn({ err }, "Claude OAuth token refresh failed transiently");
     }
@@ -116,15 +116,20 @@ async function doRefresh(refreshToken: string): Promise<string> {
     log.warn(
       "Claude OAuth refresh returned no usable access token; dropping the refresh token so the account reads as needing a reconnect",
     );
-    await clearAcpClaudeRefreshToken();
+    await clearAcpClaudeRefreshToken(refreshToken);
     throw new Error("Claude OAuth refresh returned no access token");
   }
 
-  await persistRefreshedAcpClaudeTokens({
-    accessToken: result.accessToken,
-    refreshToken: result.refreshToken,
-    expiresIn: result.expiresIn,
-  });
-  log.info("Claude OAuth token refreshed");
+  const persisted = await persistRefreshedAcpClaudeTokens(
+    {
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      expiresIn: result.expiresIn,
+    },
+    refreshToken,
+  );
+  if (persisted) {
+    log.info("Claude OAuth token refreshed");
+  }
   return result.accessToken;
 }

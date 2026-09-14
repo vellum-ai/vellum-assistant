@@ -37,6 +37,11 @@ mock.module("../oauth/manual-token-connection.js", () => ({
   syncManualTokenConnection: async () => {},
 }));
 
+mock.module("../runtime/routes/credential-in-use.js", () => ({
+  assertCredentialNotInUse: () => [],
+  invalidateConnectionsAfterCredentialDelete: () => {},
+}));
+
 afterAll(() => {
   mock.restore();
 });
@@ -46,6 +51,9 @@ import { ROUTES } from "../runtime/routes/secret-routes.js";
 
 const addRoute = ROUTES.find(
   (r) => r.method === "POST" && r.endpoint === "secrets",
+)!;
+const deleteRoute = ROUTES.find(
+  (r) => r.method === "DELETE" && r.endpoint === "secrets",
 )!;
 
 function addAcpOauthToken(value: string) {
@@ -91,6 +99,32 @@ describe("secret routes ACP OAuth-token format guard", () => {
     expect(
       secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)],
     ).toBe("sk-ant-oat01-pasted-token");
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)],
+    ).toBeUndefined();
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)],
+    ).toBeUndefined();
+  });
+
+  test("clears Claude refresh material when the access token is deleted", async () => {
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)] =
+      "sk-ant-oat01-connected";
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)] =
+      "refresh-to-drop";
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)] =
+      "111";
+
+    await deleteRoute.handler({
+      body: {
+        type: "credential",
+        name: `${ACP_SERVICE}:${ACP_OAUTH_TOKEN_FIELD}`,
+      },
+    });
+
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)],
+    ).toBeUndefined();
     expect(
       secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)],
     ).toBeUndefined();

@@ -551,6 +551,7 @@ describe("credentials routes", () => {
       expect(secureStore.has("acp:claude_oauth_expires_at")).toBe(false);
     });
 
+
     test("a successful set scrubs the normalized value from transcripts exactly once", async () => {
       /**
        * The pasted plaintext may already sit in recent transcripts, so a
@@ -1319,6 +1320,20 @@ describe("credentials routes", () => {
 
       // THEN it rejects with a BadRequestError
       await expect(call).rejects.toBeInstanceOf(BadRequestError);
+    });
+
+    test("clears Claude refresh material when the access token is deleted", async () => {
+      secureStore.set("acp:claude_oauth_token", "sk-ant-oat01-connected");
+      secureStore.set("acp:claude_oauth_refresh_token", "refresh-to-drop");
+      secureStore.set("acp:claude_oauth_expires_at", "111");
+
+      await deleteRoute!.handler({
+        body: { service: "acp", field: "claude_oauth_token" },
+      });
+
+      expect(secureStore.has("acp:claude_oauth_token")).toBe(false);
+      expect(secureStore.has("acp:claude_oauth_refresh_token")).toBe(false);
+      expect(secureStore.has("acp:claude_oauth_expires_at")).toBe(false);
     });
   });
 });

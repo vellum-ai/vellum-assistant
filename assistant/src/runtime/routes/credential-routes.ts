@@ -16,7 +16,11 @@
 
 import { z } from "zod";
 
-import { AcpCredentialFormatError } from "../../acp/acp-credentials.js";
+import {
+  ACP_OAUTH_TOKEN_FIELD,
+  ACP_SERVICE,
+  AcpCredentialFormatError,
+} from "../../acp/acp-credentials.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import {
   fetchManagedCatalog,
@@ -562,6 +566,11 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
   const key = credentialKey(service, field);
   const affectedConnections = assertCredentialNotInUse(key, force === true);
   const existing = await getSecureKeyAsync(key);
+  if (service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD) {
+    const { forgetAcpClaudeRenewalStateOnAccessTokenDelete } =
+      await import("../../acp/acp-claude-oauth.js");
+    await forgetAcpClaudeRenewalStateOnAccessTokenDelete(service, field);
+  }
   const deleteResult =
     existing != null ? await deleteSecureKeyAsync(key) : "not-found";
 

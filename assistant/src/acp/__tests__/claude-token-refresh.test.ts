@@ -28,7 +28,9 @@ let refreshImpl: () => Promise<OAuth2TokenResult> = async () => {
 let spawnDenial: string | undefined = undefined;
 const isAcpClaudeTokenExpiring = mock(async () => expiring);
 const readAcpClaudeRefreshToken = mock(async () => storedRefreshToken);
-const persistRefreshedAcpClaudeTokens = mock(async (_tokens: unknown) => {});
+const persistRefreshedAcpClaudeTokens = mock(
+  async (_tokens: unknown, _expectedRefreshToken: string) => true,
+);
 const clearAcpClaudeRefreshToken = mock(async () => {});
 const acpSpawnCredentialDenialReason = mock((_field: string) => spawnDenial);
 const refreshOAuth2Token = mock(async (..._args: unknown[]) => refreshImpl());
@@ -109,11 +111,28 @@ describe("ensureFreshAcpClaudeToken: renewal", () => {
     expect(args[3]).toBeUndefined();
     expect(args[5]).toBe("json");
 
-    expect(persistRefreshedAcpClaudeTokens).toHaveBeenCalledWith({
-      accessToken: "sk-ant-oat-new",
+    expect(persistRefreshedAcpClaudeTokens).toHaveBeenCalledWith(
+      {
+        accessToken: "sk-ant-oat-new",
+        refreshToken: "refresh-rotated",
+        expiresIn: 3600,
+      },
+      "refresh-me",
+    );
+  });
+
+  test("does not treat a skipped stale persist as a failure", async () => {
+    expiring = true;
+    storedRefreshToken = "refresh-me";
+    persistRefreshedAcpClaudeTokens.mockResolvedValueOnce(false);
+    refreshImpl = async () => ({
+      accessToken: "sk-ant-oat-stale",
       refreshToken: "refresh-rotated",
       expiresIn: 3600,
     });
+
+    await expect(ensureFreshAcpClaudeToken()).resolves.toBeUndefined();
+    expect(clearAcpClaudeRefreshToken).not.toHaveBeenCalled();
   });
 
   test("runs one refresh for concurrent spawns", async () => {
@@ -163,7 +182,7 @@ describe("ensureFreshAcpClaudeToken: failures", () => {
 
     await ensureFreshAcpClaudeToken();
 
-    expect(clearAcpClaudeRefreshToken).toHaveBeenCalledTimes(1);
+    expect(clearAcpClaudeRefreshToken).toHaveBeenCalledWith("revoked");
     expect(persistRefreshedAcpClaudeTokens).not.toHaveBeenCalled();
   });
 
@@ -179,7 +198,7 @@ describe("ensureFreshAcpClaudeToken: failures", () => {
 
     await ensureFreshAcpClaudeToken();
 
-    expect(clearAcpClaudeRefreshToken).toHaveBeenCalledTimes(1);
+    expect(clearAcpClaudeRefreshToken).toHaveBeenCalledWith("refresh-me");
     expect(persistRefreshedAcpClaudeTokens).not.toHaveBeenCalled();
   });
 
