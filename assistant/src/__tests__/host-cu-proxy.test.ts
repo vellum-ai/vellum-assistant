@@ -2040,7 +2040,7 @@ describe("HostCuProxy", () => {
       expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(true);
     });
 
-    test("the omitted line is absent when a skipped step reports an execution error", async () => {
+    test("a skipped step that fails still carries the omitted line after the failure", async () => {
       setup();
       connect();
       await step({ axTree: TREE, screenshot: "img" });
@@ -2050,7 +2050,32 @@ describe("HostCuProxy", () => {
       });
       expect(asksForScreenshot(failed.sent)).toBe(false);
       expect(failed.result.isError).toBe(true);
-      expect(failed.result.content).not.toContain(OMITTED);
+      expect(failed.result.content).toStartWith(
+        "Action failed: Element not found",
+      );
+      expect(failed.result.content).toContain(OMITTED);
+    });
+
+    test("a refused skipped step with a tree carries the omitted line", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const refused = await step({
+        axTree: TREE,
+        executionError: "BLOCKED: the user is active",
+      });
+      expect(asksForScreenshot(refused.sent)).toBe(false);
+      expect(refused.result.isError).toBe(true);
+      expect(refused.result.content).toContain(OMITTED);
+    });
+
+    test("a skipped step with no tree gets no omitted line", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const empty = await step({ executionResult: "Clicked" });
+      expect(asksForScreenshot(empty.sent)).toBe(false);
+      expect(empty.result.content).not.toContain(OMITTED);
     });
 
     test("a helper that ignores the flag keeps its screenshot and gets no omitted line", async () => {
