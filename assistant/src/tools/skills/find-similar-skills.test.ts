@@ -44,6 +44,11 @@ function makeContext(enabledPluginSet?: Set<string> | null): ToolContext {
   };
 }
 
+/** A retrospective-pass tool context: the one caller handed `current`. */
+function makeRetrospectiveContext(): ToolContext {
+  return { ...makeContext(), requestOrigin: "memory_retrospective" };
+}
+
 const catalog = (
   ...skills: {
     id: string;
@@ -51,6 +56,11 @@ const catalog = (
     description: string;
     source: SkillSource;
     owner?: OwnerInfo;
+    emoji?: string;
+    category?: string;
+    includes?: string[];
+    activationHints?: string[];
+    avoidWhen?: string[];
   }[]
 ) => skills;
 
@@ -214,6 +224,146 @@ describe("find_similar_skills — enrichment", () => {
 
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content)).toEqual({ skills: [] });
+  });
+});
+
+describe("find_similar_skills: current skill for a refinable hit", () => {
+  const refinableCatalog = () =>
+    catalog(
+      {
+        id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "Export the weekly usage report",
+        source: "managed",
+        emoji: "📊",
+        category: "productivity",
+        includes: ["csv-basics"],
+        activationHints: ["user asks for the weekly report"],
+        avoidWhen: ["the report is monthly"],
+      },
+      {
+        id: "user-skill",
+        name: "User Skill",
+        description: "A person wrote this",
+        source: "managed",
+      },
+      {
+        id: "clean-disk",
+        name: "Clean Disk",
+        description: "Free up disk space",
+        source: "bundled",
+      },
+    );
+  const bodies: Record<string, string> = {
+    "weekly-export": "1. Open the dashboard.\n2. Export.",
+    "user-skill": "Do the user's thing.",
+    "clean-disk": "Delete caches.",
+  };
+  const readBodies: string[] = [];
+  const readManagedSkillBody = (skillId: string) => {
+    readBodies.push(skillId);
+    return bodies[skillId];
+  };
+  const hits = async () => [
+    { skillId: "weekly-export", score: 0.9 },
+    { skillId: "user-skill", score: 0.8 },
+    { skillId: "clean-disk", score: 0.7 },
+  ];
+
+  test("the retrospective gets the skill as it is, in scaffold argument names, only for its own managed hits", async () => {
+    installMetaAuthors["weekly-export"] = "assistant";
+    installMetaAuthors["user-skill"] = "user";
+
+    const result = await executeFindSimilarSkills(
+      { goal: "export the weekly report" },
+      makeRetrospectiveContext(),
+      {
+        nearestExistingSkills: hits,
+        loadCatalog: refinableCatalog,
+        readManagedSkillBody,
+      },
+    );
+
+    const { skills } = JSON.parse(result.content);
+    expect(skills[0].current).toEqual({
+      name: "Weekly Report Export",
+      description: "Export the weekly usage report",
+      emoji: "📊",
+      category: "productivity",
+      includes: ["csv-basics"],
+      activation_hints: ["user asks for the weekly report"],
+      avoid_when: ["the report is monthly"],
+      body_markdown: "1. Open the dashboard.\n2. Export.",
+    });
+    // A person's skill and a bundled skill are not the pass's to refine, so
+    // their content is not handed over.
+    expect(skills[1]).not.toHaveProperty("current");
+    expect(skills[2]).not.toHaveProperty("current");
+  });
+
+  test("absent frontmatter fields are omitted rather than sent as null", async () => {
+    installMetaAuthors["user-skill"] = "assistant";
+
+    const result = await executeFindSimilarSkills(
+      { goal: "the user's thing" },
+      makeRetrospectiveContext(),
+      {
+        nearestExistingSkills: async () => [
+          { skillId: "user-skill", score: 1 },
+        ],
+        loadCatalog: refinableCatalog,
+        readManagedSkillBody,
+      },
+    );
+
+    const { skills } = JSON.parse(result.content);
+    expect(skills[0].current).toEqual({
+      name: "User Skill",
+      description: "A person wrote this",
+      body_markdown: "Do the user's thing.",
+    });
+  });
+
+  test("an interactive caller never receives skill bodies, and no body is read", async () => {
+    installMetaAuthors["weekly-export"] = "assistant";
+    readBodies.length = 0;
+
+    const result = await executeFindSimilarSkills(
+      { goal: "export the weekly report" },
+      makeContext(),
+      {
+        nearestExistingSkills: hits,
+        loadCatalog: refinableCatalog,
+        readManagedSkillBody,
+      },
+    );
+
+    const { skills } = JSON.parse(result.content);
+    for (const skill of skills) {
+      expect(skill).not.toHaveProperty("current");
+    }
+    expect(readBodies).toEqual([]);
+  });
+
+  test("a body that cannot be read drops current, not the hit", async () => {
+    installMetaAuthors["weekly-export"] = "assistant";
+
+    const result = await executeFindSimilarSkills(
+      { goal: "export the weekly report" },
+      makeRetrospectiveContext(),
+      {
+        nearestExistingSkills: async () => [
+          { skillId: "weekly-export", score: 0.9 },
+        ],
+        loadCatalog: refinableCatalog,
+        readManagedSkillBody: () => undefined,
+      },
+    );
+
+    const { skills } = JSON.parse(result.content);
+    expect(skills).toHaveLength(1);
+    expect(skills[0].skill_id).toBe("weekly-export");
+    expect(skills[0]).not.toHaveProperty("current");
   });
 });
 

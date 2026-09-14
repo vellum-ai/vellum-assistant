@@ -1,6 +1,11 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidate-match.js";
+import { parseFrontmatterFields } from "../../skills/frontmatter.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import { getManagedSkillDir } from "../../skills/managed-store.js";
 import {
@@ -21,6 +26,17 @@ import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
  * `"user"` = a person wrote it, off-limits). It is undefined for non-managed
  * sources and for managed skills with no recorded author, so the caller can
  * distinguish its OWN managed skills from a user's without re-reading meta.
+ *
+ * `current` is the skill as it is on disk, present only on a hit the caller
+ * may refine (a managed, assistant-authored skill) and only for the
+ * retrospective. A refinement is a whole-file overwrite, and the pass has no
+ * other read path to the skill: its `skill_load` grant covers skill-management
+ * alone, and loading would stamp `lastUsedAt` and count as usage anyway. The
+ * fields are spelled as `scaffold_managed_skill`'s own arguments so the pass
+ * can carry forward what it is not changing without translating names. The
+ * body is the stored text, not the loaded one: loading substitutes `{baseDir}`
+ * and `{workspaceDir}` and strips feature-gated sections, and a rewrite that
+ * restated that would bake absolute paths into the skill.
  */
 interface EnrichedHit {
   skill_id: string;
@@ -29,6 +45,19 @@ interface EnrichedHit {
   source: SkillSource;
   author?: "assistant" | "user";
   score: number;
+  current?: CurrentSkill;
+}
+
+/** The refinable skill's present content, in `scaffold_managed_skill` argument names. */
+interface CurrentSkill {
+  name: string;
+  description: string;
+  emoji?: string;
+  category?: string;
+  includes?: string[];
+  activation_hints?: string[];
+  avoid_when?: string[];
+  body_markdown: string;
 }
 
 /**
@@ -37,7 +66,8 @@ interface EnrichedHit {
  * each joined to its catalog name/description. Exported so bundled-skill
  * executors and tests can call it directly.
  *
- * `deps` injects the shortlist + catalog seams so tests run without Qdrant.
+ * `deps` injects the shortlist, catalog, and skill-body seams so tests run
+ * without Qdrant or a skills directory.
  */
 export async function executeFindSimilarSkills(
   input: Record<string, unknown>,
@@ -51,7 +81,13 @@ export async function executeFindSimilarSkills(
       source: SkillSource;
       owner?: OwnerInfo;
       platforms?: SkillPlatform[];
+      emoji?: string;
+      category?: string;
+      includes?: string[];
+      activationHints?: string[];
+      avoidWhen?: string[];
     }[];
+    readManagedSkillBody?: (skillId: string) => string | undefined;
   } = {},
 ): Promise<ToolExecutionResult> {
   const goal = input.goal;
@@ -79,6 +115,7 @@ export async function executeFindSimilarSkills(
 
   const findNearest = deps.nearestExistingSkills ?? nearestExistingSkills;
   const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
+  const readBody = deps.readManagedSkillBody ?? readManagedSkillBody;
 
   const catalog = loadCatalog();
   const byId = new Map(catalog.map((s) => [s.id, s]));
@@ -114,6 +151,9 @@ export async function executeFindSimilarSkills(
     ...(context.signal ? { signal: context.signal } : {}),
   });
 
+  const fromRetrospective =
+    context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
+
   const enriched: EnrichedHit[] = [];
   for (const hit of hits) {
     const skill = byId.get(hit.skillId);
@@ -126,19 +166,43 @@ export async function executeFindSimilarSkills(
     if (outOfScope(skill)) {
       continue;
     }
+    // Join install-meta authorship for managed hits so the caller can tell its
+    // OWN skills (overwritable) from a user's. Best-effort: an absent/failed
+    // meta read leaves `author` undefined rather than throwing.
+    const author =
+      skill.source === "managed"
+        ? readManagedSkillAuthor(hit.skillId)
+        : undefined;
+    // Only a refinable hit pays for the body read, and a failed read drops
+    // `current` rather than the hit: the pass can still skip a skill it
+    // cannot see, it just cannot rewrite it well.
+    const body =
+      fromRetrospective && author === "assistant"
+        ? readBody(hit.skillId)
+        : undefined;
     enriched.push({
       skill_id: hit.skillId,
       name: skill.name,
       description: skill.description,
       source: skill.source,
-      // Join install-meta authorship for managed hits so the caller can tell its
-      // OWN skills (overwritable) from a user's. Best-effort: an absent/failed
-      // meta read leaves `author` undefined rather than throwing.
-      author:
-        skill.source === "managed"
-          ? readManagedSkillAuthor(hit.skillId)
-          : undefined,
+      author,
       score: hit.score,
+      ...(body !== undefined
+        ? {
+            current: {
+              name: skill.name,
+              description: skill.description,
+              ...(skill.emoji ? { emoji: skill.emoji } : {}),
+              ...(skill.category ? { category: skill.category } : {}),
+              ...(skill.includes ? { includes: skill.includes } : {}),
+              ...(skill.activationHints
+                ? { activation_hints: skill.activationHints }
+                : {}),
+              ...(skill.avoidWhen ? { avoid_when: skill.avoidWhen } : {}),
+              body_markdown: body,
+            },
+          }
+        : {}),
     });
   }
 
@@ -146,6 +210,23 @@ export async function executeFindSimilarSkills(
     content: JSON.stringify({ skills: enriched }),
     isError: false,
   };
+}
+
+/**
+ * Read a managed skill's stored body: the SKILL.md text after its frontmatter,
+ * placeholders intact. Best-effort like the author read: a missing file or
+ * unparseable frontmatter resolves to undefined so one bad hit never throws.
+ */
+function readManagedSkillBody(skillId: string): string | undefined {
+  try {
+    const content = readFileSync(
+      join(getManagedSkillDir(skillId), "SKILL.md"),
+      "utf-8",
+    );
+    return parseFrontmatterFields(content)?.body.trim();
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -115,6 +115,11 @@ For everything else in your review window, use the \`remember\` tool on facts, p
     expect(out).toContain(
       "\n---\n\nIf your review window contains a PROCEDURE you actually carried out",
     );
+    // A refinement overwrites the whole file and the pass has no other read
+    // path to the skill, so the instruction has to point at `current`.
+    expect(out).toContain(
+      "rewriting `body_markdown` from `current.body_markdown` plus what you actually observed in the trace",
+    );
     // An UPDATE is announced by a notice whose only account of the change is
     // what the pass passes here, so the instruction has to ask for it.
     expect(out).toContain(
