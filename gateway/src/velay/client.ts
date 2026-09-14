@@ -325,13 +325,6 @@ export class VelayTunnelClient {
     }
 
     const apiKey = apiKeyRaw?.trim();
-    let platformAssistantId = peekPlatformAssistantId();
-    if (apiKey && !platformAssistantId) {
-      // The registered-frame mismatch check needs this id. Skip the wait when
-      // it is already in memory so connect does not block on validate.
-      await ensurePlatformIdentityIds();
-      platformAssistantId = peekPlatformAssistantId();
-    }
     if (!apiKey) {
       this.connecting = false;
       if (this.consumePendingCredentialRefresh("assistant API key missing")) {
@@ -341,7 +334,8 @@ export class VelayTunnelClient {
       this.scheduleReconnect();
       return;
     }
-    const expectedAssistantId = platformAssistantId;
+    await ensurePlatformIdentityIds();
+    const expectedAssistantId = peekPlatformAssistantId();
 
     let registerUrl: string;
     try {

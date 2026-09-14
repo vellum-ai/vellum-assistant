@@ -645,7 +645,12 @@ describe("VelayTunnelClient", () => {
     });
 
     client.start();
-    await flushPromises();
+    for (let i = 0; i < 50 && sockets.length === 0; i++) {
+      await Promise.resolve();
+      if (i % 5 === 4) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
     expect(sockets).toHaveLength(1);
     sockets[0].readyState = WS_OPEN;
     sendFrame(sockets[0], {

@@ -57,8 +57,8 @@ function makeCaches(opts: {
     );
     applyPlatformIdentityIds({
       assistantId: opts.platformAssistantId,
-      organizationId: "",
-      userId: "",
+      organizationId: "org-abc",
+      userId: "user-123",
     });
   }
 
