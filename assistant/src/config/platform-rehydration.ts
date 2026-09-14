@@ -11,7 +11,6 @@
  *
  * Bound platform ids come from `POST /v1/internal/assistants/validate/`,
  * which trades the assistant API key for assistant/organization/user ids.
- * If validate omits an id, that field is read from the credential store.
  *
  * Each field is best-effort: a credential-store read failure is logged and
  * skipped so a single missing value never blocks startup.
@@ -19,16 +18,7 @@
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import {
-  getPlatformAssistantId,
-  getPlatformBaseUrl,
-  getPlatformOrganizationId,
-  getPlatformUserId,
-  setPlatformAssistantId,
-  setPlatformBaseUrl,
-  setPlatformOrganizationId,
-  setPlatformUserId,
-} from "./env.js";
+import { getPlatformBaseUrl, setPlatformBaseUrl } from "./env.js";
 import {
   applyPlatformIdentityIds,
   fetchPlatformIdentityIds,
@@ -73,22 +63,21 @@ async function readAssistantApiKey(): Promise<string> {
   return process.env.ASSISTANT_API_KEY?.trim() ?? "";
 }
 
-async function rehydrateIdentityFromValidate(): Promise<boolean> {
+async function rehydrateIdentityFromValidate(): Promise<void> {
   const apiKey = await readAssistantApiKey();
   if (!apiKey) {
-    return false;
+    return;
   }
   const baseUrl = getPlatformBaseUrl();
   if (!baseUrl) {
-    return false;
+    return;
   }
   const ids = await fetchPlatformIdentityIds(baseUrl, apiKey);
   if (!ids) {
-    return false;
+    return;
   }
   applyPlatformIdentityIds(ids);
   log.info("Rehydrated platform identity from platform validate");
-  return true;
 }
 
 /**
@@ -105,26 +94,4 @@ export async function rehydratePlatformCredentials(): Promise<void> {
   );
 
   await rehydrateIdentityFromValidate();
-
-  if (!getPlatformAssistantId()) {
-    await rehydrateField(
-      "platform_assistant_id",
-      setPlatformAssistantId,
-      "platform assistant ID",
-    );
-  }
-  if (!getPlatformOrganizationId()) {
-    await rehydrateField(
-      "platform_organization_id",
-      setPlatformOrganizationId,
-      "platform organization ID",
-    );
-  }
-  if (!getPlatformUserId()) {
-    await rehydrateField(
-      "platform_user_id",
-      setPlatformUserId,
-      "platform user ID",
-    );
-  }
 }

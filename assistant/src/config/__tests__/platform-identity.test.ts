@@ -114,4 +114,8 @@ describe("resolvePlatformAssistantId", () => {
     setPlatformAssistantId(ASSISTANT_ID);
     await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
   });
+
+  test("returns empty when the in-memory override is unset", async () => {
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+  });
 });
