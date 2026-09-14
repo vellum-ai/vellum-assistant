@@ -332,6 +332,127 @@ describe("createManagedSkill", () => {
     expect(content).toContain("Overwritten");
   });
 
+  test("an overwrite keeps the frontmatter the call omits and replaces the body", () => {
+    createManagedSkill({
+      id: "kept",
+      name: "Kept",
+      description: "V1",
+      bodyMarkdown: "Old body.",
+      emoji: "📊",
+      includes: ["csv-basics"],
+      activationHints: ["user asks for the weekly report"],
+      avoidWhen: ["the report is monthly"],
+      category: "productivity",
+    });
+
+    const result = createManagedSkill({
+      id: "kept",
+      name: "Kept",
+      description: "V2",
+      bodyMarkdown: "New body.",
+      overwrite: true,
+    });
+    expect(result.created).toBe(true);
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "kept")!;
+    expect(skill.description).toBe("V2");
+    expect(skill.emoji).toBe("📊");
+    expect(skill.includes).toEqual(["csv-basics"]);
+    expect(skill.activationHints).toEqual(["user asks for the weekly report"]);
+    expect(skill.avoidWhen).toEqual(["the report is monthly"]);
+    expect(skill.category).toBe("productivity");
+    expect(readFileSync(result.path, "utf-8")).toContain("New body.");
+    expect(readFileSync(result.path, "utf-8")).not.toContain("Old body.");
+  });
+
+  test("an overwrite carries through frontmatter the tool does not own", () => {
+    const dir = join(TEST_DIR, "skills", "hand-edited");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      [
+        "---",
+        'name: "Hand Edited"',
+        'description: "Has fields the tool never writes"',
+        "metadata:",
+        "  custom: kept",
+        "  vellum:",
+        '    display-name: "Hand Edited Skill"',
+        "    platforms:",
+        "      - macos",
+        "    always-candidate: true",
+        '    emoji: "📊"',
+        "---",
+        "",
+        "Old body.",
+        "",
+      ].join("\n"),
+    );
+
+    const result = createManagedSkill({
+      id: "hand-edited",
+      name: "Hand Edited",
+      description: "V2",
+      bodyMarkdown: "New body.",
+      overwrite: true,
+      category: "productivity",
+    });
+    expect(result.created).toBe(true);
+
+    const fm = parseYaml(
+      readFileSync(result.path, "utf-8").match(/^---\n([\s\S]*?)\n---/)![1],
+    );
+    expect(fm.metadata.custom).toBe("kept");
+    expect(fm.metadata.vellum["display-name"]).toBe("Hand Edited Skill");
+    expect(fm.metadata.vellum.platforms).toEqual(["macos"]);
+    expect(fm.metadata.vellum["always-candidate"]).toBe(true);
+    expect(fm.metadata.vellum.emoji).toBe("📊");
+    expect(fm.metadata.vellum.category).toBe("productivity");
+    const skill = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]).find(
+      (s) => s.id === "hand-edited",
+    )!;
+    expect(skill.displayName).toBe("Hand Edited Skill");
+    expect(skill.platforms).toEqual(["macos"]);
+    expect(skill.alwaysCandidate).toBe(true);
+  });
+
+  test("an overwrite replaces a field it passes and clears one passed empty", () => {
+    createManagedSkill({
+      id: "patched",
+      name: "Patched",
+      description: "V1",
+      bodyMarkdown: "Body.",
+      emoji: "📊",
+      includes: ["csv-basics"],
+      activationHints: ["old hint"],
+      avoidWhen: ["the report is monthly"],
+      category: "productivity",
+    });
+
+    createManagedSkill({
+      id: "patched",
+      name: "Patched",
+      description: "V2",
+      bodyMarkdown: "Body.",
+      overwrite: true,
+      emoji: "🚀",
+      activationHints: ["new hint"],
+      avoidWhen: [],
+      category: "",
+    });
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "patched")!;
+    expect(skill.emoji).toBe("🚀");
+    expect(skill.activationHints).toEqual(["new hint"]);
+    // Omitted: kept.
+    expect(skill.includes).toEqual(["csv-basics"]);
+    // Passed empty: cleared.
+    expect(skill.avoidWhen).toBeUndefined();
+    expect(skill.category).toBeUndefined();
+  });
+
   test("writes category to frontmatter and round-trips through catalog load", () => {
     createManagedSkill({
       id: "categorized-skill",

@@ -18,6 +18,7 @@ import { parseFrontmatter } from "../config/skills.js";
 import { deleteSkillCapabilityNode } from "../plugins/defaults/memory/graph/capability-seed.js";
 import { isDeniedBasename } from "../tools/shared/filesystem/path-policy.js";
 import { getLogger } from "../util/logger.js";
+import { isPlainObject } from "../util/object.js";
 import { getWorkspaceDir, getWorkspaceSkillsDir } from "../util/platform.js";
 import { parseFrontmatterFields } from "./frontmatter.js";
 import { writeInstallMeta } from "./install-meta.js";
@@ -212,11 +213,48 @@ interface BuildSkillMarkdownInput {
   name: string;
   description: string;
   bodyMarkdown: string;
+  /**
+   * The five fields the scaffold tool owns. `undefined` leaves whatever
+   * `preserve` carries for that field (nothing, on a create); an empty value
+   * clears it; a value sets it.
+   */
   emoji?: string;
   includes?: string[];
   activationHints?: string[];
   avoidWhen?: string[];
   category?: string;
+  /**
+   * The skill's existing frontmatter, as parsed from disk, for an overwrite.
+   * Every key survives except `name`, `description`, and the five fields
+   * above, so a `platforms` gate, a `display-name`, or custom metadata a
+   * person added by hand is not lost to a call that never mentions it.
+   */
+  preserve?: Record<string, unknown>;
+}
+
+/**
+ * Apply one tool-owned field to the vellum block: an input left `undefined`
+ * keeps the preserved value, an input given but empty (`value` undefined)
+ * clears it, and a value sets it.
+ */
+function setOrClear(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+  input: unknown,
+): void {
+  if (input === undefined) {
+    return;
+  }
+  if (value === undefined) {
+    delete target[key];
+  } else {
+    target[key] = value;
+  }
+}
+
+function nonEmptyList(list: string[] | undefined): string[] | undefined {
+  return list && list.length > 0 ? list : undefined;
 }
 
 export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
@@ -230,40 +268,55 @@ export function buildSkillMarkdown(input: BuildSkillMarkdownInput): string {
   lines.push(`name: "${esc(input.name)}"`);
   lines.push(`description: "${esc(input.description)}"`);
 
-  // Build metadata object matching the format parseFrontmatter expects:
-  // metadata:
-  //   vellum:
-  //     emoji: "..."
-  const vellum: Record<string, unknown> = {};
-  if (input.emoji) {
-    vellum.emoji = input.emoji;
-  }
-  if (input.includes && input.includes.length > 0) {
-    vellum.includes = input.includes;
-  }
-  // Kebab-case keys match what parseFrontmatter reads back
-  // (config/skills.ts: vellum["activation-hints"] / vellum["avoid-when"]).
-  // These flow through stringifyYaml below, which escapes/quotes values, so no
+  // Everything but name and description is emitted from one object: the
+  // preserved frontmatter with the tool-owned fields applied over it, under
+  // `metadata.vellum` where parseFrontmatter reads them back (kebab-case for
+  // the two list fields). stringifyYaml quotes and escapes values, so no
   // manual sanitization is needed here.
-  if (input.activationHints && input.activationHints.length > 0) {
-    vellum["activation-hints"] = input.activationHints;
+  const rest: Record<string, unknown> = structuredClone(input.preserve ?? {});
+  delete rest.name;
+  delete rest.description;
+  const metadata = isPlainObject(rest.metadata) ? rest.metadata : {};
+  const vellum = isPlainObject(metadata.vellum) ? metadata.vellum : {};
+  setOrClear(vellum, "emoji", input.emoji?.trim() || undefined, input.emoji);
+  // An emoji at the legacy `metadata.emoji` location wins over an absent
+  // vellum one on read, so a call that states the emoji retires it.
+  if (input.emoji !== undefined) {
+    delete metadata.emoji;
   }
-  if (input.avoidWhen && input.avoidWhen.length > 0) {
-    vellum["avoid-when"] = input.avoidWhen;
-  }
-  // The web Skills UI groups skills into a category sidebar by this value;
-  // skip it when blank so an empty bucket assignment never lands in frontmatter.
-  if (input.category?.trim()) {
-    vellum.category = input.category.trim();
-  }
-
+  setOrClear(vellum, "includes", nonEmptyList(input.includes), input.includes);
+  setOrClear(
+    vellum,
+    "activation-hints",
+    nonEmptyList(input.activationHints),
+    input.activationHints,
+  );
+  setOrClear(
+    vellum,
+    "avoid-when",
+    nonEmptyList(input.avoidWhen),
+    input.avoidWhen,
+  );
+  // The web Skills UI buckets skills by this value; a blank one is a clear,
+  // never an empty bucket in the file.
+  setOrClear(
+    vellum,
+    "category",
+    input.category?.trim() || undefined,
+    input.category,
+  );
   if (Object.keys(vellum).length > 0) {
-    const metadata = { vellum };
-    const yamlBlock = stringifyYaml(metadata, { indent: 2 });
-    lines.push("metadata:");
-    for (const yamlLine of yamlBlock.trimEnd().split("\n")) {
-      lines.push(`  ${yamlLine}`);
-    }
+    metadata.vellum = vellum;
+  } else {
+    delete metadata.vellum;
+  }
+  if (Object.keys(metadata).length > 0) {
+    rest.metadata = metadata;
+  } else {
+    delete rest.metadata;
+  }
+  if (Object.keys(rest).length > 0) {
+    lines.push(stringifyYaml(rest, { indent: 2 }).trimEnd());
   }
 
   lines.push("---");
@@ -350,13 +403,22 @@ export function createManagedSkill(
   const skillDir = getManagedSkillDir(params.id);
   const skillFilePath = join(skillDir, "SKILL.md");
 
-  if (existsSync(skillFilePath) && !params.overwrite) {
+  const skillExists = existsSync(skillFilePath);
+  if (skillExists && !params.overwrite) {
     return {
       created: false,
       path: skillFilePath,
       error: `Managed skill "${params.id}" already exists. Set overwrite=true to replace it.`,
     };
   }
+
+  // An overwrite replaces the body and patches the frontmatter: a field the
+  // call leaves undefined keeps its current value, an explicit empty value
+  // clears it, and frontmatter the tool does not own passes through. Callers
+  // rarely hold every field (the retrospective sees a skill through a
+  // similarity hit; a user edit is "change step 3"), so a field they do not
+  // pass is kept rather than dropped.
+  const existing = skillExists ? readStoredManagedSkill(params.id) : null;
 
   // Resolve and validate every companion path before any write so an invalid
   // path leaves no partial files behind.
@@ -413,6 +475,7 @@ export function createManagedSkill(
     activationHints: params.activationHints,
     avoidWhen: params.avoidWhen,
     category: params.category,
+    preserve: existing?.frontmatter,
   });
 
   mkdirSync(skillDir, { recursive: true });
@@ -461,11 +524,13 @@ export function createManagedSkill(
  * `{workspaceDir}` and strips feature-gated sections, and a caller that wrote
  * that output back would bake absolute paths into the skill; and a first line
  * that opens an indented code block must keep its indentation or a copy turns
- * it into prose.
+ * it into prose. `frontmatter` is the whole block as written, for an
+ * overwrite to carry keys through that the typed fields do not cover.
  */
 export interface StoredManagedSkill {
   name: string;
   description: string;
+  frontmatter: Record<string, unknown>;
   emoji?: string;
   includes?: string[];
   activationHints?: string[];
@@ -493,6 +558,7 @@ export function readStoredManagedSkill(
     return {
       name: parsed.name,
       description: parsed.description,
+      frontmatter: raw.fields,
       emoji: parsed.emoji,
       includes: parsed.includes,
       activationHints: parsed.activationHints,
