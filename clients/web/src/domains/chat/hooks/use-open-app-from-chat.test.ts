@@ -9,7 +9,12 @@ import {
 } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
-import { MemoryRouter, useLocation } from "react-router";
+import {
+  MemoryRouter,
+  NavigationType,
+  useLocation,
+  useNavigationType,
+} from "react-router";
 
 // `mock.module` is safe for `use-is-mobile` because it's a pure
 // derived-value hook (no module-local state). The mobile case is
@@ -46,7 +51,7 @@ let selectionSnapshot: ReturnType<typeof useResolvedAssistantsStore.getState>;
 
 let lightSpy: ReturnType<typeof spyOn<typeof haptic, "light">>;
 
-const loadAppMock = mock(async (_assistantId: string, _appId: string) => {});
+const loadAppMock = mock(async (_assistantId: string, _appId: string) => true);
 const loadDocumentMock = mock(
   async (_assistantId: string, _surfaceId: string) => {},
 );
@@ -71,7 +76,11 @@ function renderOpenApp(initialPath: string) {
     );
   }
   return renderHook(
-    () => ({ openApp: useOpenAppFromChat(), pathname: useLocation().pathname }),
+    () => ({
+      openApp: useOpenAppFromChat(),
+      pathname: useLocation().pathname,
+      navigationType: useNavigationType(),
+    }),
     { wrapper: Wrapper },
   );
 }
@@ -104,6 +113,7 @@ beforeEach(() => {
         html: "",
       },
     });
+    return true;
   });
 
   useViewerStore.setState({
@@ -240,6 +250,49 @@ describe("useOpenAppFromChat", () => {
     // THEN there is nowhere to navigate, so the app refetches in place, which
     // is how an app the assistant edited picks up its new HTML
     expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+    expect(result.current.pathname).toBe(APP_PATH);
+  });
+
+  test("drops the app segment when an in-place reload gives up", async () => {
+    // GIVEN the app at its own route is gone, so the viewer falls back to chat
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    loadAppMock.mockImplementation(async () => {
+      useViewerStore.setState({
+        mainView: "chat",
+        activeAppId: null,
+        openedAppState: null,
+      });
+      return false;
+    });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user clicks it again
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the dead segment leaves the URL, and it leaves without a history
+    // entry, so a refresh or a copied bookmark does not retry the app
+    expect(result.current.pathname).toBe(CHAT_PATH);
+    expect(result.current.navigationType).toBe(NavigationType.Replace);
+  });
+
+  test("keeps the app route when the viewer still holds the app", async () => {
+    // GIVEN a reload that resolves false while the viewer keeps the app behind
+    // an overlay
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    loadAppMock.mockImplementation(async (_assistantId, appId) => {
+      useViewerStore.setState({ activeAppId: appId });
+      return false;
+    });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user clicks it again
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the URL still names what the viewer holds
     expect(result.current.pathname).toBe(APP_PATH);
   });
 });

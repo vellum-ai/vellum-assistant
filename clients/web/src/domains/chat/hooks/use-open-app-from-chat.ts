@@ -160,7 +160,8 @@ export function useOpenDocumentFromChat(
  * Re-opening the app the URL already names has nowhere to navigate, so it
  * reloads in place. That is the one direct `loadApp` call for an app the URL
  * already names, and it is how an app the assistant edited picks up its new
- * HTML.
+ * HTML. A reload the viewer gives up on drops the app segment, matching
+ * `useAppRouteSync`, so a refresh does not retry an app that is gone.
  *
  * An explicit open is a *view* action, so the app lands full-width: an open
  * from the split drops back to `"app"` on the way. That holds on every viewport,
@@ -208,7 +209,16 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
         viewer.exitAppEditing();
       }
       if (appIdForPath(pathname) === appId) {
-        await viewer.loadApp(assistantId, appId);
+        const loaded = await viewer.loadApp(assistantId, appId);
+        if (!loaded && useViewerStore.getState().activeAppId !== appId) {
+          // The viewer gives up on the app, and an app id the viewer cannot
+          // load does not belong in the URL, where reload and a copied
+          // bookmark would retry it forever. An `activeAppId` still on the app
+          // means the viewer holds it behind an overlay, so the URL stands.
+          await navigate(routes.conversation(conversationId), {
+            replace: true,
+          });
+        }
         return;
       }
       await navigate(routes.conversation(conversationId, appId));
