@@ -18,10 +18,7 @@ import { getConfig } from "../../config/loader.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
-import {
-  assistantEventHub,
-  broadcastMessage,
-} from "../../runtime/assistant-event-hub.js";
+import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import {
@@ -39,7 +36,7 @@ import {
   registerBackgroundTool,
   removeBackgroundTool,
 } from "../background-tool-registry.js";
-import { desktopClientName } from "../client-os.js";
+import { formatDesktopAppRequired } from "../capability-offer.js";
 import {
   attachBoundedStdio,
   MAX_OUTPUT_LENGTH,
@@ -142,7 +139,7 @@ export const hostShellInputSchema = z.looseObject({
   target_client_id: z
     .string()
     .describe(
-      "ID of the specific client to execute this command on. Required when multiple clients support host_bash; omit when only one client is connected. Obtain IDs from `assistant clients list --capability host_bash`.",
+      "Optional ID of the specific client to execute this command on. Without it, the most recently active eligible client is used. Obtain IDs from `assistant clients list --capability host_bash`.",
     )
     .optional()
     .catch(undefined),
@@ -203,20 +200,7 @@ export const hostShellTool = {
     const config = getConfig();
     const { shellDefaultTimeoutSec, shellMaxTimeoutSec } = config.timeouts;
 
-    // Guard: non-host-proxy interfaces need an explicit target when multiple
-    // capable clients are connected to avoid ambiguous untargeted broadcasts.
     const transportInterface = context.transportInterface;
-    if (
-      targetClientId == null &&
-      transportInterface != null &&
-      !supportsHostProxy(transportInterface) &&
-      assistantEventHub.listClientsByCapability("host_bash").length > 1
-    ) {
-      return {
-        content: `Error: multiple clients support host_bash. Specify which client to use with \`target_client_id\`. Run \`assistant clients list --capability host_bash\` to see client IDs and labels.`,
-        isError: true,
-      };
-    }
 
     // Guard: non-host-proxy interfaces with no capable clients connected.
     if (
@@ -226,7 +210,7 @@ export const hostShellTool = {
       !HostBashProxy.instance.isAvailable()
     ) {
       return {
-        content: `Error: no client with host_bash capability is connected. Connect a ${desktopClientName(context)} client to use host_bash from a non-desktop interface.`,
+        content: formatDesktopAppRequired("shell"),
         isError: true,
       };
     }

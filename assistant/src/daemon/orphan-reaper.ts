@@ -3,7 +3,7 @@
  *
  * Tools run commands in their own process group (`detached: true`) and, on
  * timeout/abort, group-kill with `process.kill(-pgid, SIGKILL)` (the bash and
- * host_bash tools, the skill sandbox runner, and the debug-bash route). The
+ * host_bash tools, and the skill sandbox runner). The
  * immediate child is reaped by Bun/libuv, but its descendants — e.g. git's
  * transport helpers or a skill runner's `bun` process — were never spawned by
  * the daemon, so when the group dies they reparent to PID 1. When the daemon

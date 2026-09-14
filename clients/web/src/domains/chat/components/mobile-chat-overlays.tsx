@@ -56,8 +56,7 @@ export function MobileChatOverlays() {
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeAcpRunId = useViewerStore.use.activeAcpRunId();
   const activeBackgroundTaskId = useViewerStore.use.activeBackgroundTaskId();
-  const activeChannelTranscript =
-    useViewerStore.use.activeChannelTranscript();
+  const activeChannelTranscript = useViewerStore.use.activeChannelTranscript();
   const subagentById = useSubagentStore.use.byId();
   const workflowById = useWorkflowStore.use.byId();
   const acpRunById = useAcpRunStore.use.byId();
@@ -68,6 +67,14 @@ export function MobileChatOverlays() {
     useViewerStore.getState().closeApp();
     useConversationStore.getState().setEditingConversationId(null);
   }, []);
+
+  const handleNavigateAppRoute = useCallback(
+    (href: string) => {
+      handleCloseApp();
+      navigate(href);
+    },
+    [handleCloseApp, navigate],
+  );
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
@@ -197,6 +204,7 @@ export function MobileChatOverlays() {
           useViewerStore.getState().toggleAppMinimized();
         }}
         onClose={handleCloseApp}
+        onNavigateAppRoute={handleNavigateAppRoute}
         onShare={handleShareApp}
         isSharing={isSharing}
         onDeploy={handleDeployApp}

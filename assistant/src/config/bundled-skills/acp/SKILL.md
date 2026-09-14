@@ -29,6 +29,8 @@ Claude runs on Opus unless the user names a model; every other agent starts on i
 
 When the user does name one, pass it as `model` on `acp_spawn`. Model names are the agent's own vocabulary, not Assistant model ids: an alias such as `default`, `sonnet`, `opus`, `haiku`, `fable`, or `opusplan` for Claude, or a full model id. Pass what the user said and let the agent resolve it.
 
+The spawn result reports `requestedModel` and `effectiveModel`. Treat `effectiveModel` as authoritative for the top-level ACP session. Never infer that model from the task text or from a nested subagent. When `requestedModel` is non-null and differs from `effectiveModel`, state which model the session is actually running on and relay `modelWarning` when present.
+
 If the agent refuses the model, or advertises no model selector, the spawn result says so: relay it in one sentence and carry on, because the session is live on the agent's own model.
 
 A session runs on the model it started on, so a different model means a new `acp_spawn`. A standing default per agent lives in the config at `acp.agents.<id>.model`.

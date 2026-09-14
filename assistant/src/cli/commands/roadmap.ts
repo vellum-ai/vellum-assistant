@@ -1,5 +1,5 @@
 /**
- * `assistant roadmap`: read and file public Vellum roadmap feedback as the
+ * `assistant roadmap`: read and file public feature proposals as the
  * assistant itself.
  *
  * Forwards to the daemon's roadmap routes and renders the result. The

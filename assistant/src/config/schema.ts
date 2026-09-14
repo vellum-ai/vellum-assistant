@@ -41,7 +41,6 @@ import {
   AuditLogConfigSchema,
   LogFileConfigSchema,
 } from "./schemas/logging.js";
-import { McpConfigSchema } from "./schemas/mcp.js";
 import { MemoryConfigSchema } from "./schemas/memory.js";
 import { MigrationsConfigSchema } from "./schemas/migrations.js";
 import { MonitoringConfigSchema } from "./schemas/monitoring.js";
@@ -109,7 +108,6 @@ export const AssistantConfigSchema = z.object({
   ),
   journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
   backup: BackupConfigSchema.default(BackupConfigSchema.parse({})),
-  mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
   acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
   skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
   workspaceGit: WorkspaceGitConfigSchema.default(

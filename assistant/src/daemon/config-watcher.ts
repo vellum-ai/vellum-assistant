@@ -44,6 +44,7 @@ import {
   getSoundsDir,
   getWorkspaceDir,
   getWorkspacePromptPath,
+  WORKSPACE_MCP_FILENAME,
 } from "../util/platform.js";
 import { evictConversationsForReload } from "./conversation-store.js";
 import { parseIdentityFields } from "./handlers/identity.js";
@@ -190,19 +191,11 @@ export class ConfigWatcher {
           return;
         }
         try {
-          const prevMcpFingerprint = JSON.stringify(this.lastConfig?.mcp ?? {});
           const changed = await this.refreshConfigFromSources();
           if (changed) {
             evictConversationsForReload();
             refreshAuthenticatedApiRateLimit();
             publishConfigChanged();
-            const newConfig = this.lastConfig ?? getConfig();
-            const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
-            if (newMcpFingerprint !== prevMcpFingerprint) {
-              reloadMcpServers().catch((err: unknown) => {
-                log.error({ err }, "MCP reload after config change failed");
-              });
-            }
           }
         } catch (err) {
           log.error(
@@ -210,6 +203,14 @@ export class ConfigWatcher {
             "Failed to reload config after file change. Previous config remains active.",
           );
         }
+      },
+      [WORKSPACE_MCP_FILENAME]: () => {
+        if (this.suppressReload) {
+          return;
+        }
+        reloadMcpServers().catch((err: unknown) => {
+          log.error({ err }, "MCP reload after mcp.json change failed");
+        });
       },
       "SOUL.md": () => {
         evictConversationsForReload();

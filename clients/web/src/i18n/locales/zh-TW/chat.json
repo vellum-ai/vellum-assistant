@@ -88,6 +88,26 @@
   "assistantContentDisclosure": {
     "earlierActivity": "較早的活動"
   },
+  "assistantDesktop": {
+    "busy": "桌面正由其他使用者使用中。",
+    "connecting": "正在連線至桌面…",
+    "failed": "桌面無法啟動。",
+    "lost": "與桌面的連線已中斷。",
+    "openAria": "開啟桌面",
+    "reconnectButton": "重新連線",
+    "title": "桌面",
+    "unavailable": "此助理不支援桌面。",
+    "installButton": "安裝桌面",
+    "installDescription": "安裝 Google Chrome 和助理桌面所需的元件。這可能需要幾分鐘。",
+    "checkingSetup": "正在檢查桌面設定…",
+    "installingPackages": "正在安裝桌面元件…",
+    "installingChrome": "正在安裝 Google Chrome…",
+    "checkingInstall": "正在檢查安裝…",
+    "installBackground": "關閉此視窗後，安裝仍會繼續。",
+    "installFailed": "安裝失敗。請重試以完成設定。",
+    "setupRequestFailed": "無法檢查桌面設定。請重新連線後再試。",
+    "setupUnsupported": "桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
+  },
   "assistantNavItem": {
     "newChat": "新增聊天"
   },

@@ -17,7 +17,10 @@ import { type RefObject, useEffect, useRef } from "react";
 
 import { client } from "@/generated/api/client.gen";
 import { subscribe as busSubscribe } from "@/lib/event-bus";
-import { FETCH_PROXY_PATH_RE } from "@/utils/sandbox-bridge";
+import {
+  FETCH_PROXY_PATH_RE,
+  getRelayableAppRoute,
+} from "@/utils/sandbox-bridge";
 import { forwardableSyncTags } from "@/utils/sandbox-sync-filter";
 
 export interface SandboxFetchProxyOptions {
@@ -41,6 +44,8 @@ export interface SandboxFetchProxyOptions {
    * since the parent — not the sandbox — must resolve and download the file.
    */
   onOpenVellumLink?: (href: string, linkText: string) => void;
+  /** Handler for validated root-relative Vellum app routes. */
+  onNavigateAppRoute?: (href: string) => void;
 }
 
 /**
@@ -62,6 +67,7 @@ export function useSandboxFetchProxy(
     enabled = true,
     onAction,
     onOpenVellumLink,
+    onNavigateAppRoute,
   } = options;
 
   // subId → the sync tags the sandboxed app asked to hear about. Held in a ref,
@@ -108,6 +114,17 @@ export function useSandboxFetchProxy(
 
       if (msg.type === "vellum_surface_action") {
         onAction?.(msg.actionId, msg.data);
+        return;
+      }
+
+      if (msg.type === "vellum_navigate") {
+        if (!navigator.userActivation?.isActive) {
+          return;
+        }
+        const href = getRelayableAppRoute(msg.href);
+        if (href) {
+          onNavigateAppRoute?.(href);
+        }
         return;
       }
 
@@ -339,6 +356,7 @@ export function useSandboxFetchProxy(
     enabled,
     onAction,
     onOpenVellumLink,
+    onNavigateAppRoute,
     iframeRef,
   ]);
 }

@@ -129,6 +129,9 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../daemon/embedding-reconcile.js",
     "../../../../daemon/trust-context.js",
     "../../../../daemon/turn-latency-sub-spans.js",
+    // mcp-setup capability cards list configured server names from the
+    // workspace mcp.json document. No plugin-api equivalent.
+    "../../../../mcp/workspace-mcp-config.js",
     "../../../../notifications/background-failure-signal.js",
     "../../../../persistence/checkpoints.js",
     "../../../../persistence/conversation-types.js",

@@ -55,6 +55,7 @@ import {
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
 import { resolveAppId } from "../tools/apps/resolve-app-id.js";
+import { formatDesktopAppRequired } from "../tools/capability-offer.js";
 import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
@@ -2936,7 +2937,7 @@ export function buildAppOpenPreview(
 function describeComputerUseUnavailable(ctx: Conversation): string {
   const capable = assistantEventHub.listClientsByCapability("host_cu");
   if (capable.length === 0) {
-    return "Computer use is not available — no desktop client connected. Open the Vellum desktop app on the machine you want to control, then retry.";
+    return formatDesktopAppRequired("screen");
   }
   return `Computer use is not available for this conversation — ${capable.length} desktop client(s) advertise host_cu, but none of them can be driven from this conversation's interface (${ctx.transportInterface ?? "unknown"}) as its current user.`;
 }
@@ -3251,8 +3252,7 @@ export async function surfaceProxyResolver(
 
     if (!ctx.hostAppControlProxy || !ctx.hostAppControlProxy.isAvailable()) {
       return {
-        content:
-          "App control is not available — enable the `app-control` feature flag and connect a macOS client.",
+        content: formatDesktopAppRequired("apps"),
         isError: true,
       };
     }
@@ -3344,6 +3344,7 @@ export async function surfaceProxyResolver(
     const caps = ctx.channelCapabilities;
     if (
       caps &&
+      !ctx.hasNoClient &&
       !caps.supportsDynamicUi &&
       !isSlackTaskProgressUiException(ctx, toolName, input)
     ) {
@@ -3552,11 +3553,12 @@ export async function surfaceProxyResolver(
           : surfaceType === "table"
             ? hasActions
             : INTERACTIVE_SURFACE_TYPES.includes(surfaceType);
-    // An explicit `await_action: true` is honored for every other type; an
-    // actionless surface has nothing to await, so it is forced false.
-    const awaitAction = isActionless
-      ? false
-      : ((input.await_action as boolean) ?? isInteractive);
+    // Background turns persist surfaces for a later conversation open and
+    // return immediately. An actionless surface also has nothing to await.
+    const awaitAction =
+      !ctx.hasNoClient &&
+      !isActionless &&
+      ((input.await_action as boolean) ?? isInteractive);
 
     // Only one non-persistent interactive surface at a time. If another
     // surface is already awaiting user input, reject this one so the LLM

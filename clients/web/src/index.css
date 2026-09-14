@@ -503,7 +503,13 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 .companion-draw-tools {
   position-anchor: --companion-draw;
+}
+
+/* Over or under a row, centred on the control. */
+.companion-draw-tools-above,
+.companion-draw-tools-below {
   left: anchor(center);
+  translate: -50% 0;
 }
 
 .companion-draw-tools-above {
@@ -512,6 +518,21 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 .companion-draw-tools-below {
   top: calc(anchor(bottom) + 14px);
+}
+
+/* Beside a column, centred on the control, toward the middle of the screen. */
+.companion-draw-tools-left,
+.companion-draw-tools-right {
+  top: anchor(center);
+  translate: 0 -50%;
+}
+
+.companion-draw-tools-left {
+  right: calc(anchor(left) + 14px);
+}
+
+.companion-draw-tools-right {
+  left: calc(anchor(right) + 14px);
 }
 
 /* The layer the user draws on inside that frame, while a call is being shown

@@ -1219,6 +1219,153 @@ describe("the companion surface's call bar", () => {
 });
 
 /**
+ * The bar docked to a side of the display, which stands it up. The same
+ * controls in the same order read down a column under the creature, and
+ * everything the row says over or across its controls stands off the column
+ * toward the middle of the screen instead.
+ */
+describe("the companion surface's call bar docked to a side", () => {
+  const columnOf = (container: HTMLElement): HTMLElement => {
+    const column = container.querySelector<HTMLElement>(
+      ".transition-\\[width\\,height\\]",
+    );
+    if (!column) {
+      throw new Error("Expected the column to render");
+    }
+    return column;
+  };
+  const creatureOf = (container: HTMLElement): HTMLElement => {
+    const creature = container.querySelector<HTMLElement>(".size-11");
+    if (!creature) {
+      throw new Error("Expected the creature to render");
+    }
+    return creature;
+  };
+  const lineOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>("[data-label='line']");
+  const captionsOf = (container: HTMLElement): HTMLElement[] =>
+    Array.from(container.querySelectorAll<HTMLElement>("[data-label='hover']"));
+
+  test("is a column centred on the creature's point", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="left" />,
+    );
+    const column = columnOf(container);
+    expect(column.className).toContain("flex-col");
+    expect(column.style.left).toBe("50%");
+    expect(column.style.top).toBe("50%");
+    expect(column.style.transform).toBe("translate(-50%, -50%)");
+    expect(column.style.height).not.toBe("");
+  });
+
+  test("keeps the row on the top and bottom", () => {
+    for (const dock of ["top", "bottom"] as const) {
+      const { container, unmount } = render(
+        <CompanionSurface phase="call" call={LISTENING_CALL} dock={dock} />,
+      );
+      expect(
+        container.querySelector(".transition-\\[width\\]")?.className,
+      ).toContain("h-11");
+      unmount();
+    }
+  });
+
+  /** Only a call stands the bar up; every other pill hangs off the creature. */
+  test("leaves every other pill a row whatever the dock", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching dock="right" />,
+    );
+    expect(container.querySelector(".transition-\\[width\\]")).not.toBeNull();
+  });
+
+  /**
+   * Half the column back from the centre, then the gap and the creature's
+   * own half box: the step the creature takes beside a row, read up.
+   */
+  test("stands the creature at the column's top end, across the gap", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="right" />,
+    );
+    const half = parseFloat(columnOf(container).style.height) / 2;
+    const creature = creatureOf(container);
+    expect(creature.style.left).toBe("50%");
+    expect(creature.style.top).toBe(`calc(50% - ${half + 34}px)`);
+  });
+
+  test("stands the captions off the column toward the middle of the screen", () => {
+    const left = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="left" />,
+    );
+    for (const caption of captionsOf(left.container)) {
+      expect(caption.className).toContain("translate-x-[calc(50%+22px)]");
+      expect(caption.className).not.toContain("-translate-x-");
+    }
+    left.unmount();
+    const right = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="right" />,
+    );
+    for (const caption of captionsOf(right.container)) {
+      expect(caption.className).toContain("-translate-x-[calc(50%+22px)]");
+    }
+  });
+
+  test("keeps the captions over the controls on a row", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="top" />,
+    );
+    for (const caption of captionsOf(container)) {
+      expect(caption.className).toContain("-translate-y-[calc(50%+22px)]");
+    }
+  });
+
+  /**
+   * In the column, not beside it, and running along it: the line is what the
+   * bar is saying, and a line written across would be the widest thing in a
+   * column of icons.
+   */
+  test("runs the activity line down the column at the row's one length", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...LISTENING_CALL, label: "Thinking\u2026" }}
+        dock="left"
+      />,
+    );
+    const line = lineOf(container);
+    expect(line?.textContent).toContain("Thinking\u2026");
+    expect(columnOf(container).contains(line)).toBe(true);
+    expect(line?.style.writingMode).toBe("vertical-rl");
+    expect(line?.style.height).toBe("84px");
+    expect(line?.style.width).toBe("");
+  });
+
+  test("keeps the activity line in the row on the top and bottom", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="bottom" />,
+    );
+    expect(lineOf(container)?.style.width).toBe("120px");
+  });
+
+  test("hangs the drawing tools beside the column", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        annotating
+        annotationTool="freehand"
+        dock="left"
+        call={LISTENING_CALL}
+      />,
+    );
+    const strip = container.querySelector<HTMLElement>(
+      "[data-testid='companion-draw-tools']",
+    );
+    expect(strip?.classList).toContain("companion-draw-tools-right");
+    expect(strip?.classList).toContain("flex-col");
+  });
+});
+
+/**
  * What the session is doing, on a bar that does not move while it says it.
  *
  * The line is the one thing in the call row that changes on its own: the

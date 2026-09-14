@@ -130,6 +130,7 @@ export interface PairingOptions {
  * transactional request or a system alert.
  */
 const ASSISTANT_SHARE_EVENT = "assistant.share";
+const ASSISTANT_REPLY_EVENT = "chat.assistant_reply";
 
 /**
  * Promote a background share into an assistant-initiated thread, under the
@@ -263,7 +264,25 @@ export async function pairDeliveryWithConversation(
     // notification can appear. The home feed aims its "Go to Conversation"
     // button at the same row whenever it mirrors the signal.
     //
-    // So this is deliberately not gated on home-feed eligibility: a signal the
+    // `chat.assistant_reply` already has its complete reply in that transcript.
+    // Its notification body is a lock-screen preview, so appending it would
+    // create a second, truncated assistant row. Keep the conversation target
+    // for deep links without writing the preview into the transcript.
+    if (
+      strategy === "start_new_conversation" &&
+      !signal.requiresConversation &&
+      signal.sourceEventName === ASSISTANT_REPLY_EVENT
+    ) {
+      return {
+        conversationId: resolveSourceConversationId(signal),
+        messageId: null,
+        strategy,
+        createdNewConversation: false,
+        conversationFallbackUsed: false,
+      };
+    }
+
+    // This is deliberately not gated on home-feed eligibility: a signal the
     // feed declines to mirror still reaches the user through the banner, and
     // this row is what makes that landing honest.
     if (strategy === "start_new_conversation" && !signal.requiresConversation) {
@@ -748,44 +767,45 @@ async function resolveChannelDeliveryHome(params: {
  * Indexing is skipped for parity with the other notification write paths:
  * notification copy is delivery audit, not conversational memory.
  */
+function resolveSourceConversationId(signal: NotificationSignal): string | null {
+  if (!signal.sourceContextId) {
+    return null;
+  }
+  try {
+    return getConversation(signal.sourceContextId)?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function appendBodyToSourceConversation(
   signal: NotificationSignal,
   channel: NotificationChannel,
   messageContent: string,
 ): Promise<{ conversationId: string; messageId: string } | null> {
-  const sourceContextId = signal.sourceContextId;
-  if (!sourceContextId) {
+  const conversationId = resolveSourceConversationId(signal);
+  if (!conversationId) {
     return null;
   }
 
-  let existing: ReturnType<typeof getConversation>;
-  try {
-    existing = getConversation(sourceContextId);
-  } catch {
-    return null;
-  }
-  if (!existing) {
-    return null;
-  }
-
-  const message = await addMessage(existing.id, "assistant", messageContent, {
+  const message = await addMessage(conversationId, "assistant", messageContent, {
     skipIndexing: true,
   });
   // `addMessage` projects attention metadata alone, so a client with this
   // conversation open needs the messages tag to refetch the transcript. A
   // notification the user taps through to has every chance of landing on an
   // already-open conversation.
-  publishConversationMessagesChanged(existing.id);
+  publishConversationMessagesChanged(conversationId);
 
   log.info(
     {
       signalId: signal.signalId,
       channel,
-      conversationId: existing.id,
+      conversationId,
       messageId: message.id,
     },
     "Appended notification body to producing conversation",
   );
 
-  return { conversationId: existing.id, messageId: message.id };
+  return { conversationId, messageId: message.id };
 }

@@ -5,6 +5,7 @@
  * the proxy resolver, which forwards the call to the connected client.
  */
 
+import { formatDesktopAppRequired } from "../capability-offer.js";
 import { throwIfCancelled } from "../shared/abort.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -32,7 +33,7 @@ export function forwardAppControlProxyTool(
   }
   if (!context.proxyToolResolver) {
     return Promise.resolve({
-      content: `Cannot execute ${toolName}: no proxy resolver available. This tool requires a connected client.`,
+      content: formatDesktopAppRequired("apps"),
       isError: true,
     });
   }
