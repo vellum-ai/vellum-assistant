@@ -1143,8 +1143,9 @@ export class RetryProvider implements Provider {
 
   // Forward the optional token-counting endpoint so the capability survives
   // the wrapper chain (callers gate on its presence). Bound straight to the
-  // inner provider — count_tokens is a cheap separate endpoint and its caller
-  // already falls back on error, so it needs no retry wrapping.
+  // inner provider behind the same surrogate sanitizer as `sendMessage` —
+  // count_tokens is a cheap separate endpoint and its caller already falls
+  // back on error, so it needs no retry wrapping.
   // Deliberately not re-bound when a credential refresh swaps `inner`: every
   // outer wrapper snapshots this the same way at construction, so a re-bind
   // here would never reach callers. count_tokens on the pre-refresh credential
@@ -1189,7 +1190,18 @@ export class RetryProvider implements Provider {
     this.inner = inner;
     this.name = inner.name;
     if (inner.countInputTokens) {
-      this.countInputTokens = inner.countInputTokens.bind(inner);
+      const countInputTokens = inner.countInputTokens.bind(inner);
+      this.countInputTokens = (messages, systemPrompt, tools) => {
+        const clean = sanitizeOutboundRequest(this.name, {
+          messages,
+          options: { systemPrompt, tools },
+        });
+        return countInputTokens(
+          clean.messages,
+          clean.options?.systemPrompt ?? systemPrompt,
+          clean.options?.tools,
+        );
+      };
     }
   }
 

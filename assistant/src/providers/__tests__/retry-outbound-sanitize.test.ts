@@ -100,6 +100,66 @@ describe("RetryProvider outbound surrogate sanitization", () => {
     expect(text.text).toBe("memory preview � cut");
   });
 
+  test("an inline base64 payload is passed through by reference, not scanned", async () => {
+    const { provider, received } = capturingProvider();
+    // Base64 is ASCII by construction; the guard must not walk a payload that
+    // can run to a hundred megabytes. A deliberately corrupt payload proves
+    // the field was skipped rather than scanned and found clean.
+    const source = {
+      type: "base64" as const,
+      media_type: "image/png",
+      data: `AAAA${LONE_HIGH}`,
+    };
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "image", source },
+          { type: "text", text: `caption ${LONE_LOW}` },
+        ],
+      },
+    ];
+
+    await new RetryProvider(provider).sendMessage(messages);
+
+    const sent = received();
+    const image = sent.messages[0]!.content[0] as { source: unknown };
+    expect(image.source).toBe(source);
+    const text = sent.messages[0]!.content[1] as { text: string };
+    expect(text.text).toBe("caption �");
+  });
+
+  test("token-count requests are sanitized the same way", async () => {
+    let counted: {
+      messages: Message[];
+      systemPrompt: string;
+      tools: unknown;
+    } | null = null;
+    const provider: Provider = {
+      name: "anthropic",
+      sendMessage: async () => OK_RESPONSE,
+      countInputTokens: async (messages, systemPrompt, tools) => {
+        counted = { messages, systemPrompt, tools };
+        return 7;
+      },
+    };
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: `count ${LONE_HIGH}` }] },
+    ];
+
+    const total = await new RetryProvider(provider).countInputTokens!(
+      messages,
+      `system ${LONE_LOW}`,
+      undefined,
+    );
+
+    expect(total).toBe(7);
+    const seen = counted!;
+    const text = seen.messages[0]!.content[0] as { text: string };
+    expect(text.text).toBe("count �");
+    expect(seen.systemPrompt).toBe("system �");
+  });
+
   test("a well-formed request passes through by reference, emoji intact", async () => {
     const { provider, received } = capturingProvider();
     const messages: Message[] = [

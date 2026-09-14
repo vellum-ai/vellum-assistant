@@ -847,9 +847,9 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
   test("a window whose edges land inside an emoji keeps both pairs whole and the request well-formed", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [] }));
     // 200 emoji (400 code units) on each side of the term, offset so that a
-    // code-unit window centered on the term starts and ends mid-pair. This
-    // is the shape that produced an `invalid_json` 400 from a strict
-    // provider parser: JSON.stringify emits each orphan as a `\udXXX` escape.
+    // code-unit window centered on the term starts and ends mid-pair. A
+    // window cut there carries half a pair on each edge, which strict
+    // provider parsers reject once JSON.stringify escapes each orphan.
     const emoji = "😀".repeat(200);
     const body = `${emoji}y turnip  ${emoji}`;
     const term = body.indexOf("turnip");
