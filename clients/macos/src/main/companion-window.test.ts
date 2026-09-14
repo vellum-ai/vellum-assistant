@@ -9,6 +9,7 @@ import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_MAX_PILL_WIDTH,
   COMPANION_BASE_RESTING_PILL_HEIGHT,
+  COMPANION_POPOVER_INSET,
   VOICE_START_REQUEST_TTL_MS,
   COMPANION_SIZES,
   companionLowerReachFor,
@@ -189,7 +190,14 @@ mock.module("electron", () => ({
       copied.push(text);
     },
   },
-  shell: { openExternal: () => Promise.resolve() },
+  // The browser a popover's link opens in. Recorded, since what a case has
+  // to say is which links were let through.
+  shell: {
+    openExternal: (url: string) => {
+      opened.push(url);
+      return Promise.resolve();
+    },
+  },
   screen: {
     getCursorScreenPoint: () => ({ x: 0, y: 0 }),
     getDisplayNearestPoint: () => nearestDisplay,
@@ -203,6 +211,9 @@ mock.module("electron", () => ({
 
 /** Every text main has put on the pasteboard, most recent last. */
 const copied: string[] = [];
+
+/** Every link main has opened in the browser, most recent last. */
+const opened: string[] = [];
 
 /** Main's display listeners, so a case can rearrange the displays. */
 const screenListeners: { event: string; listener: () => void }[] = [];
@@ -596,6 +607,9 @@ const {
   installCompanionWindow,
 } = await import("./companion-window");
 
+const { popoverBoundsFor, POPOVER_GAP } =
+  await import("./companion-popover-window");
+
 const {
   __resetFrameScrollWatchForTesting,
   frameScrollEnded,
@@ -641,6 +655,7 @@ beforeEach(() => {
   windowBounds = null;
   boundsAsked.length = 0;
   copied.length = 0;
+  opened.length = 0;
   resolvedPick = null;
   picksResolved.length = 0;
   // The user is working somewhere else, with the app's window open behind
@@ -3013,6 +3028,236 @@ describe("the offer of Vellum's dictation on the surface", () => {
     expect(dispatched).toEqual([
       { kind: "answerDictationOffer", answer: "copy", offerId: "offer-2" },
     ]);
+  });
+});
+
+/**
+ * The popover beside the surface: an approval, a card, or a surface to open,
+ * published by the app's window and drawn in a window of its own.
+ */
+describe("the popover beside the surface", () => {
+  const APPROVAL = {
+    kind: "approval" as const,
+    id: "req-1",
+    title: "Run a command",
+    detail: "Lists the files in your home folder.",
+  };
+
+  const popoverWindow = (): GlowWindow | null =>
+    others.get("companion-popover") ?? null;
+
+  beforeEach(() => {
+    send("vellum:companion:setContext", context());
+    dispatched.length = 0;
+    windowsRaised = 0;
+  });
+
+  test("passes the popover through on the state", () => {
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+
+    expect(state().popover).toEqual(APPROVAL);
+  });
+
+  test("drops a popover that fails its bounds and keeps the rest", () => {
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        popover: { ...APPROVAL, title: "x".repeat(10_000) },
+      }),
+    );
+
+    expect(state().popover).toBeUndefined();
+    expect(state().watching).toBe(true);
+  });
+
+  /** Otherwise it would open at the size of whatever it showed last. */
+  test("is not shown until its page reports a height for it", () => {
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+    expect(popoverWindow()?.visible).toBe(false);
+
+    send("vellum:companion:setPopoverHeight", "req-1", 180);
+
+    expect(popoverWindow()?.visible).toBe(true);
+    expect(popoverWindow()?.bounds.height).toBe(180);
+  });
+
+  test("a height reported for another popover shows nothing", () => {
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+
+    send("vellum:companion:setPopoverHeight", "req-0", 180);
+
+    expect(popoverWindow()?.visible).toBe(false);
+  });
+
+  test("goes away when there is nothing to show", () => {
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+    send("vellum:companion:setPopoverHeight", "req-1", 180);
+
+    send("vellum:companion:setContext", context());
+
+    expect(popoverWindow()?.visible).toBe(false);
+  });
+
+  test("stands above a call docked to the bottom, centred on the bar", () => {
+    send("vellum:voiceActivity:start", START);
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+    send("vellum:companion:setPopoverHeight", "req-1", 180);
+
+    const bounds = popoverWindow()?.bounds;
+    const centre =
+      900 -
+      companionLowerReachFor(
+        companionBoxFor("avatar", "small"),
+        companionBoxFor("options", "small"),
+      );
+    expect(bounds).toBeDefined();
+    expect(
+      Math.abs((bounds?.x ?? 0) + (bounds?.width ?? 0) / 2 - 720),
+    ).toBeLessThanOrEqual(1);
+    expect((bounds?.y ?? 0) + (bounds?.height ?? 0)).toBeLessThan(centre);
+    send("vellum:voiceActivity:end");
+  });
+
+  test("steps off with the surface while the app is in front", () => {
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+    send("vellum:companion:setPopoverHeight", "req-1", 180);
+
+    fireAppEvent("did-become-active");
+    expect(popoverWindow()?.visible).toBe(false);
+
+    fireAppEvent("did-resign-active");
+    expect(popoverWindow()?.visible).toBe(true);
+  });
+
+  test("takes prompts only while the surface is on screen", () => {
+    const takesPrompts = (): unknown =>
+      invocable.get("vellum:companion:takesPrompts")?.([]);
+
+    expect(takesPrompts()).toBe(true);
+
+    fireAppEvent("did-become-active");
+    expect(takesPrompts()).toBe(false);
+
+    fireAppEvent("did-resign-active");
+    surface.close();
+    expect(takesPrompts()).toBe(false);
+  });
+
+  test("an answer for the popover on screen travels without raising the app", () => {
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+
+    send("vellum:companion:answerPopover", { kind: "allow" }, "req-1");
+
+    expect(dispatched).toEqual([
+      {
+        kind: "answerCompanionPopover",
+        popoverId: "req-1",
+        answer: { kind: "allow" },
+      },
+    ]);
+    expect(windowsRaised).toBe(0);
+  });
+
+  /** The approval was answered in the app, or replaced, before the press. */
+  test("an answer naming a popover no longer standing is dropped", () => {
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+
+    send("vellum:companion:answerPopover", { kind: "allow" }, "req-0");
+
+    expect(dispatched).toEqual([]);
+  });
+
+  test("open brings the app forward on the conversation", async () => {
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+
+    send("vellum:companion:answerPopover", { kind: "open" }, "req-1");
+    await Promise.resolve();
+
+    expect(windowsRaised).toBe(1);
+    expect(dispatched).toEqual([
+      {
+        kind: "answerCompanionPopover",
+        popoverId: "req-1",
+        answer: { kind: "open" },
+      },
+      { kind: "currentConversation" },
+    ]);
+  });
+
+  test("is given up when the app's window is destroyed", () => {
+    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().popover).toBeUndefined();
+  });
+
+  test("opens web links in the browser", () => {
+    send("vellum:companion:openLink", "https://example.com/a?b=c");
+
+    expect(opened).toEqual(["https://example.com/a?b=c"]);
+  });
+
+  /** A link is model output: any other scheme hands the press to whatever claims it. */
+  test("refuses every link that is not http or https", () => {
+    for (const url of [
+      "file:///etc/passwd",
+      "javascript:alert(1)",
+      "vellum://workspace/x",
+      "not a url",
+    ]) {
+      send("vellum:companion:openLink", url);
+    }
+
+    expect(opened).toEqual([]);
+  });
+});
+
+describe("popoverBoundsFor", () => {
+  const workArea = { x: 0, y: 0, width: 1440, height: 900 };
+
+  test("hangs above the anchor, centred on it", () => {
+    const bounds = popoverBoundsFor(
+      { centre: { x: 720, y: 860 }, side: "above", clearance: 20, workArea },
+      200,
+    );
+
+    expect(bounds.x + bounds.width / 2).toBe(720);
+    // The card's edge, inside the window's transparent inset, keeps the gap.
+    expect(bounds.y + bounds.height - COMPANION_POPOVER_INSET).toBe(
+      860 - 20 - POPOVER_GAP,
+    );
+  });
+
+  test("hangs beside a column docked to the left", () => {
+    const bounds = popoverBoundsFor(
+      { centre: { x: 40, y: 450 }, side: "right", clearance: 20, workArea },
+      200,
+    );
+
+    expect(bounds.x + COMPANION_POPOVER_INSET).toBe(40 + 20 + POPOVER_GAP);
+    expect(bounds.y + bounds.height / 2).toBe(450);
+  });
+
+  /** Pushed back on screen on its own side, it would cover the surface. */
+  test("goes to the opposite side when its own has no room", () => {
+    const bounds = popoverBoundsFor(
+      { centre: { x: 720, y: 60 }, side: "above", clearance: 20, workArea },
+      200,
+    );
+
+    expect(bounds.y).toBeGreaterThan(60);
+  });
+
+  test("stays inside the work area at the display's edge", () => {
+    const bounds = popoverBoundsFor(
+      { centre: { x: 10, y: 860 }, side: "above", clearance: 20, workArea },
+      200,
+    );
+
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
   });
 });
 

@@ -155,8 +155,16 @@
       "title": "Talk"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "Permitir",
+    "allowAndOpenSettings": "Permitir y abrir Ajustes",
+    "approvalHeading": "Necesita tu aprobación",
+    "deny": "Denegar",
+    "dismiss": "Descartar",
+    "openApp": "Abrir Vellum",
+    "surfaceFallback": "Algo para ver"
+  },
+  "companionSurface": {
     "calling": "Llamando…",
     "callingNamed": "Llamando a {name}…",
     "captureKind": "Tipo de fuente",
@@ -166,7 +174,6 @@
     "captureScreens": "Pantallas",
     "captureTabs": "Pestañas de Chrome",
     "captureWindows": "Ventanas",
-    "deny": "Denegar",
     "draw": "Dibujar",
     "clearMarks": "Borrar marcas",
     "drawTools": "Herramienta de dibujo",

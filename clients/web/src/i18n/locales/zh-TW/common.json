@@ -155,8 +155,16 @@
       "title": "交談"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "允許",
+    "allowAndOpenSettings": "允許並開啟設定",
+    "approvalHeading": "需要你的同意",
+    "deny": "拒絕",
+    "dismiss": "關閉",
+    "openApp": "開啟 Vellum",
+    "surfaceFallback": "有內容要給你看"
+  },
+  "companionSurface": {
     "calling": "正在呼叫…",
     "callingNamed": "正在呼叫 {name}…",
     "captureKind": "來源類型",
@@ -166,7 +174,6 @@
     "captureScreens": "螢幕",
     "captureTabs": "Chrome 分頁",
     "captureWindows": "視窗",
-    "deny": "拒絕",
     "endSession": "結束會話",
     "muteAssistant": "將助理靜音",
     "muteMicrophone": "將麥克風靜音",

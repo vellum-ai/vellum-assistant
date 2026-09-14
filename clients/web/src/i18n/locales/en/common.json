@@ -155,8 +155,16 @@
       "title": "Talk"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "Allow",
+    "allowAndOpenSettings": "Allow and open Settings",
+    "approvalHeading": "Needs your okay",
+    "deny": "Deny",
+    "dismiss": "Dismiss",
+    "openApp": "Open Vellum",
+    "surfaceFallback": "Something to look at"
+  },
+  "companionSurface": {
     "calling": "Calling…",
     "callingNamed": "Calling {name}…",
     "captureKind": "Source kind",
@@ -166,7 +174,6 @@
     "captureScreens": "Screens",
     "captureTabs": "Chrome tabs",
     "captureWindows": "Windows",
-    "deny": "Deny",
     "dictating": "Listening",
     "draw": "Draw",
     "clearMarks": "Clear marks",

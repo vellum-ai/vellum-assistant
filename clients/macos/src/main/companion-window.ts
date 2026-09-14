@@ -4,6 +4,7 @@ import {
   app,
   clipboard,
   screen,
+  shell,
   systemPreferences,
   type Display,
   type MenuItemConstructorOptions,
@@ -14,6 +15,7 @@ import { z } from "zod";
 import {
   companionCapturePickSchema,
   companionContextSchema,
+  companionPopoverAnswerSchema,
   watchCaptureTargetSchema,
   voiceActivityContentSchema,
   voiceActivityControlSchema,
@@ -101,6 +103,14 @@ import {
   type CoachmarkPressRect,
 } from "./coachmark-press-watch";
 import { setPointerOnCompanion } from "./companion-pointer";
+import {
+  closeCompanionPopover,
+  POPOVER_KIND,
+  setCompanionPopoverHeight,
+  syncCompanionPopover,
+  type CompanionPopoverAnchor,
+  type PopoverSide,
+} from "./companion-popover-window";
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
@@ -685,6 +695,8 @@ const currentState = (): CompanionSurfaceState => {
     // is a claim that something was said, and absence is the only way to say
     // nothing was.
     dictationOffer: context.dictationOffer,
+    // Passed through as it arrived, for the reason `dictationOffer` is.
+    popover: context.popover,
     // Settled the same way, and to zero rather than to anything carried over:
     // a publisher that reports no count has taken no reads this surface can
     // vouch for.
@@ -1003,12 +1015,65 @@ const pushState = (): void => {
   // surface holds none of it: one push, two windows, no second idea of which
   // call is running or what colour it is. The edges a call's drag can drop
   // the bar on read it the same way, for which of them to light.
-  for (const kind of [COMPANION_KIND, WATCH_FRAME_KIND, DOCK_ZONES_KIND]) {
+  for (const kind of [
+    COMPANION_KIND,
+    WATCH_FRAME_KIND,
+    DOCK_ZONES_KIND,
+    POPOVER_KIND,
+  ]) {
     const win = getFloatingWindow(kind);
     if (win) {
       win.webContents.send("vellum:companion:state", state);
     }
   }
+  syncPopover();
+};
+
+/** The side of a docked call bar the popover hangs from: away from the edge. */
+const POPOVER_SIDE_FOR_DOCK: Record<CompanionDock, PopoverSide> = {
+  bottom: "above",
+  top: "below",
+  left: "right",
+  right: "left",
+};
+
+/**
+ * Where the popover hangs from, or null when there is no surface on screen to
+ * draw it beside.
+ *
+ * A call's bar is centred on the avatar's point, so the popover goes on the
+ * bar's far side from the edge it is docked to, clear of the bar's reach. Off
+ * a call it goes on the side the card grows toward, clear of the creature.
+ * Measured from where the surface rests, which for a glide in flight is where
+ * the glide is headed.
+ */
+const popoverAnchor = (): CompanionPopoverAnchor | null => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (win === null || win.isDestroyed() || surfaceAway) {
+    return null;
+  }
+  const centre = glide === null ? avatarCentre(win) : glide.to;
+  const { workArea } = displayUnder(centre);
+  const reach = companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
+  if (callSurfaceFor(call, dialing)) {
+    return {
+      centre,
+      workArea,
+      side: POPOVER_SIDE_FOR_DOCK[dock],
+      clearance: reach,
+    };
+  }
+  const up = cardGrowth === "up";
+  return {
+    centre,
+    workArea,
+    side: up ? "above" : "below",
+    clearance: up ? Math.max(geometry.avatarBox / 2, reach) : reach,
+  };
+};
+
+const syncPopover = (): void => {
+  syncCompanionPopover(context.popover, popoverAnchor());
 };
 
 /**
@@ -2418,9 +2483,10 @@ const syncFrontmost = (): void => {
   surfaceAway = away;
   if (away) {
     win.hide();
-    return;
+  } else {
+    win.showInactive();
   }
-  win.showInactive();
+  syncPopover();
 };
 
 /**
@@ -2919,6 +2985,79 @@ export const installCompanionWindow = (): void => {
   );
 
   /**
+   * The answer to the popover, delivered to the window holding what it shows.
+   *
+   * Dropped when it names a popover that is no longer standing: the approval
+   * may have been answered in the app, or the surface replaced, between the
+   * push that drew the buttons and the press. `open` is the one answer that
+   * raises the app, since going to the app is what it asks for; the answer
+   * still travels so the window stops offering a surface the user went to.
+   */
+  on(
+    "vellum:companion:answerPopover",
+    z.tuple([companionPopoverAnswerSchema, z.string()]),
+    ([answer, popoverId]) => {
+      if (context.popover?.id !== popoverId) {
+        return;
+      }
+      const command: VellumCommand = {
+        kind: "answerCompanionPopover",
+        popoverId,
+        answer,
+      };
+      if (answer.kind !== "open") {
+        dispatchWithoutRaising(command);
+        return;
+      }
+      void ensureMainWindowVisible().then(() => {
+        dispatchToMain(command);
+        dispatchToMain({ kind: "currentConversation" });
+      });
+    },
+  );
+
+  on(
+    "vellum:companion:setPopoverHeight",
+    z.tuple([z.string(), z.number().finite()]),
+    ([popoverId, height]) => {
+      if (setCompanionPopoverHeight(popoverId, height)) {
+        syncPopover();
+      }
+    },
+  );
+
+  /**
+   * A link pressed in the popover, opened in the user's browser.
+   *
+   * http and https only. The URL is model output that crossed a renderer, and
+   * any other scheme hands the press to whatever claims it: `file:` opens
+   * anything readable on disk.
+   */
+  on("vellum:companion:openLink", z.tuple([z.string().max(4096)]), ([url]) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return;
+    }
+    void shell.openExternal(parsed.toString()).catch((err: unknown) => {
+      log.warn("[companion] could not open a popover link:", err);
+    });
+  });
+
+  /**
+   * Whether a prompt can be shown beside the surface: there is one on screen
+   * to draw it beside. The app's window asks before bringing itself forward
+   * for an approval.
+   */
+  handle("vellum:companion:takesPrompts", z.tuple([]), () => {
+    return popoverAnchor() !== null;
+  });
+
+  /**
    * The assistant's name and what the window holding it knows about the turn
    * and the sessions it is running.
    *
@@ -3133,6 +3272,7 @@ export const installCompanionWindow = (): void => {
       context.screenShare !== undefined ||
       context.dictating !== undefined ||
       context.dictationOffer !== undefined ||
+      context.popover !== undefined ||
       dialing;
     if (!claiming) {
       return;
@@ -3152,6 +3292,8 @@ export const installCompanionWindow = (): void => {
       // application they would go to went down with it, so an offer left
       // standing is one whose answers do nothing.
       dictationOffer: undefined,
+      // So does the popover: its answers are acted on in that window.
+      popover: undefined,
     };
     syncWatchFrame();
     pushState();
@@ -3283,6 +3425,8 @@ export const openCompanionWindow = (): void => {
 
   refreshGrowth();
   win.on("move", refreshGrowth);
+  // The popover hangs from the surface, so it follows every move of it.
+  win.on("move", syncPopover);
   // A home remembered for a window that no longer exists is one the next
   // window must not be sent to: it opens where every window opens. A glide
   // still in flight has nothing left to move.
@@ -3292,6 +3436,9 @@ export const openCompanionWindow = (): void => {
     // A drag on a window that no longer exists has nothing left to drop.
     docking = null;
     closeDockZones();
+    // With no surface to hang from, and none coming back until the tray
+    // opens one.
+    closeCompanionPopover();
   });
   // `createFloatingWindow` has already shown it. A surface opened while the
   // app is in front, which is where a sign-in opens it from, goes straight back

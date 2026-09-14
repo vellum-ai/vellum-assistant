@@ -31,6 +31,7 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationOfferAnswer,
+  CompanionPopoverAnswer,
   DictationPartialsResult,
   DictationTranscribeResult,
   HelperRestartResult,
@@ -617,6 +618,20 @@ const bridge: VellumBridge = {
         offerId,
       );
     },
+    answerPopover: (
+      answer: CompanionPopoverAnswer,
+      popoverId: string,
+    ): void => {
+      ipcRenderer.send("vellum:companion:answerPopover", answer, popoverId);
+    },
+    setPopoverHeight: (popoverId: string, height: number): void => {
+      ipcRenderer.send("vellum:companion:setPopoverHeight", popoverId, height);
+    },
+    openLink: (url: string): void => {
+      ipcRenderer.send("vellum:companion:openLink", url);
+    },
+    takesPrompts: (): Promise<boolean> =>
+      ipcRenderer.invoke("vellum:companion:takesPrompts") as Promise<boolean>,
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");
     },

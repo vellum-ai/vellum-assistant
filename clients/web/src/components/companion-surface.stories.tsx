@@ -724,28 +724,6 @@ export const InCall: Story = {
 };
 
 /**
- * Mid-call with a turn stopped on a confirmation.
- *
- * The decision takes the control row rather than crowding in beside it, which
- * is the same trade the iOS Lock Screen card makes: the turn is going nowhere
- * until this is answered, so it is the only thing here worth pressing. The
- * activity line says what is being asked; the pill is not the place to render a
- * tool call's arguments, and the app is a click away for that.
- */
-export const PendingApproval: Story = {
-  args: {
-    phase: "call",
-    call: {
-      ...DEMO_CALL,
-      phase: "thinking",
-      label: "Thinking…",
-      detail: "Read package.json",
-      approvalRequestId: "req-1",
-    },
-  },
-};
-
-/**
  * The assistant's turn, which is what the mascot expresses.
  *
  * Compare with `InCall` above: same row, but the creature stops blinking and

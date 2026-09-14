@@ -33,6 +33,7 @@ import type {
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
+  CompanionPopoverAnswer,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionSurfaceState,
@@ -801,6 +802,26 @@ export interface VellumBridge {
      * holding it.
      */
     answerDictationOffer(answer: DictationOfferAnswer, offerId: string): void;
+    /**
+     * Answer the popover beside the surface, naming the popover it was drawn
+     * for. See the `answerCompanionPopover` command.
+     */
+    answerPopover(answer: CompanionPopoverAnswer, popoverId: string): void;
+    /**
+     * Report how tall the popover's content is for the popover it is drawing,
+     * so main can size its window and show it once it has been measured.
+     */
+    setPopoverHeight(popoverId: string, height: number): void;
+    /**
+     * Open a web link from the popover in the user's browser. Main refuses any
+     * scheme but http and https.
+     */
+    openLink(url: string): void;
+    /**
+     * Whether the surface is on screen to draw a prompt beside, so a caller
+     * that would otherwise bring the app forward can leave it where it is.
+     */
+    takesPrompts(): Promise<boolean>;
     /**
      * Bring Vellum forward on the conversation the user was last in, which is
      * what pressing the avatar asks for.

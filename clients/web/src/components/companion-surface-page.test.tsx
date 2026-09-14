@@ -2197,32 +2197,6 @@ describe("the picker behind Share", () => {
         expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
       });
 
-      /**
-       * The mode stays on while an approval takes the row, and the strip
-       * goes with the row. What matters is the strip leaving, whatever took
-       * it.
-       */
-      test("give the desktop back when an approval takes the strip under a still pointer", async () => {
-        drawing();
-        const { container } = render(<CompanionSurfacePage />);
-        await pinSurface(container);
-        const canvas = canvasOf(container);
-        const strip = stripOf(container);
-        if (strip === null) {
-          throw new Error("Expected the tools to render");
-        }
-        pin(strip, { left: 250, right: 370, top: 40, bottom: 72 });
-        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 56 });
-        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
-
-        pushState({
-          ...STATE,
-          call: { ...LISTENING_CALL, approvalRequestId: "req-1" },
-        });
-        expect(stripOf(container)).toBeNull();
-        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
-      });
-
       /** A press on Draw leaves the pointer on the pill, which is still there. */
       test("keep the window clickable when the mode ends under a pointer on the pill", async () => {
         drawing();

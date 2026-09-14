@@ -225,10 +225,10 @@ export function CompanionSurfacePage() {
   // moment the strip goes away under it.
   const overDrawToolsRef = useRef(false);
   // A callback rather than a ref object, so this window hears the strip go.
-  // The strip goes with the mode, with the share, with the call, and under
-  // an approval that takes the row, and it can go under a pointer resting
-  // on it that nothing then moves: no mouse-move arrives to say the pointer
-  // is now over empty canvas. Give the desktop back the way the picker does,
+  // The strip goes with the mode, with the share and with the call, and it
+  // can go under a pointer resting on it that nothing then moves: no
+  // mouse-move arrives to say the pointer is now over empty canvas. Give the
+  // desktop back the way the picker does,
   // and only when the pointer was on the strip: a press on Draw itself
   // leaves the pointer on the pill, which is still there to be pressed.
   const drawToolsRef = useCallback((element: HTMLDivElement | null) => {

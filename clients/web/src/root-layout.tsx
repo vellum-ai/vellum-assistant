@@ -111,6 +111,7 @@ import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 import { answerDictationOffer } from "@/domains/chat/voice/dictation-offer-actions";
+import { answerCompanionPopover } from "@/domains/chat/companion-popover-actions";
 import { useRequestOrganizationId } from "@/stores/organization-store";
 import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import { reconcilePreparedNotificationIdentityOwners } from "@/runtime/notification-avatar";
@@ -508,6 +509,12 @@ export function RootLayout() {
         return;
       }
       void answerDictationOffer(command.answer, command.offerId);
+    },
+    answerCompanionPopover: (command) => {
+      if (command.kind !== "answerCompanionPopover") {
+        return;
+      }
+      void answerCompanionPopover(command.popoverId, command.answer);
     },
     // The user pressed a control the assistant was pointing at. Handled here
     // rather than beside the session's controls for the reason the dial's

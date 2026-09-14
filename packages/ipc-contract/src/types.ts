@@ -197,6 +197,15 @@ export type VellumCommand =
       offerId: string;
     }
   /**
+   * Answer the popover the companion drew, naming the popover it was drawn
+   * for. See {@link CompanionPopover}.
+   */
+  | {
+      kind: "answerCompanionPopover";
+      popoverId: string;
+      answer: CompanionPopoverAnswer;
+    }
+  /**
    * Start a live-voice session, or end the one that is running.
    *
    * The keyboard's version of Talk. It differs from `startVoice` in the one
@@ -1561,6 +1570,96 @@ export const COMPANION_DICTATION_OFFER_MAX = 2000;
 export type DictationOfferAnswer = "use" | "quit" | "copy" | "dismiss";
 
 /**
+ * Something the assistant needs the user to see or answer while they are away
+ * from the app's window: a tool approval the turn is blocked on, or a surface
+ * the assistant put up. The companion draws it in a popover beside the
+ * creature, since a voice call has no other way to show a picture, a link or a
+ * pair of buttons.
+ *
+ * Published by the app's window, which holds the conversation, already worded
+ * and bounded, so the popover renders text and never interprets a tool call.
+ * `id` is the approval's request id or the surface's id, carried back on every
+ * answer so a press on a popover that has since been replaced is dropped.
+ */
+export type CompanionPopover =
+  | {
+      kind: "approval";
+      id: string;
+      /** What the assistant wants to do, in words. */
+      title: string;
+      /** Why, when the request says. Empty otherwise. */
+      detail: string;
+      /**
+       * The macOS privacy pane the request is about, when it asks for one the
+       * app can open. The popover then offers to open it with the approval.
+       */
+      permission?: CompanionPopoverPermission;
+    }
+  | {
+      kind: "card";
+      id: string;
+      title: string;
+      subtitle: string;
+      /** Markdown. Links and images in it are the reason this kind exists. */
+      body: string;
+      actions: readonly CompanionPopoverAction[];
+    }
+  | {
+      /** A surface the popover cannot draw, named so it can be opened. */
+      kind: "surface";
+      id: string;
+      title: string;
+    };
+
+/** The privacy panes an approval can open from the popover. */
+export const COMPANION_POPOVER_PERMISSIONS = [
+  "accessibility",
+  "screen",
+  "microphone",
+] as const;
+export type CompanionPopoverPermission =
+  (typeof COMPANION_POPOVER_PERMISSIONS)[number];
+
+export interface CompanionPopoverAction {
+  id: string;
+  label: string;
+  style: "primary" | "secondary" | "destructive";
+}
+
+/**
+ * The popover window's width, in points. The page fills it, so both sides of
+ * the window read the one number.
+ */
+export const COMPANION_POPOVER_WIDTH = 344;
+/**
+ * The transparent room between the popover's window and its card, in points,
+ * which holds the card's shadow.
+ */
+export const COMPANION_POPOVER_INSET = 12;
+/** The tallest the popover's window is drawn, in points. */
+export const COMPANION_POPOVER_MAX_HEIGHT = 560;
+
+/** The most a popover's body can be, in characters. */
+export const COMPANION_POPOVER_BODY_MAX = 8000;
+/** The most actions a popover card carries. */
+export const COMPANION_POPOVER_ACTIONS_MAX = 6;
+
+/**
+ * What the user pressed on the popover.
+ *
+ * `settings` is an approval's allow that also opens the privacy pane it asked
+ * for. `open` brings the app forward on the conversation; on a surface it also
+ * stops the popover offering it, since the user has gone to answer it there.
+ */
+export type CompanionPopoverAnswer =
+  | { kind: "allow" }
+  | { kind: "deny" }
+  | { kind: "settings" }
+  | { kind: "action"; actionId: string }
+  | { kind: "open" }
+  | { kind: "dismiss" };
+
+/**
  * What a watch session reads, once the user has picked: one display or one
  * window.
  *
@@ -2034,6 +2133,11 @@ export interface CompanionContext {
    * {@link CompanionDictationOffer}.
    */
   dictationOffer?: CompanionDictationOffer;
+  /**
+   * What the assistant needs the user to see or answer, while there is
+   * something. Absent when there is nothing. See {@link CompanionPopover}.
+   */
+  popover?: CompanionPopover;
 }
 
 /**
@@ -2216,6 +2320,11 @@ export interface CompanionSurfaceState {
   watchRetro?: CompanionWatchRetro;
   /** Vellum's version of a dictation another app pasted, while offered. */
   dictationOffer?: CompanionDictationOffer;
+  /**
+   * What the assistant is putting in front of the user beside the surface,
+   * while something is. See {@link CompanionPopover}.
+   */
+  popover?: CompanionPopover;
 
   /**
    * How many screen reads the running session has taken, from the window that

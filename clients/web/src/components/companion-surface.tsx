@@ -1,6 +1,5 @@
 import {
   AudioLines,
-  Check,
   Circle,
   Eraser,
   Eye,
@@ -465,7 +464,7 @@ export const FALLBACK_WIDTHS: Record<
   offer: OFFER_WIDTH + 32,
   // The line and the five controls of the handlebar, which is the widest a
   // call draws: Teach and Share are absent on a page that offers neither, and
-  // the dial and the approval both stand fewer controls in the same row. The
+  // the dial stands fewer controls in the same row. The
   // line has a stated width, so this is the state's actual width rather than a
   // guess at one.
   // The `4` is the line's own lead-in, which is a margin rather than one of
@@ -2168,23 +2167,6 @@ function CallBody({
       </>
     );
   }
-  // The confirmation takes the row rather than crowding into it. The turn is
-  // stopped until it is answered, so it is the only thing here worth pressing,
-  // and a pill that tried to carry five controls would make each of them a
-  // smaller target than the decision deserves.
-  //
-  // Teach is among what it excludes. A blocked turn is reading nothing while
-  // it waits, and answering it lands back on the row that carries the toggle.
-  if (call.approvalRequestId !== "") {
-    return (
-      <ApprovalBody
-        detail={call.detail}
-        requestId={call.approvalRequestId}
-        onControl={onControl}
-      />
-    );
-  }
-
   // The activity line when the turn has one, the phase otherwise. `detail` is
   // the more specific of the two ("Reading a file" against "Thinking…") and is
   // empty for most of a call, so this reads as the surface saying more exactly
@@ -2589,54 +2571,6 @@ function EndCallButton({
         onControl?.("endSession");
       }}
     />
-  );
-}
-
-/**
- * Answer the confirmation the turn is blocked on.
- *
- * The request id travels with the press so the session answers the question the
- * user was actually shown: between the push that drew these buttons and the
- * press that answers them the request can be decided in the app, time out, or
- * be superseded, and the next one to arrive would be a different question
- * wearing the same buttons.
- */
-function ApprovalBody({
-  detail,
-  requestId,
-  onControl,
-}: {
-  detail: string;
-  requestId: string;
-  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <>
-      {detail !== "" && (
-        <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
-          {detail}
-        </span>
-      )}
-      <PillButton
-        icon={<Check className="size-4" />}
-        label={t("companionSurface.allow")}
-        showLabel
-        tone="positive"
-        onClick={() => {
-          onControl?.("approveRequest", requestId);
-        }}
-      />
-      <PillButton
-        icon={<X className="size-4" />}
-        label={t("companionSurface.deny")}
-        showLabel
-        tone="negative"
-        onClick={() => {
-          onControl?.("denyRequest", requestId);
-        }}
-      />
-    </>
   );
 }
 
