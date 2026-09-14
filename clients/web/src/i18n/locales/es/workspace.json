@@ -29,7 +29,7 @@
     "noFilesFound": "No se han encontrado archivos",
     "searchScope": "Buscando en las carpetas abiertas",
     "noSearchMatches": "No hay coincidencias en las carpetas abiertas",
-    "searchTruncated": "El espacio de trabajo es demasiado grande para buscar en todo.",
+    "searchIncomplete": "Algunas carpetas no se incluyen en la búsqueda. Abre una carpeta para buscar dentro de ella.",
     "noMatches": "No hay coincidencias",
     "deleteFolderTitle": "Eliminar la carpeta",
     "deleteFileTitle": "Eliminar el archivo",

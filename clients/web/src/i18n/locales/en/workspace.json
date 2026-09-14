@@ -29,7 +29,7 @@
     "noFilesFound": "No files found",
     "searchScope": "Searching open folders",
     "noSearchMatches": "No matches in open folders",
-    "searchTruncated": "The workspace is too large to search completely.",
+    "searchIncomplete": "Some folders are not searched. Open a folder to search inside it.",
     "noMatches": "No matches",
     "deleteFolderTitle": "Delete Folder",
     "deleteFileTitle": "Delete File",

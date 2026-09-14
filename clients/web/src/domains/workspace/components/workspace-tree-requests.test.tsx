@@ -27,6 +27,8 @@ const WORKSPACE_DEPTH = 4;
 /** Whether the stubbed assistant understands `recursive=true`. */
 let supportsRecursive = false;
 let truncateRecursive = false;
+/** Folders the stubbed recursive walk lists but does not enter. */
+let skipRecursive = new Set<string>();
 
 /** Two folders and one `theme-<depth>.md` file per directory, four levels deep. */
 function listingFor(path: string) {
@@ -59,17 +61,23 @@ function listingFor(path: string) {
 /** The whole tree under `path`, depth-first, as the assistant lists it. */
 function recursiveListingFor(path: string) {
   const entries: ReturnType<typeof listingFor>["entries"] = [];
+  const skipped: string[] = [];
   const visit = (dir: string) => {
     const listing = listingFor(dir).entries;
     entries.push(...listing);
     for (const entry of listing) {
-      if (entry.type === "directory") {
+      if (entry.type !== "directory") {
+        continue;
+      }
+      if (skipRecursive.has(entry.path)) {
+        skipped.push(entry.path);
+      } else {
         visit(entry.path);
       }
     }
   };
   visit(path);
-  return { path, entries, truncated: truncateRecursive, skipped: [] };
+  return { path, entries, truncated: truncateRecursive, skipped };
 }
 
 const realFetch = daemonClient.getConfig().fetch;
@@ -100,6 +108,7 @@ beforeEach(() => {
   requestedPaths = [];
   supportsRecursive = false;
   truncateRecursive = false;
+  skipRecursive = new Set();
 });
 
 afterEach(() => {
@@ -246,16 +255,43 @@ describe("WorkspaceTree against an assistant with recursive listings", () => {
     expect(screen.queryByText("Searching open folders")).toBeNull();
   });
 
-  test("opening a folder requests nothing more", async () => {
+  test("opening a folder shows its contents at once and refreshes them with one request", async () => {
     const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
     await screen.findByText("d1");
     await settle();
 
     rerender({ expandedPaths: new Set(["d1"]), search: "" });
-    await screen.findByText("theme-1.md");
+    // Synchronously: the recursive listing already holds d1's contents.
+    expect(screen.getByText("theme-1.md")).toBeTruthy();
     await settle();
 
-    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)"]);
+    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)", "d1"]);
+  });
+
+  test("a folder the walk did not enter makes the search say so until it is opened", async () => {
+    skipRecursive = new Set(["d1"]);
+    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
+    await screen.findByText("d1");
+    await settle();
+
+    rerender({ expandedPaths: new Set(), search: "theme" });
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Some folders are not searched. Open a folder to search inside it.",
+        ),
+      ).toBeTruthy();
+    });
+
+    rerender({ expandedPaths: new Set(["d1"]), search: "theme" });
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Some folders are not searched. Open a folder to search inside it.",
+        ),
+      ).toBeNull();
+    });
+    expect(screen.getAllByText("theme-1.md").length).toBeGreaterThan(0);
   });
 
   test("a search with no match anywhere says so, with no scope note", async () => {
@@ -279,7 +315,9 @@ describe("WorkspaceTree against an assistant with recursive listings", () => {
     rerender({ expandedPaths: new Set(), search: "theme" });
     await waitFor(() => {
       expect(
-        screen.getByText("The workspace is too large to search completely."),
+        screen.getByText(
+          "Some folders are not searched. Open a folder to search inside it.",
+        ),
       ).toBeTruthy();
     });
   });

@@ -29,7 +29,7 @@
     "noFilesFound": "找不到檔案",
     "searchScope": "正在搜尋已展開的資料夾",
     "noSearchMatches": "已展開的資料夾中沒有相符項目",
-    "searchTruncated": "工作區太大，無法完整搜尋。",
+    "searchIncomplete": "部分資料夾未納入搜尋。展開資料夾即可在其中搜尋。",
     "noMatches": "沒有相符項目",
     "deleteFolderTitle": "刪除資料夾",
     "deleteFileTitle": "刪除檔案",

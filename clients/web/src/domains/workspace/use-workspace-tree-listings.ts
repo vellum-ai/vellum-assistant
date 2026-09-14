@@ -15,9 +15,6 @@ import {
   type WorkspaceTreeEntry,
 } from "./utils/build-workspace-tree-rows";
 
-/** The whole workspace changes rarely and mutations invalidate it anyway. */
-const WORKSPACE_LISTING_STALE_MS = 60_000;
-
 export interface WorkspaceTreeListings {
   /** Loaded directory contents keyed by workspace-relative path. */
   listings: ReadonlyMap<string, WorkspaceTreeEntry[]>;
@@ -29,19 +26,29 @@ export interface WorkspaceTreeListings {
    * that predate the parameter answer with one level.
    */
   searchScope: "workspace" | "open-folders";
-  /** The recursive listing stopped at its bound, so deeper entries are missing. */
-  isWorkspaceTruncated: boolean;
+  /**
+   * A workspace search does not cover every folder: the listing stopped at
+   * its bound, or a folder the walk did not enter (a dependency tree, a
+   * symlink, an unreadable directory) is closed. Opening such a folder
+   * lists it on its own and brings it into the search.
+   */
+  isSearchIncomplete: boolean;
 }
 
 /**
  * Directory listings for the workspace tree.
  *
- * The whole workspace is fetched once as a recursive listing, so search
- * covers every folder and opening one costs nothing. Per-folder listings
- * are fetched only where that leaves a gap: the root while the recursive
- * listing is loading or unsupported, an open folder the recursive walk did
- * not enter (a dependency tree, a truncated subtree), and every open
- * folder in size mode, where the assistant computes directory sizes.
+ * The whole workspace is fetched as one recursive listing, so search reaches
+ * every folder and a folder's contents show the moment it opens. Every open
+ * folder is also listed on its own, as it always was: that request refreshes
+ * what the recursive listing showed and, for a folder the walk did not
+ * enter, is the only way to see inside. Per-folder listings win where both
+ * exist; in size mode they also carry the directory sizes the assistant
+ * computes.
+ *
+ * Both reads keep the app's default freshness. Nothing pushes an
+ * invalidation when the assistant writes a file, so a focus or remount
+ * refetch is what picks those up, exactly as before.
  */
 export function useWorkspaceTreeListings({
   assistantId,
@@ -54,10 +61,9 @@ export function useWorkspaceTreeListings({
   showHidden: boolean;
   sortMode: WorkspaceSortMode;
 }): WorkspaceTreeListings {
-  const workspace = useQuery({
-    ...workspaceTreeQueryOptions({ assistantId, showHidden, recursive: true }),
-    staleTime: WORKSPACE_LISTING_STALE_MS,
-  });
+  const workspace = useQuery(
+    workspaceTreeQueryOptions({ assistantId, showHidden, recursive: true }),
+  );
   // An assistant without the parameter answers with one level and no
   // `truncated`; that answer is not a workspace listing.
   const workspaceData =
@@ -71,13 +77,10 @@ export function useWorkspaceTreeListings({
     [workspaceData],
   );
 
-  const paths = useMemo(() => {
-    const open = listedDirectoryPaths(expandedPaths, showHidden);
-    if (!workspaceListings || sortMode === "size") {
-      return open;
-    }
-    return open.filter((path) => !workspaceListings.has(path));
-  }, [expandedPaths, showHidden, workspaceListings, sortMode]);
+  const paths = useMemo(
+    () => listedDirectoryPaths(expandedPaths, showHidden),
+    [expandedPaths, showHidden],
+  );
 
   const combine = useCallback(
     (
@@ -92,8 +95,7 @@ export function useWorkspaceTreeListings({
           listings.set(paths[index], result.data.entries);
         }
       });
-      const root = results[paths.indexOf("")];
-      return { listings, isRootLoading: root?.isLoading ?? false };
+      return { listings, isRootLoading: results[0]?.isLoading ?? true };
     },
     [paths],
   );
@@ -111,26 +113,26 @@ export function useWorkspaceTreeListings({
   });
 
   return useMemo(() => {
-    if (!workspaceListings) {
+    if (!workspaceListings || !workspaceData) {
       return {
         listings: perFolder.listings,
         isRootLoading: perFolder.isRootLoading,
         searchScope: "open-folders",
-        isWorkspaceTruncated: false,
+        isSearchIncomplete: false,
       };
     }
-    // Per-folder listings win: in size mode they carry the assistant's
-    // directory sizes, and elsewhere they only exist for folders the
-    // recursive walk did not enter.
     const listings = new Map(workspaceListings);
     for (const [path, entries] of perFolder.listings) {
       listings.set(path, entries);
     }
+    const skipped = workspaceData.skipped ?? [];
     return {
       listings,
       isRootLoading: false,
       searchScope: "workspace",
-      isWorkspaceTruncated: workspaceData?.truncated === true,
+      isSearchIncomplete:
+        workspaceData.truncated === true ||
+        skipped.some((path) => !listings.has(path)),
     };
   }, [workspaceListings, workspaceData, perFolder]);
 }

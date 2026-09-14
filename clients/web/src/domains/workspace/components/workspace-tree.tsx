@@ -279,10 +279,12 @@ export function WorkspaceTree({
   }, []);
 
   const debouncedSearch = useDebouncedValue(search, SEARCH_DEBOUNCE_MS);
-  const isSearching = search.trim() !== "";
+  // Messaging follows the same query the rows do, so a note never describes
+  // results that have not been filtered yet.
+  const isSearching = debouncedSearch.trim() !== "";
   const searchScopeId = useId();
 
-  const { listings, isRootLoading, searchScope, isWorkspaceTruncated } =
+  const { listings, isRootLoading, searchScope, isSearchIncomplete } =
     useWorkspaceTreeListings({
       assistantId,
       expandedPaths,
@@ -293,8 +295,8 @@ export function WorkspaceTree({
     ? null
     : searchScope === "open-folders"
       ? t("workspaceTree.searchScope")
-      : isWorkspaceTruncated
-        ? t("workspaceTree.searchTruncated")
+      : isSearchIncomplete
+        ? t("workspaceTree.searchIncomplete")
         : null;
   const hasRootEntries = (listings.get(WORKSPACE_ROOT_PATH)?.length ?? 0) > 0;
 
