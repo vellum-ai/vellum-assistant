@@ -208,6 +208,11 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  (Fireworks, Together) keep sending `none` / forced choices. Enabled for
    *  the generic `openai-compatible` adapter, whose upstream is unknown. */
   omitToolChoiceWhenReasoning?: boolean;
+  /** Wire field for the output-token limit. OpenAI and OpenAI-compatible
+   *  backends use `max_completion_tokens`. OpenRouter uses `max_tokens`
+   *  because its parameter router matches that key on
+   *  `require_parameters` routes. */
+  outputTokenLimitField?: "max_completion_tokens" | "max_tokens";
 }
 
 const log = getLogger("chat-completions");
@@ -813,6 +818,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private coerceObjectArgsToJsonString: boolean;
   private salvageXmlToolCalls: boolean;
   private omitToolChoiceWhenReasoning: boolean;
+  private outputTokenLimitField: "max_completion_tokens" | "max_tokens";
 
   constructor(
     apiKey: string,
@@ -844,6 +850,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
       options.salvageXmlToolCalls ?? shouldSalvageXmlToolCalls(model);
     this.omitToolChoiceWhenReasoning =
       options.omitToolChoiceWhenReasoning ?? false;
+    this.outputTokenLimitField =
+      options.outputTokenLimitField ?? "max_completion_tokens";
   }
 
   get defaultModel(): string {
@@ -899,7 +907,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
         };
 
       if (maxTokens) {
-        params.max_completion_tokens = maxTokens;
+        if (this.outputTokenLimitField === "max_tokens") {
+          params.max_tokens = maxTokens;
+        } else {
+          params.max_completion_tokens = maxTokens;
+        }
       }
 
       // Profile-scoped token biasing (e.g. the `suppress-cjk` preset). Resolved
