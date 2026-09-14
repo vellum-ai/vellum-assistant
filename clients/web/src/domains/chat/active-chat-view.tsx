@@ -58,6 +58,7 @@ import { useShareInboxSend } from "@/domains/chat/hooks/use-share-inbox-send";
 import { ACP_CONNECT_CONTINUE_PROMPT } from "@/domains/chat/utils/acp-connect";
 
 import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
+import { useAppRouteSync } from "@/domains/chat/hooks/use-app-route-sync";
 import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
 import { useScrollToMessageParam } from "@/domains/chat/hooks/use-scroll-to-message";
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -93,8 +94,9 @@ export function ActiveChatView() {
   const canUseInternalActions = useCanUseInternalThreadActions();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
-  const { conversationId: urlConversationId } = useParams<{
+  const { conversationId: urlConversationId, appId: urlAppId } = useParams<{
     conversationId?: string;
+    appId?: string;
   }>();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
@@ -412,8 +414,11 @@ export function ActiveChatView() {
     void sendMessage(message);
   }, [sendMessage]);
 
-  // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
-  useDeepLinkApp(assistantId, searchParams);
+  // Legacy deep-link: ?app=<id> redirects onto the app route.
+  useDeepLinkApp(urlConversationId ?? null, searchParams);
+
+  // The app segment of the URL decides which app the viewer shows.
+  useAppRouteSync(assistantId, urlConversationId ?? null, urlAppId ?? null);
 
   // Conversation-change side effects (dismiss prompts, reset subagent state,
   // auto-fetch subagent details for entries reconstructed from history)

@@ -1,0 +1,293 @@
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, renderHook, screen, waitFor } from "@testing-library/react";
+import { type ReactElement, type ReactNode } from "react";
+import { MemoryRouter, useLocation } from "react-router";
+
+import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
+import { routes } from "@/utils/routes";
+
+import { useAppRouteSync } from "./use-app-route-sync";
+
+// We can't safely `mock.module(...)` core stores like viewer/conversation
+// because Bun module mocks are process-global. Instead we drive the real
+// stores via `setState` / `getState`, restoring pre-test snapshots after.
+
+let viewerSnapshot: ReturnType<typeof useViewerStore.getState>;
+let conversationSnapshot: ReturnType<typeof useConversationStore.getState>;
+
+const ASSISTANT_ID = "asst-1";
+const APP_ID = "app-42";
+const CONV_ID = "conv-1";
+const APP_PATH = routes.conversation(CONV_ID, APP_ID);
+
+const APP: OpenedAppState = {
+  appId: APP_ID,
+  dirName: "support-monitor",
+  name: "Support Monitor",
+  html: "<html></html>",
+};
+
+const loadAppMock = mock(async (_assistantId: string, _appId: string) => true);
+const closeAppMock = mock(() => undefined);
+const setMainViewMock = mock((_view: string) => undefined);
+const setEditingConversationIdMock = mock((_id: string | null) => undefined);
+
+function LocationProbe(): ReactElement {
+  const { pathname } = useLocation();
+  return <span data-testid="pathname">{pathname}</span>;
+}
+function currentPath(): string | null {
+  return screen.getByTestId("pathname").textContent;
+}
+function wrapperAt(initialPath: string) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <MemoryRouter initialEntries={[initialPath]}>
+        {children}
+        <LocationProbe />
+      </MemoryRouter>
+    );
+  };
+}
+const wrapper = wrapperAt(APP_PATH);
+
+interface HookProps {
+  assistantId: string | null;
+  conversationId: string | null;
+  routeAppId: string | null;
+}
+
+function renderSync(props: HookProps) {
+  return renderHook(
+    ({ assistantId, conversationId, routeAppId }: HookProps) =>
+      useAppRouteSync(assistantId, conversationId, routeAppId),
+    { wrapper, initialProps: props },
+  );
+}
+
+beforeEach(() => {
+  viewerSnapshot = useViewerStore.getState();
+  conversationSnapshot = useConversationStore.getState();
+
+  loadAppMock.mockReset();
+  closeAppMock.mockReset();
+  setMainViewMock.mockReset();
+  setEditingConversationIdMock.mockReset();
+
+  // Default: the load succeeds and leaves the viewer holding the app, which
+  // mirrors the real `loadApp` contract.
+  loadAppMock.mockImplementation(async (_assistantId, appId) => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: appId,
+      openedAppState: { ...APP, appId },
+    });
+    return true;
+  });
+
+  useViewerStore.setState({
+    mainView: "chat",
+    activeAppId: null,
+    openedAppState: null,
+    loadApp: loadAppMock as unknown as typeof viewerSnapshot.loadApp,
+    closeApp: closeAppMock,
+    setMainView:
+      setMainViewMock as unknown as typeof viewerSnapshot.setMainView,
+  });
+  useConversationStore.setState({
+    activeConversationId: CONV_ID,
+    setEditingConversationId:
+      setEditingConversationIdMock as unknown as typeof conversationSnapshot.setEditingConversationId,
+  });
+});
+
+afterEach(() => {
+  cleanup();
+  useViewerStore.setState(viewerSnapshot, true);
+  useConversationStore.setState(conversationSnapshot, true);
+});
+
+describe("useAppRouteSync", () => {
+  test("loads the app the URL names when the viewer holds nothing", async () => {
+    // GIVEN the viewer shows the chat and the URL names an app
+    // WHEN the hook mounts
+    renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+
+    // THEN the app is loaded exactly once, and the URL is left alone
+    await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
+    expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+    expect(currentPath()).toBe(APP_PATH);
+  });
+
+  test("leaves the split alone when the app the URL names is already loaded", async () => {
+    // GIVEN the app is open beside its edit conversation
+    useViewerStore.setState({
+      mainView: "app-editing",
+      activeAppId: APP_ID,
+      openedAppState: APP,
+    });
+
+    // WHEN the hook mounts on that app's route
+    renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+
+    // THEN nothing is reloaded and the split survives
+    expect(loadAppMock).not.toHaveBeenCalled();
+    expect(setMainViewMock).not.toHaveBeenCalled();
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+  });
+
+  test("brings the app back in front when an overlay took the main view", () => {
+    // GIVEN the loaded app is hidden behind the document overlay
+    useViewerStore.setState({
+      mainView: "document",
+      activeAppId: APP_ID,
+      openedAppState: APP,
+    });
+
+    // WHEN the hook mounts on that app's route
+    renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+
+    // THEN the viewer returns to the app the URL still names
+    expect(setMainViewMock).toHaveBeenCalledWith("app");
+    expect(loadAppMock).not.toHaveBeenCalled();
+  });
+
+  test("closes the app when the URL stops naming one", () => {
+    // GIVEN an app is open on its route
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: APP_ID,
+      openedAppState: APP,
+    });
+    const { rerender } = renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+
+    // WHEN the route loses its app segment (Back, or an explicit close)
+    rerender({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: null,
+    });
+
+    // THEN the viewer closes the app and drops the bound edit conversation
+    expect(closeAppMock).toHaveBeenCalledTimes(1);
+    expect(setEditingConversationIdMock).toHaveBeenCalledWith(null);
+  });
+
+  test("leaves the app route when the store gave up on the app", async () => {
+    // GIVEN the app no longer exists, so the store falls back to chat
+    loadAppMock.mockImplementation(async () => {
+      useViewerStore.setState({
+        mainView: "chat",
+        activeAppId: null,
+        openedAppState: null,
+      });
+      return false;
+    });
+
+    // WHEN the hook mounts on that app's route
+    renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+
+    // THEN the URL stops naming an app that cannot be opened
+    await waitFor(() =>
+      expect(currentPath()).toBe(routes.conversation(CONV_ID)),
+    );
+  });
+
+  test("keeps the app route when the viewer left the app view mid-load", async () => {
+    // GIVEN the load succeeds but an overlay took the main view meanwhile, so
+    // the store still holds the app and reports it is not on screen
+    loadAppMock.mockImplementation(async (_assistantId, appId) => {
+      useViewerStore.setState({
+        mainView: "document",
+        activeAppId: appId,
+        openedAppState: { ...APP, appId },
+      });
+      return false;
+    });
+
+    // WHEN the hook mounts on that app's route
+    renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+
+    // THEN the URL is left alone: the app is still what the viewer holds
+    await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
+    expect(currentPath()).toBe(APP_PATH);
+  });
+
+  test("does not reload the app when the conversation beside it changes", async () => {
+    const { rerender } = renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+    await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the user switches conversation with the app still on screen
+    rerender({
+      assistantId: ASSISTANT_ID,
+      conversationId: "conv-2",
+      routeAppId: APP_ID,
+    });
+
+    // THEN the app is not fetched again
+    expect(loadAppMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("waits for the assistant to resolve before loading", async () => {
+    // GIVEN the assistant has not resolved yet
+    const { rerender } = renderSync({
+      assistantId: null,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+    expect(loadAppMock).not.toHaveBeenCalled();
+
+    // WHEN it resolves
+    rerender({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+
+    // THEN the app the URL names is loaded once
+    await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
+    expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+  });
+
+  test("does not touch the viewer when no app is open and none is routed", () => {
+    // GIVEN the plain conversation route and a viewer showing the chat
+    renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: null,
+    });
+
+    // THEN the hook stays out of the way of store-only surfaces
+    expect(closeAppMock).not.toHaveBeenCalled();
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+  });
+});
