@@ -1,9 +1,9 @@
 import { getConfig } from "../config/loader.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import {
-  ambiguousSameUserError,
   enforceSameActorOrErrorResult,
-  pickSameUserAutoResolve,
+  pickMostRecentSameUserClient,
+  unavailableSameUserClientError,
 } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { formatShellOutput } from "../tools/shared/shell-output.js";
@@ -93,21 +93,17 @@ export class HostBashProxy extends HostProxyBase<
       }
       resolvedTargetClientId = input.targetClientId;
     } else {
-      // Auto-resolve to the unique same-user client. Reject (rather than
-      // broadcast) when multiple same-user clients are connected so that
-      // a single targeted-style request cannot fan out across every one
-      // of the user's machines. Zero same-user matches falls through to
-      // the existing untargeted code path.
-      const resolved = pickSameUserAutoResolve({
+      resolvedTargetClientId = pickMostRecentSameUserClient({
         hub: assistantEventHub,
         capability: "host_bash",
         sourceActorPrincipalId,
       });
-      if (resolved.kind === "ambiguous") {
-        return ambiguousSameUserError("host_bash");
+      if (
+        resolvedTargetClientId === undefined &&
+        sourceActorPrincipalId !== undefined
+      ) {
+        return unavailableSameUserClientError("host_bash");
       }
-      resolvedTargetClientId =
-        resolved.kind === "match" ? resolved.clientId : undefined;
     }
 
     // Targeted requests must be bound to the same authenticated user as the

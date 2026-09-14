@@ -29,12 +29,22 @@ import "./test-preload.js";
 let mockReadCredential = mock(
   async (_key: string): Promise<string | undefined> => undefined,
 );
+let mockPlatformUserIdUnreachable = false;
 // Spread the actual module so untouched exports (getWorkspaceDir, …) stay
 // importable by transitive dependencies of the modules under test.
 const actualCredentialReader = await import("../credential-reader.js");
 mock.module("../credential-reader.js", () => ({
   ...actualCredentialReader,
   readCredential: (key: string) => mockReadCredential(key),
+}));
+mock.module("../platform-user-id.js", () => ({
+  readStoredPlatformUserId: async () => {
+    if (mockPlatformUserIdUnreachable) {
+      return { userId: undefined, unreachable: true };
+    }
+    const userId = await mockReadCredential("vellum:platform_user_id");
+    return { userId, unreachable: false };
+  },
 }));
 
 let mockValidateEdgeToken = mock(
@@ -84,6 +94,7 @@ function makeLoopbackServer(address = "127.0.0.1") {
 
 beforeEach(() => {
   mockReadCredential = mock(async () => undefined);
+  mockPlatformUserIdUnreachable = false;
   mockValidateEdgeToken = mock(() => ({ ok: false, reason: "noop" }));
   loopbackFallbackCountTracker.reset();
 });
@@ -125,6 +136,15 @@ describe("requireEdgeAuth — DISABLE_HTTP_AUTH + IS_PLATFORM", () => {
       makeReq({ "x-vellum-user-id": "different-user" }),
     );
     expect(res?.status).toBe(403);
+  });
+
+  test("503 when platform_user_id vault is unreachable", async () => {
+    mockPlatformUserIdUnreachable = true;
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({ "x-vellum-user-id": PLATFORM_USER_ID }),
+    );
+    expect(res?.status).toBe(503);
   });
 
   test("503 when readCredential throws", async () => {

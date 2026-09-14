@@ -189,6 +189,34 @@ function frontDoorRuleWithDigest(
 }
 
 /**
+ * The triage-and-escalate rule a turn's leg adds to its control prompt: the
+ * front-door leg decides and may hand off, the escalated leg continues the
+ * answer after a holding phrase was already spoken. Null when routing is off.
+ * One rule for both prompt shapes, the auto-built phone prompt and a
+ * caller-supplied one, so the front-door model is anchored to the same
+ * caller words on every transport.
+ */
+function routingLegRuleFor(
+  opts: Pick<
+    VoiceTurnOptions,
+    "routingLeg" | "unifiedVerdict" | "spokenEscalationBridge"
+  >,
+  callerUtterance: string,
+): string | null {
+  switch (opts.routingLeg) {
+    case "front-door":
+      return frontDoorRuleWithDigest(
+        opts.unifiedVerdict === true,
+        callerUtterance,
+      );
+    case "escalated":
+      return escalatedContinuationRule(opts.spokenEscalationBridge);
+    default:
+      return null;
+  }
+}
+
+/**
  * Exact message thrown when `opts.signal` aborts while the turn is waiting
  * for the conversation to become available. The call controller's abort
  * handling relies on this turn failing with a recognizable error — keep the
@@ -373,8 +401,9 @@ export interface VoiceTurnOptions {
    *
    * Deliberately separate from {@link userMessageInterface}: that field feeds
    * `resolveChannelCapabilities` and decides what the turn may do, so it is not
-   * free to carry attribution. Absent for phone calls and for clients that send
-   * no identity on the start frame.
+   * free to carry attribution. A phone call passes its call session id and a
+   * `phone_*` entry naming the call's direction, with no client. Absent for
+   * clients that send no identity on the start frame.
    */
   voiceTelemetry?: {
     sessionId: string;
@@ -447,7 +476,7 @@ export interface VoiceTurnOptions {
   onComplete?: () => void;
   /** Called when the agent loop encounters an error. */
   onError?: (message: string) => void;
-  /** Event-name callbacks used by non-phone voice clients. */
+  /** Event-name callbacks: tool activity, persisted row ids, raw stream. */
   callbacks?: VoiceTurnCallbacks;
   /**
    * Called when this turn leaves a confirmation for the user to answer instead
@@ -482,10 +511,9 @@ export interface VoiceTurnOptions {
    */
   overrideProfile?: string;
   /**
-   * Which leg of a triaged turn this is, so the auto-built phone control prompt
-   * can add the front-door triage rule or the escalated continuation rule.
-   * Undefined = routing off; no routing rules are added. Ignored when a caller
-   * supplies its own `voiceControlPrompt`.
+   * Which leg of a triaged turn this is, so the control prompt (auto-built or
+   * caller-supplied) carries the front-door triage rule or the escalated
+   * continuation rule. Undefined = routing off; no routing rules are added.
    */
   routingLeg?: VoiceRoutingLeg;
   /**
@@ -611,9 +639,8 @@ function buildVoiceCallControlPrompt(opts: {
   task?: string | null;
   isCallerGuardian?: boolean;
   skipDisclosure?: boolean;
-  routingLeg?: VoiceRoutingLeg;
-  spokenEscalationBridge?: string;
-  unifiedVerdict?: boolean;
+  /** The turn's routing-leg rule (see {@link routingLegRuleFor}), if any. */
+  routingLegRule?: string | null;
 }): string {
   const config = getConfig();
   const disclosureEnabled =
@@ -698,13 +725,8 @@ function buildVoiceCallControlPrompt(opts: {
     `12. ${PHONE_NO_SETUP_FLOWS_RULE}`,
   );
 
-  // Triage-and-escalate routing rules. The front-door leg decides and may
-  // hand off; the escalated leg continues the answer after a holding phrase
-  // was already spoken.
-  if (opts.routingLeg === "front-door") {
-    lines.push(`13. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
-  } else if (opts.routingLeg === "escalated") {
-    lines.push(`13. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
+  if (opts.routingLegRule) {
+    lines.push(`13. ${opts.routingLegRule}`);
   }
 
   lines.push("</voice_call_control>");
@@ -952,6 +974,10 @@ export async function startVoiceTurn(
   // control markers (ASK_GUARDIAN, END_CALL, etc.) and recognize opener turns.
   const isCallerGuardian = opts.trustContext?.trustClass === "guardian";
 
+  // The front-door rule anchors on the words the model sees as the user
+  // turn, which for a phone sentinel is its neutral persisted form rather
+  // than the marker itself.
+  const routingLegRule = routingLegRuleFor(opts, persistedContent);
   let voiceCallControlPrompt: string | null;
   if (opts.voiceControlPrompt === undefined) {
     voiceCallControlPrompt = buildVoiceCallControlPrompt({
@@ -959,23 +985,14 @@ export async function startVoiceTurn(
       task: opts.task,
       isCallerGuardian,
       skipDisclosure: opts.skipDisclosure,
-      routingLeg: opts.routingLeg,
-      spokenEscalationBridge: opts.spokenEscalationBridge,
-      unifiedVerdict: opts.unifiedVerdict,
+      routingLegRule,
     });
   } else {
-    // A caller-supplied prompt (e.g. live-voice) bypasses
-    // buildVoiceCallControlPrompt, which is where the triage-and-escalate rule
-    // is normally injected from `routingLeg`. Append it here too — without it
-    // the front-door leg would run on the fast profile but never learn the
-    // verdict protocol, so it could not hold or hand off to the escalated leg.
+    // A caller-supplied prompt (live voice) replaces the phone prompt, so the
+    // routing-leg rule is appended to it here. Without it the front-door leg
+    // would run on the fast profile but never learn the verdict protocol, so
+    // it could not hold or hand off to the escalated leg.
     voiceCallControlPrompt = opts.voiceControlPrompt;
-    const routingLegRule =
-      opts.routingLeg === "front-door"
-        ? frontDoorRuleWithDigest(opts.unifiedVerdict === true, opts.content)
-        : opts.routingLeg === "escalated"
-          ? escalatedContinuationRule(opts.spokenEscalationBridge)
-          : null;
     if (voiceCallControlPrompt != null && routingLegRule) {
       voiceCallControlPrompt = `${voiceCallControlPrompt}\n\n${routingLegRule}`;
     }

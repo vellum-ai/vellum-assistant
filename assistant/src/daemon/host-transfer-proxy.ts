@@ -10,10 +10,10 @@ import {
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
 import {
-  ambiguousSameUserError,
   enforceSameActorOrErrorResult,
-  pickSameUserAutoResolve,
+  pickMostRecentSameUserClient,
   snapshotHostProxyActorPrincipalId,
+  unavailableSameUserClientError,
 } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -162,19 +162,17 @@ export class HostTransferProxy {
         });
       }
     } else {
-      // Auto-resolve to the unique same-user client; reject ambiguous
-      // (multi-machine) cases so a single targeted-style transfer cannot
-      // fan out across the user's machines.
-      const resolved = pickSameUserAutoResolve({
+      resolvedTargetClientId = pickMostRecentSameUserClient({
         hub: assistantEventHub,
         capability: "host_file",
         sourceActorPrincipalId,
       });
-      if (resolved.kind === "ambiguous") {
-        return Promise.resolve(ambiguousSameUserError("host_file"));
+      if (
+        resolvedTargetClientId === undefined &&
+        sourceActorPrincipalId !== undefined
+      ) {
+        return Promise.resolve(unavailableSameUserClientError("host_file"));
       }
-      resolvedTargetClientId =
-        resolved.kind === "match" ? resolved.clientId : undefined;
     }
 
     if (resolvedTargetClientId != null) {
@@ -364,19 +362,17 @@ export class HostTransferProxy {
         });
       }
     } else {
-      // Auto-resolve to the unique same-user client; reject ambiguous
-      // (multi-machine) cases so a single targeted-style transfer cannot
-      // fan out across the user's machines.
-      const resolved = pickSameUserAutoResolve({
+      resolvedTargetClientId = pickMostRecentSameUserClient({
         hub: assistantEventHub,
         capability: "host_file",
         sourceActorPrincipalId,
       });
-      if (resolved.kind === "ambiguous") {
-        return Promise.resolve(ambiguousSameUserError("host_file"));
+      if (
+        resolvedTargetClientId === undefined &&
+        sourceActorPrincipalId !== undefined
+      ) {
+        return Promise.resolve(unavailableSameUserClientError("host_file"));
       }
-      resolvedTargetClientId =
-        resolved.kind === "match" ? resolved.clientId : undefined;
     }
 
     if (resolvedTargetClientId != null) {

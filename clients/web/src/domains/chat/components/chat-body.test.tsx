@@ -314,7 +314,7 @@ describe("ChatBody — banner overlay suppression (LUM-1566)", () => {
 describe("ChatBody — banner-visibility store mirroring", () => {
   // The shared store must reflect the banner actually being MOUNTED
   // (bannerSlot provided AND not on the empty state), not merely a
-  // candidate slot existing — a sidebar tip hides itself while the store
+  // candidate slot existing. Activation surfaces hide while the store
   // reports a visible banner. Count-based register/unregister keeps
   // concurrent instances (main chat + app-editing side panel) from
   // clobbering each other.

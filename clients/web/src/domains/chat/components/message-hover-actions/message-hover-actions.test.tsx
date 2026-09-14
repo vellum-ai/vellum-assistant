@@ -1,21 +1,9 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
-
-let canUseInternalThreadActions = false;
-mock.module("@/lib/auth/internal-thread-actions", () => ({
-  useCanUseInternalThreadActions: () => canUseInternalThreadActions,
-}));
-
-const { MessageHoverActions } = await import(
-  "@/domains/chat/components/message-hover-actions/message-hover-actions"
-);
-
-afterEach(() => {
-  canUseInternalThreadActions = false;
-});
 
 describe("MessageHoverActions", () => {
   test("renders the timestamp even when no actions are available", () => {
@@ -120,25 +108,9 @@ describe("MessageHoverActions", () => {
     expect(html).not.toContain('title="Retry"');
   });
 
-  test("renders copy for a copyable message without read aloud when the internal gate is off", () => {
+  test("renders copy and read aloud for a copyable message", () => {
     const message: DisplayMessage = {
       id: "m7",
-      role: "assistant",
-      timestamp: Date.UTC(2026, 0, 2, 12, 34),
-      ...textBody("hello"),
-    };
-    const html = renderToStaticMarkup(
-      <MessageHoverActions message={message} />,
-    );
-
-    expect(html).toContain('title="Copy"');
-    expect(html).not.toContain('title="Read aloud"');
-  });
-
-  test("renders read aloud when the internal thread actions gate is on", () => {
-    canUseInternalThreadActions = true;
-    const message: DisplayMessage = {
-      id: "m7-read",
       role: "assistant",
       timestamp: Date.UTC(2026, 0, 2, 12, 34),
       ...textBody("hello"),
@@ -152,7 +124,6 @@ describe("MessageHoverActions", () => {
   });
 
   test("omits copy and read aloud when the message has no text", () => {
-    canUseInternalThreadActions = true;
     const message: DisplayMessage = {
       id: "m8",
       role: "assistant",

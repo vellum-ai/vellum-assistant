@@ -24,7 +24,6 @@
     "machineDowngradeFeature": "Reduced CPU and memory for your assistant - it will resize to the smaller compute profile.",
     "pickTiersError": "Pick a machine and storage tier to continue.",
     "planUpdated": "Plan updated.",
-    "updateFailed": "Failed to update plan. Please try again.",
     "upgradeFailed": "Failed to start upgrade. Please try again.",
     "upgradePlanTitle": "Upgrade Plan"
   },
@@ -597,6 +596,7 @@
   },
   "customPlanModal": {
     "cancel": "Cancel",
+    "changeFailed": "Failed to change your plan. Please try again.",
     "comparedToPrevious": "{delta} compared to previous ({previous})",
     "continue": "Continue",
     "learnMore": "Learn more",
@@ -1860,11 +1860,6 @@
     "recordingHint": "Recording… press a shortcut, or Esc to cancel",
     "removeBindingAriaLabel": "Remove {label} binding",
     "resetShortcutAriaLabel": "Reset {label} to default"
-  },
-  "showTipsRow": {
-    "ariaLabel": "Show tips",
-    "description": "Occasional tips in the sidebar that highlight features you haven't tried yet.",
-    "label": "Show tips"
   },
   "soundsSections": {
     "addSound": "Add sound",

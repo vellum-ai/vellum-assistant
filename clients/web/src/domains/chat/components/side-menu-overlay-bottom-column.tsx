@@ -5,22 +5,20 @@ import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library";
 
 export interface SideMenuOverlayBottomColumnProps {
-  tipCard?: ReactNode;
   footerAction?: ReactNode;
   onStartNewConversation?: () => void;
   onClose?: () => void;
   /**
    * Reports the column's measured height so the scrollport behind it can end
-   * above the column. Measured (not static) because the tip card
-   * appears/disappears and its copy length varies.
+   * above the rendered action pills.
    */
   onHeightChange: (height: number) => void;
 }
 
 /**
- * The overlay drawer's floating bottom column: the tip card above the
- * action pills (Preferences + New Chat) in the thumb zone, replacing the
- * rail's fixed footer rows (Figma 6764:6745). `pointer-events-none` on the
+ * The overlay drawer's floating bottom action pills (Preferences + New Chat)
+ * sit in the thumb zone, replacing the rail's fixed footer row (Figma
+ * 6764:6745). `pointer-events-none` on the
  * container keeps the list scrollable between/around the pills. The
  * container offsets itself by the bottom safe-area inset because the
  * overlay sheet runs full-bleed to the physical screen edge, keeping the
@@ -28,7 +26,6 @@ export interface SideMenuOverlayBottomColumnProps {
  * naturally instead of being clipped at a safe-area boundary.
  */
 export function SideMenuOverlayBottomColumn({
-  tipCard,
   footerAction,
   onStartNewConversation,
   onClose,
@@ -61,22 +58,13 @@ export function SideMenuOverlayBottomColumn({
   return (
     <div
       ref={columnRef}
+      data-slot="side-menu-overlay-bottom-column"
       className="pointer-events-none absolute inset-x-3 z-10 flex flex-col gap-4"
       style={{
         bottom:
           "calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
       }}
     >
-      {/* `empty:hidden` collapses the row when the tip card renders
-         null, so the column gap adds no phantom spacing. */}
-      {tipCard ? (
-        <div
-          data-slot="tip-card-wrapper"
-          className="pointer-events-auto empty:hidden"
-        >
-          {tipCard}
-        </div>
-      ) : null}
       {/* The two pills are sized by what they carry rather than split
          evenly: Preferences shrink-wraps its avatar and name, and New Chat
          takes the rest of the row. `min-w-0` on the shrinking one keeps a

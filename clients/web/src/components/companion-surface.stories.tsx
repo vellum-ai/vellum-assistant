@@ -763,6 +763,23 @@ export const InCallAssistantTurn: Story = {
   },
 };
 
+/**
+ * Mid-call docked to a side of the display, which stands the bar up.
+ *
+ * The controls run down a column under the creature, their captions and the
+ * activity line stand off it toward the middle of the screen, and the host
+ * builds a canvas symmetric about the creature for it. Compare with `InCall`:
+ * the same controls in the same order, read down rather than across.
+ */
+export const InCallDockedLeft: Story = {
+  args: { phase: "call", call: DEMO_CALL, dock: "left", sharing: true },
+};
+
+/** The same column against the right edge, with everything facing left. */
+export const InCallDockedRight: Story = {
+  args: { phase: "call", call: DEMO_CALL, dock: "right", sharing: true },
+};
+
 /** Mid-call with both mutes on, which is what the two buttons swap to. */
 export const InCallMuted: Story = {
   args: {

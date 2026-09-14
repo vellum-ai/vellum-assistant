@@ -354,6 +354,57 @@ describe("createToolExecutor isInteractive threading", () => {
   });
 });
 
+describe("createToolExecutor unattended host-tool gate", () => {
+  test("rejects a direct host tool in a background turn before dispatch", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeCtx({ currentTurnIsNonInteractive: true, transportInterface: "web" }),
+    );
+
+    const result = await toolFn("host_bash", { command: "pwd" });
+
+    expect(result).toMatchObject({ isError: true });
+    expect(result.content).toContain("requires an interactive user turn");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("rejects a skill-dispatched host tool in a background turn before dispatch", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeCtx({ currentTurnIsNonInteractive: true, transportInterface: "web" }),
+    );
+
+    const result = await toolFn("skill_execute", {
+      tool: "host_file_read",
+      input: { path: "/tmp/a" },
+      activity: "testing",
+    });
+
+    expect(result).toMatchObject({ isError: true });
+    expect(result.content).toContain("requires an interactive user turn");
+    expect(calls).toHaveLength(0);
+  });
+
+  test("dispatches a host tool during an interactive turn", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeCtx({
+        currentTurnIsNonInteractive: false,
+        transportInterface: "web",
+      }),
+    );
+
+    const result = await toolFn("host_bash", { command: "pwd" });
+
+    expect(result).toMatchObject({ content: "ok", isError: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe("host_bash");
+  });
+});
+
 describe("createToolExecutor channel-permission coordinate threading", () => {
   beforeEach(() => {
     mockBindingExternalChatId = null;

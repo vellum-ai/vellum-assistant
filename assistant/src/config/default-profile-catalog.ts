@@ -137,7 +137,7 @@ const VELLUM_PROFILE_IMPLS: ProfileImpls = {
     // The managed latency class, also what the live-voice front model runs on.
     // Its leading tokens are the turn-taking verdict, so what this profile
     // optimizes is the tail of time-to-first-token rather than the median: a
-    // verdict slower than `liveVoice.frontModel.endpointDecisionTimeoutMs`
+    // verdict slower than `voice.frontModel.endpointDecisionTimeoutMs`
     // trips the speculative fail-open commit in live-voice-session.ts, which
     // is audible dead air.
     //

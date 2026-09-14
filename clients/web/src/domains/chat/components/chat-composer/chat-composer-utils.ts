@@ -17,6 +17,13 @@ export interface ComposerKeyDownPolicy {
    * disagree about what counts as content.
    */
   hasStagedContext?: boolean;
+  /**
+   * Whether a dictation session is recording or transcribing. Words already
+   * spoken are content the composer does not hold yet, so Enter has to reach
+   * `onSubmit` (which finishes dictation before it sends) rather than being
+   * swallowed as "nothing to send".
+   */
+  dictationInFlight?: boolean;
   sendDisabled: boolean;
   attachmentsUploadingCount: number;
   cmdEnterMode: boolean;
@@ -69,7 +76,8 @@ export function shouldSubmitOnEnter(
   const hasContent =
     Boolean(policy.input.trim()) ||
     policy.canSendAttachments ||
-    Boolean(policy.hasStagedContext);
+    Boolean(policy.hasStagedContext) ||
+    Boolean(policy.dictationInFlight);
   if (
     hasContent &&
     !policy.sendDisabled &&

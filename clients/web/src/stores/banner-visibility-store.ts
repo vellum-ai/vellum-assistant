@@ -4,9 +4,8 @@ import { createSelectors } from "@/utils/create-selectors";
 
 /**
  * Zustand store tracking whether a composer nudge banner is currently
- * rendered. Contract for mutual exclusivity: a sidebar tip must never render
- * while a composer nudge banner is showing, so tip surfaces read
- * {@link useBannerVisible} and hide themselves while it's true.
+ * rendered. Activation surfaces read {@link useBannerVisible} so their pill
+ * stays mutually exclusive with a composer nudge banner.
  *
  * Each `ChatBody` instance that actually mounts its banner overlay registers
  * here for the duration. A count (not a boolean) tolerates concurrent
@@ -44,6 +43,6 @@ export const useBannerVisibilityStore = createSelectors(
   useBannerVisibilityStoreBase,
 );
 
-/** Reactive read for tip surfaces — true while any nudge banner is mounted. */
+/** Reactive read for activation surfaces while any nudge banner is mounted. */
 export const useBannerVisible = () =>
   useBannerVisibilityStore.use.visibleBannerCount() > 0;

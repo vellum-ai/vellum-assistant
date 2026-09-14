@@ -229,6 +229,15 @@ stubModule(
   },
 );
 
+// Records the paths the menu warms. Which chunks a path pulls in is
+// `prefetch-route.test.ts`'s business; this suite owns only when the menu asks.
+const prefetchedPaths: string[] = [];
+stubModule("@/lib/prefetch-route", await import("@/lib/prefetch-route"), {
+  prefetchRoute: (href?: string) => {
+    prefetchedPaths.push(href ?? "");
+  },
+});
+
 // The panel owns its own reads (subscription, plan catalog, usage totals),
 // which this suite's partial `@tanstack/react-query` mock cannot host. Its
 // rendering is covered by `preferences-usage-panel.test.tsx`; what the menu
@@ -410,6 +419,7 @@ beforeEach(() => {
   usageRef.opts = undefined;
   panelPropsRef.conversationId = undefined;
   feedbackRef.prefetches = 0;
+  prefetchedPaths.length = 0;
 });
 
 afterEach(() => {
@@ -599,6 +609,25 @@ describe("PreferencesMenu", () => {
       await Promise.resolve();
     });
     expect(feedbackRef.prefetches).toBe(1);
+  });
+
+  test("opening the menu warms the Settings route, once", async () => {
+    expect(prefetchedPaths).toEqual([]);
+
+    // GIVEN the menu opens, which is the first moment Settings is a plausible
+    // next tap
+    await openMenu();
+
+    // THEN its route is warmed, so the two chunks it needs are usually in
+    // hand before the tap that navigates to it
+    expect(prefetchedPaths).toEqual([routes.settings.root]);
+
+    // AND closing the menu does not ask again
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Usage settings" }));
+      await Promise.resolve();
+    });
+    expect(prefetchedPaths).toEqual([routes.settings.root]);
   });
 
   test("native Android keeps the panel's add-credits action, same as iOS", async () => {

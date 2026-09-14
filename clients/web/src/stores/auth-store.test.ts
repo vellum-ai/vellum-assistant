@@ -2871,11 +2871,10 @@ describe("paired selection in the gateway-auth session paths", () => {
   });
 
   test("boot with a paired proxy authorization failure settles unauthenticated after one prime", async () => {
-    // The startup ride-out only retries GatewayTokenErrors, which the paired
-    // prime never throws; the budget pin for that lives in local-mode.test.ts
-    // ("a failing paired credential read is not ridden out"). Here: the boot
-    // path routes the paired selection through the generalized prime once and
-    // falls through promptly to the chooser.
+    // Paired failures are not ridden out (the budget pin lives in
+    // local-mode.test.ts, "a failing paired credential read is not ridden out").
+    // Here: the boot path routes the paired selection through the generalized
+    // prime once and falls through promptly to the chooser.
     mockIsLocalClient = true;
     mockIsGatewayAuth = true;
     mockSelectedAssistant = pairedSelection;

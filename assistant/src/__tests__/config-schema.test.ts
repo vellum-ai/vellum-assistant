@@ -998,6 +998,18 @@ describe("AssistantConfigSchema", () => {
         echoEmaHalfLifeMs: 400,
         echoDrainSlackMs: 300,
       },
+      flux: {
+        turnEnd: { enabled: true },
+        eotThreshold: 0.7,
+        eotTimeoutMs: 5000,
+      },
+      archiveAudio: false,
+    });
+  });
+
+  test("applies voice defaults", () => {
+    const result = AssistantConfigSchema.parse({});
+    expect(result.voice).toEqual({
       frontModel: {
         endpointDecisionTimeoutMs: 1200,
         endpointExtensionMs: 1500,
@@ -1012,12 +1024,6 @@ describe("AssistantConfigSchema", () => {
           generationTimeoutMs: 1500,
         },
       },
-      flux: {
-        turnEnd: { enabled: true },
-        eotThreshold: 0.7,
-        eotTimeoutMs: 5000,
-      },
-      archiveAudio: false,
     });
   });
 

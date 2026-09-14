@@ -549,6 +549,9 @@ const bridge: VellumBridge = {
     moveBy: (dx: number, dy: number): void => {
       ipcRenderer.send("vellum:companion:moveBy", dx, dy);
     },
+    release: (): void => {
+      ipcRenderer.send("vellum:companion:release");
+    },
     startVoice: (): void => {
       ipcRenderer.send("vellum:companion:startVoice");
     },

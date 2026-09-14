@@ -200,7 +200,7 @@ async function senderDigest(args: Record<string, string | boolean>) {
   const account = optionalArg(args, "account");
 
   const allMessageIds: string[] = [];
-  const fetchPromises: Promise<GmailMessage[]>[] = [];
+  const messages: GmailMessage[] = [];
   const fetchAbort = new AbortController();
   let pageToken: string | undefined = inputPageToken;
   let truncated = false;
@@ -214,7 +214,7 @@ async function senderDigest(args: Record<string, string | boolean>) {
   }, TIME_BUDGET_MS);
 
   try {
-    // Pagination pipeline: list IDs and fire metadata fetches concurrently
+    // List one page, then fetch that page's metadata before listing the next.
     while (allMessageIds.length < maxMessages) {
       if (Date.now() - startTime > TIME_BUDGET_MS) {
         truncated = true;
@@ -258,17 +258,28 @@ async function senderDigest(args: Record<string, string | boolean>) {
 
       allMessageIds.push(...ids);
 
-      // Fire metadata fetch for this batch immediately (latency hiding)
-      fetchPromises.push(
-        batchFetchMessages(
+      try {
+        const pageMessages = await batchFetchMessages(
           ids,
           "metadata",
           metadataHeaders,
           account,
           fetchAbort.signal,
           "id,internalDate,payload/headers",
-        ),
-      );
+        );
+        messages.push(...pageMessages);
+      } catch (e) {
+        if (isRateLimitError(e)) {
+          rateLimited = true;
+          truncated = true;
+          break;
+        }
+        if (isAbortError(e)) {
+          truncated = true;
+          break;
+        }
+        throw e;
+      }
 
       pageToken = listResp.data.nextPageToken ?? undefined;
       if (!pageToken) break;
@@ -292,23 +303,7 @@ async function senderDigest(args: Record<string, string | boolean>) {
       return;
     }
 
-    // Settle all fetch promises — collect successes and tolerate 429/abort
-    const settled = await Promise.allSettled(fetchPromises);
     clearTimeout(deadlineTimer);
-
-    const messages: GmailMessage[] = [];
-    for (const result of settled) {
-      if (result.status === "fulfilled") {
-        messages.push(...result.value);
-      } else if (isRateLimitError(result.reason)) {
-        rateLimited = true;
-        truncated = true;
-      } else if (isAbortError(result.reason)) {
-        truncated = true;
-      } else {
-        throw result.reason;
-      }
-    }
 
     // Group by sender email
     const senderMap = new Map<string, SenderAggregation>();
@@ -462,7 +457,7 @@ async function outreachScan(args: Record<string, string | boolean>) {
   const query = `in:inbox -has:unsubscribe newer_than:${timeRange}`;
 
   const allMessageIds: string[] = [];
-  const fetchPromises: Promise<GmailMessage[]>[] = [];
+  const messages: GmailMessage[] = [];
   const fetchAbort = new AbortController();
   let pageToken: string | undefined = inputPageToken;
   let truncated = false;
@@ -476,7 +471,7 @@ async function outreachScan(args: Record<string, string | boolean>) {
   }, TIME_BUDGET_MS);
 
   try {
-    // Pagination pipeline: list IDs and fire metadata fetches concurrently
+    // List one page, then fetch that page's metadata before listing the next.
     while (allMessageIds.length < maxMessages) {
       if (Date.now() - startTime > TIME_BUDGET_MS) {
         truncated = true;
@@ -520,17 +515,28 @@ async function outreachScan(args: Record<string, string | boolean>) {
 
       allMessageIds.push(...ids);
 
-      // Fire metadata fetch for this batch immediately (latency hiding)
-      fetchPromises.push(
-        batchFetchMessages(
+      try {
+        const pageMessages = await batchFetchMessages(
           ids,
           "metadata",
           metadataHeaders,
           account,
           fetchAbort.signal,
           "id,internalDate,payload/headers",
-        ),
-      );
+        );
+        messages.push(...pageMessages);
+      } catch (e) {
+        if (isRateLimitError(e)) {
+          rateLimited = true;
+          truncated = true;
+          break;
+        }
+        if (isAbortError(e)) {
+          truncated = true;
+          break;
+        }
+        throw e;
+      }
 
       pageToken = listResp.data.nextPageToken ?? undefined;
       if (!pageToken) break;
@@ -551,23 +557,6 @@ async function outreachScan(args: Record<string, string | boolean>) {
         ...(truncated ? { truncated: true } : {}),
       });
       return;
-    }
-
-    // Settle all fetch promises — collect successes and tolerate 429/abort
-    const settled = await Promise.allSettled(fetchPromises);
-
-    const messages: GmailMessage[] = [];
-    for (const result of settled) {
-      if (result.status === "fulfilled") {
-        messages.push(...result.value);
-      } else if (isRateLimitError(result.reason)) {
-        rateLimited = true;
-        truncated = true;
-      } else if (isAbortError(result.reason)) {
-        truncated = true;
-      } else {
-        throw result.reason;
-      }
     }
 
     // Aggregate by sender
@@ -636,13 +625,13 @@ async function outreachScan(args: Record<string, string | boolean>) {
       .slice(0, maxSenders * 3);
 
     // Enrich with prior-reply signal: check if user has ever sent to each sender.
-    // Uses bounded concurrency (waves of 10) and AbortController for time budget.
+    // Uses bounded concurrency (waves of 4) and AbortController for time budget.
     //
     // Three-valued enrichment:
     //   true  = confirmed prior reply (enrichment succeeded, found replies)
     //   false = confirmed no prior reply (enrichment succeeded, no replies)
     //   null  = unknown (enrichment skipped — rate-limited or timed out)
-    const ENRICHMENT_CONCURRENCY = 10;
+    const ENRICHMENT_CONCURRENCY = 4;
     const priorReplyMap = new Map<string, boolean>();
 
     if (!rateLimited) {

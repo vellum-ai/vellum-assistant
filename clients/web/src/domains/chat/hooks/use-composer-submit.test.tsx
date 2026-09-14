@@ -2,9 +2,12 @@
  * Tests for `useComposerSubmit`: the optional `beforeSend` gate (a blocking
  * gate must cancel the send losslessly, with draft, attachments, staged
  * quotes, and the staged channel reference untouched, while a passing or
- * omitted gate leaves the submit path unchanged) and the staged channel
+ * omitted gate leaves the submit path unchanged), the staged channel
  * reference's send behavior (sendable alone, leads mixed content, clears on
- * send). Uses the real composer, quote-reply, and channel-reference stores,
+ * send), and the mid-dictation send path (LUM-3432: a send pressed while
+ * words are still being spoken finishes dictation and sends the finished
+ * transcript, never the draft that was sitting there). Uses the real
+ * composer, quote-reply, channel-reference, and voice-recording stores,
  * reset between tests. The token below is a synthetic value invented for
  * these tests.
  */
@@ -20,6 +23,9 @@ import {
 } from "@/domains/chat/composer-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
+import { registerPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
+
 import {
   useComposerSubmit,
   type UseComposerSubmitParams,
@@ -61,11 +67,14 @@ function renderSubmit(overrides: Partial<UseComposerSubmitParams> = {}) {
     activeConversationId: "conv-1",
     ...overrides,
   };
-  const { result } = renderHook(
+  const { result, rerender } = renderHook(
     (props: UseComposerSubmitParams) => useComposerSubmit(props),
     { initialProps: baseParams },
   );
-  return { result, sendMessage };
+  const rerenderWith = (next: Partial<UseComposerSubmitParams>) => {
+    rerender({ ...baseParams, ...next });
+  };
+  return { result, sendMessage, rerenderWith };
 }
 
 async function submit(result: {
@@ -86,6 +95,8 @@ const stagedChannelReference: ChannelReference = {
   isTruncated: false,
 };
 
+let unregisterVoiceTarget: (() => void) | null = null;
+
 beforeEach(() => {
   useComposerStore.getState().setInput("");
   useComposerStore.getState().resetAttachments();
@@ -95,6 +106,9 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  unregisterVoiceTarget?.();
+  unregisterVoiceTarget = null;
+  useVoiceRecordingStore.getState().reset();
 });
 
 describe("useComposerSubmit beforeSend gate", () => {
@@ -330,5 +344,217 @@ describe("useComposerSubmit delivery order", () => {
       "doomed",
       "still goes",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mid-dictation send (LUM-3432)
+// ---------------------------------------------------------------------------
+
+/**
+ * Stands in for `VoiceInputButton`: stopping ends capture, then the
+ * transcript lands in the composer and only after that does the session
+ * finalize. Passing `transcript: null` models a session that ended without
+ * producing any text.
+ */
+function recordingWithTranscript(transcript: string | null): void {
+  const voice = useVoiceRecordingStore.getState();
+  voice.startRecording();
+  unregisterVoiceTarget = registerPushToTalkTarget({
+    start: () => {},
+    stop: () => {
+      useVoiceRecordingStore.getState().stopRecording();
+      setTimeout(() => {
+        if (transcript === null) {
+          useVoiceRecordingStore.getState().fail("audio-capture");
+          return;
+        }
+        useComposerStore
+          .getState()
+          .setInput((current) =>
+            current ? `${current} ${transcript}` : transcript,
+          );
+        useVoiceRecordingStore.getState().finalize();
+      }, 0);
+    },
+  });
+}
+
+describe("useComposerSubmit during dictation", () => {
+  test("sends the finished transcript, not the draft that was on screen", async () => {
+    useComposerStore.getState().setInput("");
+    recordingWithTranscript("the whole request, spoken in full");
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[0]).toBe(
+      "the whole request, spoken in full",
+    );
+  });
+
+  test("a stale fragment in the composer never goes out on its own", async () => {
+    // The reported failure: an earlier session left a fragment behind, the
+    // user re-dictated, and Send shipped the fragment mid-utterance.
+    useComposerStore.getState().setInput("can you create a list");
+    recordingWithTranscript("with all the constraints that mattered");
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(sendMessage.mock.calls[0]?.[0]).toBe(
+      "can you create a list with all the constraints that mattered",
+    );
+  });
+
+  test("cancels the send and keeps the draft when no transcript survives", async () => {
+    useComposerStore.getState().setInput("older draft");
+    recordingWithTranscript(null);
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().input).toBe("older draft");
+  });
+
+  test("an explicit override is its own payload and does not wait", async () => {
+    // Starter prompts and the secret guard's re-send carry their own text,
+    // so they must not be held behind an unrelated dictation session.
+    useComposerStore.getState().setInput("");
+    let stopped = false;
+    useVoiceRecordingStore.getState().startRecording();
+    unregisterVoiceTarget = registerPushToTalkTarget({
+      start: () => {},
+      stop: () => {
+        stopped = true;
+      },
+    });
+
+    const { result, sendMessage } = renderSubmit();
+    await act(async () => {
+      await result.current.submitMessage("a starter prompt");
+    });
+
+    expect(stopped).toBe(false);
+    expect(sendMessage.mock.calls[0]?.[0]).toBe("a starter prompt");
+  });
+
+  test("leaves an ordinary send untouched when nothing is recording", async () => {
+    useComposerStore.getState().setInput("typed by hand");
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(sendMessage.mock.calls[0]?.[0]).toBe("typed by hand");
+  });
+
+  test("a held key's dictation elsewhere does not hold up an ordinary send", async () => {
+    // The bridge's hidden recorder is running a hold into another app. The
+    // composer's draft is unrelated to it and goes out at once.
+    useComposerStore.getState().setInput("typed while a hold runs");
+    let stopped = false;
+    useVoiceRecordingStore.getState().startRecording({ hold: true });
+    unregisterVoiceTarget = registerPushToTalkTarget({
+      start: () => {},
+      stop: () => {
+        stopped = true;
+      },
+    });
+
+    const { result, sendMessage } = renderSubmit();
+    await submit(result);
+
+    expect(stopped).toBe(false);
+    expect(sendMessage.mock.calls[0]?.[0]).toBe("typed while a hold runs");
+  });
+
+  test("a thread switch during the wait cancels the send and keeps the words", async () => {
+    // The composer is shared across threads: the transcript lands in whatever
+    // thread is active once it arrives, while the send that was pressed still
+    // belongs to the thread it was pressed in. Neither thread should get it.
+    useComposerStore.getState().setInput("");
+    recordingWithTranscript("spoken into the first thread");
+
+    const { result, sendMessage, rerenderWith } = renderSubmit();
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = result.current.submitMessage();
+    });
+    act(() => {
+      rerenderWith({ activeConversationId: "conv-2" });
+    });
+    await act(async () => {
+      await pending;
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().input).toBe(
+      "spoken into the first thread",
+    );
+  });
+
+  test("an edit cancelled during the wait cancels the send and never undoes", async () => {
+    // Escape is live again once the recording reaches processing, so the user
+    // can back out of the edit while the transcript is still on its way. The
+    // send pressed inside that edit must not go on to undo the original
+    // message and deliver the transcript in its place.
+    useComposerStore.getState().setInput("");
+    recordingWithTranscript("a rewrite the user backed out of");
+    const cancelEditing = mock(() => {});
+
+    const { result, sendMessage, rerenderWith } = renderSubmit({
+      isEditing: true,
+      editingMessageId: "msg-1",
+      canUndoEdit: true,
+      cancelEditing,
+    });
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = result.current.submitMessage();
+    });
+    act(() => {
+      rerenderWith({
+        isEditing: false,
+        editingMessageId: null,
+        canUndoEdit: true,
+        cancelEditing,
+      });
+    });
+    await act(async () => {
+      await pending;
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(cancelEditing).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().input).toBe(
+      "a rewrite the user backed out of",
+    );
+  });
+
+  test("a prompt that blocks sending during the wait wins over the press", async () => {
+    // A confirmation or secret prompt flips `sendDisabled` while the
+    // transcript is still on its way; the send pressed before it existed
+    // must not slip past the gate it would have hit a moment later.
+    useComposerStore.getState().setInput("");
+    recordingWithTranscript("said while a prompt arrived");
+
+    const { result, sendMessage, rerenderWith } = renderSubmit();
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = result.current.submitMessage();
+    });
+    act(() => {
+      rerenderWith({ sendDisabled: true });
+    });
+    await act(async () => {
+      await pending;
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().input).toBe(
+      "said while a prompt arrived",
+    );
   });
 });

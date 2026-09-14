@@ -669,23 +669,31 @@ describe("HostBashProxy", () => {
       expect(sentMessages).toHaveLength(0);
     });
 
-    test("rejects ambiguously when multiple same-user capable clients are connected and no targetClientId", async () => {
-      // Regression: previously fell through to untargeted broadcast, fanning
-      // a single targeted-style request out across every same-user machine.
+    test("selects the most recently active same-user client when several are connected", async () => {
       setup();
       setupMultipleClients(["client-1", "client-2", "client-3"]);
 
-      const result = await proxy.request(
+      const resultPromise = proxy.request(
         { command: "echo hello" },
         "session-1",
         undefined,
         "user-A",
       );
 
-      expect(result.isError).toBe(true);
-      expect(result.content).toContain("target_client_id");
-      // No broadcast happened
-      expect(sentMessages).toHaveLength(0);
+      const sent = sentMessages[0] as Record<string, unknown>;
+      expect(sent.targetClientId).toBe("client-1");
+      const options = sentMessageOptions[0] as
+        | Record<string, unknown>
+        | undefined;
+      expect(options?.targetClientId).toBe("client-1");
+
+      proxy.resolveResult(sent.requestId as string, {
+        stdout: "hello\n",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
+      expect((await resultPromise).isError).toBe(false);
     });
 
     test("falls through to broadcast when zero capable clients (existing timeout path)", async () => {
@@ -832,30 +840,19 @@ describe("HostBashProxy", () => {
       expect(sentMessages).toHaveLength(0);
     });
 
-    test("untargeted local flow unchanged when no auto-resolve match", async () => {
+    test("rejects when the actor has no capable client", async () => {
       setup();
-      // No capable clients connected — untargeted path runs.
 
-      const resultPromise = proxy.request(
+      const result = await proxy.request(
         { command: "echo hello" },
         "session-1",
         undefined,
         "user-A",
       );
 
-      expect(sentMessages).toHaveLength(1);
-      const sent = sentMessages[0] as Record<string, unknown>;
-      expect(sent.type).toBe("host_bash_request");
-      expect(sent.targetClientId).toBeUndefined();
-
-      const requestId = sent.requestId as string;
-      proxy.resolveResult(requestId, {
-        stdout: "hello\n",
-        stderr: "",
-        exitCode: 0,
-        timedOut: false,
-      });
-      await resultPromise;
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content).toContain("belongs to this user");
+      expect(sentMessages).toHaveLength(0);
     });
 
     test("auto-resolve to same-user client succeeds", async () => {
@@ -883,36 +880,20 @@ describe("HostBashProxy", () => {
       await resultPromise;
     });
 
-    test("auto-resolve to different-user client falls through to untargeted", async () => {
+    test("rejects when only a different user has a capable client", async () => {
       setup();
-      // Single capable client owned by user-B; caller is user-A.
       setupSingleClient("client-abc", "user-B");
 
-      const resultPromise = proxy.request(
+      const result = await proxy.request(
         { command: "echo hello" },
         "session-1",
         undefined,
         "user-A",
       );
 
-      // Auto-resolve must NOT pick the cross-user client; the untargeted
-      // broadcast path runs instead.
-      expect(sentMessages).toHaveLength(1);
-      const sent = sentMessages[0] as Record<string, unknown>;
-      expect(sent.type).toBe("host_bash_request");
-      expect(sent.targetClientId).toBeUndefined();
-
-      const opts = sentMessageOptions[0] as Record<string, unknown> | undefined;
-      expect(opts?.targetClientId).toBeUndefined();
-
-      const requestId = sent.requestId as string;
-      proxy.resolveResult(requestId, {
-        stdout: "hello\n",
-        stderr: "",
-        exitCode: 0,
-        timedOut: false,
-      });
-      await resultPromise;
+      expect(result).toMatchObject({ isError: true });
+      expect(result.content).toContain("belongs to this user");
+      expect(sentMessages).toHaveLength(0);
     });
   });
 });

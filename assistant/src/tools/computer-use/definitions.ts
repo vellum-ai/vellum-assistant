@@ -8,6 +8,7 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
+import { formatDesktopAppRequired } from "../capability-offer.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -31,7 +32,7 @@ function proxyExecute(toolName: string) {
   ): Promise<ToolExecutionResult> => {
     if (!context.proxyToolResolver) {
       return {
-        content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires a connected desktop client.`,
+        content: formatDesktopAppRequired("screen"),
         isError: true,
       };
     }
@@ -456,7 +457,8 @@ export const computerUseObserveTool = {
         type: "integer",
         minimum: 1,
         maximum: 4294967295,
-        description: "macOS only: capture this native CGWindowID instead of the desktop, including only its accessibility tree. Obtain a current native window ID first; do not guess or use a browser tab ID. Applies to this observation only, not subsequent actions. Requires a desktop helper with window-capture support. Screenshot coordinates are window-relative; use accessibility element IDs for later actions, not desktop scaling.",
+        description:
+          "macOS only: capture this native CGWindowID instead of the desktop, including only its accessibility tree. Obtain a current native window ID first; do not guess or use a browser tab ID. Applies to this observation only, not subsequent actions. Requires a desktop helper with window-capture support. Screenshot coordinates are window-relative; use accessibility element IDs for later actions, not desktop scaling.",
       },
       target_client_id: {
         type: "string",

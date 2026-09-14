@@ -34,6 +34,8 @@ export interface ResizeCardProps {
   assistant: Assistant;
   healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
+  /** True while a request is in flight, including a refresh over existing values. */
+  healthzFetching: boolean;
   /** True while a post-resize poll is waiting for the new allocation to appear. */
   healthzPolling: boolean;
   refetch: () => Promise<void> | void;
@@ -47,6 +49,7 @@ export function ResizeCard({
   assistant,
   healthz,
   healthzLoading,
+  healthzFetching,
   healthzPolling,
   refetch,
   refetchUntilResized,
@@ -276,7 +279,7 @@ export function ResizeCard({
             variant="ghost"
             size="compact"
             iconOnly={
-              healthzLoading || healthzPolling ? (
+              healthzFetching || healthzPolling ? (
                 <Loader2 className="animate-spin" />
               ) : (
                 <RefreshCw />
@@ -288,7 +291,7 @@ export function ResizeCard({
                 : t("resizeCard.refreshMetrics")
             }
             aria-label={t("resizeCard.refreshMetrics")}
-            disabled={healthzLoading || healthzPolling}
+            disabled={healthzFetching || healthzPolling}
             onClick={() => void refetch()}
           />
         }

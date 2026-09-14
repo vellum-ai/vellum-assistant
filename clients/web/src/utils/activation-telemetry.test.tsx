@@ -1,8 +1,7 @@
 /**
  * Exercises the real funnel pipeline (mocking only the generated ingest sdk
- * call, mirroring tips-telemetry.test.ts) so the payload mapping (screen =
- * list id, ab_variant = flag arm, step_name = event) and the consent gate are
- * asserted end to end.
+ * call) so the payload mapping (screen = list id, ab_variant = flag arm,
+ * step_name = event) and the consent gate are asserted end to end.
  *
  * The arm and the list are resolved by the emitter rather than passed in, so
  * they are driven here through the seams it reads: the flag store, and the

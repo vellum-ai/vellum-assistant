@@ -1,8 +1,8 @@
 /**
  * Exercises the real funnel pipeline (mocking only the generated ingest sdk
- * call, mirroring tips-telemetry.test.ts) so the payload mapping, the
- * `<surface>:<target>` screen encoding, and the consent gate are asserted
- * end-to-end rather than against a stubbed emitter.
+ * call) so the payload mapping, the `<surface>:<target>` screen encoding, and
+ * the consent gate are asserted end-to-end rather than against a stubbed
+ * emitter.
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -77,6 +77,12 @@ describe("emitNativeAppNudgeEvent", () => {
     emitNativeAppNudgeEvent("impression", "banner", "macos");
 
     expect(eventFromCall(0).screen).toBe("banner:macos");
+  });
+
+  it("carries the Windows target", () => {
+    emitNativeAppNudgeEvent("impression", "banner", "windows");
+
+    expect(eventFromCall(0).screen).toBe("banner:windows");
   });
 
   it("emits nothing when the user has opted out of analytics", () => {

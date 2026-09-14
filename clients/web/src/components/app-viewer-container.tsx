@@ -28,6 +28,8 @@ export interface AppViewerContainerProps {
   html: string;
   assistantId: string;
   onClose: () => void;
+  /** Routes a validated root-relative Vellum URL in the host client. */
+  onNavigateAppRoute: (href: string) => void;
   onEdit?: () => void;
   /** When true, the nav bar Edit button becomes the expand-app affordance. */
   isEditing?: boolean;
@@ -54,6 +56,7 @@ export function AppViewerContainer({
   html,
   assistantId,
   onClose,
+  onNavigateAppRoute,
   onEdit,
   isEditing,
   onShare,
@@ -91,7 +94,12 @@ export function AppViewerContainer({
   }, [isFullscreen]);
 
   const srcdoc = useMemo(
-    () => injectBridge(html, appId, { fetch: true, route }),
+    () =>
+      injectBridge(html, appId, {
+        fetch: true,
+        route,
+        relayAppRoutes: true,
+      }),
     [html, appId, route],
   );
 
@@ -114,6 +122,7 @@ export function AppViewerContainer({
     assistantId,
     appId,
     onAction,
+    onNavigateAppRoute,
   });
 
   // Only asked for when the viewer actually offers a deploy: read-only

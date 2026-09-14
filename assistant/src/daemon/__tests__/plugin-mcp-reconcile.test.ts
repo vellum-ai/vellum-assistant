@@ -41,8 +41,11 @@ mock.module("../../mcp/mcp-header-store.js", () => ({
 }));
 
 mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ mcp: { servers: {} } }),
   invalidateConfigCache: () => {},
+}));
+
+mock.module("../../mcp/workspace-mcp-config.js", () => ({
+  loadWorkspaceMcpConfig: () => ({ servers: {} }),
 }));
 
 mock.module("../../tools/registry.js", () => ({

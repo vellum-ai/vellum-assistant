@@ -40,17 +40,21 @@ export interface TtsCallStrategy {
 }
 
 /**
- * Resolve the call strategy for the currently configured TTS provider.
+ * Resolve the call strategy for the active TTS provider.
  *
- * Reads the active provider from config via {@link resolveTtsConfig},
- * then looks up the provider's `callMode` in the catalog.
+ * Reads the provider from config via {@link resolveTtsConfig} (or takes
+ * `providerOverride`, the provider a caller already resolved after
+ * managed-speech defaulting), then looks up its `callMode` in the catalog.
  *
  * Falls back to `native-twilio` with `"elevenlabs"` when the config
  * or catalog is unavailable (e.g. test mocks, pre-migration configs).
  */
-export function resolveCallStrategy(config: AssistantConfig): TtsCallStrategy {
+export function resolveCallStrategy(
+  config: AssistantConfig,
+  providerOverride?: TtsProviderId,
+): TtsCallStrategy {
   try {
-    const resolved = resolveTtsConfig(config);
+    const resolved = resolveTtsConfig(config, providerOverride);
     const catalogEntry = getCatalogProvider(resolved.provider);
     return {
       providerId: catalogEntry.id,

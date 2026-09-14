@@ -93,8 +93,6 @@ import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { AssistantSleepStage } from "@/domains/chat/components/assistant-sleep-stage";
 import { useAssistantSleepStageStore } from "@/stores/assistant-sleep-stage-store";
-import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
-import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
@@ -103,6 +101,7 @@ import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/resea
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
+import { AssistantDesktopAffordance } from "@/domains/chat/desktop/assistant-desktop-affordance";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
@@ -365,7 +364,6 @@ export function ChatLayout({
     selectHeaderControlsHidden,
   );
   const headerCenterHidden = useInChatOnboardingStore(selectHeaderCenterHidden);
-  const navTourActive = useInChatOnboardingStore.use.navTourActive();
   const tourActive = useInChatOnboardingStore(selectTourActive);
 
   // --- Assistant identity from store (written by ChatPage) ---
@@ -564,13 +562,6 @@ export function ChatLayout({
     openDrawer: openDrawerForDeepLink,
     expandSidebar: expandSidebarForDeepLink,
   });
-
-  // The tips new-user grace clock anchors to first app use. Stamping here
-  // (not only in the tip hook) covers mobile, where the drawer-gated tip
-  // card may not mount for days.
-  useEffect(() => {
-    ensureTipsFirstSeenAt();
-  }, []);
 
   useEffect(() => {
     if (!sidebarCollapseRequested) {
@@ -1085,17 +1076,6 @@ export function ChatLayout({
           triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
       }
-      // The overlay subtree mounts mid edge-swipe while still off-screen;
-      // mounting the tip card there stamps an impression for a tip never
-      // seen, so the overlay only gets it once the drawer settles open.
-      // Hidden during the avatar tour for the same reason (plus noise) —
-      // the tour owns the sidebar's attention.
-      tipCard={
-        (args.variant === "overlay" && !drawerOpen) ||
-        navTourActive ? undefined : (
-          <SidebarTipCard />
-        )
-      }
       onClose={args.onClose}
     />
   );
@@ -1171,6 +1151,7 @@ export function ChatLayout({
             <>
               {topBarRightSlot}
               {topBarPill}
+              <AssistantDesktopAffordance />
               {topBarAccessory}
             </>
           }

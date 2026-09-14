@@ -6,9 +6,22 @@ import { credentialKey } from "../credential-key.js";
 // ---------------------------------------------------------------------------
 
 let readCredentialImpl: (account: string) => Promise<string | undefined>;
+let readCredentialResultImpl:
+  | ((account: string) => Promise<{
+      value: string | undefined;
+      unreachable: boolean;
+    }>)
+  | undefined;
 
 mock.module("../credential-reader.js", () => ({
   readCredential: (account: string) => readCredentialImpl(account),
+  readCredentialResult: async (account: string) => {
+    if (readCredentialResultImpl) {
+      return readCredentialResultImpl(account);
+    }
+    const value = await readCredentialImpl(account);
+    return { value, unreachable: false };
+  },
 }));
 
 import { CredentialCache } from "../credential-cache.js";
@@ -25,6 +38,7 @@ beforeEach(() => {
   Date.now = globalThis.Date.now;
   callCount = 0;
   callLog = [];
+  readCredentialResultImpl = undefined;
   readCredentialImpl = async (account: string) => {
     callCount++;
     callLog.push(account);
@@ -88,6 +102,51 @@ describe("CredentialCache", () => {
     const r2 = await cache.get("missing-key");
     expect(r1).toBeUndefined();
     expect(r2).toBeUndefined();
+    expect(callCount).toBe(1);
+  });
+
+  test("keeps last known value when the vault is unreachable", async () => {
+    const cache = new CredentialCache({ ttlMs: 100 });
+    const realNow = Date.now();
+    expect(await cache.get("key-a")).toBe("value-for-key-a");
+    expect(callCount).toBe(1);
+
+    readCredentialResultImpl = async () => {
+      callCount++;
+      return { value: undefined, unreachable: true };
+    };
+    Date.now = () => realNow + 200;
+
+    expect(await cache.get("key-a")).toBe("value-for-key-a");
+    expect(callCount).toBe(2);
+    expect(await cache.get("key-a")).toBe("value-for-key-a");
+    expect(callCount).toBe(2);
+  });
+
+  test("a genuine miss still replaces last known value", async () => {
+    const cache = new CredentialCache({ ttlMs: 100 });
+    const realNow = Date.now();
+    expect(await cache.get("key-a")).toBe("value-for-key-a");
+
+    readCredentialResultImpl = async () => {
+      callCount++;
+      return { value: undefined, unreachable: false };
+    };
+    Date.now = () => realNow + 200;
+
+    expect(await cache.get("key-a")).toBeUndefined();
+    expect(await cache.get("key-a")).toBeUndefined();
+    expect(callCount).toBe(2);
+  });
+
+  test("unreachable with no prior value returns undefined", async () => {
+    readCredentialResultImpl = async () => {
+      callCount++;
+      return { value: undefined, unreachable: true };
+    };
+    const cache = new CredentialCache({ ttlMs: 5_000 });
+    expect(await cache.get("key-a")).toBeUndefined();
+    expect(await cache.get("key-a")).toBeUndefined();
     expect(callCount).toBe(1);
   });
 

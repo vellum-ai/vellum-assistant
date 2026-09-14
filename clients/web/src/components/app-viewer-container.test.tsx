@@ -19,13 +19,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 let capturedOptions:
-  | { onAction?: (actionId: string, data?: Record<string, unknown>) => void }
+  | {
+      onAction?: (actionId: string, data?: Record<string, unknown>) => void;
+      onNavigateAppRoute?: (href: string) => void;
+    }
   | undefined;
+let capturedBridgeOptions:
+  { fetch?: boolean; route?: string; relayAppRoutes?: boolean } | undefined;
 mock.module("@/hooks/use-sandbox-fetch-proxy", () => ({
   useSandboxFetchProxy: (
     _ref: unknown,
     options?: {
       onAction?: (actionId: string, data?: Record<string, unknown>) => void;
+      onNavigateAppRoute?: (href: string) => void;
     },
   ) => {
     capturedOptions = options;
@@ -33,7 +39,14 @@ mock.module("@/hooks/use-sandbox-fetch-proxy", () => ({
 }));
 
 mock.module("@/utils/sandbox-bridge", () => ({
-  injectBridge: (html: string) => html,
+  injectBridge: (
+    html: string,
+    _frameId: string,
+    options?: { fetch?: boolean; route?: string; relayAppRoutes?: boolean },
+  ) => {
+    capturedBridgeOptions = options;
+    return html;
+  },
 }));
 
 import { AppViewerContainer } from "@/components/app-viewer-container";
@@ -56,9 +69,14 @@ afterEach(() => {
   setSandboxFlag(false);
   cleanup();
   capturedOptions = undefined;
+  capturedBridgeOptions = undefined;
 });
 
-function renderViewer(props?: { enableFullscreen?: boolean; appId?: string }) {
+function renderViewer(props?: {
+  enableFullscreen?: boolean;
+  appId?: string;
+  onNavigateAppRoute?: (href: string) => void;
+}) {
   // The viewer reads the app's Vercel deployment status through TanStack
   // Query, so it needs a client in scope even when the read is disabled (no
   // deploy handler is passed here).
@@ -73,6 +91,7 @@ function renderViewer(props?: { enableFullscreen?: boolean; appId?: string }) {
         html="<html><body>hi</body></html>"
         assistantId="assistant-1"
         onClose={() => {}}
+        onNavigateAppRoute={props?.onNavigateAppRoute ?? (() => {})}
         enableFullscreen={props?.enableFullscreen}
       />
     </QueryClientProvider>,
@@ -160,7 +179,9 @@ describe("AppViewerContainer app actions", () => {
     const onAction = () => {};
     render(
       <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
       >
         <AppViewerContainer
           appId="app-1"
@@ -168,12 +189,21 @@ describe("AppViewerContainer app actions", () => {
           html="<html><body>hi</body></html>"
           assistantId="assistant-1"
           onClose={() => {}}
+          onNavigateAppRoute={() => {}}
           onAction={onAction}
         />
       </QueryClientProvider>,
     );
 
     expect(capturedOptions?.onAction).toBe(onAction);
+  });
+
+  test("opts into standard app routes and forwards the host callback", () => {
+    const onNavigateAppRoute = () => {};
+    renderViewer({ onNavigateAppRoute });
+
+    expect(capturedBridgeOptions?.relayAppRoutes).toBe(true);
+    expect(capturedOptions?.onNavigateAppRoute).toBe(onNavigateAppRoute);
   });
 
   test("omits onAction when the consumer doesn't provide one", () => {

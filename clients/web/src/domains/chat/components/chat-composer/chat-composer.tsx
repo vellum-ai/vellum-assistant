@@ -384,6 +384,13 @@ export function ChatComposer({
   const voicePhase = useVoiceRecordingStore.use.phase();
   const isVoiceActive =
     voicePhase === "recording" || voicePhase === "processing";
+  // The recording store is window-global and shared with the bridge's hidden
+  // recorder, which a held voice key drives into whatever app is in front.
+  // That session is flagged `hold` as it starts, and it is not this
+  // composer's content: its words land at a cursor elsewhere, and its
+  // recorder is not the one the composer's target can stop.
+  const voiceHold = useVoiceRecordingStore.use.hold();
+  const ownsDictation = isVoiceActive && !voiceHold;
   // Holds the MediaStream opened by VoiceInputButton so we can reuse it for
   // amplitude analysis rather than opening a second getUserMedia request.
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
@@ -824,6 +831,16 @@ export function ChatComposer({
   // Send) for the whole turn.
   const interruptOnSend = useInterruptOnSend();
   const busyRowActive = isAssistantBusy && !interruptOnSend;
+  // Words already spoken are content the composer does not hold yet, so the
+  // composer's own dictation session makes the send slot pressable on its
+  // own: Send there means "finish, then send", and `useComposerSubmit`
+  // awaits the transcript before it reads the draft (LUM-3432). Without this
+  // the send arrow stays disabled, or cedes the slot to voice mode, for the
+  // whole of an empty-composer dictation, which is most of them.
+  // Deliberately not folded into `canSendMessageContent`: the busy row's
+  // stop/send swap below is about a draft that is ready to queue right now,
+  // and a session still being spoken is not that.
+  const canSendOrFinishDictation = canSendMessageContent || ownsDictation;
   // The busy row holds exactly one control, and stop is the default: it is the
   // only escape from a turn already running. Send takes the slot only where it
   // is strictly better, which is where the keyboard cannot submit AND pressing
@@ -858,7 +875,7 @@ export function ChatComposer({
     showVoiceInput &&
     Boolean(assistantId) &&
     supportsLiveVoice &&
-    !canSendMessageContent &&
+    !canSendOrFinishDictation &&
     !isLiveVoiceActive;
 
   // Mobile lifts the access and profile triggers out of the action row into a
@@ -1169,13 +1186,19 @@ export function ChatComposer({
   ) : null;
 
   const sendBlocked =
-    sendDisabled || attachmentsUploadingCount > 0 || !canSendMessageContent;
+    sendDisabled || attachmentsUploadingCount > 0 || !canSendOrFinishDictation;
 
-  // macOS parity: the send button is hidden during recording and while
-  // transcription is being processed. Only the voice button (mic / stop /
-  // spinner) is shown. Otherwise the send slot holds voice mode until there is
-  // something to send, at which point the send arrow takes over.
-  const sendSlot = isVoiceActive ? null : showVoiceModeInSendSlot ? (
+  // The send arrow stays through a dictation session, where pressing it means
+  // "finish, then send": `useComposerSubmit` ends the session and waits for
+  // the transcript before it reads the draft (LUM-3432). It used to be hidden
+  // for the whole session (macOS parity), which left the mic button as the
+  // only control on the row and no gesture at all for ending dictation and
+  // sending in one move -- while Enter stayed live and sent whatever stale
+  // draft was in the box. The two controls now divide the job: the mic stops
+  // and leaves the words in the composer, the arrow stops and sends them.
+  // Otherwise the slot holds voice mode until there is something to send, at
+  // which point the send arrow takes over.
+  const sendSlot = showVoiceModeInSendSlot ? (
     // Session entry point: once a session starts here the slot gives way to
     // the send arrow and the bar above the card owns stopping. Disabled while
     // dictation is active or a live-voice session already runs elsewhere, so a
@@ -1196,7 +1219,7 @@ export function ChatComposer({
       onMouseDown={rowPressGuard}
       disabled={sendBlocked}
       title={
-        sendDisabled || !canSendMessageContent
+        sendDisabled || !canSendOrFinishDictation
           ? t("chatComposer.typeToSend")
           : attachmentsUploadingCount > 0
             ? t("chatComposer.uploadingAttachments")
@@ -1492,6 +1515,7 @@ export function ChatComposer({
               attachmentsUploadingCount,
               cmdEnterMode,
               hasStagedContext,
+              dictationInFlight: ownsDictation,
             },
           );
           if (decision === "ignore") {
