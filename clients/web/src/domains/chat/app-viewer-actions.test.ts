@@ -108,7 +108,8 @@ describe("handleAppViewerAction — relay_prompt", () => {
 });
 
 describe("handleAppViewerAction — set_view", () => {
-  it("'chat' closes the app and lands on the conversation URL", () => {
+  // The close itself belongs to `useAppRouteSync`, which is not mounted here.
+  it("'chat' lands on the conversation URL, which names no app", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
     useViewerStore.setState({
       mainView: "app",
@@ -119,9 +120,6 @@ describe("handleAppViewerAction — set_view", () => {
 
     handleAppViewerAction(ctx, "set_view", { view: "chat" });
 
-    const viewer = useViewerStore.getState();
-    expect(viewer.mainView).toBe("chat");
-    expect(viewer.openedAppState).toBeNull();
     expect(ctx.navigate.mock.calls[0][0]).toBe(
       "/assistant/conversations/conv-1",
     );
@@ -140,7 +138,6 @@ describe("handleAppViewerAction — set_view", () => {
 
     const newId = useConversationStore.getState().activeConversationId;
     expect(newId).toBeTruthy();
-    expect(useViewerStore.getState().mainView).toBe("chat");
     expect(ctx.navigate.mock.calls[0][0]).toBe(
       `/assistant/conversations/${newId}`,
     );

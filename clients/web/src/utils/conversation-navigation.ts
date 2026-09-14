@@ -1,7 +1,7 @@
 import type { NavigateFunction } from "react-router";
 
 import { haptic } from "@/utils/haptics";
-import { routes } from "@/utils/routes";
+import { isConversationChatPath, routes } from "@/utils/routes";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -216,4 +216,22 @@ export function navigateToNewConversation(
   void navigate(path);
   requestComposerFocus();
   return draftId;
+}
+
+/**
+ * Follow a link from inside an app. A chat destination leaves the close to the
+ * route sync, which sees the app segment disappear from the URL. Any other
+ * destination unmounts the chat page along with that sync, so the viewer and
+ * its split binding are cleared here instead.
+ */
+export function navigateFromApp(
+  navigate: NavigateFunction,
+  href: string,
+): void {
+  const pathname = href.split("#")[0].split("?")[0];
+  if (!isConversationChatPath(pathname)) {
+    useViewerStore.getState().closeApp();
+    useConversationStore.getState().setEditingConversationId(null);
+  }
+  void navigate(href);
 }

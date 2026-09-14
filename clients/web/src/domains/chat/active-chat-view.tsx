@@ -9,7 +9,12 @@ import { useTranslation } from "@/i18n";
  */
 
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useParams, useSearchParams } from "react-router";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAutoGreetGate } from "@/domains/chat/hooks/use-auto-greet-gate";
@@ -19,6 +24,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
+import { routes } from "@/utils/routes";
 
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -94,6 +100,7 @@ export function ActiveChatView() {
   const canUseInternalActions = useCanUseInternalThreadActions();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const { conversationId: urlConversationId, appId: urlAppId } = useParams<{
     conversationId?: string;
     appId?: string;
@@ -132,12 +139,19 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   useActiveAppPinSync(
     assistantId,
-    useCallback((appId: string) => {
-      const didClose = useViewerStore.getState().handleAppUnpinned(appId);
-      if (didClose) {
-        useConversationStore.getState().setEditingConversationId(null);
-      }
-    }, []),
+    useCallback(
+      (appId: string) => {
+        if (!useViewerStore.getState().handleAppUnpinned(appId)) {
+          return;
+        }
+        const conversationId = urlConversationId ?? activeConversationId;
+        if (!conversationId) {
+          return;
+        }
+        void navigate(routes.conversation(conversationId), { replace: true });
+      },
+      [activeConversationId, navigate, urlConversationId],
+    ),
   );
 
   // -------------------------------------------------------------------------

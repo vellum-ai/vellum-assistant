@@ -1,13 +1,15 @@
 /**
- * The URL segment `app/:appId` names an app for the viewer to show: this hook
- * loads it when the viewer does not already hold it, brings it back in front
- * when an overlay holds the main view, and drops the segment from the URL when
- * the app cannot be loaded.
+ * The URL segment `app/:appId` names the app on screen: this hook loads it
+ * when the viewer does not already hold it, brings it back in front when an
+ * overlay holds the main view, and drops the segment from the URL when the app
+ * cannot be loaded. A conversation URL without the segment names no app, so
+ * this hook closes one the viewer still holds.
  */
 
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 
+import { useConversationStore } from "@/stores/conversation-store";
 import { isAppMainView } from "@/stores/pane-state";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
@@ -26,11 +28,18 @@ export function useAppRouteSync(
   }, [conversationId]);
 
   useEffect(() => {
-    if (routeAppId === null || !assistantId) {
+    const viewer = useViewerStore.getState();
+
+    if (routeAppId === null) {
+      if (viewer.activeAppId !== null || isAppMainView(viewer.mainView)) {
+        viewer.closeApp();
+        useConversationStore.getState().setEditingConversationId(null);
+      }
       return;
     }
-
-    const viewer = useViewerStore.getState();
+    if (!assistantId) {
+      return;
+    }
 
     if (
       viewer.activeAppId === routeAppId &&
