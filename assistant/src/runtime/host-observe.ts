@@ -257,7 +257,13 @@ export async function observeHostScreen(
             // conversation is attached.
             conversationId: options.stateKey ?? "",
             toolName: "computer_use_observe",
-            input: captureTargetInput(options.captureTarget),
+            // Tell the helper up front when no screenshot is wanted, so it
+            // can skip capturing and uploading one. The strip below still
+            // covers a helper that ignores the flag.
+            input: {
+              ...captureTargetInput(options.captureTarget),
+              ...(includeScreenshot ? {} : { includeScreenshot: false }),
+            },
             stepNumber: 1,
           },
           undefined,

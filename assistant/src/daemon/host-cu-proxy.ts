@@ -42,6 +42,9 @@ const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
 
+const SCREENSHOT_OMITTED_MESSAGE =
+  "Screenshot omitted: the accessibility tree above is current. Pass include_screenshot: true on computer_use_observe to see the screen.";
+
 // computer_use_key combos that change only selection/cursor/clipboard state.
 // The AX tree models none of these, so they always produce an empty diff —
 // exempt them from the "NO VISIBLE EFFECT" signal (mirrors computer_use_wait).
@@ -163,6 +166,25 @@ function actionSignature(record: ActionRecord): string {
   return `${record.toolName}:${JSON.stringify(record.input)}`;
 }
 
+/** Whether `input` scopes the observation to one window or display. */
+/**
+ * The key a desktop's first look is tracked under. An untargeted request has
+ * no client id, so it gets a key no real id can take.
+ */
+function observedTargetKey(targetClientId: string | undefined): string {
+  return targetClientId === undefined
+    ? "\u0000untargeted"
+    : `client:${targetClientId}`;
+}
+
+function hasCaptureTarget(input: Record<string, unknown>): boolean {
+  return (
+    Object.hasOwn(input, "capture_window_id") ||
+    Object.hasOwn(input, "captureWindowId") ||
+    Object.hasOwn(input, "captureDisplayId")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // HostCuProxy
 // ---------------------------------------------------------------------------
@@ -175,13 +197,34 @@ export class HostCuProxy {
   private _consecutiveUnchangedSteps = 0;
   private _actionHistory: ActionRecord[] = [];
   /**
-   * Owned request IDs mapped to whether their observation is scoped and when
-   * the request was dispatched. The dispatch time gives the round trip, which
-   * is the part of a step the helper's own timings cannot see.
+   * Desktops an unscoped observation has come back from since the last reset,
+   * keyed by `observedTargetKey`. A first look is per desktop: having seen one
+   * machine says nothing about another the conversation switches to.
+   */
+  private _observedTargets = new Set<string>();
+  /**
+   * Bumped on every reset. A request carries the value it was dispatched
+   * under, so an observation that lands after a reset cannot restore state
+   * that reset cleared.
+   */
+  private _resetGeneration = 0;
+  /**
+   * Owned request IDs mapped to whether their observation is scoped, whether
+   * the helper was told to skip the screenshot, and when the request was
+   * dispatched. The dispatch time gives the round trip, which is the part of
+   * a step the helper's own timings cannot see.
    */
   private _ownedRequests = new Map<
     string,
-    { scoped: boolean; dispatchedAt: number; toolName: string; step: number }
+    {
+      scoped: boolean;
+      screenshotSkipped: boolean;
+      targetKey: string;
+      resetGeneration: number;
+      dispatchedAt: number;
+      toolName: string;
+      step: number;
+    }
   >();
 
   constructor(maxSteps = loadConfig().maxStepsPerSession) {
@@ -309,13 +352,26 @@ export class HostCuProxy {
         });
       }
     }
-    const scopedObservation =
-      hasWindowTarget ||
-      Object.hasOwn(input, "captureWindowId") ||
-      Object.hasOwn(input, "captureDisplayId");
+    const scopedObservation = hasCaptureTarget(input);
     if (scopedObservation) {
       this._previousAXTree = undefined;
       this._consecutiveUnchangedSteps = 0;
+    }
+    // Pointing never reaches the helper's capture path, so its input goes out
+    // as given. Every other request carries the screenshot decision made now,
+    // at dispatch, and never the model-facing snake_case key.
+    let dispatchInput = input;
+    let screenshotSkipped = false;
+    if (toolName !== POINT_AT_PROXY_TOOL) {
+      const { include_screenshot: _includeScreenshot, ...rest } = input;
+      screenshotSkipped = !this.shouldAttachScreenshot(
+        toolName,
+        input,
+        observedTargetKey(resolvedTargetClientId),
+      );
+      dispatchInput = screenshotSkipped
+        ? { ...rest, includeScreenshot: false }
+        : rest;
     }
     const requestId = uuid();
 
@@ -362,6 +418,9 @@ export class HostCuProxy {
 
       this._ownedRequests.set(requestId, {
         scoped: scopedObservation,
+        screenshotSkipped,
+        targetKey: observedTargetKey(resolvedTargetClientId),
+        resetGeneration: this._resetGeneration,
         dispatchedAt: Date.now(),
         toolName,
         step: stepNumber,
@@ -389,7 +448,7 @@ export class HostCuProxy {
             requestId,
             conversationId,
             toolName,
-            input,
+            input: dispatchInput,
             stepNumber,
             reasoning,
             ...(resolvedTargetClientId != null
@@ -448,7 +507,11 @@ export class HostCuProxy {
 
     // A targeted snapshot has no comparable action/diff baseline; neither it
     // nor the first desktop observation after it can imply "no visible effect".
-    if (scopedObservation) {
+    // A response dispatched before the last reset belongs to a finished run,
+    // so it must not change any state the new run has started building.
+    const fromCurrentRun =
+      owned === undefined || owned.resetGeneration === this._resetGeneration;
+    if (scopedObservation && fromCurrentRun) {
       this._previousAXTree = undefined;
       this._consecutiveUnchangedSteps = 0;
     }
@@ -456,10 +519,24 @@ export class HostCuProxy {
     const comparableObservation = scopedObservation
       ? { ...observation, axDiff: undefined, secondaryWindows: undefined }
       : observation;
-    if (!scopedObservation) {
+    // Pointing observes nothing, so its response leaves the screen state alone.
+    if (
+      fromCurrentRun &&
+      !scopedObservation &&
+      owned?.toolName !== POINT_AT_PROXY_TOOL
+    ) {
       this.updateStateFromObservation(comparableObservation);
+      // A desktop has had its first look only once pixels from it arrived,
+      // so a failed capture leaves the next request asking again.
+      if (owned && observation.screenshot) {
+        this._observedTargets.add(owned.targetKey);
+      }
     }
-    const result = this.formatObservation(comparableObservation, prevAXTree);
+    const result = this.formatObservation(
+      comparableObservation,
+      prevAXTree,
+      owned?.screenshotSkipped ?? false,
+    );
     interaction.rpcResolve(result);
     return result;
   }
@@ -495,6 +572,27 @@ export class HostCuProxy {
     this._previousAXTree = undefined;
     this._consecutiveUnchangedSteps = 0;
     this._actionHistory = [];
+    this._observedTargets.clear();
+    this._resetGeneration++;
+  }
+
+  /**
+   * Whether the request about to be dispatched should carry a screenshot. The
+   * accessibility tree comes back every step. Pixels come back on the first
+   * look since the last reset, for a window- or display-scoped capture, and
+   * when the model asks for them. Otherwise whether the tree is enough is the
+   * model's call.
+   */
+  private shouldAttachScreenshot(
+    toolName: string,
+    input: Record<string, unknown>,
+    targetKey: string,
+  ): boolean {
+    return (
+      !this._observedTargets.has(targetKey) ||
+      hasCaptureTarget(input) ||
+      (toolName === "computer_use_observe" && input.include_screenshot === true)
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -509,6 +607,7 @@ export class HostCuProxy {
   formatObservation(
     obs: CuObservationResult,
     previousAXTree?: string,
+    screenshotSkipped = false,
   ): ToolExecutionResult {
     const prevTree = previousAXTree;
     const parts: string[] = [];
@@ -587,6 +686,13 @@ export class HostCuProxy {
       parts.push(...screenshotMeta);
     }
 
+    // Only a deliberate omission is announced. A step that asked for pixels
+    // and got none is a capture failure, which this line must not disguise.
+    const isError = obs.executionError != null;
+    if (screenshotSkipped && !obs.screenshot && !isError) {
+      parts.push("", SCREENSHOT_OMITTED_MESSAGE);
+    }
+
     const content = parts.join("\n").trim() || "Action executed";
 
     const contentBlocks: ContentBlock[] = [];
@@ -600,8 +706,6 @@ export class HostCuProxy {
         },
       });
     }
-
-    const isError = obs.executionError != null;
 
     return {
       content: isError

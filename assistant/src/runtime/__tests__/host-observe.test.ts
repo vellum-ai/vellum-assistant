@@ -226,6 +226,25 @@ describe("observeHostScreen", () => {
     expect(pendingInteractions.getAll()).toHaveLength(0);
   });
 
+  test("tells the helper when no screenshot is wanted, and only then", async () => {
+    const skipped = observe({ includeScreenshot: false });
+    const skippedRequest = sentMessages.find(
+      (m) => m.type === "host_cu_request",
+    );
+    expect(skippedRequest?.input).toEqual({ includeScreenshot: false });
+    await postResult({ requestId: sentRequestId(), axTree: "Window [1]" });
+    await skipped;
+
+    sentMessages.length = 0;
+    const wanted = observe();
+    const wantedRequest = sentMessages.find(
+      (m) => m.type === "host_cu_request",
+    );
+    expect(wantedRequest?.input).toEqual({});
+    await postResult({ requestId: sentRequestId(), axTree: "Window [1]" });
+    await wanted;
+  });
+
   test("drops the screenshot when includeScreenshot is false", async () => {
     const observation = observe({ includeScreenshot: false });
     await postResult({
