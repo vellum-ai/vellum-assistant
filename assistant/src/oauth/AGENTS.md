@@ -8,6 +8,8 @@ When introducing a new built-in OAuth integration (one that appears in `seed-pro
 
 Add an entry to `PROVIDER_SEED_DATA`. Required fields: `provider`, `authorizeUrl`, `tokenExchangeUrl`, `defaultScopes`, `displayLabel`, `description`, `dashboardUrl`, `clientIdPlaceholder`, `logoUrl`, and `injectionTemplates`. Optional: `availableScopes` — either a structured array of `{scope, description?}` objects or a URL string pointing to the provider's scope documentation. See existing entries for the full shape. The `provider` key must be snake_case and is used as the canonical identifier everywhere else.
 
+`injectionTemplates` is also a security boundary, not only an injection rule. `assistant oauth request` and `assistant channels request` accept an absolute URL only when its host matches one of the entry's `hostPattern` values (`assertOAuthRequestUrlAllowed` in `../runtime/routes/oauth-commands-routes.ts`), so that list is the full set of hosts the credential may be sent to. A pattern matches exactly unless it starts with `*.`; reserve the wildcard for per-tenant hosts that cannot be enumerated (`*.salesforce.com`), and name a fixed host the provider documents (`files.slack.com`) by name. The guard sees only the URL the caller passes: the connection follows a redirect itself, and a cross-origin hop carries no `Authorization`, so a redirect target never receives the credential and never needs listing.
+
 If the provider will support managed mode, set `managedServiceConfigKey` to a slug matching the key you will add to `ServicesSchema` (e.g. `"acme-oauth"`).
 
 ### 2. _(managed only)_ Add a service schema — `../config/schemas/services.ts`

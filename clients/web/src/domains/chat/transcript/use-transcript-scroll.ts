@@ -36,8 +36,10 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   classifyScrollPosition,
   decideItemsChangeAction,
+  findAnchorIndex,
   findLatestUserAnchorKey,
   haveSameItemKeys,
+  isStandaloneCameraFramePrepend,
   shouldGestureLoadOlder,
   type AnchorSnapshot,
   type ScrollMetrics,
@@ -339,10 +341,27 @@ export function useTranscriptScroll(
     const newAnchorKey = findLatestUserAnchorKey(items);
     const prevAnchorKey = previousAnchorKeyRef.current;
     previousAnchorKeyRef.current = newAnchorKey;
-    const isNewAnchor = newAnchorKey !== null && newAnchorKey !== prevAnchorKey;
+    const anchorChanged =
+      newAnchorKey !== null && newAnchorKey !== prevAnchorKey;
+    const framePrepend =
+      anchorChanged &&
+      prevAnchorKey !== null &&
+      isStandaloneCameraFramePrepend(
+        prev[findAnchorIndex(prev, prevAnchorKey)],
+        items[findAnchorIndex(items, newAnchorKey)],
+      );
+    const isNewAnchor = anchorChanged && !framePrepend;
     if (isNewAnchor) {
+      savedAnchorRef.current = null;
       engageAutoPin();
       transcriptRef.current?.scrollToLatest({ behavior: "auto" });
+    } else if (
+      framePrepend ||
+      savedAnchorRef.current ||
+      action.kind === "anchor-correct"
+    ) {
+      // Pagination owns the viewport through subsequent content resizes too.
+      disengageAutoPin();
     } else if (
       shouldAutoPinRef.current &&
       items.length > 0 &&
@@ -414,7 +433,14 @@ export function useTranscriptScroll(
         latest.onLoadOlder();
       }
     }
-  }, [items, conversationId, isVisible, transcriptRef, engageAutoPin]);
+  }, [
+    items,
+    conversationId,
+    isVisible,
+    transcriptRef,
+    engageAutoPin,
+    disengageAutoPin,
+  ]);
 
   // -----------------------------------------------------------------------
   // Container resize re-pin. When the scroll container resizes (e.g. the

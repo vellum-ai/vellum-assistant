@@ -25,6 +25,9 @@ interface MockProviderRow {
   managedServiceConfigKey: string | null;
   baseUrl: string | null;
   injectionTemplates: string | null;
+  defaultScopes?: string;
+  authorizeParams?: string | null;
+  scopeSeparator?: string;
   pingUrl: string | null;
   pingMethod: string | null;
   pingHeaders: string | null;
@@ -109,10 +112,15 @@ mock.module("../oauth/oauth-store.js", () => ({
   listActiveConnectionsByProvider: (provider: string) =>
     mockActiveConnectionsByProvider[provider] ?? [],
   listConnections: (provider: string) => mockAllConnections[provider] ?? [],
+  // Imported by seed-providers.js at module load; the seed data is read here,
+  // never written.
+  migrateProviderBaseUrl: () => {},
+  seedProviders: () => {},
 }));
 
 mock.module("../oauth/connection-resolver.js", () => {
   const makeConnection = () => ({
+    id: "conn-1",
     accountInfo: "user@example.com",
     request: async (req: unknown) => {
       mockResolveRequests.push(req);
@@ -155,6 +163,7 @@ mock.module("../security/token-manager.js", () => ({
 }));
 
 import { loadRawConfig } from "../config/loader.js";
+import { PROVIDER_SEED_DATA } from "../oauth/seed-providers.js";
 import {
   BadRequestError,
   InternalError,
@@ -897,6 +906,110 @@ describe("POST oauth/request", () => {
         baseUrl: "https://slack.com",
       },
     ]);
+  });
+
+  /** The provider row exactly as seeding writes it, so the seed data is what the guard reads. */
+  function seededProvider(provider: keyof typeof PROVIDER_SEED_DATA) {
+    const seed = PROVIDER_SEED_DATA[provider];
+    return {
+      ...baseProvider,
+      provider,
+      managedServiceConfigKey: null,
+      baseUrl: seed.baseUrl ?? null,
+      injectionTemplates: JSON.stringify(seed.injectionTemplates),
+    };
+  }
+
+  test("admits a Slack file URL on both seeded Slack providers", async () => {
+    // Each Slack credential reads messages, and a file shared in a message is
+    // fetched from its `url_private_download` on files.slack.com with the
+    // same token.
+    for (const provider of ["slack", "slack_channel"] as const) {
+      mockProviders[provider] = seededProvider(provider);
+      mockResolveRequests = [];
+
+      await getRoute("POST", "oauth/request").handler(
+        makeArgs({
+          body: {
+            provider,
+            url: "https://files.slack.com/files-pri/T0123-F0456/download/shot.png",
+          },
+        }),
+      );
+
+      expect(mockResolveRequests).toEqual([
+        {
+          method: "GET",
+          path: "/files-pri/T0123-F0456/download/shot.png",
+          baseUrl: "https://files.slack.com",
+        },
+      ]);
+    }
+  });
+
+  test("the seeded Slack host policy admits nothing beyond the documented hosts", async () => {
+    mockProviders.slack_channel = seededProvider("slack_channel");
+
+    // A lookalike, an unrelated host, and the CDN host Slack redirects file
+    // downloads to: the guard sees only the URL the caller names, and that
+    // URL is the documented file host or nothing.
+    for (const url of [
+      "https://files.slack.com.attacker.example/files-pri/T0123-F0456/x.png",
+      "https://attacker.example/files-pri/T0123-F0456/x.png",
+      "https://files-origin.slack.com/files-pri/T0123-F0456/x.png",
+    ]) {
+      await expect(
+        getRoute("POST", "oauth/request").handler(
+          makeArgs({ body: { provider: "slack_channel", url } }),
+        ),
+      ).rejects.toBeInstanceOf(BadRequestError);
+    }
+    expect(mockResolveRequests).toHaveLength(0);
+  });
+
+  test("names the required scopes a stored grant lacks on the request itself", async () => {
+    // A connection made before a scope was required keeps working for every
+    // call that does not need it, so the caller must be told on the request,
+    // not only by the next health check.
+    const seed = PROVIDER_SEED_DATA.slack;
+    mockProviders.slack = {
+      ...seededProvider("slack"),
+      defaultScopes: JSON.stringify(seed.defaultScopes),
+      authorizeParams: JSON.stringify(seed.authorizeParams),
+      scopeSeparator: " ",
+    };
+    const grantedBeforeFilesRead = seed
+      .authorizeParams!.user_scope.split(",")
+      .filter((scope) => scope !== "files:read");
+    mockAllConnections.slack = [
+      {
+        id: "conn-1",
+        provider: "slack",
+        grantedScopes: JSON.stringify(grantedBeforeFilesRead),
+      },
+    ];
+
+    const stale = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({ body: { provider: "slack", url: "/conversations.history" } }),
+    )) as { ok: boolean; hint?: string };
+
+    expect(stale.ok).toBe(true);
+    expect(stale.hint).toContain("files:read");
+    expect(stale.hint).toContain("oauth connect slack");
+
+    mockAllConnections.slack = [
+      {
+        id: "conn-1",
+        provider: "slack",
+        grantedScopes: JSON.stringify(
+          seed.authorizeParams!.user_scope.split(","),
+        ),
+      },
+    ];
+    const current = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({ body: { provider: "slack", url: "/conversations.history" } }),
+    )) as { hint?: string };
+    expect(current.hint).toBeUndefined();
   });
 
   test("allows cross-host absolute URLs declared by provider injection templates", async () => {

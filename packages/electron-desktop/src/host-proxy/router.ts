@@ -79,6 +79,8 @@ export interface HostProxyClientIdentity {
   interfaceId: string;
   /** Opt in only when the bundled CU executor supports window-only observations. */
   supportsWindowCapture?: boolean;
+  /** Opt in only when the bundled CU executor runs `computer_use_sequence`. */
+  supportsSequence?: boolean;
   /**
    * Opt in only when this client can draw the assistant's marks on the
    * surface a call is being shown. The overlay is a window the client opens
@@ -102,6 +104,7 @@ export function createHostProxyClientHeaders(
       ...(identity.supportsWindowCapture
         ? { "X-Vellum-Cu-Window-Capture": "1" }
         : {}),
+      ...(identity.supportsSequence ? { "X-Vellum-Cu-Sequence": "1" } : {}),
       ...(identity.supportsCoachmarks
         ? { "X-Vellum-Cu-Annotate": "1" }
         : {}),

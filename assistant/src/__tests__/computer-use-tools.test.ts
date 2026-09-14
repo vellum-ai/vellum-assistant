@@ -37,8 +37,8 @@ const ctx: ToolContext = {
 // ── Tool definitions ────────────────────────────────────────────────
 
 describe("computer-use tool definitions", () => {
-  test("allComputerUseTools contains 11 tools", () => {
-    expect(allComputerUseTools.length).toBe(11);
+  test("allComputerUseTools contains 12 tools", () => {
+    expect(allComputerUseTools.length).toBe(12);
   });
 
   test("all tools belong to computer-use category", () => {

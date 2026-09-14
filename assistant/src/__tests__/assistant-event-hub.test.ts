@@ -690,3 +690,47 @@ test("window requests never reach an older overlapping connection with the same 
     supported.dispose();
   }
 });
+
+test("batched action requests never reach an older overlapping connection with the same device ID", async () => {
+  const receivedLegacy: unknown[] = [];
+  const receivedSupported: unknown[] = [];
+  const legacy = assistantEventHub.subscribe({
+    type: "client",
+    clientId: "sequence-client",
+    interfaceId: "macos",
+    capabilities: ["host_cu"],
+    callback: (event) => {
+      receivedLegacy.push(event);
+    },
+  });
+  const supported = assistantEventHub.subscribe({
+    type: "client",
+    clientId: "sequence-client",
+    interfaceId: "macos",
+    capabilities: ["host_cu", "host_cu_sequence"],
+    callback: (event) => {
+      receivedSupported.push(event);
+    },
+  });
+  try {
+    broadcastMessage(
+      {
+        type: "host_cu_request",
+        requestId: "sequence-request",
+        conversationId: "sequence-session",
+        toolName: "computer_use_sequence",
+        input: { actions: [{ action: "key", key: "cmd+n" }] },
+        stepNumber: 1,
+        targetClientId: "sequence-client",
+      },
+      "sequence-session",
+      { targetClientId: "sequence-client" },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(receivedLegacy).toHaveLength(0);
+    expect(receivedSupported).toHaveLength(1);
+  } finally {
+    legacy.dispose();
+    supported.dispose();
+  }
+});

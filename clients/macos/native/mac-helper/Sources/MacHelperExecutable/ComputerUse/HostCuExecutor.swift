@@ -1,9 +1,75 @@
 import Foundation
 import CoreGraphics
 import AppKit
+import MacHelperCore
 import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "HostCu")
+
+// MARK: - Phase Timing
+
+/// The phases of one step, named as they reach the daemon in the `timings` map.
+private enum CuPhase: String {
+    case total
+    case execute
+    case settle
+    case axWalk
+    case capture
+    case encode
+    /// Turning an element ID into coordinates, when the action named one.
+    case resolve
+    /// Counters about the tree walk rather than durations: the depth it used,
+    /// how many elements it visited, and 1 when it was cut off by that depth.
+    case axDepth
+    case axElements
+    case axTruncated
+}
+
+/// Collects the wall time each phase of one `cu.perform` step costs, in whole
+/// milliseconds. A reference type so one instance threads through the nested
+/// observation builders and every early return still reports what it spent.
+/// Main-actor isolated to match the runner, which keeps the measured closures
+/// on the same executor and so keeps executor hops out of the measurement.
+@MainActor
+private final class PhaseTimer {
+    private let startedAt = DispatchTime.now()
+    private var marks: [String: Int] = [:]
+
+    /// Run `body`, recording how long it took under `phase`. The closure stays
+    /// main-actor isolated, so wrapping a call in it changes nothing about
+    /// where that call runs.
+    func measure<T>(_ phase: CuPhase, _ body: @MainActor () async throws -> T) async rethrows -> T {
+        let start = DispatchTime.now()
+        defer { record(phase, since: start) }
+        return try await body()
+    }
+
+    func record(_ phase: CuPhase, millis: Int) {
+        marks[phase.rawValue] = millis
+    }
+
+    /// Record a phase `measure` cannot wrap, because the value it calls into is
+    /// not `Sendable` and so cannot cross into the closure.
+    func record(_ phase: CuPhase, since start: DispatchTime) {
+        record(phase, millis: Self.millis(since: start))
+    }
+
+    /// Whole milliseconds elapsed since `start`.
+    nonisolated static func millis(since start: DispatchTime) -> Int {
+        Int((DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000)
+    }
+
+    /// Record everything elapsed since this timer was created, which is the
+    /// first line of `perform`.
+    func recordTotal() {
+        record(.total, since: startedAt)
+    }
+
+    /// Zero for a phase that never ran, which keeps the step log readable.
+    subscript(phase: CuPhase) -> Int { marks[phase.rawValue] ?? 0 }
+
+    var snapshot: [String: Int] { marks }
+}
 
 // MARK: - Action Runner
 
@@ -22,6 +88,21 @@ enum HostCuActionRunner {
     /// that end without a terminal done/respond (cancelled, or conversation
     /// closed mid-flight).
     private static var lastAccess: [String: Date] = [:]
+
+    /// Requests the daemon cancelled while they were running, with when the
+    /// cancel arrived. A batch checks this between actions so Stop halts it.
+    private static var cancelledRequests: [String: Date] = [:]
+
+    /// Record a cancel for `requestId`. Entries older than a minute are
+    /// dropped, which also bounds cancels that arrive after a request ended.
+    static func cancel(requestId: String, now: Date = Date()) {
+        cancelledRequests = cancelledRequests.filter { now.timeIntervalSince($0.value) < 60 }
+        cancelledRequests[requestId] = now
+    }
+
+    private static func isCancelled(_ requestId: String) -> Bool {
+        cancelledRequests[requestId] != nil
+    }
 
     /// Idle window after which an untouched session's state is reclaimed.
     private static let sessionTTL: TimeInterval = 600
@@ -52,6 +133,8 @@ enum HostCuActionRunner {
         stepNumber: Int,
         reasoning: String?
     ) async -> HostCuResultPayload {
+        let timer = PhaseTimer()
+        defer { cancelledRequests.removeValue(forKey: requestId) }
         touchSession(conversationId)
         let enumerator = AccessibilityTreeEnumerator()
         let screenCapture = ScreenCapture()
@@ -68,9 +151,24 @@ enum HostCuActionRunner {
         // For observe-only requests, skip action execution and just capture state
         let isObserveOnly = toolName == "computer_use_observe" || toolName == "cu_observe"
         let captureTarget = captureTarget(from: input)
+        let includeScreenshot = ObservationCapture.includeScreenshot(from: input["includeScreenshot"])
+        let fullTree = AXDepthPolicy.fullTreeRequested(from: input["full_tree"])
 
         var executionResult: String? = nil
         var executionError: String? = nil
+
+        // Every exit runs through here, so a blocked or failed step still
+        // reports where its time went.
+        func finish(_ observation: ObservationData) -> HostCuResultPayload {
+            timer.recordTotal()
+            log.info("[\(stepNumber)] \(observation.treeSummary ?? "no AX tree"): total \(timer[.total])ms (axWalk \(timer[.axWalk])ms, capture \(timer[.capture])ms)")
+            return buildResultPayload(
+                requestId: requestId,
+                conversationId: conversationId,
+                observation: observation,
+                timings: timer.snapshot
+            )
+        }
 
         if !isObserveOnly {
             // Ensure Accessibility is granted before any CGEvent input, which
@@ -82,22 +180,85 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: "Accessibility permission not granted. Grant Vellum access in System Settings > Privacy & Security > Accessibility, then retry.",
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
+            }
+
+            // Stand down while the person at the machine is using it. Both
+            // checks run before the verifier, because it records every action
+            // it allows: a refusal banked there would let three of the retries
+            // this error asks for trip the repeat detector and block the action
+            // for good, long after the user went idle.
+            let standDown: () async -> HostCuResultPayload = {
+                log.info("[\(stepNumber)] Standing down: the user is using the machine")
+                let obs = await buildObservation(
+                    enumerator: enumerator,
+                    screenCapture: screenCapture,
+                    executionResult: nil,
+                    executionError: ActionExecutor.userIsActiveMessage,
+                    stepNumber: stepNumber,
+                    conversationId: conversationId,
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
+                )
+                return finish(obs)
+            }
+            if toolName == "computer_use_sequence" || toolName == "cu_sequence" {
+                let outcome = await runSequence(
+                    requestId: requestId,
+                    input: input,
+                    reasoning: reasoning,
+                    enumerator: enumerator,
+                    verifier: verifier,
+                    stepNumber: stepNumber,
+                    conversationId: conversationId,
+                    timer: timer
+                )
+                let obs = await buildObservation(
+                    enumerator: enumerator,
+                    screenCapture: screenCapture,
+                    executionResult: outcome.result,
+                    executionError: outcome.error,
+                    stepNumber: stepNumber,
+                    conversationId: conversationId,
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
+                )
+                return finish(obs)
+            }
+
+            // Refuse early when we can, which also skips the AX walk that
+            // coordinate resolution would otherwise do on the way to nothing.
+            if ActionExecutor.takesOverFromUser(agentAction), ActionExecutor.userIsCurrentlyActive() {
+                return await standDown()
             }
 
             // Resolve element IDs to coordinates if needed
-            guard let resolvedAction = await resolveCoordinatesIfNeeded(for: agentAction, enumerator: enumerator, stepNumber: stepNumber) else {
+            let resolveStart = DispatchTime.now()
+            let resolvedAction = await resolveCoordinatesIfNeeded(
+                for: agentAction,
+                enumerator: enumerator,
+                stepNumber: stepNumber,
+                conversationId: conversationId
+            )
+            if agentAction.resolvedFromElementId != nil || agentAction.resolvedToElementId != nil {
+                timer.record(.resolve, since: resolveStart)
+            }
+            guard let resolvedAction else {
                 let obs = await buildObservation(
                     enumerator: enumerator,
                     screenCapture: screenCapture,
                     executionResult: nil,
                     executionError: "Could not resolve element coordinates for action",
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
             }
 
             // Handle done/respond completion signals — skip execution
@@ -109,9 +270,11 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: nil,
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
             }
 
             if resolvedAction.type == .respond {
@@ -122,9 +285,19 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: nil,
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
+            }
+
+            // Check again. Resolution above awaits an accessibility walk that
+            // can run for seconds, and the machine is not ours during it, so a
+            // person who started typing midway through would otherwise be
+            // interrupted by an action cleared before they touched anything.
+            if ActionExecutor.takesOverFromUser(resolvedAction), ActionExecutor.userIsCurrentlyActive() {
+                return await standDown()
             }
 
             // VERIFY (local safety check)
@@ -141,9 +314,11 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: "BLOCKED: \(reason) (confirmation not available in proxy mode)",
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
 
             case .blocked(let reason):
                 log.warning("[\(stepNumber)] BLOCKED: \(reason)")
@@ -153,12 +328,15 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: "BLOCKED: \(reason)",
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
             }
 
             // EXECUTE
+            let executeStart = DispatchTime.now()
             do {
                 executionResult = try await executor.execute(resolvedAction)
             } catch {
@@ -168,10 +346,13 @@ enum HostCuActionRunner {
                 }
                 executionError = errorMessage
             }
+            timer.record(.execute, since: executeStart)
 
             // WAIT — brief delay to let the UI settle after action
             do {
-                try await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                try await timer.measure(.settle) {
+                    try await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                }
             } catch {
                 log.warning("Post-action delay interrupted: \(error)")
             }
@@ -192,10 +373,119 @@ enum HostCuActionRunner {
             executionError: executionError,
             stepNumber: stepNumber,
             conversationId: conversationId,
-            captureTarget: captureTarget
+            timer: timer,
+            captureTarget: captureTarget,
+            includeScreenshot: includeScreenshot,
+            fullTree: fullTree
         )
 
-        return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+        return finish(obs)
+    }
+
+    // MARK: - Sequence
+
+    /// Run a `computer_use_sequence` batch: each action goes through the same
+    /// gate, resolution, verification and settle as a single step, in order,
+    /// stopping at the first one that is refused or fails. The caller takes
+    /// one observation afterwards. Element IDs resolve against the last
+    /// observation, which is the tree the model chose them from.
+    private static func runSequence(
+        requestId: String,
+        input: [String: Any],
+        reasoning: String?,
+        enumerator: AccessibilityTreeEnumerator,
+        verifier: ActionVerifier,
+        stepNumber: Int,
+        conversationId: String,
+        timer: PhaseTimer
+    ) async -> (result: String?, error: String?) {
+        let items = input["actions"] as? [[String: Any]] ?? []
+        let names = items.map { $0["action"] as? String }
+        if let problem = ActionSequence.problem(withActions: names) {
+            return (nil, problem)
+        }
+        let actions = zip(items, names).map { item, name in
+            mapToAgentAction(
+                toolName: ActionSequence.toolName(forAction: name!)!,
+                input: item,
+                reasoning: item["reasoning"] as? String ?? reasoning
+            )
+        }
+
+        var ran: [String] = []
+        var stoppedAt: String?
+        var executeMs = 0
+        var settleMs = 0
+        var resolveMs = 0
+
+        actionLoop: for (index, action) in actions.enumerated() {
+            let label = "action \(index + 1) of \(actions.count) (\(names[index]!))"
+
+            if isCancelled(requestId) {
+                stoppedAt = "Stopped at \(label): the request was cancelled."
+                break actionLoop
+            }
+
+            if ActionExecutor.takesOverFromUser(action), ActionExecutor.userIsCurrentlyActive() {
+                stoppedAt = "Stopped at \(label): \(ActionExecutor.userIsActiveMessage)"
+                break actionLoop
+            }
+            let resolveStart = DispatchTime.now()
+            let resolved = await resolveCoordinatesIfNeeded(
+                for: action,
+                enumerator: enumerator,
+                stepNumber: stepNumber,
+                conversationId: conversationId
+            )
+            resolveMs += PhaseTimer.millis(since: resolveStart)
+            guard let resolved else {
+                stoppedAt = "Stopped at \(label): could not resolve element coordinates."
+                break actionLoop
+            }
+            if ActionExecutor.takesOverFromUser(resolved), ActionExecutor.userIsCurrentlyActive() {
+                stoppedAt = "Stopped at \(label): \(ActionExecutor.userIsActiveMessage)"
+                break actionLoop
+            }
+            switch verifier.verify(resolved, batchItem: index > 0) {
+            case .allowed:
+                break
+            case .needsConfirmation(let reason):
+                stoppedAt = "Stopped at \(label): BLOCKED: \(reason) (confirmation not available in proxy mode)"
+                break actionLoop
+            case .blocked(let reason):
+                stoppedAt = "Stopped at \(label): BLOCKED: \(reason)"
+                break actionLoop
+            }
+
+            // A fresh executor per action: it is not Sendable, so one instance
+            // cannot be sent across the actor boundary on every iteration. Its
+            // shared state (the last synthetic post) is static.
+            let executor = ActionExecutor()
+            let executeStart = DispatchTime.now()
+            do {
+                let result = try await executor.execute(resolved)
+                ran.append(result ?? names[index]!)
+            } catch {
+                executeMs += PhaseTimer.millis(since: executeStart)
+                stoppedAt = "Stopped at \(label): \(error.localizedDescription)"
+                break actionLoop
+            }
+            executeMs += PhaseTimer.millis(since: executeStart)
+
+            let settleStart = DispatchTime.now()
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            settleMs += PhaseTimer.millis(since: settleStart)
+        }
+
+        timer.record(.execute, millis: executeMs)
+        timer.record(.settle, millis: settleMs)
+        if resolveMs > 0 { timer.record(.resolve, millis: resolveMs) }
+        log.info("[\(stepNumber)] Sequence ran \(ran.count) of \(actions.count) actions")
+
+        let summary = ran.isEmpty ? nil : "Ran \(ran.count) of \(actions.count) actions: \(ran.joined(separator: "; "))"
+        guard let stoppedAt else { return (summary, nil) }
+        let tail = ran.isEmpty ? " Nothing before it ran." : " The \(ran.count) action(s) before it ran."
+        return (summary, stoppedAt + tail)
     }
 
     // MARK: - Capture Target
@@ -284,7 +574,12 @@ enum HostCuActionRunner {
     // MARK: - Coordinate Resolution
 
     /// Resolve element IDs to screen coordinates when x/y are not provided.
-    private static func resolveCoordinatesIfNeeded(for action: AgentAction, enumerator: AccessibilityTreeProviding, stepNumber: Int) async -> AgentAction? {
+    private static func resolveCoordinatesIfNeeded(
+        for action: AgentAction,
+        enumerator: AccessibilityTreeEnumerator,
+        stepNumber: Int,
+        conversationId: String
+    ) async -> AgentAction? {
         var resolved = action
 
         switch resolved.type {
@@ -294,7 +589,7 @@ enum HostCuActionRunner {
                     log.error("[\(stepNumber)] Action requires either x/y coordinates or element_id")
                     return nil
                 }
-                guard let center = await elementCenter(for: sourceId, enumerator: enumerator) else {
+                guard let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
                     return nil
                 }
@@ -304,7 +599,7 @@ enum HostCuActionRunner {
 
         case .scroll:
             if (resolved.x == nil || resolved.y == nil), let sourceId = resolved.resolvedFromElementId {
-                guard let center = await elementCenter(for: sourceId, enumerator: enumerator) else {
+                guard let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
                     return nil
                 }
@@ -314,13 +609,13 @@ enum HostCuActionRunner {
 
         case .drag:
             if resolved.x == nil || resolved.y == nil, let sourceId = resolved.resolvedFromElementId {
-                if let center = await elementCenter(for: sourceId, enumerator: enumerator) {
+                if let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) {
                     resolved.x = center.x
                     resolved.y = center.y
                 }
             }
             if resolved.toX == nil || resolved.toY == nil, let targetId = resolved.resolvedToElementId {
-                if let center = await elementCenter(for: targetId, enumerator: enumerator) {
+                if let center = await elementCenter(for: targetId, conversationId: conversationId, enumerator: enumerator) {
                     resolved.toX = center.x
                     resolved.toY = center.y
                 }
@@ -333,8 +628,21 @@ enum HostCuActionRunner {
         return resolved
     }
 
-    /// Find the center point of an AX element by ID in the current window.
-    private static func elementCenter(for elementId: Int, enumerator: AccessibilityTreeProviding) async -> CGPoint? {
+    /// Find the center point of an AX element by ID. The IDs the model names
+    /// come from the last observation it was shown, so that stored tree is
+    /// read first: it costs nothing, and it is the numbering the model used.
+    /// A walk renumbers from scratch, so it only runs when the stored tree
+    /// does not have the element, and it goes to full depth so a shallow
+    /// observation cannot hide it.
+    private static func elementCenter(
+        for elementId: Int,
+        conversationId: String,
+        enumerator: AccessibilityTreeEnumerator
+    ) async -> CGPoint? {
+        if let element = previousAXElements[conversationId]?.first(where: { $0.id == elementId }) {
+            return CGPoint(x: element.frame.midX, y: element.frame.midY)
+        }
+        enumerator.depthLimit = AXDepthPolicy.fullDepth
         guard let result = await enumerator.enumerateCurrentWindow() else { return nil }
         let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
         guard let element = flat.first(where: { $0.id == elementId }) else { return nil }
@@ -356,18 +664,43 @@ enum HostCuActionRunner {
         let screenHeightPt: Int?
         let executionResult: String?
         let executionError: String?
-        let secondaryWindows: String?
+        /// One-line description of the tree that was read, for the step log.
+        /// Nil when no tree was available.
+        let treeSummary: String?
     }
 
-    /// Capture the current screen state as an observation.
+    /// One window's AX read: its elements plus the identity of the window they came from.
+    private typealias WindowRead = (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)
+
+    /// Take the observation screenshot and report how long the capture itself
+    /// took, so a caller running it beside other work can record it honestly.
+    nonisolated private static func timedCapture(
+        _ screenCapture: any ScreenCaptureProviding,
+        target: CaptureTarget?
+    ) async -> (Result<ScreenCaptureResult, any Error>, Int) {
+        let start = DispatchTime.now()
+        do {
+            let result = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: target)
+            return (.success(result), PhaseTimer.millis(since: start))
+        } catch {
+            return (.failure(error), PhaseTimer.millis(since: start))
+        }
+    }
+
+    /// Capture the current screen state as an observation. With
+    /// `includeScreenshot` false and no `captureTarget`, a readable tree is
+    /// returned without a screenshot.
     private static func buildObservation(
-        enumerator: AccessibilityTreeProviding,
+        enumerator: AccessibilityTreeEnumerator,
         screenCapture: ScreenCaptureProviding,
         executionResult: String?,
         executionError: String?,
         stepNumber: Int,
         conversationId: String,
-        captureTarget: CaptureTarget? = nil
+        timer: PhaseTimer,
+        captureTarget: CaptureTarget? = nil,
+        includeScreenshot: Bool = true,
+        fullTree: Bool = false
     ) async -> ObservationData {
         var axTreeText: String?
         var axDiffText: String?
@@ -377,7 +710,7 @@ enum HostCuActionRunner {
         var screenshotHeightPx: Int?
         var screenWidthPt: Int?
         var screenHeightPt: Int?
-        var secondaryWindowsText: String?
+        var treeSummary: String?
 
         // Targeted reads are standalone snapshots, never a desktop diff baseline.
         // Clear before enumeration, including failed/missing-window captures, so
@@ -392,19 +725,54 @@ enum HostCuActionRunner {
         // focused window: it may be on another display or another app, and
         // its text would then be filed against a frame that never showed it.
         // A targeted read with no matching tree is a screenshot alone.
-        let windowResult: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
-        switch captureTarget {
-        case .window(let windowId):
-            windowResult = await enumerator.enumerateWindow(windowId: windowId)
-        case .display(let displayId):
-            if let windowId = CaptureSources.topmostWindowId(onDisplay: displayId) {
-                windowResult = await enumerator.enumerateWindow(windowId: windowId)
-            } else {
-                windowResult = nil
+        // A wanted screenshot starts before the AX walk so the two overlap: they
+        // read the same moment of the same screen through different subsystems,
+        // and neither needs the other's answer. The request is identical whether
+        // or not the walk finds a tree, so one call serves both outcomes. When
+        // the daemon opts out of an unscoped screenshot, this task returns nil
+        // at once and the capture waits on whether the walk finds a tree.
+        let capturePlan = ObservationCapture.plan(includeScreenshot: includeScreenshot, scoped: captureTarget != nil)
+        async let concurrentShot = capturePlan == .besideWalk
+            ? timedCapture(screenCapture, target: captureTarget)
+            : nil
+
+        func walk(depth: Int) async -> WindowRead? {
+            enumerator.depthLimit = depth
+            switch captureTarget {
+            case .window(let windowId):
+                return await enumerator.enumerateWindow(windowId: windowId)
+            case .display(let displayId):
+                guard let windowId = CaptureSources.topmostWindowId(onDisplay: displayId) else { return nil }
+                return await enumerator.enumerateWindow(windowId: windowId)
+            case nil:
+                return await enumerator.enumerateCurrentWindow()
             }
-        case nil:
-            windowResult = await enumerator.enumerateCurrentWindow()
         }
+        func interactiveCount(_ read: WindowRead) -> Int {
+            AccessibilityTreeEnumerator.flattenElements(read.elements)
+                .filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
+        }
+
+        // Walk shallow first. Only a walk that was cut off and found nothing to
+        // act on goes deeper on its own; otherwise the observation says it was
+        // cut off and the model asks for the full tree if it needs it.
+        let walkStart = DispatchTime.now()
+        var depth = AXDepthPolicy.startingDepth(fullTreeRequested: fullTree)
+        var windowResult = await walk(depth: depth)
+        if let read = windowResult,
+           let deeper = AXDepthPolicy.retryDepth(
+               after: depth,
+               truncated: enumerator.lastWalkTruncated,
+               interactiveCount: interactiveCount(read)
+           ) {
+            depth = deeper
+            windowResult = await walk(depth: depth)
+        }
+        timer.record(.axWalk, since: walkStart)
+        let walkTruncated = enumerator.lastWalkTruncated
+        timer.record(.axDepth, millis: depth)
+        timer.record(.axElements, millis: enumerator.lastWalkElementCount)
+        timer.record(.axTruncated, millis: walkTruncated ? 1 : 0)
 
         if let result = windowResult {
             axTreeText = AccessibilityTreeEnumerator.formatAXTree(
@@ -412,30 +780,45 @@ enum HostCuActionRunner {
                 windowTitle: result.windowTitle,
                 appName: result.appName
             )
+            if walkTruncated {
+                axTreeText? += depth < AXDepthPolicy.fullDepth
+                    ? "\n\n(Tree cut off at depth \(depth). Call computer_use_observe with full_tree: true to see deeper elements.)"
+                    : "\n\n(Tree cut off at depth \(depth), the deepest walk available. Elements below it are not listed; use a screenshot to see them.)"
+            }
             let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
             currentElements = captureTarget == nil ? flat : nil
             let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
-            log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
+            treeSummary = "AX tree: \(result.appName) \"\(result.windowTitle)\", \(flat.count) elements (\(interactiveCount) interactive)"
 
             // Compute AX diff against previous step's elements
             if captureTarget == nil, let previousFlat = previousAXElements[conversationId] {
                 axDiffText = AXTreeDiff.diff(previousFlat: previousFlat, currentFlat: flat)
             }
 
-            // Enumerate secondary windows on first step. Never for a targeted
-            // read: those windows are outside what the user agreed to show.
-            if stepNumber <= 1 && captureTarget == nil {
-                let secondaryWindows = await enumerator.enumerateSecondaryWindows(
-                    excludingPID: result.pid,
-                    maxWindows: 2
-                )
-                secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
-            }
+        } else {
+            log.warning("[\(stepNumber)] No AX tree available, using the screenshot alone")
+        }
 
-            // Capture screenshot
-            do {
-                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
-                screenshotBase64 = screenshotResult.jpegData.base64EncodedString()
+        // Collect the capture that ran alongside the walk. A skipped screenshot
+        // is taken now after all when the walk found no tree, since the model
+        // would otherwise see nothing.
+        var timedShot = await concurrentShot
+        if capturePlan.captureAfterWalk(treeFound: windowResult != nil) {
+            log.info("[\(stepNumber)] Screenshot skip overridden: no AX tree to return instead")
+            timedShot = await timedCapture(screenCapture, target: captureTarget)
+        }
+
+        // A failure still leaves the screenshot nil and the tree, if there is
+        // one, intact. The duration was measured inside the capture, so it
+        // reports the capture alone rather than however long the walk beside it
+        // took. A skipped capture records 0.
+        if let (captureOutcome, captureMs) = timedShot {
+            timer.record(.capture, millis: captureMs)
+            switch captureOutcome {
+            case .success(let screenshotResult):
+                screenshotBase64 = await timer.measure(.encode) {
+                    screenshotResult.jpegData.base64EncodedString()
+                }
                 if let meta = screenshotResult.metadata {
                     screenshotWidthPx = meta.screenshotWidthPx
                     screenshotHeightPx = meta.screenshotHeightPx
@@ -443,25 +826,11 @@ enum HostCuActionRunner {
                 let screenSize = screenCapture.screenSize()
                 screenWidthPt = Int(screenSize.width)
                 screenHeightPt = Int(screenSize.height)
-            } catch {
+            case .failure(let error):
                 log.error("[\(stepNumber)] Screenshot capture failed: \(error)")
             }
         } else {
-            // No focused window — try screenshot as fallback
-            log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
-            do {
-                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
-                screenshotBase64 = screenshotResult.jpegData.base64EncodedString()
-                if let meta = screenshotResult.metadata {
-                    screenshotWidthPx = meta.screenshotWidthPx
-                    screenshotHeightPx = meta.screenshotHeightPx
-                }
-                let screenSize = screenCapture.screenSize()
-                screenWidthPt = Int(screenSize.width)
-                screenHeightPt = Int(screenSize.height)
-            } catch {
-                log.error("[\(stepNumber)] Screen capture failed: \(error)")
-            }
+            timer.record(.capture, millis: 0)
         }
 
         return ObservationData(
@@ -475,12 +844,17 @@ enum HostCuActionRunner {
             screenHeightPt: screenHeightPt,
             executionResult: executionResult,
             executionError: executionError,
-            secondaryWindows: secondaryWindowsText
+            treeSummary: treeSummary
         )
     }
 
     /// Package observation data into a `HostCuResultPayload` and update previous AX state.
-    private static func buildResultPayload(requestId: String, conversationId: String, observation: ObservationData) -> HostCuResultPayload {
+    private static func buildResultPayload(
+        requestId: String,
+        conversationId: String,
+        observation: ObservationData,
+        timings: [String: Int]?
+    ) -> HostCuResultPayload {
         // Update previous AX elements for next step's diff
         if let elements = observation.currentElements {
             previousAXElements[conversationId] = elements
@@ -497,7 +871,7 @@ enum HostCuActionRunner {
             screenHeightPt: observation.screenHeightPt,
             executionResult: observation.executionResult,
             executionError: observation.executionError,
-            secondaryWindows: observation.secondaryWindows
+            timings: timings
         )
     }
 

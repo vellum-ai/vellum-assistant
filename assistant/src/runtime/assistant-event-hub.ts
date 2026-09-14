@@ -745,9 +745,8 @@ export function broadcastMessage(
   // A reconnect can overlap an older executor with the same device ID.
   // Filter at delivery too, not only when HostCuProxy resolves its target.
   const targetCapability =
-    msg.type === "host_cu_request" &&
-    Object.hasOwn(msg.input, "capture_window_id")
-      ? "host_cu_window_capture"
+    msg.type === "host_cu_request"
+      ? hostCuRequestCapability(msg.toolName, msg.input)
       : capabilityForMessageType(msg.type);
   // Self-echo suppression: a `sync_changed` carrying an `originClientId`
   // means a specific client just mutated the resource. The hub must not
@@ -780,6 +779,25 @@ export function broadcastMessage(
     .catch((err: unknown) => {
       log.warn({ err }, "assistant-events hub subscriber threw during publish");
     });
+}
+
+/**
+ * The capability a `host_cu_request` needs from the client that receives it.
+ * Window-scoped observation and batched actions are answered only by a helper
+ * that claimed them; an older helper would capture the whole desktop or end
+ * the session on the unknown tool.
+ */
+function hostCuRequestCapability(
+  toolName: string,
+  input: Record<string, unknown>,
+): HostProxyCapability {
+  if (Object.hasOwn(input, "capture_window_id")) {
+    return "host_cu_window_capture";
+  }
+  if (toolName === "computer_use_sequence") {
+    return "host_cu_sequence";
+  }
+  return "host_cu";
 }
 
 function extractConversationId(msg: AssistantEvent): string | undefined {

@@ -10,7 +10,7 @@ import {
   type TranscriptHandle,
   type TranscriptProps,
 } from "./transcript";
-import { message } from "./transcript-story-fixtures";
+import { cameraFrame, message } from "./transcript-story-fixtures";
 import { TranscriptStoryFrame } from "./transcript-story-frame";
 import type { TranscriptItem } from "./types";
 
@@ -117,6 +117,45 @@ type Story = StoryObj<typeof Transcript>;
 export const Conversation: Story = {
   args: { items: CONVERSATION },
   render: (args) => <TranscriptAtLatest {...args} />,
+};
+
+const CAMERA_FRAMES = Array.from({ length: 5 }, (_, index) =>
+  cameraFrame(`frame-${index}`, {
+    timestamp: Date.UTC(2026, 0, 2, 12, 34, index * 5),
+    previewUrl: index % 2 === 0 ? AVATAR_URL : undefined,
+  }),
+);
+
+export const CameraFramesWithUtterance: Story = {
+  args: {
+    items: [
+      {
+        ...user("camera-question", "What is this?"),
+        cameraFrames: CAMERA_FRAMES,
+      },
+    ],
+  },
+};
+
+export const StandaloneCameraFrames: Story = {
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Every saved frame remains addressable. When speech arrives, the utterance hosts the group and any open frame preview closes.",
+      },
+    },
+  },
+  args: {
+    items: [
+      {
+        kind: "message",
+        key: CAMERA_FRAMES[0]!.id,
+        message: CAMERA_FRAMES[0]!,
+        cameraFrames: CAMERA_FRAMES,
+      },
+    ],
+  },
 };
 
 // Messages exercising the block-level markdown the transcript renders beyond

@@ -20,15 +20,8 @@ struct AXElement: Identifiable, Sendable {
     let placeholderValue: String?
 }
 
-struct WindowInfo: Sendable {
-    let elements: [AXElement]
-    let windowTitle: String
-    let appName: String
-}
-
 protocol AccessibilityTreeProviding: Sendable {
     func enumerateCurrentWindow() async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
-    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) async -> [WindowInfo]
     func enumerateWindow(windowId: CGWindowID) async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
 }
 
@@ -59,6 +52,14 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
     /// Track total elements enumerated in current call to prevent infinite loops
     private var totalElementsEnumerated = 0
+
+    /// How deep the next focused or targeted window walk goes. Callers that do
+    /// not set it get the full depth.
+    var depthLimit = AXDepthPolicy.fullDepth
+    /// Whether the last window walk skipped elements below `depthLimit`.
+    private(set) var lastWalkTruncated = false
+    /// How many elements the last window walk visited.
+    private(set) var lastWalkElementCount = 0
     /// Maximum elements to enumerate before bailing out (protects against circular refs)
     private let maxElementsPerEnumeration = 10000
 
@@ -219,7 +220,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         nextId = 1
         totalElementsEnumerated = 0
-        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+        lastWalkTruncated = false
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
+        lastWalkElementCount = totalElementsEnumerated
 
         let flat = AccessibilityTreeEnumerator.flattenElements(elements)
         let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
@@ -306,7 +309,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         nextId = 1
         totalElementsEnumerated = 0
-        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+        lastWalkTruncated = false
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
+        lastWalkElementCount = totalElementsEnumerated
 
         guard !elements.isEmpty else { return nil }
         lastTargetPid = pid
@@ -435,7 +440,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         nextId = 1
         totalElementsEnumerated = 0
-        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+        lastWalkTruncated = false
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
+        lastWalkElementCount = totalElementsEnumerated
 
         let flat = AccessibilityTreeEnumerator.flattenElements(elements)
         let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
@@ -443,63 +450,6 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         lastTargetPid = pid
         return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
-    }
-
-    /// Enumerate the focused windows of up to `maxWindows` non-primary apps,
-    /// useful for cross-app observation. Runs off the main thread for the
-    /// same reason as `enumerateCurrentWindow()`.
-    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int = 2) async -> [WindowInfo] {
-        await Task.detached { [self] in
-            enumerateSecondaryWindowsSync(excludingPID: excludingPID, maxWindows: maxWindows)
-        }.value
-    }
-
-    private func enumerateSecondaryWindowsSync(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo] {
-        let runningApps = NSWorkspace.shared.runningApplications
-            .filter { app in
-                app.activationPolicy == .regular
-                    && !app.isTerminated
-                    && !Self.isOwnOrHostApp(app)
-                    && (excludingPID == nil || app.processIdentifier != excludingPID)
-            }
-
-        var results: [WindowInfo] = []
-        for app in runningApps {
-            guard results.count < maxWindows else { break }
-            let pid = app.processIdentifier
-            let appElement = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
-
-            if Self.markEnhancedAXIfNeeded(pid: pid) {
-                AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
-            }
-
-            // Get all windows for this app and find the first visible one
-            var windowsRef: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-                  let windows = windowsRef as? [AXUIElement],
-                  !windows.isEmpty else { continue }
-
-            // Find a window that is on the main display (skip external monitors)
-            let mainDisplayBounds = CGDisplayBounds(CGMainDisplayID())
-            guard let visibleWindow = windows.first(where: {
-                let frame = getFrameAttribute($0)
-                return frame.width > 50 && frame.height > 50 && frame.intersects(mainDisplayBounds)
-            }) else { continue }
-
-            let windowTitle = getStringAttribute(visibleWindow, kAXTitleAttribute as CFString) ?? "Untitled"
-            let appName = app.localizedName ?? "Unknown"
-
-            nextId = 1
-            totalElementsEnumerated = 0
-            let elements = enumerateElementSafely(element: visibleWindow, depth: 0, maxDepth: 15) // shallower for secondary
-            guard !elements.isEmpty else { continue }
-
-            results.append(WindowInfo(elements: elements, windowTitle: windowTitle, appName: appName))
-            log.info("Secondary window: \(appName, privacy: .public) — \"\(windowTitle)\"")
-        }
-
-        return results
     }
 
     /// Safe wrapper around enumerateElement that prevents infinite loops.
@@ -516,7 +466,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     }
 
     private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
-        guard depth < maxDepth else { return [] }
+        guard depth < maxDepth else {
+            lastWalkTruncated = true
+            return []
+        }
 
         let role = getStringAttribute(element, kAXRoleAttribute as CFString) ?? ""
         // Emptiness, not nil, is what makes an attribute worth falling past:
@@ -781,40 +734,6 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
             result += String(char).lowercased()
         }
         return result
-    }
-
-    /// Format secondary windows into a compact text representation.
-    /// Uses a condensed format (interactive elements only) to minimize token cost.
-    static func formatSecondaryWindows(_ windows: [WindowInfo]) -> String? {
-        guard !windows.isEmpty else { return nil }
-
-        var lines: [String] = ["OTHER VISIBLE WINDOWS:"]
-        for window in windows {
-            lines.append("")
-            lines.append("  Window: \"\(window.windowTitle)\" (\(window.appName))")
-
-            var interactive: [String] = []
-            var staticTexts: [String] = []
-            var prunedCount = 0
-            collectFormatted(elements: window.elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
-
-            if !interactive.isEmpty {
-                for line in interactive.prefix(15) { // Cap per window to limit tokens
-                    lines.append("    \(line)")
-                }
-                if interactive.count > 15 {
-                    lines.append("    ... and \(interactive.count - 15) more elements")
-                }
-            }
-
-            if !staticTexts.isEmpty {
-                for text in staticTexts.prefix(10) {
-                    lines.append("    \(text)")
-                }
-            }
-        }
-
-        return lines.joined(separator: "\n")
     }
 
     static func flattenElements(_ elements: [AXElement]) -> [AXElement] {

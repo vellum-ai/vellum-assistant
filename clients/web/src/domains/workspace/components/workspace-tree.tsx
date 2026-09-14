@@ -41,6 +41,10 @@ import {
 import { type WorkspaceSortMode } from "@/domains/workspace/utils/sort-entries";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
+  WorkspaceNameTakenError,
+  workspaceMutationErrorMessage,
+} from "@/domains/workspace/utils/workspace-mutation-error";
+import {
   workspaceDeletePost,
   workspaceMkdirPost,
   workspaceRenamePost,
@@ -48,6 +52,7 @@ import {
   workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import { WORKSPACE_TREE_QUERY_KEY } from "@/lib/workspace-tree-query";
+import { toApiError } from "@/utils/api-errors";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
@@ -92,11 +97,11 @@ async function assertNameAvailable(
     query: parentPath ? { path: parentPath } : {},
   });
   const conflict = data?.entries?.some((entry) => {
-    const existing = (entry.name ?? "").toLowerCase();
+    const existing = entry.name.toLowerCase();
     return existing === target && existing !== excluded;
   });
   if (conflict) {
-    throw new Error(`"${name}" already exists here.`);
+    throw new WorkspaceNameTakenError(name);
   }
 }
 
@@ -340,11 +345,7 @@ export function WorkspaceTree({
               throwOnError: false,
             });
       if (error || !response?.ok) {
-        throw new Error(
-          typeof error === "string"
-            ? error
-            : "Failed to create — check the name and try again.",
-        );
+        throw response ? toApiError(error, response) : error;
       }
       return { ...input, path };
     },
@@ -361,7 +362,7 @@ export function WorkspaceTree({
       }
     },
     onError: (err: unknown) => {
-      setDialogError(err instanceof Error ? err.message : "Failed to create.");
+      setDialogError(workspaceMutationErrorMessage(err, "create", t));
     },
   });
 
@@ -385,11 +386,7 @@ export function WorkspaceTree({
         throwOnError: false,
       });
       if (error || !response?.ok) {
-        throw new Error(
-          typeof error === "string"
-            ? error
-            : "Failed to rename — check the name and try again.",
-        );
+        throw response ? toApiError(error, response) : error;
       }
       return { oldPath: input.oldPath, newPath };
     },
@@ -399,7 +396,7 @@ export function WorkspaceTree({
       onPathRenamed(oldPath, newPath);
     },
     onError: (err: unknown) => {
-      setDialogError(err instanceof Error ? err.message : "Failed to rename.");
+      setDialogError(workspaceMutationErrorMessage(err, "rename", t));
     },
   });
 
@@ -426,9 +423,7 @@ export function WorkspaceTree({
         throwOnError: false,
       });
       if (error || !response?.ok) {
-        throw new Error(
-          typeof error === "string" ? error : "Failed to delete — try again.",
-        );
+        throw response ? toApiError(error, response) : error;
       }
       return target;
     },
@@ -669,7 +664,11 @@ export function WorkspaceTree({
                 className="mt-2 block"
                 style={{ color: "var(--system-negative-strong)" }}
               >
-                {deleteMutation.error.message}
+                {workspaceMutationErrorMessage(
+                  deleteMutation.error,
+                  "delete",
+                  t,
+                )}
               </span>
             )}
           </>

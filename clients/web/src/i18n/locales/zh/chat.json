@@ -1981,5 +1981,12 @@
   },
   "coachmarkPress": {
     "turn": "我点击了 {label}。接下来呢？"
+  },
+  "cameraFrameGrid": {
+    "count": "{count, plural, other {# 个摄像头画面}}",
+    "timeRange": "保存时间：{first} 至 {last}",
+    "savedTime": "保存于 {time}",
+    "pendingAria": "摄像头画面，图像仍在加载。{time}",
+    "timeUnavailable": "时间不可用"
   }
 }

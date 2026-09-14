@@ -184,6 +184,23 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(mapRuntimeToDisplayMessage(m).isNoResponse).toBe(true);
   });
 
+  test("flags a cameraFrame message as isCameraFrame", () => {
+    const message = makeMessage({
+      id: "frame-1",
+      role: "user",
+      cameraFrame: true,
+    });
+    expect(mapRuntimeToDisplayMessage(message).isCameraFrame).toBe(true);
+  });
+
+  test("does not infer camera frames from their text", () => {
+    const message = makeMessage({
+      role: "user",
+      ...wireTextBody("(camera frame)"),
+    });
+    expect(mapRuntimeToDisplayMessage(message).isCameraFrame).toBeUndefined();
+  });
+
   test("carries the assistant-text visibility marker onto the display message", () => {
     // The marker is the row's own, so each row in a conversation renders by
     // its own value. An unmarked row stays unmarked, and an unrecognized value

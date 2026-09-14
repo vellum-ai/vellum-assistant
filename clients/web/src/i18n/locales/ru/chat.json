@@ -1006,5 +1006,12 @@
   "sidebarExpandRow": {
     "expand": "Развернуть",
     "collapse": "Свернуть"
+  },
+  "cameraFrameGrid": {
+    "count": "{count, plural, one {# кадр камеры} few {# кадра камеры} many {# кадров камеры} other {# кадра камеры}}",
+    "timeRange": "Сохранено с {first} по {last}",
+    "savedTime": "Сохранено: {time}",
+    "pendingAria": "Кадр камеры, изображение ещё загружается. {time}",
+    "timeUnavailable": "Время недоступно"
   }
 }

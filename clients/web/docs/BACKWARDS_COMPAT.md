@@ -214,6 +214,21 @@ The workspace-theme query (`useWorkspaceTheme`) is the reference
 example. Writes, and reads whose fallback diverges from feature-off,
 still gate.
 
+### Optional camera-frame read marker
+
+The optional `cameraFrame: true` field on history rows and `user_message_echo`
+events needs no version gate. Assistants without the field keep the ordinary
+message presentation. The web maps the field when present and never infers it
+from message text.
+
+Older web bundles compile a strict echo schema, so they drop marked echoes as
+unknown events. Standalone frames are persisted before the unchanged following
+`sync_changed` messages invalidation, which carries no `originClientId` and
+therefore bypasses self-echo suppression. The message-lifecycle subscription
+refetches history and reseeds the row and attachment as an ordinary message;
+grouping requires the new bundle. This recovery is covered by
+`use-message-lifecycle-camera-frame-compat.test.tsx`.
+
 ## The gates
 
 Each module owns one feature's old/new split. Current registry:

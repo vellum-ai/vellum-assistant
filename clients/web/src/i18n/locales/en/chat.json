@@ -1981,5 +1981,12 @@
   "sidebarExpandRow": {
     "expand": "Expand",
     "collapse": "Collapse"
+  },
+  "cameraFrameGrid": {
+    "count": "{count, plural, one {# camera frame} other {# camera frames}}",
+    "timeRange": "Saved {first} to {last}",
+    "savedTime": "Saved {time}",
+    "pendingAria": "Camera frame, image still loading. {time}",
+    "timeUnavailable": "Time unavailable"
   }
 }

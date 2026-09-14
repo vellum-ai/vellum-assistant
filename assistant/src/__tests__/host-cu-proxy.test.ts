@@ -36,9 +36,35 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
+// Captured `log.info` payloads, so the step-timings line can be asserted on.
+const infoLogs: { payload: Record<string, unknown>; message: string }[] = [];
+
+const realLogger = await import("../util/logger.js");
+mock.module("../util/logger.js", () => ({
+  ...realLogger,
+  getLogger: () => ({
+    info: (payload: unknown, message: unknown) => {
+      infoLogs.push({
+        payload: (payload ?? {}) as Record<string, unknown>,
+        message: String(message),
+      });
+    },
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+  }),
+}));
+
 // Use the REAL pending-interactions module — the proxy self-registers here.
 const pendingInteractions = await import("../runtime/pending-interactions.js");
 const { HostCuProxy } = await import("../daemon/host-cu-proxy.js");
+
+function stepTimingsLogs(): Record<string, unknown>[] {
+  return infoLogs
+    .filter((entry) => entry.message === "Host CU step timings")
+    .map((entry) => entry.payload);
+}
 
 describe("HostCuProxy", () => {
   let proxy: InstanceType<typeof HostCuProxy>;
@@ -48,6 +74,7 @@ describe("HostCuProxy", () => {
     sentOptions.length = 0;
     mockHasClient = false;
     mockClients = [];
+    infoLogs.length = 0;
     pendingInteractions.clear();
     proxy = new HostCuProxy(maxSteps);
   }
@@ -161,6 +188,124 @@ describe("HostCuProxy", () => {
       setup();
       // Should not throw
       proxy.processObservation("unknown-id", { axTree: "something" });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Step timings
+  // -------------------------------------------------------------------------
+
+  describe("step timings", () => {
+    test("logs helper timings alongside the proxy round trip", async () => {
+      setup();
+      proxy.recordAction("computer_use_click", { element_id: 42 });
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 42 },
+        "session-1",
+        1,
+      );
+      const sent = sentMessages[0] as Record<string, unknown>;
+
+      proxy.processObservation(sent.requestId as string, {
+        axTree: "Button [1]",
+        executionResult: "Clicked element 42",
+        timings: { total: 420, axWalk: 120, capture: 240 },
+      });
+
+      const result = await resultPromise;
+      const logs = stepTimingsLogs();
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({
+        requestId: sent.requestId,
+        toolName: "computer_use_click",
+        step: 1,
+        helper: { total: 420, axWalk: 120, capture: 240 },
+      });
+      expect(typeof logs[0].roundTripMs).toBe("number");
+
+      // The timings are observability only: nothing reaches the model.
+      expect(result.content).not.toContain("420");
+      expect(result.content).not.toContain("roundTripMs");
+    });
+
+    test("labels each line with its own request, not the latest dispatch", async () => {
+      setup();
+
+      // One model response can dispatch several CU tools, and the agent loop
+      // runs them concurrently. Dispatch two, then answer the first one last.
+      proxy.recordAction("computer_use_click", { element_id: 42 });
+      const firstPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 42 },
+        "session-1",
+        proxy.stepCount,
+      );
+      proxy.recordAction("computer_use_type_text", { text: "hello" });
+      const secondPromise = proxy.request(
+        "computer_use_type_text",
+        { text: "hello" },
+        "session-1",
+        proxy.stepCount,
+      );
+
+      const first = sentMessages[0] as Record<string, unknown>;
+      const second = sentMessages[1] as Record<string, unknown>;
+
+      proxy.processObservation(second.requestId as string, {
+        axTree: "Field [2]",
+        timings: { total: 200 },
+      });
+      proxy.processObservation(first.requestId as string, {
+        axTree: "Button [1]",
+        timings: { total: 400 },
+      });
+      await Promise.all([firstPromise, secondPromise]);
+
+      const logs = stepTimingsLogs();
+      const firstLog = logs.find((l) => l.requestId === first.requestId);
+      const secondLog = logs.find((l) => l.requestId === second.requestId);
+
+      // The click landed after the type_text, so reading current proxy state
+      // would have filed it under computer_use_type_text at step 2.
+      expect(firstLog).toMatchObject({
+        toolName: "computer_use_click",
+        step: 1,
+        helper: { total: 400 },
+      });
+      expect(secondLog).toMatchObject({
+        toolName: "computer_use_type_text",
+        step: 2,
+        helper: { total: 200 },
+      });
+    });
+
+    test("an observation without timings resolves normally", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 7 },
+        "session-1",
+        1,
+      );
+      const sent = sentMessages[0] as Record<string, unknown>;
+
+      proxy.processObservation(sent.requestId as string, {
+        axTree: "Button [1]",
+        executionResult: "Clicked element 7",
+      });
+
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Clicked element 7");
+      expect(result.content).toContain("<ax-tree>");
+
+      const logs = stepTimingsLogs();
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).not.toHaveProperty("helper");
+      expect(typeof logs[0].roundTripMs).toBe("number");
     });
   });
 
@@ -1650,6 +1795,400 @@ describe("HostCuProxy", () => {
       );
       expect(result.content).not.toContain("NO VISIBLE EFFECT");
       expect(proxy.previousAXTree).toBeUndefined();
+    });
+  });
+
+  describe("batched actions", () => {
+    const ACTIONS = [
+      { action: "open_app", app_name: "Google Chrome" },
+      { action: "key", key: "cmd+n" },
+      { action: "type_text", text: "example.com" },
+      { action: "key", key: "enter" },
+    ];
+
+    function connect(capabilities: string[]) {
+      mockClients = [
+        { clientId: "mac-1", actorPrincipalId: "user-1", capabilities },
+      ];
+    }
+    function sequence(targetClientId?: string) {
+      return proxy.request(
+        "computer_use_sequence",
+        { actions: ACTIONS, reasoning: "open a new window on a known URL" },
+        "session-1",
+        1,
+        "open a new window on a known URL",
+        undefined,
+        targetClientId,
+        "user-1",
+      );
+    }
+
+    test("a client without host_cu_sequence is refused and nothing is sent", async () => {
+      setup();
+      connect(["host_cu", "host_cu_window_capture"]);
+      for (const target of [undefined, "mac-1"]) {
+        const result = await sequence(target);
+        expect(result.isError).toBe(true);
+        expect(result.content).toContain(
+          "Batched actions require a desktop app that supports computer_use_sequence",
+        );
+        expect(result.content).toContain("Nothing was run.");
+      }
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("no connected client never falls back to an untargeted broadcast", async () => {
+      setup();
+      expect((await sequence()).isError).toBe(true);
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("a client with host_cu_sequence gets one request carrying the actions", async () => {
+      setup();
+      connect(["host_cu", "host_cu_sequence"]);
+      const pending = sequence();
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as {
+        requestId: string;
+        toolName: string;
+        targetClientId: string;
+        input: Record<string, unknown>;
+      };
+      expect(sent.toolName).toBe("computer_use_sequence");
+      expect(sent.targetClientId).toBe("mac-1");
+      expect(sent.input.actions).toEqual(ACTIONS);
+      proxy.processObservation(sent.requestId, {
+        axTree: "Window: New Tab",
+        executionResult: "Ran 4 actions",
+      });
+      const result = await pending;
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Ran 4 actions");
+    });
+  });
+
+  describe("screenshot on request", () => {
+    const TREE = 'Window: "Inbox" (Mail)\n  [1] button "Reply" at (10, 10)';
+    const OMITTED = "Screenshot omitted";
+
+    function connect() {
+      mockClients = [
+        {
+          clientId: "mac-1",
+          actorPrincipalId: "user-1",
+          capabilities: [
+            "host_cu",
+            "host_cu_window_capture",
+            "host_cu_annotate",
+          ],
+        },
+      ];
+    }
+
+    /** Dispatch one request and return what was sent, without answering it. */
+    function dispatch(
+      input: Record<string, unknown> = { element_id: 1 },
+      toolName = "computer_use_click",
+    ) {
+      const pending = proxy.request(
+        toolName,
+        input,
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        "mac-1",
+        "user-1",
+      );
+      const sent = sentMessages.at(-1) as {
+        requestId: string;
+        input: Record<string, unknown>;
+      };
+      return { pending, sent };
+    }
+
+    /** Dispatch one request, answer it with `observation`, and return both ends. */
+    async function step(
+      observation: Record<string, unknown>,
+      input?: Record<string, unknown>,
+      toolName?: string,
+    ) {
+      const { pending, sent } = dispatch(input, toolName);
+      proxy.processObservation(sent.requestId, observation);
+      return { sent, result: await pending };
+    }
+
+    function asksForScreenshot(sent: { input: Record<string, unknown> }) {
+      return !Object.hasOwn(sent.input, "includeScreenshot");
+    }
+
+    test("the first observed step attaches and the next unscoped step does not", async () => {
+      setup();
+      connect();
+      const first = await step({ axTree: TREE, screenshot: "img" });
+      expect(first.sent.input).toEqual({ element_id: 1 });
+      expect(first.result.content).not.toContain(OMITTED);
+
+      const second = await step({ axTree: TREE });
+      expect(second.sent.input).toEqual({
+        element_id: 1,
+        includeScreenshot: false,
+      });
+      expect(second.result.content).toContain(OMITTED);
+      expect(second.result.isError).toBe(false);
+    });
+
+    test("the first look is per desktop, so a newly targeted one attaches", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "mac-1",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_cu"],
+        },
+        {
+          clientId: "mac-2",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_cu"],
+        },
+      ];
+      const on = (clientId: string) => {
+        const pending = proxy.request(
+          "computer_use_click",
+          { element_id: 1 },
+          "session-1",
+          1,
+          undefined,
+          undefined,
+          clientId,
+          "user-1",
+        );
+        const sent = sentMessages.at(-1) as {
+          requestId: string;
+          input: Record<string, unknown>;
+        };
+        return { pending, sent };
+      };
+
+      const firstA = on("mac-1");
+      proxy.processObservation(firstA.sent.requestId, {
+        axTree: TREE,
+        screenshot: "img",
+      });
+      await firstA.pending;
+      const secondA = on("mac-1");
+      expect(asksForScreenshot(secondA.sent)).toBe(false);
+      proxy.processObservation(secondA.sent.requestId, { axTree: TREE });
+      await secondA.pending;
+
+      // A different machine the assistant has never seen gets its own look.
+      const firstB = on("mac-2");
+      expect(asksForScreenshot(firstB.sent)).toBe(true);
+      proxy.processObservation(firstB.sent.requestId, {
+        axTree: TREE,
+        screenshot: "img",
+      });
+      await firstB.pending;
+      const secondB = on("mac-2");
+      expect(asksForScreenshot(secondB.sent)).toBe(false);
+      proxy.processObservation(secondB.sent.requestId, { axTree: TREE });
+      await secondB.pending;
+    });
+
+    test("include_screenshot: true attaches and is not forwarded", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const input = { include_screenshot: true };
+      const { sent, result } = await step(
+        { axTree: TREE, screenshot: "img" },
+        input,
+        "computer_use_observe",
+      );
+      expect(sent.input).toEqual({});
+      expect(input).toEqual({ include_screenshot: true });
+      expect(result.content).not.toContain(OMITTED);
+    });
+
+    test("include_screenshot: false is stripped and the step still skips", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const { sent } = await step(
+        { axTree: TREE },
+        { include_screenshot: false },
+        "computer_use_observe",
+      );
+      expect(sent.input).toEqual({ includeScreenshot: false });
+    });
+
+    test("a scoped observe always attaches", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      for (const input of [
+        { capture_window_id: 12 },
+        { captureWindowId: 12 },
+        { captureDisplayId: 1 },
+      ]) {
+        const scoped = await step(
+          { axTree: TREE, screenshot: "img" },
+          input,
+          "computer_use_observe",
+        );
+        expect(scoped.sent.input).toEqual(input);
+      }
+    });
+
+    test("a scoped observation does not count as the first look", async () => {
+      setup();
+      connect();
+      await step(
+        { axTree: TREE, screenshot: "img" },
+        { capture_window_id: 12 },
+        "computer_use_observe",
+      );
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(true);
+    });
+
+    test("reset() makes the next step attach again", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(
+        false,
+      );
+      proxy.reset();
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(true);
+    });
+
+    test("the omitted line is absent when a requested capture failed", async () => {
+      setup();
+      connect();
+      const failed = await step({ axTree: TREE });
+      expect(asksForScreenshot(failed.sent)).toBe(true);
+      expect(failed.result.content).not.toContain(OMITTED);
+    });
+
+    test("a first look whose capture failed is asked for again", async () => {
+      setup();
+      connect();
+      const failed = await step({ axTree: TREE });
+      expect(asksForScreenshot(failed.sent)).toBe(true);
+      const retry = await step({ axTree: TREE, screenshot: "img" });
+      expect(asksForScreenshot(retry.sent)).toBe(true);
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(
+        false,
+      );
+    });
+
+    test("an observation that lands after a reset leaves the new run's state alone", async () => {
+      setup();
+      connect();
+      const stale = dispatch();
+      proxy.reset();
+      proxy.processObservation(stale.sent.requestId, {
+        axTree: "stale tree from the finished run",
+        screenshot: "img",
+      });
+      await stale.pending;
+      expect(proxy.previousAXTree).toBeUndefined();
+      expect(proxy.consecutiveUnchangedSteps).toBe(0);
+    });
+
+    test("an observation that lands after a reset does not restore the first look", async () => {
+      setup();
+      connect();
+      const stale = dispatch();
+      proxy.reset();
+      proxy.processObservation(stale.sent.requestId, {
+        axTree: TREE,
+        screenshot: "img",
+      });
+      await stale.pending;
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(true);
+    });
+
+    test("a skipped step that fails still carries the omitted line after the failure", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const failed = await step({
+        axTree: TREE,
+        executionError: "Element not found",
+      });
+      expect(asksForScreenshot(failed.sent)).toBe(false);
+      expect(failed.result.isError).toBe(true);
+      expect(failed.result.content).toStartWith(
+        "Action failed: Element not found",
+      );
+      expect(failed.result.content).toContain(OMITTED);
+    });
+
+    test("a refused skipped step with a tree carries the omitted line", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const refused = await step({
+        axTree: TREE,
+        executionError: "BLOCKED: the user is active",
+      });
+      expect(asksForScreenshot(refused.sent)).toBe(false);
+      expect(refused.result.isError).toBe(true);
+      expect(refused.result.content).toContain(OMITTED);
+    });
+
+    test("a skipped step with no tree gets no omitted line", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const empty = await step({ executionResult: "Clicked" });
+      expect(asksForScreenshot(empty.sent)).toBe(false);
+      expect(empty.result.content).not.toContain(OMITTED);
+    });
+
+    test("a helper that ignores the flag keeps its screenshot and gets no omitted line", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const legacy = await step({ axTree: TREE, screenshot: "img" });
+      expect(asksForScreenshot(legacy.sent)).toBe(false);
+      expect(legacy.result.content).not.toContain(OMITTED);
+      expect(legacy.result.contentBlocks).toHaveLength(1);
+    });
+
+    test("a point_at response leaves the first-look state untouched", async () => {
+      setup();
+      connect();
+      const input = { marks: [], include_screenshot: true };
+      const { pending, sent } = dispatch(input, "computer_use_point_at");
+      expect(sent.input).toBe(input);
+      proxy.processObservation(sent.requestId, { axTree: TREE });
+      expect((await pending).content).not.toContain(OMITTED);
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(true);
+    });
+
+    test("concurrent requests each keep their own dispatch decision", async () => {
+      setup();
+      connect();
+      // Both are dispatched before any observation, so both ask for pixels,
+      // even though the first one's observation lands before the second's.
+      const first = dispatch();
+      const second = dispatch();
+      expect(asksForScreenshot(first.sent)).toBe(true);
+      expect(asksForScreenshot(second.sent)).toBe(true);
+      proxy.processObservation(first.sent.requestId, {
+        axTree: TREE,
+        screenshot: "img",
+      });
+      const third = dispatch();
+      expect(asksForScreenshot(third.sent)).toBe(false);
+      proxy.processObservation(third.sent.requestId, { axTree: TREE });
+      proxy.processObservation(second.sent.requestId, { axTree: TREE });
+      await first.pending;
+      expect((await second.pending).content).not.toContain(OMITTED);
+      expect((await third.pending).content).toContain(OMITTED);
     });
   });
 });
