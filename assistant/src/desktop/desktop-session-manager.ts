@@ -16,8 +16,8 @@ import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
-import { desktopChromeCommand } from "./desktop-chrome-command.js";
 import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
+import { shouldRestoreDesktopChromeSession } from "./desktop-chrome-session.js";
 import {
   desktopChromePath,
   resolveDesktopBinaries,
@@ -712,12 +712,20 @@ function xServerCommand(executable: string): string[] {
 }
 
 function browserCommand(executable: string, profileDir: string): string[] {
-  // Set geometry before openbox maps the window.
+  // Root containers require --no-sandbox; set geometry before openbox maps it.
   return [
-    ...desktopChromeCommand(executable, profileDir),
+    executable,
+    "--no-sandbox",
+    "--no-first-run",
+    "--disable-dev-shm-usage",
+    // Crash recovery requires both flags; clean exits use normal startup.
+    ...(shouldRestoreDesktopChromeSession(profileDir)
+      ? ["--restore-last-session", "--hide-crash-restore-bubble"]
+      : []),
     "--start-maximized",
     "--window-position=0,0",
     `--window-size=${DESKTOP_WIDTH},${DESKTOP_HEIGHT}`,
+    `--user-data-dir=${profileDir}`,
   ];
 }
 

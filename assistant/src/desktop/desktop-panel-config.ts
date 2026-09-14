@@ -9,8 +9,6 @@ import {
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { desktopChromeCommand } from "./desktop-chrome-command.js";
-
 // Absolute icon paths work without an installed icon theme.
 const TERMINAL_ICON_BASE64 = [
   "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAACBklEQVR42u2bP2vCQBjG/T",
@@ -62,12 +60,7 @@ export function writeDesktopPanelConfig(
       // Chrome includes its profile path in WM_CLASS.
       windowClass: `google-chrome (${request.chromiumProfileDir})`,
       icon: browserIcon,
-      exec: desktopChromeCommand(
-        request.chromiumPath,
-        request.chromiumProfileDir,
-      )
-        .map((arg) => `"${arg}"`)
-        .join(" "),
+      exec: `"${request.chromiumPath}" --no-sandbox --no-first-run --disable-dev-shm-usage "--user-data-dir=${request.chromiumProfileDir}"`,
     }),
   );
   writeFileSync(

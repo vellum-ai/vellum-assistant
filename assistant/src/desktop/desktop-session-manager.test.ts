@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
@@ -480,6 +486,57 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.count("x-server")).toBe(1);
     expect(h.count("browser")).toBe(2);
   });
+
+  test.each(["Default", "Profile 1"])(
+    "restores a crashed %s session but preserves a subsequent clean close",
+    async (profileName) => {
+      const dir = mkdtempSync(join(tmpdir(), "desktop-crash-test-"));
+      const h = newFakeDesktop({ profileDir: dir, exitOnTerm: true });
+      try {
+        mkdirSync(join(dir, profileName));
+        writeFileSync(
+          join(dir, "Local State"),
+          JSON.stringify({ profile: { last_used: profileName } }),
+        );
+        const preferences = join(dir, profileName, "Preferences");
+        const crashed = JSON.stringify({ profile: { exit_type: "Crashed" } });
+        writeFileSync(preferences, crashed);
+        h.manager.acquireViewerSlot(newViewer().viewer);
+        await h.manager.ensureDesktopRunning();
+        expect(h.child("browser").request.cmd).toContain(
+          "--restore-last-session",
+        );
+        expect(h.child("browser").request.cmd).toContain(
+          "--hide-crash-restore-bubble",
+        );
+        expect(readFileSync(preferences, "utf8")).toBe(crashed);
+
+        h.child("browser").exit(1);
+        await settle();
+        expect(h.count("browser")).toBe(2);
+        expect(h.child("browser").request.cmd).toContain(
+          "--restore-last-session",
+        );
+
+        writeFileSync(
+          preferences,
+          JSON.stringify({ profile: { exit_type: "Normal" } }),
+        );
+        h.child("browser").exit(0);
+        await settle();
+        expect(h.count("browser")).toBe(3);
+        expect(h.child("browser").request.cmd).not.toContain(
+          "--restore-last-session",
+        );
+        expect(h.child("browser").request.cmd).not.toContain(
+          "--hide-crash-restore-bubble",
+        );
+      } finally {
+        await h.manager.destroy();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 
   test("a browser exit under a viewer relaunches it, until it crash loops", async () => {
     const h = newManager();
