@@ -100,19 +100,19 @@ describe("downloadSlackFileById", () => {
     });
   });
 
-  test("an id Slack does not know is unavailable, and nothing is fetched", async () => {
+  test("an id Slack does not know is unavailable, names the id, and nothing is fetched", async () => {
     fileInfo = undefined;
     await expect(
       downloadSlackFileById("F404", undefined, 1024),
-    ).rejects.toBeInstanceOf(ChannelFileUnavailableError);
+    ).rejects.toThrow(/knows no file F404/);
     expect(downloadCalls).toHaveLength(0);
   });
 
-  test("a missing bot credential is unavailable rather than a silent null", async () => {
+  test("a missing bot credential is unavailable rather than a silent null, and says so", async () => {
     botToken = null;
-    await expect(
-      downloadSlackFileById("F1", undefined, 1024),
-    ).rejects.toBeInstanceOf(ChannelFileUnavailableError);
+    await expect(downloadSlackFileById("F1", undefined, 1024)).rejects.toThrow(
+      /no bot credential/,
+    );
   });
 
   test("a Slack refusal or a failed fetch is unavailable, not an internal failure", async () => {
@@ -127,10 +127,10 @@ describe("downloadSlackFileById", () => {
     );
   });
 
-  test("a file with no download URL is unavailable", async () => {
+  test("a file with no download URL is unavailable, and says so", async () => {
     downloaded = null;
-    await expect(
-      downloadSlackFileById("F1", undefined, 1024),
-    ).rejects.toBeInstanceOf(ChannelFileUnavailableError);
+    await expect(downloadSlackFileById("F1", undefined, 1024)).rejects.toThrow(
+      /no download URL/,
+    );
   });
 });

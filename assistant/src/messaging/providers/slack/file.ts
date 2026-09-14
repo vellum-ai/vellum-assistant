@@ -24,9 +24,9 @@ export async function downloadSlackFileById(
   const downloaded = await withSlackBotToken(account, async (token) => {
     const file = await getSlackFileInfo(fileId, token);
     if (!file) {
-      return null;
+      throw new ChannelFileUnavailableError(`Slack knows no file ${fileId}`);
     }
-    return downloadSlackFile(
+    const bytes = await downloadSlackFile(
       {
         id: file.id,
         name: file.name,
@@ -37,8 +37,17 @@ export async function downloadSlackFileById(
       token,
       { maxBytes },
     );
+    if (bytes === null) {
+      throw new ChannelFileUnavailableError(
+        `Slack file ${fileId} has no download URL`,
+      );
+    }
+    return bytes;
   }).catch((error: unknown) => {
-    if (error instanceof ChannelFileTooLargeError) {
+    if (
+      error instanceof ChannelFileTooLargeError ||
+      error instanceof ChannelFileUnavailableError
+    ) {
       throw error;
     }
     // A Slack refusal (unknown id, missing scope, a failed fetch) is the
@@ -48,9 +57,11 @@ export async function downloadSlackFileById(
       `Slack did not hand back file ${fileId}: ${error instanceof Error ? error.message : String(error)}`,
     );
   });
+  // The helper answers null only when no bot credential is configured; the
+  // downloader's own null, a file with no URL, is turned into an error above.
   if (downloaded === null) {
     throw new ChannelFileUnavailableError(
-      `Slack has no bot credential configured, knows no file ${fileId}, or the file has no download URL`,
+      "Slack has no bot credential configured",
     );
   }
   return {
