@@ -39,6 +39,14 @@ const MISSING_ACTIVATION_HINTS =
   'activation_hints is required: pass 1-4 short trigger phrases stating the intent this skill serves (for example "user asks to deploy staging") so it can be found later by intent, not just by name.';
 
 /**
+ * Self-correcting error for a background overwrite of an existing skill with
+ * no change summary. The schema cannot express the condition (a create and a
+ * user-directed edit need none), so the executor is the enforcement point.
+ */
+const MISSING_CHANGE_SUMMARY =
+  'change_summary is required when updating an existing skill: pass one or two short sentences (under 200 characters) for the person who reads the "Skill updated" notice, naming what you changed and what in the trace prompted it (for example "Added the retry after an expired session and the export endpoint that held steady.").';
+
+/**
  * Validate + normalize a string-array input (sanitize, drop blanks, dedupe).
  * Returns `{ error }` on the first invalid element, or `{ value }` holding
  * the normalized array (undefined when absent or empty). Shared by the
@@ -91,11 +99,11 @@ function normalizeOptionalStringArray(
  * scheduled jobs, heartbeat), where a user already looks to see what the
  * assistant did on its own.
  *
- * `changeSummary` is the pass's own account of what it changed, and is the
- * notice's body when present: the feed item is the only place the change
- * surfaces, and a reader triaging it there has no diff to look at, so a notice
- * that only names the skill sends them into the skill to find out what
- * happened. Without one the body says that the skill changed and nothing more.
+ * `changeSummary` is the pass's own account of what it changed and is the
+ * notice's body: the feed item is the only place the change surfaces, and a
+ * reader triaging it there has no diff to look at, so a notice that only
+ * names the skill sends them into the skill to find out what happened. The
+ * executor refuses the overwrite without one, so this never runs without it.
  *
  * `sourceContextId` is a conversation id so the feed item's "Go to Convo"
  * target resolves (see `home-feed-side-effect.ts`, which looks it up via
@@ -109,11 +117,8 @@ function notifyBackgroundSkillUpdate(args: {
   skillId: string;
   name: string;
   conversationId: string;
-  changeSummary: string | undefined;
+  changeSummary: string;
 }): void {
-  const body =
-    args.changeSummary ??
-    `Updated the skill "${args.name}" from something learned in an earlier conversation.`;
   const day = new Date().toISOString().slice(0, 10);
   void emitNotificationSignal({
     // This emit is a tool executor's, not the scheduler's. The channel is
@@ -132,13 +137,13 @@ function notifyBackgroundSkillUpdate(args: {
       // background, no interruption) leaves the feed writer with no summary
       // and it skips the item entirely, so the quiet case would surface
       // nothing at all.
-      summary: body,
+      summary: args.changeSummary,
       // Named, not just "Skill updated": the feed sits several rows deep and
       // a generic title is unscannable next to entries that name their
       // subject (`Background job failed: memory.v2.sweep`). The word "Skill"
       // stays because a bare skill name does not always read as one.
       title: `Skill updated: ${args.name}`,
-      body,
+      body: args.changeSummary,
       skillId: args.skillId,
     },
     attentionHints: {
@@ -326,8 +331,8 @@ export async function executeScaffoldManagedSkill(
 
   // The update notice's body. Model-authored text bound for a notification
   // surface, so it gets the same control-character strip and preview clamp as
-  // any other producer-supplied body; blank collapses to absent so the notice
-  // falls back to its generic sentence rather than an empty one.
+  // any other producer-supplied body; blank collapses to absent so the
+  // requirement below treats it as missing rather than posting an empty notice.
   let changeSummary: string | undefined;
   if (input.change_summary !== undefined) {
     if (typeof input.change_summary !== "string") {
@@ -393,6 +398,16 @@ export async function executeScaffoldManagedSkill(
         isError: true,
       };
     }
+  }
+
+  // A background overwrite announces itself through the notice built in
+  // notifyBackgroundSkillUpdate, whose body is this summary, so the write is
+  // refused without one. The error returns to the pass in the same turn and
+  // it retries with the field, the way a missing activation_hints does.
+  // Checked after the ownership backstop so a pass that may not touch the
+  // skill hears that first, and before any write so nothing is lost.
+  if (fromRetrospective && managedSkillExistedBefore && !changeSummary) {
+    return { content: `Error: ${MISSING_CHANGE_SUMMARY}`, isError: true };
   }
 
   // Conversation lineage (retrospective origin only). The retrospective runs
@@ -479,7 +494,12 @@ export async function executeScaffoldManagedSkill(
   // skill.
   const notifyConversationId =
     sourceConversationId ?? retrospectiveConversationId;
-  if (fromRetrospective && managedSkillExistedBefore && notifyConversationId) {
+  if (
+    fromRetrospective &&
+    managedSkillExistedBefore &&
+    notifyConversationId &&
+    changeSummary
+  ) {
     notifyBackgroundSkillUpdate({
       skillId: id,
       name: normalizedName,

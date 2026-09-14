@@ -101,7 +101,7 @@ export const SkillSinceRemoved: Story = {
       id: "feed-skill-removed",
       title: "Skill updated: Approved PR Merge Gate + Receipt",
       summary:
-        'Updated the skill "Approved PR Merge Gate + Receipt" from something learned in an earlier conversation.',
+        "Added the receipt step after the merge and the check that the approval is still current before merging.",
       category: "background",
       urgency: "low",
       metadata: { skillId: "approved-pr-merge-gate" },
@@ -165,7 +165,7 @@ export const LinksPending: Story = {
       id: "feed-skill-pending",
       title: "Skill updated: Approved PR Merge Gate + Receipt",
       summary:
-        'Updated the skill "Approved PR Merge Gate + Receipt" from something learned in an earlier conversation.',
+        "Added the receipt step after the merge and the check that the approval is still current before merging.",
       category: "background",
       urgency: "low",
       metadata: { skillId: "approved-pr-merge-gate" },
