@@ -84,7 +84,7 @@ export interface ChatBodyProps {
   documentSlot?: ReactNode;
   /** Selects the visible region while keeping both content trees mounted. */
   documentPresentation?: "document" | "conversation";
-  /** Session navigation/status, visible in either content presentation. */
+  /** Optional navigation beside the composer, such as reopening a document. */
   sessionNavigationSlot?: ReactNode;
 
   /**

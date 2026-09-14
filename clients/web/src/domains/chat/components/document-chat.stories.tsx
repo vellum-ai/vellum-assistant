@@ -72,8 +72,25 @@ const QUEUED_MESSAGE = message(
   "Also add a short packing checklist.",
 ).message;
 
+const WORKING_TRANSCRIPT = [
+  ...TRANSCRIPT,
+  message("message-3", "user", DRAFT),
+  message(
+    "message-4",
+    "assistant",
+    "I'm revising the introduction to make it shorter.",
+  ),
+];
+
 interface DocumentChatStoryProps {
-  state: "idle" | "uploading" | "working" | "error" | "needs-input";
+  state:
+    | "editing"
+    | "idle"
+    | "uploading"
+    | "working"
+    | "queued"
+    | "error"
+    | "needs-input";
   layout: "mobile" | "desktop";
 }
 
@@ -82,13 +99,14 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
     "document",
   );
   const [queuedMessages, setQueuedMessages] = useState(
-    state === "working" ? [QUEUED_MESSAGE] : [],
+    state === "queued" ? [QUEUED_MESSAGE] : [],
   );
+  const [isBusy, setIsBusy] = useState(state === "working" || state === "queued");
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const voiceInputRef = useRef<VoiceInputButtonHandle | null>(null);
   const showingDocument = presentation === "document";
-  const status =
-    state === "working" || state === "needs-input" ? state : "idle";
+  const transcript =
+    state === "working" || state === "queued" ? WORKING_TRANSCRIPT : TRANSCRIPT;
   const viewConversation = () => setPresentation("conversation");
   const documentViewer = (
     <DocumentViewerContainer
@@ -99,6 +117,7 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
       documentName="A quiet weekend away"
       content={DOCUMENT}
       onClose={viewConversation}
+      onViewConversation={layout === "mobile" ? viewConversation : undefined}
     />
   );
   const chat = (
@@ -106,13 +125,13 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
       variant="main"
       scrollAreaProps={{
         isLoadingHistory: false,
-        messageCount: TRANSCRIPT.length,
+        messageCount: transcript.length,
         showMaintenanceRecoveryCard: false,
         showEmptyState: false,
         emptyStateProps: {},
         transcriptRef: null,
         transcriptProps: {
-          items: TRANSCRIPT,
+          items: transcript,
           conversationId: CONVERSATION_ID,
           assistantId: ASSISTANT_ID,
           onSurfaceAction: () => {},
@@ -121,11 +140,8 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
       documentSlot={layout === "mobile" ? documentViewer : undefined}
       documentPresentation={presentation}
       sessionNavigationSlot={
-        layout === "mobile" ? (
+        layout === "mobile" && !showingDocument ? (
           <DocumentChatNavigation
-            presentation={presentation}
-            status={status}
-            onViewConversation={viewConversation}
             onReopenDocument={() => setPresentation("document")}
           />
         ) : undefined
@@ -139,8 +155,11 @@ function DocumentChatStory({ state, layout }: DocumentChatStoryProps) {
           sendDisabled={false}
           assistantId={ASSISTANT_ID}
           conversationId={CONVERSATION_ID}
-          isAssistantBusy={state === "working"}
-          onStopGenerating={() => {}}
+          isAssistantBusy={isBusy}
+          onStopGenerating={() => {
+            setIsBusy(false);
+            useTurnStore.setState({ phase: "idle" });
+          }}
           onAddAttachmentFiles={(files) => {
             useComposerStore.getState().addFiles(files, ASSISTANT_ID);
           }}
@@ -203,7 +222,7 @@ const meta: Meta<typeof DocumentChatStory> = {
       description: {
         component:
           "Production ChatBody, ChatComposer and DocumentViewerContainer with presentation fixtures. " +
-          "View conversation and Reopen document keep one composer mounted. " +
+          "The document header's chat icon and Reopen document keep one composer mounted, without a navigation strip below the editor. " +
           "Document saves and file uploads use an isolated SDK transport. " +
           "Sending, queue processing and microphone recording are not simulated; these stories do not verify delivery or route orchestration.",
       },
@@ -222,8 +241,10 @@ const meta: Meta<typeof DocumentChatStory> = {
     const interactionSnapshot = useInteractionStore.getState();
     const turnSnapshot = useTurnStore.getState();
     const clientSnapshot = client.getConfig();
+    const hasDraft =
+      args.state === "idle" || args.state === "uploading" || args.state === "error";
     useComposerStore.setState({
-      input: DRAFT,
+      input: hasDraft ? DRAFT : "",
       restoredDraftConversationId: null,
       attachmentLastError: null,
       attachments:
@@ -235,7 +256,9 @@ const meta: Meta<typeof DocumentChatStory> = {
               mimeType: "application/pdf",
               sizeBytes: 4096,
             }]
-          : [ATTACHMENT],
+          : hasDraft
+            ? [ATTACHMENT]
+            : [],
     });
     useInteractionStore.getState().resetAll();
     if (args.state === "needs-input") {
@@ -256,12 +279,12 @@ const meta: Meta<typeof DocumentChatStory> = {
     useTurnStore.setState({
       ...INITIAL_TURN_STATE,
       phase:
-        args.state === "working"
+        args.state === "working" || args.state === "queued"
           ? "thinking"
           : args.state === "needs-input"
             ? "awaiting_user_input"
             : "idle",
-      pendingQueuedCount: args.state === "working" ? 1 : 0,
+      pendingQueuedCount: args.state === "queued" ? 1 : 0,
     });
     client.setConfig({
       baseUrl: "https://storybook.invalid",
@@ -311,9 +334,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const MobileIdle: Story = {};
+export const MobileDirectEditing: Story = { args: { state: "editing" } };
 export const MobileDark: Story = { globals: { theme: "dark" } };
 export const MobileUploading: Story = { args: { state: "uploading" } };
 export const MobileWorking: Story = { args: { state: "working" } };
+export const MobileQueued: Story = { args: { state: "queued" } };
 export const MobileError: Story = { args: { state: "error" } };
 export const MobileNeedsInput: Story = { args: { state: "needs-input" } };
 export const Desktop: Story = {
@@ -337,9 +362,17 @@ export const MobilePreservesComposer: Story = {
     await expect(editor).toHaveTextContent(edit.trim());
     await userEvent.type(textarea, " Keep the relaxed tone.");
     const expectedDraft = `${DRAFT} Keep the relaxed tone.`;
-    await userEvent.click(
-      canvas.getByRole("button", { name: "View conversation" }),
-    );
+    const viewConversation = canvas.getByRole("button", {
+      name: "View conversation",
+    });
+    await expect(viewConversation.closest("header")).not.toBeNull();
+    await expect(
+      canvas.queryByText("Replies appear in the conversation"),
+    ).toBeNull();
+    await expect(
+      canvasElement.querySelector('[data-slot="document-chat-navigation"]'),
+    ).toBeNull();
+    await userEvent.click(viewConversation);
     await expect(canvas.getByPlaceholderText(PLACEHOLDER)).toBe(textarea);
     await expect(textarea).toHaveValue(expectedDraft);
     await expect(canvas.getByText(ATTACHMENT.filename)).toBeVisible();
@@ -353,6 +386,9 @@ export const MobilePreservesComposer: Story = {
     )).toBe(editor);
     await expect(editor).toBeVisible();
     await expect(editor).toHaveTextContent(edit.trim());
+    await expect(
+      canvasElement.querySelector('[data-slot="document-chat-navigation"]'),
+    ).toBeNull();
     await expect(canvasElement.querySelectorAll("textarea")).toHaveLength(1);
   },
 };

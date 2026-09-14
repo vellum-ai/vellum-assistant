@@ -28,6 +28,7 @@ interface DocumentChatContentProps {
   onClose: () => void;
   onRetry: () => void;
   onSubmitFeedback: () => void;
+  onViewConversation?: () => void;
 }
 
 /** Editor region inside the active chat's keyboard-aware app shell. */
@@ -41,6 +42,7 @@ export function DocumentChatContent({
   onClose,
   onRetry,
   onSubmitFeedback,
+  onViewConversation,
 }: DocumentChatContentProps) {
   const { t } = useTranslation("chat");
   const isMobile = useIsMobile();
@@ -110,6 +112,7 @@ export function DocumentChatContent({
         useViewerStore.getState().renameOpenedDocument(document.surfaceId, name)
       }
       onSubmitFeedback={onSubmitFeedback}
+      onViewConversation={onViewConversation}
       onExport={handleExport}
     />
   );

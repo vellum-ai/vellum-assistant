@@ -76,7 +76,7 @@ const openedDocument: OpenedDocumentState = {
   content: "# Notes",
 };
 
-function renderDocument() {
+function renderDocument(onViewConversation = () => {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -93,6 +93,7 @@ function renderDocument() {
         onClose={() => {}}
         onRetry={() => {}}
         onSubmitFeedback={() => {}}
+        onViewConversation={onViewConversation}
       />
     </QueryClientProvider>
   );
@@ -123,7 +124,17 @@ afterEach(() => {
   document.body.style.pointerEvents = "";
 });
 
-describe("DocumentChatContent PDF export", () => {
+describe("DocumentChatContent actions", () => {
+  test("the header chat action opens the linked conversation", async () => {
+    const onViewConversation = mock(() => {});
+    renderDocument(onViewConversation);
+    const button = screen.getByRole("button", { name: "View conversation" });
+    expect(button.closest("header")).not.toBeNull();
+    await userEvent.setup().click(button);
+    expect(onViewConversation).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Replies appear in the conversation")).toBeNull();
+  });
+
   test("the editor menu exports the active document with its current name", async () => {
     const page = renderDocument();
     await exportFromMenu();

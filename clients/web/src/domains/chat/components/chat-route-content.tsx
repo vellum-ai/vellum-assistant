@@ -136,10 +136,7 @@ import {
 } from "@/domains/chat/utils/error-classification";
 import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
 import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
-import {
-  hasActiveInteraction,
-  useInteractionStore,
-} from "@/domains/chat/interaction-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type {
   DisplayAttachment,
   DisplayMessage,
@@ -445,7 +442,6 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const mainView = useViewerStore.use.mainView();
   const isMobile = useIsMobile();
-  const needsUserInput = useInteractionStore(hasActiveInteraction);
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const openedAppState = useViewerStore.use.openedAppState();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
@@ -1604,6 +1600,7 @@ export function ChatMainPanel({
             error={documentRoute.error}
             editorRef={documentEditorRef}
             onClose={documentRoute.closeDocument}
+            onViewConversation={documentRoute.viewConversation}
             onRetry={documentRoute.reloadDocument}
             onSubmitFeedback={() => {
               void handleDocumentFeedback();
@@ -1615,21 +1612,8 @@ export function ChatMainPanel({
         documentRoute.showingDocument ? "document" : "conversation"
       }
       sessionNavigationSlot={
-        isMobile && documentRoute.surfaceId ? (
+        isMobile && documentRoute.surfaceId && !documentRoute.showingDocument ? (
           <DocumentChatNavigation
-            presentation={
-              documentRoute.showingDocument ? "document" : "conversation"
-            }
-            status={
-              documentPreparation?.preparing
-                ? "preparing"
-                : needsUserInput
-                  ? "needs-input"
-                  : isAssistantBusy
-                    ? "working"
-                    : "idle"
-            }
-            onViewConversation={documentRoute.viewConversation}
             onReopenDocument={documentRoute.reopenDocument}
           />
         ) : undefined

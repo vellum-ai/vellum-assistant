@@ -91,6 +91,7 @@ export interface DocumentViewerContainerProps {
   conversationId: string;
   onExport?: () => void;
   onSubmitFeedback?: () => void;
+  onViewConversation?: () => void;
   /**
    * The document was retitled to `documentName`. The write has already been
    * sent; this is how the caller holding the name (the viewer store for the
@@ -144,6 +145,7 @@ function DocumentViewerContent({
   conversationId,
   onExport,
   onSubmitFeedback,
+  onViewConversation,
   onRenamed,
 }: DocumentViewerContainerProps) {
   const { t } = useTranslation("chat");
@@ -372,14 +374,6 @@ function DocumentViewerContent({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-overlay)]">
-      {/*
-        Header. The document's identity sits in a two-line block (name over a
-        status line) so the panel opens with a heading rather than a strip of
-        controls. Everything the document can do rides in one design-library
-        overflow menu beside it, which leaves the header two affordances: the
-        menu and the way out. Comments are in there as well, because the panel
-        they open is its own answer about whether it is showing.
-      */}
       <header className="flex shrink-0 items-start gap-3 border-b border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-3">
         <FileText
           size={16}
@@ -414,6 +408,16 @@ function DocumentViewerContent({
             </Typography>
           </span>
         </div>
+
+        {onViewConversation && (
+          <Button
+            variant="ghost"
+            iconOnly={<MessageSquareText />}
+            onClick={onViewConversation}
+            aria-label={t("documentChat.viewConversation")}
+            tooltip={t("documentChat.viewConversation")}
+          />
+        )}
 
         <ActionMenu.Root>
           <ActionMenu.Trigger>

@@ -171,8 +171,9 @@ its pending status, so minimizing again leaves the composer ready to retry.
 Once preparation succeeds, `useComposerSubmit` and `useSendMessage` own sending.
 There is no document delivery endpoint, pending-message store, reply watcher or
 parallel recovery lifecycle. Queue, error, connection, question and approval
-controls are the existing chat surfaces. The document navigation row reports
-working/needs-input status and offers View conversation or Reopen document.
+controls are the existing chat surfaces. A chat icon in the mobile document header
+opens the conversation, which offers Reopen document to return to the retained
+editor. No persistent status or navigation row separates the document and composer.
 See [Conversation SSE](./CONVERSATION_SSE.md) for delivery and stream ownership.
 
 ## Layout and compatibility

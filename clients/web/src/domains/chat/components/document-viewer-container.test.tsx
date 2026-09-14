@@ -138,6 +138,27 @@ async function renameTo(name: string): Promise<void> {
   await user.click(screen.getByRole("button", { name: "Save" }));
 }
 
+describe("DocumentViewerContainer conversation action", () => {
+  test("uses a header icon without closing the document", async () => {
+    const onViewConversation = mock(() => {});
+    const onClose = mock(() => {});
+    renderViewer({ onViewConversation, onClose });
+    const button = screen.getByRole("button", { name: "View conversation" });
+    expect(button.closest("header")).not.toBeNull();
+    expect(button.textContent).toBe("");
+    await userEvent.setup().click(button);
+    expect(onViewConversation).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("omits the action for viewers without a conversation switch", () => {
+    renderViewer();
+    expect(
+      screen.queryByRole("button", { name: "View conversation" }),
+    ).toBeNull();
+  });
+});
+
 describe("DocumentViewerContainer autosave", () => {
   test("an edit still pending when the container goes away is flushed", async () => {
     const { unmount } = renderViewer();
