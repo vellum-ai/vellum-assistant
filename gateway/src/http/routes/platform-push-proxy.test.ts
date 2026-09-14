@@ -1,4 +1,12 @@
-import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
@@ -16,9 +24,10 @@ mock.module("../../fetch.js", () => ({
   fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
 }));
 
-const { createPlatformPushProxyHandler } = await import(
-  "./platform-push-proxy.js"
-);
+const { createPlatformPushProxyHandler } =
+  await import("./platform-push-proxy.js");
+const { applyPlatformIdentityIds, _resetPlatformIdentityForTests } =
+  await import("../../platform-identity.js");
 
 const PLATFORM_ASSISTANT_ID = "11111111-1111-4111-8111-111111111111";
 const PLATFORM_BASE_URL = "https://platform.example.com";
@@ -33,6 +42,11 @@ function makeKeyedCredentials(
 }
 
 function registeredCredentials(): CredentialCache {
+  applyPlatformIdentityIds({
+    assistantId: PLATFORM_ASSISTANT_ID,
+    organizationId: "",
+    userId: "",
+  });
   return makeKeyedCredentials({
     [credentialKey("vellum", "platform_base_url")]: PLATFORM_BASE_URL,
     [credentialKey("vellum", "assistant_api_key")]: ASSISTANT_API_KEY,
@@ -86,6 +100,7 @@ describe("platform push proxy", () => {
 
   afterEach(() => {
     fetchMock = mock(async () => new Response());
+    _resetPlatformIdentityForTests();
   });
 
   test("returns 503 and does not fetch when platform credentials are missing", async () => {

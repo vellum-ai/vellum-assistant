@@ -36,6 +36,10 @@ let webhookRouteReads = 0;
 mock.module("../credential-reader.js", () => ({
   getWorkspaceDir: () => workspaceDir,
   readCredential: async () => undefined,
+  readCredentialResult: async () => ({
+    value: undefined,
+    unreachable: false,
+  }),
 }));
 
 mock.module("../db/webhook-ingress-route-store.js", () => ({
@@ -67,11 +71,22 @@ const {
 } = await import("./allowed-paths.js");
 const { VelayTunnelClient, createVelayTunnelClient, enablePublicIngress } =
   await import("./client.js");
+const { applyPlatformIdentityIds, _resetPlatformIdentityForTests } =
+  await import("../platform-identity.js");
 
 const WS_OPEN = WebSocket.OPEN;
 const WS_CLOSED = WebSocket.CLOSED;
 
 function makeCredentials(values: Record<string, string | undefined>) {
+  const assistantId =
+    values[credentialKey("vellum", "platform_assistant_id")]?.trim();
+  if (assistantId) {
+    applyPlatformIdentityIds({
+      assistantId,
+      organizationId: "",
+      userId: "",
+    });
+  }
   return {
     get: async (key: string) => values[key],
     onInvalidate: () => () => {},
@@ -246,6 +261,7 @@ beforeEach(() => {
   velayWebhooksEnabled = false;
   webhookRouteReadError = undefined;
   webhookRouteReads = 0;
+  _resetPlatformIdentityForTests();
 });
 
 afterEach(() => {
@@ -683,6 +699,11 @@ describe("VelayTunnelClient", () => {
       resolveFirstApiKeyRead = resolve;
     });
     let useFreshCredentials = false;
+    applyPlatformIdentityIds({
+      assistantId: "asst-123",
+      organizationId: "",
+      userId: "",
+    });
     const credentials = {
       get: async (key: string) => {
         if (key === apiKeyCredential) {
