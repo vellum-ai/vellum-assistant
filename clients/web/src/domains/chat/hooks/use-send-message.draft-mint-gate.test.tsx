@@ -1,9 +1,16 @@
 /**
- * The draft-mint gate blocks a second send while a draft's first POST is in
- * flight, and is released however that POST settles. A gate still held after
- * the POST rejects refuses every later send for that draft with "Setting up
- * your conversation. Please try again in a moment." for the rest of the
- * session, so the rejection path is the one worth pinning.
+ * What a draft's first POST settles: the mint gate, and the URL the resolved
+ * conversation lands on.
+ *
+ * The draft-mint gate blocks a second send while that POST is in flight, and
+ * is released however it settles. A gate still held after the POST rejects
+ * refuses every later send for that draft with "Setting up your conversation.
+ * Please try again in a moment." for the rest of the session, so the rejection
+ * path is the one worth pinning.
+ *
+ * The success path swaps the draft key for the server's id and replaces the
+ * URL with it. An app the viewer holds beside the draft is named in that URL,
+ * so the id swap does not close it.
  *
  * Driven end-to-end against a spied daemon client, mirroring the sibling
  * plugins test so the module registry stays clean.
@@ -12,8 +19,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
-import type { ReactNode } from "react";
+import { MemoryRouter, useLocation } from "react-router";
+import { useEffect, type ReactNode } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
@@ -23,17 +30,39 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTurnStore, INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import { routes } from "@/utils/routes";
 
 const DRAFT_ID = "draft-1";
+/** The id the daemon mints for the draft's first message. */
+const SERVER_ID = "conv-server-1";
+const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
 
 let postCalls = 0;
 const originalPost = daemonClient.post;
 
 const queryClient = new QueryClient();
+
+/** Where the router currently stands, recorded rather than mocked. */
+let currentLocation = "";
+
+function LocationProbe() {
+  const { pathname } = useLocation();
+  // Recorded from an effect rather than during render: a render body may not
+  // write to anything outside itself.
+  useEffect(() => {
+    currentLocation = pathname;
+  }, [pathname]);
+  return null;
+}
+
 function Wrapper({ children }: { children: ReactNode }) {
   return (
     <MemoryRouter>
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        {children}
+        <LocationProbe />
+      </QueryClientProvider>
     </MemoryRouter>
   );
 }
@@ -61,6 +90,8 @@ beforeEach(() => {
   useChatSessionStore.getState().setError(null);
   useComposerStore.getState().setInput("");
   useResolvedAssistantsStore.getState().setActiveAssistantId(null);
+  useViewerStore.getState().reset();
+  currentLocation = "";
 
   daemonClient.post = mock(async () => {
     postCalls += 1;
@@ -70,8 +101,18 @@ beforeEach(() => {
 
 afterEach(() => {
   daemonClient.post = originalPost;
+  useViewerStore.getState().reset();
   cleanup();
 });
+
+/** A daemon that accepts the message and answers with an id of its own. */
+function acceptWithServerId(): void {
+  daemonClient.post = mock(async () => ({
+    data: { accepted: true, conversationId: SERVER_ID, messageId: "m1" },
+    error: null,
+    response: new Response(null, { status: 200 }),
+  })) as typeof daemonClient.post;
+}
 
 describe("useSendMessage: draft-mint gate", () => {
   test("releases the gate when the POST throws, so a later send is accepted", async () => {
@@ -90,5 +131,39 @@ describe("useSendMessage: draft-mint gate", () => {
     // A held gate short-circuits before the request, so the second attempt
     // reaching the client is what proves it was released.
     expect(postCalls).toBe(2);
+  });
+});
+
+describe("useSendMessage: a draft resolving to its server id", () => {
+  /** The path the draft's first send left the router on. */
+  async function sendFirstMessage(): Promise<string> {
+    useAssistantIdentityStore.getState().setIdentity("Assistant", "0.10.12");
+    useConversationStore.getState().setActiveConversationId(DRAFT_ID);
+    acceptWithServerId();
+    const { result } = renderHook(() => useSendMessage(baseProps()), {
+      wrapper: Wrapper,
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("first message");
+    });
+
+    return currentLocation;
+  }
+
+  test("names the app held beside the draft, so the id swap does not close it", async () => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
+
+    expect(await sendFirstMessage()).toBe(
+      routes.conversation(SERVER_ID, SAMPLE_APP.appId),
+    );
+  });
+
+  test("names no app when the viewer is on the chat", async () => {
+    expect(await sendFirstMessage()).toBe(routes.conversation(SERVER_ID));
   });
 });

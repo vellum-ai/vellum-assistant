@@ -18,6 +18,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 import { routes } from "@/utils/routes";
+import { keptAppId } from "@/utils/conversation-navigation";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
 import {
   isLocalMetaCommand,
@@ -1209,7 +1210,7 @@ export function useSendMessage({
             useConversationStore
               .getState()
               .setActiveConversationId(newConversationId);
-            void navigate(routes.conversation(newConversationId), {
+            void navigate(routes.conversation(newConversationId, keptAppId()), {
               replace: true,
             });
           }

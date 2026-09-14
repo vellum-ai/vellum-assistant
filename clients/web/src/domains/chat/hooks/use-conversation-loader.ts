@@ -30,7 +30,10 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
-import { revealConversationView } from "@/utils/conversation-navigation";
+import {
+  keptAppId,
+  revealConversationView,
+} from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { useNavigate } from "react-router";
 
@@ -490,7 +493,7 @@ export function useConversationLoader({
       useConversationStore
         .getState()
         .setActiveConversationId(draftConversationId);
-      void navigate(routes.conversation(draftConversationId));
+      void navigate(routes.conversation(draftConversationId, keptAppId()));
       requestComposerFocus();
     },
     [navigate],
