@@ -358,8 +358,8 @@ export function useConversationLoader({
 
     const apply = (key: string) => {
       useConversationStore.getState().setActiveConversationId(key);
-      // Explicit routes already name the selected chat. Their search params
-      // belong to the document and prompt handlers, not bootstrap routing.
+      // The URL may carry more than the key (the app viewer segment); when it
+      // already names the resolved key there is nothing to rewrite.
       if (key !== explicitConversationId) {
         void navigate(routes.conversation(key), { replace: true });
       }
