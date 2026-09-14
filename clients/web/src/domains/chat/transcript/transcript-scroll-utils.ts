@@ -77,22 +77,36 @@ export function classifyScrollPosition(
 }
 
 /**
- * Whether two item lists hold the same rows, compared by key.
+ * Whether two item lists hold the same visible row identities, including
+ * frames folded into a message item.
  *
- * Guards the underfilled-viewport auto-fetch: transcript items are a
- * projection of the loaded transcript (confirmation visibility and other
- * filters can drop rows), so a fetched history page can change the items
- * array's identity without changing its rows. An auto-fetch that re-fires on
- * such a no-progress update would chain-load history the transcript will not
- * show. Key equality is the right grain: a page that adds or removes any
- * visible row changes the key sequence, while in-place updates to an
- * existing row (streaming text) keep it.
+ * Guards the underfilled-viewport auto-fetch against no-progress updates.
+ * Reprojected arrays, streaming text, and attachment hydration preserve
+ * identity, while a page adding frames changes it even under the same host.
  */
 export function haveSameItemKeys(
   a: readonly TranscriptItem[],
   b: readonly TranscriptItem[],
 ): boolean {
-  return a.length === b.length && a.every((item, i) => item.key === b[i]?.key);
+  return (
+    a.length === b.length &&
+    a.every((item, i) => {
+      const next = b[i];
+      if (item.key !== next?.key) {
+        return false;
+      }
+      const frames = item.kind === "message" ? (item.cameraFrames ?? []) : [];
+      const nextFrames =
+        next.kind === "message" ? (next.cameraFrames ?? []) : [];
+      return (
+        frames.length === nextFrames.length &&
+        frames.every((frame, index) => {
+          const nextFrame = nextFrames[index];
+          return nextFrame !== undefined && sameFrameIdentity(nextFrame, frame);
+        })
+      );
+    })
+  );
 }
 
 /**

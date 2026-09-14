@@ -44,21 +44,26 @@ function project(messages: DisplayMessage[]) {
   });
 }
 
-function createHarness(initialMessages = frames.slice(2)) {
+function createHarness(
+  initialMessages = frames.slice(2),
+  initialHeight = 1800,
+) {
   const scrollElement = document.createElement("div");
   const contentElement = document.createElement("div");
   scrollElement.append(contentElement);
   Object.defineProperty(scrollElement, "scrollHeight", {
     configurable: true,
-    value: 1800,
+    value: initialHeight,
   });
   Object.defineProperty(scrollElement, "clientHeight", {
     configurable: true,
     value: 800,
   });
   const scrollToLatest = mock(() => {
-    scrollElement.scrollTop =
-      scrollElement.scrollHeight - scrollElement.clientHeight;
+    scrollElement.scrollTop = Math.max(
+      0,
+      scrollElement.scrollHeight - scrollElement.clientHeight,
+    );
   });
   const handle: TranscriptHandle = {
     scrollToLatest,
@@ -89,7 +94,10 @@ function createHarness(initialMessages = frames.slice(2)) {
   );
   hook.rerender({ ...initialProps, hasMore: true });
   act(() => {
-    scrollElement.scrollTop = 100;
+    scrollElement.scrollTop = Math.min(
+      100,
+      Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight),
+    );
     scrollElement.dispatchEvent(new Event("scroll"));
   });
   expect(onLoadOlder).toHaveBeenCalledTimes(1);
@@ -99,10 +107,12 @@ function createHarness(initialMessages = frames.slice(2)) {
     ...hook,
     scrollElement,
     scrollToLatest,
+    onLoadOlder,
     update(
       messages: DisplayMessage[],
       isLoadingOlder = false,
       scrollHeight = 2300,
+      hasMore = false,
     ) {
       Object.defineProperty(scrollElement, "scrollHeight", {
         configurable: true,
@@ -112,12 +122,55 @@ function createHarness(initialMessages = frames.slice(2)) {
         ...initialProps,
         items: project(messages),
         isLoadingOlder,
+        hasMore,
       });
     },
   };
 }
 
 describe("camera frame pagination scrolling", () => {
+  test("chain-loads frames folded into an unchanged host, then stops on no progress or hydration", () => {
+    const utterance: DisplayMessage = { id: "speech", role: "user" };
+    const harness = createHarness([...frames.slice(2), utterance], 400);
+    const firstPage = [...frames.slice(1), utterance];
+    expect(project(firstPage).map((item) => item.key)).toEqual(["speech"]);
+
+    harness.update(firstPage, false, 450, true);
+    expect(harness.onLoadOlder).toHaveBeenCalledTimes(2);
+
+    harness.update(firstPage, true, 450, true);
+    harness.update([...frames, utterance], false, 500, true);
+    expect(harness.onLoadOlder).toHaveBeenCalledTimes(3);
+
+    harness.update([...frames, utterance], true, 500, true);
+    const unchanged = [...frames, utterance].map((message) => ({ ...message }));
+    harness.update(unchanged, false, 500, true);
+    expect(harness.onLoadOlder).toHaveBeenCalledTimes(3);
+
+    harness.update(
+      [
+        {
+          ...frames[0]!,
+          attachments: [
+            {
+              id: "attachment-1",
+              filename: "frame.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+              previewUrl: "https://example.com/frame.png",
+            },
+          ],
+        },
+        ...frames.slice(1),
+        utterance,
+      ],
+      false,
+      500,
+      true,
+    );
+    expect(harness.onLoadOlder).toHaveBeenCalledTimes(3);
+  });
+
   test.each([false, true])(
     "hydration while loading preserves the saved anchor for the actual prepend (utterance: %j)",
     (withUtterance) => {

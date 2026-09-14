@@ -70,7 +70,7 @@ function items(ids: readonly string[]): TranscriptItem[] {
   return ids.map(makeMessage);
 }
 
-function cameraItems(ids: string[]): TranscriptItem[] {
+function cameraItems(ids: readonly string[]): TranscriptItem[] {
   return buildTranscriptItems({
     messages: ids.map((id) => ({ id, role: "user", isCameraFrame: true })),
     pendingSecret: null,
@@ -824,6 +824,29 @@ describe("haveSameItemKeys", () => {
     const prev = [makeMessage("m1"), makeMessage("m2")];
     const next = [makeMessage("m1"), makeMessage("m3")];
     expect(haveSameItemKeys(prev, next)).toBe(false);
+  });
+
+  test.each([
+    { ids: ["f1", "f2", "f3", "f4"] },
+    { ids: ["f1", "f3"] },
+    { ids: ["f1", "f4", "f3"] },
+    { ids: ["f1", "f3", "f2"] },
+  ])("changed grouped frame identities count as progress: %j", ({ ids }) => {
+    const prev = cameraItems(["f1", "f2", "f3"]);
+    const next = cameraItems(ids);
+    expect(prev[0]?.key).toBe(next[0]?.key);
+    expect(haveSameItemKeys(prev, next)).toBe(false);
+  });
+
+  test("an echoed frame with the same client identity is not pagination progress", () => {
+    const prev = cameraItems(["f1", "client-f2"]);
+    const next = cameraItems(["f1", "stored-f2"]);
+    const group = next[0];
+    if (group?.kind !== "message") {
+      throw new Error("Expected a message group");
+    }
+    group.cameraFrames![1]!.clientMessageId = "client-f2";
+    expect(haveSameItemKeys(prev, next)).toBe(true);
   });
 });
 

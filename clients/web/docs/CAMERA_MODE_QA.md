@@ -431,6 +431,9 @@ Use a development build with `vision-mode` enabled.
       the viewport even when the entire loaded page is one run and its first
       host changes. Repeat while a new ambient keep arrives. A genuine spoken
       or typed message arriving during pagination must still pin its new turn.
+      In a tall, underfilled viewport, pages containing only frames for an
+      existing utterance must continue loading until the viewport fills or
+      history ends. Hydration alone must not restart a stopped load chain.
 - [ ] Take a shutter photo after ambient keeps. The photo adopts the preceding
       run and keeps its own attachment. Plain text reading `(camera frame)` and
       speech carrying a parked frame retain ordinary user-message behavior.
