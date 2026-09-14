@@ -479,6 +479,24 @@ enum HostCuActionRunner {
     /// One window's AX read: its elements plus the identity of the window they came from.
     private typealias WindowRead = (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)
 
+    /// Take the observation screenshot and report how long the capture itself
+    /// took, so a caller running it beside other work can record it honestly.
+    nonisolated private static func timedCapture(
+        _ screenCapture: any ScreenCaptureProviding,
+        target: CaptureTarget?
+    ) async -> (Result<ScreenCaptureResult, any Error>, Int) {
+        let start = DispatchTime.now()
+        func elapsedMs() -> Int {
+            Int((DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000)
+        }
+        do {
+            let result = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: target)
+            return (.success(result), elapsedMs())
+        } catch {
+            return (.failure(error), elapsedMs())
+        }
+    }
+
     /// Capture the current screen state as an observation.
     private static func buildObservation(
         enumerator: AccessibilityTreeProviding,
@@ -514,6 +532,12 @@ enum HostCuActionRunner {
         // focused window: it may be on another display or another app, and
         // its text would then be filed against a frame that never showed it.
         // A targeted read with no matching tree is a screenshot alone.
+        // Start the screenshot before the AX walk so the two overlap: they read
+        // the same moment of the same screen through different subsystems, and
+        // neither needs the other's answer. The request is identical whether or
+        // not the walk finds a tree, so one call serves both outcomes.
+        async let timedShot = timedCapture(screenCapture, target: captureTarget)
+
         let windowResult = await timer.measure(.axWalk) { () -> WindowRead? in
             switch captureTarget {
             case .window(let windowId):
@@ -554,44 +578,30 @@ enum HostCuActionRunner {
                 secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
             }
 
-            // Capture screenshot
-            do {
-                let screenshotResult = try await timer.measure(.capture) {
-                    try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
-                }
-                screenshotBase64 = await timer.measure(.encode) {
-                    screenshotResult.jpegData.base64EncodedString()
-                }
-                if let meta = screenshotResult.metadata {
-                    screenshotWidthPx = meta.screenshotWidthPx
-                    screenshotHeightPx = meta.screenshotHeightPx
-                }
-                let screenSize = screenCapture.screenSize()
-                screenWidthPt = Int(screenSize.width)
-                screenHeightPt = Int(screenSize.height)
-            } catch {
-                log.error("[\(stepNumber)] Screenshot capture failed: \(error)")
-            }
         } else {
-            // No focused window — try screenshot as fallback
-            log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
-            do {
-                let screenshotResult = try await timer.measure(.capture) {
-                    try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
-                }
-                screenshotBase64 = await timer.measure(.encode) {
-                    screenshotResult.jpegData.base64EncodedString()
-                }
-                if let meta = screenshotResult.metadata {
-                    screenshotWidthPx = meta.screenshotWidthPx
-                    screenshotHeightPx = meta.screenshotHeightPx
-                }
-                let screenSize = screenCapture.screenSize()
-                screenWidthPt = Int(screenSize.width)
-                screenHeightPt = Int(screenSize.height)
-            } catch {
-                log.error("[\(stepNumber)] Screen capture failed: \(error)")
+            log.warning("[\(stepNumber)] No AX tree available, using the screenshot alone")
+        }
+
+        // Collect the capture that ran alongside the walk. A failure still
+        // leaves the screenshot nil and the tree, if there is one, intact. Its
+        // duration was measured inside its own task, so it reports the capture
+        // alone rather than however long the walk beside it took.
+        let (captureOutcome, captureMs) = await timedShot
+        timer.record(.capture, millis: captureMs)
+        switch captureOutcome {
+        case .success(let screenshotResult):
+            screenshotBase64 = await timer.measure(.encode) {
+                screenshotResult.jpegData.base64EncodedString()
             }
+            if let meta = screenshotResult.metadata {
+                screenshotWidthPx = meta.screenshotWidthPx
+                screenshotHeightPx = meta.screenshotHeightPx
+            }
+            let screenSize = screenCapture.screenSize()
+            screenWidthPt = Int(screenSize.width)
+            screenHeightPt = Int(screenSize.height)
+        case .failure(let error):
+            log.error("[\(stepNumber)] Screenshot capture failed: \(error)")
         }
 
         return ObservationData(
