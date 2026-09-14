@@ -190,6 +190,29 @@ enum HostCuActionRunner {
                 )
                 return finish(obs)
             }
+            if toolName == "computer_use_sequence" || toolName == "cu_sequence" {
+                let outcome = await runSequence(
+                    input: input,
+                    reasoning: reasoning,
+                    enumerator: enumerator,
+                    verifier: verifier,
+                    stepNumber: stepNumber,
+                    conversationId: conversationId,
+                    timer: timer
+                )
+                let obs = await buildObservation(
+                    enumerator: enumerator,
+                    screenCapture: screenCapture,
+                    executionResult: outcome.result,
+                    executionError: outcome.error,
+                    stepNumber: stepNumber,
+                    conversationId: conversationId,
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
+                )
+                return finish(obs)
+            }
+
             // Refuse early when we can, which also skips the AX walk that
             // coordinate resolution would otherwise do on the way to nothing.
             if ActionExecutor.takesOverFromUser(agentAction), ActionExecutor.userIsCurrentlyActive() {
@@ -340,6 +363,102 @@ enum HostCuActionRunner {
         )
 
         return finish(obs)
+    }
+
+    // MARK: - Sequence
+
+    /// Run a `computer_use_sequence` batch: each action goes through the same
+    /// gate, resolution, verification and settle as a single step, in order,
+    /// stopping at the first one that is refused or fails. The caller takes
+    /// one observation afterwards. Element IDs resolve against the last
+    /// observation, which is the tree the model chose them from.
+    private static func runSequence(
+        input: [String: Any],
+        reasoning: String?,
+        enumerator: AccessibilityTreeEnumerator,
+        verifier: ActionVerifier,
+        stepNumber: Int,
+        conversationId: String,
+        timer: PhaseTimer
+    ) async -> (result: String?, error: String?) {
+        let items = input["actions"] as? [[String: Any]] ?? []
+        let names = items.map { $0["action"] as? String }
+        if let problem = ActionSequence.problem(withActions: names) {
+            return (nil, problem)
+        }
+        let actions = zip(items, names).map { item, name in
+            mapToAgentAction(toolName: ActionSequence.toolName(forAction: name!)!, input: item, reasoning: reasoning)
+        }
+
+        var ran: [String] = []
+        var stoppedAt: String?
+        var executeMs = 0
+        var settleMs = 0
+        var resolveMs = 0
+
+        actionLoop: for (index, action) in actions.enumerated() {
+            let label = "action \(index + 1) of \(actions.count) (\(names[index]!))"
+
+            if ActionExecutor.takesOverFromUser(action), ActionExecutor.userIsCurrentlyActive() {
+                stoppedAt = "Stopped at \(label): \(ActionExecutor.userIsActiveMessage)"
+                break actionLoop
+            }
+            let resolveStart = DispatchTime.now()
+            let resolved = await resolveCoordinatesIfNeeded(
+                for: action,
+                enumerator: enumerator,
+                stepNumber: stepNumber,
+                conversationId: conversationId
+            )
+            resolveMs += PhaseTimer.millis(since: resolveStart)
+            guard let resolved else {
+                stoppedAt = "Stopped at \(label): could not resolve element coordinates."
+                break actionLoop
+            }
+            if ActionExecutor.takesOverFromUser(resolved), ActionExecutor.userIsCurrentlyActive() {
+                stoppedAt = "Stopped at \(label): \(ActionExecutor.userIsActiveMessage)"
+                break actionLoop
+            }
+            switch verifier.verify(resolved, batchItem: index > 0) {
+            case .allowed:
+                break
+            case .needsConfirmation(let reason):
+                stoppedAt = "Stopped at \(label): BLOCKED: \(reason) (confirmation not available in proxy mode)"
+                break actionLoop
+            case .blocked(let reason):
+                stoppedAt = "Stopped at \(label): BLOCKED: \(reason)"
+                break actionLoop
+            }
+
+            // A fresh executor per action: it is not Sendable, so one instance
+            // cannot be sent across the actor boundary on every iteration. Its
+            // shared state (the last synthetic post) is static.
+            let executor = ActionExecutor()
+            let executeStart = DispatchTime.now()
+            do {
+                let result = try await executor.execute(resolved)
+                ran.append(result ?? names[index]!)
+            } catch {
+                executeMs += PhaseTimer.millis(since: executeStart)
+                stoppedAt = "Stopped at \(label): \(error.localizedDescription)"
+                break actionLoop
+            }
+            executeMs += PhaseTimer.millis(since: executeStart)
+
+            let settleStart = DispatchTime.now()
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            settleMs += PhaseTimer.millis(since: settleStart)
+        }
+
+        timer.record(.execute, millis: executeMs)
+        timer.record(.settle, millis: settleMs)
+        if resolveMs > 0 { timer.record(.resolve, millis: resolveMs) }
+        log.info("[\(stepNumber)] Sequence ran \(ran.count) of \(actions.count) actions")
+
+        let summary = ran.isEmpty ? nil : "Ran \(ran.count) of \(actions.count) actions: \(ran.joined(separator: "; "))"
+        guard let stoppedAt else { return (summary, nil) }
+        let tail = ran.isEmpty ? " Nothing before it ran." : " The \(ran.count) action(s) before it ran."
+        return (summary, stoppedAt + tail)
     }
 
     // MARK: - Capture Target
