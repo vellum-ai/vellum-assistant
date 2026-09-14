@@ -558,7 +558,7 @@ export const ROUTES: RouteDefinition[] = [
         .array(z.string())
         .optional()
         .describe(
-          "Directories a recursive walk listed but did not enter. Absent from assistants that predate recursive listings.",
+          "Directories a recursive walk listed but did not enter, whether because a workspace gitignore rule excludes them, they are symlinks, or they could not be read. Each can still be listed on its own. Absent from assistants that predate recursive listings.",
         ),
     }),
     handler: handleWorkspaceTree,

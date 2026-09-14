@@ -2,7 +2,13 @@
  * The recursive workspace walk: what it enters, what it lists without
  * entering, the order it reports, and the bounds that stop it.
  */
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "bun:test";
 
@@ -139,11 +145,66 @@ describe("walkWorkspaceTree recursive", () => {
     expect(skipped).not.toContain("data/avatar");
   });
 
-  test("a symlinked directory is listed but not entered", async () => {
-    const { entries } = await walk();
+  test("a symlinked directory is listed, not entered, and reported skipped", async () => {
+    const { entries, skipped } = await walk();
     const paths = entries.map((e) => e.path);
     expect(paths).toContain("walk-fixture/linked");
     expect(paths).not.toContain("walk-fixture/linked/behind.md");
+    expect(skipped).toContain("walk-fixture/linked");
+  });
+
+  test("an unreadable directory is listed, not entered, and reported skipped", async () => {
+    // Root bypasses permission bits, so the check proves nothing there.
+    if (process.getuid?.() === 0) {
+      return;
+    }
+    const locked = join(root, "locked");
+    mkdirSync(locked, { recursive: true });
+    writeFileSync(join(locked, "inside.md"), "x");
+    chmodSync(locked, 0o000);
+    try {
+      const { entries, skipped, truncated } = await walk();
+      const paths = entries.map((e) => e.path);
+      expect(paths).toContain("walk-fixture/locked");
+      expect(paths).not.toContain("walk-fixture/locked/inside.md");
+      expect(skipped).toContain("walk-fixture/locked");
+      expect(truncated).toBe(false);
+    } finally {
+      chmodSync(locked, 0o755);
+      rmSync(locked, { recursive: true, force: true });
+    }
+  });
+
+  test("a directory wider than the remaining room is not scanned", async () => {
+    // Root (5) leaves one slot at a cap of 6; a-dir (1) fits and b-dir (2)
+    // does not. Nothing under b-dir is stat'd: its walk-time stat would
+    // otherwise show up as a listed entry.
+    const wide = join(root, "wide");
+    mkdirSync(wide, { recursive: true });
+    for (let i = 0; i < 50; i++) {
+      writeFileSync(join(wide, `w${i}.md`), "x");
+    }
+    try {
+      const result = await walk({ maxEntries: 7 });
+      const paths = result.entries.map((e) => e.path);
+      expect(paths).toContain("walk-fixture/wide");
+      expect(paths.some((p) => p.startsWith("walk-fixture/wide/"))).toBe(false);
+      expect(result.truncated).toBe(true);
+    } finally {
+      rmSync(wide, { recursive: true, force: true });
+    }
+  });
+
+  test("the deadline is honored inside a directory, not only between them", async () => {
+    // A clock that advances one second per read: the deadline is set at 0,
+    // the check before the first nested directory reads 1000 and passes,
+    // and the first entry inside it reads 2000 and stops the listing. Were
+    // the deadline checked only between directories, that one-entry
+    // directory would be carried and the walk would stop one step later.
+    let reads = 0;
+    const result = await walk({ maxWalkMs: 1500, now: () => reads++ * 1000 });
+    expect(result.truncated).toBe(true);
+    expect(result.entries.length).toBe(5);
   });
 
   test("the entry cap stops descent and reports truncated", async () => {
