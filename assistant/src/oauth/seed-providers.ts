@@ -10,6 +10,30 @@ import { migrateProviderBaseUrl, seedProviders } from "./oauth-store.js";
 const STALE_GOOGLE_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
 
 /**
+ * The hosts a Slack credential may be sent to, shared by the person-identity
+ * `slack` provider and the `slack_channel` bot: both read messages, and a file
+ * shared in a message is fetched from the file object's `url_private`,
+ * `url_private_download`, or `thumb_*` URL on `files.slack.com` with the same
+ * Bearer token as the Web API. Slack documents that one file host by name.
+ */
+const SLACK_INJECTION_TEMPLATES: NonNullable<
+  (typeof PROVIDER_SEED_DATA)[string]["injectionTemplates"]
+> = [
+  {
+    hostPattern: "slack.com",
+    injectionType: "header",
+    headerName: "Authorization",
+    valuePrefix: "Bearer ",
+  },
+  {
+    hostPattern: "files.slack.com",
+    injectionType: "header",
+    headerName: "Authorization",
+    valuePrefix: "Bearer ",
+  },
+];
+
+/**
  * Protocol-level seed data for each well-known OAuth provider.
  *
  * These values are upserted into the `oauth_providers` SQLite table on
@@ -217,24 +241,7 @@ export const PROVIDER_SEED_DATA: Record<
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
     loopbackPort: 17322,
-    injectionTemplates: [
-      {
-        hostPattern: "slack.com",
-        injectionType: "header",
-        headerName: "Authorization",
-        valuePrefix: "Bearer ",
-      },
-      // The file object's `url_private`, `url_private_download`, and `thumb_*`
-      // fields live on this host and take the same Bearer token as the Web
-      // API, so a file shared in a message is read with the same credential
-      // that read the message. Slack documents this one host by name.
-      {
-        hostPattern: "files.slack.com",
-        injectionType: "header",
-        headerName: "Authorization",
-        valuePrefix: "Bearer ",
-      },
-    ],
+    injectionTemplates: SLACK_INJECTION_TEMPLATES,
     appType: "Slack App",
     identityUrl: "https://slack.com/api/auth.test",
     identityOkField: "ok",
@@ -1204,24 +1211,7 @@ export const PROVIDER_SEED_DATA: Record<
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
     defaultScopes: [],
-    injectionTemplates: [
-      {
-        hostPattern: "slack.com",
-        injectionType: "header",
-        headerName: "Authorization",
-        valuePrefix: "Bearer ",
-      },
-      // The file object's `url_private`, `url_private_download`, and `thumb_*`
-      // fields live on this host and take the same Bearer token as the Web
-      // API, so a file shared in a message is read with the same credential
-      // that read the message. Slack documents this one host by name.
-      {
-        hostPattern: "files.slack.com",
-        injectionType: "header",
-        headerName: "Authorization",
-        valuePrefix: "Bearer ",
-      },
-    ],
+    injectionTemplates: SLACK_INJECTION_TEMPLATES,
   },
 
   // The bot that sits in a server and talks to people there, which is a
