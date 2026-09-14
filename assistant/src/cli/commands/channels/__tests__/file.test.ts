@@ -55,7 +55,6 @@ beforeEach(() => {
   ipcCalls.length = 0;
   handleCalls.length = 0;
   handleImpl = async () => ENVELOPE;
-  process.exitCode = undefined;
   dir = mkdtempSync(join(tmpdir(), "channels-file-"));
 });
 
@@ -82,7 +81,7 @@ describe("channels file", () => {
     ]);
     expect(readFileSync(out)).toEqual(BYTES);
     expect(run.stderr).toContain("Wrote 4 bytes (image/png)");
-    expect(process.exitCode).toBeUndefined();
+    expect(run.exitCode).toBe(0);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -119,7 +118,7 @@ describe("channels file", () => {
     const run = await runChannelsFile(["discord", "F1"]);
     expect(run.stderr).toContain("cannot fetch a file by id");
     expect(run.stderr).toContain("channels get discord");
-    expect(process.exitCode).toBe(
+    expect(run.exitCode).toBe(
       actualCliClient.exitCodeFromIpcResult({ statusCode: 400 }),
     );
     expect(handleCalls).toHaveLength(1);
