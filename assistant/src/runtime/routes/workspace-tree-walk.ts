@@ -140,8 +140,9 @@ async function listDirectory(
 
 /**
  * List `rootPath`. A recursive walk is depth-first with each directory's
- * entries in listing order, so grouping the result by parent path gives
- * every directory's listing exactly as a non-recursive request would.
+ * entries in listing order and never part of a directory, so grouping the
+ * result by parent path gives every directory's listing exactly as a
+ * non-recursive request would, or nothing for it at all.
  *
  * Symlinked directories are listed but never entered, so a link cannot make
  * the walk cycle or leave the workspace. The root's own read error is the
@@ -191,9 +192,9 @@ export async function walkWorkspaceTree(
     } catch {
       continue;
     }
-    const room = maxEntries - entries.length;
-    if (listed.entries.length > room) {
-      entries.push(...listed.entries.slice(0, room));
+    // A directory is carried whole or not at all, so a client grouping the
+    // result by parent never mistakes part of a listing for all of it.
+    if (entries.length + listed.entries.length > maxEntries) {
       return { entries, truncated: true, skipped };
     }
     entries.push(...listed.entries);
