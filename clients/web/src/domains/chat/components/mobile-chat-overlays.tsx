@@ -21,7 +21,10 @@ import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { type ChatInfoCategory, useViewerStore } from "@/stores/viewer-store";
-import { prepareFreshConversation } from "@/utils/conversation-navigation";
+import {
+  navigateFromApp,
+  prepareFreshConversation,
+} from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 import { MobileChannelTranscriptOverlay } from "@/domains/chat/channel-sidecar/mobile-channel-transcript-overlay";
@@ -73,7 +76,7 @@ export function MobileChatOverlays() {
 
   const handleNavigateAppRoute = useCallback(
     (href: string) => {
-      void navigate(href);
+      navigateFromApp(navigate, href);
     },
     [navigate],
   );

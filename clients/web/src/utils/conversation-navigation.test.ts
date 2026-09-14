@@ -11,6 +11,10 @@
  * When an app is already on screen on a wide viewport, conversation
  * navigation keeps that app in the side-by-side layout instead of
  * dismissing it to chat, and names it in the URL it navigates to.
+ *
+ * `navigateFromApp` is the other direction: a link followed from inside an
+ * app leaves a chat destination to the route sync and closes the viewer
+ * itself for any destination that unmounts the chat page.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -47,6 +51,7 @@ const {
   navigateToNewConversation,
   keepOpenAppBesideConversation,
   keptAppId,
+  navigateFromApp,
   revealConversationView,
 } = await import("@/utils/conversation-navigation");
 
@@ -375,5 +380,74 @@ describe("revealConversationView", () => {
     expect(useConversationStore.getState().editingConversationId).toBe(
       "conv-4",
     );
+  });
+});
+
+describe("navigateFromApp", () => {
+  test("leaves the viewer to the route sync for a conversation destination", () => {
+    openAppViewer("app-editing");
+    useConversationStore.getState().setEditingConversationId("conv-2");
+    const navigate = mock((_to: string) => {});
+    const href = routes.conversation("conv-2");
+    navigateFromApp(navigate as unknown as NavigateFunction, href);
+
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    expect(useViewerStore.getState().activeAppId).toBe(SAMPLE_APP.appId);
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-2",
+    );
+    expect(navigate).toHaveBeenCalledWith(href);
+  });
+
+  test("leaves the viewer alone for a conversation app-route destination", () => {
+    openAppViewer("app-editing");
+    useConversationStore.getState().setEditingConversationId("conv-2");
+    const navigate = mock((_to: string) => {});
+    const href = routes.conversation("conv-2", SAMPLE_APP.appId);
+    navigateFromApp(navigate as unknown as NavigateFunction, href);
+
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    expect(useViewerStore.getState().activeAppId).toBe(SAMPLE_APP.appId);
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-2",
+    );
+    expect(navigate).toHaveBeenCalledWith(href);
+  });
+
+  test("closes the app for a destination that unmounts the chat page", () => {
+    openAppViewer("app-editing");
+    useConversationStore.getState().setEditingConversationId("conv-2");
+    const navigate = mock((_to: string) => {});
+    navigateFromApp(
+      navigate as unknown as NavigateFunction,
+      routes.library.root,
+    );
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useViewerStore.getState().activeAppId).toBeNull();
+    expect(useViewerStore.getState().openedAppState).toBeNull();
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(routes.library.root);
+  });
+
+  test("classifies by pathname, so a query string keeps the app", () => {
+    openAppViewer();
+    const navigate = mock((_to: string) => {});
+    const href = `${routes.conversation("conv-2")}?prompt=hi`;
+    navigateFromApp(navigate as unknown as NavigateFunction, href);
+
+    expect(useViewerStore.getState().activeAppId).toBe(SAMPLE_APP.appId);
+    expect(navigate).toHaveBeenCalledWith(href);
+  });
+
+  test("classifies by pathname, so a query string still closes the app", () => {
+    openAppViewer();
+    const navigate = mock((_to: string) => {});
+    const href = `${routes.library.root}?tab=apps`;
+    navigateFromApp(navigate as unknown as NavigateFunction, href);
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useViewerStore.getState().activeAppId).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(href);
   });
 });

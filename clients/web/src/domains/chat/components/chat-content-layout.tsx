@@ -52,7 +52,10 @@ import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOverlayEscape } from "../hooks/use-overlay-escape";
-import { prepareFreshConversation } from "@/utils/conversation-navigation";
+import {
+  navigateFromApp,
+  prepareFreshConversation,
+} from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
 import { skillDetailBackState } from "@/utils/skills";
@@ -237,7 +240,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const handleNavigateAppRoute = useCallback(
     (href: string) => {
-      void navigate(href);
+      navigateFromApp(navigate, href);
     },
     [navigate],
   );
