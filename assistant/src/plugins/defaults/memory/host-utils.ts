@@ -25,6 +25,7 @@ import type { SqliteRetryOptions } from "../../../util/sqlite-retry.js";
 import * as hostSqliteRetry from "../../../util/sqlite-retry.js";
 import * as hostStripCommentLines from "../../../util/strip-comment-lines.js";
 import * as hostTruncate from "../../../util/truncate.js";
+import * as hostUnicode from "../../../util/unicode.js";
 import * as hostWorkerCompute from "../../../util/worker-compute.js";
 import * as hostWorkerMemory from "../../../util/worker-memory.js";
 
@@ -74,6 +75,15 @@ export function truncate(str: string, maxLen: number, suffix?: string): string {
   return suffix === undefined
     ? hostTruncate.truncate(str, maxLen)
     : hostTruncate.truncate(str, maxLen, suffix);
+}
+
+/** `String.prototype.slice` that never cuts a UTF-16 surrogate pair in half. */
+export function safeStringSlice(
+  str: string,
+  start?: number,
+  end?: number,
+): string {
+  return hostUnicode.safeStringSlice(str, start, end);
 }
 
 export function workerMemoryEnv(): Record<string, string | undefined> {

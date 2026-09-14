@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { stripOrphanedSurrogates } from "../../../../../util/unicode.js";
 import {
   buildSectionIndex,
   leadSectionOfBody,
@@ -106,6 +107,31 @@ describe("buildSectionIndex", () => {
     for (const chunk of [...big, ...leadChunks]) {
       expect(sectionBody(chunk).length).toBeGreaterThan(0);
     }
+  });
+
+  test("a hard split never lands inside a surrogate pair and loses no text", async () => {
+    // One unbroken line of emoji longer than the window, offset by one BMP
+    // character so the window boundary falls between a pair's halves.
+    const unbroken = `y${"😀".repeat(SECTION_CHUNK_CHARS)}`;
+    const index = await buildSectionIndex(
+      ["page-a"],
+      reader({ "page-a": `## Big\n${unbroken}` }),
+    );
+
+    const big = index.sections.filter((s) => s.title === "Big");
+    expect(big.length).toBeGreaterThan(1);
+    for (const chunk of big) {
+      expect(chunk.text.length).toBeLessThanOrEqual(SECTION_CHUNK_CHARS);
+      expect(stripOrphanedSurrogates(chunk.text)).toBe(chunk.text);
+    }
+    expect(big.map(sectionBody).join("")).toBe(unbroken);
+  });
+
+  test("a capped head-line title never ends in half an emoji", () => {
+    const title = `${"t".repeat(199)}🎉 more`;
+    const head = sectionHeadLine("page-a", title);
+    expect(stripOrphanedSurrogates(head)).toBe(head);
+    expect(head).toBe(`page-a - ${"t".repeat(199)}`);
   });
 
   test("a heading longer than the window still chunks by near-window bodies; the key keeps the full title", async () => {

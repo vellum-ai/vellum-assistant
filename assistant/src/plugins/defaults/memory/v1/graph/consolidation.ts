@@ -26,7 +26,7 @@ import {
 } from "../../graph/store.js";
 import type { MemoryNode } from "../../graph/types.js";
 import { isCapabilityNode } from "../../graph/types.js";
-import { BackendUnavailableError } from "../../host-utils.js";
+import { BackendUnavailableError, safeStringSlice } from "../../host-utils.js";
 import { extractToolUse, userMessage } from "../../llm-helpers.js";
 import { getLogger } from "../../logging.js";
 import {
@@ -268,7 +268,9 @@ async function identifyDuplicateGroups(
   const listing = nodes
     .map((n) => {
       const preview =
-        n.content.length > 100 ? n.content.slice(0, 100) + "…" : n.content;
+        n.content.length > 100
+          ? safeStringSlice(n.content, 0, 100) + "…"
+          : n.content;
       return `[${n.id}] ${preview}`;
     })
     .join("\n");

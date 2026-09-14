@@ -12,6 +12,8 @@
  * an error tool result, so the model sees the failure and can retry, instead
  * of a tool executing with garbage input.
  */
+
+import { safeStringSlice } from "../util/unicode.js";
 const UNPARSEABLE_TOOL_ARGS_KEY = "_raw";
 
 /**
@@ -56,7 +58,9 @@ export function unparseableToolArgsMessage(
 ): string {
   const PREVIEW_LIMIT = 200;
   const preview =
-    raw.length > PREVIEW_LIMIT ? `${raw.slice(0, PREVIEW_LIMIT)}…` : raw;
+    raw.length > PREVIEW_LIMIT
+      ? `${safeStringSlice(raw, 0, PREVIEW_LIMIT)}…`
+      : raw;
   return (
     `Error: the arguments for "${toolName}" were not valid JSON — the argument stream was malformed or truncated, so the tool was NOT executed. ` +
     `Received: ${preview || "(empty)"}\n` +

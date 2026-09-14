@@ -25,6 +25,7 @@ import type {
 import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
+import { safeStringSlice } from "../util/unicode.js";
 import {
   AcpAuthRequiredError,
   CLAUDE_ACP_COMMAND,
@@ -163,7 +164,7 @@ export class AcpAgentProcess {
     // deriveFailureError reads from the end, so dropping the head is lossless.
     const line =
       text.length > STDERR_RETENTION_BYTES
-        ? text.slice(-STDERR_RETENTION_BYTES)
+        ? safeStringSlice(text, text.length - STDERR_RETENTION_BYTES)
         : text;
     this.stderrSeq += 1;
     this.stderrRing.push({ seq: this.stderrSeq, text: line });
