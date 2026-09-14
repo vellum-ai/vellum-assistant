@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { MainView } from "@/stores/viewer-store";
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 
 import {
@@ -71,9 +72,11 @@ mock.module("@/hooks/use-is-mobile", () => ({
 const navigateToConversationSpy = mock(
   (_navigate: unknown, _conversationId: string) => {},
 );
-mock.module("@/utils/conversation-navigation", () => ({
-  navigateToConversation: navigateToConversationSpy,
-}));
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({
+    navigateToConversation: navigateToConversationSpy,
+  }),
+);
 
 // Avatar data feeding the pill's wave accent. Mocked so the host renders
 // without a QueryClientProvider (the real hook is React Query).
