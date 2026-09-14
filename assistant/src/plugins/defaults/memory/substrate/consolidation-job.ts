@@ -501,7 +501,11 @@ export async function memoryV2ConsolidateJob(
     // The pass: the snapshot's leading entries up to the first one stamped
     // with the cutoff minute, rendered verbatim into the prompt and removed
     // by this job once the run has filed them.
-    const pass = selectPassEntries(snapshot, cutoff, bufferContent);
+    const pass = selectPassEntries(
+      snapshot,
+      cutoff,
+      bufferContent.endsWith("\n"),
+    );
     if (pass.length === 0) {
       log.info(
         { cutoff, bufferEntries: snapshot.length },
@@ -819,15 +823,15 @@ function readBufferContent(bufferPath: string): string {
  * Prose before the first entry opening (a hand-written buffer) is filed too,
  * when it holds any text; otherwise the buffer could never drain.
  *
- * `content` is the raw snapshot. An append is one write ending in a newline,
- * so a snapshot without a terminating newline caught an append mid-write;
- * its last entry is incomplete and is left for the next pass rather than
- * filed and removed in a truncated form.
+ * An append is one write ending in a newline, so a snapshot that does not
+ * end in one (`snapshotIsComplete` false) caught an append mid-write; its
+ * last entry is incomplete and is left for the next pass rather than filed
+ * and removed in a truncated form.
  */
 function selectPassEntries(
   snapshot: readonly BufferEntryLines[],
   cutoff: string,
-  content: string,
+  snapshotIsComplete: boolean,
 ): BufferEntryLines[] {
   const pass: BufferEntryLines[] = [];
   for (const entry of snapshot) {
@@ -846,7 +850,7 @@ function selectPassEntries(
   if (
     last !== undefined &&
     last === snapshot[snapshot.length - 1] &&
-    !content.endsWith("\n")
+    !snapshotIsComplete
   ) {
     pass.pop();
   }

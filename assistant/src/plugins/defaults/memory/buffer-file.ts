@@ -79,7 +79,7 @@ const log = getLogger("memory-buffer-file");
  * its `write` for longer than this can lose an entry; a healthy appender
  * completes both within microseconds.
  */
-export const LATE_APPEND_GRACE_MS = 500;
+const LATE_APPEND_GRACE_MS = 500;
 
 /**
  * Append `entry` to `<rootDir>/buffer.md` and `<rootDir>/archive/<today>.md`,
