@@ -264,6 +264,11 @@ export async function resolvePlatformAssistantId(): Promise<string> {
   return getPlatformAssistantId();
 }
 
+export function peekPlatformAssistantId(): string | undefined {
+  const id = getPlatformAssistantId();
+  return id || undefined;
+}
+
 export async function resolvePlatformAssistantIdOrUndefined(): Promise<
   string | undefined
 > {

@@ -8,7 +8,10 @@ import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
-import { resolvePlatformAssistantIdOrUndefined } from "../platform-identity.js";
+import {
+  ensurePlatformIdentityIds,
+  peekPlatformAssistantId,
+} from "../platform-identity.js";
 import { ExponentialBackoff } from "../util/exponential-backoff.js";
 import { listWebhookIngressRoutes } from "../db/webhook-ingress-route-store.js";
 import {
@@ -322,7 +325,8 @@ export class VelayTunnelClient {
     }
 
     const apiKey = apiKeyRaw?.trim();
-    const platformAssistantId = await resolvePlatformAssistantIdOrUndefined();
+    void ensurePlatformIdentityIds();
+    const platformAssistantId = peekPlatformAssistantId();
     if (!apiKey) {
       this.connecting = false;
       if (this.consumePendingCredentialRefresh("assistant API key missing")) {
