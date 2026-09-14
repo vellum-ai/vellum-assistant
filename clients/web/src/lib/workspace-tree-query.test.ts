@@ -68,5 +68,12 @@ describe("workspaceTreeQueryOptions", () => {
         showHidden: true,
       }).queryKey,
     );
+    expect(base).not.toEqual(
+      workspaceTreeQueryOptions({
+        assistantId: ASSISTANT_ID,
+        path: "drafts",
+        recursive: true,
+      }).queryKey,
+    );
   });
 });

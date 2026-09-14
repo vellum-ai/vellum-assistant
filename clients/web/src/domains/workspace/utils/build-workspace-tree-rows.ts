@@ -1,10 +1,11 @@
 /**
  * Pure derivations behind the workspace file tree: which directory listings
- * the tree needs, and the flat list of rows it renders from those listings.
+ * the tree needs, the per-directory grouping of a recursive listing, and the
+ * flat list of rows it renders from those listings.
  *
- * The tree never fetches a directory the user has not opened. Search filters
- * the rows these listings already produce, so a query costs no requests and a
- * file inside a closed folder is not a result.
+ * Search reads loaded listings only, so a query costs no requests. How far it
+ * reaches is how far the listings do: the whole workspace when the assistant
+ * answered a recursive listing, open folders otherwise.
  */
 
 import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
@@ -56,12 +57,39 @@ export function listedDirectoryPaths(
 }
 
 /**
+ * A recursive listing's entries grouped by the directory that holds them, in
+ * the order they arrived. The assistant lists depth-first with each
+ * directory's entries in listing order and never part of a directory, so
+ * every group is that directory's whole listing. A directory with no group
+ * was listed but not entered (a dependency tree, an empty folder, or one
+ * past the walk's bound) and is fetched on its own when opened.
+ */
+export function groupEntriesByDirectory(
+  entries: readonly WorkspaceTreeEntry[],
+): Map<string, WorkspaceTreeEntry[]> {
+  const groups = new Map<string, WorkspaceTreeEntry[]>();
+  for (const entry of entries) {
+    const slash = entry.path.lastIndexOf("/");
+    const directory =
+      slash === -1 ? WORKSPACE_ROOT_PATH : entry.path.slice(0, slash);
+    const group = groups.get(directory);
+    if (group) {
+      group.push(entry);
+    } else {
+      groups.set(directory, [entry]);
+    }
+  }
+  return groups;
+}
+
+/**
  * Flatten loaded listings into the rows the tree renders, depth-first in
  * listing order.
  *
- * With a query, a file row appears when its name contains the query, and a
- * folder row appears when its own name does or when a row inside it appears.
- * Only open folders with loaded listings are looked inside.
+ * With a query, every folder with a loaded listing is looked inside. A file
+ * row appears when its name contains the query; a folder row appears when
+ * its own name does or when a row inside it appears, and it shows as open so
+ * those rows are visible.
  */
 export function buildWorkspaceTreeRows({
   listings,
@@ -84,12 +112,18 @@ export function buildWorkspaceTreeRows({
     const rows: WorkspaceTreeRow[] = [];
     for (const entry of sortEntries(entries, sortMode)) {
       const isDirectory = entry.type === "directory";
-      const isExpanded = isDirectory && expandedPaths.has(entry.path);
-      const children = isExpanded ? rowsFor(entry.path, depth + 1) : [];
+      const isOpen = isDirectory && expandedPaths.has(entry.path);
+      const children =
+        isOpen || (isDirectory && needle !== "")
+          ? rowsFor(entry.path, depth + 1)
+          : [];
       const nameMatches =
         needle === "" || entry.name.toLowerCase().includes(needle);
       if (nameMatches || children.length > 0) {
-        rows.push({ entry, depth, isExpanded }, ...children);
+        rows.push(
+          { entry, depth, isExpanded: isOpen || children.length > 0 },
+          ...children,
+        );
       }
     }
     return rows;

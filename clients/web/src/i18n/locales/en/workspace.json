@@ -25,6 +25,8 @@
     "noFilesFound": "No files found",
     "searchScope": "Searching open folders",
     "noSearchMatches": "No matches in open folders",
+    "searchTruncated": "The workspace is too large to search completely.",
+    "noMatches": "No matches",
     "deleteFolderTitle": "Delete Folder",
     "deleteFileTitle": "Delete File",
     "deleteFileMessage": "Are you sure you want to delete <name>{name}</name>? This cannot be undone.",

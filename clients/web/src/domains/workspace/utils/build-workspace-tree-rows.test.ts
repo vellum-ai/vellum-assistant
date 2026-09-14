@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildWorkspaceTreeRows,
+  groupEntriesByDirectory,
   listedDirectoryPaths,
   type WorkspaceTreeEntry,
 } from "./build-workspace-tree-rows";
@@ -125,7 +126,7 @@ describe("buildWorkspaceTreeRows without a query", () => {
 });
 
 describe("buildWorkspaceTreeRows with a query", () => {
-  test("shows matching files in open folders with the folders that hold them", () => {
+  test("shows matching files with the folders that hold them", () => {
     const rows = buildWorkspaceTreeRows({
       listings: LISTINGS,
       expandedPaths: new Set(["docs", "docs/guides"]),
@@ -137,6 +138,8 @@ describe("buildWorkspaceTreeRows with a query", () => {
       "docs/guides",
       "docs/guides/theme-deep.md",
       "docs/theme.md",
+      "notes",
+      "notes/theme-hidden-behind-closed-folder.md",
     ]);
   });
 
@@ -150,14 +153,34 @@ describe("buildWorkspaceTreeRows with a query", () => {
     expect(paths(rows)).toEqual(["docs", "docs/other.md"]);
   });
 
-  test("a closed folder is not looked inside, even when its listing is cached", () => {
+  test("a closed folder with a loaded listing is looked inside and shown open", () => {
     const rows = buildWorkspaceTreeRows({
       listings: LISTINGS,
       expandedPaths: new Set(),
       sortMode: "name",
       query: "theme",
     });
-    expect(rows).toEqual([]);
+    expect(paths(rows)).toEqual([
+      "docs",
+      "docs/guides",
+      "docs/guides/theme-deep.md",
+      "docs/theme.md",
+      "notes",
+      "notes/theme-hidden-behind-closed-folder.md",
+    ]);
+    expect(rows.find((row) => row.entry.path === "docs")?.isExpanded).toBe(
+      true,
+    );
+  });
+
+  test("a closed folder without a listing is not a result", () => {
+    const rows = buildWorkspaceTreeRows({
+      listings: new Map([["", [dir("unloaded"), file("theme.md")]]]),
+      expandedPaths: new Set(),
+      sortMode: "name",
+      query: "theme",
+    });
+    expect(paths(rows)).toEqual(["theme.md"]);
   });
 
   test("a folder whose own name matches appears without matching children", () => {
@@ -178,5 +201,33 @@ describe("buildWorkspaceTreeRows with a query", () => {
       query: "  README ",
     });
     expect(paths(rows)).toEqual(["readme.md"]);
+  });
+});
+
+describe("groupEntriesByDirectory", () => {
+  test("groups a depth-first listing into per-directory listings in order", () => {
+    const groups = groupEntriesByDirectory([
+      dir("docs"),
+      file("readme.md"),
+      dir("docs/guides"),
+      file("docs/theme.md"),
+      file("docs/guides/theme-deep.md"),
+    ]);
+    expect([...groups.keys()]).toEqual(["", "docs", "docs/guides"]);
+    expect(groups.get("")).toEqual([dir("docs"), file("readme.md")]);
+    expect(groups.get("docs")).toEqual([
+      dir("docs/guides"),
+      file("docs/theme.md"),
+    ]);
+    expect(groups.get("docs/guides")).toEqual([
+      file("docs/guides/theme-deep.md"),
+    ]);
+  });
+
+  test("a directory the listing did not enter has no group", () => {
+    // Empty, skipped, and past-the-bound folders look the same in the
+    // listing; the tree fetches such a folder on its own when opened.
+    const groups = groupEntriesByDirectory([dir("not-entered")]);
+    expect(groups.has("not-entered")).toBe(false);
   });
 });

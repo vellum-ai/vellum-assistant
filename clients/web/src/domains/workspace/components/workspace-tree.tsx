@@ -277,12 +277,20 @@ export function WorkspaceTree({
   const isSearching = search.trim() !== "";
   const searchScopeId = useId();
 
-  const { listings, isRootLoading } = useWorkspaceTreeListings({
-    assistantId,
-    expandedPaths,
-    showHidden,
-    sortMode,
-  });
+  const { listings, isRootLoading, searchScope, isWorkspaceTruncated } =
+    useWorkspaceTreeListings({
+      assistantId,
+      expandedPaths,
+      showHidden,
+      sortMode,
+    });
+  const searchNote = !isSearching
+    ? null
+    : searchScope === "open-folders"
+      ? t("workspaceTree.searchScope")
+      : isWorkspaceTruncated
+        ? t("workspaceTree.searchTruncated")
+        : null;
   const hasRootEntries = (listings.get(WORKSPACE_ROOT_PATH)?.length ?? 0) > 0;
 
   const rows = useMemo(
@@ -523,7 +531,7 @@ export function WorkspaceTree({
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t("workspaceTree.searchPlaceholder")}
             leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
-            aria-describedby={isSearching ? searchScopeId : undefined}
+            aria-describedby={searchNote ? searchScopeId : undefined}
             fullWidth
             spellCheck={false}
             autoComplete="off"
@@ -541,12 +549,12 @@ export function WorkspaceTree({
             />
           )}
         </div>
-        {isSearching && (
+        {searchNote && (
           <span
             id={searchScopeId}
             className="mt-1 block text-body-small-default text-[var(--content-tertiary)]"
           >
-            {t("workspaceTree.searchScope")}
+            {searchNote}
           </span>
         )}
       </div>
@@ -564,9 +572,11 @@ export function WorkspaceTree({
             className="px-3 py-4 text-center text-body-medium-lighter"
             style={{ color: "var(--content-tertiary)" }}
           >
-            {hasRootEntries
-              ? t("workspaceTree.noSearchMatches")
-              : t("workspaceTree.noFilesFound")}
+            {!hasRootEntries
+              ? t("workspaceTree.noFilesFound")
+              : searchScope === "workspace"
+                ? t("workspaceTree.noMatches")
+                : t("workspaceTree.noSearchMatches")}
           </p>
         ) : (
           rows.map((row) => (

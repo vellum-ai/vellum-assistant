@@ -1,7 +1,8 @@
 /**
- * The directory listings the workspace tree asks the assistant for. Opening a
- * folder fetches its contents; typing a search filters what is already loaded
- * and fetches nothing, however deep the workspace goes.
+ * The directory listings the workspace tree asks the assistant for. Against
+ * an assistant with recursive listings, the workspace is fetched once and
+ * search reaches every folder; against one without, opening a folder fetches
+ * its contents and search filters open folders. Typing never fetches.
  *
  * Requests are counted at the daemon client's `fetch`, so the tree's own
  * query options and the SDK's request building run as they do in the app.
@@ -22,6 +23,10 @@ import { WorkspaceTree } from "@/domains/workspace/components/workspace-tree";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 
 const WORKSPACE_DEPTH = 4;
+
+/** Whether the stubbed assistant understands `recursive=true`. */
+let supportsRecursive = false;
+let truncateRecursive = false;
 
 /** Two folders and one `theme-<depth>.md` file per directory, four levels deep. */
 function listingFor(path: string) {
@@ -51,6 +56,22 @@ function listingFor(path: string) {
   return { path, entries };
 }
 
+/** The whole tree under `path`, depth-first, as the assistant lists it. */
+function recursiveListingFor(path: string) {
+  const entries: ReturnType<typeof listingFor>["entries"] = [];
+  const visit = (dir: string) => {
+    const listing = listingFor(dir).entries;
+    entries.push(...listing);
+    for (const entry of listing) {
+      if (entry.type === "directory") {
+        visit(entry.path);
+      }
+    }
+  };
+  visit(path);
+  return { path, entries, truncated: truncateRecursive, skipped: [] };
+}
+
 const realFetch = daemonClient.getConfig().fetch;
 let requestedPaths: string[] = [];
 const stubFetch: typeof fetch = Object.assign(
@@ -63,8 +84,13 @@ const stubFetch: typeof fetch = Object.assign(
       return new Response(null, { status: 404 });
     }
     const path = url.searchParams.get("path") ?? "";
-    requestedPaths.push(path);
-    return Response.json(listingFor(path));
+    const recursive = url.searchParams.get("recursive") === "true";
+    requestedPaths.push(recursive ? `${path} (recursive)` : path);
+    return Response.json(
+      recursive && supportsRecursive
+        ? recursiveListingFor(path)
+        : listingFor(path),
+    );
   },
   { preconnect: () => undefined },
 );
@@ -72,6 +98,8 @@ daemonClient.setConfig({ fetch: stubFetch });
 
 beforeEach(() => {
   requestedPaths = [];
+  supportsRecursive = false;
+  truncateRecursive = false;
 });
 
 afterEach(() => {
@@ -134,7 +162,7 @@ describe("WorkspaceTree listing requests", () => {
     rerender({ expandedPaths: new Set(), search: "theme" });
     await settle();
 
-    expect(uniqueSorted(requestedPaths)).toEqual([""]);
+    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)"]);
   });
 
   test("a search reads only the folders that are open", async () => {
@@ -145,7 +173,7 @@ describe("WorkspaceTree listing requests", () => {
     rerender({ expandedPaths, search: "theme" });
     await settle();
 
-    expect(uniqueSorted(requestedPaths)).toEqual(["", "d0"]);
+    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)", "d0"]);
     expect(screen.getByText("theme-0.md")).toBeTruthy();
     // d1 holds a theme-1.md too, but d1 is closed.
     expect(screen.getAllByText("theme-1.md")).toHaveLength(1);
@@ -159,7 +187,7 @@ describe("WorkspaceTree listing requests", () => {
     await screen.findByText("theme-1.md");
     await settle();
 
-    expect(uniqueSorted(requestedPaths)).toEqual(["", "d1"]);
+    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)", "d1"]);
   });
 
   test("a search with no match in open folders says so", async () => {
@@ -189,5 +217,70 @@ describe("WorkspaceTree listing requests", () => {
         .getByRole("button", { name: /theme-0\.md/ })
         .hasAttribute("aria-expanded"),
     ).toBe(false);
+  });
+});
+
+describe("WorkspaceTree against an assistant with recursive listings", () => {
+  beforeEach(() => {
+    supportsRecursive = true;
+  });
+
+  test("a search finds a file in a closed folder with no extra request", async () => {
+    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
+    await screen.findByText("d0");
+    await settle();
+
+    rerender({ expandedPaths: new Set(), search: "theme-3" });
+    await waitFor(() => {
+      expect(screen.getAllByText("theme-3.md").length).toBeGreaterThan(0);
+    });
+    await settle();
+
+    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)"]);
+    // The folders holding the matches show as open, so the matches are visible.
+    expect(
+      screen
+        .getAllByRole("button", { name: "d0" })[0]
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(screen.queryByText("Searching open folders")).toBeNull();
+  });
+
+  test("opening a folder requests nothing more", async () => {
+    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
+    await screen.findByText("d1");
+    await settle();
+
+    rerender({ expandedPaths: new Set(["d1"]), search: "" });
+    await screen.findByText("theme-1.md");
+    await settle();
+
+    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)"]);
+  });
+
+  test("a search with no match anywhere says so, with no scope note", async () => {
+    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
+    await screen.findByText("d0");
+    await settle();
+
+    rerender({ expandedPaths: new Set(), search: "nothing-matches" });
+    await waitFor(() => {
+      expect(screen.getByText("No matches")).toBeTruthy();
+    });
+    expect(screen.queryByText("Searching open folders")).toBeNull();
+  });
+
+  test("a truncated workspace listing says the search is incomplete", async () => {
+    truncateRecursive = true;
+    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
+    await screen.findByText("d0");
+    await settle();
+
+    rerender({ expandedPaths: new Set(), search: "theme" });
+    await waitFor(() => {
+      expect(
+        screen.getByText("The workspace is too large to search completely."),
+      ).toBeTruthy();
+    });
   });
 });

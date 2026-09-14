@@ -25,6 +25,8 @@
     "noFilesFound": "未找到文件",
     "searchScope": "正在搜索已展开的文件夹",
     "noSearchMatches": "已展开的文件夹中没有匹配项",
+    "searchTruncated": "工作区太大，无法完整搜索。",
+    "noMatches": "没有匹配项",
     "deleteFolderTitle": "删除文件夹",
     "deleteFileTitle": "删除文件",
     "deleteFileMessage": "确定要删除 <name>{name}</name> 吗？此操作无法撤消。",

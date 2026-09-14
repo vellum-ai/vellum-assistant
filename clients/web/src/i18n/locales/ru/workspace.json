@@ -25,6 +25,8 @@
     "noFilesFound": "Файлы не найдены",
     "searchScope": "Поиск в открытых папках",
     "noSearchMatches": "В открытых папках ничего не найдено",
+    "searchTruncated": "Рабочее пространство слишком большое, чтобы выполнить полный поиск.",
+    "noMatches": "Совпадений нет",
     "deleteFolderTitle": "Удалить папку",
     "deleteFileTitle": "Удалить файл",
     "deleteFileMessage": "Точно удалить <name>{name}</name>? Это нельзя отменить.",

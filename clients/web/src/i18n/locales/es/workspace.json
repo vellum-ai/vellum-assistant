@@ -25,6 +25,8 @@
     "noFilesFound": "No se han encontrado archivos",
     "searchScope": "Buscando en las carpetas abiertas",
     "noSearchMatches": "No hay coincidencias en las carpetas abiertas",
+    "searchTruncated": "El espacio de trabajo es demasiado grande para buscar en todo.",
+    "noMatches": "No hay coincidencias",
     "deleteFolderTitle": "Eliminar la carpeta",
     "deleteFileTitle": "Eliminar el archivo",
     "deleteFileMessage": "¿Seguro que quieres eliminar <name>{name}</name>? Esto no se puede deshacer.",
