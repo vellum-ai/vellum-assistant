@@ -77,9 +77,9 @@ final class ActionExecutor {
     /// True when the person at the machine is typing, moving the mouse, or
     /// holding a button or modifier right now, which is when we should stand
     /// down rather than fight them for it. Our own posts pair every button
-    /// down with an up, so a held button is always the person's. Modifier
-    /// flags are judged by `UserActivityGate.modifierHeldByUser`, because a
-    /// synthetic shortcut's flags may still read as held after it returns.
+    /// down with an up, but steps overlap, and a synthetic shortcut's flags may
+    /// still read as held after it returns, so both are judged by
+    /// `UserActivityGate.heldByUser` against our last post.
     static func userIsCurrentlyActive() -> Bool {
         let state = CGEventSourceStateID.combinedSessionState
         let now = Date()
@@ -88,13 +88,20 @@ final class ActionExecutor {
             state,
             eventType: anyInputEventType
         )
-        let buttonHeld = [CGMouseButton.left, .right, .center].contains {
-            CGEventSource.buttonState(state, button: $0)
-        }
-        let modifierHeld = UserActivityGate.modifierHeldByUser(
+        let buttonHeld = UserActivityGate.heldByUser(
             now: now,
-            modifierFlagsDown: !CGEventSource.flagsState(state).intersection(heldModifierMask).isEmpty,
-            secondsSinceFlagsChanged: CGEventSource.secondsSinceLastEventType(state, eventType: .flagsChanged),
+            inputDown: [CGMouseButton.left, .right, .center].contains {
+                CGEventSource.buttonState(state, button: $0)
+            },
+            secondsSinceLastChange: [CGEventType.leftMouseDown, .rightMouseDown, .otherMouseDown]
+                .map { CGEventSource.secondsSinceLastEventType(state, eventType: $0) }
+                .min() ?? .greatestFiniteMagnitude,
+            lastSyntheticPostAt: lastPost
+        )
+        let modifierHeld = UserActivityGate.heldByUser(
+            now: now,
+            inputDown: !CGEventSource.flagsState(state).intersection(heldModifierMask).isEmpty,
+            secondsSinceLastChange: CGEventSource.secondsSinceLastEventType(state, eventType: .flagsChanged),
             lastSyntheticPostAt: lastPost
         )
         return UserActivityGate.userIsActive(

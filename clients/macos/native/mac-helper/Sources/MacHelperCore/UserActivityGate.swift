@@ -9,9 +9,10 @@ public enum UserActivityGate {
     ///
     /// A held mouse button or modifier is activity however old the last event
     /// is: a paused drag or a held Command key sends nothing new, yet an event
-    /// injected into it lands inside the person's gesture. Our own posts
-    /// release every button and key before returning, so a held input is
-    /// always the user's and the synthetic exclusion does not apply to it.
+    /// injected into it lands inside the person's gesture. Pass `buttonHeld`
+    /// and `modifierHeld` already filtered through `heldByUser`, because a
+    /// button or modifier can read as held because of our own overlapping
+    /// step or a flag left behind by a synthetic shortcut.
     public static func userIsActive(
         now: Date,
         lastSyntheticPostAt: Date?,
@@ -31,23 +32,24 @@ public enum UserActivityGate {
         return true
     }
 
-    /// Whether a modifier that reads as held is the person's rather than a
-    /// flag left behind by a synthetic shortcut. Our key events carry modifier
-    /// flags but we never post a modifier key itself, so a real press or
-    /// release is the only thing that produces a flags-changed event. A held
-    /// modifier counts only when its last change came after our last post.
-    /// A modifier the person was already holding before that post is missed,
-    /// which errs toward acting rather than refusing every step after a
-    /// shortcut we sent.
-    public static func modifierHeldByUser(
+    /// Whether an input that reads as held is the person's. Steps can overlap,
+    /// so a button can be down because another step is mid-click, and a
+    /// synthetic shortcut's modifier flags can outlive it. The held input
+    /// counts only when the event that put it down (a button press, or a
+    /// flags change, which only a physical modifier key produces) came more
+    /// than `syntheticEpsilon` after our last post. An input the person
+    /// already held before that post is missed, which errs toward acting
+    /// rather than refusing our own next step.
+    public static func heldByUser(
         now: Date,
-        modifierFlagsDown: Bool,
-        secondsSinceFlagsChanged: Double,
-        lastSyntheticPostAt: Date?
+        inputDown: Bool,
+        secondsSinceLastChange: Double,
+        lastSyntheticPostAt: Date?,
+        syntheticEpsilon: TimeInterval = 0.25
     ) -> Bool {
-        guard modifierFlagsDown else { return false }
+        guard inputDown else { return false }
         guard let ours = lastSyntheticPostAt else { return true }
-        let flagsChangedAt = now.addingTimeInterval(-secondsSinceFlagsChanged)
-        return flagsChangedAt > ours
+        let changedAt = now.addingTimeInterval(-secondsSinceLastChange)
+        return changedAt.timeIntervalSince(ours) > syntheticEpsilon
     }
 }

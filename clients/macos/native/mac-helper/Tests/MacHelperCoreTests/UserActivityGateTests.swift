@@ -173,28 +173,6 @@ struct UserActivityGateTests {
         )
     }
 
-    @Test("a held input is the user even right after our own post")
-    func heldInputBeatsSyntheticExclusion() {
-        // Our posts release everything before returning, so a held button
-        // beside our last post still belongs to the person.
-        #expect(
-            UserActivityGate.userIsActive(
-                now: now,
-                lastSyntheticPostAt: now.addingTimeInterval(-0.25),
-                secondsSinceLastInput: 0.25,
-                buttonHeld: true
-            )
-        )
-        #expect(
-            UserActivityGate.userIsActive(
-                now: now,
-                lastSyntheticPostAt: now.addingTimeInterval(-0.25),
-                secondsSinceLastInput: 0.25,
-                modifierHeld: true
-            )
-        )
-    }
-
     @Test("our own consecutive action with nothing held is still ours")
     func consecutiveSyntheticNothingHeld() {
         #expect(
@@ -213,30 +191,47 @@ struct UserActivityGateTests {
         // The flags last changed well before our post: nothing physical was
         // pressed since, so whatever still reads as held came from our event.
         let ourPost = now.addingTimeInterval(-0.5)
-        #expect(UserActivityGate.modifierHeldByUser(
-            now: now, modifierFlagsDown: true, secondsSinceFlagsChanged: 60, lastSyntheticPostAt: ourPost
+        #expect(UserActivityGate.heldByUser(
+            now: now, inputDown: true, secondsSinceLastChange: 60, lastSyntheticPostAt: ourPost
         ) == false)
     }
 
     @Test("a modifier pressed after our last post is the user's")
     func modifierPressedAfterOurPostIsTheUser() {
         let ourPost = now.addingTimeInterval(-5)
-        #expect(UserActivityGate.modifierHeldByUser(
-            now: now, modifierFlagsDown: true, secondsSinceFlagsChanged: 2, lastSyntheticPostAt: ourPost
+        #expect(UserActivityGate.heldByUser(
+            now: now, inputDown: true, secondsSinceLastChange: 2, lastSyntheticPostAt: ourPost
         ))
     }
 
     @Test("a held modifier with no synthetic post yet is the user's")
     func modifierWithNoPostIsTheUser() {
-        #expect(UserActivityGate.modifierHeldByUser(
-            now: now, modifierFlagsDown: true, secondsSinceFlagsChanged: 120, lastSyntheticPostAt: nil
+        #expect(UserActivityGate.heldByUser(
+            now: now, inputDown: true, secondsSinceLastChange: 120, lastSyntheticPostAt: nil
         ))
     }
 
     @Test("no modifier down is never held")
     func noModifierIsNotHeld() {
-        #expect(UserActivityGate.modifierHeldByUser(
-            now: now, modifierFlagsDown: false, secondsSinceFlagsChanged: 0, lastSyntheticPostAt: nil
+        #expect(UserActivityGate.heldByUser(
+            now: now, inputDown: false, secondsSinceLastChange: 0, lastSyntheticPostAt: nil
         ) == false)
+    }
+
+    @Test("a button down from our own overlapping step is not the user's")
+    func overlappingSyntheticClickIsNotTheUser() {
+        // Another step posted its mouse-down 10ms ago and has not posted the up.
+        let ourPost = now.addingTimeInterval(-0.01)
+        #expect(UserActivityGate.heldByUser(
+            now: now, inputDown: true, secondsSinceLastChange: 0.01, lastSyntheticPostAt: ourPost
+        ) == false)
+    }
+
+    @Test("a button the person pressed well after our last post is theirs")
+    func buttonPressedAfterOurPost() {
+        let ourPost = now.addingTimeInterval(-3)
+        #expect(UserActivityGate.heldByUser(
+            now: now, inputDown: true, secondsSinceLastChange: 1, lastSyntheticPostAt: ourPost
+        ))
     }
 }
