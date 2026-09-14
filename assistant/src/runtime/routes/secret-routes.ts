@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import {
+  ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
   AcpCredentialFormatError,
   assertAcpCredentialFormat,
@@ -356,6 +357,11 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           throw new InternalError(
             `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
           );
+        }
+        if (service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD) {
+          const { forgetAcpClaudeRenewalStateOnForeignWrite } =
+            await import("../../acp/acp-claude-oauth.js");
+          await forgetAcpClaudeRenewalStateOnForeignWrite(service, field);
         }
         if (!isNonSecretPlatformField(service, field)) {
           // Same seam as the api_key branch: the scrub runs immediately after

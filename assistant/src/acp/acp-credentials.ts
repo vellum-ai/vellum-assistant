@@ -15,6 +15,20 @@ export const ACP_SERVICE = "acp";
 export const ACP_OAUTH_TOKEN_FIELD = "claude_oauth_token";
 
 /**
+ * Companion fields to {@link ACP_OAUTH_TOKEN_FIELD}, written by the same
+ * Connect Claude exchange: the refresh token that renews the access token and
+ * the absolute expiry (epoch milliseconds, matching `computeExpiresAt` and
+ * `isTokenExpired` in `@vellumai/credential-storage`) that says when to renew.
+ *
+ * These fields are given no credential metadata. `credentialBroker.serverUse`
+ * refuses any field without metadata, so they stay unreachable through the
+ * broker and cannot be injected into a spawned agent's env. Only the access
+ * token crosses into the child process.
+ */
+export const ACP_OAUTH_REFRESH_TOKEN_FIELD = "claude_oauth_refresh_token";
+export const ACP_OAUTH_EXPIRES_AT_FIELD = "claude_oauth_expires_at";
+
+/**
  * True for the ACP vault field the "Connect Claude" flow owns
  * (`acp/claude_oauth_token`). Used to route this credential to the inline
  * Connect card instead of a redundant legacy secure-prompt.

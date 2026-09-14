@@ -22,11 +22,37 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 let storeReturn = true;
+let deleteReturn: "deleted" | "not-found" | "error" = "not-found";
 let getReturn: string | undefined = undefined;
-const setSecureKeyAsync = mock(
-  async (_account: string, _value: string) => storeReturn,
-);
-const getSecureKeyAsync = mock(async (_account: string) => getReturn);
+const vault = new Map<string, string>();
+const ACCESS_KEY = "credential/acp/claude_oauth_token";
+const REFRESH_KEY = "credential/acp/claude_oauth_refresh_token";
+const EXPIRES_KEY = "credential/acp/claude_oauth_expires_at";
+
+const setSecureKeyAsync = mock(async (account: string, value: string) => {
+  if (!storeReturn) {
+    return false;
+  }
+  vault.set(account, value);
+  return true;
+});
+const getSecureKeyAsync = mock(async (account: string) => {
+  if (vault.has(account)) {
+    return vault.get(account);
+  }
+  // Existing cases that only seed the access token keep using getReturn.
+  if (account === ACCESS_KEY) {
+    return getReturn;
+  }
+  return undefined;
+});
+const deleteSecureKeyAsync = mock(async (account: string) => {
+  if (deleteReturn === "error") {
+    return "error";
+  }
+  const existed = vault.delete(account);
+  return existed ? "deleted" : "not-found";
+});
 
 // Spread the real module rather than listing two exports. These cases reach
 // the marker tables, which pulls persistence into the graph, and anything in
@@ -37,6 +63,7 @@ mock.module("../../security/secure-keys.js", () => ({
   ...realSecureKeys,
   setSecureKeyAsync,
   getSecureKeyAsync,
+  deleteSecureKeyAsync,
 }));
 
 const { _setMetadataPath, getCredentialMetadata, upsertCredentialMetadata } =
@@ -69,6 +96,9 @@ const {
   parseManualClaudeCode,
   storeAcpClaudeToken,
   hasAcpClaudeToken,
+  persistRefreshedAcpClaudeTokens,
+  forgetAcpClaudeRenewalStateOnForeignWrite,
+  isAcpClaudeTokenExpiring,
 } = await import("../acp-claude-oauth.js");
 
 /**
@@ -95,9 +125,12 @@ beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   _setMetadataPath(join(TEST_DIR, "metadata.json"));
   storeReturn = true;
+  deleteReturn = "not-found";
   getReturn = undefined;
+  vault.clear();
   setSecureKeyAsync.mockClear();
   getSecureKeyAsync.mockClear();
+  deleteSecureKeyAsync.mockClear();
 });
 
 afterEach(() => {
@@ -204,11 +237,38 @@ describe("storeAcpClaudeToken", () => {
   test("writes the token to the acp/claude_oauth_token vault field", async () => {
     await storeAcpClaudeToken("sk-ant-oat-token");
 
-    expect(setSecureKeyAsync).toHaveBeenCalledTimes(1);
     expect(setSecureKeyAsync).toHaveBeenCalledWith(
-      "credential/acp/claude_oauth_token",
+      ACCESS_KEY,
       "sk-ant-oat-token",
     );
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-token");
+  });
+
+  test("persists refresh token and expiry from a Connect exchange", async () => {
+    const before = Date.now();
+    await storeAcpClaudeToken({
+      accessToken: "sk-ant-oat-connected",
+      refreshToken: "refresh-from-exchange",
+      expiresIn: 28800,
+    });
+    const after = Date.now();
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-connected");
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-from-exchange");
+    const expiresAt = Number(vault.get(EXPIRES_KEY));
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 28800 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(after + 28800 * 1000);
+  });
+
+  test("clears companion fields when the exchange returns only an access token", async () => {
+    vault.set(REFRESH_KEY, "stale-refresh");
+    vault.set(EXPIRES_KEY, "1");
+
+    await storeAcpClaudeToken({ accessToken: "sk-ant-oat-access-only" });
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-access-only");
+    expect(vault.has(REFRESH_KEY)).toBe(false);
+    expect(vault.has(EXPIRES_KEY)).toBe(false);
   });
 
   test("takes a domain-restricted credential from not-connected to connected", async () => {
@@ -308,6 +368,83 @@ describe("hasAcpClaudeToken", () => {
     await hasAcpClaudeToken();
 
     expect(oauthMetadata()).toBeUndefined();
+  });
+
+  test("reports true for an expired token that still has a refresh token", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-expired-renewable");
+    vault.set(REFRESH_KEY, "refresh-still-good");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+  });
+
+  test("reports false for an expired token with no refresh token", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-expired-dead");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports true for a token with no recorded expiry (legacy access-token-only)", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-legacy");
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+    expect(await isAcpClaudeTokenExpiring()).toBe(false);
+  });
+});
+
+describe("persistRefreshedAcpClaudeTokens", () => {
+  test("writes a rotated refresh token and new expiry without touching policy", async () => {
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
+      allowedTools: ["some_other_tool"],
+    });
+    const before = Date.now();
+
+    await persistRefreshedAcpClaudeTokens({
+      accessToken: "sk-ant-oat-refreshed",
+      refreshToken: "refresh-rotated",
+      expiresIn: 3600,
+    });
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-refreshed");
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-rotated");
+    const expiresAt = Number(vault.get(EXPIRES_KEY));
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000);
+    expect(oauthMetadata()?.allowedTools).toEqual(["some_other_tool"]);
+  });
+
+  test("keeps the stored refresh token when the response omits a new one", async () => {
+    vault.set(REFRESH_KEY, "refresh-kept");
+
+    await persistRefreshedAcpClaudeTokens({
+      accessToken: "sk-ant-oat-refreshed",
+      expiresIn: 3600,
+    });
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-refreshed");
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-kept");
+  });
+});
+
+describe("forgetAcpClaudeRenewalStateOnForeignWrite", () => {
+  test("clears companion fields after a direct write of the access token", async () => {
+    vault.set(REFRESH_KEY, "stale-refresh");
+    vault.set(EXPIRES_KEY, "111");
+
+    await forgetAcpClaudeRenewalStateOnForeignWrite(ACP_SERVICE, OAUTH_FIELD);
+
+    expect(vault.has(REFRESH_KEY)).toBe(false);
+    expect(vault.has(EXPIRES_KEY)).toBe(false);
+  });
+
+  test("leaves companion fields alone for an unrelated credential write", async () => {
+    vault.set(REFRESH_KEY, "keep-refresh");
+    vault.set(EXPIRES_KEY, "222");
+
+    await forgetAcpClaudeRenewalStateOnForeignWrite("github", "api_token");
+
+    expect(vault.get(REFRESH_KEY)).toBe("keep-refresh");
+    expect(vault.get(EXPIRES_KEY)).toBe("222");
   });
 });
 

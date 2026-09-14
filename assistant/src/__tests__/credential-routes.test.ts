@@ -532,6 +532,25 @@ describe("credentials routes", () => {
       );
     });
 
+    test("clears stale Claude refresh material after a direct access-token write", async () => {
+      secureStore.set("acp:claude_oauth_refresh_token", "stale-refresh");
+      secureStore.set("acp:claude_oauth_expires_at", "111");
+
+      await setRoute!.handler({
+        body: {
+          service: "acp",
+          field: "claude_oauth_token",
+          value: "sk-ant-oat01-pasted-token",
+        },
+      });
+
+      expect(secureStore.get("acp:claude_oauth_token")).toBe(
+        "sk-ant-oat01-pasted-token",
+      );
+      expect(secureStore.has("acp:claude_oauth_refresh_token")).toBe(false);
+      expect(secureStore.has("acp:claude_oauth_expires_at")).toBe(false);
+    });
+
     test("a successful set scrubs the normalized value from transcripts exactly once", async () => {
       /**
        * The pasted plaintext may already sit in recent transcripts, so a

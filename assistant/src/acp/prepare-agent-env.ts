@@ -371,6 +371,15 @@ export async function prepareAgentEnv(
     }
     let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
+      // Renew before the broker read so a near-expired vault token is replaced
+      // while the user is still out of the loop. Config overrides skip this:
+      // they are the user's to manage, and spending the vault refresh token
+      // would rotate material the spawn is not about to use. Dynamic import
+      // keeps this module from loading the refresh graph at import time
+      // (acp-claude-oauth already imports the policy helpers here).
+      const { ensureFreshAcpClaudeToken } =
+        await import("./claude-token-refresh.js");
+      await ensureFreshAcpClaudeToken();
       missReason = await injectCredential(
         env,
         ACP_OAUTH_TOKEN_FIELD,

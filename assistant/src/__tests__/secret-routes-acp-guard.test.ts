@@ -1,6 +1,11 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "../acp/acp-credentials.js";
+import {
+  ACP_OAUTH_EXPIRES_AT_FIELD,
+  ACP_OAUTH_REFRESH_TOKEN_FIELD,
+  ACP_OAUTH_TOKEN_FIELD,
+  ACP_SERVICE,
+} from "../acp/acp-credentials.js";
 import { credentialKey } from "../security/credential-key.js";
 
 let secureKeyStore: Record<string, string | undefined> = {};
@@ -73,5 +78,24 @@ describe("secret routes ACP OAuth-token format guard", () => {
     expect(
       secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)],
     ).toBe("sk-ant-oat01-valid-oauth-token");
+  });
+
+  test("clears stale refresh material after a direct access-token write", async () => {
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)] =
+      "stale-refresh";
+    secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)] =
+      "111";
+
+    await addAcpOauthToken("sk-ant-oat01-pasted-token");
+
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)],
+    ).toBe("sk-ant-oat01-pasted-token");
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)],
+    ).toBeUndefined();
+    expect(
+      secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)],
+    ).toBeUndefined();
   });
 });

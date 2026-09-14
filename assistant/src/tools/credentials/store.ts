@@ -25,6 +25,7 @@
  */
 
 import {
+  ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
   assertAcpCredentialFormat,
 } from "../../acp/acp-credentials.js";
@@ -129,6 +130,15 @@ export async function storeCredentialValue(
     throw new CredentialStorageError(
       `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
     );
+  }
+
+  if (service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD) {
+    // A pasted or CLI-set access token does not carry refresh/expiry. Clear
+    // companion fields so a previous Connect's metadata cannot condemn this
+    // write or be spent to overwrite it.
+    const { forgetAcpClaudeRenewalStateOnForeignWrite } =
+      await import("../../acp/acp-claude-oauth.js");
+    await forgetAcpClaudeRenewalStateOnForeignWrite(service, field);
   }
 
   // The stored plaintext may already sit in recent transcripts: the user
