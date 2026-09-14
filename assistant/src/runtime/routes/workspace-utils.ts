@@ -8,8 +8,25 @@ import {
 } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 
+import { z } from "zod";
+
 import { getWorkspaceDir } from "../../util/platform.js";
 import { BadRequestError, ConflictError } from "./errors.js";
+
+/**
+ * One workspace entry as the tree endpoint reports it. `size` is null for a
+ * directory whose recursive size was not computed.
+ */
+export const workspaceEntrySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  type: z.enum(["file", "directory"]),
+  size: z.number().nullable(),
+  mimeType: z.string().nullable(),
+  modifiedAt: z.string(),
+});
+
+export type WorkspaceEntry = z.infer<typeof workspaceEntrySchema>;
 
 /**
  * Resolves a user-provided relative path to an absolute path within the workspace.

@@ -62,6 +62,7 @@
     "dotenv": "17.3.1",
     "drizzle-orm": "0.45.2",
     "hast-util-to-html": "9.0.5",
+    "ignore": "7.0.9",
     "jszip": "3.10.1",
     "marked": "18.0.0",
     "mdast-util-to-hast": "13.2.1",
