@@ -173,15 +173,22 @@ export function memoryV3TurnMemoSizeForTests(): number {
   return observedTurns.size;
 }
 
+/** What the turn still got when the selector could not run: nothing (the
+ *  orchestration itself failed) or the stable prefix unjudged. */
+type MemoryV3DegradedScope = "none" | "stable-prefix";
+
 function queueMemoryV3ConversationNotice(
   err: MemoryV3RetrievalUnavailableError,
   ctx: TurnContext,
+  scope: MemoryV3DegradedScope,
 ): void {
   const notice: PendingConversationNotice = err.conversationNotice ?? {
     source: "memory_v3",
     code: "UNKNOWN",
     userMessage:
-      "Memory is temporarily unavailable, so this response may not use your saved memories. You can retry in a moment.",
+      scope === "stable-prefix"
+        ? "Memory selection is temporarily unavailable, so this response draws only on your core memories. You can retry in a moment."
+        : "Memory is temporarily unavailable, so this response may not use your saved memories. You can retry in a moment.",
     errorCategory: "memory_v3_degraded",
   };
   queueConversationNotice(
@@ -324,7 +331,7 @@ export const memoryV3Injector: Injector = {
       observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
     } catch (err) {
       if (err instanceof MemoryV3RetrievalUnavailableError) {
-        queueMemoryV3ConversationNotice(err, ctx);
+        queueMemoryV3ConversationNotice(err, ctx, "none");
         log.error(
           {
             err: err.message,
@@ -335,6 +342,25 @@ export const memoryV3Injector: Injector = {
         );
       }
       return null;
+    }
+    // A selector that could not run left the stable prefix unjudged in
+    // `selections`; the block below renders it, and the person is told the
+    // turn drew on core memories only.
+    if (observed?.selectorFailure) {
+      queueMemoryV3ConversationNotice(
+        observed.selectorFailure,
+        ctx,
+        "stable-prefix",
+      );
+      log.warn(
+        {
+          err: observed.selectorFailure.message,
+          conversationId: ctx.conversationId,
+          stableCount: observed.selections.length,
+          mode: "live",
+        },
+        "memory-v3 selector unavailable; injecting the stable prefix unjudged",
+      );
     }
     // Empty selection → return null (attach nothing). The user-prompt-submit
     // hook skipped v2 retrieval under live, so a turn with nothing selected
