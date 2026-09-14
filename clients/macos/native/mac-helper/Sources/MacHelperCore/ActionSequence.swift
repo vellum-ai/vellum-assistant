@@ -10,6 +10,8 @@ public enum ActionSequence {
     private static let toolNames: [String: String] = [
         "key": "computer_use_key",
         "type_text": "computer_use_type_text",
+        // The name the helper itself uses for typing, which models reach for.
+        "type": "computer_use_type_text",
         "click": "computer_use_click",
         "double_click": "computer_use_double_click",
         "right_click": "computer_use_right_click",

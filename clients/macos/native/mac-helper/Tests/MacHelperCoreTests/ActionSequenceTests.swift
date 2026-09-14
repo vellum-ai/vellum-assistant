@@ -9,6 +9,7 @@ struct ActionSequenceTests {
     func mapsActions() {
         #expect(ActionSequence.toolName(forAction: "key") == "computer_use_key")
         #expect(ActionSequence.toolName(forAction: "type_text") == "computer_use_type_text")
+        #expect(ActionSequence.toolName(forAction: "type") == "computer_use_type_text")
         #expect(ActionSequence.toolName(forAction: "right_click") == "computer_use_right_click")
         #expect(ActionSequence.toolName(forAction: "open_app") == "computer_use_open_app")
     }

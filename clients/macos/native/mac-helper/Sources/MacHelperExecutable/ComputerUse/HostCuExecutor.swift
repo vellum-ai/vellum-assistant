@@ -387,7 +387,11 @@ enum HostCuActionRunner {
             return (nil, problem)
         }
         let actions = zip(items, names).map { item, name in
-            mapToAgentAction(toolName: ActionSequence.toolName(forAction: name!)!, input: item, reasoning: reasoning)
+            mapToAgentAction(
+                toolName: ActionSequence.toolName(forAction: name!)!,
+                input: item,
+                reasoning: item["reasoning"] as? String ?? reasoning
+            )
         }
 
         var ran: [String] = []

@@ -315,6 +315,7 @@
                   "enum": [
                     "key",
                     "type_text",
+                    "type",
                     "click",
                     "double_click",
                     "right_click",
@@ -330,7 +331,7 @@
                 },
                 "text": {
                   "type": "string",
-                  "description": "type_text: the text to type"
+                  "description": "type_text (or type): the text to type"
                 },
                 "element_id": {
                   "type": "integer",
@@ -360,6 +361,10 @@
                 "app_name": {
                   "type": "string",
                   "description": "open_app: the name of the application to open (e.g. \"Google Chrome\")"
+                },
+                "reasoning": {
+                  "type": "string",
+                  "description": "Optional: why this action"
                 }
               },
               "required": ["action"]
@@ -367,14 +372,14 @@
           },
           "reasoning": {
             "type": "string",
-            "description": "Explanation of what these actions do and why none of them needs to see the result of the one before"
+            "description": "Optional: what these actions do together. Reasoning on each action works too"
           },
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
           }
         },
-        "required": ["actions", "reasoning"]
+        "required": ["actions"]
       },
       "executor": "tools/computer-use-sequence.ts",
       "execution_target": "host",

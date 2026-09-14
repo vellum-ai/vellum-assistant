@@ -411,6 +411,7 @@ export const computerUseSequenceTool = {
               enum: [
                 "key",
                 "type_text",
+                "type",
                 "click",
                 "double_click",
                 "right_click",
@@ -427,7 +428,7 @@ export const computerUseSequenceTool = {
             },
             text: {
               type: "string",
-              description: "type_text: the text to type",
+              description: "type_text (or type): the text to type",
             },
             element_id: {
               type: "integer",
@@ -462,6 +463,10 @@ export const computerUseSequenceTool = {
               description:
                 'open_app: the name of the application to open (e.g. "Google Chrome")',
             },
+            reasoning: {
+              type: "string",
+              description: "Optional: why this action",
+            },
           },
           required: ["action"],
         },
@@ -469,7 +474,7 @@ export const computerUseSequenceTool = {
       reasoning: {
         type: "string",
         description:
-          "Explanation of what these actions do and why none of them needs to see the result of the one before",
+          "Optional: what these actions do together. Reasoning on each action works too",
       },
       target_client_id: {
         type: "string",
@@ -477,7 +482,7 @@ export const computerUseSequenceTool = {
           "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
       },
     },
-    required: ["actions", "reasoning"],
+    required: ["actions"],
   },
 
   execute: proxyExecute("computer_use_sequence"),
