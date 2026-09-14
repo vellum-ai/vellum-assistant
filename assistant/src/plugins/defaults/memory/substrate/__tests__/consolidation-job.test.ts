@@ -11,8 +11,12 @@
  *   - Runner returns ok=false → run_failed surfaced; NO follow-up jobs;
  *     `emitNotificationSignal` was NOT called as a result of the failure
  *     (suppression is honored end-to-end).
- *   - Progress check: a run that leaves the buffer un-shrunk returns
- *     `invoked` with `noProgress: true` and enqueues no follow-ups.
+ *   - Runtime-owned consumption: the job hands the run its pass's entries
+ *     in the prompt and removes exactly those after a run that left a
+ *     verified page write; entries appended during the run and entries
+ *     deferred past the cap survive. A run with no verified write returns
+ *     `invoked` with `noProgress: true`, leaves the buffer intact, and
+ *     enqueues no follow-ups.
  *   - Follow-up coalescing: a pending job of a follow-up type suppresses
  *     that enqueue (the pending row already covers it).
  *   - Consecutive-failure state: failed runs increment the durable
@@ -25,9 +29,12 @@
  * content uses generic placeholders (Alice).
  */
 import {
+  appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -52,18 +59,13 @@ import {
 // + trustContext + origin match what the consolidation surface expects.
 let runnerCalls = 0;
 let runnerLastArgs: Record<string, unknown> | null = null;
-// Default stub: a successful run in which the agent drained the buffer — the
-// handler's progress check compares buffer line counts before and after the
-// run, so a stub that never touched buffer.md would register every success as
-// no-progress. No-progress tests override this with an impl that leaves the
-// buffer as-is (or grows it).
-const runnerTrimsBuffer = async (): Promise<{
+// Default stub: a successful run. The agent never touches buffer.md; the
+// handler consumes the pass's entries itself once the run's messages carry
+// a verified page write (see the plugin-api mock below).
+const runnerSucceeds = async (): Promise<{
   conversationId: string;
   ok: boolean;
-}> => {
-  writeFileSync(bufferPath(), "");
-  return { conversationId: "conv-1", ok: true };
-};
+}> => ({ conversationId: "conv-1", ok: true });
 let runnerImpl: () => Promise<{
   conversationId: string;
   ok: boolean;
@@ -71,7 +73,36 @@ let runnerImpl: () => Promise<{
   errorKind?: string;
   failureCode?: string;
   skipReason?: string;
-}> = runnerTrimsBuffer;
+}> = runnerSucceeds;
+
+// ── plugin-api mock: the run's persisted messages ──────────────────
+//
+// The consume gate reads the run conversation's messages for a page-writing
+// tool call whose result is not an error. `runMessages` is what that read
+// returns; the default is one successful `file_write`.
+type RunMessage = { role: string; content: unknown[] };
+const FILED_ONE_PAGE: RunMessage[] = [
+  {
+    role: "assistant",
+    content: [
+      { type: "tool_use", id: "t1", name: "file_write", input: { path: "x" } },
+    ],
+  },
+  {
+    role: "user",
+    content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+  },
+];
+let runMessages: RunMessage[] = FILED_ONE_PAGE;
+let messagesRequestedFor: string[] = [];
+const realPluginApi = await import("@vellumai/plugin-api");
+mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
+  getMessages: async (conversationId: string) => {
+    messagesRequestedFor.push(conversationId);
+    return runMessages;
+  },
+}));
 
 mock.module("../../../../../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: Record<string, unknown>) => {
@@ -197,7 +228,8 @@ const { memoryV2ConsolidateJob, CONSOLIDATION_FAILURE_CHECKPOINT_KEY } =
 const { CUTOFF_PLACEHOLDER, CONSOLIDATION_PROMPT } =
   await import("../prompts/consolidation.js");
 const { invalidatePageIndex } = await import("../page-index.js");
-const { formatRememberEntry } = await import("../../buffer-format.js");
+const { formatBufferTimestamp, formatRememberEntry } =
+  await import("../../buffer-format.js");
 
 // The handler only reads `config.memory.enabled`, `config.memory.v2.enabled`,
 // `config.memory.v2.consolidation_prompt_path`, and
@@ -270,7 +302,9 @@ beforeEach(() => {
 
   runnerCalls = 0;
   runnerLastArgs = null;
-  runnerImpl = runnerTrimsBuffer;
+  runnerImpl = runnerSucceeds;
+  runMessages = FILED_ONE_PAGE;
+  messagesRequestedFor = [];
   emitCalls.length = 0;
   enqueuedJobs.length = 0;
   nextJobIdCounter = 0;
@@ -309,6 +343,21 @@ describe("memoryV2ConsolidateJob — chunked cutoff (consolidation_max_entries_p
     expect(outcome.deferredEntries).toBe(2);
     expect(runnerCalls).toBe(1);
     expect(runnerLastArgs!.prompt as string).toContain("Apr 27, 9:03 AM");
+    // The pass is the first three entries, verbatim, and the job removed
+    // exactly them; the two deferred entries are still in the buffer.
+    const prompt = runnerLastArgs!.prompt as string;
+    expect(prompt).toContain(
+      "<buffer_entries>\n" +
+        "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n" +
+        "- [Apr 27, 9:01 AM] Bob takes his coffee black.\n" +
+        "- [Apr 27, 9:02 AM] Carol loves jazz.\n" +
+        "</buffer_entries>",
+    );
+    expect(outcome.consumedEntries).toBe(3);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(
+      "- [Apr 27, 9:03 AM] Dave runs marathons.\n" +
+        "- [Apr 27, 9:04 AM] Erin paints watercolors.\n",
+    );
   });
 
   test("buffer at or under the cap → full-buffer cutoff, nothing deferred", async () => {
@@ -594,6 +643,13 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     // Cutoff is a buffer-entry-format timestamp (`Mon D, h:mm AM/PM`) so it
     // compares like-with-like against `buffer.md` lines at minute precision.
     expect(prompt).toMatch(/\b[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)\b/);
+    // The pass's entries ride in the prompt itself, verbatim.
+    expect(prompt).toContain(
+      "<buffer_entries>\n" +
+        "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
+        "- [Apr 27, 9:05 AM] Alice ships at end of day.\n" +
+        "</buffer_entries>",
+    );
   });
 
   test("threads page-index parse failures into the prompt's repair step", async () => {
@@ -774,7 +830,7 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
     expect(runnerLastArgs?.prompt as string).not.toContain("core-pages");
 
-    // The first run's stub drained the buffer — refill it so the second
+    // The first run consumed the buffer. Refill it so the second
     // invocation doesn't bail at the empty-buffer gate.
     writeFileSync(bufferPath(), "- [Apr 27, 9:10 AM] Alice refactored.\n");
     v3FlagOn = true;
@@ -827,16 +883,16 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
   });
 });
 
-describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", () => {
+describe("memoryV2ConsolidateJob: runtime-owned consumption", () => {
+  const TWO_ENTRIES =
+    "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
+    "- [Apr 27, 9:05 AM] Alice ships at end of day.\n";
+
   beforeEach(() => {
-    writeFileSync(
-      bufferPath(),
-      "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
-        "- [Apr 27, 9:05 AM] Alice ships at end of day.\n",
-    );
+    writeFileSync(bufferPath(), TWO_ENTRIES);
   });
 
-  test("a drained buffer reports progress and enqueues follow-ups", async () => {
+  test("a run with a verified page write consumes exactly the pass and enqueues follow-ups", async () => {
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
@@ -844,16 +900,22 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
       throw new Error("unreachable");
     }
     expect(result.noProgress).toBe(false);
+    expect(result.consumedEntries).toBe(2);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe("");
+    expect(messagesRequestedFor).toEqual(["conv-1"]);
     expect(result.followUpJobIds).toEqual(["job-1"]);
     expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
   });
 
-  test("a partially trimmed buffer counts as progress", async () => {
+  test("an entry appended while the run is in flight is still in the buffer afterwards", async () => {
+    // The specimen: remember() lands mid-run, after the snapshot. The run
+    // never saw it, so it must not be consumed with the pass.
+    const midRun = formatRememberEntry(
+      "Bob joined the standup.",
+      new Date(2026, 3, 27, 9, 6),
+    );
     runnerImpl = async () => {
-      writeFileSync(
-        bufferPath(),
-        "- [Apr 27, 9:05 AM] Alice ships at end of day.\n",
-      );
+      appendFileSync(bufferPath(), midRun);
       return { conversationId: "conv-1", ok: true };
     };
 
@@ -864,14 +926,37 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
       throw new Error("unreachable");
     }
     expect(result.noProgress).toBe(false);
-    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+    expect(result.consumedEntries).toBe(2);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(midRun);
+    expect(runnerLastArgs?.prompt as string).not.toContain(
+      "Bob joined the standup.",
+    );
   });
 
-  test("an unchanged buffer reports noProgress and skips all follow-ups", async () => {
-    // The runner completes ok but never touches buffer.md — the stuck-agent
-    // shape: without the progress check the size trigger would re-fire and
-    // every re-fire would fan out another reembed.
-    runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+  test("a run with no verified page write consumes nothing and reports noProgress", async () => {
+    // The run completed but its messages carry no successful page write:
+    // a prose-only reply, or writes that all errored. Consuming would
+    // delete the entries unfiled.
+    runMessages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "t1", name: "file_write", input: {} },
+          { type: "text", text: "Nothing to file." },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "t1",
+            is_error: true,
+            content: "EACCES",
+          },
+        ],
+      },
+    ];
 
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
@@ -880,18 +965,79 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
       throw new Error("unreachable");
     }
     expect(result.noProgress).toBe(true);
+    expect(result.consumedEntries).toBe(0);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(TWO_ENTRIES);
     expect(result.followUpJobIds).toEqual([]);
     expect(enqueuedJobs).toHaveLength(0);
   });
 
-  test("a grown buffer reports noProgress and skips all follow-ups", async () => {
+  test("only page-writing tools count as evidence", async () => {
+    runMessages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "t1", name: "file_read", input: {} },
+          { type: "tool_use", id: "t2", name: "recall", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "t1", content: "..." },
+          { type: "tool_result", tool_use_id: "t2", content: "..." },
+        ],
+      },
+    ];
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.noProgress).toBe(true);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(TWO_ENTRIES);
+  });
+
+  test("a failed run leaves the buffer intact for the next pass", async () => {
+    runnerImpl = async () => ({
+      conversationId: "conv-1",
+      ok: false,
+      error: new Error("timed out"),
+      errorKind: "timeout",
+    });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("run_failed");
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(TWO_ENTRIES);
+    expect(messagesRequestedFor).toEqual([]);
+  });
+
+  test("a skipped run consumes nothing and reads no evidence", async () => {
+    runnerImpl = async () => ({
+      conversationId: "",
+      ok: true,
+      skipReason: "pre_first_user_message",
+    });
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.noProgress).toBe(true);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(TWO_ENTRIES);
+    expect(messagesRequestedFor).toEqual([]);
+  });
+
+  test("an agent that rewrote the buffer anyway still counts as progress, minus what it dropped", async () => {
+    // A customized prompt that trims the buffer itself: the pass's entries
+    // are already gone when the job goes to consume them. That is progress
+    // (the run filed them); the job warns rather than failing the run.
     runnerImpl = async () => {
-      writeFileSync(
-        bufferPath(),
-        "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
-          "- [Apr 27, 9:05 AM] Alice ships at end of day.\n" +
-          "- [Apr 27, 9:06 AM] Bob joined the standup.\n",
-      );
+      writeFileSync(bufferPath(), "");
       return { conversationId: "conv-1", ok: true };
     };
 
@@ -901,9 +1047,98 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     if (result.kind !== "invoked") {
       throw new Error("unreachable");
     }
-    expect(result.noProgress).toBe(true);
-    expect(result.followUpJobIds).toEqual([]);
-    expect(enqueuedJobs).toHaveLength(0);
+    expect(result.noProgress).toBe(false);
+    expect(result.consumedEntries).toBe(2);
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+  });
+
+  test("a snapshot that ends mid-append leaves its last entry for the next pass", async () => {
+    // An append is one write ending in a newline; a snapshot without one
+    // caught an append in flight. Its last entry is not handed to the run.
+    writeFileSync(
+      bufferPath(),
+      "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
+        "- [Apr 27, 9:05 AM] Alice ships at end of",
+    );
+    runnerImpl = async () => {
+      appendFileSync(bufferPath(), " day.\n");
+      return { conversationId: "conv-1", ok: true };
+    };
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.consumedEntries).toBe(1);
+    expect(runnerLastArgs?.prompt as string).not.toContain("Alice ships");
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(
+      "- [Apr 27, 9:05 AM] Alice ships at end of day.\n",
+    );
+  });
+
+  test("hand-written prose before the first entry is filed with the pass", async () => {
+    writeFileSync(bufferPath(), "Some notes I typed by hand.\n" + TWO_ENTRIES);
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(runnerLastArgs?.prompt as string).toContain(
+      "<buffer_entries>\nSome notes I typed by hand.\n- [Apr 27, 9:00 AM]",
+    );
+    expect(result.consumedEntries).toBe(3);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe("");
+  });
+
+  test("a buffer whose every entry is stamped with the cutoff minute skips the run", async () => {
+    // Entries stamped in the dispatch minute are the next pass's material,
+    // so a buffer holding only those has nothing eligible: no agent run,
+    // no failure bookkeeping.
+    if (new Date().getSeconds() >= 57) {
+      await Bun.sleep(3500);
+    }
+    const now = new Date();
+    writeFileSync(
+      bufferPath(),
+      formatRememberEntry("Just saved.", now) +
+        formatRememberEntry("Also just saved.", now),
+    );
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("nothing_eligible");
+    if (result.kind !== "nothing_eligible") {
+      throw new Error("unreachable");
+    }
+    expect(result.cutoff).toBe(formatBufferTimestamp(now));
+    expect(runnerCalls).toBe(0);
+    expect(existsSync(lockPath())).toBe(false);
+    expect(checkpointStore.size).toBe(0);
+  });
+
+  test("a consume that fails leaves the buffer intact and reports noProgress", async () => {
+    // The consume writes a temp file beside the buffer; a directory it
+    // cannot write to makes it throw. The job must not guess at the
+    // buffer's state: no removal, no follow-ups.
+    chmodSync(memoryDir(), 0o500);
+    try {
+      const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+      expect(result.kind).toBe("invoked");
+      if (result.kind !== "invoked") {
+        throw new Error("unreachable");
+      }
+      expect(result.noProgress).toBe(true);
+      expect(result.consumedEntries).toBe(0);
+      expect(enqueuedJobs).toHaveLength(0);
+    } finally {
+      chmodSync(memoryDir(), 0o700);
+    }
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(TWO_ENTRIES);
   });
 
   test("a run that leaves dangling links reports the count and still enqueues follow-ups", async () => {
@@ -916,7 +1151,6 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
         join(conceptsDir, "atl-1290.md"),
         "---\nlinks:\n  - atl-1291\n---\n# ATL-1290\n",
       );
-      writeFileSync(bufferPath(), "");
       invalidatePageIndex();
       return { conversationId: "conv-1", ok: true };
     };
@@ -947,7 +1181,6 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     invalidatePageIndex();
     runnerImpl = async () => {
       writeFileSync(join(conceptsDir, "atl-1291.md"), "# ATL-1291\n");
-      writeFileSync(bufferPath(), "");
       invalidatePageIndex();
       return { conversationId: "conv-1", ok: true };
     };
@@ -978,7 +1211,7 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
       "---\nlinks:\n  - atl-1291\n---\n# ATL-1290\n",
     );
     invalidatePageIndex();
-    runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+    runMessages = [];
     try {
       const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
@@ -1019,8 +1252,8 @@ describe("memoryV2ConsolidateJob — progress check and follow-up coalescing", (
     if (result.kind !== "invoked") {
       throw new Error("unreachable");
     }
-    // Dedup is not no-progress: the run drained the buffer; the follow-ups
-    // are simply already covered by pending rows.
+    // Dedup is not no-progress: the pass was consumed; the follow-ups are
+    // simply already covered by pending rows.
     expect(result.noProgress).toBe(false);
     expect(result.followUpJobIds).toEqual([]);
     expect(enqueuedJobs).toHaveLength(0);
@@ -1226,8 +1459,8 @@ describe("memoryV2ConsolidateJob — consecutive-failure state", () => {
 
   test("a completed run with no progress records a transient failure instead of clearing", async () => {
     seedFailureState(2, Date.now() - 60_000, "billing");
-    // Completes ok but never touches buffer.md — the stuck-agent shape.
-    runnerImpl = async () => ({ conversationId: "conv-1", ok: true });
+    // Completes ok but wrote no page: the stuck-agent shape.
+    runMessages = [];
 
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 

@@ -68,6 +68,13 @@ Everything else under the plugin root is **spine**:
   the writer plus the one matcher every reader uses. It lives at the root
   precisely so `substrate/`, `graph/`, and `graph-topology/` can all reach it
   without a tier importing spine. Do not add a second matcher anywhere),
+  `buffer-file` (the two writers of `memory/buffer.md`: the append every
+  `remember()`-shaped path uses and the consume the consolidation job runs
+  after a pass. Do not write the buffer from anywhere else, and never
+  rewrite it from a read that is not inside `consumeBufferEntries`'s
+  synchronous critical section), `memory-run-evidence` (readers of what a
+  background memory run durably produced from its persisted messages; every
+  job that gates a state transition on a verified write uses them),
   `segmenter`, `message-media`, `worker`, `worker-control`,
   `memory-recall-log-store`, `activation-session-store` (the onboarding
   activation rail — **not** a memory tier despite the name),

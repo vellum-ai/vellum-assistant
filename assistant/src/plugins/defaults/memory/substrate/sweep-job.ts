@@ -44,8 +44,8 @@ import {
   conversations,
   messages,
 } from "../../../../persistence/schema/index.js";
+import { appendBufferAndArchive } from "../buffer-file.js";
 import { formatRememberEntry } from "../buffer-format.js";
-import { appendBufferAndArchive } from "../graph/tool-handlers.js";
 import {
   extractToolUse,
   type ToolDefinition,
