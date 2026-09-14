@@ -6,12 +6,6 @@ import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "HostCu")
 
-/// Per-call AX timeout for one settle sample. Short on purpose: the sample is
-/// taken between sleeps, and a target that cannot answer within it tells us
-/// nothing about whether it has come to rest, so the wait falls back to
-/// sleeping out the ceiling.
-private let settleSampleTimeoutSeconds: Float = 0.25
-
 /// Separator between the parts of a settle signature. A control character so
 /// no window title or field value can forge a part boundary.
 private let settleSignatureSeparator = "\u{1F}"
@@ -297,6 +291,12 @@ enum HostCuActionRunner {
                 return finish(obs)
             }
 
+            // Read the settle signature before acting, so the wait afterwards
+            // can tell an effect that landed from one it cannot see.
+            let settleBaselineStart = DispatchTime.now()
+            let settleBaseline = await focusedWindowSignature(budgetMs: SettlePolicy.baselineBudgetMs)
+            let settleBaselineMs = millisSince(settleBaselineStart)
+
             // EXECUTE
             let executeStart = DispatchTime.now()
             do {
@@ -312,7 +312,12 @@ enum HostCuActionRunner {
 
             // WAIT: let the UI settle after the action, for as long as it
             // actually needs rather than a flat worst case.
-            await waitForSettle(stepNumber: stepNumber, timer: timer)
+            await waitForSettle(
+                baseline: settleBaseline,
+                baselineMs: settleBaselineMs,
+                stepNumber: stepNumber,
+                timer: timer
+            )
         } else {
             // Observe-only skips the action-path gate, but AX enumeration silently
             // returns an empty tree without Accessibility. Surface the same hint the
@@ -340,22 +345,21 @@ enum HostCuActionRunner {
     // MARK: - Settle
 
     /// Wait for the UI to come to rest after an action, and record what the
-    /// wait really cost under the `settle` phase.
+    /// wait cost, including the pre-action baseline read, under `settle`.
     ///
-    /// Sleeps the floor first, because an app that has not begun repainting
-    /// reads as already settled, then samples a cheap signature of the focused
-    /// window until two consecutive samples agree or the ceiling is reached.
-    /// A sample we cannot read is not evidence of anything, so the wait falls
-    /// back to sleeping out the ceiling: an unmeasurable settle is never
-    /// shorter than the flat delay it replaced.
-    private static func waitForSettle(stepNumber: Int, timer: PhaseTimer) async {
+    /// Sleeps the floor first, then samples the focused-window signature until
+    /// `SettlePolicy.hasSettled` says the action's effect landed and held
+    /// still, or the ceiling is reached. Each sample is bounded by the time
+    /// left before the ceiling. A sample that cannot be read is not evidence
+    /// of anything, so the wait sleeps out the ceiling instead.
+    private static func waitForSettle(
+        baseline: String?,
+        baselineMs: Int,
+        stepNumber: Int,
+        timer: PhaseTimer
+    ) async {
         let startedAt = DispatchTime.now()
-        defer { timer.record(.settle, since: startedAt) }
-
-        func elapsedMs() -> Int {
-            let elapsed = DispatchTime.now().uptimeNanoseconds &- startedAt.uptimeNanoseconds
-            return Int(elapsed / 1_000_000)
-        }
+        defer { timer.record(.settle, millis: baselineMs + millisSince(startedAt)) }
 
         func sleep(millis: Int) async throws {
             guard millis > 0 else { return }
@@ -366,53 +370,67 @@ enum HostCuActionRunner {
             try await sleep(millis: SettlePolicy.floorMs)
 
             var previous: String?
-            while elapsedMs() < SettlePolicy.ceilingMs {
-                guard let sample = await focusedWindowSignature() else {
+            while millisSince(startedAt) < SettlePolicy.ceilingMs {
+                let remainingMs = SettlePolicy.ceilingMs - millisSince(startedAt)
+                guard let sample = await focusedWindowSignature(budgetMs: remainingMs) else {
                     log.debug("[\(stepNumber)] Settle sample unavailable, waiting out the ceiling")
-                    try await sleep(millis: SettlePolicy.ceilingMs - elapsedMs())
+                    try await sleep(millis: SettlePolicy.ceilingMs - millisSince(startedAt))
                     return
                 }
-                if SettlePolicy.hasSettled(previous: previous, current: sample) { return }
+                if SettlePolicy.hasSettled(baseline: baseline, previous: previous, current: sample) { return }
                 previous = sample
-                try await sleep(millis: min(SettlePolicy.sampleIntervalMs, SettlePolicy.ceilingMs - elapsedMs()))
+                try await sleep(millis: min(SettlePolicy.sampleIntervalMs, SettlePolicy.ceilingMs - millisSince(startedAt)))
             }
         } catch {
             log.warning("Post-action delay interrupted: \(error)")
         }
     }
 
-    /// A cheap stand-in for "what does the focused window look like right now":
-    /// the observed app's pid, its focused window's title, and the value of
-    /// whatever element has keyboard focus. A few attribute reads rather than
-    /// a tree walk, each bounded by a short messaging timeout, so sampling
-    /// it every few tens of milliseconds costs far less than the wait it
-    /// shortens. Nil when it cannot be read, which the caller treats as no
-    /// evidence of settling rather than as a settled UI.
-    ///
-    /// Sampled from the app the observation will read, which is the topmost one
-    /// that is neither this helper nor its Electron host. Sampling whatever is
-    /// merely frontmost would watch our own chat window repaint, which settles
-    /// instantly and says nothing about the app being driven.
-    private static func focusedWindowSignature() async -> String? {
+    private static func millisSince(_ start: DispatchTime) -> Int {
+        Int((DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000)
+    }
+
+    /// The AX reads one signature makes. Kept in step with the body below so
+    /// the per-read timeout divides the budget by the real count.
+    private static let settleSignatureReadCount = 5
+
+    /// A cheap reading of the focused window: its app, its title, and the
+    /// focused element's role and value. Nil when `budgetMs` is too small to
+    /// read it or any required read fails. Every read is bounded so the whole
+    /// signature stays inside the budget.
+    private static func focusedWindowSignature(budgetMs: Int) async -> String? {
+        guard let perRead = SettlePolicy.perReadTimeoutSeconds(
+            budgetMs: budgetMs,
+            readCount: settleSignatureReadCount
+        ) else { return nil }
+
         // AX calls are synchronous Mach IPC into the target app, so they run
         // off the main thread here for the same reason tree enumeration does.
-        await Task.detached { () -> String? in
+        return await Task.detached { () -> String? in
             guard let pid = AccessibilityTreeEnumerator.topmostNonHostWindowPID() else { return nil }
             let appElement = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(appElement, settleSampleTimeoutSeconds)
+            // A messaging timeout belongs to the element it is set on, so each
+            // element read from is bounded in turn.
+            AXUIElementSetMessagingTimeout(appElement, perRead)
 
             guard let window = axElementAttribute(appElement, kAXFocusedWindowAttribute) else {
                 return nil
             }
+            AXUIElementSetMessagingTimeout(window, perRead)
             let title = axStringAttribute(window, kAXTitleAttribute) ?? ""
 
             // No focused element, or one with no value, is a normal state for a
             // window nobody is typing into, so it is an empty part rather than
             // a failed sample.
-            let focusedValue = axElementAttribute(appElement, kAXFocusedUIElementAttribute)
-                .flatMap { axStringAttribute($0, kAXValueAttribute) } ?? ""
+            var role = ""
+            var value = ""
+            if let focused = axElementAttribute(appElement, kAXFocusedUIElementAttribute) {
+                AXUIElementSetMessagingTimeout(focused, perRead)
+                role = axStringAttribute(focused, kAXRoleAttribute) ?? ""
+                value = axStringAttribute(focused, kAXValueAttribute) ?? ""
+            }
 
-            return [String(pid), title, focusedValue].joined(separator: settleSignatureSeparator)
+            return [String(pid), title, role, value].joined(separator: settleSignatureSeparator)
         }.value
     }
 
@@ -655,6 +673,7 @@ enum HostCuActionRunner {
             screenWidthPt = Int(screenSize.width)
             screenHeightPt = Int(screenSize.height)
         } catch {
+            timer.record(.capture, since: captureStartedAt)
             log.error("[\(stepNumber)] Screenshot capture failed: \(error)")
         }
 
