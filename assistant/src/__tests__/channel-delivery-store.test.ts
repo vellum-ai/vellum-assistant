@@ -12,13 +12,13 @@ import {
   clearPayload,
   findMessageByProviderMessageId,
   findMessageBySourceId,
-  getSiblingStreamedReplyTs,
+  getSiblingStreamedReply,
   linkMessage,
+  readStreamedReply,
   recordInbound,
   recordOutboundPost,
   storePayload,
   storeStreamedReply,
-  streamedReplyTsToReconcile,
 } from "../persistence/delivery-crud.js";
 import {
   acknowledgeDelivery,
@@ -294,7 +294,7 @@ describe("channel-delivery-store", () => {
     ).toBeNull();
   });
 
-  test("a sibling's streamed message is reconciled into only once it held reply text", () => {
+  test("a deduplicated redelivery reads what its sibling's stream held", () => {
     const original = recordInbound("slack", "D-SIBLING", "slack-msg-original");
     const redelivery = recordInbound(
       "slack",
@@ -306,15 +306,15 @@ describe("channel-delivery-store", () => {
     linkMessage(redelivery.eventId, "user-sibling");
     storePayload(original.eventId, { content: "hello" });
 
-    // The original attempt's stream was opened by a plan and crashed before
-    // any reply text: the redelivery posts beneath that card.
+    // A stream a plan opened is still returned, so recovery can settle that
+    // card before posting the reply beneath it.
     storeStreamedReply(original.eventId, {
       messageTs: "1700000000.000101",
       role: "progress",
     });
-    expect(
-      getSiblingStreamedReplyTs("user-sibling", redelivery.eventId),
-    ).toBeUndefined();
+    expect(getSiblingStreamedReply("user-sibling", redelivery.eventId)).toEqual(
+      { messageTs: "1700000000.000101", role: "progress" },
+    );
 
     // Once reply text was confirmed in it, the same message is the reply the
     // redelivery finishes in place.
@@ -322,22 +322,24 @@ describe("channel-delivery-store", () => {
       messageTs: "1700000000.000101",
       role: "reply",
     });
-    expect(getSiblingStreamedReplyTs("user-sibling", redelivery.eventId)).toBe(
-      "1700000000.000101",
+    expect(getSiblingStreamedReply("user-sibling", redelivery.eventId)).toEqual(
+      { messageTs: "1700000000.000101", role: "reply" },
     );
   });
 
-  test("a streamed-message breadcrumb written before roles still reconciles in place", () => {
+  test("a streamed-message breadcrumb written before roles reads as the reply", () => {
+    // No role means the breadcrumb predates roles, which recovery treats as
+    // the reply it was always assumed to be.
     expect(
-      streamedReplyTsToReconcile({ slackStreamMessageTs: "1700000000.000102" }),
-    ).toBe("1700000000.000102");
+      readStreamedReply({ slackStreamMessageTs: "1700000000.000102" }),
+    ).toEqual({ messageTs: "1700000000.000102" });
     expect(
-      streamedReplyTsToReconcile({
+      readStreamedReply({
         slackStreamMessageTs: "1700000000.000102",
         slackStreamRole: "progress",
       }),
-    ).toBeUndefined();
-    expect(streamedReplyTsToReconcile({})).toBeUndefined();
+    ).toEqual({ messageTs: "1700000000.000102", role: "progress" });
+    expect(readStreamedReply({})).toBeUndefined();
   });
 
   test("same chat on same channel reuses the same conversation", () => {

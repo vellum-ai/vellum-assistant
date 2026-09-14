@@ -23,8 +23,8 @@ import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js
 import {
   clearPayload,
   linkMessage,
+  readStreamedReply,
   storeReplyMessageId,
-  streamedReplyTsToReconcile,
 } from "../persistence/delivery-crud.js";
 import {
   deferRetryUntilIdle,
@@ -42,7 +42,10 @@ import {
   deliverReplyViaCallback,
   findAssistantReplyMessageIdForTurn,
 } from "./channel-reply-delivery.js";
-import { finalizeEventDelivery } from "./finalize-event-delivery.js";
+import {
+  finalizeEventDelivery,
+  reconcilePriorStream,
+} from "./finalize-event-delivery.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type {
   MessageProcessor,
@@ -455,9 +458,10 @@ export async function sweepFailedEvents(
         : undefined;
     // A retry never opens a new stream: a prior attempt may already have
     // streamed a message, so re-streaming would duplicate the reply. The
-    // durable delivery below finishes that message in place when it already
-    // held reply text, and posts beneath it when it only held a plan.
-    const priorStreamMessageTs = streamedReplyTsToReconcile(payload);
+    // durable delivery below settles that stream, then finishes the message in
+    // place when it already held reply text, and posts beneath it when it only
+    // held a plan.
+    const priorStream = readStreamedReply(payload);
     let replyMessageId: string | undefined;
     const observeAgentEvent = (msg: AssistantEvent): void => {
       if (
@@ -630,7 +634,7 @@ export async function sweepFailedEvents(
     // re-post a reply the owning event already delivered (double-post). Mirrors
     // background-dispatch via the shared ownership check. With no such sibling,
     // the prior attempt died before delivering, so this replay delivers once,
-    // editing any streamed message in place via `priorStreamMessageTs`.
+    // settling any streamed message and recovering from it via `priorStream`.
     if (
       deduplicatedIngress &&
       userMessageId &&
@@ -655,7 +659,7 @@ export async function sweepFailedEvents(
           replyMessageId,
           userMessageId,
           replySession: undefined,
-          priorStreamMessageTs,
+          priorStream,
         });
       } catch (err) {
         log.error(
@@ -700,11 +704,12 @@ export async function sweepFailedEvents(
         : undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
-    // A prior attempt may already have streamed a message. When it held reply
-    // text, its first undelivered segment finishes that message in place
-    // rather than posting a duplicate beside it; a message that only held a
-    // plan stays the plan card, and the reply is posted beneath it.
-    const priorStreamMessageTs = streamedReplyTsToReconcile(payload);
+    // A prior attempt may already have streamed a message. Its stream is
+    // settled first. When it held reply text, the first undelivered segment
+    // finishes that message in place rather than posting a duplicate beside
+    // it; a message that only held a plan stays the plan card, and the reply is
+    // posted beneath it.
+    const priorStream = readStreamedReply(payload);
     if (!replyCallbackUrl || !externalChatId) {
       recordDeliveryFailure(
         event.id,
@@ -730,6 +735,11 @@ export async function sweepFailedEvents(
     }
 
     try {
+      const messageTs = await reconcilePriorStream(
+        replyCallbackUrl,
+        externalChatId,
+        priorStream,
+      );
       await deliverReplyViaCallback(
         event.conversationId,
         externalChatId,
@@ -742,7 +752,7 @@ export async function sweepFailedEvents(
           // through to the real reply written earlier in the same turn.
           ...(event.messageId ? { sinceMessageId: event.messageId } : {}),
           startFromSegment: event.deliveredSegmentCount,
-          ...(priorStreamMessageTs ? { messageTs: priorStreamMessageTs } : {}),
+          ...(messageTs ? { messageTs } : {}),
           onSegmentDelivered: (count) =>
             updateDeliveredSegmentCount(event.id, count),
         },

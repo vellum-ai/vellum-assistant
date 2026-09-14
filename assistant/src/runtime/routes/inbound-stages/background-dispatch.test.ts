@@ -16,6 +16,7 @@ const storedReplyMessageIds: Array<{
   eventId: string;
   replyMessageId: string;
 }> = [];
+const settledStreams: string[] = [];
 const storedStreamedReplyTs: Array<{
   eventId: string;
   messageTs: string;
@@ -27,7 +28,7 @@ const replyDeliveryCalls: Array<{
   messageTs?: string;
 }> = [];
 let siblingDeliveryStatuses: string[] = [];
-let siblingStreamedReplyTs: string | undefined;
+let siblingStreamedReply: { messageTs: string; role?: string } | undefined;
 let deliverChannelReplyImpl: (
   callbackUrl: string,
   payload: Record<string, unknown>,
@@ -55,7 +56,7 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
     operationOrder.push("store-streamed-ts");
     storedStreamedReplyTs.push({ eventId, ...stream });
   },
-  getSiblingStreamedReplyTs: () => siblingStreamedReplyTs,
+  getSiblingStreamedReply: () => siblingStreamedReply,
 }));
 
 mock.module("../../../persistence/delivery-status.js", () => ({
@@ -124,6 +125,14 @@ mock.module("../../../messaging/providers/index.js", () => ({
     streamReply: () => undefined,
     streamPersists: true,
   }),
+  settleChannelStream: async (
+    _callbackUrl: string,
+    _chatId: string,
+    streamId: string,
+  ) => {
+    settledStreams.push(streamId);
+    return { ok: true };
+  },
   sendChannelStreamOp: async (
     callbackUrl: string,
     _chatId: string,
@@ -206,7 +215,8 @@ beforeEach(() => {
   storedStreamedReplyTs.length = 0;
   replyDeliveryCalls.length = 0;
   siblingDeliveryStatuses = [];
-  siblingStreamedReplyTs = undefined;
+  siblingStreamedReply = undefined;
+  settledStreams.length = 0;
   deliverChannelReplyImpl = async () => ({ ok: true });
   deliverReplyViaCallbackImpl = async () => {};
 });
@@ -508,7 +518,7 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     // persisted reply would duplicate the already-visible streamed message, so
     // recovery must reuse the recorded `ts` to edit that message in place.
     siblingDeliveryStatuses = ["pending"];
-    siblingStreamedReplyTs = streamTs;
+    siblingStreamedReply = { messageTs: streamTs, role: "reply" };
     const processMessage: MessageProcessor = async () => ({
       messageId: "user-msg-dedup",
       deduplicated: true,
@@ -535,7 +545,50 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     expect(replyDeliveryCalls).toEqual([
       { messageId: undefined, startFromSegment: 0, messageTs: streamTs },
     ]);
+    // The stream the crash left open is settled before the edit, because Slack
+    // refuses to edit a message that is still streaming.
+    expect(settledStreams).toEqual([streamTs]);
     expect(deliveredEvents).toEqual(["evt-dedup-pending-streamed"]);
+  });
+
+  test("posts beneath the sibling's plan card when recovering a deduplicated redelivery in the crash window", async () => {
+    const conversationId = "conv-dedup-pending-plan";
+    const channelId = "C-DEDUP-PENDING-PLAN";
+    const streamTs = "1700000000.000098";
+
+    // The original attempt's stream only ever held its plan when it crashed,
+    // leaving the sibling stuck `pending`. Rewriting that card into the reply
+    // would destroy the plan, so recovery settles it and posts beneath it.
+    siblingDeliveryStatuses = ["pending"];
+    siblingStreamedReply = { messageTs: streamTs, role: "progress" };
+    const processMessage: MessageProcessor = async () => ({
+      messageId: "user-msg-dedup",
+      deduplicated: true,
+    });
+
+    processChannelMessageInBackground({
+      processMessage,
+      conversationId,
+      eventId: "evt-dedup-pending-plan",
+      content: "redelivered message",
+      sourceChannel: "slack",
+      sourceInterface: "slack",
+      externalChatId: channelId,
+      trustCtx,
+      metadataHints: [],
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+    });
+
+    await flush();
+
+    // No `messageTs`: the reply is a new message beneath the plan card.
+    expect(markedProcessedEvents).toEqual(["evt-dedup-pending-plan"]);
+    expect(replyDeliveryCalls).toEqual([
+      { messageId: undefined, startFromSegment: 0 },
+    ]);
+    // The plan card the crash left open is settled, then left as the card.
+    expect(settledStreams).toEqual([streamTs]);
+    expect(deliveredEvents).toEqual(["evt-dedup-pending-plan"]);
   });
 
   test("falls back to durable delivery for a non-threaded Slack DM", async () => {

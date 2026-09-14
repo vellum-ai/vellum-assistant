@@ -284,4 +284,20 @@ export interface ChannelTransport {
    * loses the reply entirely.
    */
   readonly streamPersists?: boolean;
+
+  /**
+   * End a growing reply that an earlier process opened and never finished.
+   *
+   * A process that dies mid-turn leaves a persisting stream open, and a
+   * platform may refuse to edit a message that is still streaming, so crash
+   * recovery settles the stream before it touches the message. Resolves ok
+   * when the stream had already ended, so settling is safe to repeat. Carries
+   * no content: recovery delivers the reply through `edit` or `deliver`
+   * afterwards. Omitted by a channel whose stream leaves nothing behind.
+   */
+  settleStream?(
+    ctx: CallbackContext,
+    chatId: string,
+    streamId: string,
+  ): Promise<ChannelDeliveryResult>;
 }

@@ -93,6 +93,26 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
+// Recovery settles a prior stream through the transport before it delivers.
+// Recorded here so no test reaches Slack, and so each case can assert what was
+// settled and make settling fail.
+const settledStreams: Array<{ chatId: string; streamId: string }> = [];
+let settleChannelStreamImpl: () => Promise<{ ok: boolean }> = async () => ({
+  ok: true,
+});
+const actualProviders = await import("../messaging/providers/index.js");
+mock.module("../messaging/providers/index.js", () => ({
+  ...actualProviders,
+  settleChannelStream: async (
+    _callbackUrl: string,
+    chatId: string,
+    streamId: string,
+  ) => {
+    settledStreams.push({ chatId, streamId });
+    return settleChannelStreamImpl();
+  },
+}));
+
 import type { Conversation } from "../daemon/conversation.js";
 import {
   clearConversations,
@@ -293,6 +313,8 @@ describe("channel-retry-sweep", () => {
     liveDeliveryCalls.length = 0;
     deliverReplyViaCallbackImpl = async () => {};
     deliverChannelReplyImpl = async () => ({ ok: true });
+    settledStreams.length = 0;
+    settleChannelStreamImpl = async () => ({ ok: true });
   });
 
   test("replays canonical payloads with trustClass correctly", async () => {
@@ -1109,6 +1131,10 @@ describe("channel-retry-sweep", () => {
     // A retry never streams; durable delivery edits the prior streamed message
     // in place from the first segment, so the reply is not duplicated.
     expect(liveDeliveryCalls).toEqual([]);
+    // Settled before the edit: Slack refuses to edit a message still streaming.
+    expect(settledStreams).toEqual([
+      { chatId: "D-LIVE-RETRY", streamId: "1700000000.000044" },
+    ]);
     expect(deliveryCalls).toEqual([
       {
         conversationId: inbound.conversationId,
@@ -1355,6 +1381,10 @@ describe("channel-retry-sweep", () => {
       .get();
 
     expect(liveDeliveryCalls).toEqual([]);
+    // The plan card the crash left open is settled, then left as the card.
+    expect(settledStreams).toEqual([
+      { chatId: "D-PLAN-ONLY-RETRY", streamId: "1700000000.000111" },
+    ]);
     expect(deliveryCalls).toEqual([
       {
         conversationId: inbound.conversationId,
@@ -1435,6 +1465,10 @@ describe("channel-retry-sweep", () => {
       .get();
 
     expect(liveDeliveryCalls).toEqual([]);
+    // Settled before the edit: Slack refuses to edit a message still streaming.
+    expect(settledStreams).toEqual([
+      { chatId: "D-REPLY-STARTED-RETRY", streamId: "1700000000.000122" },
+    ]);
     expect(deliveryCalls).toEqual([
       {
         conversationId: inbound.conversationId,
@@ -1495,6 +1529,9 @@ describe("channel-retry-sweep", () => {
       .where(eq(channelInboundEvents.id, inbound.eventId))
       .get();
     expect(processMessageCalls).toBe(0);
+    expect(settledStreams).toEqual([
+      { chatId: "D-DELIVERY-ONLY-PLAN", streamId: "1700000000.000133" },
+    ]);
     expect(deliveryCalls).toEqual([
       {
         conversationId: inbound.conversationId,
@@ -1506,6 +1543,131 @@ describe("channel-retry-sweep", () => {
       },
     ]);
     expect(row?.deliveryStatus).toBe("delivered");
+  });
+
+  test("delivery retry fails a reply stream Slack will not settle and keeps its breadcrumb", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "slack",
+      "D-UNSETTLED-REPLY",
+      "msg-d-unsettled-reply",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "already processed",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "D-UNSETTLED-REPLY",
+      replyCallbackUrl: "https://example.test/deliver/slack",
+      assistantId: "assistant-1",
+      replyMessageId: "assistant-d-unsettled-reply",
+    });
+    deliveryCrud.storeStreamedReply(inbound.eventId, {
+      messageTs: "1700000000.000144",
+      role: "reply",
+    });
+    // Slack would refuse to edit a message it still considers streaming, so an
+    // unsettled reply stream is not delivered into: the attempt fails, and a
+    // later sweep settles it and finishes the message.
+    settleChannelStreamImpl = async () => {
+      throw new Error("Slack is unavailable");
+    };
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "processed",
+        deliveryStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+        deliveredSegmentCount: 0,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    await sweepFailedEvents(async () => {
+      throw new Error("processMessage should not be called");
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    const rawPayload = row?.rawPayload
+      ? (JSON.parse(row.rawPayload) as Record<string, unknown>)
+      : {};
+    expect(settledStreams).toEqual([
+      { chatId: "D-UNSETTLED-REPLY", streamId: "1700000000.000144" },
+    ]);
+    expect(deliveryCalls).toEqual([]);
+    expect(row?.deliveryStatus).toBe("failed");
+    expect(rawPayload.slackStreamMessageTs).toBe("1700000000.000144");
+    expect(rawPayload.slackStreamRole).toBe("reply");
+  });
+
+  test("delivery retry still posts the reply beneath a plan card Slack will not settle", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "slack",
+      "D-UNSETTLED-PLAN",
+      "msg-d-unsettled-plan",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "already processed",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "D-UNSETTLED-PLAN",
+      replyCallbackUrl: "https://example.test/deliver/slack",
+      assistantId: "assistant-1",
+      replyMessageId: "assistant-d-unsettled-plan",
+    });
+    deliveryCrud.storeStreamedReply(inbound.eventId, {
+      messageTs: "1700000000.000155",
+      role: "progress",
+    });
+    // The reply is owed whether or not the plan card could be closed, and
+    // posting beneath the card never needs the card to be settled.
+    settleChannelStreamImpl = async () => {
+      throw new Error("Slack is unavailable");
+    };
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "processed",
+        deliveryStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+        deliveredSegmentCount: 0,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    await sweepFailedEvents(async () => {
+      throw new Error("processMessage should not be called");
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    const rawPayload = row?.rawPayload
+      ? (JSON.parse(row.rawPayload) as Record<string, unknown>)
+      : {};
+    expect(settledStreams).toEqual([
+      { chatId: "D-UNSETTLED-PLAN", streamId: "1700000000.000155" },
+    ]);
+    expect(deliveryCalls).toEqual([
+      {
+        conversationId: inbound.conversationId,
+        externalChatId: "D-UNSETTLED-PLAN",
+        callbackUrl: "https://example.test/deliver/slack",
+        assistantId: "assistant-1",
+        messageId: "assistant-d-unsettled-plan",
+        startFromSegment: 0,
+      },
+    ]);
+    expect(row?.deliveryStatus).toBe("delivered");
+    expect(rawPayload.slackStreamRole).toBe("progress");
   });
 
   test("delivery retry for processed events resumes delivery without processing", async () => {

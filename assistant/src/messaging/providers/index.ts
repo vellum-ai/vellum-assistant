@@ -185,6 +185,24 @@ export async function sendChannelStreamOp(
   return transport.streamReply(callbackContext(callbackUrl), chatId, op);
 }
 
+/**
+ * End a stream an earlier process left open on the channel this callback
+ * addresses, before crash recovery touches its message.
+ *
+ * Resolves to nothing when the channel has no stream to settle.
+ */
+export async function settleChannelStream(
+  callbackUrl: string,
+  chatId: string,
+  streamId: string,
+): Promise<ChannelDeliveryResult | undefined> {
+  const transport = getTransportForCallback(callbackUrl);
+  if (!transport?.settleStream) {
+    return undefined;
+  }
+  return transport.settleStream(callbackContext(callbackUrl), chatId, streamId);
+}
+
 function callbackContext(callbackUrl: string): CallbackContext {
   const params: Record<string, string> = {};
   try {

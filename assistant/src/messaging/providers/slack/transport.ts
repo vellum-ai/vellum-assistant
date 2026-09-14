@@ -13,6 +13,7 @@ import {
   sendSlackReaction,
   sendSlackReply,
   sendSlackStreamOp,
+  settleSlackStream,
   updateSlackMessage,
 } from "./send.js";
 
@@ -147,5 +148,14 @@ export const slackTransport: ChannelTransport = {
       return { ok: false };
     }
     return sendSlackStreamOp(chatId, { ...op, anchorMessageId: threadTs });
+  },
+
+  /**
+   * Crash recovery ends a stream an earlier process left open before touching
+   * its message, because `chat.update` refuses a message that is still
+   * streaming (`streaming_state_conflict`).
+   */
+  async settleStream(_ctx, chatId, streamId) {
+    return settleSlackStream(chatId, streamId);
   },
 };

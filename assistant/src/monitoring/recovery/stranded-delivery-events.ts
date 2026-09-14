@@ -20,10 +20,10 @@
  * orphans to `delivery_status = 'failed'` with an immediate `retry_after` so
  * the existing delivery-retry arm of the sweep re-delivers from the stored
  * payload. That arm reconciles against a reply that already streamed: the
- * streamed-message breadcrumb makes it finish the visible message in place
- * when that message already held reply text, leaves a plan-only card as it
- * was and posts the reply beneath it, and the sent-message-id reconciliation
- * stamps the row. Guards:
+ * streamed-message breadcrumb makes it settle the stream the crash left open,
+ * then finish the visible message in place when it already held reply text or
+ * post the reply beneath a plan-only card, and the sent-message-id
+ * reconciliation stamps the row. Guards:
  *
  *   - **Boot-time fence.** Only rows created BEFORE this daemon booted are
  *     touched. A newer row belongs to a live turn on the running daemon;

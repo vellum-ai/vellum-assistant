@@ -304,6 +304,34 @@ export async function sendSlackReply(
 }
 
 /**
+ * End a stream an earlier process opened and never stopped.
+ *
+ * `chat.stopStream` requires only the channel and the stream's `ts`, so the
+ * stream is closed with no further content, and the session is left `active`,
+ * the call's default. A stream that already ended answers
+ * `message_not_in_streaming_state`, which counts as settled, so recovery can
+ * repeat this safely.
+ *
+ * @see https://docs.slack.dev/reference/methods/chat.stopStream/
+ */
+export async function settleSlackStream(
+  channel: string,
+  streamTs: string,
+): Promise<ChannelDeliveryResult> {
+  try {
+    await stopSlackStream({ channel, streamTs });
+  } catch (err) {
+    if (
+      !(err instanceof SlackApiError) ||
+      err.slackError !== "message_not_in_streaming_state"
+    ) {
+      throw err;
+    }
+  }
+  return { ok: true, ts: streamTs };
+}
+
+/**
  * Execute one growing-reply operation against a Slack channel, returning the
  * stream `ts` so the caller can carry it across `append` and `stop`. `start`
  * mints a new `ts`; `append` and `stop` echo the one they were given.

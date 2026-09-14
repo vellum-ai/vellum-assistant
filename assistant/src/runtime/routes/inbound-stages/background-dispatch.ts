@@ -26,12 +26,13 @@ import {
   supportsChannelActivity,
 } from "../../../messaging/providers/index.js";
 import {
-  getSiblingStreamedReplyTs,
+  getSiblingStreamedReply,
   linkMessage,
   storeInboundChannelMetadata,
   storeInboundSlackMetadata,
   storeReplyMessageId,
   storeStreamedReply,
+  type StreamedReply,
 } from "../../../persistence/delivery-crud.js";
 import {
   deferRetryUntilIdle,
@@ -375,18 +376,15 @@ export function processChannelMessageInBackground(
       //     undelivered reply → fall through and deliver. If that first attempt
       //     had already streamed its reply live into Slack, its message `ts` is
       //     durably recorded on the sibling row (via `recordStream`); reuse it so
-      //     recovery edits that visible message in place instead of posting the
-      //     persisted reply a second time.
+      //     recovery settles that stream and finishes the visible message in
+      //     place instead of posting the persisted reply a second time.
       let priorDeduplicatedDeliveryOwned = false;
-      let recoveredStreamMessageTs: string | undefined;
+      let recoveredStream: StreamedReply | undefined;
       if (deduplicatedIngress && userMessageId !== undefined) {
         if (isDeduplicatedDeliveryOwnedBySibling(userMessageId, eventId)) {
           priorDeduplicatedDeliveryOwned = true;
         } else {
-          recoveredStreamMessageTs = getSiblingStreamedReplyTs(
-            userMessageId,
-            eventId,
-          );
+          recoveredStream = getSiblingStreamedReply(userMessageId, eventId);
         }
       }
 
@@ -410,9 +408,7 @@ export function processChannelMessageInBackground(
             replyMessageId,
             userMessageId,
             replySession,
-            ...(recoveredStreamMessageTs
-              ? { priorStreamMessageTs: recoveredStreamMessageTs }
-              : {}),
+            ...(recoveredStream ? { priorStream: recoveredStream } : {}),
           });
         } catch (err) {
           log.error(

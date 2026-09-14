@@ -40,6 +40,7 @@ const {
   sendSlackReaction,
   sendSlackReply,
   sendSlackStreamOp,
+  settleSlackStream,
   updateSlackMessage,
 } = await import("./send.js");
 const { SLACK_STREAM_MARKDOWN_LIMIT } = await import("./api.js");
@@ -522,5 +523,50 @@ describe("sendSlackStreamOp", () => {
     const body = calls[0]![1] as { markdownText?: string; tasks?: unknown };
     expect(body.markdownText).toBeUndefined();
     expect(body.tasks).toBeDefined();
+  });
+});
+
+describe("settleSlackStream", () => {
+  const streamTs = "1700000000.000950";
+
+  beforeEach(() => {
+    callSlackApiMock.mockReset();
+    callSlackApiMock.mockImplementation(async () => ({ ok: true }));
+  });
+
+  test("ends an abandoned stream with only the channel and its ts", async () => {
+    // `chat.stopStream` requires only these two arguments. Recovery delivers
+    // the reply afterwards, so settling carries no content of its own.
+    const result = await settleSlackStream("D-STREAM", streamTs);
+
+    const calls = callSlackApiMock.mock.calls.filter(
+      (call) => call[0] === "chat.stopStream",
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]![1]).toEqual({ channel: "D-STREAM", streamTs });
+    expect(result).toEqual({ ok: true, ts: streamTs });
+  });
+
+  test("a stream that already ended counts as settled", async () => {
+    // A turn that failed rather than crashed stopped its own stream, so a
+    // retry settling it again is answered `message_not_in_streaming_state`.
+    callSlackApiMock.mockImplementation(async () => {
+      throw new SlackApiError("message_not_in_streaming_state");
+    });
+
+    await expect(settleSlackStream("D-STREAM", streamTs)).resolves.toEqual({
+      ok: true,
+      ts: streamTs,
+    });
+  });
+
+  test("any other refusal reaches the caller", async () => {
+    callSlackApiMock.mockImplementation(async () => {
+      throw new SlackApiError("channel_not_found");
+    });
+
+    await expect(settleSlackStream("D-STREAM", streamTs)).rejects.toThrow(
+      SlackApiError,
+    );
   });
 });
