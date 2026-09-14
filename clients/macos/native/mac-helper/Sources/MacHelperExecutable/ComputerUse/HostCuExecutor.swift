@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import AppKit
+import MacHelperCore
 import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "HostCu")
@@ -124,6 +125,7 @@ enum HostCuActionRunner {
         // For observe-only requests, skip action execution and just capture state
         let isObserveOnly = toolName == "computer_use_observe" || toolName == "cu_observe"
         let captureTarget = captureTarget(from: input)
+        let includeScreenshot = ObservationCapture.includeScreenshot(from: input["includeScreenshot"])
 
         var executionResult: String? = nil
         var executionError: String? = nil
@@ -152,7 +154,8 @@ enum HostCuActionRunner {
                     executionError: "Accessibility permission not granted. Grant Vellum access in System Settings > Privacy & Security > Accessibility, then retry.",
                     stepNumber: stepNumber,
                     conversationId: conversationId,
-                    timer: timer
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
                 return finish(obs)
             }
@@ -171,7 +174,8 @@ enum HostCuActionRunner {
                     executionError: ExecutorError.userIsActive.errorDescription,
                     stepNumber: stepNumber,
                     conversationId: conversationId,
-                    timer: timer
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
                 return finish(obs)
             }
@@ -192,7 +196,8 @@ enum HostCuActionRunner {
                     executionError: "Could not resolve element coordinates for action",
                     stepNumber: stepNumber,
                     conversationId: conversationId,
-                    timer: timer
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
                 return finish(obs)
             }
@@ -207,7 +212,8 @@ enum HostCuActionRunner {
                     executionError: nil,
                     stepNumber: stepNumber,
                     conversationId: conversationId,
-                    timer: timer
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
                 return finish(obs)
             }
@@ -221,7 +227,8 @@ enum HostCuActionRunner {
                     executionError: nil,
                     stepNumber: stepNumber,
                     conversationId: conversationId,
-                    timer: timer
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
                 return finish(obs)
             }
@@ -249,7 +256,8 @@ enum HostCuActionRunner {
                     executionError: "BLOCKED: \(reason) (confirmation not available in proxy mode)",
                     stepNumber: stepNumber,
                     conversationId: conversationId,
-                    timer: timer
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
                 return finish(obs)
 
@@ -262,7 +270,8 @@ enum HostCuActionRunner {
                     executionError: "BLOCKED: \(reason)",
                     stepNumber: stepNumber,
                     conversationId: conversationId,
-                    timer: timer
+                    timer: timer,
+                    includeScreenshot: includeScreenshot
                 )
                 return finish(obs)
             }
@@ -306,7 +315,8 @@ enum HostCuActionRunner {
             stepNumber: stepNumber,
             conversationId: conversationId,
             timer: timer,
-            captureTarget: captureTarget
+            captureTarget: captureTarget,
+            includeScreenshot: includeScreenshot
         )
 
         return finish(obs)
@@ -497,7 +507,9 @@ enum HostCuActionRunner {
         }
     }
 
-    /// Capture the current screen state as an observation.
+    /// Capture the current screen state as an observation. With
+    /// `includeScreenshot` false and no `captureTarget`, a readable tree is
+    /// returned without a screenshot.
     private static func buildObservation(
         enumerator: AccessibilityTreeProviding,
         screenCapture: ScreenCaptureProviding,
@@ -506,7 +518,8 @@ enum HostCuActionRunner {
         stepNumber: Int,
         conversationId: String,
         timer: PhaseTimer,
-        captureTarget: CaptureTarget? = nil
+        captureTarget: CaptureTarget? = nil,
+        includeScreenshot: Bool = true
     ) async -> ObservationData {
         var axTreeText: String?
         var axDiffText: String?
@@ -532,11 +545,16 @@ enum HostCuActionRunner {
         // focused window: it may be on another display or another app, and
         // its text would then be filed against a frame that never showed it.
         // A targeted read with no matching tree is a screenshot alone.
-        // Start the screenshot before the AX walk so the two overlap: they read
-        // the same moment of the same screen through different subsystems, and
-        // neither needs the other's answer. The request is identical whether or
-        // not the walk finds a tree, so one call serves both outcomes.
-        async let timedShot = timedCapture(screenCapture, target: captureTarget)
+        // A wanted screenshot starts before the AX walk so the two overlap: they
+        // read the same moment of the same screen through different subsystems,
+        // and neither needs the other's answer. The request is identical whether
+        // or not the walk finds a tree, so one call serves both outcomes. When
+        // the daemon opts out of an unscoped screenshot, this task returns nil
+        // at once and the capture waits on whether the walk finds a tree.
+        let capturePlan = ObservationCapture.plan(includeScreenshot: includeScreenshot, scoped: captureTarget != nil)
+        async let concurrentShot = capturePlan == .besideWalk
+            ? timedCapture(screenCapture, target: captureTarget)
+            : nil
 
         let windowResult = await timer.measure(.axWalk) { () -> WindowRead? in
             switch captureTarget {
@@ -582,26 +600,38 @@ enum HostCuActionRunner {
             log.warning("[\(stepNumber)] No AX tree available, using the screenshot alone")
         }
 
-        // Collect the capture that ran alongside the walk. A failure still
-        // leaves the screenshot nil and the tree, if there is one, intact. Its
-        // duration was measured inside its own task, so it reports the capture
-        // alone rather than however long the walk beside it took.
-        let (captureOutcome, captureMs) = await timedShot
-        timer.record(.capture, millis: captureMs)
-        switch captureOutcome {
-        case .success(let screenshotResult):
-            screenshotBase64 = await timer.measure(.encode) {
-                screenshotResult.jpegData.base64EncodedString()
+        // Collect the capture that ran alongside the walk. A skipped screenshot
+        // is taken now after all when the walk found no tree, since the model
+        // would otherwise see nothing.
+        var timedShot = await concurrentShot
+        if capturePlan.captureAfterWalk(treeFound: windowResult != nil) {
+            log.info("[\(stepNumber)] Screenshot skip overridden: no AX tree to return instead")
+            timedShot = await timedCapture(screenCapture, target: captureTarget)
+        }
+
+        // A failure still leaves the screenshot nil and the tree, if there is
+        // one, intact. The duration was measured inside the capture, so it
+        // reports the capture alone rather than however long the walk beside it
+        // took. A skipped capture records 0.
+        if let (captureOutcome, captureMs) = timedShot {
+            timer.record(.capture, millis: captureMs)
+            switch captureOutcome {
+            case .success(let screenshotResult):
+                screenshotBase64 = await timer.measure(.encode) {
+                    screenshotResult.jpegData.base64EncodedString()
+                }
+                if let meta = screenshotResult.metadata {
+                    screenshotWidthPx = meta.screenshotWidthPx
+                    screenshotHeightPx = meta.screenshotHeightPx
+                }
+                let screenSize = screenCapture.screenSize()
+                screenWidthPt = Int(screenSize.width)
+                screenHeightPt = Int(screenSize.height)
+            case .failure(let error):
+                log.error("[\(stepNumber)] Screenshot capture failed: \(error)")
             }
-            if let meta = screenshotResult.metadata {
-                screenshotWidthPx = meta.screenshotWidthPx
-                screenshotHeightPx = meta.screenshotHeightPx
-            }
-            let screenSize = screenCapture.screenSize()
-            screenWidthPt = Int(screenSize.width)
-            screenHeightPt = Int(screenSize.height)
-        case .failure(let error):
-            log.error("[\(stepNumber)] Screenshot capture failed: \(error)")
+        } else {
+            timer.record(.capture, millis: 0)
         }
 
         return ObservationData(
