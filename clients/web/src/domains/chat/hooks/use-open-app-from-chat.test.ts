@@ -66,7 +66,10 @@ const CONV_ID = "conv-1";
 const CHAT_PATH = `/assistant/conversations/${CONV_ID}`;
 const APP_PATH = `${CHAT_PATH}/app/${APP_ID}`;
 const OTHER_CONV_ID = "conv-2";
-const OTHER_APP_PATH = `/assistant/conversations/${OTHER_CONV_ID}/app/${APP_ID}`;
+const OTHER_CHAT_PATH = `/assistant/conversations/${OTHER_CONV_ID}`;
+const OTHER_APP_PATH = `${OTHER_CHAT_PATH}/app/${APP_ID}`;
+const OTHER_APP_ID = "app-2";
+const OTHER_CONV_OTHER_APP_PATH = `${OTHER_CHAT_PATH}/app/${OTHER_APP_ID}`;
 
 // Renders the hook beside the router's location, so a test reads where the
 // open landed from `result.current.pathname` instead of the router internals.
@@ -281,7 +284,7 @@ describe("useOpenAppFromChat", () => {
     expect(result.current.navigationType).toBe(NavigationType.Replace);
   });
 
-  test("leaves the app segment alone once the user has moved on", async () => {
+  test("drops the app segment from the conversation the user moved to", async () => {
     // GIVEN a reload of the app that is still in flight
     useConversationStore.setState({ activeConversationId: CONV_ID });
     let releaseLoad: (() => void) | undefined;
@@ -311,9 +314,45 @@ describe("useOpenAppFromChat", () => {
       await open;
     });
 
-    // THEN the stale failure leaves the new route alone: it owns its own app
-    // segment, and `useAppRouteSync` answers for the load there
-    expect(result.current.pathname).toBe(OTHER_APP_PATH);
+    // THEN the dead segment leaves the conversation the user is on, not the
+    // one the reload started from, and it leaves without a history entry
+    expect(result.current.pathname).toBe(OTHER_CHAT_PATH);
+    expect(result.current.navigationType).toBe(NavigationType.Replace);
+  });
+
+  test("leaves a route naming another app alone", async () => {
+    // GIVEN a reload of the app that is still in flight
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    let releaseLoad: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    loadAppMock.mockImplementation(async () => {
+      await pending;
+      useViewerStore.setState({
+        mainView: "chat",
+        activeAppId: null,
+        openedAppState: null,
+      });
+      return false;
+    });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user moves to a route that names a different app, and only then
+    // does the old reload give up
+    let open: Promise<void> | undefined;
+    await act(async () => {
+      open = result.current.openApp(APP_ID);
+      void result.current.navigate(OTHER_CONV_OTHER_APP_PATH);
+    });
+    await act(async () => {
+      releaseLoad?.();
+      await open;
+    });
+
+    // THEN the stale failure leaves that route alone: the segment names an app
+    // of its own, and `useAppRouteSync` answers for the load there
+    expect(result.current.pathname).toBe(OTHER_CONV_OTHER_APP_PATH);
   });
 
   test("keeps the app route when the viewer still holds the app", async () => {
