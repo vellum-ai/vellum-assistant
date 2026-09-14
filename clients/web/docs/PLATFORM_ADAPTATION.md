@@ -305,6 +305,11 @@ the left half of a mobile viewport opens the navigation drawer. A row there keep
 on the **trailing** edge, or the two gestures resolve to the drawer and the row's leading action is
 unreachable in practice.
 
+The shared drawer/back-swipe detector yields touches that begin inside horizontally overflowing
+`overflow-x: auto` or `scroll` containers. Tables, code blocks, and attachment strips own those
+gestures for their full duration, including at the screen edge and at either scroll boundary.
+Use the navigation button or start outside the scroller to open the menu or go back.
+
 Inside the open drawer the contested edge flips: a leftward drag closes it
 ([`useSwipeCloseDrawer`](../src/hooks/use-swipe-close-drawer.ts)). Rows keep both edges there,
 because that gesture stands down over anything marked `data-swipe-action-row`, which
