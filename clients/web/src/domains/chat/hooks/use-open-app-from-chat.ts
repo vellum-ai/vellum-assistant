@@ -23,7 +23,7 @@ import {
   documentEntryState,
   documentEntryUrl,
 } from "@/utils/document-navigation";
-import { appIdForPath, routes } from "@/utils/routes";
+import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
 
 import {
   documentRequestScope,
@@ -160,8 +160,9 @@ export function useOpenDocumentFromChat(
  * Re-opening the app the URL already names has nowhere to navigate, so it
  * reloads in place. That is the one direct `loadApp` call for an app the URL
  * already names, and it is how an app the assistant edited picks up its new
- * HTML. A reload the viewer gives up on drops the app segment, matching
- * `useAppRouteSync`, so a refresh does not retry an app that is gone.
+ * HTML. A reload the viewer gives up on drops the app segment from the route it
+ * started on, matching `useAppRouteSync`, so a refresh does not retry an app
+ * that is gone.
  *
  * An explicit open is a *view* action, so the app lands full-width: an open
  * from the split drops back to `"app"` on the way. That holds on every viewport,
@@ -194,6 +195,12 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  // Assigned during render, not in an effect, so a reload that resolves after
+  // the user navigates reads the route they are on rather than the one the
+  // callback closed over.
+  const latestPathnameRef = useRef(pathname);
+  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the async callback below reads the latest route
+  latestPathnameRef.current = pathname;
 
   return useCallback(
     async (appId: string) => {
@@ -210,11 +217,20 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
       }
       if (appIdForPath(pathname) === appId) {
         const loaded = await viewer.loadApp(assistantId, appId);
-        if (!loaded && useViewerStore.getState().activeAppId !== appId) {
+        const current = latestPathnameRef.current;
+        if (
+          !loaded &&
+          useViewerStore.getState().activeAppId !== appId &&
+          conversationIdForPath(current) === conversationId &&
+          appIdForPath(current) === appId
+        ) {
           // The viewer gives up on the app, and an app id the viewer cannot
           // load does not belong in the URL, where reload and a copied
           // bookmark would retry it forever. An `activeAppId` still on the app
           // means the viewer holds it behind an overlay, so the URL stands.
+          // A reload only drops the segment of the route it started on: once
+          // the user selects another conversation, that route owns its own app
+          // segment and `useAppRouteSync` answers for the load there.
           await navigate(routes.conversation(conversationId), {
             replace: true,
           });

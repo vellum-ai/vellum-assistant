@@ -13,6 +13,7 @@ import {
   MemoryRouter,
   NavigationType,
   useLocation,
+  useNavigate,
   useNavigationType,
 } from "react-router";
 
@@ -64,6 +65,8 @@ const APP_ID = "app-1";
 const CONV_ID = "conv-1";
 const CHAT_PATH = `/assistant/conversations/${CONV_ID}`;
 const APP_PATH = `${CHAT_PATH}/app/${APP_ID}`;
+const OTHER_CONV_ID = "conv-2";
+const OTHER_APP_PATH = `/assistant/conversations/${OTHER_CONV_ID}/app/${APP_ID}`;
 
 // Renders the hook beside the router's location, so a test reads where the
 // open landed from `result.current.pathname` instead of the router internals.
@@ -78,6 +81,7 @@ function renderOpenApp(initialPath: string) {
   return renderHook(
     () => ({
       openApp: useOpenAppFromChat(),
+      navigate: useNavigate(),
       pathname: useLocation().pathname,
       navigationType: useNavigationType(),
     }),
@@ -275,6 +279,41 @@ describe("useOpenAppFromChat", () => {
     // entry, so a refresh or a copied bookmark does not retry the app
     expect(result.current.pathname).toBe(CHAT_PATH);
     expect(result.current.navigationType).toBe(NavigationType.Replace);
+  });
+
+  test("leaves the app segment alone once the user has moved on", async () => {
+    // GIVEN a reload of the app that is still in flight
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    let releaseLoad: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    loadAppMock.mockImplementation(async () => {
+      await pending;
+      useViewerStore.setState({
+        mainView: "chat",
+        activeAppId: null,
+        openedAppState: null,
+      });
+      return false;
+    });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user selects another conversation that keeps the app beside it,
+    // and only then does the reload give up
+    let open: Promise<void> | undefined;
+    await act(async () => {
+      open = result.current.openApp(APP_ID);
+      void result.current.navigate(OTHER_APP_PATH);
+    });
+    await act(async () => {
+      releaseLoad?.();
+      await open;
+    });
+
+    // THEN the stale failure leaves the new route alone: it owns its own app
+    // segment, and `useAppRouteSync` answers for the load there
+    expect(result.current.pathname).toBe(OTHER_APP_PATH);
   });
 
   test("keeps the app route when the viewer still holds the app", async () => {
