@@ -26,6 +26,7 @@ import {
   FFPROBE_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../../../util/spawn.js";
+import { safeStringSlice } from "../../../../util/unicode.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -268,7 +269,7 @@ export async function run(
       );
       if (reencodeResult.exitCode !== 0) {
         return {
-          content: `ffmpeg clip extraction failed (both stream copy and re-encode): ${reencodeResult.stderr.slice(0, 500)}`,
+          content: `ffmpeg clip extraction failed (both stream copy and re-encode): ${safeStringSlice(reencodeResult.stderr, 0, 500)}`,
           isError: true,
         };
       }

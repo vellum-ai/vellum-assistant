@@ -5,6 +5,7 @@ import { minimatch } from "minimatch";
 import { RE2JS } from "re2js";
 
 import { RiskLevel } from "../../permissions/types.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { declareDaemonActivityField } from "../schema-transforms.js";
 import {
   isDeniedBasename,
@@ -246,7 +247,7 @@ export const codeSearchTool = {
     // emitting a multi-megabyte output line. Normal lines pass through verbatim.
     const truncateForDisplay = (text: string): string =>
       text.length > MAX_DISPLAY_LINE_LENGTH
-        ? `${text.slice(0, MAX_DISPLAY_LINE_LENGTH)} …[line truncated]`
+        ? `${safeStringSlice(text, 0, MAX_DISPLAY_LINE_LENGTH)} …[line truncated]`
         : text;
 
     // Append an output line, tracking its byte cost. Returns false once the

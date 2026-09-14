@@ -30,6 +30,7 @@ import {
   isModelNotFoundError,
   isVisionNotSupportedError,
 } from "../util/provider-error-patterns.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 /**
  * Classified conversation error ready for client emission.
@@ -580,7 +581,7 @@ function classifyCore(
       const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
       const detail = detailMatch?.[1];
       const suffix = detail
-        ? `: ${detail.length > 200 ? detail.slice(0, 200) + "…" : detail}`
+        ? `: ${detail.length > 200 ? safeStringSlice(detail, 0, 200) + "…" : detail}`
         : "";
       return {
         code: "PROVIDER_API",
@@ -612,7 +613,7 @@ function extractProviderDetail(message: string): string | undefined {
   if (!detail) {
     return undefined;
   }
-  return detail.length > 200 ? `${detail.slice(0, 200)}…` : detail;
+  return detail.length > 200 ? `${safeStringSlice(detail, 0, 200)}…` : detail;
 }
 
 /**

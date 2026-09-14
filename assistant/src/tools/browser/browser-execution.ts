@@ -262,7 +262,7 @@ export const EXTRACT_LINKS_EXPRESSION = `
 (() => {
   const anchors = Array.from(document.querySelectorAll('a[href]'));
   return anchors.slice(0, 200).map(a => ({
-    text: (a.textContent || '').trim().slice(0, 80),
+    text: Array.from((a.textContent || '').trim()).slice(0, 80).join(''),
     href: a.href,
   }));
 })()

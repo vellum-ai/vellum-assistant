@@ -5,6 +5,7 @@ import type { AvatarState } from "@vellumai/avatar-manifest";
 import { isTemplateContent } from "../prompts/template-detection.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 const log = getLogger("identity-avatar");
 
@@ -26,7 +27,7 @@ export const AVATAR_IDENTITY_NOTE_MAX_CHARS = 240;
 function toIdentityLine(text: string): string {
   const line = text.replace(/\s+/g, " ").trim();
   return line.length > AVATAR_IDENTITY_NOTE_MAX_CHARS
-    ? `${line.slice(0, AVATAR_IDENTITY_NOTE_MAX_CHARS - 3).trimEnd()}...`
+    ? `${safeStringSlice(line, 0, AVATAR_IDENTITY_NOTE_MAX_CHARS - 3).trimEnd()}...`
     : line;
 }
 
@@ -117,7 +118,11 @@ export function updateIdentityAvatarSection(description: string): void {
   }
 
   try {
-    writeFileSync(identityPath, withAvatarSection(content, description), "utf-8");
+    writeFileSync(
+      identityPath,
+      withAvatarSection(content, description),
+      "utf-8",
+    );
   } catch (err) {
     log.warn({ err }, "Failed to update IDENTITY.md avatar section");
   }
