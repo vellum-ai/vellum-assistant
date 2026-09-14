@@ -103,11 +103,13 @@ mock.module("node:child_process", () => ({
   },
 }));
 
+const logMock = {
+  info: mock(() => undefined),
+  warn: mock(() => undefined),
+};
+
 mock.module("./logger", () => ({
-  default: {
-    info: mock(() => undefined),
-    warn: mock(() => undefined),
-  },
+  default: logMock,
 }));
 
 mock.module("./app-origin", () => ({
@@ -137,6 +139,7 @@ const {
   __resetForTesting,
   __setPlatformForTesting,
   __setSupervisorOptionsForTesting,
+  getVoiceKeyDiagnostics,
   installHotkeyHelper,
   queryFreshMacHelperPermission,
   requestMacHelperInputMonitoringPermission,
@@ -249,6 +252,8 @@ beforeEach(() => {
   nextWebContentsId = 1;
   defaultSender = makeWebContents();
   setPointerOnCompanion(false);
+  logMock.info.mockClear();
+  logMock.warn.mockClear();
 });
 
 afterEach(() => {
@@ -571,6 +576,67 @@ describe("installHotkeyHelper", () => {
       "vellum:helper:hotkey:event",
       { kind: "modifierHold", state: "down" },
     );
+  });
+
+  /**
+   * A working key and a dead one look the same in a log that only records
+   * failures, so the helper taking and dropping the binding each get a line.
+   */
+  test("logs the voice key registration and its clearing", async () => {
+    installHotkeyHelper();
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+    expect(logMock.info).toHaveBeenCalledWith(
+      "[mac-helper] voice key registered: modifiers=control+option enabled=true",
+    );
+
+    const pending = invokeSetModifierHold({ kind: "off" });
+    await wait(5);
+    const request = lastChild?.stdin.writes.at(-1) ?? "";
+    const id = (JSON.parse(request) as { id: number }).id;
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(`{"jsonrpc":"2.0","id":${id},"result":{"enabled":false}}\n`),
+    );
+    expect(await pending).toEqual({ ok: true, enabled: false });
+    expect(logMock.info).toHaveBeenCalledWith("[mac-helper] voice key cleared");
+  });
+
+  test("reports the binding and the last hold edge for diagnostics", async () => {
+    installHotkeyHelper();
+    expect(getVoiceKeyDiagnostics()).toEqual({
+      binding: "off",
+      helperHoldsBinding: false,
+      lastEdge: null,
+    });
+
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+    expect(getVoiceKeyDiagnostics()).toEqual({
+      binding: "control+option",
+      helperHoldsBinding: true,
+      lastEdge: null,
+    });
+
+    const before = Date.now();
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"down"}}\n',
+      ),
+    );
+    const down = getVoiceKeyDiagnostics().lastEdge;
+    expect(down?.state).toBe("down");
+    expect(Date.parse(down?.at ?? "")).toBeGreaterThanOrEqual(before);
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"modifierHold","state":"up","reason":"released"}}\n',
+      ),
+    );
+    const up = getVoiceKeyDiagnostics().lastEdge;
+    expect(up?.state).toBe("up");
+    // The edge says the key moved and when, nothing about which key.
+    expect(Object.keys(up ?? {})).toEqual(["state", "at"]);
   });
 
   /**

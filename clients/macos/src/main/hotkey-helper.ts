@@ -324,6 +324,13 @@ const sendModifierHold = async (
       return { ok: false, reason: "mac helper returned invalid hotkey result" };
     }
     helperHoldsBinding = hold.kind !== "off" && parsed.data.enabled;
+    if (hold.kind === "off") {
+      log.info("[mac-helper] voice key cleared");
+    } else {
+      log.info(
+        `[mac-helper] voice key registered: modifiers=${hold.modifiers.join("+")} enabled=${parsed.data.enabled}`,
+      );
+    }
     return { ok: true, enabled: parsed.data.enabled };
   } catch (err) {
     return {
@@ -754,6 +761,29 @@ let restoreHoldAfterRestart = false;
 let restoreHoldInFlight = false;
 let holdIsOpen = false;
 
+/**
+ * What a support bundle shows for the voice key: the binding main believes the
+ * helper holds, and when the hold last moved. The edge is recorded as it is
+ * forwarded to a window, so a key that registers but never reaches the app
+ * reads as never having moved. No key identity beyond the hold's own state.
+ */
+export interface VoiceKeyDiagnostics {
+  binding: string;
+  helperHoldsBinding: boolean;
+  lastEdge: { state: "down" | "up"; at: string } | null;
+}
+
+let lastVoiceKeyEdge: VoiceKeyDiagnostics["lastEdge"] = null;
+
+export const getVoiceKeyDiagnostics = (): VoiceKeyDiagnostics => ({
+  binding:
+    modifierHoldBinding.kind === "off"
+      ? "off"
+      : modifierHoldBinding.modifiers.join("+"),
+  helperHoldsBinding,
+  lastEdge: lastVoiceKeyEdge,
+});
+
 const newestOwnerId = (): number | null => {
   let id: number | null = null;
   for (const [ownerId, owner] of hotkeyOwners) {
@@ -834,6 +864,7 @@ const sendHotkeyEventToOwner = (event: HotkeyEvent): void => {
     return;
   }
   holdIsOpen = event.state === "down";
+  lastVoiceKeyEdge = { state: event.state, at: new Date().toISOString() };
   hotkeyOwnerTarget()?.send("vellum:helper:hotkey:event", event);
 };
 
@@ -1156,6 +1187,7 @@ export const __resetForTesting = (): void => {
   desiredModifierHold = { kind: "off" };
   modifierHoldInFlight = null;
   helperHoldsBinding = false;
+  lastVoiceKeyEdge = null;
   restoreHoldAfterRestart = false;
   releaseChordOwner?.();
   releaseChordOwner = null;
