@@ -147,4 +147,64 @@ struct UserActivityGateTests {
             )
         )
     }
+
+    @Test("a held button is the user even with no recent event")
+    func heldButton() {
+        // A drag paused past the quiet window sends nothing new.
+        #expect(
+            UserActivityGate.userIsActive(
+                now: now,
+                lastSyntheticPostAt: nil,
+                secondsSinceLastInput: 120,
+                buttonHeld: true
+            )
+        )
+    }
+
+    @Test("a held modifier is the user even with no recent event")
+    func heldModifier() {
+        #expect(
+            UserActivityGate.userIsActive(
+                now: now,
+                lastSyntheticPostAt: nil,
+                secondsSinceLastInput: 120,
+                modifierHeld: true
+            )
+        )
+    }
+
+    @Test("a held input is the user even right after our own post")
+    func heldInputBeatsSyntheticExclusion() {
+        // Our posts release everything before returning, so a held button
+        // beside our last post still belongs to the person.
+        #expect(
+            UserActivityGate.userIsActive(
+                now: now,
+                lastSyntheticPostAt: now.addingTimeInterval(-0.25),
+                secondsSinceLastInput: 0.25,
+                buttonHeld: true
+            )
+        )
+        #expect(
+            UserActivityGate.userIsActive(
+                now: now,
+                lastSyntheticPostAt: now.addingTimeInterval(-0.25),
+                secondsSinceLastInput: 0.25,
+                modifierHeld: true
+            )
+        )
+    }
+
+    @Test("our own consecutive action with nothing held is still ours")
+    func consecutiveSyntheticNothingHeld() {
+        #expect(
+            UserActivityGate.userIsActive(
+                now: now,
+                lastSyntheticPostAt: now.addingTimeInterval(-0.25),
+                secondsSinceLastInput: 0.25,
+                buttonHeld: false,
+                modifierHeld: false
+            ) == false
+        )
+    }
 }
