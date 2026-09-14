@@ -74,6 +74,19 @@ export function revealConversationView(conversationId: string): void {
 }
 
 /**
+ * The app the viewer keeps on screen, to carry in the next conversation URL.
+ * `null` when the viewer shows the chat or an overlay.
+ *
+ * Read it after `revealConversationView` / `prepareFreshConversation`, which
+ * decide whether the app stays. Reads `activeAppId` rather than the loaded
+ * `openedAppState`, so an app still loading is already named in the URL.
+ */
+export function keptAppId(): string | null {
+  const viewer = useViewerStore.getState();
+  return isAppMainView(viewer.mainView) ? viewer.activeAppId : null;
+}
+
+/**
  * Navigate to an existing conversation, resetting stale viewer state (main
  * view, subagent / workflow panels, transcript side-panel payloads) and
  * updating the active conversation in the store.
@@ -105,8 +118,12 @@ export function navigateToConversation(
   const destination =
     options?.destination ??
     (options?.messageId
-      ? routes.conversationAtMessage(conversationId, options.messageId)
-      : routes.conversation(conversationId));
+      ? routes.conversationAtMessage(
+          conversationId,
+          options.messageId,
+          keptAppId(),
+        )
+      : routes.conversation(conversationId, keptAppId()));
   if (options?.replace || options?.state !== undefined) {
     void navigate(destination, {
       ...(options.replace ? { replace: true } : {}),
@@ -183,7 +200,7 @@ export function navigateToNewConversation(
   }
   const draftId = prepareFreshConversation();
 
-  let path: string = routes.conversation(draftId);
+  let path: string = routes.conversation(draftId, keptAppId());
   if (options?.prompt) {
     const params = new URLSearchParams({ prompt: options.prompt });
     path = `${path}?${params.toString()}`;

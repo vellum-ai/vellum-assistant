@@ -10,7 +10,7 @@
  *
  * When an app is already on screen on a wide viewport, conversation
  * navigation keeps that app in the side-by-side layout instead of
- * dismissing it to chat.
+ * dismissing it to chat, and names it in the URL it navigates to.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -46,6 +46,7 @@ const {
   navigateToConversation,
   navigateToNewConversation,
   keepOpenAppBesideConversation,
+  keptAppId,
   revealConversationView,
 } = await import("@/utils/conversation-navigation");
 
@@ -54,6 +55,14 @@ const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
 function openAppViewer(view: "app" | "app-editing" = "app"): void {
   useViewerStore.setState({
     mainView: view,
+    activeAppId: SAMPLE_APP.appId,
+    openedAppState: SAMPLE_APP,
+  });
+}
+
+function openOverlayOverApp(): void {
+  useViewerStore.setState({
+    mainView: "document",
     activeAppId: SAMPLE_APP.appId,
     openedAppState: SAMPLE_APP,
   });
@@ -190,6 +199,28 @@ describe("navigateToConversation", () => {
       "conv-9",
     );
     expect(useConversationStore.getState().activeConversationId).toBe("conv-9");
+    expect(navigate).toHaveBeenCalledWith(
+      "/assistant/conversations/conv-9/app/app-1",
+    );
+  });
+
+  test("a kept app rides along in front of the message anchor", () => {
+    openAppViewer();
+    const navigate = mock((_to: string) => {});
+    navigateToConversation(navigate as unknown as NavigateFunction, "conv-9", {
+      messageId: "msg-9",
+    });
+
+    expect(navigate).toHaveBeenCalledWith(
+      "/assistant/conversations/conv-9/app/app-1?message=msg-9",
+    );
+  });
+
+  test("an overlay view is not a kept app, so the URL stays plain", () => {
+    openOverlayOverApp();
+    const navigate = mock((_to: string) => {});
+    navigateToConversation(navigate as unknown as NavigateFunction, "conv-9");
+
     expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-9"));
   });
 
@@ -205,6 +236,7 @@ describe("navigateToConversation", () => {
 
     expect(useViewerStore.getState().mainView).toBe("chat");
     expect(useConversationStore.getState().editingConversationId).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-9"));
   });
 });
 
@@ -251,6 +283,43 @@ describe("navigateToNewConversation", () => {
     expect(useViewerStore.getState().mainView).toBe("app-editing");
     expect(useConversationStore.getState().editingConversationId).toBe(newId);
     expect(composerFocus).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith(
+      `/assistant/conversations/${newId}/app/app-1`,
+    );
+  });
+
+  test("a kept app sits in the path and the prompt stays in the query", () => {
+    openAppViewer();
+    const navigate = mock((_to: string) => {});
+    navigateToNewConversation(navigate as unknown as NavigateFunction, {
+      prompt: "hi there",
+    });
+
+    const newId = useConversationStore.getState().activeConversationId;
+    expect(navigate).toHaveBeenCalledWith(
+      `/assistant/conversations/${newId}/app/app-1?prompt=hi+there`,
+    );
+  });
+});
+
+describe("keptAppId", () => {
+  test("names the app the viewer keeps on screen", () => {
+    openAppViewer();
+    expect(keptAppId()).toBe("app-1");
+  });
+
+  test("names the app in the side-by-side layout too", () => {
+    openAppViewer("app-editing");
+    expect(keptAppId()).toBe("app-1");
+  });
+
+  test("is null when the viewer shows the chat", () => {
+    expect(keptAppId()).toBeNull();
+  });
+
+  test("is null for an overlay view", () => {
+    openOverlayOverApp();
+    expect(keptAppId()).toBeNull();
   });
 });
 
@@ -272,11 +341,7 @@ describe("keepOpenAppBesideConversation", () => {
   });
 
   test("is a no-op for overlay views", () => {
-    useViewerStore.setState({
-      mainView: "document",
-      activeAppId: SAMPLE_APP.appId,
-      openedAppState: SAMPLE_APP,
-    });
+    openOverlayOverApp();
     expect(keepOpenAppBesideConversation("conv-4")).toBe(false);
     expect(useViewerStore.getState().mainView).toBe("document");
   });
