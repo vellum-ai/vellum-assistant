@@ -36,11 +36,11 @@ const CODE_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 const MATH_FENCE_OPEN = /^ {0,3}(\${2,})[^$]*$/;
 // Only spaces and tabs count as whitespace to CommonMark, so a closing fence
 // or a blank line may carry nothing else (a stray U+00A0 makes a line
-// content). The optional CR is what CRLF input leaves after the split.
-const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,}|\${2,})[ \t]*\r?$/;
-const BLANK_LINE = /^[ \t]*\r?$/;
+// content). Lines reach these patterns without their terminator.
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,}|\${2,})[ \t]*$/;
+const BLANK_LINE = /^[ \t]*$/;
 const INDENTED_LINE = /^[ \t]/;
-// A top-level list item may sit up to three spaces in.
+// A top-level list item may sit up to three spaces in, and may be empty.
 const LIST_MARKER = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
 
 /**
@@ -83,7 +83,13 @@ function scanBlocks(text: string): string[] {
   while (lineStart < text.length) {
     const newline = text.indexOf("\n", lineStart);
     const lineEnd = newline === -1 ? text.length : newline + 1;
-    const line = text.slice(lineStart, newline === -1 ? text.length : newline);
+    // The line as the patterns see it: without its terminator, including the
+    // CR that CRLF input leaves. Offsets still slice the original text, so
+    // the blocks keep every byte.
+    let line = text.slice(lineStart, newline === -1 ? text.length : newline);
+    if (line.endsWith("\r")) {
+      line = line.slice(0, -1);
+    }
 
     if (fence !== null) {
       if (closesFence(line, fence)) {

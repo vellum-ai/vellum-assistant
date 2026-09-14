@@ -143,13 +143,13 @@ describe("splitMarkdownBlocks", () => {
   test("a line of non-breaking spaces is content, not a blank line", () => {
     // CommonMark blank lines hold only spaces and tabs, so this stays one
     // paragraph and must not be cut.
-    expect(blocksOf("a\n \nb\n\nc")).toEqual(["a\n \nb\n\n", "c"]);
+    expect(blocksOf("a\n\u00a0\nb\n\nc")).toEqual(["a\n\u00a0\nb\n\n", "c"]);
     expect(blocksOf("a\n \t \nb")).toEqual(["a\n \t \n", "b"]);
   });
 
   test("a fence line followed by a non-breaking space does not close the fence", () => {
-    expect(blocksOf("```\nx\n``` \n\ny\n```\n\nafter")).toEqual([
-      "```\nx\n``` \n\ny\n```\n\n",
+    expect(blocksOf("```\nx\n```\u00a0\n\ny\n```\n\nafter")).toEqual([
+      "```\nx\n```\u00a0\n\ny\n```\n\n",
       "after",
     ]);
   });
@@ -181,6 +181,13 @@ describe("splitMarkdownBlocks", () => {
       "a\r\n\r\n",
       "b\r\n```\r\nc\r\n\r\n```\r\n\r\n",
       "d",
+    ]);
+  });
+
+  test("an empty list item under CRLF keeps the loose list whole", () => {
+    expect(blocksOf("- one\r\n\r\n-\r\n\r\n- three\r\n\r\nafter")).toEqual([
+      "- one\r\n\r\n-\r\n\r\n- three\r\n\r\n",
+      "after",
     ]);
   });
 
