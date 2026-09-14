@@ -722,14 +722,14 @@ describe("BYOOAuthConnection", () => {
 
       await conn.request({
         method: "GET",
-        path: "/admin/api/2025-07/shop.json",
+        path: "/admin/api/2026-07/shop.json",
         // A caller-supplied Authorization must not ride along.
         headers: { Authorization: "Bearer caller-supplied" },
       });
 
       const [url, init] = mockFetch.mock.calls[0];
       expect(url).toBe(
-        "https://example-store.myshopify.com/admin/api/2025-07/shop.json",
+        "https://example-store.myshopify.com/admin/api/2026-07/shop.json",
       );
       const headers = (init as RequestInit).headers as Headers;
       expect(headers.get("X-Shopify-Access-Token")).toBe("test-access-token");

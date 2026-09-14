@@ -1341,7 +1341,7 @@ export const PROVIDER_SEED_DATA: Record<
     // token plus a refresh token, which is refreshed against the same
     // per-shop endpoint.
     refreshUrl: "https://{tenant_host}/admin/oauth/access_token",
-    pingUrl: "https://{tenant_host}/admin/api/2025-07/shop.json",
+    pingUrl: "https://{tenant_host}/admin/api/2026-07/shop.json",
     baseUrl: "https://{tenant_host}",
     displayLabel: "Shopify",
     description: "Products, orders, customers, and inventory",
@@ -1374,7 +1374,6 @@ export const PROVIDER_SEED_DATA: Record<
       "read_discounts",
       "write_discounts",
       "read_price_rules",
-      "read_content",
     ],
     availableScopes: [
       {
@@ -1426,14 +1425,6 @@ export const PROVIDER_SEED_DATA: Record<
       {
         scope: "write_price_rules",
         description: "Create and update price rules",
-      },
-      {
-        scope: "read_content",
-        description: "Read articles, blogs, comments, and pages",
-      },
-      {
-        scope: "write_content",
-        description: "Create and update articles, blogs, and pages",
       },
       { scope: "read_files", description: "Read files uploaded to the store" },
       { scope: "write_files", description: "Upload and update files" },
@@ -1495,7 +1486,7 @@ export const PROVIDER_SEED_DATA: Record<
     ],
     // The Admin API's shop endpoint nests its payload under "shop"; the
     // myshopify domain is the stable, human-recognisable handle.
-    identityUrl: "https://{tenant_host}/admin/api/2025-07/shop.json",
+    identityUrl: "https://{tenant_host}/admin/api/2026-07/shop.json",
     identityResponsePaths: ["shop.myshopify_domain", "shop.name"],
     // Gated like monday/figma/stripe-link: the platform side and the
     // shop-domain input in the clients land separately, and until both are
