@@ -154,6 +154,16 @@ describe("walkWorkspaceTree recursive", () => {
     expect(result.truncated).toBe(true);
   });
 
+  test("a directory is carried whole or not at all", async () => {
+    // Root (5) plus a-dir (1) fit in 6; b-dir's two entries do not, so
+    // neither of them appears rather than one of them.
+    const { entries } = await walk({ maxEntries: 6 });
+    const paths = entries.map((e) => e.path);
+    expect(paths).toContain("walk-fixture/a-dir/file-in-a.md");
+    expect(paths).not.toContain("walk-fixture/b-dir/deep");
+    expect(paths).not.toContain("walk-fixture/b-dir/file-in-b.md");
+  });
+
   test("the root listing is whole even under a cap smaller than it", async () => {
     const result = await walk({ maxEntries: 1 });
     expect(result.entries.map((e) => e.name)).toContain("top.md");
