@@ -489,13 +489,35 @@ describe("QdrantManager", () => {
       ).toEqual({ kind: "not_ready", exit_code: null, panic: null });
     });
 
-    test("caps the reason well inside the watchdog detail budget", () => {
+    /**
+     * The telemetry server's measure: JSON with every code unit above 0x7E
+     * escaped to six ASCII bytes (`jsonByteLength` in
+     * `telemetry-wire.generated.ts`), minus the enclosing quotes.
+     */
+    const serverBytes = (s: string) =>
+      JSON.stringify(s).replace(/[^\x00-\x7e]/g, "\\uxxxx").length - 2;
+
+    test("caps an ASCII reason at the byte budget", () => {
       const { panic } = describeQdrantStartFailure(
         failure("Panic occurred: " + "x".repeat(5_000)),
         dataDir,
       );
 
       expect(panic?.length).toBe(1_024);
+      expect(serverBytes(panic!)).toBe(1_024);
+    });
+
+    test("caps a non-ASCII reason by the server's escaped size, not by characters", () => {
+      // Each CJK character serializes to six bytes on the server, so a
+      // character cap would overshoot the budget six-fold and the event would
+      // be dropped at ingest.
+      const { panic } = describeQdrantStartFailure(
+        failure("Panic occurred: " + "測".repeat(2_000)),
+        dataDir,
+      );
+
+      expect(serverBytes(panic!)).toBeLessThanOrEqual(1_024);
+      expect(serverBytes(panic! + "測")).toBeGreaterThan(1_024);
     });
 
     test("never drops an unclassified failure", () => {

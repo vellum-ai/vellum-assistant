@@ -65,8 +65,33 @@ export class QdrantStartError extends Error {
   }
 }
 
-/** Longest `panic` string {@link describeQdrantStartFailure} will emit. */
-const PANIC_REPORT_LIMIT = 1_024;
+/**
+ * Budget for the `panic` string {@link describeQdrantStartFailure} emits, in
+ * the bytes the telemetry server counts: JSON with every code unit above 0x7E
+ * escaped as `\uXXXX` (see `jsonByteLength` in `telemetry-wire.generated.ts`).
+ * A quarter of `WATCHDOG_DETAIL_MAX_JSON_BYTES`, leaving the other fields and
+ * the event envelope far from the limit that silently drops the event.
+ */
+const PANIC_REPORT_MAX_JSON_BYTES = 1_024;
+
+/**
+ * Longest prefix of `text` whose server-side JSON size fits `maxBytes`. Each
+ * UTF-16 code unit above 0x7E costs six bytes (astral characters two units,
+ * so twelve); quotes, backslashes and control characters cost what
+ * `JSON.stringify` escapes them to. Counting characters instead would let a
+ * non-ASCII reason overshoot the budget six-fold.
+ */
+function truncateToJsonBytes(text: string, maxBytes: number): string {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    bytes += unit > 0x7e ? 6 : JSON.stringify(text[i]).length - 2;
+    if (bytes > maxBytes) {
+      return text.slice(0, i);
+    }
+  }
+  return text;
+}
 
 /** Qdrant's panic hook logs `Panic occurred <location>: <reason>` on stdout. */
 const PANIC_MARKER = "Panic occurred";
@@ -81,8 +106,8 @@ const PANIC_MARKER = "Panic occurred";
  * absolute data directory, which is swapped for a placeholder. The panic hook
  * prints the reason after the backtrace, so it is everything from the last
  * marker on; when Qdrant died without panicking (a port collision logs a plain
- * error) the last stdout line is the best available explanation. Capped well
- * inside the wire's 4 KiB detail budget. Anything that is not a
+ * error) the last stdout line is the best available explanation. Capped by
+ * the server's own byte measure well inside the detail budget. Anything that is not a
  * {@link QdrantStartError} reports as `unknown`, so a new throw site can never
  * silently drop the event.
  */
@@ -110,7 +135,10 @@ export function describeQdrantStartFailure(
             .at(-1) ?? null);
   }
   if (reason) {
-    reason = reason.split(dataDir).join("<data>").slice(0, PANIC_REPORT_LIMIT);
+    reason = truncateToJsonBytes(
+      reason.split(dataDir).join("<data>"),
+      PANIC_REPORT_MAX_JSON_BYTES,
+    );
   }
   return { kind: err.kind, exit_code: err.exitCode, panic: reason };
 }

@@ -96,15 +96,23 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
           { err },
           "Qdrant failed to start after all attempts — memory features will be unavailable",
         );
-        // The warn above is the only record of this failure and it lands in
-        // the local log alone, so no reported instance has ever had its
-        // reason read. Report the step, the exit code and Qdrant's own reason
-        // fleet-wide; the metadata rules are in `describeQdrantStartFailure`.
-        recordWatchdogEvent({
-          checkName: "qdrant_start_failed",
-          value: attempt,
-          detail: { attempts: attempt, ...describeQdrantStartFailure(err) },
-        });
+        // Fleet-wide record of the failure: the step, the exit code and
+        // Qdrant's own reason line, bounded to telemetry-safe metadata by
+        // `describeQdrantStartFailure`. Observational only: the outbox insert
+        // can throw on a locked or half-migrated telemetry DB, and this path
+        // must still reach the worker start below.
+        try {
+          recordWatchdogEvent({
+            checkName: "qdrant_start_failed",
+            value: attempt,
+            detail: { attempts: attempt, ...describeQdrantStartFailure(err) },
+          });
+        } catch (telemetryErr) {
+          log.warn(
+            { err: telemetryErr },
+            "Qdrant start failure could not be recorded to telemetry",
+          );
+        }
       }
     }
   }
