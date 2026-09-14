@@ -9,6 +9,7 @@
  */
 
 import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
+import { workspaceDirOf } from "@/utils/workspace-path-links";
 
 import { isHiddenPath } from "./is-hidden-path";
 import { sortEntries, type WorkspaceSortMode } from "./sort-entries";
@@ -69,9 +70,7 @@ export function groupEntriesByDirectory(
 ): Map<string, WorkspaceTreeEntry[]> {
   const groups = new Map<string, WorkspaceTreeEntry[]>();
   for (const entry of entries) {
-    const slash = entry.path.lastIndexOf("/");
-    const directory =
-      slash === -1 ? WORKSPACE_ROOT_PATH : entry.path.slice(0, slash);
+    const directory = workspaceDirOf(entry.path);
     const group = groups.get(directory);
     if (group) {
       group.push(entry);

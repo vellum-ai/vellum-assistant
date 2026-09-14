@@ -61,19 +61,20 @@ export function useWorkspaceTreeListings({
   showHidden: boolean;
   sortMode: WorkspaceSortMode;
 }): WorkspaceTreeListings {
-  const workspace = useQuery(
+  const { data: workspaceData } = useQuery(
     workspaceTreeQueryOptions({ assistantId, showHidden, recursive: true }),
   );
   // An assistant without the parameter answers with one level and no
   // `truncated`; that answer is not a workspace listing.
-  const workspaceData =
-    workspace.data?.truncated === undefined ? undefined : workspace.data;
-
-  const workspaceListings = useMemo(
+  const workspace = useMemo(
     () =>
-      workspaceData
-        ? groupEntriesByDirectory(workspaceData.entries)
-        : undefined,
+      workspaceData?.truncated === undefined
+        ? undefined
+        : {
+            listings: groupEntriesByDirectory(workspaceData.entries),
+            truncated: workspaceData.truncated,
+            skipped: workspaceData.skipped ?? [],
+          },
     [workspaceData],
   );
 
@@ -113,7 +114,7 @@ export function useWorkspaceTreeListings({
   });
 
   return useMemo(() => {
-    if (!workspaceListings || !workspaceData) {
+    if (!workspace) {
       return {
         listings: perFolder.listings,
         isRootLoading: perFolder.isRootLoading,
@@ -121,18 +122,16 @@ export function useWorkspaceTreeListings({
         isSearchIncomplete: false,
       };
     }
-    const listings = new Map(workspaceListings);
+    const listings = new Map(workspace.listings);
     for (const [path, entries] of perFolder.listings) {
       listings.set(path, entries);
     }
-    const skipped = workspaceData.skipped ?? [];
     return {
       listings,
       isRootLoading: false,
       searchScope: "workspace",
       isSearchIncomplete:
-        workspaceData.truncated === true ||
-        skipped.some((path) => !listings.has(path)),
+        workspace.truncated || workspace.skipped.some((p) => !listings.has(p)),
     };
-  }, [workspaceListings, workspaceData, perFolder]);
+  }, [workspace, perFolder]);
 }

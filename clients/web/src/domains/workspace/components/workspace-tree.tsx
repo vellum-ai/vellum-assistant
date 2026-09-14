@@ -53,6 +53,10 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import { WORKSPACE_TREE_QUERY_KEY } from "@/lib/workspace-tree-query";
 import { toApiError } from "@/utils/api-errors";
+import {
+  workspaceBasenameOf,
+  workspaceDirOf,
+} from "@/utils/workspace-path-links";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
@@ -370,9 +374,8 @@ export function WorkspaceTree({
 
   const renameMutation = useMutation({
     mutationFn: async (input: { oldPath: string; newName: string }) => {
-      const slash = input.oldPath.lastIndexOf("/");
-      const parentPath = slash === -1 ? "" : input.oldPath.slice(0, slash);
-      const oldName = input.oldPath.slice(slash + 1);
+      const parentPath = workspaceDirOf(input.oldPath);
+      const oldName = workspaceBasenameOf(input.oldPath);
       const newPath = parentPath
         ? `${parentPath}/${input.newName}`
         : input.newName;
