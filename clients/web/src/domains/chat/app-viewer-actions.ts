@@ -5,19 +5,21 @@
  * - `relay_prompt` ({ prompt, conversation }) — sends `prompt` to a conversation
  *   via the `?prompt=` auto-send pathway (see `use-auto-send-effects.ts`).
  *   `conversation` is `"active"` (default, the open conversation) or `"new"` (a
- *   fresh draft). It never touches the layout. Each relay carries a unique
+ *   fresh draft). It never touches the layout, so the app the viewer keeps on
+ *   screen rides along in the URL's app segment. Each relay carries a unique
  *   token so the auto-send dedupe re-fires even when the same prompt is relayed
  *   repeatedly. No-op for `"active"` when no conversation is open.
  *
  * - `open_conversation` ({ conversationId }) — navigates to an existing
  *   conversation by ID without sending a message. On a wide viewport the
- *   app stays open in the side-by-side layout so the conversation is
- *   visible. Used by plugins that manage their own background conversations
- *   (e.g. battleship) to let the user view the conversation from within the
- *   app UI.
+ *   app stays open in the side-by-side layout, named in the URL's app
+ *   segment, so the conversation is visible beside it. Used by plugins that
+ *   manage their own background conversations (e.g. battleship) to let the
+ *   user view the conversation from within the app UI.
  *
  * - `set_view` ({ view }) — moves the app panel: `"split"` (side by side with
- *   chat), `"full"` (full-width), or `"chat"` (close the app). Side-by-side has
+ *   chat), `"full"` (full-width), or `"chat"` (close the app and land on the
+ *   conversation URL, which carries no app segment). Side-by-side has
  *   no mobile layout, so `"split"` is ignored on mobile (the app keeps its
  *   full-screen overlay). On a wide viewport it uses the open conversation,
  *   and starts one when none is open.
@@ -29,7 +31,11 @@
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
-import { keepOpenAppBesideConversation } from "@/utils/conversation-navigation";
+import {
+  keepOpenAppBesideConversation,
+  keptAppId,
+  prepareFreshConversation,
+} from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 export interface AppViewerActionContext {
@@ -60,7 +66,12 @@ function relayPrompt(
   }
 
   ctx.navigate(
-    routes.conversationWithPrompt(conversationId, prompt, crypto.randomUUID()),
+    routes.conversationWithPrompt(
+      conversationId,
+      prompt,
+      crypto.randomUUID(),
+      keptAppId(),
+    ),
   );
 }
 
@@ -74,7 +85,7 @@ function goToConversation(
 ): void {
   useConversationStore.getState().setActiveConversationId(conversationId);
   keepOpenAppBesideConversation(conversationId);
-  ctx.navigate(routes.conversation(conversationId));
+  ctx.navigate(routes.conversation(conversationId, keptAppId()));
 }
 
 function openConversation(
@@ -95,9 +106,14 @@ function setView(
 ): void {
   const viewer = useViewerStore.getState();
   switch (data?.view) {
-    case "chat":
+    case "chat": {
       viewer.closeApp();
+      const conversationId =
+        useConversationStore.getState().activeConversationId ??
+        prepareFreshConversation();
+      ctx.navigate(routes.conversation(conversationId));
       return;
+    }
     case "full":
       if (viewer.mainView === "app-editing") {
         viewer.exitAppEditing();
