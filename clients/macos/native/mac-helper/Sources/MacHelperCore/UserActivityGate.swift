@@ -19,15 +19,22 @@ public enum UserActivityGate {
         secondsSinceLastInput: Double,
         buttonHeld: Bool = false,
         modifierHeld: Bool = false,
+        syntheticSpanStart: Date? = nil,
         quietWindow: TimeInterval = 1.0,
         syntheticEpsilon: TimeInterval = 0.25
     ) -> Bool {
         if buttonHeld || modifierHeld { return true }
         guard secondsSinceLastInput <= quietWindow else { return false }
         let lastInputAt = now.addingTimeInterval(-secondsSinceLastInput)
-        if let ours = lastSyntheticPostAt,
-           abs(lastInputAt.timeIntervalSince(ours)) <= syntheticEpsilon {
-            return false
+        if let ours = lastSyntheticPostAt {
+            // An AppleScript that drives System Events emits input at some
+            // point while it runs, not at one known instant, so its whole run
+            // counts as ours: from `syntheticSpanStart` to `lastSyntheticPostAt`.
+            let start = min(syntheticSpanStart ?? ours, ours)
+            if lastInputAt >= start.addingTimeInterval(-syntheticEpsilon),
+               lastInputAt <= ours.addingTimeInterval(syntheticEpsilon) {
+                return false
+            }
         }
         return true
     }

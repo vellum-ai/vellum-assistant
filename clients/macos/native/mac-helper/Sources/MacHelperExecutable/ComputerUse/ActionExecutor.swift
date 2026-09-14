@@ -55,11 +55,16 @@ final class ActionExecutor {
     /// because posts happen inside the nonisolated `execute` while the runner
     /// reads it from the main actor, and two steps can interleave.
     private static let lastSyntheticPostAt = OSAllocatedUnfairLock<Date?>(initialState: nil)
+    /// When the latest synthetic span began. A posted event is an instant, so
+    /// it leaves this nil; an input-driving AppleScript emits its events at
+    /// unknown points while it runs, so its whole run is the span.
+    private static let syntheticSpanStart = OSAllocatedUnfairLock<Date?>(initialState: nil)
 
     /// Every synthetic event goes through here so the last-post clock can never
     /// drift out of sync with what we actually put on the wire.
     private func postSynthetic(_ event: CGEvent, tap: CGEventTapLocation = .cghidEventTap) {
         event.post(tap: tap)
+        Self.syntheticSpanStart.withLock { $0 = nil }
         Self.lastSyntheticPostAt.withLock { $0 = Date() }
     }
 
@@ -109,7 +114,8 @@ final class ActionExecutor {
             lastSyntheticPostAt: lastPost,
             secondsSinceLastInput: secondsSinceLastInput,
             buttonHeld: buttonHeld,
-            modifierHeld: modifierHeld
+            modifierHeld: modifierHeld,
+            syntheticSpanStart: syntheticSpanStart.withLock { $0 }
         )
     }
 
@@ -365,6 +371,17 @@ final class ActionExecutor {
             try await openApp(name: appName)
         case .runAppleScript:
             guard let source = action.script else { throw ExecutorError.appleScriptMissingScript }
+            // A script that drives System Events posts real input the helper
+            // never sees, which would read as the person using the machine and
+            // refuse the next step. Its run becomes a synthetic span.
+            guard AppleScriptInputTakeover.takesOver(script: source) else {
+                return try await runAppleScript(source)
+            }
+            let start = Date()
+            defer {
+                Self.syntheticSpanStart.withLock { $0 = start }
+                Self.lastSyntheticPostAt.withLock { $0 = Date() }
+            }
             return try await runAppleScript(source)
         case .wait:
             let ms = action.waitDuration ?? 500

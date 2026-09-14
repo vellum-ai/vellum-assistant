@@ -234,4 +234,27 @@ struct UserActivityGateTests {
             now: now, inputDown: true, secondsSinceLastChange: 1, lastSyntheticPostAt: ourPost
         ))
     }
+
+    @Test("input emitted during our AppleScript run is ours, wherever in the run it landed")
+    func appleScriptSpanIsOurs() {
+        // The script ran from 2s ago to 0.1s ago and pressed a key 1.5s ago.
+        #expect(UserActivityGate.userIsActive(
+            now: now,
+            lastSyntheticPostAt: now.addingTimeInterval(-0.1),
+            secondsSinceLastInput: 1.5,
+            syntheticSpanStart: now.addingTimeInterval(-2),
+            quietWindow: 3
+        ) == false)
+    }
+
+    @Test("input after our AppleScript run ended is the user's")
+    func inputAfterSpanIsTheUser() {
+        #expect(UserActivityGate.userIsActive(
+            now: now,
+            lastSyntheticPostAt: now.addingTimeInterval(-1),
+            secondsSinceLastInput: 0.2,
+            syntheticSpanStart: now.addingTimeInterval(-3),
+            quietWindow: 3
+        ))
+    }
 }
