@@ -52,6 +52,7 @@ function setScrollWidth(element: Element, scrollWidth: number): void {
 
 function tableSurface(overflowX = "auto", scrollWidth = 900) {
   const scroller = document.createElement("div");
+  scroller.setAttribute("data-owns-horizontal-scroll", "");
   scroller.style.overflowX = overflowX;
   setScrollWidth(scroller, scrollWidth);
   const table = document.createElement("table");
@@ -101,8 +102,20 @@ function swipe(target: Element, startX = 100): void {
 }
 
 describe("horizontal scroll ownership", () => {
+  test("ignores incidental horizontal overflow in an unmarked vertical scroller", () => {
+    const { scroller, cell } = tableSurface("auto", 302);
+    scroller.removeAttribute("data-owns-horizontal-scroll");
+    // Browsers compute overflow-x to auto when only overflow-y is auto.
+    scroller.style.overflowY = "auto";
+    expect(getComputedStyle(scroller).overflowX).toBe("auto");
+    expect(classifyHorizontalDragSurface(cell)).toBe("none");
+    const gesture = mountGesture();
+    swipe(cell);
+    expect(gesture.onCommit).toHaveBeenCalledTimes(1);
+  });
+
   test.each(["auto", "scroll"])(
-    "recognizes overflowing %s containers",
+    "recognizes marked overflowing %s containers",
     (overflowX) => {
       const { scroller, cell } = tableSurface(overflowX);
       expect(classifyHorizontalDragSurface(scroller)).toBe("scroll");
@@ -113,9 +126,10 @@ describe("horizontal scroll ownership", () => {
   );
 
   test.each(["hidden", "clip", "visible"])(
-    "does not reserve %s overflow",
+    "does not reserve unmarked %s overflow",
     (overflowX) => {
-      const { cell } = tableSurface(overflowX);
+      const { scroller, cell } = tableSurface(overflowX);
+      scroller.removeAttribute("data-owns-horizontal-scroll");
       expect(classifyHorizontalDragSurface(cell)).toBe("none");
     },
   );
@@ -135,6 +149,36 @@ describe("horizontal scroll ownership", () => {
     svg.appendChild(path);
     cell.appendChild(svg);
     expect(classifyHorizontalDragSurface(path)).toBe("scroll");
+  });
+
+  test("a fitting inner marker does not hide an overflowing marked ancestor", () => {
+    const { cell } = tableSurface();
+    const inner = document.createElement("div");
+    inner.setAttribute("data-owns-horizontal-scroll", "");
+    setScrollWidth(inner, 300);
+    const target = document.createElement("span");
+    inner.appendChild(target);
+    cell.appendChild(inner);
+
+    expect(classifyHorizontalDragSurface(target)).toBe("scroll");
+    const gesture = mountGesture();
+    swipe(target);
+    expect(gesture.onConfirm).not.toHaveBeenCalled();
+    expect(gesture.onCommit).not.toHaveBeenCalled();
+  });
+
+  test("does not measure unmarked ancestors or descendants", () => {
+    const { scroller, cell } = tableSurface("auto", 300);
+    const wrapper = document.createElement("div");
+    scroller.replaceWith(wrapper);
+    wrapper.appendChild(scroller);
+    const readWidth = mock(() => 900);
+    for (const element of [cell, wrapper]) {
+      Object.defineProperty(element, "scrollWidth", { get: readWidth });
+    }
+
+    expect(classifyHorizontalDragSurface(cell)).toBe("none");
+    expect(readWidth).not.toHaveBeenCalled();
   });
 
   test("gives horizontal scrolling priority over message text", () => {
@@ -189,10 +233,11 @@ describe("useEdgeSwipe over scrollable content", () => {
     expect(gesture.onCommit).not.toHaveBeenCalled();
   });
 
-  test("protects other horizontal scrollers without a table marker", () => {
+  test("protects a marked code scrollport", () => {
     const pre = document.createElement("pre");
     const code = document.createElement("code");
     pre.style.overflowX = "auto";
+    pre.setAttribute("data-owns-horizontal-scroll", "");
     setScrollWidth(pre, 900);
     pre.appendChild(code);
     document.body.appendChild(pre);
@@ -245,9 +290,9 @@ describe("useEdgeSwipe over scrollable content", () => {
   });
 
   test("does not measure ancestors for a start outside the activation band", () => {
-    const { cell } = tableSurface();
+    const { scroller, cell } = tableSurface();
     const readWidth = mock(() => 0);
-    Object.defineProperty(cell, "scrollWidth", { get: readWidth });
+    Object.defineProperty(scroller, "scrollWidth", { get: readWidth });
     const gesture = mountGesture();
 
     swipe(cell, 220);
@@ -257,9 +302,9 @@ describe("useEdgeSwipe over scrollable content", () => {
   });
 
   test("does not measure ancestors when the detector is disabled", () => {
-    const { cell } = tableSurface();
+    const { scroller, cell } = tableSurface();
     const readWidth = mock(() => 0);
-    Object.defineProperty(cell, "scrollWidth", { get: readWidth });
+    Object.defineProperty(scroller, "scrollWidth", { get: readWidth });
     const gesture = mountGesture(false);
 
     swipe(cell);

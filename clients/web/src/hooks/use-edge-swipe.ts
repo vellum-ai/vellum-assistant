@@ -104,6 +104,7 @@ export function ownsHorizontalTextDrag(target: EventTarget | null): boolean {
  */
 const VALUE_DRAG_SURFACE_SELECTOR =
   'input[type="range"], [role="slider"], [data-owns-horizontal-drag]';
+const SCROLL_SURFACE_SELECTOR = "[data-owns-horizontal-scroll]";
 
 /**
  * How the touched surface relates to horizontal drags:
@@ -114,27 +115,23 @@ const VALUE_DRAG_SURFACE_SELECTOR =
  * - `"text"`: a text-interaction surface ({@link ownsHorizontalTextDrag}).
  *   A bare drag only places the caret or extends a selection, so deliberate
  *   edge swipes stay worth preserving over it; only the widened band yields.
- * - `"scroll"`: a horizontal scroll container owns drags across its whole
+ * - `"scroll"`: a marked horizontal scroll container owns drags across its whole
  *   hit area, including the screen edge and its scroll boundaries.
  * - `"none"`: everything else; the widened band arms freely.
  */
 export type HorizontalDragSurface = "none" | "text" | "value" | "scroll";
 
-/** Whether the touch begins inside a horizontally scrollable container. */
+/** Whether a marked scroll container owns the touch's horizontal drag. */
 function ownsHorizontalScroll(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) {
     return false;
   }
   for (
-    let element: Element | null = target;
+    let element = target.closest(SCROLL_SURFACE_SELECTOR);
     element;
-    element = element.parentElement
+    element = element.parentElement?.closest(SCROLL_SURFACE_SELECTOR) ?? null
   ) {
-    if (element.scrollWidth <= element.clientWidth + 1) {
-      continue;
-    }
-    const overflowX = getComputedStyle(element).overflowX;
-    if (overflowX === "auto" || overflowX === "scroll") {
+    if (element.scrollWidth > element.clientWidth + 1) {
       return true;
     }
   }
@@ -304,7 +301,7 @@ function findTouch(list: TouchList, id: number): Touch | null {
  * `enabledRef`, and the latest callbacks are read from a ref so their
  * closures never go stale.
  *
- * Passive listeners leave native scrolling available. Horizontal scroll
+ * Passive listeners leave native scrolling available. Marked horizontal scroll
  * containers own the touch from its start; elsewhere, `isVerticalEscape`
  * abandons the gesture when vertical travel dominates.
  */
