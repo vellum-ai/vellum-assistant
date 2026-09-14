@@ -163,8 +163,9 @@ const closeChatInfo = mock((): void => {
   calls.push("closeChatInfo");
 });
 const loadApp = mock(
-  async (_assistantId: string, _appId: string): Promise<void> => {
+  async (_assistantId: string, _appId: string): Promise<boolean> => {
     calls.push("loadApp");
+    return true;
   },
 );
 const loadDocument = mock(
