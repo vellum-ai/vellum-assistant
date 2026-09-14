@@ -49,9 +49,12 @@ const MISSING_CHANGE_SUMMARY =
 /**
  * Validate + normalize a string-array input (sanitize, drop blanks, dedupe).
  * Returns `{ error }` on the first invalid element, or `{ value }` holding
- * the normalized array (undefined when absent or empty). Shared by the
- * includes / activation_hints / avoid_when inputs so they behave identically;
- * whether an absent value is acceptable is the caller's call.
+ * the normalized array: undefined when the input is absent, and an empty
+ * array when it was passed empty, since on an overwrite the store keeps the
+ * current value for an absent field and clears it for an empty one. Shared by
+ * the includes / activation_hints / avoid_when inputs so they behave
+ * identically; whether an absent or empty value is acceptable is the
+ * caller's call.
  * Each element goes through sanitizeFrontmatterValue: activation_hints /
  * avoid_when are concatenated verbatim into capability memory text (see
  * buildSkillContent), so an embedded newline could otherwise smuggle an extra
@@ -84,7 +87,7 @@ function normalizeOptionalStringArray(
     seen.add(cleaned);
     normalized.push(cleaned);
   }
-  return { value: normalized.length > 0 ? normalized : undefined };
+  return { value: normalized };
 }
 
 /**
@@ -231,9 +234,11 @@ export async function executeScaffoldManagedSkill(
     return { content: `Error: ${activationHintsResult.error}`, isError: true };
   }
   const activationHints = activationHintsResult.value;
-  // Hints are the skill's "Use when:" retrieval text, and scaffolding rewrites
-  // the whole SKILL.md, so a write without them leaves (or strips) none.
-  if (!activationHints) {
+  // Hints are the skill's "Use when:" retrieval text and should track the
+  // body, so every write states them: the store would keep the current ones
+  // on an overwrite, but hints for a rewritten procedure are the caller's
+  // to restate, not the store's to assume.
+  if (!activationHints || activationHints.length === 0) {
     return {
       content: `Error: ${MISSING_ACTIVATION_HINTS}`,
       isError: true,
@@ -313,8 +318,9 @@ export async function executeScaffoldManagedSkill(
   }
 
   // Validate and normalize the optional category (lowercased/trimmed for
-  // consistency with the lowercase Skills-UI sidebar buckets). Blank or
-  // whitespace-only values become undefined so they never land in frontmatter.
+  // consistency with the lowercase Skills-UI sidebar buckets). A blank value
+  // is passed through as the store's "clear" signal; the frontmatter builder
+  // never writes a blank category.
   let category: string | undefined;
   if (input.category !== undefined) {
     if (typeof input.category !== "string") {
@@ -323,10 +329,7 @@ export async function executeScaffoldManagedSkill(
         isError: true,
       };
     }
-    const normalized = input.category.trim().toLowerCase();
-    if (normalized) {
-      category = normalized;
-    }
+    category = input.category.trim().toLowerCase();
   }
 
   // The update notice's body. Model-authored text bound for a notification

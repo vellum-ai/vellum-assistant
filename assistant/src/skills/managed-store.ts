@@ -350,13 +350,26 @@ export function createManagedSkill(
   const skillDir = getManagedSkillDir(params.id);
   const skillFilePath = join(skillDir, "SKILL.md");
 
-  if (existsSync(skillFilePath) && !params.overwrite) {
+  const skillExists = existsSync(skillFilePath);
+  if (skillExists && !params.overwrite) {
     return {
       created: false,
       path: skillFilePath,
       error: `Managed skill "${params.id}" already exists. Set overwrite=true to replace it.`,
     };
   }
+
+  // An overwrite replaces the body and patches the frontmatter: a field left
+  // undefined keeps its current value, an explicit empty value clears it.
+  // Callers rarely hold every field (the retrospective sees a skill through
+  // a similarity hit; a user edit is "change step 3"), so requiring them to
+  // restate a field to keep it strips the ones they did not think to repeat.
+  const existing = skillExists ? readStoredManagedSkill(params.id) : null;
+  const emoji = params.emoji ?? existing?.emoji;
+  const includes = params.includes ?? existing?.includes;
+  const activationHints = params.activationHints ?? existing?.activationHints;
+  const avoidWhen = params.avoidWhen ?? existing?.avoidWhen;
+  const category = params.category ?? existing?.category;
 
   // Resolve and validate every companion path before any write so an invalid
   // path leaves no partial files behind.
@@ -408,11 +421,11 @@ export function createManagedSkill(
     name: params.name,
     description: params.description,
     bodyMarkdown: params.bodyMarkdown,
-    emoji: params.emoji,
-    includes: params.includes,
-    activationHints: params.activationHints,
-    avoidWhen: params.avoidWhen,
-    category: params.category,
+    emoji,
+    includes,
+    activationHints,
+    avoidWhen,
+    category,
   });
 
   mkdirSync(skillDir, { recursive: true });
