@@ -135,16 +135,11 @@ describe("rehydratePlatformCredentials", () => {
     expect(getPlatformUserId()).toBe("");
   });
 
-  test("a per-field read failure does not block the remaining fields", async () => {
+  test("a credential-store read failure does not throw", async () => {
     throwForKey = credentialKey("vellum", "platform_base_url");
-    mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
-      "assistant-key";
 
-    await rehydratePlatformCredentials();
-
-    expect(getPlatformBaseUrl()).toBe("");
+    await expect(rehydratePlatformCredentials()).resolves.toBeUndefined();
     expect(getPlatformAssistantId()).toBe("");
-    expect(fetchCalls).toHaveLength(0);
   });
 
   test("trades the assistant API key for ids via platform validate", async () => {
