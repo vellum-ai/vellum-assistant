@@ -838,6 +838,7 @@ export async function orchestrate(
           top_dense_score: gate.topDenseScore,
           top_norm_sparse_score: gate.topNormSparseScore,
           checked_articles: gate.checkedArticles,
+          bm25_norm_k: deps.gateConfig.bm25NormK,
         });
         if (!gate.pass) {
           // A closed gate produces no finder lane; only `selections` and
