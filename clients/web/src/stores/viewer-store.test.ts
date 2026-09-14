@@ -196,6 +196,24 @@ describe("loadApp", () => {
     expect(state.activeAppId).toBe("app-2");
     expect(state.openedAppState).toBeNull();
   });
+
+  it("resolves false but still stores the app when the viewer left the app view", async () => {
+    let finish!: (value: AppResult) => void;
+    appResult = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+
+    const pending = getState().loadApp("asst-1", "app-1");
+    await waitFor(() => expect(finish).toBeFunction());
+    useViewerStore.setState({ mainView: "chat" });
+    finish({ data: OPENED_APP });
+
+    expect(await pending).toBe(false);
+    const state = getState();
+    expect(state.activeAppId).toBe("app-1");
+    expect(state.openedAppState).toEqual(SAMPLE_APP);
+  });
 });
 
 describe("setLoadedApp", () => {
