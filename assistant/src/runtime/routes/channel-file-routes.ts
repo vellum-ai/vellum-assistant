@@ -36,10 +36,12 @@ const ChannelFileResponseSchema = z.object({
   bodyEncoding: z.literal("base64"),
 });
 
+export type ChannelFileResponse = z.infer<typeof ChannelFileResponseSchema>;
+
 export async function handleChannelFile({
   pathParams = {},
   queryParams = {},
-}: RouteHandlerArgs) {
+}: RouteHandlerArgs): Promise<ChannelFileResponse> {
   const channel = pathParams.channel;
   const fileId = pathParams.fileId;
   if (!channel || !fileId) {

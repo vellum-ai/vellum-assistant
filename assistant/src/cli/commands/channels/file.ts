@@ -19,6 +19,7 @@ import { writeFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { exitCodeFromIpcResult } from "../../../ipc/cli-client.js";
+import type { ChannelFileResponse } from "../../../runtime/routes/channel-file-routes.js";
 import { subcommand } from "../../lib/cli-command-help.js";
 import { shouldOutputJson, writeError, writeOutput } from "../../output.js";
 
@@ -46,20 +47,12 @@ export function registerChannelsFileCommand(channels: Command): void {
         const { RouteError } =
           await import("../../../runtime/routes/errors.js");
 
-        let result: {
-          channel: string;
-          fileId: string;
-          filename: string;
-          mimeType: string;
-          size: number;
-          body: string;
-          bodyEncoding: "base64";
-        };
+        let result: ChannelFileResponse;
         try {
-          result = (await handleChannelFile({
+          result = await handleChannelFile({
             pathParams: { channel, fileId },
             queryParams: opts.account ? { account: opts.account } : {},
-          })) as typeof result;
+          });
         } catch (err) {
           if (err instanceof RouteError) {
             writeError(
