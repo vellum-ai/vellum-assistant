@@ -161,6 +161,12 @@ describe("conversationIdForPath (the id a path names, if any)", () => {
     ).toBeNull();
   });
 
+  test("rejects an app sub-route with an empty conversation id", () => {
+    expect(
+      conversationIdForPath("/assistant/conversations//app/app-1"),
+    ).toBeNull();
+  });
+
   test("rejects the conversations list, with or without a trailing slash", () => {
     expect(conversationIdForPath(routes.conversations)).toBeNull();
     expect(conversationIdForPath(`${routes.conversations}/`)).toBeNull();
@@ -189,6 +195,10 @@ describe("appIdForPath (the app a path keeps on screen, if any)", () => {
     expect(appIdForPath("/assistant")).toBeNull();
     expect(appIdForPath("/assistant/library")).toBeNull();
   });
+
+  test("returns null when the conversation id is empty", () => {
+    expect(appIdForPath("/assistant/conversations//app/app-1")).toBeNull();
+  });
 });
 
 describe("isConversationChatPath (composer-mounting routes only)", () => {
@@ -216,6 +226,12 @@ describe("isConversationChatPath (composer-mounting routes only)", () => {
 
   test("rejects the conversations list prefix without an id", () => {
     expect(isConversationChatPath(`${routes.conversations}/`)).toBe(false);
+  });
+
+  test("rejects an app sub-route with an empty conversation id", () => {
+    expect(isConversationChatPath("/assistant/conversations//app/app-1")).toBe(
+      false,
+    );
   });
 
   test("rejects non-conversation routes", () => {

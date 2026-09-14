@@ -425,11 +425,17 @@ function parseConversationPath(
     return null;
   }
   const segments = rest.split("/");
+  const conversationId = segments[0];
+  // An empty id means a doubled slash (`/conversations//app/a1`), never a route.
+  if (conversationId.length === 0) {
+    return null;
+  }
   if (segments.length === 1) {
-    return { conversationId: segments[0], appId: null };
+    return { conversationId, appId: null };
   }
   if (segments.length === 3 && segments[1] === CONVERSATION_APP_SEGMENT) {
-    return { conversationId: segments[0], appId: segments[2] };
+    const appId = segments[2];
+    return appId.length > 0 ? { conversationId, appId } : null;
   }
   return null;
 }
