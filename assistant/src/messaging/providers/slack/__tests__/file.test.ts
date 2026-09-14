@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // and the capped downloader. The tests pin what each is handed and how the
 // two ways of coming back empty are reported.
 
-const infoCalls: string[] = [];
+const infoCalls: Array<{ fileId: string; auth: unknown }> = [];
+let infoImpl: () => Promise<Record<string, unknown> | undefined>;
 const downloadCalls: Array<{
   file: Record<string, unknown>;
   token: string;
@@ -18,9 +19,9 @@ let botToken: string | null = "xoxb-test";
 const actualApi = await import("../api.js");
 mock.module("../api.js", () => ({
   ...actualApi,
-  getSlackFileInfo: async (fileId: string) => {
-    infoCalls.push(fileId);
-    return fileInfo;
+  getSlackFileInfo: async (fileId: string, auth: unknown) => {
+    infoCalls.push({ fileId, auth });
+    return infoImpl();
   },
 }));
 
@@ -54,6 +55,7 @@ beforeEach(() => {
   infoCalls.length = 0;
   downloadCalls.length = 0;
   botToken = "xoxb-test";
+  infoImpl = async () => fileInfo;
   fileInfo = {
     id: "F1",
     name: "shot.png",
@@ -73,7 +75,9 @@ describe("downloadSlackFileById", () => {
   test("reads the file's metadata as the bot and fetches it with the resolved token under the cap", async () => {
     const result = await downloadSlackFileById("F1", undefined, 1024);
 
-    expect(infoCalls).toEqual(["F1"]);
+    // The same token serves both calls, so a pinned account cannot read
+    // one workspace's metadata and fetch from another.
+    expect(infoCalls).toEqual([{ fileId: "F1", auth: "xoxb-test" }]);
     expect(downloadCalls).toEqual([
       {
         file: {
@@ -109,6 +113,18 @@ describe("downloadSlackFileById", () => {
     await expect(
       downloadSlackFileById("F1", undefined, 1024),
     ).rejects.toBeInstanceOf(ChannelFileUnavailableError);
+  });
+
+  test("a Slack refusal or a failed fetch is unavailable, not an internal failure", async () => {
+    infoImpl = async () => {
+      throw new Error("files.info failed: missing_scope");
+    };
+    await expect(
+      downloadSlackFileById("F1", undefined, 1024),
+    ).rejects.toBeInstanceOf(ChannelFileUnavailableError);
+    await expect(downloadSlackFileById("F1", undefined, 1024)).rejects.toThrow(
+      /missing_scope/,
+    );
   });
 
   test("a file with no download URL is unavailable", async () => {

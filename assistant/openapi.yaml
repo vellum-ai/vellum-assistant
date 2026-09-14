@@ -4842,6 +4842,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: account
+          in: query
+          required: false
+          schema:
+            type: string
+          description: The bot account to fetch as, for a channel connected to several
       responses:
         "200":
           description: Successful response

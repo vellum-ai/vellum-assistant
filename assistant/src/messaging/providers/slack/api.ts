@@ -18,7 +18,11 @@
 import type { KnownBlock } from "@slack/types";
 import type { SlackStreamTask } from "@vellumai/gateway-client";
 
-import { resolveSlackAuth, type SlackAuthIdentity } from "./auth.js";
+import {
+  resolveSlackAuth,
+  type SlackAuth,
+  type SlackAuthIdentity,
+} from "./auth.js";
 import { conversationInfo } from "./client.js";
 import type {
   SlackApiResponse,
@@ -92,17 +96,17 @@ interface SlackFileInfoResponse extends SlackApiResponse {
 }
 
 /**
- * Read a file's metadata as the bot. The download URL Slack returns is what
- * the file downloader fetches with the bot token; nothing here touches it.
+ * Read a file's metadata with the given auth. The caller resolves the auth
+ * once and fetches the download URL with the same token, so the metadata and
+ * the bytes come from one account. Nothing here touches the URL.
  */
 export async function getSlackFileInfo(
   fileId: string,
+  auth: SlackAuth,
 ): Promise<SlackFileObject | undefined> {
-  const data = await slackApiRequest<SlackFileInfoResponse>(
-    "bot",
-    "files.info",
-    { body: { file: fileId } },
-  );
+  const data = await slackRequest<SlackFileInfoResponse>(auth, "files.info", {
+    body: { file: fileId },
+  });
   return data.file;
 }
 

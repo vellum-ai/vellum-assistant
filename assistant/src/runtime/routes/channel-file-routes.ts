@@ -97,6 +97,14 @@ export const ROUTES: RouteDefinition[] = [
         description: "The file's id in the channel's own id space",
       },
     ],
+    queryParams: [
+      {
+        name: "account",
+        schema: { type: "string" },
+        description:
+          "The bot account to fetch as, for a channel connected to several",
+      },
+    ],
     responseBody: ChannelFileResponseSchema,
   },
 ];

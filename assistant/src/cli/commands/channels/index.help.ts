@@ -107,10 +107,23 @@ credential itself, so you name an id and never a URL, and no token is
 printed or passed on the command line. Reads through the raw request door
 are refused for file hosts; this is the door for files.
 
-The file id is the channel's own: for Slack, the "id" on an entry of a
-message's "files" (F0123456789), as conversations.history and
-conversations.replies return it. The bot needs the platform's read scope
-for files (files:read on Slack, which the app manifest grants).
+Arguments:
+  <channel>  A channel whose transport can fetch a file by id (today:
+             slack). Any other channel is refused before anything is
+             requested, naming the channels that can.
+  <file-id>  The file's id in the channel's own id space. For Slack, the
+             "id" on an entry of a message's "files" (F0123456789), as
+             conversations.history and conversations.replies return it.
+
+The bot needs the platform's read scope for files (files:read on Slack,
+which the app manifest grants). A file over 100 MB is refused before its
+bytes are held.
+
+Options:
+  -o <file>            Write the bytes to this path.
+  --account <account>  The bot account to fetch as, for a channel connected
+                       to several.
+  --json               Machine-readable result without the bytes.
 
 Without -o the bytes go to stdout. With --json the result names the file
 (channel, id, filename, mime type, size, and the output path when -o was

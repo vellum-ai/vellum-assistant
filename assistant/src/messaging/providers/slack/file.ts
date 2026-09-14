@@ -6,6 +6,7 @@
  */
 
 import {
+  ChannelFileTooLargeError,
   ChannelFileUnavailableError,
   type DownloadedChannelFile,
 } from "../channel-transport.js";
@@ -18,14 +19,14 @@ export async function downloadSlackFileById(
   account: string | undefined,
   maxBytes: number,
 ): Promise<DownloadedChannelFile> {
-  const file = await getSlackFileInfo(fileId);
-  if (!file) {
-    throw new ChannelFileUnavailableError(
-      `Slack returned no file for id ${fileId}`,
-    );
-  }
-  const downloaded = await withSlackBotToken(account, (token) =>
-    downloadSlackFile(
+  // One token for both calls, so the metadata and the bytes come from the
+  // same account when several workspaces are connected.
+  const downloaded = await withSlackBotToken(account, async (token) => {
+    const file = await getSlackFileInfo(fileId, token);
+    if (!file) {
+      return null;
+    }
+    return downloadSlackFile(
       {
         id: file.id,
         name: file.name,
@@ -35,11 +36,21 @@ export async function downloadSlackFileById(
       },
       token,
       { maxBytes },
-    ),
-  );
+    );
+  }).catch((error: unknown) => {
+    if (error instanceof ChannelFileTooLargeError) {
+      throw error;
+    }
+    // A Slack refusal (unknown id, missing scope, a failed fetch) is the
+    // channel not handing the file back, which the route reports as
+    // unavailable rather than as an internal failure.
+    throw new ChannelFileUnavailableError(
+      `Slack did not hand back file ${fileId}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
   if (downloaded === null) {
     throw new ChannelFileUnavailableError(
-      `Slack bot credential is not configured, or file ${fileId} has no download URL`,
+      `Slack has no bot credential configured, knows no file ${fileId}, or the file has no download URL`,
     );
   }
   return {

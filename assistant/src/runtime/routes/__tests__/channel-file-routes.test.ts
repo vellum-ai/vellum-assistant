@@ -43,6 +43,7 @@ describe("GET channels/:channel/files/:fileId", () => {
     expect(route.endpoint).toBe("channels/:channel/files/:fileId");
     expect(route.method).toBe("GET");
     expect(route.policy?.requiredScopes).toEqual(["chat.read"]);
+    expect(route.queryParams?.map((q) => q.name)).toEqual(["account"]);
   });
 
   test("hands the path's channel and file id to the function and returns the envelope", async () => {
