@@ -36,8 +36,8 @@ export function useWorkspaceTreeListings({
   sortMode: WorkspaceSortMode;
 }): WorkspaceTreeListings {
   const paths = useMemo(
-    () => listedDirectoryPaths(expandedPaths),
-    [expandedPaths],
+    () => listedDirectoryPaths(expandedPaths, showHidden),
+    [expandedPaths, showHidden],
   );
 
   const combine = useCallback(

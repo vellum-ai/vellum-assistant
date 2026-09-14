@@ -19,7 +19,14 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { type FormEvent, useCallback, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Trans, useTranslation } from "@/i18n";
 import {
@@ -268,6 +275,7 @@ export function WorkspaceTree({
 
   const debouncedSearch = useDebouncedValue(search, SEARCH_DEBOUNCE_MS);
   const isSearching = search.trim() !== "";
+  const searchScopeId = useId();
 
   const { listings, isRootLoading } = useWorkspaceTreeListings({
     assistantId,
@@ -506,6 +514,8 @@ export function WorkspaceTree({
       </div>
 
       <div className="px-3 py-2">
+        {/* The clear button centers on this wrapper, so the scope note sits
+            outside it rather than in the input's own helper slot. */}
         <div className="relative">
           <Input
             type="text"
@@ -513,9 +523,7 @@ export function WorkspaceTree({
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t("workspaceTree.searchPlaceholder")}
             leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
-            helperText={
-              isSearching ? t("workspaceTree.searchScope") : undefined
-            }
+            aria-describedby={isSearching ? searchScopeId : undefined}
             fullWidth
             spellCheck={false}
             autoComplete="off"
@@ -533,6 +541,14 @@ export function WorkspaceTree({
             />
           )}
         </div>
+        {isSearching && (
+          <span
+            id={searchScopeId}
+            className="mt-1 block text-body-small-default text-[var(--content-tertiary)]"
+          >
+            {t("workspaceTree.searchScope")}
+          </span>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-1">

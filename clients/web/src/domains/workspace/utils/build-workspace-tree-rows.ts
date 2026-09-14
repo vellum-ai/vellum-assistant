@@ -9,6 +9,7 @@
 
 import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
 
+import { isHiddenPath } from "./is-hidden-path";
 import { sortEntries, type WorkspaceSortMode } from "./sort-entries";
 
 export type WorkspaceTreeEntry = WorkspaceTreeGetResponse["entries"][number];
@@ -27,10 +28,18 @@ export const WORKSPACE_ROOT_PATH = "";
  * Directories whose listings the tree shows: the root, plus every open folder
  * whose ancestors are all open. An open folder under a closed one stays in
  * `expandedPaths` so it reopens with its parent, but is not listed until then.
+ * With hidden entries off, an open hidden folder is not listed either: the
+ * assistant refuses the request, and the folder reopens when they are shown.
  */
-export function listedDirectoryPaths(expandedPaths: Set<string>): string[] {
+export function listedDirectoryPaths(
+  expandedPaths: Set<string>,
+  showHidden: boolean,
+): string[] {
   const paths = [WORKSPACE_ROOT_PATH];
   for (const path of expandedPaths) {
+    if (!showHidden && isHiddenPath(path)) {
+      continue;
+    }
     const segments = path.split("/");
     let visible = true;
     for (let i = 1; i < segments.length; i++) {

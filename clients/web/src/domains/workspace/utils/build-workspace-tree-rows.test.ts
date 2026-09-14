@@ -41,19 +41,28 @@ function paths(rows: ReturnType<typeof buildWorkspaceTreeRows>) {
 
 describe("listedDirectoryPaths", () => {
   test("lists only the root when nothing is open", () => {
-    expect(listedDirectoryPaths(new Set())).toEqual([""]);
+    expect(listedDirectoryPaths(new Set(), false)).toEqual([""]);
   });
 
   test("lists an open folder whose ancestors are all open", () => {
-    expect(listedDirectoryPaths(new Set(["docs", "docs/guides"]))).toEqual([
-      "",
-      "docs",
-      "docs/guides",
-    ]);
+    expect(
+      listedDirectoryPaths(new Set(["docs", "docs/guides"]), false),
+    ).toEqual(["", "docs", "docs/guides"]);
   });
 
   test("does not list an open folder under a closed one", () => {
-    expect(listedDirectoryPaths(new Set(["docs/guides"]))).toEqual([""]);
+    expect(listedDirectoryPaths(new Set(["docs/guides"]), false)).toEqual([""]);
+  });
+
+  test("lists an open hidden folder only while hidden entries are shown", () => {
+    const expanded = new Set([".config", ".config/nested", "docs"]);
+    expect(listedDirectoryPaths(expanded, false)).toEqual(["", "docs"]);
+    expect(listedDirectoryPaths(expanded, true)).toEqual([
+      "",
+      ".config",
+      ".config/nested",
+      "docs",
+    ]);
   });
 });
 
