@@ -44,6 +44,7 @@ import {
   isAdaptiveThinkingUnsupportedModel,
 } from "./model-catalog.js";
 import { buildOpenCodeRequestHeaders } from "./opencode/client.js";
+import { sanitizeOutboundRequest } from "./outbound-request-sanitize.js";
 import { dispatchProviderResolvable } from "./provider-resolvability.js";
 import {
   isThinkingConfigAdaptive,
@@ -1262,6 +1263,14 @@ export class RetryProvider implements Provider {
     let credentialRefreshAttempted = false;
     let correctiveResendAttempted = false;
     let fallbackAttempted = false;
+
+    // Every attempt below, the backup route included, sends what this
+    // wrapper was handed, so an orphaned UTF-16 surrogate is stripped here
+    // once rather than rejected by the upstream parser on every resend.
+    ({ messages, options } = sanitizeOutboundRequest(this.name, {
+      messages,
+      options,
+    }));
     let messagesForAttempt = messages;
 
     const normalizedOptions = normalizeSendMessageOptions(this.name, options, {
