@@ -122,7 +122,7 @@ describe("ToolDetailPanel", () => {
     ).toHaveLength(1);
     // The tool is named once, in the header beneath the activity.
     expect(getAllByText("Subagent Spawn")).toHaveLength(1);
-    // Each parameter is a row of its key and its value, not a JSON literal.
+    // Each parameter is a field of its key and its value, not a JSON literal.
     expect(getByText("label")).toBeDefined();
     expect(getByText("toronto-location")).toBeDefined();
     const text = container.textContent ?? "";
@@ -141,7 +141,7 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
 
-    // The header already shows the activity sentence, so it is not a row.
+    // The header already shows the activity sentence, so it is not a field.
     expect(queryByText("activity")).toBeNull();
     expect(container.textContent).not.toContain('"activity"');
 
@@ -614,7 +614,7 @@ describe("ToolDetailPanel", () => {
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Short parameters are rows with nothing to copy, so at rest only the
+    // Short parameters are fields with nothing to copy, so at rest only the
     // output has a copy button. Opening the raw input adds its own.
     expect(getAllByLabelText("Copy")).toHaveLength(1);
     act(() => {

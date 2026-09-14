@@ -5,26 +5,32 @@
  */
 
 import { Typography } from "@vellumai/design-library";
+import type { ReactNode } from "react";
 
 import { CodeBlock } from "@/components/detail-primitives";
 import type {
   ToolParamField,
   ToolParamFieldList,
 } from "@/domains/chat/utils/tool-param-layout";
-import { useTranslation } from "@/i18n";
+import { currentLocale, useTranslation } from "@/i18n";
+import { cn } from "@/utils/misc";
+
+function ValueText({ children }: { children: ReactNode }) {
+  return (
+    <Typography
+      variant="body-medium-default"
+      as="span"
+      className="[overflow-wrap:anywhere] text-[var(--content-default)]"
+    >
+      {children}
+    </Typography>
+  );
+}
 
 function FieldValue({ field }: { field: ToolParamField }) {
   switch (field.kind) {
     case "text":
-      return (
-        <Typography
-          variant="body-medium-default"
-          as="span"
-          className="[overflow-wrap:anywhere] text-[var(--content-default)]"
-        >
-          {field.text}
-        </Typography>
-      );
+      return <ValueText>{field.text}</ValueText>;
     case "code":
       return (
         <div className="mt-1">
@@ -33,27 +39,21 @@ function FieldValue({ field }: { field: ToolParamField }) {
       );
     case "list":
       return (
-        <Typography
-          variant="body-medium-default"
-          as="span"
-          className="[overflow-wrap:anywhere] text-[var(--content-default)]"
-        >
-          {field.items.join(", ")}
-        </Typography>
+        <ValueText>
+          {new Intl.ListFormat(currentLocale(), {
+            style: "narrow",
+            type: "conjunction",
+          }).format(field.items)}
+        </ValueText>
       );
     case "pairs":
       return (
         <span className="flex flex-wrap gap-x-4 gap-y-0.5">
           {field.pairs.map((pair) => (
-            <Typography
-              key={pair.key}
-              variant="body-medium-default"
-              as="span"
-              className="[overflow-wrap:anywhere] text-[var(--content-default)]"
-            >
+            <ValueText key={pair.key}>
               <span className="text-[var(--content-tertiary)]">{pair.key}</span>{" "}
               {pair.text}
-            </Typography>
+            </ValueText>
           ))}
         </span>
       );
@@ -73,16 +73,17 @@ export function ToolParamFields({
   nested = false,
 }: ToolParamFieldsProps) {
   const { t } = useTranslation("chat");
+  const gap = nested ? "gap-2.5" : "gap-3";
 
   return (
     <div
-      className={
-        nested
-          ? "mt-1 flex min-w-0 flex-col gap-2.5 border-l border-[var(--border-base)] pl-3"
-          : "flex min-w-0 flex-col gap-3"
-      }
+      className={cn(
+        "flex min-w-0 flex-col",
+        gap,
+        nested && "mt-1 border-l border-[var(--border-base)] pl-3",
+      )}
     >
-      <dl className="flex min-w-0 flex-col gap-[inherit]">
+      <dl className={cn("flex min-w-0 flex-col", gap)}>
         {list.fields.map((field) => (
           <div key={field.label} className="flex min-w-0 flex-col gap-0.5">
             <dt className="text-label-medium-default [overflow-wrap:anywhere] text-[var(--content-tertiary)]">
