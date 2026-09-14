@@ -14,11 +14,7 @@ import { useState } from "react";
 
 import { SegmentControl } from "@vellumai/design-library";
 
-import {
-  ClampedContent,
-  CopyButton,
-  SectionLabel,
-} from "@/components/detail-primitives";
+import { DetailBlock, SectionLabel } from "@/components/detail-primitives";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { useTranslation } from "@/i18n";
 
@@ -77,22 +73,22 @@ export function SkillLoadOutput({
         )}
       </div>
 
-      <div className="relative rounded-xl bg-[var(--surface-overlay)] p-3">
-        <ClampedContent length={body.length}>
-          {activeMode === "clean" ? (
-            <ChatMarkdownMessage
-              content={instructions}
-              assistantId={assistantId}
-            />
-          ) : (
-            <pre className="font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
-              {raw}
-            </pre>
-          )}
-        </ClampedContent>
-
-        {activeMode === "raw" && <CopyButton text={raw} />}
-      </div>
+      <DetailBlock
+        variant="filled"
+        length={body.length}
+        copyText={activeMode === "raw" ? raw : undefined}
+      >
+        {activeMode === "clean" ? (
+          <ChatMarkdownMessage
+            content={instructions}
+            assistantId={assistantId}
+          />
+        ) : (
+          <pre className="font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
+            {raw}
+          </pre>
+        )}
+      </DetailBlock>
     </div>
   );
 }
