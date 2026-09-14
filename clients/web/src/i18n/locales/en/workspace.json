@@ -23,6 +23,8 @@
     "searchPlaceholder": "Search files",
     "clearSearchAria": "Clear search",
     "noFilesFound": "No files found",
+    "searchScope": "Searching open folders",
+    "noSearchMatches": "No matches in open folders",
     "deleteFolderTitle": "Delete Folder",
     "deleteFileTitle": "Delete File",
     "deleteFileMessage": "Are you sure you want to delete <name>{name}</name>? This cannot be undone.",

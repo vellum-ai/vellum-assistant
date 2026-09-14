@@ -23,6 +23,8 @@
     "searchPlaceholder": "Buscar archivos",
     "clearSearchAria": "Borrar la búsqueda",
     "noFilesFound": "No se han encontrado archivos",
+    "searchScope": "Buscando en las carpetas abiertas",
+    "noSearchMatches": "No hay coincidencias en las carpetas abiertas",
     "deleteFolderTitle": "Eliminar la carpeta",
     "deleteFileTitle": "Eliminar el archivo",
     "deleteFileMessage": "¿Seguro que quieres eliminar <name>{name}</name>? Esto no se puede deshacer.",
