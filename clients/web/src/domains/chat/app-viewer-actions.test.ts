@@ -34,6 +34,7 @@ describe("handleAppViewerAction — relay_prompt", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
     useViewerStore.setState({
       mainView: "app-editing",
+      activeAppId: SAMPLE_APP.appId,
       openedAppState: SAMPLE_APP,
     });
     const ctx = makeCtx();
@@ -42,7 +43,7 @@ describe("handleAppViewerAction — relay_prompt", () => {
 
     expect(useViewerStore.getState().mainView).toBe("app-editing");
     const [url] = ctx.navigate.mock.calls[0];
-    expect(url).toContain("/assistant/conversations/conv-1?");
+    expect(url).toContain("/assistant/conversations/conv-1/app/app-1?");
     expect(url).toContain("prompt=hello");
   });
 
@@ -62,6 +63,25 @@ describe("handleAppViewerAction — relay_prompt", () => {
       `/assistant/conversations/${newId}?`,
     );
     expect(ctx.navigate.mock.calls[0][0]).toContain("prompt=hi");
+  });
+
+  it("keeps a full-width app in the URL of the draft it relays into", () => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "relay_prompt", {
+      prompt: "hi",
+      conversation: "new",
+    });
+
+    const newId = useConversationStore.getState().activeConversationId;
+    const [url] = ctx.navigate.mock.calls[0];
+    expect(url).toContain(`/assistant/conversations/${newId}/app/app-1?`);
+    expect(url).toContain("prompt=hi");
   });
 
   it("uses a unique relay token per dispatch so identical prompts re-fire", () => {
@@ -88,8 +108,13 @@ describe("handleAppViewerAction — relay_prompt", () => {
 });
 
 describe("handleAppViewerAction — set_view", () => {
-  it("'chat' closes the app", () => {
-    useViewerStore.setState({ mainView: "app", openedAppState: SAMPLE_APP });
+  it("'chat' closes the app and lands on the conversation URL", () => {
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
     const ctx = makeCtx();
 
     handleAppViewerAction(ctx, "set_view", { view: "chat" });
@@ -97,7 +122,28 @@ describe("handleAppViewerAction — set_view", () => {
     const viewer = useViewerStore.getState();
     expect(viewer.mainView).toBe("chat");
     expect(viewer.openedAppState).toBeNull();
-    expect(ctx.navigate).not.toHaveBeenCalled();
+    expect(ctx.navigate.mock.calls[0][0]).toBe(
+      "/assistant/conversations/conv-1",
+    );
+  });
+
+  it("'chat' with no conversation starts one to land on", () => {
+    useConversationStore.setState({ activeConversationId: null });
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "set_view", { view: "chat" });
+
+    const newId = useConversationStore.getState().activeConversationId;
+    expect(newId).toBeTruthy();
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(ctx.navigate.mock.calls[0][0]).toBe(
+      `/assistant/conversations/${newId}`,
+    );
   });
 
   it("'full' exits the side-by-side to full-width", () => {
@@ -184,6 +230,9 @@ describe("handleAppViewerAction — open_conversation", () => {
     expect(useViewerStore.getState().mainView).toBe("app-editing");
     expect(useConversationStore.getState().editingConversationId).toBe(
       "target-conv",
+    );
+    expect(ctx.navigate.mock.calls[0][0]).toBe(
+      "/assistant/conversations/target-conv/app/app-1",
     );
   });
 
