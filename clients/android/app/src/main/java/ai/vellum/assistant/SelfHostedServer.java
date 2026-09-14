@@ -20,7 +20,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-final class SelfHostedServer {
+public final class SelfHostedServer {
     private static final String CONFIG_DIRECTORY = "capacitor-self-hosted";
     private static final String CONFIG_FILE = "capacitor.config.json";
     private static final String PREFERENCES_NAME = "self_hosted_server";
@@ -65,7 +65,7 @@ final class SelfHostedServer {
 
     private SelfHostedServer() {}
 
-    static URI configured(Context context) {
+    public static URI configured(Context context) {
         return configured(new PreferencesStore(context));
     }
 

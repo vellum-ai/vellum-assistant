@@ -11,6 +11,7 @@ const TOC_ITEMS = [
   { id: "signing-in", label: "Signing in", level: 2 },
   { id: "iphone-app", label: "iPhone app", level: 2 },
   { id: "desktop-app", label: "Desktop app (Mac)", level: 2 },
+  { id: "windows-desktop-app", label: "Desktop app (Windows)", level: 2 },
   { id: "approvals", label: "Approvals", level: 2 },
   { id: "memory", label: "Memory", level: 2 },
   { id: "voice", label: "Voice", level: 2 },
@@ -210,6 +211,49 @@ export function HelpCommonIssuesContent() {
               writing local files
             </li>
           </ul>
+        </section>
+
+        <section id="windows-desktop-app" className="mt-12">
+          <SectionHeading id="windows-desktop-app" level={2}>
+            Desktop app (Windows)
+          </SectionHeading>
+          <SectionHeading id="windows-installation" level={3}>
+            Installation or startup fails
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600">
+            Download the Windows installer from the{" "}
+            <a href="https://www.vellum.ai/download">Vellum download page</a>.
+            Use x64 for Intel or AMD PCs and ARM64 for Windows on Arm. Check the
+            system tray for Vellum if the main window is closed. The tray menu offers
+            a restart action.
+          </p>
+          <SectionHeading id="windows-permissions" level={3}>
+            Voice, screen capture, or computer control is unavailable
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600">
+            Open Settings &gt; Permissions &amp; Privacy in Vellum and use the settings
+            link beside the affected permission. Windows controls microphone, screen
+            capture, speech, and notification access. There is no Accessibility
+            permission to enable. Elevated apps, UAC prompts, and protected windows
+            cannot be controlled; use a normal, non-administrator app window.
+          </p>
+          <SectionHeading id="windows-cli" level={3}>
+            The vellum command is not found
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600">
+            Launch Vellum once to provision its bundled CLI, then open a new terminal.
+            The dev build adds <code>{"%LOCALAPPDATA%\\Vellum-dev\\bin"}</code> to
+            your user PATH; production builds use <code>{"%LOCALAPPDATA%\\Vellum\\bin"}</code>. Run <code>where.exe vellum</code> to check which installation
+            your terminal finds if another version takes precedence.
+          </p>
+          <SectionHeading id="windows-logs" level={3}>
+            Sending logs with a bug report
+          </SectionHeading>
+          <p className="mb-0 text-zinc-600">
+            Use Help &gt; Send Feedback in the app to send a report with recent logs.
+            Include your Windows version, installer architecture, and the steps that
+            reproduce the problem.
+          </p>
         </section>
 
         <section id="approvals" className="mt-12">

@@ -16,7 +16,6 @@ import { Card } from "@vellumai/design-library/components/card";
 import { ListRow } from "@vellumai/design-library/components/list-row";
 import { ActionMenu } from "@vellumai/design-library/components/action-menu";
 import { Tag, type TagTone } from "@vellumai/design-library/components/tag";
-import { Toggle } from "@vellumai/design-library/components/toggle";
 
 import { useTranslation } from "@/i18n";
 
@@ -37,7 +36,6 @@ type SettingsTranslate = ReturnType<
 const STATUS_TONES: Record<string, TagTone> = {
   connected: "positive",
   "needs-auth": "negative",
-  disabled: "neutral",
 };
 
 const DEFAULT_STATUS_TONE: TagTone = "negative";
@@ -48,8 +46,6 @@ function statusLabel(status: string, t: SettingsTranslate): string {
       return t("mcpServerCard.statusConnected");
     case "needs-auth":
       return t("mcpServerCard.statusNeedsAuth");
-    case "disabled":
-      return t("mcpServerCard.statusDisabled");
     default:
       return t("mcpServerCard.statusError");
   }
@@ -58,12 +54,10 @@ function statusLabel(status: string, t: SettingsTranslate): string {
 interface McpServerCardProps {
   server: McpServerEntry;
   toolsSummary: McpToolsSummaryServer | undefined;
-  onToggleEnabled: (serverId: string, enabled: boolean) => void;
   onRemove: (serverId: string) => void;
   onConfigure: (serverId: string) => void;
   onAuthenticate: (serverId: string) => void;
   onRevokeOAuth: (serverId: string) => void;
-  isUpdating: boolean;
   isAuthenticating: boolean;
   isRevoking: boolean;
 }
@@ -71,12 +65,10 @@ interface McpServerCardProps {
 export function McpServerCard({
   server,
   toolsSummary,
-  onToggleEnabled,
   onRemove,
   onConfigure,
   onAuthenticate,
   onRevokeOAuth,
-  isUpdating,
   isAuthenticating,
   isRevoking,
 }: McpServerCardProps) {
@@ -95,11 +87,6 @@ export function McpServerCard({
   // sign in to.
   const needsAuth =
     server.status === "needs-auth" && server.transport.type !== "stdio";
-
-  const handleToggle = useCallback(
-    (next: boolean) => onToggleEnabled(server.id, next),
-    [onToggleEnabled, server.id],
-  );
 
   const handleRemove = useCallback(
     () => onRemove(server.id),
@@ -130,21 +117,6 @@ export function McpServerCard({
     <Card.Root>
       <Card.Body>
         <div className="flex items-center gap-3">
-          <Toggle
-            checked={server.enabled}
-            onChange={handleToggle}
-            disabled={isUpdating}
-            aria-label={
-              server.enabled
-                ? t("mcpServerCard.toggleDisableAriaLabel", {
-                    serverId: server.id,
-                  })
-                : t("mcpServerCard.toggleEnableAriaLabel", {
-                    serverId: server.id,
-                  })
-            }
-          />
-
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex min-w-0 items-center gap-1">
               <span className="truncate text-body-large-default text-[var(--content-default)]">

@@ -58,7 +58,7 @@ import {
   parseClientOs,
   parseInterfaceId,
 } from "../../../channels/types.js";
-import { isV3TierActive } from "../../../config/memory-v3-gate.js";
+import { isSkillImprovementActive } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import { warmGuardianBindings } from "../../../contacts/guardian-delivery-reader.js";
 import { extractTurnContextTimestamp } from "../../../context/compactor.js";
@@ -95,6 +95,7 @@ import {
   MEMORY_RETROSPECTIVE_SOURCE,
   SKILL_MANAGEMENT_SKILL_ID,
 } from "./memory-retrospective-constants.js";
+import { retrospectiveCursor } from "./memory-retrospective-cursor.js";
 import { loadRetrospectiveRunMessages } from "./memory-retrospective-fork-boundary.js";
 import { buildForkInstruction } from "./memory-retrospective-prompt.js";
 import {
@@ -357,7 +358,7 @@ export async function runForkBasedRetrospective(
   // `memory-retrospective-accounting.ts`.
   const newMessages = getRetrospectiveMessagesAfter(
     sourceConversationId,
-    lastProcessedMessageId,
+    retrospectiveCursor(state),
   );
 
   if (newMessages.length === 0) {
@@ -448,7 +449,7 @@ export async function runForkBasedRetrospective(
   }
   const forkId = forkConversationRow.id;
 
-  const procToSkillsActive = isV3TierActive(config);
+  const procToSkillsActive = isSkillImprovementActive(config);
   const instruction = buildForkInstruction({
     windowStartTimestamp,
     windowAnchorKind: turnContextTimestamp ? "turn_context" : "created_at",
@@ -650,6 +651,7 @@ export async function runForkBasedRetrospective(
         sourceConversationId,
         retrospectiveConversationId: forkId,
         cutoffMessageId,
+        cutoffCreatedAt: cutoffMessage.createdAt,
         newMessageCount: newMessages.length,
         prior,
         priorRemembers,
@@ -947,6 +949,11 @@ async function finalizeSuccessfulRetrospective(args: {
   sourceConversationId: string;
   retrospectiveConversationId: string;
   cutoffMessageId: string;
+  /**
+   * `createdAt` of the cutoff row, persisted beside its id so the cursor
+   * keeps bounding reads after the row is deleted.
+   */
+  cutoffCreatedAt: number;
   newMessageCount: number;
   prior: PriorRetrospective | null;
   priorRemembers: string[];
@@ -966,6 +973,7 @@ async function finalizeSuccessfulRetrospective(args: {
     sourceConversationId,
     retrospectiveConversationId,
     cutoffMessageId,
+    cutoffCreatedAt,
     newMessageCount,
     prior,
     priorRemembers,
@@ -977,6 +985,7 @@ async function finalizeSuccessfulRetrospective(args: {
   await upsertRetrospectiveState({
     conversationId: sourceConversationId,
     lastProcessedMessageId: cutoffMessageId,
+    lastProcessedCreatedAt: cutoffCreatedAt,
     lastRunAt: Date.now(),
     rememberedLog: appendToRememberedLog(priorRemembers, runRemembers),
   });

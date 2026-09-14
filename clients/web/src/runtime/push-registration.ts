@@ -45,12 +45,24 @@ import {
   assistantsPushTokensDelete,
   assistantsPushTokensUpsert,
 } from "@/generated/api/sdk.gen";
+import type { AssistantsPushTokensUpsertData } from "@/generated/api/types.gen";
 import { publish } from "@/lib/event-bus";
 import { resolvePlatformAssistantId } from "@/lib/platform-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
 import { ensureAndroidAlertsChannel } from "@/runtime/android-notification-channels";
+import {
+  beginAndroidNotificationOwnershipEnable,
+  disableAndroidNotificationOwnership,
+  enableAndroidNotificationOwnership,
+  installAndroidSenderNotificationIdentityAdapter,
+  type AndroidNotificationOwnershipBridge,
+} from "@/runtime/android-sender-notification";
 import { resolveSignedApnsEnvironment } from "@/runtime/apns-environment";
 import { isNativePlatform } from "@/runtime/native-auth";
+import {
+  dispatchNotificationTap,
+  type NotificationTapPayload,
+} from "@/runtime/notification-taps";
 import { createStorageAccessor } from "@/utils/typed-storage";
 
 /** Token registration we last upserted, retained so logout can delete it. */
@@ -63,9 +75,12 @@ interface RegisteredToken {
   runtimeAssistantId: string;
 }
 
-interface AndroidPushRegistrationPlugin {
+interface AndroidPushRegistrationPlugin
+  extends AndroidNotificationOwnershipBridge {
   register(): Promise<void>;
   unregister(): Promise<void>;
+  getCapabilities(): Promise<{ capabilities: string[] }>;
+  setForegroundHandler(options: { active: boolean }): Promise<void>;
 }
 
 const ANDROID_PUSH_REGISTRATION_PLUGIN = "AndroidPushRegistration";
@@ -120,6 +135,9 @@ let currentAssistantId: string | null = null;
 let lastRegistered: RegisteredToken | null = null;
 let foregroundPushHandler: ((push: PushNotificationSchema) => void) | null =
   null;
+let foregroundHandlerQueue = Promise.resolve();
+let foregroundHandlerOperation = 0;
+let foregroundHandlerFailureReported = false;
 const pendingUpserts = new Set<Promise<void>>();
 let androidUpsertQueue = Promise.resolve();
 
@@ -163,6 +181,40 @@ export function isRemotePushSupported(): boolean {
 }
 
 /**
+ * What this Android build can do with a push, sent on the Android upsert as
+ * `capabilities` and stored on the token row once the platform's schema
+ * carries the field; until then the platform drops it as an unknown field.
+ *
+ * The platform sends data-only FCM messages only to tokens claiming
+ * `native-notification-render`, so an older shell whose plugin lacks the
+ * method must report nothing and keep receiving notification-block pushes.
+ *
+ * The claim is deliberately not gated on `push-avatar-sender`: that flag is the
+ * platform's own switch for the data-only shape, while this says which tokens
+ * could render one. A shell that can render natively says so whether the flag
+ * is on or off.
+ */
+async function readAndroidCapabilities(): Promise<string[]> {
+  if (!Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)) {
+    return [];
+  }
+  try {
+    const { capabilities } = await AndroidPushRegistration.getCapabilities();
+    return Array.isArray(capabilities)
+      ? capabilities.filter((value) => typeof value === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The Android arm of the generated upsert body. */
+type AndroidUpsertBody = Extract<
+  AssistantsPushTokensUpsertData["body"],
+  { platform: "android" }
+>;
+
+/**
  * Upsert a freshly-minted native token to the platform for the given assistant.
  * Best-effort: a non-2xx response or thrown error is reported and swallowed.
  */
@@ -176,16 +228,20 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
     const { App } = await import("@capacitor/app");
     const { id: bundleId } = await App.getInfo();
     const platform = Capacitor.getPlatform();
-    const body =
+    // Annotated so a change to the generated contract is a compile error here.
+    // The generated Android body has no `capabilities` field, so the assertion
+    // is what admits that one field without loosening the rest of the row.
+    const body: AssistantsPushTokensUpsertData["body"] =
       platform === "android"
-        ? {
+        ? ({
             token,
-            platform: "android" as const,
+            platform: "android",
             bundle_id: bundleId,
-          }
+            capabilities: await readAndroidCapabilities(),
+          } as AndroidUpsertBody)
         : {
             token,
-            platform: "ios" as const,
+            platform: "ios",
             bundle_id: bundleId,
             apns_environment: await resolveSignedApnsEnvironment(bundleId),
           };
@@ -251,13 +307,78 @@ export function extractPushConversationId(data: unknown): string | undefined {
   }
   if (typeof deepLink === "object" && deepLink !== null) {
     const conversationId = (deepLink as Record<string, unknown>).conversationId;
-    if (typeof conversationId === "string") {
-      return conversationId;
+    const resolvedConversationId = trimmedField(conversationId);
+    if (resolvedConversationId) {
+      return resolvedConversationId;
     }
   }
-  return typeof record.conversationId === "string"
-    ? record.conversationId
-    : undefined;
+  return trimmedField(record.conversationId);
+}
+
+function objectField(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function trimmedField(value: unknown): string | undefined {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed || undefined;
+}
+
+/** Parse only additive local identity metadata into the shared tap route. */
+export function extractScopedPushTapPayload(
+  data: unknown,
+): NotificationTapPayload | null {
+  const record = objectField(data);
+  const identity = objectField(record?.identity);
+  if (!record || !identity) {
+    return null;
+  }
+  const scopeId = trimmedField(identity.scopeId);
+  const assistantId = trimmedField(identity.assistantId);
+  const nativeSenderId = trimmedField(identity.nativeSenderId);
+  if (!scopeId || !assistantId || !nativeSenderId) {
+    return null;
+  }
+
+  const presentation =
+    record.presentation === "assistant" || record.presentation === "app"
+      ? record.presentation
+      : undefined;
+  const nameProvenance =
+    record.nameProvenance === "event" ||
+    record.nameProvenance === "identity-store" ||
+    record.nameProvenance === "verified-memory" ||
+    record.nameProvenance === "title"
+      ? record.nameProvenance
+      : undefined;
+  const conversationId = extractPushConversationId(record);
+  const sourceEventName =
+    trimmedField(record.sourceEventName) ??
+    trimmedField(record.source_event_name) ??
+    "remote_push";
+  const deliveryId =
+    trimmedField(record.deliveryId) ?? trimmedField(record.delivery_id);
+
+  return {
+    conversationId,
+    sourceEventName,
+    deliveryId,
+    identity: { scopeId, assistantId, nativeSenderId },
+    ...(presentation ? { presentation } : {}),
+    ...(nameProvenance ? { nameProvenance } : {}),
+    ...(record.suppressGroupTitle === true
+      ? { suppressGroupTitle: true }
+      : {}),
+  };
 }
 
 async function deleteRegisteredToken(
@@ -281,10 +402,92 @@ async function deleteRegisteredToken(
   }
 }
 
+/**
+ * Tell the Android shell whether the web layer holds a foreground handler.
+ *
+ * @returns false only when the shell rejected, and so still believes whatever
+ *   it believed before.
+ */
+async function announceForegroundHandler(active: boolean): Promise<boolean> {
+  if (
+    Capacitor.getPlatform() !== "android" ||
+    !Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
+  ) {
+    return true;
+  }
+  try {
+    await AndroidPushRegistration.setForegroundHandler({ active });
+    return true;
+  } catch (err) {
+    if (!foregroundHandlerFailureReported) {
+      // An older shell has no such method, and its renderer already treats
+      // every data-only push as its own. Once is enough to say so.
+      foregroundHandlerFailureReported = true;
+      captureError(err, {
+        context: "push_foreground_handler",
+        level: "warning",
+        bestEffort: true,
+      });
+    }
+    return false;
+  }
+}
+
+/**
+ * Install or clear the handler for pushes that arrive while the app is on
+ * screen, and tell the Android shell which it is. The native renderer posts a
+ * data-only push itself whenever no handler is live, so a push arriving on a
+ * route that has torn this down reaches the user instead of a no-op.
+ *
+ * The two moves are serialized, and each is ordered so a push landing part-way
+ * through still finds a renderer: the handler goes in before the shell hears
+ * one is live, and the shell hears one is gone before the handler comes out.
+ * A rejected call keeps the handler, since a shell that believes the web
+ * renders while the web does not is the one pairing that drops a push.
+ */
 export function setForegroundPushHandler(
   handler: ((push: PushNotificationSchema) => void) | null,
 ): void {
-  foregroundPushHandler = handler;
+  const operation = ++foregroundHandlerOperation;
+  if (handler !== null) {
+    foregroundPushHandler = handler;
+    installAndroidSenderNotificationIdentityAdapter();
+    beginAndroidNotificationOwnershipEnable();
+  }
+  foregroundHandlerQueue = foregroundHandlerQueue
+    .catch(() => {})
+    .then(async () => {
+      if (handler === null && operation !== foregroundHandlerOperation) {
+        return;
+      }
+      if (handler !== null) {
+        await announceForegroundHandler(true);
+        await enableAndroidNotificationOwnership(AndroidPushRegistration);
+        return;
+      }
+      if (!(await announceForegroundHandler(false))) {
+        return;
+      }
+      if (operation !== foregroundHandlerOperation) {
+        return;
+      }
+      if (
+        !(await disableAndroidNotificationOwnership(AndroidPushRegistration))
+      ) {
+        return;
+      }
+      if (operation !== foregroundHandlerOperation) {
+        return;
+      }
+      foregroundPushHandler = null;
+    })
+    .catch((error: unknown) => {
+      captureError(error, {
+        context: "push_notification_ownership",
+        level: "warning",
+        bestEffort: true,
+      });
+    });
 }
 
 /**
@@ -323,9 +526,16 @@ async function ensureListeners(): Promise<void> {
     await PushNotifications.addListener(
       "pushNotificationActionPerformed",
       (action) => {
-        const conversationId = extractPushConversationId(
-          action.notification.data,
-        );
+        const data = action.notification.data;
+        const dataRecord = objectField(data);
+        if (dataRecord && "identity" in dataRecord) {
+          const scopedPayload = extractScopedPushTapPayload(dataRecord);
+          if (scopedPayload) {
+            dispatchNotificationTap(scopedPayload);
+          }
+          return;
+        }
+        const conversationId = extractPushConversationId(data);
         if (conversationId) {
           publish("deeplink.openThread", { threadId: conversationId });
         }
@@ -482,12 +692,20 @@ export function hasSessionConfirmedRemotePushRegistration(
   );
 }
 
+/** Test-only: whether a foreground handler is currently installed. */
+export function __hasForegroundPushHandlerForTests(): boolean {
+  return foregroundPushHandler !== null;
+}
+
 /** Test-only: reset module + persisted state between cases. */
 export function __resetPushRegistrationStateForTests(): void {
   listenersRegistered = false;
   currentAssistantId = null;
   lastRegistered = null;
   foregroundPushHandler = null;
+  foregroundHandlerOperation += 1;
+  foregroundHandlerQueue = Promise.resolve();
+  foregroundHandlerFailureReported = false;
   pendingUpserts.clear();
   androidUpsertQueue = Promise.resolve();
   persistedRegistration.remove();

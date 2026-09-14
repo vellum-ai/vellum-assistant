@@ -53,6 +53,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router";
 
+import { useLocalAssistantHealth } from "@/assistant/local-health";
+import { useAssistantOperationalStatus } from "@/assistant/operational-status";
 import {
   useAssistantSleepPhase,
   type AssistantSleepPhase,
@@ -105,6 +107,13 @@ export function AssistantSleepStage() {
   const phase = useAssistantSleepPhase();
   const assistantName = useAssistantIdentityStore.use.name();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const localHealth = useLocalAssistantHealth();
+  const statusQuery = useAssistantOperationalStatus(assistantId);
+  const isAwake =
+    localHealth === "healthy" ||
+    (localHealth === null &&
+      !statusQuery.isError &&
+      statusQuery.data?.state === "active");
   const { components, traits, customImageUrl } =
     useAssistantAvatar(assistantId);
 
@@ -164,12 +173,12 @@ export function AssistantSleepStage() {
   // The waking outro belongs to a sleep this component actually showed:
   // an assistant that woke while the stage was never up has nothing to
   // announce.
-  const showedThisSleepRef = useRef(false);
+  const showedSleepAssistantRef = useRef<string | null>(null);
   useEffect(() => {
     if (sleepVisible) {
-      showedThisSleepRef.current = true;
+      showedSleepAssistantRef.current = assistantId;
     }
-  }, [sleepVisible]);
+  }, [sleepVisible, assistantId]);
 
   const [woke, setWoke] = useState(false);
   const previousPhaseRef = useRef<AssistantSleepPhase | null>(null);
@@ -179,11 +188,17 @@ export function AssistantSleepStage() {
     if (phase !== null) {
       return;
     }
-    if (previous !== null && showedThisSleepRef.current && !dismissed) {
+    if (
+      previous !== null &&
+      assistantId !== null &&
+      showedSleepAssistantRef.current === assistantId &&
+      !dismissed &&
+      isAwake
+    ) {
       setWoke(true);
     }
-    showedThisSleepRef.current = false;
-  }, [phase, dismissed]);
+    showedSleepAssistantRef.current = null;
+  }, [phase, dismissed, assistantId, isAwake]);
 
   useEffect(() => {
     if (!woke) {

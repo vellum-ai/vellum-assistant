@@ -112,6 +112,12 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     expect(link.identityResponsePaths).toEqual(["email", "phone"]);
   });
 
+  test("Link is GA and ships without a feature flag", () => {
+    // The seed upserts featureFlag on every startup, so a flag reintroduced
+    // here would hide Link from every install on the next boot.
+    expect(PROVIDER_SEED_DATA.stripe_link.featureFlag).toBeUndefined();
+  });
+
   test("figma ships behind the figma-oauth flag", () => {
     // The provider is hidden from the providers list and the connect routes
     // until the flag is enabled. Dropping featureFlag here would make Figma

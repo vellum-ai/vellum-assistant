@@ -27,6 +27,7 @@ import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import type { Conversation } from "@/types/conversation-types";
 import { invalidateConversationQueries } from "@/utils/conversation-cache";
+import { useDisplayConversationTitle } from "@/utils/conversation-title";
 import { toast } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import {
@@ -79,16 +80,14 @@ function ConversationRow({
   isPending: boolean;
 }) {
   const { t } = useTranslation("settings");
+  const displayTitle = useDisplayConversationTitle();
   const { conversation, archived } = row;
   const dateText = formatConversationDate(
     conversation.lastMessageAt ?? conversation.createdAt,
   );
   const source = conversation.source ?? "vellum-assistant";
   const meta = [dateText, source].filter(Boolean).join(" · ");
-  const title =
-    conversation.title && conversation.title.trim().length > 0
-      ? conversation.title
-      : t("allConversationsView.untitled");
+  const title = displayTitle(conversation.title);
 
   return (
     <div

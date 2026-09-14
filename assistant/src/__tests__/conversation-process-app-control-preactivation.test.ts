@@ -409,7 +409,9 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       "U-contact",
     );
     expect(ctx.currentTurnTrustContext?.sourceChannel).toBe("slack");
-    // The slot itself is left alone; only the turn's view is corrected.
+    // The slot itself is left alone; only the turn's view is corrected. A
+    // drain stamping it would attribute the conversation to a sender whose
+    // turn can still lose the processing lock at persist time.
     expect(ctx.trustContext?.trustClass).toBe("guardian");
   });
 

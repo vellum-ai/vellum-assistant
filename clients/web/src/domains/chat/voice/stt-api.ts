@@ -3,6 +3,7 @@ import {
   secretsPost,
   sttTranscribePost,
 } from "@/generated/daemon/sdk.gen";
+import { encodeBase64Bytes } from "@/utils/base64";
 import { MACOS_NATIVE_STT_PROVIDER_ID } from "@/lib/provider-catalogs";
 import { isCancellationError } from "@/utils/is-cancellation-error";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
@@ -257,16 +258,9 @@ export async function postSttTranscribe(
   assistantId: string,
   signal?: AbortSignal,
 ): Promise<SttTranscribeOutcome> {
-  // Convert Blob → base64. Using a manual loop avoids the call-stack
-  // overflow that btoa(String.fromCharCode(...spread)) can hit on large buffers.
-  const arrayBuffer = await audioBlob.arrayBuffer();
-  const uint8 = new Uint8Array(arrayBuffer);
-  let binary = "";
-  const chunkSize = 8192;
-  for (let i = 0; i < uint8.length; i += chunkSize) {
-    binary += String.fromCharCode(...uint8.subarray(i, i + chunkSize));
-  }
-  const audioBase64 = btoa(binary);
+  const audioBase64 = encodeBase64Bytes(
+    new Uint8Array(await audioBlob.arrayBuffer()),
+  );
 
   const send = async (): Promise<SttTranscribeOutcome> => {
     // The HeyAPI client with `throwOnError: false` does NOT throw on transport

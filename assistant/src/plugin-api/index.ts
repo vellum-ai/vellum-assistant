@@ -110,6 +110,7 @@ export type {
   HookBroadcast,
   HookFunction,
   InitContext,
+  MessageDeletedContext,
   ModelProfileInfo,
   PluginLogger,
   PostCompactContext,
@@ -254,6 +255,12 @@ export { isVisionNotSupportedError } from "../util/provider-error-patterns.js";
 // avoid touching stale tool-result media the sanitizer will replace with its
 // removed-media marker.
 export { lastToolResultUserMessageIndex } from "../context/outbound-sanitize.js";
+// The `surfaceId` a successful `ui_show` tool result reports, read from the
+// envelope the host writes (which may also carry advisory `note`/`status`
+// fields). A `post-model-call` hook correlates a progress surface's `ui_show`
+// with its later `ui_update`/`ui_dismiss` through this id to see whether the
+// model left the surface open.
+export { parseSurfaceShowResultId } from "../api/surface-show-result.js";
 // Refusal quarantine — the canned apology a refusal turn is rewritten into
 // (`REFUSAL_FALLBACK_TEXT`, which doubles as the persisted per-exchange
 // "refused" marker), the tool-result-only user-message classifier the producer
@@ -379,6 +386,12 @@ export {
 // sent). Persisted and pushed to clients; not seated in the turn's working
 // history.
 export { persistSystemCard } from "./system-card.js";
+// Turn cancellation: the guard a side-effecting tool calls immediately before
+// it acts, so a tool does not land work on a turn the user already stopped.
+// The agent loop tells the model an aborted batch was cancelled, and this is
+// what makes that true. Host tools and plugin tools share this one guard.
+export type { CancellableToolContext } from "./tool-cancellation.js";
+export { throwIfCancelled } from "./tool-cancellation.js";
 // Synthesize text to speech through the assistant's globally configured TTS
 // provider (ElevenLabs, Fish Audio, etc.). Plugins that need voice output —
 // e.g. a meeting bot speaking into a live call — use this instead of managing

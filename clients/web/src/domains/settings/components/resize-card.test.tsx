@@ -70,6 +70,7 @@ function renderCard(planId: SubscriptionResponse["plan_id"]) {
           assistant={assistant}
           healthz={null}
           healthzLoading={false}
+          healthzFetching={false}
           healthzPolling={false}
           refetch={() => {}}
           refetchUntilResized={() => {}}

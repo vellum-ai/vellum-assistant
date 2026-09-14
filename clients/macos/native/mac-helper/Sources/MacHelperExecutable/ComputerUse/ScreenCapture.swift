@@ -87,6 +87,7 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
         let filter: SCContentFilter
         let sourceSize: CGSize
         let captureDisplayId: CGDirectDisplayID
+        let config = SCStreamConfiguration()
 
         switch target {
         case .window(let windowID):
@@ -98,6 +99,13 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
             }
             filter = SCContentFilter(desktopIndependentWindow: window)
             sourceSize = window.frame.size
+            // Without this the picture is the window plus its shadow, scaled
+            // together into the window's own size, so the content comes out
+            // smaller than the window and inset from its edges. Whoever
+            // measures against that picture (the assistant, drawing marks in
+            // fractions of the shared surface) then lands inward of what they
+            // meant. The window's frame is the surface; the shadow is not.
+            config.ignoreShadowsSingleWindow = true
             captureDisplayId = Self.displayHolding(window.frame)
 
         case .display(let displayID):
@@ -120,8 +128,6 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
             sourceSize = CGSize(width: display.width, height: display.height)
             captureDisplayId = display.displayID
         }
-
-        let config = SCStreamConfiguration()
 
         let sourceWidth = max(sourceSize.width, 1)
         let sourceHeight = max(sourceSize.height, 1)

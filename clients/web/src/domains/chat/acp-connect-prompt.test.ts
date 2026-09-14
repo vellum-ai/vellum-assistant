@@ -20,7 +20,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { handleToolResult } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import { appendEventToMessages } from "@/domains/chat/transcript/rolling-snapshot";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { AssistantEvent } from "@/types/event-types";
 import type { ToolResultEvent } from "@vellumai/assistant-api";
@@ -39,16 +39,6 @@ function missingTokenToolResult(
     errorCode: MISSING_TOKEN,
     ...overrides,
   } as ToolResultEvent;
-}
-
-/** Minimal stream-handler context — `handleToolResult` only touches turnActions. */
-function stubCtx(): StreamHandlerContext {
-  return {
-    turnActions: {
-      onToolResult: () => {},
-      onToolActivityMetadata: () => {},
-    },
-  } as unknown as StreamHandlerContext;
 }
 
 afterEach(() => {
@@ -143,7 +133,7 @@ describe("acp connect prompt — store lifecycle", () => {
 
 describe("acp connect prompt — raised live, never by reseed", () => {
   test("the live tool_result handler raises the prompt anchored to the tool call", () => {
-    handleToolResult(missingTokenToolResult(), stubCtx());
+    handleToolResult(missingTokenToolResult(), makeCtx());
     expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
       toolUseId: "tc-1",
     });
@@ -154,7 +144,7 @@ describe("acp connect prompt — raised live, never by reseed", () => {
     // so the reason must survive into the store.
     handleToolResult(
       missingTokenToolResult({ errorCode: "acp_claude_auth_required" }),
-      stubCtx(),
+      makeCtx(),
     );
     expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
       toolUseId: "tc-1",
@@ -165,14 +155,14 @@ describe("acp connect prompt — raised live, never by reseed", () => {
   test("a non-missing-token failure does not raise the prompt", () => {
     handleToolResult(
       missingTokenToolResult({ errorCode: "some_other_error" }),
-      stubCtx(),
+      makeCtx(),
     );
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
   });
 
   test("the reseed reducer never touches the store, so a live prompt survives reseed", () => {
     // Live failure raises the prompt.
-    handleToolResult(missingTokenToolResult(), stubCtx());
+    handleToolResult(missingTokenToolResult(), makeCtx());
     expect(useInteractionStore.getState().pendingAcpConnect).not.toBeNull();
 
     // A `/messages` reseed replays the event tail through the reducer. Folding

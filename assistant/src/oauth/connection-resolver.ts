@@ -20,9 +20,8 @@ export interface ResolveOAuthConnectionOptions {
   /** OAuth app client ID — narrows to a specific app when multiple BYO apps
    *  exist for the same provider. */
   clientId?: string;
-  /** Account identifier (e.g. email, username) — disambiguates when multiple
-   *  accounts are connected for the same provider. Best-effort: not guaranteed
-   *  to be present on all connections. */
+  /** Account label (e.g. email, username) or connection ID. BYO label matches
+   *  take precedence over IDs within the provider and client filters. */
   account?: string;
   /**
    * Scopes the caller needs the connection to actually carry. A single provider

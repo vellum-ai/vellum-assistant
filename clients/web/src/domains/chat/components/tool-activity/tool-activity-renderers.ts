@@ -12,6 +12,8 @@
  * Everything not listed keeps the generic treatment.
  */
 
+import { BashDetail } from "@/domains/chat/components/tool-activity/bash-detail";
+import { FileChangeDetail } from "@/domains/chat/components/tool-activity/file-change-detail";
 import { SkillExecuteDetail } from "@/domains/chat/components/tool-activity/skill-execute-detail";
 import { SkillLoadDetail } from "@/domains/chat/components/tool-activity/skill-load-detail";
 import type { ToolActivityRenderer } from "@/domains/chat/components/tool-activity/types";
@@ -20,6 +22,17 @@ import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-se
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 const RENDERERS: Record<string, ToolActivityRenderer> = {
+  // A command and what it printed, rather than a JSON object quoting one.
+  bash: { Component: BashDetail, ownsOutput: true },
+  host_bash: { Component: BashDetail, ownsOutput: true },
+  // One body for every tool that changes a file. The daemon returns the same
+  // `{ filePath, oldContent, newContent, isNewFile }` for a write as for an
+  // edit, so they are one thing here too, and the label saying whether it was
+  // applied is written once rather than per tool.
+  file_edit: { Component: FileChangeDetail, ownsOutput: false },
+  host_file_edit: { Component: FileChangeDetail, ownsOutput: false },
+  file_write: { Component: FileChangeDetail, ownsOutput: false },
+  host_file_write: { Component: FileChangeDetail, ownsOutput: false },
   // `skill_load`'s result *is* the skill body, so it owns the Output section
   // rather than letting the generic one dump the same text again as a `<pre>`.
   skill_load: { Component: SkillLoadDetail, ownsOutput: true },

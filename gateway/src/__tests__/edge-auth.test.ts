@@ -29,12 +29,22 @@ import "./test-preload.js";
 let mockReadCredential = mock(
   async (_key: string): Promise<string | undefined> => undefined,
 );
+let mockPlatformUserIdUnreachable = false;
 // Spread the actual module so untouched exports (getWorkspaceDir, …) stay
 // importable by transitive dependencies of the modules under test.
 const actualCredentialReader = await import("../credential-reader.js");
 mock.module("../credential-reader.js", () => ({
   ...actualCredentialReader,
   readCredential: (key: string) => mockReadCredential(key),
+}));
+mock.module("../platform-user-id.js", () => ({
+  readStoredPlatformUserId: async () => {
+    if (mockPlatformUserIdUnreachable) {
+      return { userId: undefined, unreachable: true };
+    }
+    const userId = await mockReadCredential("vellum:platform_user_id");
+    return { userId, unreachable: false };
+  },
 }));
 
 let mockValidateEdgeToken = mock(
@@ -84,6 +94,7 @@ function makeLoopbackServer(address = "127.0.0.1") {
 
 beforeEach(() => {
   mockReadCredential = mock(async () => undefined);
+  mockPlatformUserIdUnreachable = false;
   mockValidateEdgeToken = mock(() => ({ ok: false, reason: "noop" }));
   loopbackFallbackCountTracker.reset();
 });
@@ -125,6 +136,15 @@ describe("requireEdgeAuth — DISABLE_HTTP_AUTH + IS_PLATFORM", () => {
       makeReq({ "x-vellum-user-id": "different-user" }),
     );
     expect(res?.status).toBe(403);
+  });
+
+  test("503 when platform_user_id vault is unreachable", async () => {
+    mockPlatformUserIdUnreachable = true;
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({ "x-vellum-user-id": PLATFORM_USER_ID }),
+    );
+    expect(res?.status).toBe(503);
   });
 
   test("503 when readCredential throws", async () => {
@@ -452,6 +472,142 @@ describe("requireEdgeAuthWithScope — JWT mode", () => {
 });
 
 // =========================================================================
+// The OAuth passthrough grant a third-party CLI holds is a single-route grant.
+//
+// The grant is a valid edge token: signature, audience, expiry and policy
+// epoch all check out. Every gateway edge route would otherwise accept it,
+// including mutating ones (Telegram config, contacts control plane). Its own
+// route is the runtime-proxy catch-all, which validates the token itself and
+// never reaches this middleware.
+// =========================================================================
+
+const PROXY_GRANT_CLAIMS = {
+  sub: "local:asst:oauth-proxy.stripe_link",
+  scope_profile: "oauth_proxy_v1",
+};
+
+describe("edge auth refuses a single-route grant", () => {
+  test("requireEdgeAuth 401s an oauth_proxy_v1 grant", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: PROXY_GRANT_CLAIMS,
+    }));
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({ authorization: "Bearer proxy.grant" }),
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  test("the refusal is not softened by the loopback fallback", async () => {
+    // A third-party CLI holding the grant runs on the loopback host itself,
+    // so a fallback here would return exactly what the refusal withholds.
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: PROXY_GRANT_CLAIMS,
+    }));
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({ authorization: "Bearer proxy.grant" }),
+      makeLoopbackServer(),
+    );
+    expect(res?.status).toBe(401);
+    expect(loopbackFallbackCountTracker.snapshot()).toEqual([]);
+  });
+
+  test("requireEdgeAuthWithScope 401s the grant before the scope check", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: PROXY_GRANT_CLAIMS,
+    }));
+    const { requireEdgeAuthWithScope } = makeMiddleware();
+    const res = await requireEdgeAuthWithScope(
+      makeReq({ authorization: "Bearer proxy.grant" }),
+      "settings.write",
+    );
+    // 401 (not the under-scoped 403): the credential is refused outright.
+    expect(res?.status).toBe(401);
+  });
+
+  test("requireEdgeGuardianAuth 401s the grant", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: PROXY_GRANT_CLAIMS,
+    }));
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(
+      makeReq({ authorization: "Bearer proxy.grant" }),
+      makeLoopbackServer(),
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  test("a proxy subject is refused even under a broad profile", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: {
+        sub: "local:asst:oauth-proxy.stripe_link",
+        scope_profile: "local_v1",
+      },
+    }));
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({ authorization: "Bearer proxy.grant" }),
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  test("an unrecognized profile is refused", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: {
+        sub: "actor:asst:123",
+        scope_profile: "minted_by_a_newer_peer",
+      },
+    }));
+    const { requireEdgeAuth } = makeMiddleware();
+    const res = await requireEdgeAuth(
+      makeReq({ authorization: "Bearer future.jwt" }),
+    );
+    expect(res?.status).toBe(401);
+  });
+
+  test("an actor client token still satisfies both guards", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: { sub: "actor:asst:123", scope_profile: "actor_client_v1" },
+    }));
+    const { requireEdgeAuth, requireEdgeAuthWithScope } = makeMiddleware();
+    expect(
+      await requireEdgeAuth(makeReq({ authorization: "Bearer good.jwt" })),
+    ).toBeNull();
+    expect(
+      await requireEdgeAuthWithScope(
+        makeReq({ authorization: "Bearer good.jwt" }),
+        "settings.write",
+      ),
+    ).toBeNull();
+  });
+
+  test("a local CLI token still satisfies both guards", async () => {
+    mockValidateEdgeToken = mock(() => ({
+      ok: true,
+      claims: { sub: "local:asst:conv-123", scope_profile: "local_v1" },
+    }));
+    const { requireEdgeAuth, requireEdgeAuthWithScope } = makeMiddleware();
+    expect(
+      await requireEdgeAuth(makeReq({ authorization: "Bearer local.jwt" })),
+    ).toBeNull();
+    expect(
+      await requireEdgeAuthWithScope(
+        makeReq({ authorization: "Bearer local.jwt" }),
+        "local.all",
+      ),
+    ).toBeNull();
+  });
+});
+
+// =========================================================================
 // Loopback fallback + trustProxy — proxied-remote vs direct-local
 //
 // A same-host reverse proxy / tunnel always connects over 127.0.0.1, so the
@@ -619,8 +775,7 @@ describe("requireEdgeAuth: device last-used stamping", () => {
 // =========================================================================
 
 const { handleCreateToken } = await import("../http/routes/auth-token.js");
-const { initSigningKey, mintToken } =
-  await import("../auth/token-service.js");
+const { initSigningKey, mintToken } = await import("../auth/token-service.js");
 const { CURRENT_POLICY_EPOCH } = await import("../auth/policy.js");
 const { contacts } = await import("../db/schema.js");
 const { bustGuardianIntegrityCache } =

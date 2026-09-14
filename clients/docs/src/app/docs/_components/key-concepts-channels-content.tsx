@@ -3,11 +3,13 @@
 import { DocsContent } from "@/app/docs/_components/docs-content";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
+import { routes } from "@/lib/routes";
 
 const TOC_ITEMS = [
   { id: "web", label: "Web", level: 2 },
   { id: "desktop-app", label: "Desktop App", level: 2 },
   { id: "ios", label: "iOS", level: 2 },
+  { id: "android", label: "Android", level: 2 },
   { id: "cli", label: "CLI", level: 2 },
   { id: "telegram", label: "Telegram", level: 2 },
   { id: "slack", label: "Slack", level: 2 },
@@ -94,8 +96,8 @@ export function KeyConceptsChannelsContent() {
             Desktop App
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
-            The flagship experience. A native macOS menu bar app with full
-            capabilities:
+            The desktop experience is available on macOS and Windows, with a menu bar
+            presence on Mac and a system tray icon on Windows:
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
@@ -104,11 +106,11 @@ export function KeyConceptsChannelsContent() {
             </li>
             <li>
               <strong>Computer use</strong> — your assistant can see your screen
-              and control your Mac directly
+              and control your Mac or Windows PC directly
             </li>
             <li>
-              <strong>Voice input</strong> — hold your activation key and speak,
-              or enable wake word detection
+              <strong>Voice input</strong>: use the in-app voice controls or configure
+              your voice shortcut in Settings
             </li>
             <li>
               <strong>Document editor</strong> — long-form writing with your
@@ -128,8 +130,12 @@ export function KeyConceptsChannelsContent() {
             </li>
           </ul>
           <p className="mb-0 text-zinc-600">
-            Every tool, every skill, every feature is available here. If a
-            capability exists, the desktop app supports it.
+            Some features depend on the operating system. The Fn voice key and floating
+            companion are macOS-only. Windows uses a configurable voice mode shortcut
+            and supports computer control in normal, non-elevated windows. See{" "}
+            <a href="/docs/trust-security/the-permissions-model#windows-system-permissions">
+              Windows system permissions
+            </a>.
           </p>
         </section>
 
@@ -170,10 +176,29 @@ export function KeyConceptsChannelsContent() {
           </p>
           <p className="mb-0 text-zinc-600">
             Available on the{" "}
-            <a href="https://apps.apple.com/us/app/vellum-assistant/id6759934423">
+            <a href={routes.iosAppStore}>
               App Store
             </a>{" "}
             for iPhone and iPad.
+          </p>
+        </section>
+
+        <section id="android" className="mt-12">
+          <SectionHeading id="android" level={2}>
+            Android
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600">
+            The Android app is the same kind of pocket client as iOS: it signs
+            into your Vellum Cloud account and carries the same assistant,
+            memory, and conversations. Host file access, shell commands,
+            computer use, and screen watch stay on the desktop app.
+          </p>
+          <p className="mb-0 text-zinc-600">
+            Available on{" "}
+            <a href={routes.androidPlayStore}>
+              Google Play
+            </a>
+            .
           </p>
         </section>
 

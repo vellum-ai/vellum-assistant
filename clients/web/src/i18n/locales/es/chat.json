@@ -35,6 +35,7 @@
     "closeRunDetail": "Cerrar el detalle de la ejecución",
     "goToNewest": "Ir al más reciente",
     "inputLabel": "Entrada",
+    "modelLabel": "Modelo",
     "objective": "Objetivo",
     "outputLabel": "Salida",
     "sendSteerAria": "Enviar instrucción de orientación",
@@ -87,6 +88,26 @@
   "assistantContentDisclosure": {
     "earlierActivity": "Actividad anterior"
   },
+  "assistantDesktop": {
+    "busy": "Otro usuario está usando el escritorio.",
+    "connecting": "Conectando con el escritorio…",
+    "failed": "No se pudo iniciar el escritorio.",
+    "lost": "Se perdió la conexión con el escritorio.",
+    "openAria": "Abrir escritorio",
+    "reconnectButton": "Reconectar",
+    "title": "Escritorio",
+    "unavailable": "El escritorio no está disponible en este asistente.",
+    "installButton": "Instalar escritorio",
+    "installDescription": "Instala Google Chrome y los componentes necesarios para el escritorio de tu asistente. Esto puede tardar unos minutos.",
+    "checkingSetup": "Comprobando el escritorio…",
+    "installingPackages": "Instalando componentes del escritorio…",
+    "installingChrome": "Instalando Google Chrome…",
+    "checkingInstall": "Comprobando la instalación…",
+    "installBackground": "La instalación continúa si cierras esta ventana.",
+    "installFailed": "La instalación falló. Inténtalo de nuevo para terminar.",
+    "setupRequestFailed": "No se pudo comprobar la instalación. Vuelve a conectar para intentarlo de nuevo.",
+    "setupUnsupported": "La instalación requiere un contenedor Linux x64 o ARM64 con acceso de administrador."
+  },
   "assistantNavItem": {
     "newChat": "Chat nuevo"
   },
@@ -133,6 +154,8 @@
     "closePreviewAria": "Cerrar vista previa",
     "downloadAria": "Descargar {filename}",
     "downloadLabel": "Descargar",
+    "legacyUnavailable": "Vista previa no disponible. El contenido del archivo no se conservó en el historial del chat.",
+    "loadFailed": "No se pudo cargar la vista previa.",
     "nextAttachmentAria": "Adjunto siguiente",
     "pdfLoadFailed": "No se pudo mostrar este PDF",
     "previewAria": "Vista previa de {filename}",
@@ -373,8 +396,27 @@
   },
   "chatConversationHeader": {
     "archived": "[Archivado]",
-    "newChat": "Chat nuevo",
-    "untitled": "Sin título"
+    "newChat": "Chat nuevo"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "Apps",
+    "backAria": "Volver a la información del chat",
+    "backTooltip": "Información del chat",
+    "closeAria": "Cerrar la información del chat",
+    "empty": "Aún no hay recursos en este chat",
+    "filesTitle": "Documentos e imágenes",
+    "framesTitle": "Fotogramas de la cámara",
+    "loadFailed": "No se pudieron cargar los recursos",
+    "loadMore": "Cargar más",
+    "openAppAria": "Abrir {name}",
+    "openDocumentAria": "Abrir {name}",
+    "previewAttachmentAria": "Vista previa de {filename}",
+    "previewFrameAria": "Vista previa del fotograma de la cámara",
+    "seeAll": "Ver todo",
+    "seeAllAppsAria": "Ver todas las apps",
+    "seeAllFilesAria": "Ver todos los documentos e imágenes",
+    "seeAllFramesAria": "Ver todos los fotogramas de la cámara",
+    "title": "Información del chat"
   },
   "chatLayout": {
     "navigationAria": "Navegación"
@@ -437,6 +479,9 @@
     "timeoutTitle": "La limpieza está tardando más de lo esperado",
     "title": "Limpiando tu asistente…",
     "warningAria": "advertencia"
+  },
+  "coachmarkPress": {
+    "turn": "Hice clic en {label}. ¿Y ahora qué?"
   },
   "collapsedGroupIcon": {
     "noConversations": "No hay conversaciones"
@@ -613,12 +658,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}",
+    "ariaLabelUnavailable": "Recursos de la conversación, no se pudieron cargar",
     "ariaLabelUnseen": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}} (cambios sin ver)",
-    "heading": "Recursos",
-    "label": "{count, plural, one {# recurso} other {# recursos}}"
-  },
-  "conversationRow": {
-    "untitled": "Sin título"
+    "label": "{count, plural, one {# recurso} other {# recursos}}",
+    "labelUnavailable": "No se pudieron cargar los recursos"
   },
   "conversationStarterDock": {
     "caption": "Prueba algunas sugerencias:"
@@ -665,8 +708,7 @@
     "cancel": "Cancelar",
     "confirm": "Eliminar",
     "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Los recursos y recuerdos relacionados pueden seguir existiendo. Esta acción no se puede deshacer.",
-    "title": "Eliminar conversación",
-    "untitled": "Sin título"
+    "title": "Eliminar conversación"
   },
   "deletedMessageRow": {
     "label": "Este mensaje fue eliminado"
@@ -1101,17 +1143,30 @@
     "bookmark": "Marcador",
     "copied": "Copiado",
     "copy": "Copiar",
+    "copyFailed": "No se pudo copiar el mensaje.",
     "forkFromHere": "Bifurcar desde aquí",
     "inspect": "Inspeccionar",
+    "loading": "Leyendo…",
     "openInSlack": "Abrir en Slack",
+    "playFailed": "No se pudo leer este mensaje.",
+    "readAloud": "Leer en voz alta",
     "removeBookmark": "Quitar marcador",
     "retry": "Reintentar",
+    "stop": "Detener",
     "summarizeUpToHere": "Resumir hasta aquí"
   },
   "messageLongPressActions": {
     "bookmark": "Marcar",
     "copied": "Copiado",
+    "copy": "Copiar",
+    "copyFailed": "No se pudo copiar el mensaje.",
+    "forkFromHere": "Bifurcar desde aquí",
+    "inspect": "Inspeccionar",
+    "openInSlack": "Abrir en Slack",
+    "readAloud": "Leer en voz alta",
     "removeBookmark": "Quitar marcador",
+    "stop": "Detener",
+    "summarizeUpToHere": "Resumir hasta aquí",
     "title": "Acciones del mensaje"
   },
   "micPermissionPrimer": {
@@ -1283,7 +1338,8 @@
     "railAria": "Progreso",
     "stepCounter": "{current} de {total}",
     "title": "Progreso",
-    "titleFinished": "Terminado"
+    "titleFinished": "Terminado",
+    "titleStopped": "Detenido"
   },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
@@ -1626,11 +1682,14 @@
     "settings": "Configuración"
   },
   "toolDetailPanel": {
+    "changes": "Cambios",
     "closeAria": "Cerrar detalles de la herramienta",
+    "command": "Comando",
     "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
     "emptyOutput": "La herramienta no devolvió ninguna salida.",
+    "input": "Entrada",
     "output": "Salida",
-    "riskLevel": "Nivel de riesgo",
+    "requestedChanges": "Cambios solicitados",
     "running": "Ejecutando…"
   },
   "toolStepPill": {
@@ -1645,7 +1704,8 @@
     "stopWorkflow": "Detener flujo de trabajo"
   },
   "transcriptRow": {
-    "thinking": "Pensando"
+    "thinking": "Pensando",
+    "working": "Trabajando"
   },
   "useConversationLoader": {
     "authFailed": "No se pudo autenticar al usuario."
@@ -1654,9 +1714,6 @@
     "assistantBusy": "Tu asistente está ocupado. Inténtalo de nuevo cuando termine de responder.",
     "retryFailed": "No se pudo reintentar la respuesta",
     "summarizeFailed": "No se pudo resumir la conversación"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "Sin título"
   },
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
@@ -1839,5 +1896,9 @@
     "failedReplacementRejected": "Vellum rechazó la credencial de reemplazo. Inicia sesión en la plataforma Vellum y vuelve a intentarlo.",
     "failedUnconfirmed": "El reemplazo se guardó, pero no se pudo confirmar con Vellum. Puede que empiece a funcionar en breve.",
     "failedGeneric": "No se pudo restaurar el acceso. Inténtalo de nuevo en un momento."
+  },
+  "sidebarExpandRow": {
+    "expand": "Expandir",
+    "collapse": "Contraer"
   }
 }

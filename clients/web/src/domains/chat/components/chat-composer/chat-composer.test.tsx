@@ -42,6 +42,7 @@ import {
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 // The two device-side axes are driven by stubbing `window.matchMedia`, not by
 // mocking `use-is-mobile`, so a test says which signal the composer actually
@@ -184,11 +185,13 @@ mock.module("@/domains/chat/voice/voice-room/voice-first-run-card", () => ({
 // `.use.phase()` and `.use.setAudioLevel()` selectors are consumed by the
 // composer.
 let mockVoicePhase = "idle";
+let mockVoiceHold = false;
 const setAudioLevelSpy = mock((_level: number) => undefined);
 mock.module("@/domains/chat/voice/voice-recording-store", () => ({
   useVoiceRecordingStore: {
     use: {
       phase: () => mockVoicePhase,
+      hold: () => mockVoiceHold,
       setAudioLevel: () => setAudioLevelSpy,
     },
   },
@@ -327,6 +330,7 @@ function resetLiveVoiceMocks() {
   mockNativePickersAvailable = false;
   mockIsNativePlatform = false;
   mockVoicePhase = "idle";
+  mockVoiceHold = false;
   mockPreflightVerdict = { status: "ready" };
   preflightSpy.mockClear();
   navigateSpy.mockClear();
@@ -471,6 +475,51 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
         cmdEnterMode: false,
       }),
     ).toBe("submit");
+  });
+});
+
+describe("shouldSubmitOnEnter — dictation in flight", () => {
+  const DICTATING_POLICY = {
+    input: "",
+    canSendAttachments: false,
+    dictationInFlight: true,
+    sendDisabled: false,
+    attachmentsUploadingCount: 0,
+    cmdEnterMode: false,
+  };
+
+  test("Enter with an empty draft submits while dictating", () => {
+    // Words already spoken are content the composer does not hold yet, so
+    // Enter has to reach onSubmit, which finishes dictation before it sends
+    // (LUM-3432).
+    expect(shouldSubmitOnEnter(ENTER, false, DICTATING_POLICY)).toBe("submit");
+  });
+
+  test("Enter with an empty draft and no dictation still prevents", () => {
+    expect(
+      shouldSubmitOnEnter(ENTER, false, {
+        ...DICTATING_POLICY,
+        dictationInFlight: false,
+      }),
+    ).toBe("prevent");
+  });
+
+  test("dictation does not override sendDisabled", () => {
+    expect(
+      shouldSubmitOnEnter(ENTER, false, {
+        ...DICTATING_POLICY,
+        sendDisabled: true,
+      }),
+    ).toBe("prevent");
+  });
+
+  test("dictation does not override an uploading attachment", () => {
+    expect(
+      shouldSubmitOnEnter(ENTER, false, {
+        ...DICTATING_POLICY,
+        attachmentsUploadingCount: 1,
+      }),
+    ).toBe("prevent");
   });
 });
 
@@ -866,9 +915,7 @@ function renderTouchTabletComposer(props: RenderComposerProps = {}) {
  * composer has focus, because the status controls beside the pills do.
  */
 function pillsRow(container: HTMLElement) {
-  return container.querySelector(
-    '[data-slot="composer-settings-pills-group"]',
-  );
+  return container.querySelector('[data-slot="composer-settings-pills-group"]');
 }
 
 /** The always-present row that holds the pills group and the status controls. */
@@ -1155,6 +1202,56 @@ describe("ChatComposer — send/stop button visibility", () => {
     useTurnStore.setState(INITIAL_TURN_STATE);
     const html = renderComposer({ isAssistantBusy: true });
     expect(html).toContain('aria-label="Stop generating"');
+  });
+});
+
+/**
+ * Under `interrupt-on-send` a turn in flight is not a reason to take Send
+ * away: the message the user types stops that turn and is answered at once, so
+ * Stop has nothing left to offer that Send does not. The row keeps its resting
+ * shape for the whole turn.
+ */
+describe("ChatComposer: send/stop under interrupt-on-send", () => {
+  function setInterruptOnSend(value: boolean) {
+    act(() => {
+      useAssistantFeatureFlagStore.getState().setFlags({
+        interruptOnSend: value,
+      });
+    });
+  }
+
+  afterEach(() => {
+    setInterruptOnSend(false);
+  });
+
+  test("a busy composer offers Send, never Stop", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
+    expect(html).toContain('aria-label="Send message"');
+    expect(html).not.toContain('aria-label="Stop generating"');
+  });
+
+  test("a busy composer with an empty draft still offers Send, not Stop", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "", isAssistantBusy: true });
+    expect(html).not.toContain('aria-label="Stop generating"');
+  });
+
+  test("the attach control stays on the busy row", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
+    expect(html).toContain('aria-label="Attach file"');
+  });
+
+  test("the flag off leaves the busy row exactly as it was", () => {
+    setInterruptOnSend(false);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
+    expect(html).toContain('aria-label="Stop generating"');
+    expect(html).not.toContain('aria-label="Send message"');
   });
 });
 
@@ -2017,7 +2114,8 @@ describe("ChatComposer: the mobile send slot", () => {
   // classes: it answers to the same width signal that produces the row, so it
   // lands on every narrow window rather than only on the coarse-pointer ones
   // the `touch-mobile:` variant reaches.
-  const SEND_FILL_CLASS = "bg-[var(--system-positive-strong)]";
+  // The fill is the assistant's accent, falling back to the primary token.
+  const SEND_FILL_CLASS = "bg-[var(--avatar-accent-fill,var(--primary-base))]";
 
   test("an empty draft leaves the circular live-voice button in the slot", () => {
     // GIVEN a phone composer with nothing to send
@@ -2129,15 +2227,16 @@ describe("ChatComposer: the mobile send slot", () => {
     }
   });
 
-  test("desktop keeps the primitive's own send chrome", () => {
+  test("desktop keeps the primitive's own send chrome, in the accent", () => {
     // GIVEN a roomy window
     viewport.set({ narrow: false, coarsePointer: false });
     const { queryByLabelText } = renderVoiceComposer({ input: "hello" });
 
-    // THEN none of the row's chrome reaches it
+    // THEN none of the row's chrome reaches it, but the fill is the
+    // assistant's accent at every width
     const send = queryByLabelText("Send message");
     expect(send?.className).not.toContain("rounded-full");
-    expect(send?.className).not.toContain(SEND_FILL_CLASS);
+    expect(send?.className).toContain(SEND_FILL_CLASS);
     expect(glyphClassOf(send)).not.toContain(MOBILE_GLYPH_CLASS);
   });
 });
@@ -2894,10 +2993,44 @@ describe("ChatComposer — live-voice integration", () => {
     // WHEN the composer renders
     const { queryByLabelText } = renderVoiceComposer();
 
-    // THEN the send slot (which holds the voice-mode entry point while idle) is
-    // hidden entirely during dictation, so no second mic/voice session can open
-    // alongside the recorder — mutual exclusion by absence.
+    // THEN the voice-mode entry point is gone from the send slot: dictation
+    // counts as something to send, so the send arrow takes the slot and no
+    // second mic/voice session can open alongside the recorder.
     expect(queryByLabelText("Start voice mode")).toBeNull();
+  });
+
+  test("dictation keeps a live send button so Send can finish the session", () => {
+    // GIVEN dictation is in flight with an empty draft. The send arrow used
+    // to be hidden for the whole session, which left no gesture for ending
+    // dictation and sending in one move (LUM-3432).
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoicePhase = "processing";
+
+    // WHEN the composer renders
+    const { getByLabelText } = renderVoiceComposer();
+
+    // THEN the send arrow is mounted and pressable, even with nothing in the
+    // draft: the words the user spoke are the payload, and `submitMessage`
+    // waits for them before it reads the composer.
+    const send = getByLabelText("Send message") as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+  });
+
+  test("a held key's dictation into another app does not light Send", () => {
+    // GIVEN the bridge's hidden recorder is running a hold. The store is
+    // window-global, so this composer sees the phase, but the session is
+    // not its content and its target cannot stop that recorder.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoicePhase = "recording";
+    mockVoiceHold = true;
+
+    // WHEN the composer renders with an empty draft
+    const { queryByLabelText } = renderVoiceComposer();
+
+    // THEN there is nothing to send: the slot holds the voice-mode entry
+    // point exactly as it does with no microphone open at all.
+    expect(queryByLabelText("Send message")).toBeNull();
+    expect(queryByLabelText("Start voice mode")).not.toBeNull();
   });
 
   test("electron dictation uses the system overlay instead of the inline composer preview", () => {
@@ -2910,8 +3043,8 @@ describe("ChatComposer — live-voice integration", () => {
     const { queryByLabelText } = renderVoiceComposer();
 
     // THEN the shared top-center dictation overlay owns the visual treatment,
-    // so the composer-specific preview is absent; and the send slot (voice-mode
-    // entry point) stays hidden during dictation — mutual exclusion by absence.
+    // so the composer-specific preview is absent; and the voice-mode entry
+    // point has given the send slot up to the send arrow for the session.
     expect(queryByLabelText("Transcribing")).toBeNull();
     expect(queryByLabelText("Start voice mode")).toBeNull();
   });

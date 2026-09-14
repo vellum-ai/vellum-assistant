@@ -22,7 +22,7 @@ The loop moves a conversation turn through a series of **lifecycle events**. The
 
 The loop can iterate several times within a single user turn: every tool result returns to a fresh model call, and a `post-model-call` hook can choose to continue rather than end the turn. Because of this, `pre-model-call`, `post-model-call`, and `post-tool-use` can each fire more than once per turn.
 
-The Assistant also hooks into Lifecycle Events that sit outside the Agent Loop: `init` fires at bootstrap, `shutdown` fires at teardown, and `conversation-deleted` fires after a conversation is deleted from storage.
+The Assistant also hooks into Lifecycle Events that sit outside the Agent Loop: `init` fires at bootstrap, `shutdown` fires at teardown, `conversation-deleted` fires after a conversation is deleted from storage, and `message-deleted` fires after a single message row is deleted.
 
 ## Hooks reference
 
@@ -162,6 +162,21 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 | `logger`         | `PluginLogger`  | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation identity. Log through it; no manual tagging needed.                                                                                                             |
 | `broadcast`      | `HookBroadcast` | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
 
+### `message-deleted`
+
+**Context:** `MessageDeletedContext`
+**When:** Once per deleted message row, after the row is removed. Fires from the shared single-message delete primitive, so every caller that removes individual rows (a regenerated reply, an undone exchange, turn consolidation, an in-flight row discarded on failure) dispatches it, once per row. Whole-conversation deletes dispatch `conversation-deleted` instead.
+**Use it to:** Settle state your plugin keyed on that row. The context carries the row's `createdAt` alongside its id because the row is gone by the time the hook runs; together they are the `(createdAt, id)` position the row held. Fire-and-forget, like `conversation-deleted`.
+**Example:** [memory](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/memory/hooks/message-deleted.ts)
+
+| Field            | Type            | Access    | Description                                                                                                                                                                                                                             |
+| ---------------- | --------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversationId` | `string`        | Read-only | ID of the conversation that owned the row.                                                                                                                                                                                              |
+| `messageId`      | `string`        | Read-only | ID of the deleted message row.                                                                                                                                                                                                          |
+| `createdAt`      | `number`        | Read-only | The deleted row's `createdAt` (epoch milliseconds).                                                                                                                                                                                     |
+| `logger`         | `PluginLogger`  | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation identity. Log through it; no manual tagging needed.                                                                                                             |
+| `broadcast`      | `HookBroadcast` | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
+
 ### `shutdown`
 
 **Context:** `ShutdownContext`
@@ -203,6 +218,7 @@ These are the hook-related exports from [`@vellumai/plugin-api`](https://github.
 | `PostCompactContext`                | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                                                                                                                 |
 | `StopContext`                       | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                                                                                                                |
 | `ConversationDeletedContext`        | type  | Passed to conversation-deleted, after a conversation is deleted from storage.                                                                                                                                            |
+| `MessageDeletedContext`             | type  | Passed to message-deleted, after a single message row is deleted from storage; carries the row's id and `createdAt`.                                                                                                     |
 | `PostModelCallDecision`             | type  | The post-model-call decision shape: whether to end the turn or continue.                                                                                                                                                 |
 | `AgentLoopExitReason`               | type  | Which terminal state a turn reached, carried on StopContext.                                                                                                                                                             |
 | `isMaxTokensStopReason`             | value | Classify a provider stop reason: true when the turn was truncated at the output token cap. Read it off `PostModelCallContext.stopReason` to decide whether to continue a cut-off reply.                                  |

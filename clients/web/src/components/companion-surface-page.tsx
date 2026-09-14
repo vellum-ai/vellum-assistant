@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
 import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
@@ -22,10 +29,13 @@ import {
   answerCompanionWatchRetro,
   advanceCompanionIntro,
   captureCompanionSourceThumbnail,
+  clearCompanionMarks,
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
+  releaseCompanionSurface,
   setCompanionAnnotating,
+  setCompanionAnnotationTool,
   setCompanionInteractive,
   setCompanionScreenShare,
   showCompanionContextMenu,
@@ -34,12 +44,16 @@ import {
   toggleCompanionWatch,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import { supportsChords } from "@/runtime/hotkey";
+import { callChordHints } from "@/domains/chat/voice/live-voice/call-chord-keys";
 import { useTranslation } from "@/i18n";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
+  CompanionAnnotationTool,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCardGrowth,
+  CompanionDock,
   CompanionCharacter,
   CompanionGrowth,
   CompanionIntroBeat,
@@ -89,6 +103,10 @@ export function CompanionSurfacePage() {
   // window position and is the only side that knows how much room the display
   // has above the surface.
   const [cardGrowth, setCardGrowth] = useState<CompanionCardGrowth>("up");
+  // Which edge of the display the call's bar rests on. Main's call, like the
+  // growths: it placed the window there and built the canvas for it. Absent
+  // from a shell that predates the docks, which is the bottom.
+  const [dock, setDock] = useState<CompanionDock>("bottom");
   // The creature's box in points and the pill's, which are the surface's whole
   // scale between them. Main sizes the window from both, so they arrive with
   // the state rather than being settings this window reads for itself.
@@ -145,6 +163,23 @@ export function CompanionSurfacePage() {
   // and the only one of these that is: the press asks main to make a window
   // main opened interactive, and this is main's answer about whether it did.
   const [annotating, setAnnotating] = useState(false);
+  // Whether the assistant has marks up on the shared surface. Main's for the
+  // reason the marks are: it holds them, and it is the side that takes them
+  // down.
+  const [pointedAt, setPointedAt] = useState(false);
+  // Whether the shell has a Clear to answer at all. Read off the count it
+  // steps on every clear, the way the mode is read off `annotating`: a shell
+  // that predates the control names no count, and a Clear drawn for it would
+  // be a control whose press goes nowhere.
+  const [clearable, setClearable] = useState(false);
+  // What a press on that frame draws. Main's for the reason the mode is, and
+  // read off the same push: the strip that chooses it and the frame that
+  // draws with it are two windows, and this is the one answer both see.
+  // Undefined until a push names one, which a shell that predates the shapes
+  // never does: that shell has only the pencil, and the strip is not drawn.
+  const [annotationTool, setAnnotationTool] = useState<
+    CompanionAnnotationTool | undefined
+  >(undefined);
   // The picker Teach opened, or null while none is open. This window's own,
   // unlike everything above it: the choice is made here and leaves here as a
   // pick, so a reload mid-choice costs only the card.
@@ -183,6 +218,27 @@ export function CompanionSurfacePage() {
   const pickerRef = useRef<HTMLDivElement | null>(null);
   // The offer's card, for the reason the picker's is.
   const offerRef = useRef<HTMLDivElement | null>(null);
+  // The strip of drawing tools, for the same reason: it stands off the pill,
+  // and every button on it is a press.
+  const drawToolsEl = useRef<HTMLDivElement | null>(null);
+  // Whether the last forwarded move put the pointer on that strip, for the
+  // moment the strip goes away under it.
+  const overDrawToolsRef = useRef(false);
+  // A callback rather than a ref object, so this window hears the strip go.
+  // The strip goes with the mode, with the share, with the call, and under
+  // an approval that takes the row, and it can go under a pointer resting
+  // on it that nothing then moves: no mouse-move arrives to say the pointer
+  // is now over empty canvas. Give the desktop back the way the picker does,
+  // and only when the pointer was on the strip: a press on Draw itself
+  // leaves the pointer on the pill, which is still there to be pressed.
+  const drawToolsRef = useCallback((element: HTMLDivElement | null) => {
+    drawToolsEl.current = element;
+    if (element === null && overDrawToolsRef.current) {
+      overDrawToolsRef.current = false;
+      interactiveRef.current = false;
+      setCompanionInteractive(false);
+    }
+  }, []);
   // Screen coordinates of the last drag frame, or null when not dragging.
   // Screen rather than client: the window moves under the cursor, so client
   // coordinates barely change while screen ones track the hand exactly.
@@ -198,6 +254,7 @@ export function CompanionSurfacePage() {
     const apply = (state: CompanionSurfaceState) => {
       setGrowth(state.growth);
       setCardGrowth(state.cardGrowth);
+      setDock(state.dock ?? "bottom");
       setAvatarBox(state.avatarBox);
       // The creature's box unless the pill has one of its own, which covers a
       // shell that predates the second axis: one box for both is the surface
@@ -241,6 +298,13 @@ export function CompanionSurfacePage() {
       // control drawn held down over a frame that is not doing that is a
       // promise about where the user's next press lands.
       setAnnotating(state.annotating === true);
+      // Main sends the marks only while the frame is around the share, so a
+      // list with anything in it is something on the surface right now.
+      setPointedAt((state.coachmarks?.length ?? 0) > 0);
+      setClearable(state.marksCleared !== undefined);
+      // As it arrived, absence included: a shell that predates the shapes
+      // names none, and the strip must not offer what that shell cannot do.
+      setAnnotationTool(state.annotationTool);
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -272,6 +336,14 @@ export function CompanionSurfacePage() {
    */
   const inCall = call !== null || dialing;
   const sharing = screenShare !== undefined;
+  // What the captions say beside Share, Draw and the mutes. Named only where
+  // the host watches a chord: a caption promising a key on a host that takes
+  // none would be a key that does nothing. Spelt once, since both the host and
+  // the spelling are fixed for the life of the window.
+  const shortcuts = useMemo(
+    () => (supportsChords() ? callChordHints() : undefined),
+    [],
+  );
   useEffect(() => {
     if (!inCall) {
       sourcesRequestRef.current += 1;
@@ -505,6 +577,7 @@ export function CompanionSurfacePage() {
     // so the drag is dropped and this move goes on to hit-test normally.
     if (dragRef.current !== null && event.buttons === 0) {
       dragRef.current = null;
+      releaseCompanionSurface();
     }
     // A drag owns the pointer until it is released. Hit-testing through it
     // would collapse the surface the moment the cursor left the pill, which is
@@ -598,12 +671,22 @@ export function CompanionSurfacePage() {
         event.clientX,
         event.clientY,
       );
+    // The drawing tools, for the same reason and for as long as they are drawn.
+    const drawTools = drawToolsEl.current;
+    const onDrawTools =
+      drawTools !== null &&
+      containsPoint(
+        drawTools.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
     // Hover is the creature noticing a hand on *it*, so the card does not feed
     // it: a pointer resting on a paragraph is not a pointer on the avatar, and
     // widening the eyes for it would be the surface reacting to the wrong
     // thing.
     setHovered(onSurface);
-    setInteractive(onSurface || onIntro || onPicker || onOffer);
+    overDrawToolsRef.current = onDrawTools;
+    setInteractive(onSurface || onIntro || onPicker || onOffer || onDrawTools);
   };
 
   // The avatar's own colour, shared with the display's edge glow so the two
@@ -615,14 +698,24 @@ export function CompanionSurfacePage() {
       className="relative h-screen w-screen bg-transparent"
       onMouseMove={onMouseMove}
       onMouseUp={() => {
-        dragRef.current = null;
+        // The hand letting go, which main hears about whether or not the
+        // press moved anything: mid-call, a drag's release is the drop that
+        // docks the bar to an edge, and main is the side that knows whether
+        // this press was one.
+        if (dragRef.current !== null) {
+          dragRef.current = null;
+          releaseCompanionSurface();
+        }
       }}
       onPointerCancel={() => {
         // The capture goes with the pointer when the host takes it, so nothing
         // more reports this press, and a leave that deferred to the drag may
         // never arrive. Give the desktop back the way a leave does; a pointer
         // still on the pill re-arms it on its next move.
-        dragRef.current = null;
+        if (dragRef.current !== null) {
+          dragRef.current = null;
+          releaseCompanionSurface();
+        }
         setHovered(false);
         setInteractive(false);
       }}
@@ -649,6 +742,7 @@ export function CompanionSurfacePage() {
         phase={phase}
         growth={growth}
         cardGrowth={cardGrowth}
+        dock={dock}
         // The two boxes main sized the window for. The surface spends the
         // options one on its own outermost box and uses both to place the pill
         // against a creature that may be a different size from it.
@@ -836,6 +930,23 @@ export function CompanionSurfacePage() {
         onAnnotate={(next) => {
           setCompanionAnnotating(next);
         }}
+        // Clear, offered while there is something on the shared surface to
+        // take down: the assistant's marks, or the mode the user's own ink is
+        // drawn under, and only from a shell with a Clear to answer it.
+        // Main's both ways, like Draw: the press asks, and the marks going
+        // from the pushed state is what happened.
+        marked={clearable && (pointedAt || annotating)}
+        onClearMarks={() => {
+          clearCompanionMarks();
+        }}
+        // The tool, main's the same way: the press asks, and `annotationTool`
+        // above is what main did with the ask.
+        annotationTool={annotationTool}
+        onAnnotationTool={(tool) => {
+          setCompanionAnnotationTool(tool);
+        }}
+        drawToolsRef={drawToolsRef}
+        shortcuts={shortcuts}
         // Beside the bar while the choice is open, on the canvas main
         // reserves for a card. The pick leaves this window the way every
         // press does; the frame that answers it is main's.

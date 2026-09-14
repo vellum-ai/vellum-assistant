@@ -540,6 +540,28 @@ describe("resolveDefaultProfileForProvider", () => {
     expect(entry).toBe(workspace.balanced);
   });
 
+  // Google limits gemini-2.5-flash-lite to grandfathered accounts (other API
+  // keys get HTTP 404 "no longer available to new users"), so a default
+  // profile resolving to it lists as available and fails every request on a
+  // fresh BYOK key.
+  test("gemini BYOK defaults never resolve to a model Google refuses new keys", () => {
+    const budget = resolveDefaultProfileForProvider(
+      managedStubs(),
+      "cost-optimized",
+      dp("gemini"),
+    );
+    expect(budget?.provider).toBe("gemini");
+    expect(budget?.model).toBe("gemini-3.1-flash-lite");
+    for (const key of DEFAULT_PROFILE_KEYS) {
+      const entry = resolveDefaultProfileForProvider(
+        managedStubs(),
+        key,
+        dp("gemini"),
+      );
+      expect(entry?.model).not.toBe("gemini-2.5-flash-lite");
+    }
+  });
+
   test("a managed-source stub contributes only label/status/topP over the provider-resolved body", () => {
     const workspace: Record<string, ProfileEntry> = {
       balanced: {

@@ -227,9 +227,17 @@ export function lineageMessagesAfterFilter(
 ): SQL {
   return and(
     lineageMessageFilter(segments),
-    or(
-      gt(messages.createdAt, after.createdAt),
-      and(eq(messages.createdAt, after.createdAt), gt(messages.id, after.id)),
-    ),
+    messagesAfterBoundFilter(after),
+  ) as SQL;
+}
+
+/**
+ * Predicate for rows strictly after a `(createdAt, id)` bound, with the id
+ * tie-breaker so rows sharing the bound's millisecond keep their order.
+ */
+export function messagesAfterBoundFilter(after: LineageBound): SQL {
+  return or(
+    gt(messages.createdAt, after.createdAt),
+    and(eq(messages.createdAt, after.createdAt), gt(messages.id, after.id)),
   ) as SQL;
 }

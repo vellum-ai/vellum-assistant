@@ -41,3 +41,19 @@ export function localizedOrDefault<T>(
     ? (table[baseLanguageSubtag(language)!] as T)
     : fallback;
 }
+
+/**
+ * The TTS language hint for a fixed phrase picked from a localized table:
+ * "en" when the speaker has a language the table does not cover (the
+ * picker fell back to English text, which must not be synthesized under
+ * an ar/ko/ta hint), undefined otherwise (the phrase rides the speaker's
+ * language, or carries no hint at all when the language is unknown).
+ */
+export function fixedPhraseLanguage(
+  table: Readonly<Record<string, unknown>>,
+  language: string | undefined,
+): string | undefined {
+  return language !== undefined && !hasLocalizedEntry(table, language)
+    ? "en"
+    : undefined;
+}

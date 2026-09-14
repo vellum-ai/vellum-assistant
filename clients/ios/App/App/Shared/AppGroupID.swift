@@ -8,8 +8,9 @@ import Foundation
 /// `...-ios.dev`), so a hardcoded literal would point a Dev or Staging build
 /// at the production container and let one environment read another's data.
 ///
-/// Shared by the app target, the VoiceActivity widget extension, and the
-/// share extension so there is one implementation. Each reads the same
+/// Shared by the app target, the VoiceActivity widget extension, the share
+/// extension, and the NotificationService extension so there is one
+/// implementation. Each reads the same
 /// ``infoPlistKey`` string, populated from the very same `$(APP_GROUP_ID)`
 /// variable that reaches their entitlements plists: the entitlement is what
 /// actually grants access, but it is not readable from Swift, so the value
@@ -20,8 +21,9 @@ import Foundation
 /// container, and naming another environment's group would only trade a no-op
 /// for cross-environment data mixing. Each caller decides explicitly.
 /// ``WidgetSnapshotStore`` and ``ShareInbox`` degrade to doing nothing;
-/// ``RecentChatsStore`` falls back to `UserDefaults.standard` so in-process
-/// Shortcuts still have a picker.
+/// ``AvatarCache`` degrades to no cache, so the notification extension
+/// delivers the push unrewritten; ``RecentChatsStore`` falls back to
+/// `UserDefaults.standard` so in-process Shortcuts still have a picker.
 enum AppGroupID {
     /// Info.plist key carrying the group id, restated from the entitlement.
     static let infoPlistKey = "VellumAppGroupId"

@@ -127,3 +127,52 @@ describe("serverHasAssistantProgress", () => {
     ).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A settled tool-gated turn must read as settled.
+// ---------------------------------------------------------------------------
+
+describe("a tool-gated turn", () => {
+  /**
+   * Live, the reply arrives as one delta per model call carrying that call's
+   * `send_user_message` messages already joined; from the server, the row
+   * projects each call into its own text block and the raw prose into
+   * thinking. Both halves of the rescue gate compare the two through
+   * `messagePlainText`, so an unequal fold would make every settled tool-gated
+   * turn look like missed server progress and re-trigger the watchdog forever.
+   */
+  const localRow: DisplayMessage = {
+    id: "a1",
+    role: "assistant",
+    ...textBody("Found it. Sending now."),
+  } as DisplayMessage;
+
+  const serverRow: DisplayMessage = {
+    id: "a1",
+    role: "assistant",
+    contentBlocks: [
+      { type: "thinking", thinking: "private working notes" },
+      { type: "text", text: "Found it." },
+      { type: "text", text: "Sending now." },
+    ],
+  } as DisplayMessage;
+
+  test("the projected server row carries nothing the local view lacks", () => {
+    expect(
+      serverSnapshotHasNewContent(
+        [userRow("u1", "q"), serverRow],
+        [userRow("u1", "q"), localRow],
+      ),
+    ).toBe(false);
+  });
+
+  test("reports no assistant progress once the turn has settled", () => {
+    expect(
+      serverHasAssistantProgress(
+        [userRow("u1", "q"), localRow],
+        [userRow("u1", "q"), serverRow],
+        false,
+      ),
+    ).toBe(false);
+  });
+});

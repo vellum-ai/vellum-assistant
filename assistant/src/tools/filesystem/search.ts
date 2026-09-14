@@ -5,6 +5,7 @@ import { minimatch } from "minimatch";
 import { RE2JS } from "re2js";
 
 import { RiskLevel } from "../../permissions/types.js";
+import { declareDaemonActivityField } from "../schema-transforms.js";
 import {
   isDeniedBasename,
   sandboxPolicy,
@@ -79,7 +80,7 @@ export const codeSearchTool = {
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
 
-  input_schema: {
+  input_schema: declareDaemonActivityField({
     type: "object",
     properties: {
       pattern: {
@@ -117,7 +118,7 @@ export const codeSearchTool = {
       },
     },
     required: ["pattern", "activity"],
-  },
+  }),
 
   async execute(
     input: Record<string, unknown>,

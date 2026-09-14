@@ -14,14 +14,6 @@ import type {
 /**
  * How a watch retrospective hands its report to the daemon.
  *
- * **The card cannot come from `ui_show`.** A retrospective runs as a
- * `clientless` wake, which pins the turn non-interactive, and
- * `conversation-tool-setup` gates the whole `ui_surface` tool family on a
- * client being present (`return channelCapabilities?.supportsDynamicUi ??
- * !hasNoClient`). So `ui_show` is not merely denied in this turn, it is absent
- * from the tool set, and a retrospective told to call it can only report that
- * it cannot. This tool is an ordinary one and passes that gate untouched.
- *
  * **It records; it does not render.** The executor validates the payload and
  * returns, and nothing here writes to the conversation. What makes the card is
  * `watch-retro.ts` reading this call back out of the turn's own history once

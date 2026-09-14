@@ -15,10 +15,7 @@ import type {
   ChatAttachment,
   UploadedAttachment,
 } from "@/domains/chat/composer-store";
-import {
-  classifyAttachment,
-  middleTruncate,
-} from "@/domains/chat/components/chat-attachments/utils";
+import { classifyAttachment, middleTruncate } from "@/utils/attachment-utils";
 
 interface ChatAttachmentsStripProps {
   attachments: ChatAttachment[];
@@ -165,7 +162,9 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                   iconOnly={<X />}
                   onMouseDown={pressGuard}
                   onClick={() => onRemove(att.localId)}
-                  aria-label={t("chatAttachments.removeAria", { filename: att.filename })}
+                  aria-label={t("chatAttachments.removeAria", {
+                    filename: att.filename,
+                  })}
                 />
               </div>
             );
@@ -186,7 +185,9 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
                   size="compact"
                   onMouseDown={pressGuard}
                   onClick={() => onRemove(att.localId)}
-                  aria-label={t("chatAttachments.removeAria", { filename: att.filename })}
+                  aria-label={t("chatAttachments.removeAria", {
+                    filename: att.filename,
+                  })}
                   className="ml-0.5 underline"
                 >
                   {t("chatAttachments.dismiss")}

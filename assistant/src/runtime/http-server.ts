@@ -32,6 +32,12 @@ import {
 } from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
 import { makeAddrInUseError } from "../daemon/startup-error.js";
+import { isAssistantDesktopEnabled } from "../desktop/desktop-feature.js";
+import {
+  DESKTOP_CLOSE,
+  destroyDesktopSessionManager,
+} from "../desktop/desktop-session-manager.js";
+import { DesktopStreamBridge } from "../desktop/desktop-stream-bridge.js";
 import {
   createLiveVoiceConnection,
   type LiveVoiceConnection,
@@ -65,7 +71,6 @@ import {
   isPrivateNetworkOrigin,
   isPrivateNetworkPeer,
 } from "./middleware/auth.js";
-import { withErrorHandling } from "./middleware/error-handler.js";
 import {
   extractClientIp,
   ipRateLimiter,
@@ -83,7 +88,6 @@ import {
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
-import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
 import { RouteError } from "./routes/errors.js";
 import {
@@ -134,6 +138,24 @@ function dbMigrationUnavailableForPath(path: string): Response | null {
   }
 
   return dbMigrationUnavailableResponse();
+}
+
+/** Shareable app pages are the one route served outside the /v1/ namespace. */
+const PAGES_PATH_RE = /^\/pages\/[^/]+$/;
+
+/**
+ * Router endpoint for a request path, or null when the path names no route.
+ * Only /v1/ and the shareable-page path resolve, so a bare path can never
+ * reach a /v1 route.
+ */
+function routerEndpointForPath(path: string): string | null {
+  if (path.startsWith("/v1/")) {
+    // Strip trailing slashes so routes match regardless of whether the caller
+    // includes one (e.g. platform proxy paths use Django's trailing-slash
+    // convention, so the gateway may forward paths with a trailing /).
+    return path.slice("/v1/".length).replace(/\/$/, "");
+  }
+  return PAGES_PATH_RE.test(path) ? path.slice(1) : null;
 }
 
 /**
@@ -213,6 +235,32 @@ interface WatchStreamWebSocketData {
   session?: WatchStreamSession;
 }
 
+/**
+ * WebSocket data for `/v1/desktop/stream`: raw RFB bytes to the assistant
+ * desktop.
+ */
+interface DesktopStreamWebSocketData {
+  wsType: "desktop-stream";
+  /** Bound at open time so message/close handlers reach this socket's pump. */
+  bridge?: DesktopStreamBridge;
+}
+
+type AllWebSocketData =
+  | MediaStreamWebSocketData
+  | SttStreamWebSocketData
+  | LiveVoiceWebSocketData
+  | WatchStreamWebSocketData
+  | DesktopStreamWebSocketData;
+
+function assistantDesktopEnabled(): boolean {
+  try {
+    return isAssistantDesktopEnabled(getConfig());
+  } catch (err) {
+    log.warn({ err }, "Failed to read config for desktop stream gate");
+    return false;
+  }
+}
+
 export class RuntimeHttpServer {
   private server: ReturnType<typeof Bun.serve> | null = null;
   private port: number;
@@ -248,11 +296,6 @@ export class RuntimeHttpServer {
   }
 
   async start(): Promise<void> {
-    type AllWebSocketData =
-      | MediaStreamWebSocketData
-      | SttStreamWebSocketData
-      | LiveVoiceWebSocketData
-      | WatchStreamWebSocketData;
     this.server = Bun.serve<AllWebSocketData>({
       port: this.port,
       hostname: this.hostname,
@@ -408,6 +451,22 @@ export class RuntimeHttpServer {
             void session.start();
             return;
           }
+          if (data.wsType === "desktop-stream") {
+            log.info("Desktop stream WebSocket opened");
+            if (!assistantDesktopEnabled()) {
+              ws.close(
+                DESKTOP_CLOSE.unavailable,
+                "Desktop is not available on this assistant",
+              );
+              return;
+            }
+            const bridge = new DesktopStreamBridge(ws, {
+              isEnabled: assistantDesktopEnabled,
+            });
+            data.bridge = bridge;
+            void bridge.start();
+            return;
+          }
           log.warn("WebSocket opened with unknown data type — closing");
           ws.close(1008, "Unknown WebSocket type");
         },
@@ -456,6 +515,10 @@ export class RuntimeHttpServer {
             } else {
               session.handleBinaryAudio(message);
             }
+            return;
+          }
+          if (data.wsType === "desktop-stream") {
+            data.bridge?.handleClientFrame(message);
             return;
           }
           log.warn("WebSocket message on unknown data type — closing");
@@ -549,6 +612,14 @@ export class RuntimeHttpServer {
                 activeWatchStreamSessions.delete(watchData.sessionId);
               }
             }
+            return;
+          }
+          if (data.wsType === "desktop-stream") {
+            log.info(
+              { code, reason: reason?.toString() },
+              "Desktop stream WebSocket closed",
+            );
+            data.bridge?.handleClose();
             return;
           }
           log.warn(
@@ -691,6 +762,9 @@ export class RuntimeHttpServer {
     // that a socket closing just before shutdown had already under way.
     await drainWatchRetros();
 
+    // Bounded by the manager's kill grace, so shutdown never hangs on X.
+    await destroyDesktopSessionManager();
+
     const liveVoiceManager = getLiveVoiceSessionManager();
     const liveVoiceSessionId = liveVoiceManager.activeSessionId;
     if (liveVoiceSessionId) {
@@ -794,6 +868,15 @@ export class RuntimeHttpServer {
       return this.handleWatchStreamUpgrade(req, server);
     }
 
+    // WebSocket upgrade for the assistant desktop RFB stream, under the same
+    // private-network restrictions and gateway-service token verification.
+    if (
+      path === "/v1/desktop/stream" &&
+      req.headers.get("upgrade")?.toLowerCase() === "websocket"
+    ) {
+      return this.handleDesktopStreamUpgrade(req, server);
+    }
+
     // Twilio webhook endpoints — before auth check because Twilio
     // webhook POSTs don't include bearer tokens.
     const twilioResponse = await this.handleTwilioWebhook(req, path);
@@ -840,21 +923,11 @@ export class RuntimeHttpServer {
     }
     const authContext = authResult.context;
 
-    // Serve shareable app pages (outside /v1/ namespace, no rate limiting)
-    const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
-    if (pagesMatch && req.method === "GET") {
-      return withErrorHandling("pages", async () => {
-        const pageDef = APP_ROUTES.find(
-          (r) => r.operationId === "pages_serve",
-        )!;
-        const args = { pathParams: { appId: pagesMatch[1] } };
-        const body = pageDef.handler(args) as string;
-        const headers =
-          typeof pageDef.responseHeaders === "function"
-            ? pageDef.responseHeaders(args)
-            : pageDef.responseHeaders;
-        return new Response(body, { headers });
-      });
+    // Every remaining path dispatches through the router, so a route's policy
+    // is enforced wherever it is served from.
+    const endpoint = routerEndpointForPath(path);
+    if (endpoint === null) {
+      return httpError("NOT_FOUND", "Not found", 404);
     }
 
     // Per-client-IP rate limiting for /v1/* endpoints. Authenticated requests
@@ -862,17 +935,9 @@ export class RuntimeHttpServer {
     // abuse surface. We key on IP rather than bearer token because the gateway
     // uses a single shared token for all proxied requests, which would collapse
     // all users into one bucket.
-    // Skip rate limiting entirely when HTTP auth is disabled (local Docker dev).
-    if (!path.startsWith("/v1/")) {
-      return httpError("NOT_FOUND", "Not found", 404);
-    }
-
-    // Strip trailing slashes so routes match regardless of whether the
-    // caller includes one (e.g. platform proxy paths use Django's trailing-
-    // slash convention, so the gateway may forward paths with a trailing /).
-    const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
-
-    if (!isHttpAuthDisabled()) {
+    // Shareable app pages are outside the limiter, as is local Docker dev with
+    // HTTP auth disabled.
+    if (path.startsWith("/v1/") && !isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
       // Authenticated loopback clients (desktop app, CLI — anything on the
@@ -951,199 +1016,141 @@ export class RuntimeHttpServer {
     return null;
   }
 
+  /**
+   * Shared path for gateway-proxied WebSocket upgrades: private network peers
+   * and origins only, then a gateway service token, then `parse` builds the
+   * socket data (or a 4xx Response) and the upgrade happens. The gateway owns
+   * downstream client auth and dials these upstreams on the client's behalf.
+   * Returns a Response on failure. On success Bun has consumed the request and
+   * nothing is returned; the type is `Response` only to fit the router.
+   */
+  private upgradeRuntimeStream(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+    label: string,
+    parse: (query: URLSearchParams) => AllWebSocketData | Response,
+  ): Response {
+    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
+      return httpError(
+        "FORBIDDEN",
+        `Direct ${label} access disabled: only private network peers allowed`,
+        403,
+      );
+    }
+    const tokenError = this.verifyGatewayServiceToken(req);
+    if (tokenError) {
+      return tokenError;
+    }
+    const data = parse(new URL(req.url).searchParams);
+    if (data instanceof Response) {
+      return data;
+    }
+    if (!server.upgrade(req, { data })) {
+      return new Response("WebSocket upgrade failed", { status: 500 });
+    }
+    return undefined!;
+  }
+
   private handleMediaStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct media-stream access disabled — only private network peers allowed",
-        403,
-      );
-    }
-
-    // Verify the gateway service token before accepting the upgrade.
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) {
-      return tokenError;
-    }
-
-    const wsUrl = new URL(req.url);
-    const callSessionId = wsUrl.searchParams.get("callSessionId");
-    if (!callSessionId) {
-      return new Response("Missing callSessionId", { status: 400 });
-    }
-    // Media-stream connections use a distinct wsType so the open/message/close
-    // handlers route them to MediaStreamCallSession.
-    const upgraded = server.upgrade(req, {
-      data: {
+    return this.upgradeRuntimeStream(req, server, "media-stream", (query) => {
+      const callSessionId = query.get("callSessionId");
+      if (!callSessionId) {
+        return new Response("Missing callSessionId", { status: 400 });
+      }
+      // A distinct wsType routes these to MediaStreamCallSession.
+      return {
         wsType: "media-stream",
         callSessionId,
-      } satisfies MediaStreamWebSocketData,
+      } satisfies MediaStreamWebSocketData;
     });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request — no Response is sent.
-    return undefined!;
   }
 
-  /**
-   * Handle WebSocket upgrade for `/v1/stt/stream`.
-   *
-   * Private-network restrictions apply (same as media-stream) so the
-   * runtime remains unreachable from the public internet. The gateway
-   * authenticates the downstream client and proxies the upgrade with a
-   * short-lived gateway service token.
-   */
+  /** Handle WebSocket upgrade for `/v1/stt/stream`. */
   private handleSttStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct STT stream access disabled — only private network peers allowed",
-        403,
-      );
-    }
-
-    // Verify the gateway service token before accepting the upgrade.
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) {
-      return tokenError;
-    }
-
-    const wsUrl = new URL(req.url);
-    // provider is optional compatibility metadata — the runtime resolves
-    // the streaming transcriber from config (`services.stt.provider`).
-    const provider = wsUrl.searchParams.get("provider") ?? undefined;
-    const mimeType = wsUrl.searchParams.get("mimeType");
-    if (!mimeType) {
-      return new Response("Missing required query parameter: mimeType", {
-        status: 400,
-      });
-    }
-
-    const sampleRateRaw = wsUrl.searchParams.get("sampleRate");
-    const sampleRate = sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined;
-
-    const sessionId = crypto.randomUUID();
-    const upgraded = server.upgrade(req, {
-      data: {
+    return this.upgradeRuntimeStream(req, server, "STT stream", (query) => {
+      // provider is optional compatibility metadata; the runtime resolves
+      // the streaming transcriber from config (`services.stt.provider`).
+      const provider = query.get("provider") ?? undefined;
+      const mimeType = query.get("mimeType");
+      if (!mimeType) {
+        return new Response("Missing required query parameter: mimeType", {
+          status: 400,
+        });
+      }
+      const sampleRateRaw = query.get("sampleRate");
+      return {
         wsType: "stt-stream",
         provider,
         mimeType,
-        sampleRate,
-        sessionId,
-      } satisfies SttStreamWebSocketData,
+        sampleRate: sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined,
+        sessionId: crypto.randomUUID(),
+      } satisfies SttStreamWebSocketData;
     });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request — no Response is sent.
-    return undefined!;
   }
 
-  /**
-   * Handle WebSocket upgrade for `/v1/live-voice`.
-   *
-   * The gateway owns downstream client auth and forwards this upstream with
-   * a short-lived gateway service token. The runtime accepts only private
-   * network peers/origins so the shell is not publicly reachable.
-   */
+  /** Handle WebSocket upgrade for `/v1/live-voice`. */
   private handleLiveVoiceUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct live voice access disabled — only private network peers allowed",
-        403,
-      );
-    }
-
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) {
-      return tokenError;
-    }
-
-    const guardianPrincipalId =
-      new URL(req.url).searchParams.get("guardianPrincipalId")?.trim() ||
-      undefined;
-
-    const upgraded = server.upgrade(req, {
-      data: {
+    return this.upgradeRuntimeStream(req, server, "live voice", (query) => {
+      const guardianPrincipalId = query.get("guardianPrincipalId")?.trim();
+      return {
         wsType: "live-voice",
         ...(guardianPrincipalId ? { guardianPrincipalId } : {}),
-      } satisfies LiveVoiceWebSocketData,
+      } satisfies LiveVoiceWebSocketData;
     });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    return undefined!;
   }
 
-  /**
-   * Handle WebSocket upgrade for `/v1/watch/stream`.
-   *
-   * Gated exactly as `/v1/stt/stream` is: private network peers and origins
-   * only, then a gateway service token. The gateway owns downstream client
-   * auth and dials this upstream on the client's behalf.
-   */
+  /** Handle WebSocket upgrade for `/v1/watch/stream`. */
   private handleWatchStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct watch stream access disabled: only private network peers allowed",
-        403,
-      );
-    }
-
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) {
-      return tokenError;
-    }
-
-    const wsUrl = new URL(req.url);
-    const mimeType = wsUrl.searchParams.get("mimeType");
-    if (!mimeType) {
-      return new Response("Missing required query parameter: mimeType", {
-        status: 400,
-      });
-    }
-
-    const sampleRateRaw = wsUrl.searchParams.get("sampleRate");
-    const sampleRate = sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined;
-    const conversationId =
-      wsUrl.searchParams.get("conversationId")?.trim() || undefined;
-    const clientId = wsUrl.searchParams.get("clientId")?.trim() || undefined;
-    const parsedTarget = parseWatchCaptureTarget(wsUrl.searchParams);
-    if ("error" in parsedTarget) {
-      return new Response(parsedTarget.error, { status: 400 });
-    }
-
-    const upgraded = server.upgrade(req, {
-      data: {
+    return this.upgradeRuntimeStream(req, server, "watch stream", (query) => {
+      const mimeType = query.get("mimeType");
+      if (!mimeType) {
+        return new Response("Missing required query parameter: mimeType", {
+          status: 400,
+        });
+      }
+      const sampleRateRaw = query.get("sampleRate");
+      const parsedTarget = parseWatchCaptureTarget(query);
+      if ("error" in parsedTarget) {
+        return new Response(parsedTarget.error, { status: 400 });
+      }
+      return {
         wsType: "watch-stream",
         mimeType,
-        sampleRate,
-        conversationId,
-        clientId,
+        sampleRate: sampleRateRaw ? parseInt(sampleRateRaw, 10) : undefined,
+        conversationId: query.get("conversationId")?.trim() || undefined,
+        clientId: query.get("clientId")?.trim() || undefined,
         captureTarget: parsedTarget.captureTarget,
         sessionId: crypto.randomUUID(),
-      } satisfies WatchStreamWebSocketData,
+      } satisfies WatchStreamWebSocketData;
     });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request, so no Response is sent.
-    return undefined!;
+  }
+
+  /**
+   * Handle WebSocket upgrade for `/v1/desktop/stream`. The feature gate runs
+   * in the open handler, as close code 4008.
+   */
+  private handleDesktopStreamUpgrade(
+    req: Request,
+    server: ReturnType<typeof Bun.serve>,
+  ): Response {
+    return this.upgradeRuntimeStream(
+      req,
+      server,
+      "desktop stream",
+      () => ({ wsType: "desktop-stream" }) satisfies DesktopStreamWebSocketData,
+    );
   }
 
   private async handleTwilioWebhook(

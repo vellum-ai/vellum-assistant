@@ -4,12 +4,14 @@ import {
   conversationMetadataSyncTag,
   SYNC_TAGS,
 } from "../../daemon/message-types/sync.js";
+import { resolveConversationTitle } from "../../i18n/index.js";
 import { syncAvatarToPlatform } from "../../platform/sync-avatar.js";
 import { getAvatarImagePath } from "../../util/platform.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { isStreamSeqStampingDisabled } from "../assistant-stream-state.js";
 import { publishSyncInvalidation } from "./sync-publisher.js";
 import {
+  notifyDaemonActivationProgressChanged,
   notifyDaemonConversationPersisted,
   notifyDaemonDocumentsChanged,
 } from "./worker-daemon-notify.js";
@@ -151,6 +153,28 @@ export function publishPluginsChanged(originClientId?: string): void {
 }
 
 /**
+ * Invalidate the activation-checklist progress resource on every client.
+ *
+ * Reached from the routes the client writes through and from the turn hooks
+ * that count a launched task's steps. Those hooks run inside whichever
+ * process is driving the turn, and a scheduled or background turn runs in a
+ * sidecar worker (seq stamping disabled) whose local hub has no SSE
+ * subscribers, so a local publish would reach nobody and the checklist row
+ * would sit on Working until the client refetched for another reason. Hand
+ * off to the daemon there, as the documents list does. A worker turn has no
+ * originating client, so no `originClientId` is forwarded.
+ */
+export function publishActivationProgressChanged(
+  originClientId?: string,
+): void {
+  if (isStreamSeqStampingDisabled()) {
+    void notifyDaemonActivationProgressChanged();
+    return;
+  }
+  void publishSyncInvalidation([SYNC_TAGS.activationProgress], originClientId);
+}
+
+/**
  * Reasons that change the *shape* of the conversation list — a row is
  * added, removed, or its position changes. These require web clients to
  * refetch the paginated list because the row patch path (`refreshConversationRow`)
@@ -234,7 +258,7 @@ export function publishConversationTitleChanged(
     {
       type: "conversation_title_updated",
       conversationId,
-      title,
+      title: resolveConversationTitle(title),
     },
     conversationId,
   );

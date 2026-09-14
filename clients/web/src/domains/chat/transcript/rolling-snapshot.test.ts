@@ -82,6 +82,18 @@ const toolUseStart = (
     toolName: name,
     input: {},
   } as AssistantEvent);
+const toolUsePreviewStart = (
+  seq: number,
+  id: string,
+  toolUseId: string,
+  name: string,
+) =>
+  env(seq, {
+    type: "tool_use_preview_start",
+    messageId: id,
+    toolUseId,
+    toolName: name,
+  } as AssistantEvent);
 const surfacePending = (seq: number, id: string, toolUseId: string) =>
   env(seq, {
     type: "ui_surface_pending",
@@ -710,5 +722,55 @@ describe("visual placeholder markers", () => {
         cleanHistory,
       );
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A turn that speaks through send_user_message more than once
+// ---------------------------------------------------------------------------
+
+describe("a turn that sends more than one reply", () => {
+  /**
+   * The daemon announces a tool call while its input is still streaming, so
+   * `tool_use_preview_start` for `send_user_message` reaches the client before
+   * the reply text it carries and before the `message_complete` that stamps
+   * the authoritative marker. The row has to know it is private by then: an
+   * unmarked row whose first reply is followed by more work would fold that
+   * reply into "Earlier activity" the moment a later text group appears.
+   */
+  const firstReply = [
+    thinkingDelta(1, "a1", "planning"),
+    toolUseStart(2, "a1", "t-fetch", "web_fetch"),
+    toolUsePreviewStart(3, "a1", "t-send-1", "send_user_message"),
+  ];
+
+  test("marks the row private before the first reply text lands", () => {
+    const history = applyEventsToHistory(SEED, firstReply);
+
+    expect(history.messages[0]?.assistantTextVisibility).toBe("private");
+  });
+
+  test("stays private across both replies and the work between them", () => {
+    const history = applyEventsToHistory(SEED, [
+      ...firstReply,
+      textDelta(4, "a1", "Found it."),
+      complete(5, "a1"),
+      toolUseStart(6, "a1", "t-send-1", "send_user_message"),
+      // The turn keeps working after its first reply.
+      toolUseStart(7, "a1", "t-bash", "bash"),
+      toolUsePreviewStart(8, "a1", "t-send-2", "send_user_message"),
+      textDelta(9, "a1", "All done."),
+    ]);
+
+    const row = history.messages[0];
+    expect(row?.assistantTextVisibility).toBe("private");
+    // Both replies are on the one row, with the work between them, which is
+    // the shape that would otherwise fold the first reply out of sight.
+    expect(
+      row?.contentBlocks?.filter((block) => block.type === "text"),
+    ).toEqual([
+      { type: "text", text: "Found it." },
+      { type: "text", text: "All done." },
+    ]);
   });
 });

@@ -3,7 +3,8 @@ import type { FC } from "react";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 import { useAttachmentSquares } from "@/domains/chat/components/chat-attachments/use-attachment-squares";
-import { classifyAttachment } from "@/domains/chat/components/chat-attachments/utils";
+import { previewEntryKey } from "@/domains/chat/components/chat-attachments/use-failed-preview-ids";
+import { classifyAttachment } from "@/utils/attachment-utils";
 
 interface BubbleAttachmentsProps {
   attachments: DisplayAttachment[];
@@ -50,21 +51,21 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
           if (isInlineImage) {
             return (
               <img
-                key={att.id}
+                key={previewEntryKey(att.id, index)}
                 src={att.previewUrl ?? undefined}
                 alt={att.filename}
                 role="button"
                 aria-label={att.filename}
                 title={att.filename}
                 tabIndex={0}
-                onClick={() => openPreview(att)}
+                onClick={() => openPreview(att, index)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    openPreview(att);
+                    openPreview(att, index);
                   }
                 }}
-                onError={() => markImageFailed(att.id)}
+                onError={() => markImageFailed(att.id, index)}
                 className="max-h-[320px] max-w-full cursor-pointer rounded-lg object-contain"
               />
             );

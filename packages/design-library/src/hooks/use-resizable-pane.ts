@@ -60,6 +60,21 @@ function readStoredSize(storageKey: string | undefined): number | null {
   }
 }
 
+/**
+ * The size a pane takes under `storageKey`: the value stored there, else
+ * `defaultSize`, never below `minSize`. The minimum is applied at read time so
+ * a stale or corrupt stored value never renders below it, not even for the
+ * frame before the re-clamp effect runs. The upper bound needs a measured
+ * container, so it waits.
+ */
+function storedOrDefaultSize(
+  storageKey: string | undefined,
+  defaultSize: number,
+  minSize: number,
+): number {
+  return Math.max(minSize, readStoredSize(storageKey) ?? defaultSize);
+}
+
 function writeStoredSize(storageKey: string | undefined, size: number): void {
   if (!storageKey) return;
   try {
@@ -302,17 +317,20 @@ export function useResizablePane({
   // caller passing an inline object would otherwise re-run it every render.
   const legacySizeRef = useRef(legacySize);
   legacySizeRef.current = legacySize;
+  // Same reason, for the two numbers the key-switch effect resolves a size
+  // from: it depends on the key alone.
+  const defaultSizeRef = useRef(defaultSize);
+  defaultSizeRef.current = defaultSize;
+  const minSizeRef = useRef(minSize);
+  minSizeRef.current = minSize;
 
   const generatedPaneId = useId();
   const paneId = providedPaneId ?? generatedPaneId;
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ startX: number; startSize: number } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
-  // `minSize` is applied at read time so a stale or corrupt stored value never
-  // renders below the minimum, not even for the frame before the re-clamp
-  // effect runs. The upper bound needs a measured container, so it waits.
   const [size, setSize] = useState(() =>
-    Math.max(minSize, readStoredSize(storageKey) ?? defaultSize),
+    storedOrDefaultSize(storageKey, defaultSize, minSize),
   );
   const [containerSize, setContainerSize] = useState(0);
 
@@ -330,6 +348,24 @@ export function useResizablePane({
     observer.observe(container);
     return () => observer.disconnect();
   }, []);
+
+  // A caller may repoint the pane at another remembered width: the pane keeps
+  // its DOM and takes the size the new key holds, so anything animating the
+  // width eases between the two rather than remounting at the new one.
+  const storageKeyRef = useRef(storageKey);
+  useIsomorphicLayoutEffect(() => {
+    if (storageKeyRef.current === storageKey) {
+      return;
+    }
+    storageKeyRef.current = storageKey;
+    setSize(
+      storedOrDefaultSize(
+        storageKey,
+        defaultSizeRef.current,
+        minSizeRef.current,
+      ),
+    );
+  }, [storageKey]);
 
   const effectiveMax = resolveMaxSize({
     minSize,

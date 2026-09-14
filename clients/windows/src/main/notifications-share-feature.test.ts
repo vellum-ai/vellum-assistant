@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -13,9 +13,12 @@ let saveDialogResult: SaveDialogResult = { canceled: true };
 const saveDialogCalls: Array<{ options: { defaultPath?: string } }> = [];
 
 const quitListeners: Array<() => void> = [];
+let userDataDir = "/nonexistent-user-data";
 mock.module("electron", () => ({
   app: {
     getAppPath: () => "/nonexistent-app-path",
+    getPath: (name: string) =>
+      name === "userData" ? userDataDir : "/nonexistent-path",
     once: (event: string, listener: () => void) => {
       if (event === "before-quit") {
         quitListeners.push(listener);
@@ -176,6 +179,83 @@ describe("helper toast factory", () => {
       { event: "action", index: 1 },
       { event: "click" },
     ]);
+  });
+
+  test("a sender puts the avatar in the logo slot and demotes the title", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "vellum-toast-avatar-"));
+    userDataDir = dir;
+    try {
+      const avatarPng = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      const avatarHash =
+        "0f4636c78f65d3639ece5a064b5ae753e3408614a14fb18ab4d7540d2c248543";
+      const create = createHelperToastFactory("/helper.exe");
+      const toast = create({
+        title: "Weekly plan",
+        body: "B",
+        silent: false,
+        actions: [{ type: "button", text: "View" }],
+        sender: { id: "assistant-1", name: "Aria", avatarPng, avatarHash },
+      });
+      toast.show();
+      await Bun.sleep(0);
+
+      const avatarPath = path.join(
+        dir,
+        "notification-avatars",
+        `${avatarHash}.png`,
+      );
+      expect(FakeSidecarClient.instances[0]!.calls[0]!.params).toEqual({
+        token: expect.stringMatching(/^toast-/) as unknown as string,
+        title: "Aria",
+        subtitle: "Weekly plan",
+        body: "B",
+        actions: [{ text: "View" }],
+        avatarPath,
+      });
+      expect(new Uint8Array(await readFile(avatarPath))).toEqual(
+        new Uint8Array(avatarPng),
+      );
+    } finally {
+      userDataDir = "/nonexistent-user-data";
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("an unwritable avatar directory falls back to the plain toast", async () => {
+    // A file, not a directory, so the cache write cannot succeed.
+    const file = path.join(
+      await mkdtemp(path.join(tmpdir(), "vellum-toast-")),
+      "blocked",
+    );
+    await writeFile(file, "");
+    userDataDir = file;
+    try {
+      const create = createHelperToastFactory("/helper.exe");
+      create({
+        title: "Weekly plan",
+        body: "B",
+        silent: false,
+        actions: [],
+        sender: {
+          id: "assistant-1",
+          name: "Aria",
+          avatarPng: Buffer.from([1]),
+          avatarHash:
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
+        },
+      }).show();
+      await Bun.sleep(0);
+
+      expect(FakeSidecarClient.instances[0]!.calls[0]!.params).toEqual({
+        token: expect.stringMatching(/^toast-/) as unknown as string,
+        title: "Weekly plan",
+        body: "B",
+        actions: [],
+      });
+    } finally {
+      userDataDir = "/nonexistent-user-data";
+      await rm(path.dirname(file), { recursive: true, force: true });
+    }
   });
 
   test("a synchronous client throw acks as a failed delivery", async () => {

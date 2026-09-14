@@ -35,6 +35,7 @@
     "closeRunDetail": "關閉執行詳細資料",
     "goToNewest": "前往最新",
     "inputLabel": "輸入",
+    "modelLabel": "模型",
     "objective": "目標",
     "outputLabel": "輸出",
     "sendSteerAria": "傳送引導指令",
@@ -87,6 +88,26 @@
   "assistantContentDisclosure": {
     "earlierActivity": "較早的活動"
   },
+  "assistantDesktop": {
+    "busy": "桌面正由其他使用者使用中。",
+    "connecting": "正在連線至桌面…",
+    "failed": "桌面無法啟動。",
+    "lost": "與桌面的連線已中斷。",
+    "openAria": "開啟桌面",
+    "reconnectButton": "重新連線",
+    "title": "桌面",
+    "unavailable": "此助理不支援桌面。",
+    "installButton": "安裝桌面",
+    "installDescription": "安裝 Google Chrome 和助理桌面所需的元件。這可能需要幾分鐘。",
+    "checkingSetup": "正在檢查桌面設定…",
+    "installingPackages": "正在安裝桌面元件…",
+    "installingChrome": "正在安裝 Google Chrome…",
+    "checkingInstall": "正在檢查安裝…",
+    "installBackground": "關閉此視窗後，安裝仍會繼續。",
+    "installFailed": "安裝失敗。請重試以完成設定。",
+    "setupRequestFailed": "無法檢查桌面設定。請重新連線後再試。",
+    "setupUnsupported": "桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
+  },
   "assistantNavItem": {
     "newChat": "新增聊天"
   },
@@ -133,6 +154,8 @@
     "closePreviewAria": "關閉預覽",
     "downloadAria": "下載 {filename}",
     "downloadLabel": "下載",
+    "legacyUnavailable": "預覽無法使用。檔案內容未保存於聊天記錄中。",
+    "loadFailed": "無法載入預覽。",
     "nextAttachmentAria": "下一個附件",
     "pdfLoadFailed": "無法顯示此 PDF",
     "previewAria": "{filename} 的預覽",
@@ -373,8 +396,27 @@
   },
   "chatConversationHeader": {
     "archived": "[已封存]",
-    "newChat": "新增聊天",
-    "untitled": "未命名"
+    "newChat": "新增聊天"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "應用程式",
+    "backAria": "返回聊天資訊",
+    "backTooltip": "聊天資訊",
+    "closeAria": "關閉聊天資訊",
+    "empty": "此聊天中還沒有內容",
+    "filesTitle": "文件與圖片",
+    "framesTitle": "相機影格",
+    "loadFailed": "無法載入內容",
+    "loadMore": "載入更多",
+    "openAppAria": "開啟 {name}",
+    "openDocumentAria": "開啟 {name}",
+    "previewAttachmentAria": "預覽 {filename}",
+    "previewFrameAria": "預覽相機影格",
+    "seeAll": "查看全部",
+    "seeAllAppsAria": "查看全部應用程式",
+    "seeAllFilesAria": "查看全部文件與圖片",
+    "seeAllFramesAria": "查看全部相機影格",
+    "title": "聊天資訊"
   },
   "chatLayout": {
     "navigationAria": "導覽"
@@ -613,12 +655,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "對話資產，{count, plural, one {# 個項目} other {# 個項目}}",
+    "ariaLabelUnavailable": "對話資產，無法載入",
     "ariaLabelUnseen": "對話資產，{count, plural, one {# 個項目} other {# 個項目}} (未檢視的變更)",
-    "heading": "資產",
-    "label": "{count, plural, one {# 個資產} other {# 個資產}}"
-  },
-  "conversationRow": {
-    "untitled": "未命名"
+    "label": "{count, plural, one {# 個資產} other {# 個資產}}",
+    "labelUnavailable": "無法載入資產"
   },
   "conversationStarterDock": {
     "caption": "試試這些建議："
@@ -665,8 +705,7 @@
     "cancel": "取消",
     "confirm": "刪除",
     "message": "刪除「{title}」？這將永久移除對話及其訊息。相關資產和記憶可能仍會保留。此動作無法復原。",
-    "title": "刪除對話",
-    "untitled": "未命名"
+    "title": "刪除對話"
   },
   "deletedMessageRow": {
     "label": "此訊息已被刪除"
@@ -808,7 +847,12 @@
     "stepWarmup": "預熱",
     "surfaceVoice": "語音通話攝影機",
     "thresholds": "閾值",
-    "valueAbsent": "無"
+    "valueAbsent": "無",
+    "forcedNoveltyThresholdLabel": "主動請求閾值",
+    "reasonAnswered": "已請求，但上一張相片已包含該內容。",
+    "reasonSettling": "已停止移動，但靜止時間尚不足。",
+    "stepAnswered": "已顯示",
+    "stepSettling": "保持靜止"
   },
   "groupActions": {
     "archiveAll": "全部封存…",
@@ -1137,17 +1181,30 @@
     "bookmark": "書籤",
     "copied": "已複製",
     "copy": "複製",
+    "copyFailed": "無法複製這則訊息。",
     "forkFromHere": "從此處分岔",
     "inspect": "檢查",
+    "loading": "朗讀中…",
     "openInSlack": "在 Slack 中開啟",
+    "playFailed": "無法朗讀這則訊息。",
+    "readAloud": "朗讀",
     "removeBookmark": "移除書籤",
     "retry": "重試",
+    "stop": "停止",
     "summarizeUpToHere": "總結至此"
   },
   "messageLongPressActions": {
     "bookmark": "書籤",
     "copied": "已複製",
+    "copy": "複製",
+    "copyFailed": "無法複製這則訊息。",
+    "forkFromHere": "從此處分岔",
+    "inspect": "檢查",
+    "openInSlack": "在 Slack 中開啟",
+    "readAloud": "朗讀",
     "removeBookmark": "移除書籤",
+    "stop": "停止",
+    "summarizeUpToHere": "總結至此",
     "title": "訊息動作"
   },
   "micPermissionPrimer": {
@@ -1319,7 +1376,8 @@
     "railAria": "進度",
     "stepCounter": "第 {current} 步，共 {total} 步",
     "title": "進度",
-    "titleFinished": "已完成"
+    "titleFinished": "已完成",
+    "titleStopped": "已停止"
   },
   "promptSubmission": {
     "noActiveSession": "無作用中工作階段。請再試一次。"
@@ -1662,11 +1720,14 @@
     "settings": "設定"
   },
   "toolDetailPanel": {
+    "changes": "變更",
     "closeAria": "關閉工具詳細資料",
+    "command": "指令",
     "denied": "此工具呼叫未獲核准，因此沒有執行。",
     "emptyOutput": "該工具沒有回傳任何輸出。",
+    "input": "輸入",
     "output": "輸出",
-    "riskLevel": "風險等級",
+    "requestedChanges": "要求的變更",
     "running": "正在執行…"
   },
   "toolStepPill": {
@@ -1681,7 +1742,8 @@
     "stopWorkflow": "停止工作流程"
   },
   "transcriptRow": {
-    "thinking": "思考中"
+    "thinking": "思考中",
+    "working": "處理中"
   },
   "useConversationLoader": {
     "authFailed": "使用者驗證失敗。"
@@ -1690,9 +1752,6 @@
     "assistantBusy": "您的助理正忙。請在回覆完成後再試一次。",
     "retryFailed": "無法重試回應",
     "summarizeFailed": "無法摘要對話"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "未命名"
   },
   "useSendMessage": {
     "commandFailed": "無法執行該指令。請再試一次。",
@@ -1896,5 +1955,16 @@
   "assistantSection": {
     "emptyBody": "我隨時都在思考。當有值得您關注的事情時，我會在這裡發起對話。",
     "emptyTitle": "目前還沒有任何想法。"
+  },
+  "sidebarExpandRow": {
+    "expand": "展開",
+    "collapse": "收合"
+  },
+  "assistantSectionToggle": {
+    "hide": "隱藏來自 {name} 的對話",
+    "show": "顯示來自 {name} 的對話"
+  },
+  "coachmarkPress": {
+    "turn": "我點擊了 {label}。接下來呢？"
   }
 }

@@ -1,15 +1,58 @@
 /** Declarative help for the `assistant clients` command. */
 
+import {
+  HOST_PROXY_CAPABILITIES,
+  HOST_PROXY_SUPPORT,
+  hostProxyCapabilities,
+} from "../../types/host-capabilities.js";
 import type { CliCommandHelp } from "../lib/cli-command-help.js";
+
+const CLIENT_LABELS: Record<keyof typeof HOST_PROXY_SUPPORT, string> = {
+  macos: "macOS desktop",
+  windows: "Windows desktop",
+  linux: "Linux desktop",
+  "chrome-extension": "Chrome extension",
+};
+
+/**
+ * Render `HOST_PROXY_SUPPORT` as help text so the matrix the assistant reads
+ * cannot drift from the one that actually routes host tools.
+ */
+function hostCapabilityMatrix(): string {
+  const labels = Object.entries(CLIENT_LABELS) as [
+    keyof typeof HOST_PROXY_SUPPORT,
+    string,
+  ][];
+  const labelWidth = Math.max(...labels.map(([, label]) => label.length));
+  return labels
+    .map(
+      ([id, label]) =>
+        `  ${label.padEnd(labelWidth)}  ${hostProxyCapabilities(id).join(", ")}`,
+    )
+    .join("\n");
+}
 
 export const clientsHelp: CliCommandHelp = {
   name: "clients",
   description: "Discover and manage connected clients",
   helpText: `
-Clients are the applications currently connected to the assistant —
-macOS desktop, iOS, web, Chrome extension, or CLI. Each client has a
-set of capabilities (e.g. host_bash, host_file) that determine which
-tools the assistant can route through it.
+Clients are the applications currently connected to the assistant -
+macOS, Windows or Linux desktop, iOS, Android, web, Chrome extension,
+or CLI. Each client has a set of capabilities (e.g. host_bash,
+host_file) that determine which tools the assistant can route through
+it.
+
+Which client provides which host capability:
+
+${hostCapabilityMatrix()}
+
+Any client not listed above (web, iOS, Android, CLI) provides no host
+capabilities, so never offer a mobile app to unblock one.
+
+When a task needs a host capability and no connected client provides
+it, say so and share the download page for a client that does, without
+waiting to be asked: https://www.vellum.ai/downloads
+The Chrome extension installs from the Chrome Web Store instead: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
 
 Examples:
   $ assistant clients list                             List all connected clients
@@ -27,15 +70,14 @@ Examples:
         },
         {
           flags: "--capability <name>",
-          description:
-            "Filter to clients supporting this capability (e.g. host_bash, host_file, host_cu, host_browser, host_app_control)",
+          description: `Filter to clients supporting this capability (${HOST_PROXY_CAPABILITIES.join(", ")})`,
         },
       ],
       helpText: `
 Options:
   --json                Output as compact JSON instead of a table.
   --capability <name>   Only show clients that support the named capability.
-                        Valid values: host_bash, host_file, host_cu, host_browser, host_app_control.
+                        Valid values: ${HOST_PROXY_CAPABILITIES.join(", ")}.
 
 The table shows each client's ID, interface type, capabilities,
 connection timestamps, and host environment (when available).

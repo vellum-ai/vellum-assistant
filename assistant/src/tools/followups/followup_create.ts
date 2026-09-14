@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getContact } from "../../contacts/contact-store.js";
 import { createFollowUp } from "../../followups/followup-store.js";
 import type { FollowUp } from "../../followups/types.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -49,7 +50,7 @@ function formatFollowUp(f: FollowUp): string {
 
 export async function executeFollowupCreate(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const parsedInput = followupCreateInputSchema.safeParse(input);
   if (!parsedInput.success) {
@@ -103,6 +104,8 @@ export async function executeFollowupCreate(
     };
   }
 
+  throwIfCancelled(context);
+
   try {
     const now = Date.now();
     const expectedResponseBy = expectedResponseHours
@@ -123,6 +126,11 @@ export async function executeFollowupCreate(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a follow-up failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error: ${msg}`, isError: true };
   }

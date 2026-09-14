@@ -116,6 +116,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         delta: "hi",
       } as unknown as AssistantEvent,
       0,
+      "conv-A",
     );
     expect(handlerCalls.length).toBeGreaterThan(0);
     expect(handlerCalls[handlerCalls.length - 1]?.conversationId).toBe(
@@ -134,6 +135,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         delta: "hi",
       } as unknown as AssistantEvent,
       0,
+      "conv-B",
     );
     const delta = handlerCalls.find((c) => c.kind === "assistant_text_delta");
     expect(delta).toBeUndefined();
@@ -147,6 +149,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         delta: "no key",
       } as unknown as AssistantEvent,
       0,
+      undefined,
     );
     const delta = handlerCalls.find((c) => c.kind === "assistant_text_delta");
     expect(delta).toBeUndefined();
@@ -163,6 +166,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         messageId: "m1",
       } as unknown as AssistantEvent,
       0,
+      "conv-A",
     );
     const result = handlerCalls.find((c) => c.kind === "message_complete");
     expect(result).toBeUndefined();
@@ -178,6 +182,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         tags: ["assistant:self:identity"],
       } as unknown as AssistantEvent,
       0,
+      undefined,
     );
     // sync_changed is a no-op in the stream handler (bus subscribers
     // own it). The global event passing the guard is the key point.
@@ -196,6 +201,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         updatedAt: "2026-05-22T00:00:00Z",
       } as unknown as AssistantEvent,
       0,
+      undefined,
     );
     // home_feed_updated is now handled by useAssistantResourceSync (bus
     // subscriber), not the monolithic handler. The switch case is a no-op.
@@ -214,6 +220,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
         delta: "old",
       } as unknown as AssistantEvent,
       3,
+      "conv-A",
     );
     const delta = handlerCalls.find((c) => c.kind === "assistant_text_delta");
     expect(delta).toBeUndefined();

@@ -3,9 +3,10 @@
  * Commander program, runs it against captured output sinks, and returns what
  * the command emitted plus the resulting exit code.
  *
- * `process.stdout.write`, `console.log`, and `console.error` are captured for
- * the duration of the run, so command output lands in the result regardless of
- * which sink the command writes to; `process.exitCode` is reset afterwards.
+ * `process.stdout.write`, `process.stderr.write`, `console.log`, and
+ * `console.error` are captured for the duration of the run, so command output
+ * lands in the result regardless of which sink the command writes to;
+ * `process.exitCode` is reset afterwards.
  * The caller passes its own (possibly mock-backed) registration function, so
  * this helper imports nothing from `src/` beyond what any test file may
  * import itself (see the test-machinery isolation rules in assistant/CLAUDE.md).
@@ -26,6 +27,7 @@ export async function runCliCommand(
   args: string[],
 ): Promise<CliCommandRunResult> {
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
   const originalConsoleLog = console.log;
   const originalConsoleError = console.error;
   const stdoutChunks: string[] = [];
@@ -38,6 +40,12 @@ export async function runCliCommand(
     events.push(text);
     return true;
   }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: unknown) => {
+    const text = typeof chunk === "string" ? chunk : String(chunk);
+    stderrChunks.push(text);
+    events.push(text);
+    return true;
+  }) as typeof process.stderr.write;
   console.log = (...logArgs: unknown[]) => {
     const text = logArgs.map(String).join(" ") + "\n";
     stdoutChunks.push(text);
@@ -66,6 +74,7 @@ export async function runCliCommand(
     }
   } finally {
     process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
   }

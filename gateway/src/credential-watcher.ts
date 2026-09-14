@@ -18,7 +18,7 @@ import { getLogger } from "./logger.js";
 import {
   ALL_CREDENTIAL_SPECS,
   getCesHttpConfig,
-  readServiceCredentials,
+  readServiceCredentialsResult,
 } from "./credential-reader.js";
 import { getGatewaySecurityDir } from "./paths.js";
 
@@ -235,7 +235,18 @@ export class CredentialWatcher {
       const credentials = new Map<string, Record<string, string> | null>();
       const configuredServices = await this.loadConfiguredServices();
       for (const spec of ALL_CREDENTIAL_SPECS) {
-        credentials.set(spec.service, await readServiceCredentials(spec));
+        const read = await readServiceCredentialsResult(spec);
+        if (read.status === "unreachable") {
+          log.warn(
+            { service: spec.service },
+            "Credential store unreachable; keeping last known channel credentials",
+          );
+          return;
+        }
+        credentials.set(
+          spec.service,
+          read.status === "ok" ? read.credentials : null,
+        );
       }
       this.lastConfiguredServices = configuredServices;
       this.lastReadyServices = new Set(
@@ -304,6 +315,11 @@ export class CredentialWatcher {
     } catch {
       return new Set(this.lastConfiguredServices);
     }
+  }
+
+  /** @internal Test-only: run one credential poll without starting watchers. */
+  async _pollOnceForTest(forceChanged = false): Promise<void> {
+    await this.pollOnce(forceChanged);
   }
 
   private allConfiguredServicesReady(): boolean {

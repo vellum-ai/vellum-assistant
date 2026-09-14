@@ -7,41 +7,71 @@
  * takes the row above the header on a phone rather than a seat in it.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { useCommandPaletteStore } from "@/stores/command-palette-store";
 import { usePageSurfaceStore } from "@/stores/page-surface-store";
+import { useTitleBarStore } from "@/stores/title-bar-store";
+import {
+  restoreStubbedModules,
+  stubModule,
+} from "@/utils/module-mock.test-helper";
 
 let mockIsElectron = false;
-mock.module("@/runtime/is-electron", () => ({
+stubModule("@/runtime/is-electron", await import("@/runtime/is-electron"), {
   isElectron: () => mockIsElectron,
-}));
+});
 
+stubModule(
+  "@/components/windows-menu-bar",
+  await import("@/components/windows-menu-bar"),
+  {
+    WindowsMenuBar: () => <div data-testid="windows-menu-bar" />,
+  },
+);
+
+// The two stores the header writes through are driven by their own state
+// rather than a module stub, so the spies are checked against the real store
+// shapes. Both stores are process-global, so the real actions go back below.
 const toggleCommandPaletteSpy = mock(() => {});
-mock.module("@/stores/command-palette-store", () => ({
-  useCommandPaletteStore: {
-    use: { toggle: () => toggleCommandPaletteSpy },
-  },
-}));
-
 const setInlineTitleBarActiveSpy = mock((_active: boolean) => {});
-mock.module("@/stores/title-bar-store", () => ({
-  useTitleBarStore: {
-    use: {
-      setInlineTitleBarActive: () => setInlineTitleBarActiveSpy,
-      windowsMenuBarSuppressed: () => false,
-    },
-  },
-}));
+const realToggleCommandPalette = useCommandPaletteStore.getState().toggle;
+const realSetInlineTitleBarActive =
+  useTitleBarStore.getState().setInlineTitleBarActive;
 
 let mockIsNativeMobile = false;
 let mockElectronHostOS: "macos" | "windows" | "linux" | null = null;
-mock.module("@/runtime/platform-detection", () => ({
-  detectElectronHostOS: () =>
-    mockIsElectron ? (mockElectronHostOS ?? "macos") : null,
-  isNativeMobile: () => mockIsNativeMobile,
-}));
+stubModule(
+  "@/runtime/platform-detection",
+  await import("@/runtime/platform-detection"),
+  {
+    detectElectronHostOS: () =>
+      mockIsElectron ? (mockElectronHostOS ?? "macos") : null,
+    isNativeMobile: () => mockIsNativeMobile,
+  },
+);
+
+// `mock.module` replaces a module for every file sharing this process, so
+// nothing here may outlive the file: a desktop answer left standing hides
+// every surface that drops a web link inside the app. The store actions the
+// spies stand in for are process-global for the same reason.
+afterAll(() => {
+  useCommandPaletteStore.setState({ toggle: realToggleCommandPalette });
+  useTitleBarStore.setState({
+    setInlineTitleBarActive: realSetInlineTitleBarActive,
+  });
+  restoreStubbedModules();
+});
 
 // Imported after the mocks so the header picks up the mocked modules.
 const { ChatLayoutHeader } = await import("@/domains/chat/chat-layout-header");
@@ -53,6 +83,11 @@ beforeEach(() => {
   usePageSurfaceStore.getState().setSurface(null);
   toggleCommandPaletteSpy.mockClear();
   setInlineTitleBarActiveSpy.mockClear();
+  useCommandPaletteStore.setState({ toggle: toggleCommandPaletteSpy });
+  useTitleBarStore.setState({
+    setInlineTitleBarActive: setInlineTitleBarActiveSpy,
+    windowsMenuBarSuppressed: false,
+  });
 });
 
 afterEach(() => {
@@ -105,6 +140,85 @@ describe("ChatLayoutHeader mobile affordances", () => {
     expect(
       screen.getByRole("button", { name: "Search (Ctrl+K)" }),
     ).toBeTruthy();
+  });
+
+  test("replaces the standard clusters with a route-owned mobile top bar", () => {
+    renderHeader({
+      topBarRightSlot: <button type="button">Notifications</button>,
+      mobileTopBar: {
+        leading: <button type="button">Back</button>,
+        center: <span>Library</span>,
+        trailing: <button type="button">Import</button>,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(screen.getByText("Library")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Import" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Open navigation" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Search (Ctrl+K)" }),
+    ).toBeNull();
+    expect(screen.queryByText("Notifications")).toBeNull();
+  });
+
+  test("ignores a mobile top-bar override on desktop", () => {
+    renderHeader({
+      isMobile: false,
+      mobileTopBar: {
+        leading: <span>Mobile back</span>,
+        center: <span>Mobile title</span>,
+        trailing: <span>Mobile action</span>,
+      },
+      topBarCenter: <span>Desktop title</span>,
+    });
+
+    expect(screen.getByText("Desktop title")).toBeTruthy();
+    expect(screen.queryByText("Mobile title")).toBeNull();
+  });
+
+  test("keeps custom mobile controls clear of macOS traffic lights", () => {
+    mockIsElectron = true;
+    mockElectronHostOS = "macos";
+    renderHeader({
+      mobileTopBar: {
+        leading: <span>Back</span>,
+        center: <span>Library</span>,
+        trailing: <span>Import</span>,
+      },
+    });
+
+    expect(screen.getByText("Back").parentElement?.style.paddingLeft).toBe(
+      "80px",
+    );
+  });
+
+  test("keeps menu and actions separate in a narrowed Windows shell", () => {
+    mockIsElectron = true;
+    mockElectronHostOS = "windows";
+    renderHeader({
+      mobileTopBar: {
+        leading: <span>Back</span>,
+        center: <span>Library</span>,
+        trailing: <span>Import</span>,
+      },
+    });
+
+    const customTopBar = screen.getByText("Library").parentElement?.parentElement;
+    expect(customTopBar?.className).toContain(
+      "grid-cols-[max-content_minmax(0,1fr)_max-content]",
+    );
+    expect(customTopBar?.style.minHeight).toBe("44px");
+    expect(screen.getByText("Library").parentElement?.className).toContain(
+      "overflow-hidden",
+    );
+    const windowsMenu = screen.getByTestId("windows-menu-bar");
+    expect(customTopBar?.contains(windowsMenu)).toBe(false);
+    expect(windowsMenu.parentElement?.style.width).toBe(
+      "calc(100% + 150px)",
+    );
   });
 });
 

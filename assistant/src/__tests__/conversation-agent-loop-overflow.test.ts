@@ -339,6 +339,7 @@ const resolveAssistantAttachmentsMock = mock(async () => ({
   assistantAttachments: [],
   emittedAttachments: [],
   directiveWarnings: [],
+  persistedFiles: [],
 }));
 mock.module("../daemon/conversation-attachments.js", () => ({
   resolveAssistantAttachments: resolveAssistantAttachmentsMock,

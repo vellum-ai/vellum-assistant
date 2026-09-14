@@ -3,8 +3,10 @@ import { describe, expect, test } from "bun:test";
 import type { ToolDefinition } from "../providers/types.js";
 import {
   ACTIVITY_SKIP_SET,
+  declareDaemonActivityField,
   injectActivityField,
   schemaDefinesProperty,
+  stripActivityField,
 } from "../tools/schema-transforms.js";
 
 function makeDef(
@@ -462,5 +464,201 @@ describe("schemaDefinesProperty", () => {
     expect(schemaDefinesProperty("not-an-object", "activity")).toBe(false);
     expect(schemaDefinesProperty(42, "activity")).toBe(false);
     expect(schemaDefinesProperty(true, "activity")).toBe(false);
+  });
+});
+
+describe("stripActivityField", () => {
+  test("removes an injected activity field", () => {
+    const injected = injectActivityField([
+      makeDef("my_tool", {
+        type: "object",
+        properties: { foo: { type: "string" } },
+        required: ["foo"],
+      }),
+    ]);
+    const result = stripActivityField(injected);
+    const schema = result[0].input_schema as Record<string, unknown>;
+    const props = schema.properties as Record<string, unknown>;
+    expect("activity" in props).toBe(false);
+    expect(schema.required).toEqual(["foo"]);
+  });
+
+  test("removes a self-declared field from properties and required", () => {
+    const defs = [
+      makeDef(
+        "file_read",
+        declareDaemonActivityField({
+          type: "object",
+          properties: {
+            path: { type: "string" },
+            activity: { type: "string", description: "status" },
+          },
+          required: ["path", "activity"],
+        }),
+      ),
+    ];
+
+    const result = stripActivityField(defs);
+    const schema = result[0].input_schema as Record<string, unknown>;
+    expect(schema.properties).toEqual({ path: { type: "string" } });
+    expect(schema.required).toEqual(["path"]);
+  });
+
+  test("drops an emptied required array rather than advertising it", () => {
+    const defs = [
+      makeDef(
+        "my_tool",
+        declareDaemonActivityField({
+          type: "object",
+          properties: { activity: { type: "string" } },
+          required: ["activity"],
+        }),
+      ),
+    ];
+
+    const result = stripActivityField(defs);
+    const schema = result[0].input_schema as Record<string, unknown>;
+    expect(schema.properties).toEqual({});
+    expect("required" in schema).toBe(false);
+  });
+
+  test("leaves an MCP-owned activity field alone", () => {
+    // The server declared the field itself, so it is that tool's input.
+    const defs = [
+      makeDef("mcp__server__tool", {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          activity: { type: "string", description: "server semantics" },
+        },
+        required: ["query", "activity"],
+      }),
+    ];
+
+    const result = stripActivityField(defs);
+    expect(Object.is(result[0], defs[0])).toBe(true);
+    const schema = result[0].input_schema as Record<string, unknown>;
+    const props = schema.properties as Record<string, unknown>;
+    expect(props.activity).toEqual({
+      type: "string",
+      description: "server semantics",
+    });
+    expect(schema.required).toEqual(["query", "activity"]);
+  });
+
+  test("leaves a composite schema whole rather than half-stripping it", () => {
+    const defs = [
+      makeDef(
+        "my_tool",
+        declareDaemonActivityField({
+          type: "object",
+          properties: {
+            foo: { type: "string" },
+            activity: { type: "string" },
+          },
+          anyOf: [{ properties: { activity: { type: "string" } } }],
+          required: ["activity"],
+        }),
+      ),
+    ];
+
+    const result = stripActivityField(defs);
+    expect(Object.is(result[0], defs[0])).toBe(true);
+  });
+
+  test("leaves a $ref schema whole", () => {
+    const defs = [
+      makeDef(
+        "my_tool",
+        declareDaemonActivityField({
+          type: "object",
+          properties: { activity: { type: "string" } },
+          allOf: [{ $ref: "#/definitions/Foo" }],
+          required: ["activity"],
+        }),
+      ),
+    ];
+
+    const result = stripActivityField(defs);
+    expect(Object.is(result[0], defs[0])).toBe(true);
+  });
+
+  test("does NOT mutate original definition objects", () => {
+    const originalProps = {
+      foo: { type: "string" },
+      activity: { type: "string" },
+    };
+    const originalRequired = ["foo", "activity"];
+    const originalSchema = declareDaemonActivityField({
+      type: "object",
+      properties: originalProps,
+      required: originalRequired,
+    });
+    const defs = [makeDef("my_tool", originalSchema)];
+
+    const result = stripActivityField(defs);
+
+    expect("activity" in originalProps).toBe(true);
+    expect(originalRequired).toEqual(["foo", "activity"]);
+    expect(Object.is(originalSchema.properties, originalProps)).toBe(true);
+
+    const resultSchema = result[0].input_schema as Record<string, unknown>;
+    expect(Object.is(resultSchema, originalSchema)).toBe(false);
+    expect(Object.is(resultSchema.properties, originalProps)).toBe(false);
+    expect(Object.is(resultSchema.required, originalRequired)).toBe(false);
+  });
+
+  test("passes through schemas that never declared the field", () => {
+    const defs = [
+      makeDef("my_tool", { type: "object", properties: { foo: {} } }),
+      makeDef("other", { type: "string" }),
+      {
+        name: "nullish",
+        description: "x",
+        input_schema: null as unknown as object,
+      },
+    ];
+    const result = stripActivityField(defs);
+    expect(Object.is(result[0], defs[0])).toBe(true);
+    expect(Object.is(result[1], defs[1])).toBe(true);
+    expect(Object.is(result[2], defs[2])).toBe(true);
+  });
+
+  test("handles empty definitions array", () => {
+    expect(stripActivityField([])).toEqual([]);
+  });
+});
+
+describe("daemon-declared activity fields", () => {
+  test("the Zod derivation marks a schema that advertises activity", async () => {
+    const { z } = await import("zod");
+    const { toToolInputSchema } =
+      await import("../tools/shared/zod-tool-schema.js");
+
+    const schema = toToolInputSchema(
+      z.looseObject({
+        path: z.string(),
+        activity: z.string().optional(),
+      }),
+      { advertiseRequired: ["activity"] },
+    );
+    const result = stripActivityField([makeDef("file_read", schema)]);
+    const stripped = result[0].input_schema as Record<string, unknown>;
+    expect("activity" in (stripped.properties as Record<string, unknown>)).toBe(
+      false,
+    );
+    expect(stripped.required).toEqual(["path"]);
+  });
+
+  test("a Zod schema that does not advertise activity is left alone", async () => {
+    const { z } = await import("zod");
+    const { toToolInputSchema } =
+      await import("../tools/shared/zod-tool-schema.js");
+
+    const schema = toToolInputSchema(
+      z.looseObject({ activity: z.string().optional() }),
+    );
+    const defs = [makeDef("some_tool", schema)];
+    expect(Object.is(stripActivityField(defs)[0], defs[0])).toBe(true);
   });
 });

@@ -374,6 +374,39 @@ describe("reaction intercept consumes the stamped verdict directly", () => {
     expect(turn.channelInbound).toBeUndefined();
   });
 
+  test("the woken turn quotes the delivered message, not the private scratchpad", async () => {
+    // The row a `send_user_message` turn wrote: plain text is working notes
+    // the user never saw, and the posted reply is what the tool carried. The
+    // quote has to be what the reacting person is looking at.
+    storedTarget = null;
+    outboundTargetConversationId = "conv-assistant-post";
+    targetRow = {
+      role: "assistant",
+      content: [
+        { type: "text", text: "zzscratchpad reasoning nobody saw" },
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "send_user_message",
+          input: { message: "Deploy finished cleanly." },
+        },
+      ],
+      metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+    };
+
+    await handleReactionIntercept(
+      buildParams({
+        rawSenderId: MEMBER_USER_ID,
+        trustVerdict: MEMBER_VERDICT,
+      }),
+    );
+
+    expect(dispatchedTurns).toHaveLength(1);
+    const content = String(dispatchedTurns[0].content);
+    expect(content).toContain("Deploy finished cleanly.");
+    expect(content).not.toContain("zzscratchpad");
+  });
+
   test("a non-Slack reaction on the assistant's post wakes with the neutral envelope", async () => {
     storedTarget = null;
     outboundTargetConversationId = "conv-discord-post";

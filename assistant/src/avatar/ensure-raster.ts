@@ -32,9 +32,13 @@ function isWithin(dir: string, filePath: string): boolean {
  * share one descriptor so a concurrent swap of the path cannot slip a
  * different file past the checks, and the descriptor's location is
  * revalidated after the open. Returns null when the file is missing,
- * symlinked, outside the avatar dir, not a regular file, or over the cap.
+ * symlinked, outside the avatar dir, not a regular file, or over `maxBytes`,
+ * which defaults to the serving cap.
  */
-export function readContainedAvatarRaster(rasterPath: string): Buffer | null {
+export function readContainedAvatarRaster(
+  rasterPath: string,
+  maxBytes: number = AVATAR_RASTER_MAX_BYTES,
+): Buffer | null {
   let fd: number | undefined;
   try {
     // Anchored on the real workspace root: a data/avatar symlink pointing at
@@ -57,7 +61,7 @@ export function readContainedAvatarRaster(rasterPath: string): Buffer | null {
       !stats.isFile() ||
       stats.dev !== linkStats.dev ||
       stats.ino !== linkStats.ino ||
-      stats.size > AVATAR_RASTER_MAX_BYTES
+      stats.size > maxBytes
     ) {
       return null;
     }
@@ -78,7 +82,7 @@ export function readContainedAvatarRaster(rasterPath: string): Buffer | null {
       return null;
     }
     const bytes = readFileSync(fd);
-    return bytes.length > AVATAR_RASTER_MAX_BYTES ? null : bytes;
+    return bytes.length > maxBytes ? null : bytes;
   } catch {
     return null;
   } finally {

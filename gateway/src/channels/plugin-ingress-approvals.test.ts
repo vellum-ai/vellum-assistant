@@ -177,6 +177,28 @@ describe("ingressDeclarationDigest", () => {
     ).not.toBe(ingressDeclarationDigest([declared]));
   });
 
+  it("changes when a bearer token field changes", () => {
+    const declared = route({
+      path: "shortcut-health",
+      verification: {
+        kind: "bearer",
+        secret: { field: "shortcut_ingress_token" },
+      },
+    });
+
+    expect(
+      ingressDeclarationDigest([
+        route({
+          path: "shortcut-health",
+          verification: {
+            kind: "bearer",
+            secret: { field: "replacement_shortcut_token" },
+          },
+        }),
+      ]),
+    ).not.toBe(ingressDeclarationDigest([declared]));
+  });
+
   it("changes when the handshake scheme changes", () => {
     // signed-query makes the URL itself the credential. A guardian who
     // approved the header scheme has not approved that.

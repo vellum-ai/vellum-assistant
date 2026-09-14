@@ -19,7 +19,7 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
-import { DetailShell } from "@/components/detail-shell";
+import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import {
   AnimatedMetricCard,
   formatNumber,
@@ -43,6 +43,7 @@ import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-gro
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import {
   ToolDetailBody,
+  ToolDetailHeaderTitle,
   toolDetailHeaderTitle,
 } from "@/domains/chat/components/tool-detail-panel";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
@@ -268,6 +269,12 @@ export function SubagentDetailPanel({
   // The header title tracks the breadcrumb's deepest crumb: the subagent at the
   // timeline, the drilled-into step once a detail is open.
   const headerTitle = activeDetail ? detailTitle : entry.label;
+  // A drilled-into tool step gets the shared tool-detail header so it is headed
+  // the same way as in the main panel; thinking steps and the timeline keep the
+  // plain string title.
+  const showToolHeader = Boolean(
+    activeDetail && activeDetail.kind !== "thinking",
+  );
 
   return (
     <DetailShell
@@ -339,7 +346,12 @@ export function SubagentDetailPanel({
           )}
         </>
       }
-      title={headerTitle}
+      title={showToolHeader ? undefined : headerTitle}
+      titleNode={
+        showToolHeader && activeDetail ? (
+          <ToolDetailHeaderTitle detail={activeDetail} />
+        ) : undefined
+      }
       headerTrailing={<StatusBadge status={entry.status} />}
       headerActions={
         isRunning && onStop ? (
@@ -505,12 +517,9 @@ export function SubagentDetailPanel({
                     isRunning={isRunning}
                   />
                 ) : (
-                  <Typography
-                    variant="body-small-default"
-                    className="py-4 text-center text-[var(--content-tertiary)]"
-                  >
+                  <DetailShellNotice>
                     {t("subagentDetailPanel.noEventsYet")}
-                  </Typography>
+                  </DetailShellNotice>
                 )}
               </div>
             </>

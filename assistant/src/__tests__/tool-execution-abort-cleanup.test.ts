@@ -251,24 +251,23 @@ describe("file tools — abort signal pre-check", () => {
     expect(result.content).toContain("readable");
   });
 
-  test("file_write tool: synchronous write completes regardless of pre-aborted signal (abort checked at executor level)", async () => {
-    // The tool implementations use synchronous Node.js I/O, so they complete
-    // regardless of the signal. The ToolExecutor.execute() wrapper is
-    // responsible for checking signal.aborted before dispatching; the tool
-    // itself is not expected to check it. This test documents that contract.
+  test("file_write tool: a pre-aborted signal stops the write", async () => {
+    // A side-effecting tool owns the cancellation check itself. The executor
+    // guards before dispatch, but the agent loop can abandon a batch while a
+    // call is already in flight, so the tool must refuse rather than write.
     const { fileWriteTool } = await import("../tools/filesystem/write.js");
 
     const dir = makeTempDir();
     const ac = new AbortController();
-    ac.abort(); // pre-aborted
+    ac.abort();
 
-    // When invoked directly (not through ToolExecutor), the sync write runs.
-    const result = await fileWriteTool.execute(
-      { path: "should-write.txt", content: "test", reason: "test" },
-      makeToolContext(dir, ac.signal),
-    );
-    // Should succeed — the tool's own execute() doesn't check the signal.
-    expect(result.isError).toBe(false);
+    await expect(
+      fileWriteTool.execute(
+        { path: "should-not-write.txt", content: "test", reason: "test" },
+        makeToolContext(dir, ac.signal),
+      ),
+    ).rejects.toThrow();
+    expect(existsSync(join(dir, "should-not-write.txt"))).toBe(false);
   });
 });
 

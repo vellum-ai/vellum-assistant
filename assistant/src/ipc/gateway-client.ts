@@ -28,6 +28,7 @@ import {
 
 import { getLogger } from "../util/logger.js";
 import { abortableSleep, computeRetryDelay } from "../util/retry.js";
+import { throwIfGatewayIpcConnectFailed } from "./gateway-ipc-errors.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("gateway-ipc-client");
@@ -57,23 +58,30 @@ export async function ipcCall(
 // ---------------------------------------------------------------------------
 
 let persistentClient: PackagePersistentIpcClient | null = null;
+let failFastPersistentClient: PackagePersistentIpcClient | null = null;
 
-/**
- * Persistent IPC call — singleton wrapper around PersistentIpcClient.
- *
- * Creates the instance on first call using the gateway socket path.
- * Unlike `ipcCall()`, this maintains a single connection across calls,
- * making it suitable for hot-path operations like risk classification.
- *
- * Throws `IpcConnectError` when the gateway socket is missing or refused,
- * and `IpcCallError` when the gateway returns a structured error. Callers
- * must handle errors.
- */
-export async function ipcCallPersistent(
-  method: string,
-  params?: Record<string, unknown>,
-  timeoutMs?: number,
-): Promise<unknown> {
+export type IpcCallPersistentOptions = {
+  /**
+   * When false, skip sibling-boot connect retries so the caller owns the
+   * retry budget. Default true.
+   */
+  retryConnect?: boolean;
+};
+
+function getPersistentClient(
+  retryConnect: boolean,
+): PackagePersistentIpcClient {
+  if (!retryConnect) {
+    if (!failFastPersistentClient) {
+      failFastPersistentClient = new PackagePersistentIpcClient(
+        getGatewaySocketPath(),
+        undefined,
+        log,
+        { connectRetryBackoffsMs: [] },
+      );
+    }
+    return failFastPersistentClient;
+  }
   if (!persistentClient) {
     persistentClient = new PackagePersistentIpcClient(
       getGatewaySocketPath(),
@@ -81,17 +89,47 @@ export async function ipcCallPersistent(
       log,
     );
   }
-  return persistentClient.call(method, params, timeoutMs);
+  return persistentClient;
 }
 
 /**
- * Destroy and nullify the singleton persistent client.
- * Exported for testing — ensures no leaked handles between test runs.
+ * Persistent IPC call — singleton wrapper around PersistentIpcClient.
+ *
+ * Creates the instance on first call using the gateway socket path.
+ * Unlike `ipcCall()`, this maintains a single connection across calls.
+ *
+ * Throws `ServiceUnavailableError` (503) when the gateway socket is missing
+ * or refused, and `IpcCallError` when the gateway returns a structured
+ * error. Callers that already handle `RouteError` do not need a local
+ * connect-failure try/catch.
+ */
+export async function ipcCallPersistent(
+  method: string,
+  params?: Record<string, unknown>,
+  timeoutMs?: number,
+  options?: IpcCallPersistentOptions,
+): Promise<unknown> {
+  const client = getPersistentClient(options?.retryConnect !== false);
+  try {
+    return await client.call(method, params, timeoutMs);
+  } catch (err) {
+    throwIfGatewayIpcConnectFailed(err);
+    throw err;
+  }
+}
+
+/**
+ * Destroy and nullify the singleton persistent clients.
+ * Exported for testing. Ensures no leaked handles between test runs.
  */
 export function resetPersistentClient(): void {
   if (persistentClient) {
     persistentClient.destroy();
     persistentClient = null;
+  }
+  if (failFastPersistentClient) {
+    failFastPersistentClient.destroy();
+    failFastPersistentClient = null;
   }
 }
 
@@ -276,6 +314,7 @@ export async function ipcClassifyRisk(
         "classify_risk",
         params,
         CLASSIFY_RISK_ATTEMPT_TIMEOUT_MS,
+        { retryConnect: false },
       );
 
       // A returned-but-malformed response is deterministic, not transient:

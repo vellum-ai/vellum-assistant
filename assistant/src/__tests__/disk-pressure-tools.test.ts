@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { Conversation } from "../daemon/conversation.js";
 import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
+import { sendUserMessageTool } from "../tools/send-user-message/send-user-message-tool.js";
 import type { DiskUsageInfo } from "../util/disk-usage.js";
 import * as realDiskUsage from "../util/disk-usage.js";
 
@@ -274,5 +275,73 @@ describe("disk pressure cleanup tool restrictions", () => {
     expect(hostResult.content).toContain(
       "background host shell commands are not available",
     );
+  });
+});
+
+/**
+ * The delivery tool is the one non-cleanup name a gated turn keeps, so the
+ * three layers that decide availability have to agree: the wire filter, its
+ * mirror in `isToolActiveForContext`, and this executor gate. A tool the wire
+ * offers and the executor refuses is worse than one never offered.
+ */
+describe("send_user_message during disk-pressure cleanup", () => {
+  // The gate resolves the tool before deciding, so it has to be registered for
+  // an approved call to read as approved rather than "Unknown tool".
+  beforeEach(() => {
+    registerTool(sendUserMessageTool as unknown as ToolDefinition);
+  });
+
+  const cleanupContext = (sendUserMessageActive: boolean) => ({
+    workingDir: "/workspace",
+    conversationId: "conv-cleanup",
+    trustClass: "guardian" as const,
+    allowedToolNames: new Set(["send_user_message"]),
+    diskPressureCleanupModeActive: true,
+    sendUserMessageActive,
+  });
+
+  test("the executor gate admits it on a gated turn", async () => {
+    const handler = new ToolApprovalHandler();
+    const result = await handler.checkPreExecutionGates(
+      "send_user_message",
+      { message: "Freed 4 GB." },
+      cleanupContext(true),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(true);
+  });
+
+  test("the executor gate refuses it on a turn that was never gated", async () => {
+    const handler = new ToolApprovalHandler();
+    const result = await handler.checkPreExecutionGates(
+      "send_user_message",
+      { message: "Freed 4 GB." },
+      cleanupContext(false),
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
+    if (result.allowed) {
+      throw new Error("Expected the cleanup gate to reject the tool");
+    }
+    expect(result.result.content).toContain(
+      "not available during disk pressure cleanup mode",
+    );
+  });
+
+  test("a gated turn does not widen cleanup mode for anything else", async () => {
+    const handler = new ToolApprovalHandler();
+    const result = await handler.checkPreExecutionGates(
+      "file_write",
+      { path: "large.log", content: "data" },
+      { ...cleanupContext(true), allowedToolNames: new Set(["file_write"]) },
+      "low",
+      Date.now(),
+    );
+
+    expect(result.allowed).toBe(false);
   });
 });

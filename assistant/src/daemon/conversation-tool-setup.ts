@@ -16,6 +16,10 @@ import {
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
+import {
+  resolveSendUserMessageActive,
+  SEND_USER_MESSAGE_TOOL_NAME,
+} from "../config/send-user-message-gate.js";
 import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -24,7 +28,6 @@ import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import { supportsClientOsForSkillTool } from "../tools/client-os.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -41,6 +44,7 @@ import {
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
+  stripActivityField,
 } from "../tools/schema-transforms.js";
 import {
   augmentSkillExecuteError,
@@ -53,8 +57,8 @@ import type {
   ProxyApprovalRequest,
 } from "../tools/tool-types.js";
 import {
-  isDiskPressureCleanupToolName,
   type OwnerKind,
+  survivesDiskPressureCleanup,
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
@@ -255,6 +259,24 @@ export function createToolExecutor(
   // see {@link SubagentToolGateMode}): rejects non-allowlisted calls BEFORE
   // any executor dispatch, so a non-allowlisted tool's executor never runs.
   // The error tool_result lets the model continue or finish.
+  const rejectUnattendedHostTool = (
+    toolName: string,
+  ): ToolExecutionResult | null => {
+    const { transportInterface } = resolveTurnClientOs(ctx);
+    const isUnattended = ctx.currentTurnIsNonInteractive ?? ctx.hasNoClient;
+    if (
+      HOST_TOOL_NAMES.has(toolName) &&
+      isUnattended &&
+      transportInterface !== "chrome-extension"
+    ) {
+      return {
+        content: `The "${toolName}" tool requires an interactive user turn and cannot run in the background.`,
+        isError: true,
+      };
+    }
+    return null;
+  };
+
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
@@ -382,6 +404,10 @@ export function createToolExecutor(
       if (rejection) {
         return rejection;
       }
+      const unattendedRejection = rejectUnattendedHostTool(executionName);
+      if (unattendedRejection) {
+        return unattendedRejection;
+      }
     }
 
     if (isDoordashCommand(executionName, executionInput)) {
@@ -432,6 +458,9 @@ export function createToolExecutor(
       subagentAllowedTools: ctx.subagentAllowedTools,
       forcePromptSideEffects: ctx.forcePromptSideEffects,
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
+      // The approval handler's cleanup gate reads this, so a tool the wire
+      // offered on a gated cleanup turn is not refused at execution.
+      sendUserMessageActive: resolveSendUserMessageActive(ctx),
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
@@ -542,6 +571,10 @@ export function createToolExecutor(
       if (innerRejection) {
         return innerRejection;
       }
+      const unattendedRejection = rejectUnattendedHostTool(toolName);
+      if (unattendedRejection) {
+        return unattendedRejection;
+      }
 
       // Per-chat plugin scope: reject the resolved inner tool when it belongs
       // to a plugin outside the conversation's effective set.
@@ -620,7 +653,6 @@ export const DEFAULT_PREACTIVATED_SKILL_IDS = ["notifications", "subagent"];
 // ── Conditional tool sets ────────────────────────────────────────────
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
-const SLACK_TASK_PROGRESS_UI_TOOL_NAMES = new Set(["ui_show", "ui_update"]);
 /**
  * Single source of truth for which tools are host tools and the capability
  * each one requires from the connected client interface. Adding a tool here
@@ -813,7 +845,9 @@ export function isToolActiveForContext(
   }
   if (
     ctx.diskPressureCleanupModeActive === true &&
-    !isDiskPressureCleanupToolName(name)
+    !survivesDiskPressureCleanup(name, {
+      sendUserMessageActive: resolveSendUserMessageActive(ctx),
+    })
   ) {
     return false;
   }
@@ -823,6 +857,13 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
+  }
+  // The tool-gated reply surface is main-agent only: the flag must be on, and
+  // the turn must not be a subagent, worker, live-voice, or call leg. Those
+  // keep streamed assistant text, so offering them a delivery tool nothing
+  // reads would silently swallow their replies.
+  if (name === SEND_USER_MESSAGE_TOOL_NAME) {
+    return resolveSendUserMessageActive(ctx);
   }
   // The react capability follows the transport's declaration: the tool is on
   // the wire exactly when the turn's channel transport implements `react`,
@@ -839,56 +880,26 @@ export function isToolActiveForContext(
     return supportsChannelReaction(turnChannel);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
-    if (
-      channelCapabilities?.channel === "slack" &&
-      SLACK_TASK_PROGRESS_UI_TOOL_NAMES.has(name)
-    ) {
-      return !hasNoClient;
-    }
-    return channelCapabilities?.supportsDynamicUi ?? !hasNoClient;
+    // Surface calls write conversation content. Background turns persist that
+    // content for the next client that opens the conversation, so presence
+    // cannot change whether the model receives these definitions.
+    return true;
   }
   if (HOST_TOOL_NAMES.has(name)) {
     const capability = HOST_TOOL_TO_CAPABILITY.get(name);
     const transport = transportInterface;
 
-    // Per-capability check is authoritative for structural support: if the
-    // transport cannot service this capability, the tool is filtered out.
+    // A transport that does not implement a capability can invoke it through
+    // an eligible same-user client. Client selection happens when the call
+    // runs, so the wire schema stays stable across live and background turns.
     if (transport && capability && !supportsHostProxy(transport, capability)) {
-      // Cross-client exception: allow host tools whose capabilities have
-      // cross-client routing infrastructure (Phases 1–3 plus host_browser
-      // via PR #27489) to be exposed for non-host-proxy transports (e.g.
-      // "web", "ios") when at least one capable client is connected via
-      // the event hub. Members of CROSS_CLIENT_EXPOSED_CAPABILITIES
-      // (host_bash, host_file, host_browser) qualify.
-      // chrome-extension transport is excluded as a security boundary
-      // (extension only gets host_browser via its own executor path);
-      // hasNoClient turns are excluded (no interactive approval UI
-      // available).
-      if (
-        capability &&
+      return (
         CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
-        transport !== "chrome-extension" &&
-        !hasNoClient &&
-        assistantEventHub.listClientsByCapability(capability).length > 0
-      ) {
-        return true;
-      }
-      return false;
+        transport !== "chrome-extension"
+      );
     }
 
-    // chrome-extension is its own executor — the extension's popup gates
-    // commands via its own UI, and the transport does not use an SSE-level
-    // interactive approval channel. hasNoClient is intentionally `true` for
-    // chrome-extension turns (chrome-extension is not in INTERACTIVE_INTERFACES)
-    // and must not gate host_browser. Trust the per-capability check.
-    if (transport === "chrome-extension") {
-      return true;
-    }
-
-    // For transports that surface approvals over SSE (macos, backwards-compat
-    // fallback), deny when no client is present so the guardian auto-approve
-    // path cannot execute host commands unattended.
-    return !hasNoClient;
+    return true;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     if (name === "ask_question" && channelCapabilities?.clientOS === "macos") {
@@ -922,6 +933,59 @@ export function isToolActiveForContext(
     return ctx.subagentAllowedTools?.has(name) === true;
   }
   return true;
+}
+
+/**
+ * Every name a turn has to reach before it can spawn a subagent.
+ *
+ * The spawn tool ships inside the bundled `subagent` skill, so it is never
+ * called by name: `skill_load` activates the skill and `skill_execute`
+ * dispatches to `subagent_spawn` inside it, which the executor gates as the
+ * resolved inner tool. All three are therefore required: any one of them
+ * missing leaves no callable path to a subagent.
+ */
+const SUBAGENT_SPAWN_PATH_TOOL_NAMES = [
+  "skill_load",
+  "skill_execute",
+  "subagent_spawn",
+] as const;
+
+/**
+ * Whether this turn could actually spawn a subagent, read off the resolved
+ * tool surface rather than assumed.
+ *
+ * Answers yes only when the whole dispatch path is callable: the skill loader,
+ * the dispatcher, and the spawn tool the dispatcher resolves to. Each name runs
+ * through {@link isToolActiveForContext}, so a turn with tools disabled, a
+ * read-only subagent pass, or a wire-scoped background run whose `allowedTools`
+ * omits one of them all answer no, as does a workspace `tools.exclude` entry.
+ *
+ * The system prompt's delegation guidance gates on this: telling a turn to hand
+ * work to subagents it cannot spawn invites it to defer work it must do inline.
+ */
+export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
+  let excluded: ReadonlySet<string>;
+  try {
+    excluded = new Set(getConfig().tools.exclude);
+  } catch {
+    excluded = new Set<string>();
+  }
+  // A run carrying an allowlist is checked against it here whatever its gate
+  // mode. `isToolActiveForContext` skips the allowlist under
+  // `subagentToolGateMode === "execution"` by design, because that mode keeps
+  // the full surface on the wire for cache parity and rejects the call in the
+  // executor instead. That is the right answer to "is this tool on the wire"
+  // and the wrong one to "could this turn actually spawn": the memory
+  // retrospective wake runs in execution mode with an allowlist that names
+  // `skill_load` but neither the dispatcher nor the spawn tool, so the spawn
+  // is denied after the prompt has already told the model to delegate.
+  const allowlist = ctx.subagentAllowedTools;
+  return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(
+    (name) =>
+      !excluded.has(name) &&
+      (allowlist === undefined || allowlist.has(name)) &&
+      isToolActiveForContext(name, ctx),
+  );
 }
 
 /**
@@ -1174,19 +1238,29 @@ export function createResolveToolsCallback(
           input_schema: tool?.input_schema ?? {},
         };
       });
+    const sendUserMessageActive = resolveSendUserMessageActive(ctx);
+    // The gated surface renders no tool activity text, so the field is dead
+    // weight on every definition and reads to the model as a second channel
+    // to the user. A call that sends it anyway (a habit, or history replayed
+    // from an ungated turn) still validates: the tools that own the field
+    // keep it optional, and the rest tolerate unknown keys.
+    const applyActivityField = (defs: ToolDefinition[]): ToolDefinition[] =>
+      sendUserMessageActive
+        ? stripActivityField(defs)
+        : injectActivityField(defs, ACTIVITY_SKIP_SET);
+
     if (ctx.diskPressureCleanupModeActive === true) {
-      const cleanupDefs = allBaseDefs.filter((d) =>
-        isDiskPressureCleanupToolName(d.name),
-      );
+      const survivesCleanup = (name: string): boolean =>
+        survivesDiskPressureCleanup(name, { sendUserMessageActive });
+      const cleanupDefs = allBaseDefs.filter((d) => survivesCleanup(d.name));
       ctx.allowedToolNames = new Set(
-        Array.from(turnAllowed).filter(isDiskPressureCleanupToolName),
+        Array.from(turnAllowed).filter(survivesCleanup),
       );
-      return injectActivityField(cleanupDefs, ACTIVITY_SKIP_SET);
+      return applyActivityField(cleanupDefs);
     }
 
     ctx.allowedToolNames = turnAllowed;
-    const baseDefs = injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
 
-    return baseDefs;
+    return applyActivityField(allBaseDefs);
   };
 }

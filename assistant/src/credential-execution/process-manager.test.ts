@@ -12,7 +12,14 @@ import {
   test,
 } from "bun:test";
 
+import { waitFor } from "../__tests__/helpers/wait-for.js";
 import { createCesProcessManager } from "./process-manager.js";
+
+const untilClosed = (predicate: () => boolean) =>
+  waitFor(predicate, {
+    timeoutMs: 2000,
+    message: "socket close never propagated to the transport",
+  });
 
 // ---------------------------------------------------------------------------
 // onTransportClose tests
@@ -79,10 +86,7 @@ describe("CesProcessManager.onTransportClose", () => {
       sock.destroy();
     }
 
-    // Give the close event a tick to propagate.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    expect(closeFired).toBe(true);
+    await untilClosed(() => closeFired);
     expect(transport.isAlive()).toBe(false);
 
     await pm.stop();
@@ -112,8 +116,7 @@ describe("CesProcessManager.onTransportClose", () => {
     for (const sock of connections) {
       sock.destroy();
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(transport.isAlive()).toBe(false);
+    await untilClosed(() => !transport.isAlive());
 
     // Register handler AFTER transport is already dead.
     let closeFired = false;
@@ -190,14 +193,12 @@ describe("CesProcessManager transport-death logging", () => {
     for (const sock of connections) {
       sock.destroy();
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(transport.isAlive()).toBe(false);
-
-    expect(
+    await untilClosed(() =>
       calls.some(
         (c) => c.level === "warn" && c.msg.includes("died unexpectedly"),
       ),
-    ).toBe(true);
+    );
+    expect(transport.isAlive()).toBe(false);
 
     await pm.stop();
   });
@@ -208,19 +209,17 @@ describe("CesProcessManager transport-death logging", () => {
     await pm.start();
 
     await pm.stop();
-    // Let the socket close event propagate after destroy().
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await untilClosed(() =>
+      calls.some(
+        (c) =>
+          c.level === "debug" && c.msg.includes("CES socket transport closed"),
+      ),
+    );
 
     expect(
       calls.some(
         (c) => c.level === "warn" && c.msg.includes("died unexpectedly"),
       ),
     ).toBe(false);
-    expect(
-      calls.some(
-        (c) =>
-          c.level === "debug" && c.msg.includes("CES socket transport closed"),
-      ),
-    ).toBe(true);
   });
 });

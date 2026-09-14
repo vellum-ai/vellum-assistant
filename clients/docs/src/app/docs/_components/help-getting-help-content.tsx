@@ -58,8 +58,8 @@ export function HelpGettingHelpContent() {
             goes wrong — without logs, we&apos;re guessing.
           </p>
           <p className="mb-4 text-zinc-600">
-            On the <strong>desktop app</strong>, open the <em>Help</em> menu in the macOS menu bar
-            and pick <em>Share Feedback</em>.
+            On macOS, open <em>Help &gt; Share Feedback</em> in the menu bar. On Windows,
+            open <em>Help &gt; Send Feedback</em> in the app&apos;s menu bar.
           </p>
           <div className="mb-6 overflow-hidden rounded-xl border border-zinc-200 bg-white">
             <Image
@@ -165,7 +165,7 @@ export function HelpGettingHelpContent() {
                   <td className="px-3 py-2">The exact text, not a paraphrase</td>
                 </tr>
                 <tr>
-                  <td className="px-3 py-2"><strong>macOS version</strong></td>
+                  <td className="px-3 py-2"><strong>Operating system and version</strong></td>
                   <td className="px-3 py-2">Compatibility issues are real</td>
                 </tr>
                 <tr>

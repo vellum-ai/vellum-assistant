@@ -17,6 +17,12 @@ export interface ImageGenerationRequest {
   sourceImages?: Array<{ mimeType: string; dataBase64: string }>;
   model?: string;
   variants?: number;
+  /**
+   * Cancellation for the provider request itself. A generation is paid, so a
+   * caller that can be cancelled mid-flight (a tool on an aborted turn) passes
+   * the turn's signal here rather than letting the request run to completion.
+   */
+  signal?: AbortSignal;
 }
 
 export interface GeneratedImage {

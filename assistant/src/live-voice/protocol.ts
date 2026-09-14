@@ -627,8 +627,6 @@ export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
    * condition as the two fields above.
    */
   readonly endpointDecisionSource?: "front-door" | "provider";
-  /** Which floor-holding ack actually spoke during the turn, if any. */
-  readonly ackSpoken?: "first_delta" | "tool_use";
   /**
    * Spoken progress narrations during the turn. Present only when at least
    * one progress update spoke (otherwise the field is absent, keeping frames

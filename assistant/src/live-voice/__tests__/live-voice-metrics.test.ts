@@ -329,7 +329,6 @@ describe("LiveVoiceMetricsCollector", () => {
       endpointHoldCount: 0,
       endpointDecisionMaxLatencyMs: 95,
     });
-    expect(completed).not.toHaveProperty("ackSpoken");
   });
 
   test("decisions without a source are attributed to the front door", () => {
@@ -435,7 +434,6 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(completed).not.toHaveProperty("endpointHoldCount");
     expect(completed).not.toHaveProperty("endpointDecisionMaxLatencyMs");
     expect(completed).not.toHaveProperty("endpointDecisionSource");
-    expect(completed).not.toHaveProperty("ackSpoken");
     expect(completed).not.toHaveProperty("progressUpdatesSpoken");
 
     const aggregateFields = getLiveVoiceMetricsAggregateFields(
@@ -446,7 +444,6 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(aggregateFields).not.toHaveProperty("endpointHoldCount");
     expect(aggregateFields).not.toHaveProperty("endpointDecisionMaxLatencyMs");
     expect(aggregateFields).not.toHaveProperty("endpointDecisionSource");
-    expect(aggregateFields).not.toHaveProperty("ackSpoken");
     expect(aggregateFields).not.toHaveProperty("progressUpdatesSpoken");
   });
 

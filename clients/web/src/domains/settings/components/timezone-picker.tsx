@@ -133,6 +133,21 @@ function buildMetadata(identifier: string): TimezoneEntry | null {
   return { identifier, city, region, offsetLabel, offsetMinutes };
 }
 
+/**
+ * Every zone this engine knows, with the metadata the list renders and
+ * searches on.
+ *
+ * Costly by construction: it builds one `Intl.DateTimeFormat` per zone, and
+ * an engine reporting the full IANA set means several hundred of them on the
+ * main thread. Call it when the list is about to be shown, not when the
+ * component holding the list mounts.
+ */
+export function buildTimezoneCatalog(): TimezoneEntry[] {
+  return buildKnownTimezones()
+    .map((id) => buildMetadata(id))
+    .filter((entry): entry is TimezoneEntry => entry !== null);
+}
+
 function formatCurrentTime(identifier: string): string {
   try {
     return new Intl.DateTimeFormat("en-US", {
@@ -196,22 +211,34 @@ export interface TimezonePickerProps {
  */
 const MAX_VISIBLE = 200;
 
+/** Stable identity, so the memos downstream of it are not remade per render. */
+const NO_ENTRIES: TimezoneEntry[] = [];
+
 export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
   const { t } = useTranslation("settings");
   const [searchText, setSearchText] = useState("");
+  /**
+   * Whether the list has been opened, which is what the catalog exists for.
+   *
+   * Settings renders this row on every visit and most visits never touch the
+   * field, so the catalog is built on the first open rather than for everyone
+   * who passes by: it costs several hundred `Intl.DateTimeFormat`
+   * constructions of main-thread time. Latched rather than cleared on close,
+   * so a reopen does not pay for it twice.
+   */
+  const [catalogRequested, setCatalogRequested] = useState(false);
 
-  const allEntries = useMemo(() => {
-    const ids = buildKnownTimezones();
-    return ids
-      .map((id) => buildMetadata(id))
-      .filter((entry): entry is TimezoneEntry => entry !== null);
-  }, []);
+  const allEntries = useMemo(
+    () => (catalogRequested ? buildTimezoneCatalog() : NO_ENTRIES),
+    [catalogRequested],
+  );
 
   // Filtered straight off the text in the field, with no debounce in between.
   // A debounce here would let the keyboard walk and commit rows belonging to
   // a query the field no longer shows: Enter is only safe while the options
-  // are the ones the typing produced. Filtering a few hundred strings is not
-  // the expensive part (see `entriesWithTime`), so there is nothing to defer.
+  // are the ones the typing produced. Filtering a few hundred already-built
+  // strings is cheap; the expensive step is building them, which
+  // `catalogRequested` scopes to an opened list.
   const query = searchText.trim().toLowerCase();
   const visible = useMemo(() => {
     const offsetQuery = parseOffsetQuery(query);
@@ -257,9 +284,14 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
           value={value}
           onSelect={onChange}
           onOpenChange={(open) => {
-            if (!open) {
-              setSearchText("");
+            if (open) {
+              // Same event as the open itself, so React commits the catalog
+              // and the opened list together: the list never paints empty on
+              // its way to being populated.
+              setCatalogRequested(true);
+              return;
             }
+            setSearchText("");
           }}
           // A query narrows the list to what the typing meant, so Enter
           // commits the top match; with no query it must pick nothing.

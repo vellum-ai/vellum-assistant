@@ -6,11 +6,22 @@ import type { DisplayAttachment } from "@/domains/chat/types/types";
 import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
 
 interface UseAttachmentPreviewResult {
-  /** Open the full-screen preview modal for the given attachment. */
-  openPreview: (attachment: DisplayAttachment) => void;
+  /**
+   * Open the full-screen preview modal for the given attachment. Pass its
+   * position in `attachments` when the list can hold two attachments with the
+   * same id (legacy `rehydrated:N` rows), which the modal's id lookup cannot
+   * tell apart.
+   */
+  openPreview: (attachment: DisplayAttachment, index?: number) => void;
   /** The rendered {@link AttachmentPreviewModal}, or `null` when nothing is
    *  open. Render this somewhere stable in the consuming component. */
   previewModal: ReactNode;
+}
+
+interface OpenPreview {
+  attachment: DisplayAttachment;
+  /** The caller's position, when it gave one; the modal falls back to its id. */
+  index?: number;
 }
 
 /**
@@ -30,25 +41,27 @@ export function useAttachmentPreview(
   assistantId?: string | null,
   attachments?: DisplayAttachment[],
 ): UseAttachmentPreviewResult {
-  const [previewAttachment, setPreviewAttachment] =
-    useState<DisplayAttachment | null>(null);
+  const [preview, setPreview] = useState<OpenPreview | null>(null);
 
   const openPreview = useCallback(
-    (attachment: DisplayAttachment) => setPreviewAttachment(attachment),
+    (attachment: DisplayAttachment, index?: number) =>
+      setPreview({ attachment, index }),
     [],
   );
-  const handleClose = useCallback(() => setPreviewAttachment(null), []);
+  const handleClose = useCallback(() => setPreview(null), []);
 
   const handleNavigate = useCallback(
-    (attachment: DisplayAttachment) => setPreviewAttachment(attachment),
+    (attachment: DisplayAttachment, index: number) =>
+      setPreview({ attachment, index }),
     [],
   );
 
-  const previewModal = previewAttachment ? (
+  const previewModal = preview ? (
     <AttachmentPreviewModal
       open
       onClose={handleClose}
-      attachment={previewAttachment}
+      attachment={preview.attachment}
+      currentIndex={preview.index}
       assistantId={assistantId}
       siblingAttachments={attachments}
       onNavigate={handleNavigate}

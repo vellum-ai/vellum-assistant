@@ -40,13 +40,10 @@ describe("mcp-auth route body validation", () => {
     ).rejects.toThrow(BadRequestError);
   });
 
-  test("internal_mcp_update rejects a non-numeric maxTools", async () => {
+  test("internal_mcp_update rejects a non-string name", async () => {
     await expect(
       routeFor("internal_mcp_update").handler({
-        body: { name: "srv", maxTools: "lots" } as unknown as Record<
-          string,
-          unknown
-        >,
+        body: { name: 42 } as unknown as Record<string, unknown>,
       }),
     ).rejects.toThrow(BadRequestError);
   });

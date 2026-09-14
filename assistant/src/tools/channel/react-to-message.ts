@@ -18,10 +18,12 @@ import { parseChannelId } from "../../channels/types.js";
 import { findConversationOrSubagent } from "../../daemon/conversation-registry.js";
 import { persistReactionRecords } from "../../daemon/reaction-record.js";
 import {
+  describeChannelReactionEmoji,
   sendChannelReaction,
   supportsChannelReaction,
 } from "../../messaging/providers/index.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   toToolInputSchema,
@@ -80,6 +82,7 @@ export const reactToMessageTool = {
     if (!parsed.success) {
       return invalidToolInputResult("react_to_message", parsed.error);
     }
+    throwIfCancelled(context);
 
     const channel = context.executionChannel;
     const chatId = context.requesterChatId;
@@ -135,6 +138,7 @@ export const reactToMessageTool = {
         chatId,
         messageId,
         emoji: parsed.data.emoji,
+        ...describeChannelReactionEmoji(channel, parsed.data.emoji),
         op: action === "remove" ? ("removed" as const) : ("added" as const),
         ...(context.trustClass
           ? { provenanceTrustClass: context.trustClass }

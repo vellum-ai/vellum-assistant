@@ -48,8 +48,13 @@ import {
   mergeConsecutiveAssistantMessages,
   mergeToolResultsIntoAssistantMessages,
 } from "../../conversations/message-consolidation.js";
+import { resolveTurnCommitWaitMs } from "../../daemon/abort-watchdog.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
+import {
+  classifyInterruptEligibility,
+  interruptRunningTurn,
+} from "../../daemon/conversation-interrupt.js";
 import {
   isConversationBusyError,
   persistQueuedMessageBody,
@@ -91,6 +96,7 @@ import type {
   NonHostProxyTransportMetadata,
 } from "../../daemon/message-types/conversations.js";
 import type { TrustContext } from "../../daemon/trust-context-types.js";
+import { startAfterTurnFinalization } from "../../daemon/turn-finalization.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   writeOnboardingSidecar,
@@ -113,6 +119,7 @@ import {
 } from "../../persistence/attachments-store.js";
 import {
   addMessage,
+  findMessageIdByClientMessageId,
   getConversation,
   getConversationPersistedSeq,
   getMessages,
@@ -135,6 +142,7 @@ import {
 import { searchConversations } from "../../persistence/conversation-queries.js";
 import { isNoResponseMetadata } from "../../persistence/conversation-types.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
+import { assistantTextVisibilityOf } from "../../persistence/user-facing-content.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
@@ -839,6 +847,40 @@ function buildQueuedMessagePayloads(
     });
 }
 
+/**
+ * The visibility filter the transcript renders through: user and assistant
+ * rows only, and only unhidden ones outside a memory-retrospective fork
+ * (whose hidden instruction row is part of what makes the run readable).
+ */
+function displayRowFilter(conversationId: string): (m: MessageRow) => boolean {
+  const isRetrospectiveFork =
+    getConversation(conversationId)?.source ===
+    MEMORY_RETROSPECTIVE_FORK_SOURCE;
+  return (m: MessageRow) =>
+    (isRetrospectiveFork || !isHiddenMessage(m.metadata)) &&
+    (m.role === "user" || m.role === "assistant");
+}
+
+/**
+ * Fold raw rows into the display turns a client holds: tool results merged
+ * into the assistant row that called them, then consecutive assistant rows
+ * merged into one turn.
+ *
+ * A merged run takes the FIRST row's id, so any route that compares an id a
+ * client received against stored rows has to compare against these, not
+ * against the raw tail. A gated `send_user_message` turn is always at least
+ * two rows (the call, then the post-tool wrap-up), so on that path the raw
+ * tail is never the id the client holds.
+ */
+function consolidateDisplayTurns(rows: MessageRow[]): {
+  messages: MessageRow[];
+  mergedIdMap: Map<string, string[]>;
+} {
+  return mergeConsecutiveAssistantMessages(
+    mergeToolResultsIntoAssistantMessages(rows),
+  );
+}
+
 export async function handleListMessages({
   queryParams,
 }: RouteHandlerArgs): Promise<Record<string, unknown>> {
@@ -948,12 +990,7 @@ export async function handleListMessages({
   // permitted `MessageRole`, e.g. skill-authored context) are agent-context
   // scaffolding, never a displayed turn, so they are dropped here at the
   // source rather than narrowed away per-client.
-  const isRetrospectiveFork =
-    getConversation(resolvedConversationId)?.source ===
-    MEMORY_RETROSPECTIVE_FORK_SOURCE;
-  const visibleFilter = (m: MessageRow) =>
-    (isRetrospectiveFork || !isHiddenMessage(m.metadata)) &&
-    (m.role === "user" || m.role === "assistant");
+  const visibleFilter = displayRowFilter(resolvedConversationId);
 
   if (isPaginated) {
     const result = getMessagesPaginated(
@@ -974,17 +1011,14 @@ export async function handleListMessages({
   // are separate DB rows. Merge tool_result blocks from user messages into the
   // preceding assistant message so renderHistoryContent can pair them via its
   // pendingToolUses map — otherwise they render as "Unknown" tool calls.
-  const mergedMessages = mergeToolResultsIntoAssistantMessages(rawMessages);
-
   // During streaming, all assistant turns within one agent loop accumulate
   // on a single client-side ChatMessage (via currentAssistantMessageId).
   // In the DB, each API turn is a separate assistant row because
   // consolidation is deferred to compaction for prefix-cache stability.
-  // Merge consecutive assistant messages here at query time so
-  // renderHistoryContent produces the same contentOrder shape as streaming
-  // (consecutive tool refs grouped together).
+  // Merge here at query time so renderHistoryContent produces the same
+  // contentOrder shape as streaming (consecutive tool refs grouped together).
   const { messages: consolidatedMessages, mergedIdMap } =
-    mergeConsecutiveAssistantMessages(mergedMessages);
+    consolidateDisplayTurns(rawMessages);
   const assistantSlackDisplayName = getAssistantName()?.trim() || undefined;
 
   // Parse each row's stored content and per-message metadata. Rendering is
@@ -1107,6 +1141,11 @@ export async function handleListMessages({
       slackMessage,
       deletedAt,
       clientMessageId: msg.clientMessageId ?? undefined,
+      assistantTextVisibility: assistantTextVisibilityOf(msg.metadata),
+      // The row's raw stored envelope, carried to the render pass below so it
+      // can read the row's own `assistantTextVisibility` marker. Never part of
+      // the wire payload, which the serializer builds field by field.
+      rowMetadata: msg.metadata,
     };
   });
 
@@ -1196,6 +1235,7 @@ export async function handleListMessages({
         m.content,
         attachmentBlocks,
         m.id ?? undefined,
+        m.rowMetadata,
       );
 
       const toolCalls = enrichToolCallsWithQuestion(
@@ -1313,6 +1353,11 @@ export async function handleListMessages({
           : {}),
         ...(m.systemCard ? { systemCard: true } : {}),
         ...(m.noResponse ? { noResponse: true } : {}),
+        // The row's own marker, so a client gates per-row presentation on what
+        // this row was written with rather than on the live flag.
+        ...(m.assistantTextVisibility
+          ? { assistantTextVisibility: m.assistantTextVisibility }
+          : {}),
         ...(m.reaction ? { reaction: m.reaction } : {}),
         ...(m.providerError ? { providerError: m.providerError } : {}),
         ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
@@ -1976,53 +2021,6 @@ export async function handleSendMessage(
   const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
     actorPrincipalId ?? undefined,
   );
-  // Bash/File/Transfer singletons are globally available via isAvailable() —
-  // no per-conversation gating needed. CU is per-conversation (owns step
-  // count, AX tree history, loop detection).
-  if (
-    shouldAttachHostProxyForCapability(
-      "host_cu",
-      sourceInterface,
-      sourceActorPrincipalId,
-    )
-  ) {
-    if (!conversation.isProcessing() || !conversation.hostCuProxy) {
-      conversation.setHostCuProxy(new HostCuProxy());
-    }
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostCuProxy(undefined);
-  }
-  // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
-  // singleton lock plus per-session loop tracking. Instantiation is
-  // unconditional when the capability is reachable — feature-flag gating
-  // lives in the skill-projection layer (which reads the `feature-flag:
-  // app-control` declaration in SKILL.md frontmatter), so an attached proxy
-  // is harmless when the flag resolves to off.
-  if (
-    shouldAttachHostProxyForCapability(
-      "host_app_control",
-      sourceInterface,
-      sourceActorPrincipalId,
-    )
-  ) {
-    if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
-      conversation.setHostAppControlProxy(
-        new HostAppControlProxy(mapping.conversationId),
-      );
-    }
-  } else if (!conversation.isProcessing()) {
-    conversation.setHostAppControlProxy(undefined);
-  }
-  // Only preactivate when the conversation is idle — if it's processing,
-  // this message will be queued and preactivation is deferred to dequeue
-  // time in drainQueueImpl to avoid mutating in-flight turn state.
-  if (!conversation.isProcessing()) {
-    preactivateHostProxySkills(
-      conversation,
-      sourceInterface,
-      sourceActorPrincipalId,
-    );
-  }
   // Delivery needs no wiring: the conversation's sink is the SSE hub for its
   // whole life. Presence travels with the turn (`isInteractive` below), which
   // is what keeps host_bash/host_file/host_cu gated for non-desktop
@@ -2290,13 +2288,53 @@ export async function handleSendMessage(
    * from both means a client cannot tell which side of the awaits the
    * conversation went busy on.
    */
-  const queueSend = async (content: string) => {
-    // Queue the message so it's processed when the current turn completes
-    const requestId = uuidv7();
+  // Minted before the handover rather than at the persist below, because the
+  // interrupt path answers the request before the persist runs and the 202 has
+  // to carry the id the row will be written with.
+  const sendRequestId = uuidv7();
+
+  /**
+   * `broadcastMessage`, minus the queue's own uncorrelated rejection notice.
+   *
+   * `enqueueMessage` announces a refused enqueue on the sender's sink as a
+   * generic `error` with `category: "queue_full"` and no `requestId`. That is
+   * the right notice when the enqueue IS the request's answer. On a fallback it
+   * is not: the request was answered `202` long ago, and a client that receives
+   * an uncorrelated error reads it as the running turn failing and tears that
+   * turn down locally, a turn this send does not own. The correlated
+   * `QUEUE_FULL` from {@link reportQueueRejectionAfterAcceptance} carries the
+   * `requestId` and is the one a client can act on, so it is the only one sent.
+   *
+   * Filtered here rather than in the client so clients that are not updated get
+   * the fix too.
+   */
+  const broadcastExceptUncorrelatedQueueFull = (msg: AssistantEvent): void => {
+    if (
+      msg.type === "error" &&
+      msg.category === "queue_full" &&
+      !msg.requestId
+    ) {
+      return;
+    }
+    broadcastMessage(msg);
+  };
+
+  const queueSend = async (
+    content: string,
+    options?: { afterAcceptance?: boolean },
+  ) => {
+    // Queue the message so it's processed when the current turn completes.
+    // The send's own id, not a fresh one: an interrupting send is answered
+    // `202` before this can run, and a fallback that minted its own would
+    // persist the row and emit its queue events under an id the client was
+    // never told, so nothing it holds would correlate.
+    const requestId = sendRequestId;
     const enqueueResult = conversation.enqueueMessage({
       content,
       attachments,
-      onEvent: broadcastMessage,
+      onEvent: options?.afterAcceptance
+        ? broadcastExceptUncorrelatedQueueFull
+        : broadcastMessage,
       requestId,
       metadata: withClientMetadata(
         {
@@ -2327,6 +2365,14 @@ export async function handleSendMessage(
       // who sent it rather than as whoever the slot happens to hold when the
       // queue is worked.
       trustContext: resolvedTrustCtx,
+      // This helper's whole contract is that the message is queued, and it
+      // answers `queued: true`, so it must never take the enqueue's idle fast
+      // path, which stores nothing. Every route into here has already decided
+      // this send cannot run now, and the conversation can be idle by the time
+      // the push lands: the interrupt fallback reaches here after the turn it
+      // stopped has ended, and the other callers reach it after awaits a turn
+      // can end inside. The drain kick below is what runs it.
+      queueWhenIdle: true,
     });
     if (enqueueResult.rejected) {
       return new RouteResponse(
@@ -2373,6 +2419,30 @@ export async function handleSendMessage(
       }
     }
 
+    // A queued message normally rides the running turn's `finally` into
+    // `drainQueue`. When the conversation is already idle by the time it lands
+    // there is no such turn ahead of it, so kick the drain here. Reachable
+    // whenever the turn releases inside the awaits above, and always on the
+    // interrupt path's `busy` fallback, where the interrupted turn has already
+    // ended. `kickDrainQueue` is a no-op on an empty queue or a busy
+    // conversation, so an unnecessary kick costs nothing.
+    //
+    // Behind the finalization barrier, because an idle conversation is not
+    // necessarily a finished one: the `busy` fallback is reached when the
+    // turn-boundary commit outran its budget, and that commit is still staging
+    // the working tree. A drain that started now would have the drained turn's
+    // first file writes swept into the previous turn's commit. Nothing waits on
+    // the response for this, which has already been sent.
+    if (!conversation.isProcessing()) {
+      startAfterTurnFinalization(
+        mapping.conversationId,
+        resolveTurnCommitWaitMs(getConfig().workspaceGit?.turnCommitMaxWaitMs),
+        () => {
+          void conversation.kickDrainQueue("loop_complete", "queue_send_idle");
+        },
+      );
+    }
+
     return {
       accepted: true,
       queued: true,
@@ -2381,454 +2451,827 @@ export async function handleSendMessage(
     };
   };
 
-  if (conversation.isProcessing()) {
-    return queueSend(contentAfterScan);
-  }
+  /**
+   * Everything the send does once the conversation is known to be free: the
+   * per-turn host-proxy setup, the interaction sweep, slash resolution, the
+   * user-row persist and the turn dispatch.
+   *
+   * A closure rather than straight-line code because the interrupt path runs it
+   * off the response path. `POST /v1/messages` is fire-and-forget, and the
+   * handover it waits on is bounded by the abort budget plus the turn-boundary
+   * commit wait, which is far too long to hold a request open.
+   */
+  /**
+   * Tell the sender that a queue fallback was refused, for a send this request
+   * has already answered `202` for.
+   *
+   * `queueSend` answers a full queue with a `429`, and once the acceptance has
+   * gone out that response reaches nobody: the message would be accepted and
+   * then silently gone. `requestId` is the id the acceptance carried, so the
+   * client can fail the optimistic row it is already showing and offer the
+   * retry; the body it typed is in that row, so this does not repeat it.
+   */
+  const reportQueueRejectionAfterAcceptance = (reason: string): void => {
+    log.error(
+      {
+        conversationId: mapping.conversationId,
+        requestId: sendRequestId,
+        reason,
+      },
+      "Queue fallback for an accepted send was rejected; telling the sender",
+    );
+    broadcastMessage({
+      type: "error",
+      conversationId: mapping.conversationId,
+      requestId: sendRequestId,
+      code: "QUEUE_FULL",
+      category: "queue_drain_failed",
+      message:
+        "The assistant couldn't take your message: too many are already waiting. Try sending it again in a moment.",
+    });
+  };
 
-  // Auto-deny pending confirmations for idle conversations. The legacy
-  // handleUserMessage called autoDenyPendingConfirmations unconditionally
-  // before dispatching, so an idle conversation with lingering confirmations
-  // (e.g. the user never responded to a tool-approval prompt) must deny
-  // them before starting the new turn.
-  // Hidden sends are machine signals, not user decisions — like the queue
-  // branch's supersede bypass above, they must not deny confirmations that
-  // outlived a turn (e.g. a guardian approval still awaiting a channel
-  // reply). The next visible send performs the cleanup instead.
-  if (body.hidden !== true && conversation.hasAnyPendingConfirmation()) {
-    for (const interaction of pendingInteractions.getByConversation(
-      mapping.conversationId,
-    )) {
-      if (interaction.kind === "confirmation") {
-        conversation.emitConfirmationStateChanged({
-          conversationId: mapping.conversationId,
-          requestId: interaction.requestId,
-          state: "denied" as const,
-          source: "auto_deny" as const,
-        });
-        // Sync the gateway request status so stale "pending" records don't
-        // get matched by later guardian reply routing, and withdraw the
-        // request's delivered approval cards so no surface keeps offering a
-        // decision that can no longer resolve anything. Fire-and-forget: the
-        // in-memory denial is authoritative here; a CAS miss (already
-        // decided elsewhere) or a lost sync is reaped by the orphan sweep.
-        void syncTerminalGuardianRequestStatus({
-          requestId: interaction.requestId,
-          status: "denied",
-          syncContext: "auto-deny-idle-send",
-          terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
-        });
+  /**
+   * @param afterAcceptance - true when this call runs off an already-answered
+   * request (the interrupt handover). Its return value reaches nobody, so a
+   * queue fallback that is refused has to be reported as an event instead.
+   */
+  const completeSend = async (afterAcceptance = false): Promise<unknown> => {
+    const queueFallback = async (
+      content: string,
+      reason: string,
+    ): Promise<unknown> => {
+      const result = await queueSend(content, { afterAcceptance });
+      if (afterAcceptance && result instanceof RouteResponse) {
+        reportQueueRejectionAfterAcceptance(reason);
       }
-    }
-    conversation.denyAllPendingConfirmations();
-    pendingInteractions.removeByConversation(mapping.conversationId);
-  }
-
-  // Expire any orphaned guardian requests that survived without a
-  // matching in-memory pending interaction (e.g. prompter timeouts).
-  await expireOrphanedGuardianRequests(mapping.conversationId);
-
-  // Conversation is idle — persist and fire agent loop immediately.
-  //
-  // Stamping the sender here rather than at resolution is what keeps the two
-  // in step: the slot hydrates and scopes the turn started just below
-  // (`ensureActorScopedHistory`, persisted provenance, the loop's own trust),
-  // so it must name whoever this request is about to run as. A request that
-  // queues instead returns above without stamping — it is not starting a run,
-  // and its actor rides the queue item to the drain.
-  conversation.setTrustContext(resolvedTrustCtx);
-  conversation.setTurnChannelContext({
-    userMessageChannel: sourceChannel,
-    assistantMessageChannel: sourceChannel,
-  });
-  conversation.setTurnInterfaceContext({
-    userMessageInterface: sourceInterface,
-    assistantMessageInterface: sourceInterface,
-  });
-  conversation.currentTurnSourceActorPrincipalId = sourceActorPrincipalId;
-
-  await conversation.ensureActorScopedHistory();
-
-  // Resolve slash commands before persisting or running the agent loop.
-  // `contentAfterScan` already carries the scan-rewritten content when
-  // applicable; reuse it here for consistency.
-  const rawContent = contentAfterScan;
-  const slashContext = buildSlashContextForContent(rawContent, {
-    conversationId: mapping.conversationId,
-    messageCount: conversation.getMessages().length,
-    inputTokens: conversation.usageStats.inputTokens,
-    outputTokens: conversation.usageStats.outputTokens,
-    estimatedCost: conversation.usageStats.estimatedCost,
-    userMessageInterface: sourceInterface,
-  });
-  const slashResult = await resolveSlash(rawContent, slashContext);
-
-  if (slashResult.kind === "unknown") {
-    const slashOwner = await conversation.acquireProcessingFenced();
-    if (slashOwner === null) {
-      return queueSend(rawContent);
-    }
-    let cleanupDeferred = false;
+      return result;
+    };
+    // The interrupt arms a `thinking` / `message_interrupted` transition for the
+    // agent loop to emit at the head of the replacement turn. Several exits
+    // below answer without starting a loop at all: a `/compact`, a `/clean`, an
+    // unknown slash command, a deduplicated persist. Nothing would consume the
+    // flag on those, so the next ordinary turn on this conversation would emit
+    // a transition belonging to an interrupt that is long over. Disarmed in the
+    // `finally` unless the loop this call started is there to consume it.
+    let startedAgentLoop = false;
     try {
-      const slashMeta = {
+      // Per-turn host-proxy setup, after the interrupt decision so the replacement
+      // turn an interrupt starts gets what an idle send gets. A send that queues
+      // has returned above, and the turn it queued behind clears
+      // `preactivatedSkillIds` when it ends, so running this before the decision
+      // would leave a released send without the `computer-use` and `app-control`
+      // tools its client can service.
+      //
+      // `isProcessing()` reads false on every path that reaches here, bar the race
+      // where another claim takes the lock in between. The guards below keep that
+      // case on the queue path's behaviour.
+      // Bash/File/Transfer singletons are globally available via isAvailable(), so
+      // they need no per-conversation gating. CU is per-conversation (owns step
+      // count, AX tree history, loop detection).
+      if (
+        shouldAttachHostProxyForCapability(
+          "host_cu",
+          sourceInterface,
+          sourceActorPrincipalId,
+        )
+      ) {
+        if (!conversation.isProcessing() || !conversation.hostCuProxy) {
+          conversation.setHostCuProxy(new HostCuProxy());
+        }
+      } else if (!conversation.isProcessing()) {
+        conversation.setHostCuProxy(undefined);
+      }
+      // App-control mirrors CU's per-conversation lifecycle: the proxy owns a
+      // singleton lock plus per-session loop tracking. Instantiation is
+      // unconditional when the capability is reachable, because feature-flag
+      // gating lives in the skill-projection layer (which reads the `feature-flag:
+      // app-control` declaration in SKILL.md frontmatter), so an attached proxy
+      // is harmless when the flag resolves to off.
+      if (
+        shouldAttachHostProxyForCapability(
+          "host_app_control",
+          sourceInterface,
+          sourceActorPrincipalId,
+        )
+      ) {
+        if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
+          conversation.setHostAppControlProxy(
+            new HostAppControlProxy(mapping.conversationId),
+          );
+        }
+      } else if (!conversation.isProcessing()) {
+        conversation.setHostAppControlProxy(undefined);
+      }
+      // Preactivate only while the conversation is idle. A lock that changed hands
+      // since the interrupt decision sends this message to the queue instead, and
+      // the drain preactivates at dequeue time rather than mutating another turn's
+      // in-flight state.
+      if (!conversation.isProcessing()) {
+        preactivateHostProxySkills(
+          conversation,
+          sourceInterface,
+          sourceActorPrincipalId,
+        );
+      }
+
+      // Auto-deny pending confirmations for idle conversations. The legacy
+      // handleUserMessage called autoDenyPendingConfirmations unconditionally
+      // before dispatching, so an idle conversation with lingering confirmations
+      // (e.g. the user never responded to a tool-approval prompt) must deny
+      // them before starting the new turn.
+      // Hidden sends are machine signals, not user decisions — like the queue
+      // branch's supersede bypass above, they must not deny confirmations that
+      // outlived a turn (e.g. a guardian approval still awaiting a channel
+      // reply). The next visible send performs the cleanup instead.
+      if (body.hidden !== true && conversation.hasAnyPendingConfirmation()) {
+        for (const interaction of pendingInteractions.getByConversation(
+          mapping.conversationId,
+        )) {
+          if (interaction.kind === "confirmation") {
+            conversation.emitConfirmationStateChanged({
+              conversationId: mapping.conversationId,
+              requestId: interaction.requestId,
+              state: "denied" as const,
+              source: "auto_deny" as const,
+            });
+            // Sync the gateway request status so stale "pending" records don't
+            // get matched by later guardian reply routing, and withdraw the
+            // request's delivered approval cards so no surface keeps offering a
+            // decision that can no longer resolve anything. Fire-and-forget: the
+            // in-memory denial is authoritative here; a CAS miss (already
+            // decided elsewhere) or a lost sync is reaped by the orphan sweep.
+            void syncTerminalGuardianRequestStatus({
+              requestId: interaction.requestId,
+              status: "denied",
+              syncContext: "auto-deny-idle-send",
+              terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
+            });
+          }
+        }
+        conversation.denyAllPendingConfirmations();
+        pendingInteractions.removeByConversation(mapping.conversationId);
+      }
+
+      // Expire any orphaned guardian requests that survived without a
+      // matching in-memory pending interaction (e.g. prompter timeouts).
+      await expireOrphanedGuardianRequests(mapping.conversationId);
+
+      // Conversation is idle — persist and fire agent loop immediately.
+      //
+      // Stamping the sender here rather than at resolution is what keeps the two
+      // in step: the slot hydrates and scopes the turn started just below
+      // (`ensureActorScopedHistory`, persisted provenance, the loop's own trust),
+      // so it must name whoever this request is about to run as. A request that
+      // queues instead returns above without stamping — it is not starting a run,
+      // and its actor rides the queue item to the drain.
+      conversation.setTrustContext(resolvedTrustCtx);
+      conversation.setTurnChannelContext({
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
+      });
+      conversation.setTurnInterfaceContext({
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
-        ...(body.automated === true ? { automated: true } : {}),
-        ...(typeof body.scripted === "boolean"
-          ? { scripted: body.scripted }
+      });
+      conversation.currentTurnSourceActorPrincipalId = sourceActorPrincipalId;
+
+      await conversation.ensureActorScopedHistory();
+
+      // Resolve slash commands before persisting or running the agent loop.
+      // `contentAfterScan` already carries the scan-rewritten content when
+      // applicable; reuse it here for consistency.
+      const rawContent = contentAfterScan;
+      const slashContext = buildSlashContextForContent(rawContent, {
+        conversationId: mapping.conversationId,
+        messageCount: conversation.getMessages().length,
+        inputTokens: conversation.usageStats.inputTokens,
+        outputTokens: conversation.usageStats.outputTokens,
+        estimatedCost: conversation.usageStats.estimatedCost,
+        userMessageInterface: sourceInterface,
+      });
+      const slashResult = await resolveSlash(rawContent, slashContext);
+
+      if (slashResult.kind === "unknown") {
+        const slashOwner = await conversation.acquireProcessingFenced();
+        if (slashOwner === null) {
+          return queueFallback(rawContent, "lock_race");
+        }
+        let cleanupDeferred = false;
+        try {
+          const slashMeta = {
+            userMessageChannel: sourceChannel,
+            assistantMessageChannel: sourceChannel,
+            userMessageInterface: sourceInterface,
+            assistantMessageInterface: sourceInterface,
+            ...(body.automated === true ? { automated: true } : {}),
+            ...(typeof body.scripted === "boolean"
+              ? { scripted: body.scripted }
+              : {}),
+          };
+          const persisted = await persistQueuedMessageBody(conversation, {
+            content: rawContent,
+            attachments,
+            // The send's own id, not a fresh one: an interrupting send is
+            // answered `202` advertising this id as its `messageId` before
+            // these branches run, and a user row is persisted under its
+            // request id, so minting here would advertise a row that never
+            // exists.
+            requestId: sendRequestId,
+            metadata: withClientMetadata(slashMeta, clientMetadata),
+            clientMessageId,
+            ...(clientOs ? { requestClientOs: clientOs } : {}),
+          });
+          if (persisted.deduplicated) {
+            return {
+              accepted: true,
+              messageId: persisted.id,
+              conversationId: mapping.conversationId,
+            };
+          }
+
+          const channelMeta = buildChannelMetadata(
+            sourceChannel,
+            sourceInterface,
+            {
+              trustContext: conversation.trustContext,
+            },
+          );
+          const assistantMsg = createAssistantMessage(slashResult.message);
+          const persistedAssistant = await addMessage(
+            mapping.conversationId,
+            "assistant",
+            JSON.stringify(assistantMsg.content),
+            { metadata: channelMeta },
+          );
+          conversation.getMessages().push(assistantMsg);
+
+          // Snapshot model info now so the deferred callback cannot observe
+          // a config change from a concurrent request.
+          const modelInfoEvent = isModelSlashCommand(rawContent)
+            ? await buildModelInfoEvent(mapping.conversationId)
+            : null;
+
+          const response = {
+            accepted: true,
+            messageId: persisted.id,
+            conversationId: mapping.conversationId,
+          };
+
+          // Defer event publishing to next tick so the HTTP response reaches the
+          // client first. This ensures the client's serverToLocalConversationMap is
+          // populated before SSE events arrive, preventing dropped events in new
+          // desktop conversations.
+          //
+          // conversation.processing and drainQueue are also deferred so the current
+          // slash command's events are emitted before the next queued message
+          // starts processing.
+          const conversationId = mapping.conversationId;
+          const message = slashResult.message;
+          scheduleCannedReplyRelease({
+            conversation,
+            owner: slashOwner,
+            origin: "slash_command",
+            emit: () => {
+              broadcastMessage({
+                type: "user_message_echo",
+                text: rawContent,
+                conversationId,
+                messageId: persisted.id,
+                clientMessageId,
+              });
+              if (modelInfoEvent) {
+                broadcastMessage(modelInfoEvent);
+              }
+              broadcastMessage({
+                type: "assistant_text_delta",
+                text: message,
+                conversationId,
+              });
+              emitCannedMessageComplete(
+                broadcastMessage,
+                conversationId,
+                persistedAssistant.id,
+              );
+              // Same anchor advance as the canned-greeting path above.
+              recordConversationPersistedSeq(conversationId, getCurrentSeq());
+              publishConversationMessagesChanged(
+                conversationId,
+                originClientId,
+              );
+            },
+          });
+
+          cleanupDeferred = true;
+          return response;
+        } finally {
+          // No-op for the slash-command early-return path (handled inside
+          // setTimeout above), but still needed for error paths.
+          if (!cleanupDeferred && conversation.releaseProcessing(slashOwner)) {
+            void conversation.kickDrainQueue(
+              "loop_complete",
+              "send_error_path",
+            );
+          }
+        }
+      }
+
+      if (slashResult.kind === "compact") {
+        const compactOwner = await conversation.acquireProcessingFenced();
+        if (compactOwner === null) {
+          return queueFallback(rawContent, "lock_race");
+        }
+        const slashMeta = {
+          userMessageChannel: sourceChannel,
+          assistantMessageChannel: sourceChannel,
+          userMessageInterface: sourceInterface,
+          assistantMessageInterface: sourceInterface,
+        };
+        let persisted: Awaited<ReturnType<typeof persistQueuedMessageBody>>;
+        try {
+          persisted = await persistQueuedMessageBody(conversation, {
+            content: rawContent,
+            attachments,
+            // See the note on the other canned branches: the id was already
+            // advertised on the acceptance, so it has to be the one used here.
+            requestId: sendRequestId,
+            metadata: withClientMetadata(slashMeta, clientMetadata),
+            clientMessageId,
+            ...(clientOs ? { requestClientOs: clientOs } : {}),
+          });
+        } catch (err) {
+          // The fire-and-forget compaction below owns clearing `processing`, but a
+          // throw from this initial persist never reaches it — reset here so the
+          // conversation isn't stranded in queued mode.
+          conversation.releaseProcessing(compactOwner);
+          void conversation.kickDrainQueue("loop_complete", "compact_command");
+          throw err;
+        }
+        if (persisted.deduplicated) {
+          conversation.releaseProcessing(compactOwner);
+          void conversation.kickDrainQueue("loop_complete", "compact_dedup");
+          return {
+            accepted: true,
+            messageId: persisted.id,
+            conversationId: mapping.conversationId,
+          };
+        }
+
+        const conversationId = mapping.conversationId;
+        const channelMeta = buildChannelMetadata(
+          sourceChannel,
+          sourceInterface,
+          {
+            trustContext: conversation.trustContext,
+          },
+        );
+
+        // Fire-and-forget: return 202 immediately, run compaction async.
+        // forceCompact() makes an LLM call that can exceed the client's
+        // HTTP timeout on large contexts, causing a false "Failed to send".
+        (async () => {
+          try {
+            broadcastMessage({
+              type: "user_message_echo",
+              text: rawContent,
+              conversationId,
+              messageId: persisted.id,
+              clientMessageId,
+            });
+            publishConversationMessagesChanged(conversationId, originClientId);
+            conversation.emitActivityState("thinking", "context_compacting");
+            // Same sink the result card below goes out on, so the indicator and
+            // the card can never be delivered to different places.
+            const result = await conversation.forceCompact(broadcastMessage);
+            const cardId = await persistCannedAssistantCard({
+              conversation,
+              conversationId,
+              text: formatCompactResult(result),
+              metadata: channelMeta,
+            });
+            // Attribute the compaction LLM call to the card it produced — same
+            // linkage as the summarize-up-to route.
+            if (result.summaryRequestLogId) {
+              linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
+            }
+          } catch (err) {
+            log.error({ err, conversationId }, "Compact command failed");
+            broadcastMessage({
+              type: "conversation_error",
+              conversationId,
+              code: "UNKNOWN",
+              userMessage: `Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
+              retryable: true,
+            });
+          } finally {
+            conversation.releaseProcessing(compactOwner);
+            void conversation.kickDrainQueue(
+              "loop_complete",
+              "compact_command",
+            );
+          }
+        })();
+
+        return {
+          accepted: true,
+          messageId: persisted.id,
+          conversationId,
+        };
+      }
+
+      if (slashResult.kind === "clean") {
+        const cleanOwner = await conversation.acquireProcessingFenced();
+        if (cleanOwner === null) {
+          return queueFallback(rawContent, "lock_race");
+        }
+        const conversationId = mapping.conversationId;
+        // Outer try/finally guarantees the processing flag is cleared (and the
+        // queue drained) on every failure path — including a throw from the
+        // initial user-message persist below, which would otherwise leave the
+        // conversation stuck in queued mode indefinitely.
+        try {
+          const slashMeta = {
+            userMessageChannel: sourceChannel,
+            assistantMessageChannel: sourceChannel,
+            userMessageInterface: sourceInterface,
+            assistantMessageInterface: sourceInterface,
+          };
+          const persisted = await persistQueuedMessageBody(conversation, {
+            content: rawContent,
+            attachments,
+            // The send's own id, not a fresh one: an interrupting send is
+            // answered `202` advertising this id as its `messageId` before
+            // these branches run, and a user row is persisted under its
+            // request id, so minting here would advertise a row that never
+            // exists.
+            requestId: sendRequestId,
+            metadata: withClientMetadata(slashMeta, clientMetadata),
+            clientMessageId,
+            ...(clientOs ? { requestClientOs: clientOs } : {}),
+          });
+          if (persisted.deduplicated) {
+            return {
+              accepted: true,
+              messageId: persisted.id,
+              conversationId,
+            };
+          }
+
+          const channelMeta = buildChannelMetadata(
+            sourceChannel,
+            sourceInterface,
+            {
+              trustContext: conversation.trustContext,
+            },
+          );
+          try {
+            broadcastMessage({
+              type: "user_message_echo",
+              text: rawContent,
+              conversationId,
+              messageId: persisted.id,
+              clientMessageId,
+            });
+            publishConversationMessagesChanged(conversationId, originClientId);
+
+            const result = await conversation.forceClean();
+            await persistCannedAssistantCard({
+              conversation,
+              conversationId,
+              text: formatCleanResult(result),
+              metadata: channelMeta,
+            });
+          } catch (err) {
+            log.error({ err, conversationId }, "Clean command failed");
+            broadcastMessage({
+              type: "conversation_error",
+              conversationId,
+              code: "UNKNOWN",
+              userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
+              retryable: true,
+            });
+          }
+
+          return {
+            accepted: true,
+            messageId: persisted.id,
+            conversationId,
+          };
+        } finally {
+          conversation.releaseProcessing(cleanOwner);
+          void conversation.kickDrainQueue("loop_complete", "clean_command");
+        }
+      }
+
+      const resolvedContent = slashResult.content;
+
+      const requestId = sendRequestId;
+      let persistResult: Awaited<
+        ReturnType<typeof conversation.persistUserMessage>
+      >;
+      try {
+        persistResult = await conversation.persistUserMessage({
+          content: resolvedContent,
+          attachments,
+          requestId,
+          metadata: withClientMetadata(
+            body.automated === true || body.hidden === true
+              ? {
+                  ...(body.automated === true ? { automated: true } : {}),
+                  ...(body.hidden === true ? { hidden: true } : {}),
+                }
+              : undefined,
+            clientMetadata,
+          ),
+          scripted: body.scripted,
+          clientMessageId,
+          ...(clientOs ? { requestClientOs: clientOs } : {}),
+        });
+      } catch (err) {
+        if (isConversationBusyError(err)) {
+          // The flag went to someone else inside the awaits above. This is the
+          // same message the check at the top would have queued, so queue it.
+          return queueFallback(resolvedContent, "lock_race");
+        }
+        throw err;
+      }
+
+      const messageId = persistResult.id;
+
+      if (persistResult.deduplicated) {
+        return {
+          accepted: true,
+          messageId,
+          conversationId: mapping.conversationId,
+        };
+      }
+
+      // A hidden message is suppressed from the UI transcript: don't echo it back
+      // to clients (the echo would render a user bubble the list-messages filter
+      // otherwise hides). The turn still runs below, and the assistant's reply
+      // streams normally — so the chat reads as a proactive greeting.
+      if (body.hidden !== true) {
+        broadcastMessage({
+          type: "user_message_echo",
+          text: resolvedContent,
+          conversationId: mapping.conversationId,
+          messageId,
+          requestId,
+          clientMessageId,
+        });
+        // The row this echo announces was durably persisted above, so advance
+        // the snapshot↔stream anchor to the echo's seq (stamped inline by
+        // `broadcastMessage`). Without this, `/messages` returns the row while
+        // still advertising the previous flush's anchor — under-claiming, which
+        // breaks the contract that the snapshot reflects all of this
+        // conversation's events through the advertised seq. Safe to claim here:
+        // the agent loop for this turn hasn't started, so no streamed-but-
+        // unflushed content exists for this conversation.
+        recordConversationPersistedSeq(mapping.conversationId, getCurrentSeq());
+      }
+      publishConversationMessagesChanged(
+        mapping.conversationId,
+        originClientId,
+      );
+
+      // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
+      startedAgentLoop = true;
+      conversation
+        .runAgentLoop(resolvedContent, messageId, {
+          onEvent: broadcastMessage,
+          isInteractive,
+          isUserMessage: true,
+          turnTrustContext,
+          ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
+        })
+        .catch((err) => {
+          log.error(
+            { err, conversationId: mapping.conversationId },
+            "Agent loop failed (POST /messages)",
+          );
+        });
+
+      return {
+        accepted: true,
+        messageId,
+        conversationId: mapping.conversationId,
+      };
+    } finally {
+      if (!startedAgentLoop) {
+        conversation.pendingInterruptActivityBridge = false;
+      }
+    }
+  };
+
+  // A retransmission of a send this route has already accepted but not yet
+  // persisted. The interrupt answers `202` and then does the abort, the waits,
+  // the repair and the persist off the response, so for that whole stretch a
+  // second copy finds no row, and both would race the unique `clientMessageId`
+  // insert with one losing.
+  //
+  // Read before the processing test, not inside it: the interrupted turn
+  // releases the lock partway through the handover, so the conversation reads
+  // idle while the reservation is still held and the row is still unwritten.
+  // Nested under the busy branch a retransmission arriving in that window
+  // skipped every duplicate check, started a second `completeSend` and could
+  // win persistence under its own id, leaving the id the first 202 advertised
+  // naming no row at all.
+  const reservedRequestId = clientMessageId
+    ? conversation.inFlightSendRequestIds.get(clientMessageId)
+    : undefined;
+  if (reservedRequestId) {
+    log.info(
+      {
+        conversationId: mapping.conversationId,
+        clientMessageId,
+        requestId: reservedRequestId,
+        processing: conversation.isProcessing(),
+      },
+      "Duplicate send for one already accepted and still in flight; answering with its id",
+    );
+    return {
+      accepted: true,
+      messageId: reservedRequestId,
+      requestId: reservedRequestId,
+      conversationId: mapping.conversationId,
+    };
+  }
+
+  if (conversation.isProcessing()) {
+    // The narrowest form of the same retransmission problem, and it has to be
+    // checked ahead of the row lookup below: a turn arms its abort controller
+    // and takes the processing lock BEFORE it inserts its row
+    // (`persistUserMessage`), so for that window a retry finds a busy
+    // conversation and no row to recognise. Aborting there
+    // would kill the turn its own original request had just started, and the
+    // retry would then deduplicate against the row that lands a moment later
+    // and start nothing, so the send is answered by neither. The running turn
+    // carries the nonce it was started by, which is what settles it.
+    if (
+      clientMessageId &&
+      conversation.currentTurnClientMessageId === clientMessageId
+    ) {
+      log.info(
+        { conversationId: mapping.conversationId, clientMessageId },
+        "Duplicate send for the turn it started; leaving that turn alone",
+      );
+      // `messageId` as well, and the running turn's own request id for both:
+      // that turn persists its row under it, so this is the id the row will
+      // carry. Without a `messageId` the client rejects the acceptance and
+      // drops the optimistic row, which is the whole send lost to a retry.
+      return {
+        accepted: true,
+        conversationId: mapping.conversationId,
+        ...(conversation.currentRequestId
+          ? {
+              messageId: conversation.currentRequestId,
+              requestId: conversation.currentRequestId,
+            }
           : {}),
       };
-      const persisted = await persistQueuedMessageBody(conversation, {
-        content: rawContent,
-        attachments,
-        requestId: uuidv7(),
-        metadata: withClientMetadata(slashMeta, clientMetadata),
-        clientMessageId,
-        ...(clientOs ? { requestClientOs: clientOs } : {}),
-      });
-      if (persisted.deduplicated) {
-        return {
-          accepted: true,
-          messageId: persisted.id,
+    }
+
+    // A retransmission of a send that was already accepted must not stop the
+    // turn its own original request started. The idempotent insert inside
+    // `completeSend` settles duplicates, but it settles them by returning the
+    // existing row and exiting without starting a turn, which is too late once
+    // the abort has fired: the user's answer would be cancelled permanently by
+    // a network retry. `addMessage`'s unique constraint stays the authority for
+    // the ordinary race; this read only keeps a known duplicate away from the
+    // abort.
+    const duplicateMessageId = clientMessageId
+      ? findMessageIdByClientMessageId(mapping.conversationId, clientMessageId)
+      : undefined;
+    if (duplicateMessageId) {
+      log.info(
+        {
           conversationId: mapping.conversationId,
-        };
-      }
-
-      const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
-        trustContext: conversation.trustContext,
-      });
-      const assistantMsg = createAssistantMessage(slashResult.message);
-      const persistedAssistant = await addMessage(
-        mapping.conversationId,
-        "assistant",
-        JSON.stringify(assistantMsg.content),
-        { metadata: channelMeta },
-      );
-      conversation.getMessages().push(assistantMsg);
-
-      // Snapshot model info now so the deferred callback cannot observe
-      // a config change from a concurrent request.
-      const modelInfoEvent = isModelSlashCommand(rawContent)
-        ? await buildModelInfoEvent(mapping.conversationId)
-        : null;
-
-      const response = {
-        accepted: true,
-        messageId: persisted.id,
-        conversationId: mapping.conversationId,
-      };
-
-      // Defer event publishing to next tick so the HTTP response reaches the
-      // client first. This ensures the client's serverToLocalConversationMap is
-      // populated before SSE events arrive, preventing dropped events in new
-      // desktop conversations.
-      //
-      // conversation.processing and drainQueue are also deferred so the current
-      // slash command's events are emitted before the next queued message
-      // starts processing.
-      const conversationId = mapping.conversationId;
-      const message = slashResult.message;
-      scheduleCannedReplyRelease({
-        conversation,
-        owner: slashOwner,
-        origin: "slash_command",
-        emit: () => {
-          broadcastMessage({
-            type: "user_message_echo",
-            text: rawContent,
-            conversationId,
-            messageId: persisted.id,
-            clientMessageId,
-          });
-          if (modelInfoEvent) {
-            broadcastMessage(modelInfoEvent);
-          }
-          broadcastMessage({
-            type: "assistant_text_delta",
-            text: message,
-            conversationId,
-          });
-          emitCannedMessageComplete(
-            broadcastMessage,
-            conversationId,
-            persistedAssistant.id,
-          );
-          // Same anchor advance as the canned-greeting path above.
-          recordConversationPersistedSeq(conversationId, getCurrentSeq());
-          publishConversationMessagesChanged(conversationId, originClientId);
+          clientMessageId,
+          messageId: duplicateMessageId,
         },
-      });
-
-      cleanupDeferred = true;
-      return response;
-    } finally {
-      // No-op for the slash-command early-return path (handled inside
-      // setTimeout above), but still needed for error paths.
-      if (!cleanupDeferred && conversation.releaseProcessing(slashOwner)) {
-        void conversation.kickDrainQueue("loop_complete", "send_error_path");
-      }
-    }
-  }
-
-  if (slashResult.kind === "compact") {
-    const compactOwner = await conversation.acquireProcessingFenced();
-    if (compactOwner === null) {
-      return queueSend(rawContent);
-    }
-    const slashMeta = {
-      userMessageChannel: sourceChannel,
-      assistantMessageChannel: sourceChannel,
-      userMessageInterface: sourceInterface,
-      assistantMessageInterface: sourceInterface,
-    };
-    let persisted: Awaited<ReturnType<typeof persistQueuedMessageBody>>;
-    try {
-      persisted = await persistQueuedMessageBody(conversation, {
-        content: rawContent,
-        attachments,
-        requestId: uuidv7(),
-        metadata: withClientMetadata(slashMeta, clientMetadata),
-        clientMessageId,
-        ...(clientOs ? { requestClientOs: clientOs } : {}),
-      });
-    } catch (err) {
-      // The fire-and-forget compaction below owns clearing `processing`, but a
-      // throw from this initial persist never reaches it — reset here so the
-      // conversation isn't stranded in queued mode.
-      conversation.releaseProcessing(compactOwner);
-      void conversation.kickDrainQueue("loop_complete", "compact_command");
-      throw err;
-    }
-    if (persisted.deduplicated) {
-      conversation.releaseProcessing(compactOwner);
-      void conversation.kickDrainQueue("loop_complete", "compact_dedup");
+        "Duplicate send for a busy conversation; answering from the existing row instead of interrupting",
+      );
       return {
         accepted: true,
-        messageId: persisted.id,
+        messageId: duplicateMessageId,
         conversationId: mapping.conversationId,
       };
     }
 
-    const conversationId = mapping.conversationId;
-    const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
-      trustContext: conversation.trustContext,
-    });
-
-    // Fire-and-forget: return 202 immediately, run compaction async.
-    // forceCompact() makes an LLM call that can exceed the client's
-    // HTTP timeout on large contexts, causing a false "Failed to send".
-    (async () => {
-      try {
-        broadcastMessage({
-          type: "user_message_echo",
-          text: rawContent,
-          conversationId,
-          messageId: persisted.id,
-          clientMessageId,
-        });
-        publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.emitActivityState("thinking", "context_compacting");
-        // Same sink the result card below goes out on, so the indicator and
-        // the card can never be delivered to different places.
-        const result = await conversation.forceCompact(broadcastMessage);
-        const cardId = await persistCannedAssistantCard({
-          conversation,
-          conversationId,
-          text: formatCompactResult(result),
-          metadata: channelMeta,
-        });
-        // Attribute the compaction LLM call to the card it produced — same
-        // linkage as the summarize-up-to route.
-        if (result.summaryRequestLogId) {
-          linkRequestLogsToMessage([result.summaryRequestLogId], cardId);
-        }
-      } catch (err) {
-        log.error({ err, conversationId }, "Compact command failed");
-        broadcastMessage({
-          type: "conversation_error",
-          conversationId,
-          code: "UNKNOWN",
-          userMessage: `Compaction failed: ${err instanceof Error ? err.message : String(err)}`,
-          retryable: true,
-        });
-      } finally {
-        conversation.releaseProcessing(compactOwner);
-        void conversation.kickDrainQueue("loop_complete", "compact_command");
-      }
-    })();
-
-    return {
-      accepted: true,
-      messageId: persisted.id,
-      conversationId,
+    const interruptOptions = {
+      callerActorPrincipalId: sourceActorPrincipalId,
+      hidden: body.hidden === true,
+      origin: "POST /messages",
     };
-  }
-
-  if (slashResult.kind === "clean") {
-    const cleanOwner = await conversation.acquireProcessingFenced();
-    if (cleanOwner === null) {
-      return queueSend(rawContent);
+    // Decided synchronously so this request can be acknowledged before any of
+    // the handover happens. Anything not eligible queues, exactly as it does
+    // with the flag off.
+    if (
+      classifyInterruptEligibility(conversation, interruptOptions) !==
+      "eligible"
+    ) {
+      return queueSend(contentAfterScan);
     }
-    const conversationId = mapping.conversationId;
-    // Outer try/finally guarantees the processing flag is cleared (and the
-    // queue drained) on every failure path — including a throw from the
-    // initial user-message persist below, which would otherwise leave the
-    // conversation stuck in queued mode indefinitely.
-    try {
-      const slashMeta = {
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-      };
-      const persisted = await persistQueuedMessageBody(conversation, {
-        content: rawContent,
-        attachments,
-        requestId: uuidv7(),
-        metadata: withClientMetadata(slashMeta, clientMetadata),
-        clientMessageId,
-        ...(clientOs ? { requestClientOs: clientOs } : {}),
+
+    // The handover is bounded by the abort budget plus the turn-boundary commit
+    // wait, which is far longer than a send may hold a request open: this
+    // endpoint is fire-and-forget, clients render optimistically and reconcile
+    // on `user_message_echo`, and a client that times out would retry a message
+    // the daemon is still placing. So the request is answered now and the abort,
+    // the wait, the repair, the persist and the dispatch all run off it, the way
+    // `queueSend` already returns before the drain it kicks.
+    /**
+     * Queue a message this request has already answered `202` for.
+     *
+     * The 202 went out long ago, so `queueSend`'s own response is no longer
+     * reachable by anyone: a full queue answers `429` into a void. The sender
+     * only learns from an event, and without one the message is accepted and
+     * then silently gone. `requestId` is the id the 202 carried, so the client
+     * can mark the optimistic row it is already showing as failed and offer the
+     * retry; the body it typed is in that row, so the event does not repeat it.
+     */
+    const queueAfterAcceptance = async (reason: string): Promise<void> => {
+      const queueResult = await queueSend(contentAfterScan, {
+        afterAcceptance: true,
       });
-      if (persisted.deduplicated) {
-        return {
-          accepted: true,
-          messageId: persisted.id,
-          conversationId,
-        };
+      if (queueResult instanceof RouteResponse) {
+        reportQueueRejectionAfterAcceptance(reason);
       }
-
-      const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
-        trustContext: conversation.trustContext,
-      });
-      try {
-        broadcastMessage({
-          type: "user_message_echo",
-          text: rawContent,
-          conversationId,
-          messageId: persisted.id,
-          clientMessageId,
-        });
-        publishConversationMessagesChanged(conversationId, originClientId);
-
-        const result = await conversation.forceClean();
-        await persistCannedAssistantCard({
-          conversation,
-          conversationId,
-          text: formatCleanResult(result),
-          metadata: channelMeta,
-        });
-      } catch (err) {
-        log.error({ err, conversationId }, "Clean command failed");
-        broadcastMessage({
-          type: "conversation_error",
-          conversationId,
-          code: "UNKNOWN",
-          userMessage: `Clean failed: ${err instanceof Error ? err.message : String(err)}`,
-          retryable: true,
-        });
-      }
-
-      return {
-        accepted: true,
-        messageId: persisted.id,
-        conversationId,
-      };
-    } finally {
-      conversation.releaseProcessing(cleanOwner);
-      void conversation.kickDrainQueue("loop_complete", "clean_command");
-    }
-  }
-
-  const resolvedContent = slashResult.content;
-
-  const requestId = uuidv7();
-  let persistResult: Awaited<
-    ReturnType<typeof conversation.persistUserMessage>
-  >;
-  try {
-    persistResult = await conversation.persistUserMessage({
-      content: resolvedContent,
-      attachments,
-      requestId,
-      metadata: withClientMetadata(
-        body.automated === true || body.hidden === true
-          ? {
-              ...(body.automated === true ? { automated: true } : {}),
-              ...(body.hidden === true ? { hidden: true } : {}),
-            }
-          : undefined,
-        clientMetadata,
-      ),
-      scripted: body.scripted,
-      clientMessageId,
-      ...(clientOs ? { requestClientOs: clientOs } : {}),
-    });
-  } catch (err) {
-    if (isConversationBusyError(err)) {
-      // The flag went to someone else inside the awaits above. This is the
-      // same message the check at the top would have queued, so queue it.
-      return queueSend(resolvedContent);
-    }
-    throw err;
-  }
-
-  const messageId = persistResult.id;
-
-  if (persistResult.deduplicated) {
-    return {
-      accepted: true,
-      messageId,
-      conversationId: mapping.conversationId,
     };
-  }
 
-  // A hidden message is suppressed from the UI transcript: don't echo it back
-  // to clients (the echo would render a user bubble the list-messages filter
-  // otherwise hides). The turn still runs below, and the assistant's reply
-  // streams normally — so the chat reads as a proactive greeting.
-  if (body.hidden !== true) {
-    broadcastMessage({
-      type: "user_message_echo",
-      text: resolvedContent,
-      conversationId: mapping.conversationId,
-      messageId,
-      requestId,
-      clientMessageId,
-    });
-    // The row this echo announces was durably persisted above, so advance
-    // the snapshot↔stream anchor to the echo's seq (stamped inline by
-    // `broadcastMessage`). Without this, `/messages` returns the row while
-    // still advertising the previous flush's anchor — under-claiming, which
-    // breaks the contract that the snapshot reflects all of this
-    // conversation's events through the advertised seq. Safe to claim here:
-    // the agent loop for this turn hasn't started, so no streamed-but-
-    // unflushed content exists for this conversation.
-    recordConversationPersistedSeq(mapping.conversationId, getCurrentSeq());
-  }
-  publishConversationMessagesChanged(mapping.conversationId, originClientId);
+    // Reserved before the detach, not inside it: the whole point is that a
+    // retransmission arriving while this runs finds the reservation already
+    // there. Released once the handover is over, by which time either a row
+    // exists for the durable check to find or the send is on the queue.
+    if (clientMessageId) {
+      conversation.inFlightSendRequestIds.set(clientMessageId, sendRequestId);
+    }
+    const releaseInFlightSend = (): void => {
+      if (clientMessageId) {
+        conversation.inFlightSendRequestIds.delete(clientMessageId);
+      }
+    };
 
-  // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
-  conversation
-    .runAgentLoop(resolvedContent, messageId, {
-      onEvent: broadcastMessage,
-      isInteractive,
-      isUserMessage: true,
-      turnTrustContext,
-      ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
-    })
-    .catch((err) => {
-      log.error(
-        { err, conversationId: mapping.conversationId },
-        "Agent loop failed (POST /messages)",
+    void (async () => {
+      const outcome = await interruptRunningTurn(
+        conversation,
+        interruptOptions,
       );
-    });
+      if (outcome !== "released") {
+        await queueAfterAcceptance(`interrupt_${outcome}`);
+        return;
+      }
+      await completeSend(true);
+    })()
+      .catch(async (err) => {
+        // The message is this request's responsibility and it has already been
+        // accepted, so a failure in here must still land it somewhere. The queue
+        // is the one place that survives: it runs on the next drain, and
+        // `queueSend` never takes the enqueue's idle fast path.
+        log.error(
+          {
+            err,
+            conversationId: mapping.conversationId,
+            requestId: sendRequestId,
+          },
+          "Interrupting send failed after acceptance; falling back to the queue",
+        );
+        try {
+          await queueAfterAcceptance("handover_failed");
+        } catch (queueErr) {
+          log.error(
+            { err: queueErr, conversationId: mapping.conversationId },
+            "Queue fallback for a failed interrupting send also failed",
+          );
+          broadcastMessage({
+            type: "error",
+            conversationId: mapping.conversationId,
+            requestId: sendRequestId,
+            code: "SEND_FAILED",
+            message:
+              "Your message could not be delivered. Please send it again.",
+            errorCategory: "internal",
+          });
+        }
+      })
+      .finally(releaseInFlightSend);
 
-  return {
-    accepted: true,
-    messageId,
-    conversationId: mapping.conversationId,
-  };
+    // `messageId` as well as `requestId`, because the response contract is not
+    // suspended for an interrupt: `postChatMessage` rejects an accepted,
+    // non-queued response without one, and the client would report the send
+    // failed and drop the optimistic row. They are the same value by
+    // construction, since a user turn persists its row under its `requestId`
+    // (`persistUserMessage` passes `id: requestId`), which is why this can be
+    // answered before the row is written.
+    return {
+      accepted: true,
+      messageId: sendRequestId,
+      requestId: sendRequestId,
+      conversationId: mapping.conversationId,
+    };
+  }
+
+  return completeSend();
 }
 
 function escapeXmlContent(text: string): string {
@@ -2973,13 +3416,22 @@ export async function handleGetSuggestion(
     return noSuggestion;
   }
 
-  const rawMessages = getMessages(resolvedConversationId);
+  // Consolidated the way `/messages` consolidates, because the `messageId` a
+  // client asks about came from there. A merged run of assistant rows takes
+  // the first row's id, so comparing against raw rows would call every
+  // multi-row turn stale: on a gated `send_user_message` turn, which is always
+  // at least the call row plus the post-tool wrap-up, that is every reply.
+  const rawMessages = consolidateDisplayTurns(
+    getMessages(resolvedConversationId).filter(
+      displayRowFilter(resolvedConversationId),
+    ),
+  ).messages;
   if (rawMessages.length === 0) {
     return noSuggestion;
   }
 
   // Staleness check: compare requested messageId against the latest
-  // assistant message BEFORE filtering by text content.  This ensures
+  // assistant turn BEFORE filtering by text content.  This ensures
   // that a newer tool-only assistant turn (empty text) still causes
   // older messageId requests to be correctly marked as stale.
   const requestedMessageId = queryParams?.messageId;
@@ -3005,7 +3457,12 @@ export async function handleGetSuggestion(
     }
 
     const content: unknown = msg.content;
-    const rendered = renderHistoryContent(content);
+    const rendered = renderHistoryContent(
+      content,
+      undefined,
+      undefined,
+      msg.metadata,
+    );
     const text = rendered.text.trim();
     if (!text) {
       continue;

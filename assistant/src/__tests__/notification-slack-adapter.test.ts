@@ -18,7 +18,9 @@ const sendCalls: Array<{
 }> = [];
 
 const actualSend = await import("../messaging/providers/slack/send.js");
+const actualSlackSend = await import("../messaging/providers/slack/send.js");
 mock.module("../messaging/providers/slack/send.js", () => ({
+  ...actualSlackSend,
   ...actualSend,
   sendSlackReply: async (
     chatId: string,

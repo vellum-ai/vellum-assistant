@@ -564,6 +564,11 @@ export function createGuardianGatewaySim() {
   async function createGuardianRequest(
     params: SeedRequestParams & { id: string; guardianPrincipalId: string },
   ): Promise<SimGuardianRequest> {
+    // The gateway insert is strict on the primary key; a silent overwrite
+    // here would hide a caller minting the same id twice.
+    if (requests.has(params.id)) {
+      throw new Error("UNIQUE constraint failed: guardian_requests.id");
+    }
     return seedRequest(params);
   }
 

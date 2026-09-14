@@ -100,6 +100,8 @@ describe("chatgpt identity catalog", () => {
       expect(CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id)).toBe(true);
     }
     expect(models.some((m) => m.id === "gpt-5.4-nano")).toBe(false);
+    expect(models.some((m) => m.id === "gpt-5.4")).toBe(false);
+    expect(models.some((m) => m.id === "gpt-5.4-mini")).toBe(false);
   });
 
   test("defaults to the Balanced profile's model on the chatgpt column", () => {

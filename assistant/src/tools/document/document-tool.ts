@@ -16,6 +16,7 @@ import {
   updateDocumentContent,
 } from "../../documents/document-store.js";
 import { canActOnPrivilegedDocuments } from "../../runtime/effective-capabilities.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -285,6 +286,7 @@ export function executeDocumentCreate(
   if (!parsedInput.success) {
     return invalidToolInputResult("document_create", parsedInput.error);
   }
+  throwIfCancelled(context);
   const title = parsedInput.data.title || "Untitled Document";
   const initialContent = parsedInput.data.initial_content || "";
 
@@ -389,6 +391,7 @@ export function executeDocumentUpdate(
   if (!parsedInput.success) {
     return invalidToolInputResult("document_update", parsedInput.error);
   }
+  throwIfCancelled(context);
   if (typeof input.content !== "string") {
     return invalidInput("content is required and must be a string");
   }
@@ -547,6 +550,7 @@ export function executeDocumentDelete(
   if (!parsedInput.success) {
     return invalidToolInputResult("document_delete", parsedInput.error);
   }
+  throwIfCancelled(context);
   const surfaceIdOrError = validateSurfaceId(input);
   if (typeof surfaceIdOrError !== "string") {
     return surfaceIdOrError;
@@ -637,6 +641,7 @@ export function executeDocumentReplaceText(
   if (!parsedInput.success) {
     return invalidToolInputResult("document_replace_text", parsedInput.error);
   }
+  throwIfCancelled(context);
   const surfaceIdOrError = validateSurfaceId(input);
   if (typeof surfaceIdOrError !== "string") {
     return surfaceIdOrError;

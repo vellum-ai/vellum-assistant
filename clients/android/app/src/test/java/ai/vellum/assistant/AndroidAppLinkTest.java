@@ -70,4 +70,26 @@ public class AndroidAppLinkTest {
             )
         );
     }
+
+    /**
+     * The conversation shortcut's tap target is built here and parsed here, so
+     * a shortcut tap always lands on the conversation route.
+     */
+    @Test
+    public void buildsAConversationLinkItParsesBack() {
+        String url = AndroidAppLink.conversationUrl(HOST, "conv-xyz");
+
+        assertEquals("https://dev-assistant.vellum.ai/assistant/conversations/conv-xyz", url);
+        assertEquals(url, AndroidAppLink.parse(url, HOST).toASCIIString());
+    }
+
+    @Test
+    public void buildsNoConversationLinkForAnIdThatCannotSitInAPathSegment() {
+        assertNull(AndroidAppLink.conversationUrl(HOST, null));
+        assertNull(AndroidAppLink.conversationUrl(HOST, ""));
+        assertNull("traversal", AndroidAppLink.conversationUrl(HOST, "../pair"));
+        assertNull("escaped", AndroidAppLink.conversationUrl(HOST, "a%2Fb"));
+        assertNull("separator", AndroidAppLink.conversationUrl(HOST, "a/b"));
+        assertNull("query", AndroidAppLink.conversationUrl(HOST, "a?b=c"));
+    }
 }

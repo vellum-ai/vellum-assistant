@@ -180,7 +180,7 @@ DB migration steps registered in `steps.ts` are checkpointed by function name in
 
 ## Multi-Client Assistant State Sync
 
-Persisted assistant state that must converge across macOS, web/Capacitor iOS, and CLI should use the generic `sync_changed` invalidation contract instead of adding a new bespoke server message for each resource. The event payload is `{ type: "sync_changed", tags: [...] }`; tags describe which cached resource is stale, not the new value.
+Persisted assistant state that must converge across macOS, Windows, web/Capacitor iOS, and CLI should use the generic `sync_changed` invalidation contract instead of adding a new bespoke server message for each resource. The event payload is `{ type: "sync_changed", tags: [...] }`; tags describe which cached resource is stale, not the new value.
 
 When adding a synced resource:
 

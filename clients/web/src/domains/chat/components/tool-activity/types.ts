@@ -1,12 +1,13 @@
 /**
  * Shared contract for tool-specific activity renderers (LUM-2999).
  *
- * `ToolDetailBody` owns the pieces every tool shares — the risk badge and, for
- * most tools, the Output section — and delegates the tool-specific middle to a
- * renderer looked up by tool name. A renderer that also wants to own how the
- * result is presented (as `skill_load` does, since its "output" *is* the skill
- * body) sets `ownsOutput` in the registry so the generic Output block is
- * suppressed rather than duplicated.
+ * `ToolDetailBody` owns the Output section most tools share and delegates the
+ * body to a renderer chosen by `getToolActivityRenderer`. A renderer that also
+ * wants to own how the result is presented (as `skill_load` does, since its
+ * "output" *is* the skill body) sets `ownsOutput` in the registry so the
+ * generic Output block is suppressed rather than duplicated. Owning the output
+ * means owning every reason it can be empty, which is what `ToolOutputBody` is
+ * for: a renderer that re-derives those cases will eventually miss one.
  */
 
 import type { ReactNode } from "react";
@@ -27,6 +28,8 @@ export interface ToolActivityRendererProps {
   isRunning: boolean;
   /** Whether the call ended in an error. */
   isError: boolean;
+  /** Whether the call was refused, or its confirmation expired unanswered. */
+  isDenied: boolean;
   /**
    * Assistant that owns the conversation, threaded to any markdown so
    * workspace file links resolve against the right workspace.

@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "0.11.10",
+  "version": "0.12.0",
   "license": "MIT",
   "description": "Install the full Vellum stack locally",
   "bin": {
@@ -17,11 +17,11 @@
     "npm-shrinkwrap.json"
   ],
   "dependencies": {
-    "@vellumai/assistant": "0.11.10",
-    "@vellumai/cli": "0.11.10",
-    "@vellumai/credential-executor": "0.11.10",
-    "@vellumai/vellum-gateway": "0.11.10",
-    "@vellumai/web": "0.11.10"
+    "@vellumai/assistant": "0.12.0",
+    "@vellumai/cli": "0.12.0",
+    "@vellumai/credential-executor": "0.12.0",
+    "@vellumai/vellum-gateway": "0.12.0",
+    "@vellumai/web": "0.12.0"
   },
   "overrides": {
     "drizzle-orm": "0.45.2",

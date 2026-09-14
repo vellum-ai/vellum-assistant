@@ -37,6 +37,11 @@ import {
   canAddressSubagentDetail,
   resolveSubagentDetailConversationId,
 } from "./store-helpers/subagent-detail-addressability";
+import {
+  COMMAND_KEYS,
+  FILE_PATH_KEYS,
+  readToolInputString,
+} from "@/domains/chat/utils/tool-input";
 
 // ---------------------------------------------------------------------------
 // State
@@ -542,25 +547,31 @@ function mapInnerEventType(
   }
 }
 
+/**
+ * Fields that can identify a tool call, most identifying first. Not aliases of
+ * one another: this scan does not know which tool ran, so it takes whichever of
+ * these the input happens to carry.
+ */
 const TOOL_INPUT_PRIORITY_KEYS = [
-  "command",
-  "file_path",
-  "path",
+  ...COMMAND_KEYS,
+  ...FILE_PATH_KEYS,
   "query",
   "url",
   "pattern",
   "glob",
 ] as const;
 
-/** Extract a short summary string from a tool_use_start input object. */
+/**
+ * Extract a short summary string from a tool_use_start input object.
+ *
+ * Unlike the per-tool readers this does not know which tool ran, so it takes
+ * the first identifying string the input happens to carry. Blank values are
+ * skipped rather than winning: an input with an empty `command` and a real
+ * `url` summarises as the url.
+ */
 function summarizeToolInput(input: Record<string, unknown>): string {
-  for (const key of TOOL_INPUT_PRIORITY_KEYS) {
-    const value = input[key];
-    if (typeof value === "string") {
-      return value.length > 120 ? value.slice(0, 117) + "..." : value;
-    }
-  }
-  return "";
+  const value = readToolInputString(input, ...TOOL_INPUT_PRIORITY_KEYS);
+  return value.length > 120 ? value.slice(0, 117) + "..." : value;
 }
 
 /**
@@ -772,9 +783,8 @@ async function runReconcile(
   // died with it, and no terminal event is ever coming. Re-checked against the
   // store as it stands now, a terminal event that landed during the
   // round-trip already settled the row truthfully, and ownership is re-tested
-  // because a stub `ensureEntry` attributed to the conversation on screen can
-  // be re-parented by a later `subagent_event`. This response says nothing
-  // about a row that now belongs to a different conversation.
+  // because a later `subagent_event` can re-parent a stub. This response says
+  // nothing about a row that now belongs to a different conversation.
   const { byId, changeStatus } = get();
   for (const subagentId of candidateIds) {
     const entry = byId[subagentId];
@@ -851,14 +861,10 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     if (get().byId[params.subagentId]) {
       return;
     }
-    // An entry with no parent id at all is scoped to no conversation: the
-    // overlay shows it everywhere and reconcile's per-parent orphan pass
-    // settles it nowhere. A `subagent_status_changed` carries no ids, so fall
-    // back to the conversation on screen.
-    const parentConversationId =
-      params.parentConversationId ??
-      useConversationStore.getState().activeConversationId ??
-      undefined;
+    // An entry with no parent id is scoped to no conversation: the overlay
+    // shows it everywhere and reconcile's per-parent orphan pass settles it
+    // nowhere. Only the caller's evidence scopes the stub.
+    const { parentConversationId } = params;
     const status = params.status ?? "running";
 
     get().spawnSubagent({
@@ -1428,7 +1434,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
 export const useSubagentStore = createSelectors(useSubagentStoreBase);
 
 /**
- * Ask the daemon to resync this conversation's subagents, best-effort.
+ * Ask the daemon to resync `parentConversationId`'s subagents, best-effort.
  *
  * For the stream handlers, which hit this when an event names a subagent the
  * store has never seen, the client's picture of the run is incomplete. Reads
@@ -1436,22 +1442,16 @@ export const useSubagentStore = createSelectors(useSubagentStoreBase);
  * `reconcileFromDaemon` decides whether the request actually goes out, so a
  * burst of events for the same missing subagent costs a single fetch.
  *
- * `parentConversationId` names the conversation to resync. Subagent events are
- * routed globally, so an event for a background conversation must reconcile
- * ITS parent rather than whichever chat is on screen. Callers with no id at
- * hand, `subagent_status_changed` carries none, fall back to the active
- * conversation.
+ * Subagent events are routed globally, so an event for a background
+ * conversation reconciles ITS parent rather than whichever chat is on screen.
  */
-export function requestSubagentReconcile(parentConversationId?: string): void {
+export function requestSubagentReconcile(parentConversationId: string): void {
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
-  const targetConversationId =
-    parentConversationId ??
-    useConversationStore.getState().activeConversationId;
-  if (!assistantId || !targetConversationId) {
+  if (!assistantId) {
     return;
   }
 
   void useSubagentStoreBase
     .getState()
-    .reconcileFromDaemon(assistantId, targetConversationId, "unknown_id");
+    .reconcileFromDaemon(assistantId, parentConversationId, "unknown_id");
 }

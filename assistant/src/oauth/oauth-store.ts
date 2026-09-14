@@ -16,7 +16,7 @@ import {
   oauthConnectionAccessTokenPath,
   type SecureKeyBackend,
 } from "@vellumai/credential-storage";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { invalidateAssistantSuggestedPromptsCache } from "../home/suggested-prompts-cache.js";
@@ -903,7 +903,8 @@ export function getConnection(id: string): OAuthConnectionRow | undefined {
  * Get the most recent active connection for a provider.
  *
  * Optional filters narrow the result:
- * - `account` — match a specific account identifier (e.g. email).
+ * - `account`: match an account label (e.g. email), then a connection ID when
+ *   no label matches within the other filters.
  * - `clientId` — restrict to connections linked to a specific OAuth app.
  *
  * Returns `undefined` when no matching active connection exists.
@@ -934,10 +935,6 @@ export function getActiveConnections(
     eq(oauthConnections.status, "active"),
   ];
 
-  if (account) {
-    conditions.push(eq(oauthConnections.accountInfo, account));
-  }
-
   if (clientId) {
     const app = getAppByProviderAndClientId(provider, clientId);
     if (!app) {
@@ -946,12 +943,32 @@ export function getActiveConnections(
     conditions.push(eq(oauthConnections.oauthAppId, app.id));
   }
 
-  return db
+  const connections = db
     .select()
     .from(oauthConnections)
-    .where(and(...conditions))
+    .where(
+      and(
+        ...conditions,
+        account
+          ? or(
+              eq(oauthConnections.accountInfo, account),
+              eq(oauthConnections.id, account),
+            )
+          : undefined,
+      ),
+    )
     .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
     .all();
+
+  if (account) {
+    const labelMatches = connections.filter(
+      (connection) => connection.accountInfo === account,
+    );
+    if (labelMatches.length > 0) {
+      return labelMatches;
+    }
+  }
+  return connections;
 }
 
 /** @deprecated Use {@link getActiveConnection} instead. */

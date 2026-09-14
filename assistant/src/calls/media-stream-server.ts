@@ -47,6 +47,11 @@ import { addMessage } from "../persistence/conversation-crud.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getLogger } from "../util/logger.js";
+import {
+  type BargeInGuard,
+  createBargeInGuard,
+  DEFAULT_BARGE_IN_MIN_SPEECH_MS,
+} from "./barge-in-guard.js";
 import { CallController } from "./call-controller.js";
 import {
   formatDuration,
@@ -188,6 +193,8 @@ export class MediaStreamCallSession {
   private bargeInAccepted = 0;
   /** Number of barge-in attempts that were ignored (assistant not speaking). */
   private bargeInIgnored = 0;
+  /** Armed by caller speech while a turn or its tail is interruptible. */
+  private bargeInGuard: BargeInGuard | null = null;
   /** Number of turn-start transitions detected by the STT session. */
   private turnStarts = 0;
   /** Number of transcript finals produced (non-empty). */
@@ -215,6 +222,9 @@ export class MediaStreamCallSession {
     // Create STT session with callbacks wired to the controller.
     const callbacks: MediaStreamSttSessionCallbacks = {
       onSpeechStart: () => this.handleSpeechStart(),
+      onMediaFrame: (hasSpeech, durationMs) =>
+        this.handleMediaFrame(hasSpeech, durationMs),
+      onSpeechEnd: () => this.handleSpeechEnd(),
       onTranscriptFinal: (text, durationMs) =>
         this.handleTranscriptFinal(text, durationMs),
       onDtmf: (digit) => this.handleDtmf(digit),
@@ -768,38 +778,80 @@ export class MediaStreamCallSession {
 
   private handleSpeechStart(): void {
     this.turnStarts++;
+  }
 
-    // Barge-in: clear queued outbound audio and abort the in-flight LLM
-    // turn only when the assistant is actively speaking. Uses the gated
-    // handleBargeIn path so initial inbound audio frames do not cancel a
-    // still-starting initial turn.
-    //
-    // clearAudio runs via the onAccepted hook so it only fires when the
-    // barge-in passes the speaking gate — an ignored barge-in (controller
-    // idle/processing) must not flush queued/in-flight TTS such as a
-    // buffered greeting. The hook runs before handleInterrupt so the
-    // end-of-turn mark it enqueues survives the queue flush.
-    if (this.output && this.controller) {
-      const output = this.output;
-      const accepted = this.controller.handleBargeIn(() => output.clearAudio());
-      if (accepted) {
-        this.bargeInAccepted++;
-        log.info(
-          { callSessionId: this.callSessionId },
-          "Media-stream barge-in accepted — cleared outbound audio",
-        );
-      } else {
-        // No turn to abort, but a completed turn's tail can still be
-        // playing from Twilio's buffer — flush only that buffer so the
-        // caller isn't talked over. Queued speech that hasn't reached
-        // Twilio yet (greeting, handoff prompt) is preserved.
-        output.clearBufferedAudio();
-        this.bargeInIgnored++;
-        log.debug(
-          { callSessionId: this.callSessionId },
-          "Media-stream barge-in ignored — assistant not speaking",
-        );
+  // Sustained-speech barge-in guard, fed by every inbound frame. Speech only
+  // counts while there is something to interrupt: an assistant turn in
+  // flight (thinking or speaking) or a completed turn's tail still playing
+  // from Twilio's buffer. Outside that window the guard is dropped, so
+  // speech from the caller's own utterance never carries into a turn that
+  // starts before the local VAD has ended the utterance (a streaming final
+  // can start the turn first). A speech frame inside the window arms the
+  // guard; a fired guard reaches the controller. A line click, a cough, or
+  // TTS bleed never gets that far.
+  private handleMediaFrame(hasSpeech: boolean, durationMs: number): void {
+    if (!this.output || !this.controller) {
+      return;
+    }
+    const bargeable =
+      this.controller.getState() !== "idle" || !this.output.isPlaybackIdle();
+    if (!bargeable) {
+      this.bargeInGuard = null;
+      return;
+    }
+    if (this.bargeInGuard === null) {
+      if (!hasSpeech) {
+        return;
       }
+      this.bargeInGuard = createBargeInGuard(DEFAULT_BARGE_IN_MIN_SPEECH_MS);
+    }
+    const step = this.bargeInGuard.track(
+      hasSpeech ? "speech" : "silence",
+      durationMs,
+    );
+    if (step === "fired") {
+      this.bargeInGuard = null;
+      this.fireBargeIn();
+    }
+  }
+
+  private handleSpeechEnd(): void {
+    // An untripped guard was noise or a fragment: the run never reached the
+    // threshold before the caller's turn ended.
+    this.bargeInGuard = null;
+  }
+
+  // Sustained caller speech landed: clear queued outbound audio and abort
+  // the in-flight LLM turn when one is in flight (thinking or speaking).
+  //
+  // clearAudio runs via the onAccepted hook so it only fires when the
+  // barge-in passes the controller's gate; an ignored barge-in (controller
+  // idle) must not flush queued/in-flight TTS such as a buffered greeting.
+  // The hook runs before handleInterrupt so the end-of-turn mark it
+  // enqueues survives the queue flush.
+  private fireBargeIn(): void {
+    if (!this.output || !this.controller) {
+      return;
+    }
+    const output = this.output;
+    const accepted = this.controller.handleBargeIn(() => output.clearAudio());
+    if (accepted) {
+      this.bargeInAccepted++;
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Media-stream barge-in accepted: cleared outbound audio",
+      );
+    } else {
+      // No turn to abort, but a completed turn's tail can still be
+      // playing from Twilio's buffer, so flush only that buffer so the
+      // caller isn't talked over. Queued speech that hasn't reached
+      // Twilio yet (greeting, handoff prompt) is preserved.
+      output.clearBufferedAudio();
+      this.bargeInIgnored++;
+      log.debug(
+        { callSessionId: this.callSessionId },
+        "Media-stream barge-in ignored: no turn in flight",
+      );
     }
   }
 

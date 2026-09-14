@@ -24,6 +24,10 @@ describe("resolveDebugTabParam", () => {
       tabId: "doctor",
       conversationsFilter: "all",
     });
+    expect(resolveDebugTabParam("database")).toEqual({
+      tabId: "database",
+      conversationsFilter: "all",
+    });
     expect(resolveDebugTabParam(null)).toEqual({
       tabId: null,
       conversationsFilter: "all",

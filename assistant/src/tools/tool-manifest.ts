@@ -25,6 +25,7 @@ import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
+import { sendUserMessageTool } from "./send-user-message/send-user-message-tool.js";
 import { skillExecuteTool } from "./skills/execute.js";
 import { skillLoadTool } from "./skills/load.js";
 import { notifyParentTool } from "./subagent/notify-parent.js";
@@ -68,6 +69,7 @@ export const explicitTools: ToolDefinition[] = [
   notifyParentTool,
   askQuestionTool,
   reactToMessageTool,
+  sendUserMessageTool,
   hostFileReadTool,
   hostFileWriteTool,
   hostFileEditTool,

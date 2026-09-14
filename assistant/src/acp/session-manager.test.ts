@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { RequestError } from "@agentclientprotocol/sdk";
+
 import type { Conversation } from "../daemon/conversation.js";
 import {
   deleteConversation,
@@ -38,6 +40,8 @@ mock.module("./prepare-agent-env.js", () => ({
   },
 }));
 
+import { createAbortReason } from "../util/abort-reasons.js";
+import { modelOption } from "./__tests__/helpers/acp-model-option.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { AcpSessionManager } from "./session-manager.js";
 
@@ -89,10 +93,10 @@ function mockConversation(opts?: { enqueueQueued?: boolean }) {
 }
 
 /** Fake AcpAgentProcess covering only the calls firePromptInBackground makes. */
-function fakeProcess(prompt: () => Promise<unknown>) {
+function fakeProcess(prompt: () => Promise<unknown>, stderr = "") {
   return {
     markStderr: () => 0,
-    stderrSince: () => "",
+    stderrSince: () => stderr,
     prompt,
     kill: mock(() => {}),
   };
@@ -364,6 +368,8 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     parentToolUseId?: string;
     cancelled?: boolean;
     credentialDigest?: string;
+    failure?: () => Promise<never>;
+    stderr?: string;
   }) {
     const manager = new AcpSessionManager(1);
     const parentId = `parent-${opts.id}`;
@@ -375,7 +381,7 @@ describe("AcpSessionManager auth-required recovery surface", () => {
       manager,
       opts.id,
       parentId,
-      fakeProcess(authFailure),
+      fakeProcess(opts.failure ?? authFailure, opts.stderr),
     );
     entry.command = opts.command;
     (entry as { parentToolUseId?: string }).parentToolUseId =
@@ -511,6 +517,62 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     expect(r.persistedContent).toBeUndefined();
   });
 
+  test("claude's prompt-time 401 raises the surface when stderr names another failure", async () => {
+    // claude-agent-acp raises it as RequestError.internalError({ errorKind },
+    // cliText), and stderr supplies the failure message, so the auth text
+    // survives only on the rejection's own message.
+    refusedDigests.length = 0;
+    const digest = claudeTokenDigest("sk-ant-oat-prompt-401");
+    const r = await driveAuthFailure({
+      id: "sess-auth-prompt-401",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-prompt-401",
+      credentialDigest: digest,
+      failure: () =>
+        Promise.reject(
+          new RequestError(
+            -32603,
+            "Internal error: Failed to authenticate. API Error: 401 OAuth access token has expired.",
+            { errorKind: "authentication_failed" },
+          ),
+        ),
+      stderr: '{"error":{"message":"Something else happened"}}',
+    });
+
+    expect(r.authEvent).toMatchObject({
+      acpSessionId: "sess-auth-prompt-401",
+      authCode: "acp_claude_auth_required",
+      parentToolUseId: "tool-anchor-prompt-401",
+    });
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(true);
+    expect(refusedDigests).toContain(digest);
+  });
+
+  test("the rejection's own message is checked when its payload names a different reason", async () => {
+    refusedDigests.length = 0;
+    const digest = claudeTokenDigest("sk-ant-oat-own-message");
+    const r = await driveAuthFailure({
+      id: "sess-auth-own-message",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-own-message",
+      credentialDigest: digest,
+      failure: () =>
+        Promise.reject(
+          new RequestError(
+            -32603,
+            "Internal error: Failed to authenticate. API Error: 401",
+            { details: "Request failed" },
+          ),
+        ),
+      stderr: '{"error":{"message":"Something else happened"}}',
+    });
+
+    expect(r.authEvent).toMatchObject({
+      authCode: "acp_claude_auth_required",
+    });
+    expect(refusedDigests).toContain(digest);
+  });
+
   test("a non-claude adapter never raises the surface, even on an auth-shaped failure", async () => {
     const r = await driveAuthFailure({
       id: "sess-auth-codex",
@@ -610,5 +672,241 @@ describe("AcpSessionManager.spawn: a credential Claude refused at startup", () =
     }
 
     expect(refusedDigests).toContain("digest-refused-at-startup");
+  });
+});
+
+describe("AcpSessionManager.steer: a stopped turn hands the agent nothing", () => {
+  function abortedSignal(): AbortSignal {
+    const controller = new AbortController();
+    controller.abort(createAbortReason("user_cancel", "session-manager.test"));
+    return controller.signal;
+  }
+
+  test("an already-cancelled turn never fires the prompt", async () => {
+    const manager = new AcpSessionManager(1);
+    const prompt = mock(() => Promise.resolve({}));
+    injectSession(manager, "sess-abort-1", "conv-1", fakeProcess(prompt));
+
+    await expect(
+      manager.steer("sess-abort-1", "do it", { signal: abortedSignal() }),
+    ).rejects.toThrow();
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Cancelling the in-flight prompt is an await, so a stop landing inside it
+   * still reaches the new prompt unless the signal is read again afterwards.
+   */
+  test("a cancel during the in-flight cancel never fires the prompt", async () => {
+    const manager = new AcpSessionManager(1);
+    const controller = new AbortController();
+    const prompt = mock(() => Promise.resolve({}));
+    const entry = injectSession(
+      manager,
+      "sess-abort-2",
+      "conv-1",
+      fakeProcess(prompt),
+    );
+    entry.currentPrompt = Promise.resolve();
+    (entry.process as unknown as { cancel: () => Promise<void> }).cancel =
+      async () => {
+        controller.abort(
+          createAbortReason("user_cancel", "session-manager.test"),
+        );
+      };
+
+    await expect(
+      manager.steer("sess-abort-2", "do it", { signal: controller.signal }),
+    ).rejects.toThrow();
+    expect(prompt).not.toHaveBeenCalled();
+  });
+});
+
+describe("AcpSessionManager.spawn: a stopped turn leaves no agent running", () => {
+  const REASON = createAbortReason("user_cancel", "session-manager.test");
+
+  /**
+   * The protocol handshake and session creation are awaits, and the child
+   * process is already running by the time they finish. A stop landing there
+   * has to kill it: the spawned event would otherwise tell the client a
+   * session started, and the prompt would hand the agent the task.
+   */
+  test("a cancel during protocol setup tears the process down and fires nothing", async () => {
+    const manager = new AcpSessionManager(1);
+    const controller = new AbortController();
+    const prompt = mock(() => Promise.resolve({}));
+    const proc = {
+      ...fakeProcess(prompt),
+      spawn: () => {},
+      initialize: async () => {},
+      createSession: async () => {
+        // The user stops the turn while the protocol is coming up.
+        controller.abort(REASON);
+        return "proto-1";
+      },
+    };
+    const internals = manager as unknown as {
+      registerSession: (opts: {
+        acpSessionId: string;
+        parentConversationId: string;
+      }) => unknown;
+      sessions: Map<string, unknown>;
+    };
+    internals.registerSession = (opts) =>
+      injectSession(
+        manager,
+        opts.acpSessionId,
+        opts.parentConversationId,
+        proc as unknown as ReturnType<typeof fakeProcess>,
+      );
+
+    await expect(
+      manager.spawn(
+        "claude",
+        { command: "noop", args: [] } as never,
+        "do the task",
+        "/tmp",
+        "conv-1",
+        () => {},
+        undefined,
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+
+    expect(prompt).not.toHaveBeenCalled();
+    expect(proc.kill).toHaveBeenCalled();
+    expect(internals.sessions.size).toBe(0);
+  });
+
+  /**
+   * The model pin is an await of its own, and it sits after the setup
+   * recheck. A stop landing inside it gets the same treatment: no spawned
+   * event, no model event, no prompt, and no session left behind.
+   */
+  test("a cancel during the model pin tears the process down and fires nothing", async () => {
+    const manager = new AcpSessionManager(1);
+    const controller = new AbortController();
+    const prompt = mock(() => Promise.resolve({}));
+    const setConfigOption = mock(async () => {
+      // The user stops the turn while the pin's round trip is open.
+      controller.abort(REASON);
+      return [modelOption("opus")];
+    });
+    const proc = {
+      ...fakeProcess(prompt),
+      spawn: () => {},
+      initialize: async () => {},
+      createSession: async () => ({
+        sessionId: "proto-1",
+        configOptions: [modelOption("sonnet")],
+      }),
+      setConfigOption,
+    };
+    let injected: ReturnType<typeof injectSession> | undefined;
+    const internals = manager as unknown as {
+      registerSession: (opts: {
+        acpSessionId: string;
+        parentConversationId: string;
+      }) => unknown;
+      sessions: Map<string, unknown>;
+    };
+    internals.registerSession = (opts) => {
+      injected = injectSession(
+        manager,
+        opts.acpSessionId,
+        opts.parentConversationId,
+        proc as unknown as ReturnType<typeof fakeProcess>,
+      );
+      return injected;
+    };
+
+    await expect(
+      manager.spawn(
+        "claude",
+        { command: "noop", args: [] } as never,
+        "do the task",
+        "/tmp",
+        "conv-1",
+        () => {},
+        { model: "opus" },
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+
+    expect(setConfigOption).toHaveBeenCalled();
+    expect(injected?.sendToVellum).not.toHaveBeenCalled();
+    expect(prompt).not.toHaveBeenCalled();
+    expect(proc.kill).toHaveBeenCalled();
+    expect(internals.sessions.size).toBe(0);
+  });
+
+  /**
+   * A cancel that persists a resumable row frees the id, so a resume can
+   * register a fresh entry under it before the stopped spawn's pin settles.
+   * The teardown owes that spawn its own process, and owes the replacement
+   * its map slot.
+   */
+  test("a cancel during the model pin leaves a replacement session for the same id alone", async () => {
+    const manager = new AcpSessionManager(2);
+    const controller = new AbortController();
+    const prompt = mock(() => Promise.resolve({}));
+    let replacement: ReturnType<typeof injectSession> | undefined;
+    let spawnedId: string | undefined;
+    const setConfigOption = mock(async () => {
+      // The turn is stopped and the id is resumed by another request while
+      // the pin's round trip is still open.
+      controller.abort(REASON);
+      replacement = injectSession(
+        manager,
+        spawnedId!,
+        "conv-2",
+        fakeProcess(mock(() => Promise.resolve({}))),
+      );
+      return [modelOption("opus")];
+    });
+    const proc = {
+      ...fakeProcess(prompt),
+      spawn: () => {},
+      initialize: async () => {},
+      createSession: async () => ({
+        sessionId: "proto-1",
+        configOptions: [modelOption("sonnet")],
+      }),
+      setConfigOption,
+    };
+    const internals = manager as unknown as {
+      registerSession: (opts: {
+        acpSessionId: string;
+        parentConversationId: string;
+      }) => unknown;
+      sessions: Map<string, unknown>;
+    };
+    internals.registerSession = (opts) => {
+      spawnedId = opts.acpSessionId;
+      return injectSession(
+        manager,
+        opts.acpSessionId,
+        opts.parentConversationId,
+        proc as unknown as ReturnType<typeof fakeProcess>,
+      );
+    };
+
+    await expect(
+      manager.spawn(
+        "claude",
+        { command: "noop", args: [] } as never,
+        "do the task",
+        "/tmp",
+        "conv-1",
+        () => {},
+        { model: "opus" },
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+
+    expect(prompt).not.toHaveBeenCalled();
+    expect(proc.kill).toHaveBeenCalled();
+    expect(replacement?.process.kill).not.toHaveBeenCalled();
+    expect(internals.sessions.get(spawnedId!)).toBe(replacement);
   });
 });

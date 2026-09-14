@@ -307,7 +307,7 @@ describe("formatModeSelectionFailure", () => {
     expect(formatted).toContain("Setup details:");
     expect(formatted).toContain("Chrome extension");
     expect(formatted).toContain(CHROME_WEB_STORE_INSTALL_URL);
-    expect(formatted).toContain("www.vellum.ai/download");
+    expect(formatted).toContain("www.vellum.ai/downloads");
     expect(formatted).toContain("Offer those first");
   });
 
@@ -348,17 +348,15 @@ describe("formatModeSelectionFailure", () => {
       },
     ];
 
-    const error = new CdpError(
-      "transport_error",
-      "Host bridge unreachable",
-      { attemptDiagnostics: diagnostics },
-    );
+    const error = new CdpError("transport_error", "Host bridge unreachable", {
+      attemptDiagnostics: diagnostics,
+    });
 
     const formatted = formatModeSelectionFailure("auto", error);
 
     expect(formatted).toContain("Setup details:");
     expect(formatted).toContain(CHROME_WEB_STORE_INSTALL_URL);
-    expect(formatted).toContain("www.vellum.ai/download");
+    expect(formatted).toContain("www.vellum.ai/downloads");
   });
 
   test("phone surfaces do not invent an in-app browser panel", () => {
@@ -381,7 +379,7 @@ describe("formatModeSelectionFailure", () => {
     expect(formatted).toContain("no in-app browser");
     expect(formatted).toContain("Do not describe a browser panel");
     expect(formatted).toContain(CHROME_WEB_STORE_INSTALL_URL);
-    expect(formatted).toContain("www.vellum.ai/download");
+    expect(formatted).toContain("www.vellum.ai/downloads");
   });
 });
 
@@ -440,7 +438,7 @@ describe("browser_mode wiring through tool execution", () => {
     expect(result.content).toContain("Navigation failed");
     expect(result.content).toContain("timed out");
     expect(result.content).toContain(CHROME_WEB_STORE_INSTALL_URL);
-    expect(result.content).toContain("www.vellum.ai/download");
+    expect(result.content).toContain("www.vellum.ai/downloads");
     expect(result.content).toContain("Offer those first");
   });
 

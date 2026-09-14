@@ -483,13 +483,18 @@ describe("identity routes — /readyz readiness gate", () => {
   });
 
   test("returns 503 when DB migrations fail", async () => {
-    setDbMigrationFailed(new Error("migration failed"));
+    setDbMigrationFailed(new Error("migration failed"), {
+      failedMigrations: [{ name: "flakyStep", error: "transient failure" }],
+    });
     const res = handleReadyz();
     expect(res.status).toBe(503);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.ready).toBe(false);
     expect(body.reason).toBe("db_migrations_failed");
     expect((body.dbMigrations as Record<string, unknown>).state).toBe("failed");
+    expect((body.dbMigrations as Record<string, unknown>).failedMigrations).toEqual(
+      [{ name: "flakyStep", error: "transient failure" }],
+    );
   });
 
   test("returns 200 even if CES is down", async () => {

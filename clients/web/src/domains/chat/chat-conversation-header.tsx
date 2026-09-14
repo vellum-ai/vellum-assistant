@@ -12,6 +12,7 @@ import {
 } from "@/utils/channel-presentation";
 import { useConversationMenuShortcuts } from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
 import type { Conversation } from "@/types/conversation-types";
+import { useDisplayConversationTitle } from "@/utils/conversation-title";
 
 interface ChatConversationHeaderProps {
   assistantId: string | null;
@@ -47,6 +48,7 @@ export function ChatConversationHeader({
   // act on too, so its rows may advertise them.
   const shortcuts = useConversationMenuShortcuts(true);
   const { t } = useTranslation("chat");
+  const displayTitle = useDisplayConversationTitle();
   if (!activeConversation) {
     if (!assistantId) {
       return null;
@@ -188,7 +190,7 @@ export function ChatConversationHeader({
                   {t("chatConversationHeader.archived")}
                 </span>
               )}
-              {activeConversation.title ?? t("chatConversationHeader.untitled")}
+              {displayTitle(activeConversation.title)}
             </span>
             {channelHeaderLabel ? (
               <span className="hidden max-w-[160px] shrink truncate leading-6 text-[var(--content-tertiary)] sm:inline">

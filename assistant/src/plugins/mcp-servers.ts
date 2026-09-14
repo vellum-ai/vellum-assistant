@@ -14,7 +14,7 @@
  * This module reads those files and projects each entry onto the
  * assistant's own `McpServerConfig` shape, so a plugin-declared server can
  * flow through the same surfaces as one configured in the workspace
- * `config.json`.
+ * `mcp.json`.
  *
  * Failure isolation follows the spec: an invalid top-level `mcp.json`
  * disables MCP for that plugin only, and an invalid individual server
@@ -39,17 +39,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { z } from "zod";
-
 import {
   type AllPluginInfo,
   listAllPlugins,
   type ListInstalledPluginsOptions,
 } from "../cli/lib/list-installed-plugins.js";
-import type {
-  McpTransport,
-  ResolvedMcpServerConfig,
-} from "../config/schemas/mcp.js";
+import type { ResolvedMcpServerConfig } from "../config/schemas/mcp.js";
+import {
+  projectSpecServerToTransport,
+  SpecMcpDocumentSchema,
+  SpecMcpServerSchema,
+} from "../mcp/spec-schema.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("plugin-mcp-servers");
@@ -58,67 +58,24 @@ const log = getLogger("plugin-mcp-servers");
 export const PLUGIN_MCP_MANIFEST = "mcp.json";
 
 /**
- * Risk level assigned to a plugin-declared server. `mcp.json` has no risk
- * field, since the spec defines none, so a host default applies.
+ * Plugin-declared servers start at low risk in the MCP tool factory.
+ * `mcp.json` has no risk field, since the spec defines none, so a host
+ * default applies.
  *
- * `low` — so a plugin's tools run without prompting under the default
- * auto-approve threshold — because the review happens earlier: the
- * marketplace catalog (`plugins/marketplace.json`) is a curated whitelist
- * of SHA-pinned entries, and installing a plugin is itself the user's
- * decision to run the code it ships. Gating every call afterwards prompts
- * on the tools the user installed the plugin to get.
+ * The review happens earlier: the marketplace catalog
+ * (`plugins/marketplace.json`) is a curated whitelist of SHA-pinned
+ * entries, and installing a plugin is itself the user's decision to run
+ * the code it ships. Gating every call afterwards prompts on the tools
+ * the user installed the plugin to get.
  *
  * The gap this leaves is deliberate and known: a plugin installed
  * off-marketplace straight from a GitHub URL gets the same default, and
  * nothing recorded at install time distinguishes the two afterwards. A
  * provenance signal is what would let this default be curation-gated
- * rather than blanket. The user can still override per server — see the
- * `defaultRiskLevel` field on a workspace `config.json` entry, which
- * outranks a plugin's declaration of the same id.
+ * rather than blanket. A workspace entry of the same id replaces the
+ * plugin server wholesale (transport included) and uses the workspace
+ * origin risk.
  */
-const PLUGIN_SERVER_DEFAULT_RISK = "low" as const;
-
-/** Matches the `maxTools` default in `McpServerConfigSchema`. */
-const PLUGIN_SERVER_DEFAULT_MAX_TOOLS = 20;
-
-// ---------------------------------------------------------------------------
-// Wire schema (Agent Plugins 1.0.0)
-// ---------------------------------------------------------------------------
-
-const PluginStdioServerSchema = z.object({
-  type: z.literal("stdio"),
-  command: z.string().min(1),
-  args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
-  cwd: z.string().optional(),
-});
-
-/**
- * Remote MCP entry. Agent Plugins 1.0.0 requires `type` and names no
- * default. MCP's current remote transport is Streamable HTTP, so this
- * host fills omitted `type` and the Claude-style `http` alias as
- * `streamable-http`. `sse` stays explicit.
- */
-const PluginHttpServerSchema = z.object({
-  type: z
-    .union([
-      z.literal("streamable-http"),
-      z.literal("sse"),
-      z.literal("http").transform(() => "streamable-http" as const),
-    ])
-    .default("streamable-http"),
-  url: z.string().min(1),
-  headers: z.record(z.string(), z.string()).optional(),
-});
-
-const PluginMcpServerSchema = z.union([
-  PluginStdioServerSchema,
-  PluginHttpServerSchema,
-]);
-
-const PluginMcpManifestSchema = z.object({
-  mcpServers: z.record(z.string(), z.unknown()),
-});
 
 // ---------------------------------------------------------------------------
 // Public shape
@@ -255,7 +212,7 @@ export function readPluginMcpServers(
         continue;
       }
 
-      const entry = PluginMcpServerSchema.safeParse(raw);
+      const entry = SpecMcpServerSchema.safeParse(raw);
       if (!entry.success) {
         issues.push({
           pluginName: plugin.name,
@@ -299,9 +256,6 @@ export function readPluginMcpServers(
         serverKey,
         config: {
           transport: projectTransport(entry.data, plugin.target),
-          enabled: true,
-          defaultRiskLevel: PLUGIN_SERVER_DEFAULT_RISK,
-          maxTools: PLUGIN_SERVER_DEFAULT_MAX_TOOLS,
           source: "plugin",
         },
       });
@@ -332,7 +286,7 @@ function parseManifest(
     };
   }
 
-  const manifest = PluginMcpManifestSchema.safeParse(json);
+  const manifest = SpecMcpDocumentSchema.safeParse(json);
   if (!manifest.success) {
     return {
       error: `${PLUGIN_MCP_MANIFEST} is missing a valid "mcpServers" object`,
@@ -341,33 +295,12 @@ function parseManifest(
   return { mcpServers: manifest.data.mcpServers };
 }
 
-/**
- * Project one spec-shaped entry onto the assistant's transport union. The
- * two vocabularies already agree on type names and required fields, so this
- * is a field copy plus path interpolation for the stdio case.
- */
 function projectTransport(
-  entry: z.infer<typeof PluginMcpServerSchema>,
+  entry: Parameters<typeof projectSpecServerToTransport>[0],
   pluginRoot: string,
-): McpTransport {
-  if (entry.type === "stdio") {
-    const pluginData = join(pluginRoot, "data");
-    const expand = (v: string): string =>
-      interpolatePluginPaths(v, pluginRoot, pluginData);
-    return {
-      type: "stdio",
-      command: entry.command,
-      args: (entry.args ?? []).map(expand),
-      ...(entry.env && {
-        env: Object.fromEntries(
-          Object.entries(entry.env).map(([k, v]) => [k, expand(v)]),
-        ),
-      }),
-    };
-  }
-  return {
-    type: entry.type,
-    url: entry.url,
-    ...(entry.headers && { headers: entry.headers }),
-  };
+) {
+  const pluginData = join(pluginRoot, "data");
+  return projectSpecServerToTransport(entry, (value) =>
+    interpolatePluginPaths(value, pluginRoot, pluginData),
+  );
 }

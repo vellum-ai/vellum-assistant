@@ -17,14 +17,26 @@ import {
 } from "../runtime/routes/errors.js";
 
 /**
+ * Convert a gateway socket connect failure into a 503 RouteError. Other
+ * values pass through unchanged so adapters can share one RouteError branch.
+ */
+export function mapGatewayIpcConnectError(err: unknown): unknown {
+  if (err instanceof IpcConnectError) {
+    return new ServiceUnavailableError(
+      `Gateway is not reachable over IPC: ${err.message}`,
+    );
+  }
+  return err;
+}
+
+/**
  * If `err` is an {@link IpcConnectError}, throw 503. Otherwise return so the
  * caller can rethrow or map a more specific failure.
  */
 export function throwIfGatewayIpcConnectFailed(err: unknown): void {
-  if (err instanceof IpcConnectError) {
-    throw new ServiceUnavailableError(
-      `Gateway is not reachable over IPC: ${err.message}`,
-    );
+  const mapped = mapGatewayIpcConnectError(err);
+  if (mapped !== err) {
+    throw mapped;
   }
 }
 

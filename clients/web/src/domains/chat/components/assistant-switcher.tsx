@@ -13,7 +13,7 @@
  */
 
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
@@ -48,6 +48,10 @@ interface AssistantSwitcherProps {
   onSwitched?: () => void;
   /** Mounts with the card open. Stories only; the app always starts closed. */
   defaultExpanded?: boolean;
+  /** Beside the pill on its row; see `AssistantNavItem`'s `aside`. */
+  aside?: ReactNode;
+  /** Beneath the assistant row; see `AssistantNavItem`'s `beneath`. */
+  beneath?: ReactNode;
 }
 
 export function AssistantSwitcher({

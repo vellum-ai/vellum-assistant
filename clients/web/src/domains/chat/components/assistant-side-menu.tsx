@@ -25,6 +25,7 @@ import {
 } from "@/domains/chat/components/conversation-list-context";
 import { SidebarListContextMenu } from "@/domains/chat/components/sidebar-list-context-menu";
 import type { GroupMenuItemsProps } from "@/domains/chat/components/group-actions-menu";
+import { AssistantSectionToggle } from "@/domains/chat/components/assistant-section-toggle";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import { SideMenuBuiltInNav } from "@/domains/chat/components/side-menu-built-in-nav";
 import { SideMenuOverlayBottomColumn } from "@/domains/chat/components/side-menu-overlay-bottom-column";
@@ -39,6 +40,7 @@ import {
   type UseSidebarStateParams,
 } from "@/domains/chat/use-sidebar-state";
 import { copyIdToClipboard } from "@/domains/chat/utils/copy-id-to-clipboard";
+import { ASSISTANT_SECTION_KEY } from "@/domains/chat/utils/sidebar-section-order";
 import { useCommandShortcut } from "@/hooks/use-command-shortcut";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -86,11 +88,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
    * dependency (and of the router context it needs).
    */
   notificationsAction?: ReactNode;
-  /**
-   * Rendered above `footerAction` in the rail footer (hidden when collapsed)
-   * and above the floating action pills on the overlay.
-   */
-  tipCard?: ReactNode;
   onClose?: () => void;
 
   onPinConversation?: (conversation: Conversation) => void;
@@ -213,7 +210,6 @@ function SearchButton() {
  *       in Chats instead, so which section a conversation appears in changes
  *       but whether it appears does not
  *   Footer
- *     • caller-provided tip card (SidebarTipCard), hidden on the collapsed rail
  *     • caller-provided action (PreferencesMenu)
  *
  * This component does **not** know that order. `useSidebarState` hands it one
@@ -252,7 +248,6 @@ export function AssistantSideMenu({
   onStartNewConversation,
   footerAction,
   notificationsAction,
-  tipCard,
   onPinConversation,
   onRenameConversation,
   onArchiveConversation,
@@ -300,10 +295,9 @@ export function AssistantSideMenu({
     conversationsFailed === true && hasNoConversations;
 
   // --- Overlay bottom reserve ---
-  // The overlay's floating bottom column (tip card + action pills) covers the
-  // sheet's bottom, so the body's own box stops above it and the last
-  // conversation rows scroll clear. Measured (not static) because the tip
-  // card appears/disappears and its copy length varies.
+  // The overlay's floating action pills cover the sheet's bottom, so the
+  // body's own box stops above them and the last conversation rows scroll
+  // clear. The measured reserve follows the rendered action column.
   // The scrollport the flat "All" list virtualizes against. State, not a ref,
   // because the list only mounts once the node exists and has to re-render
   // when it does.
@@ -493,17 +487,32 @@ export function AssistantSideMenu({
     });
   };
 
-  /* Index of the last section that may claim the rail's leftover space: the
-     last one that is not the bottom-pinned assistant section. -1 when the
-     list holds nothing else, so nothing fills. */
-  const lastFillIndex = (() => {
-    for (let i = sidebar.sections.length - 1; i >= 0; i--) {
-      if (sidebar.sections[i]!.type !== "assistant") {
-        return i;
-      }
-    }
-    return -1;
-  })();
+  /* The assistant's own section is lifted out of the list: it opens beneath
+     the assistant pill from a round toggle beside it, rather than standing
+     as a card pinned to the foot of the list, so the threads the assistant
+     started read as hers, hanging off her row. The collapsed rail draws no
+     pill and no toggle, so there the section keeps its tile in the list. */
+  const assistantSection = sidebar.sections.find((s) => s.type === "assistant");
+  const listSections = sidebar.sections.filter((s) => s.type !== "assistant");
+
+  /* The section's open state is the same persisted bucket every other
+     section's is, so it survives a reload and the card's own header chevron
+     and the toggle beside the pill agree without a second source. */
+  const assistantSectionOpen =
+    assistantSection !== undefined &&
+    sidebar.effectiveOpenSections.includes(ASSISTANT_SECTION_KEY);
+  const setAssistantSectionOpen = (open: boolean) => {
+    const rest = sidebar.effectiveOpenSections.filter(
+      (key) => key !== ASSISTANT_SECTION_KEY,
+    );
+    sidebar.onOpenSectionsChange(
+      open ? [...rest, ASSISTANT_SECTION_KEY] : rest,
+    );
+  };
+
+  /* Index of the last listed section, the one that may claim the rail's
+     leftover space. -1 when the list is empty, so nothing fills. */
+  const lastFillIndex = listSections.length - 1;
 
   const renderSection = (section: SidebarSection, index: number) => (
     <SidebarSectionItem
@@ -523,15 +532,46 @@ export function AssistantSideMenu({
       // skips that fill: its lists scroll with the drawer body so rows
       // can travel clear of the floating action pills.
       //
-      // "Bottom-most" here means the last *space-claiming* section, which is
-      // not the last rendered one once the assistant section is pinned below
-      // everything. That section hugs its own rows against the Preferences
-      // footer; handing it the fill instead would stretch a short list of
-      // realizations down the rail and squeeze Chats — the list that actually
-      // grows — into a fixed box above it.
       isLast={variant === "rail" && index === lastFillIndex}
     />
   );
+
+  const assistantSectionToggle =
+    assistantSection && !isCollapsedRail ? (
+      <AssistantSectionToggle
+        assistantId={assistantId ?? null}
+        section={assistantSection}
+        assistantName={assistantName || t("sideMenuBuiltInNav.yourAssistant")}
+        open={assistantSectionOpen}
+        onToggle={() => setAssistantSectionOpen(!assistantSectionOpen)}
+      />
+    ) : undefined;
+
+  /* Mounted only while open: closed, the toggle is the section's whole
+     presence, so nothing of the card (not even a collapsed header) is drawn
+     beneath the pill. Its own accordion root, because the card is not in the
+     list's; the header chevron still closes it through the same state. Not
+     draggable and never the fill section: it hangs off the pill, not the
+     list. */
+  const assistantSectionCard =
+    assistantSection && !isCollapsedRail && assistantSectionOpen ? (
+      <CollapsibleNavSection.Root
+        type="multiple"
+        value={[ASSISTANT_SECTION_KEY]}
+        onValueChange={(next) =>
+          setAssistantSectionOpen(next.includes(ASSISTANT_SECTION_KEY))
+        }
+      >
+        <SidebarSectionItem
+          section={assistantSection}
+          assistantId={assistantId ?? null}
+          groupMenu={(conversations, getAllRows) =>
+            sectionMenu(assistantSection, conversations, getAllRows)
+          }
+          collapsedIndicator={collapsedActivityDot}
+        />
+      </CollapsibleNavSection.Root>
+    ) : undefined;
 
   // Rendered in the rail's non-scrolling header, or at the top of the
   // overlay's body so the whole menu scrolls as one surface; the block's
@@ -548,6 +588,8 @@ export function AssistantSideMenu({
       activeAppId={activeAppId}
       onOpenApp={onOpenApp}
       onClose={onClose}
+      assistantAside={assistantSectionToggle}
+      assistantBeneath={assistantSectionCard}
     />
   );
 
@@ -715,7 +757,7 @@ export function AssistantSideMenu({
                     no wrapping header. Each section's menu carries the
                     Group by toggle, which is why removing the persistent
                     "Conversations" header loses nothing. */}
-                  {sidebar.sections.map(renderSection)}
+                  {listSections.map(renderSection)}
                 </CollapsibleNavSection.Root>
               </SidebarListContextMenu>
               <SidebarBackToTop
@@ -730,13 +772,12 @@ export function AssistantSideMenu({
 
         {variant === "overlay" ? (
           <SideMenuOverlayBottomColumn
-            tipCard={tipCard}
             footerAction={footerAction}
             onStartNewConversation={onStartNewConversation}
             onClose={onClose}
             onHeightChange={setOverlayBottomColumnHeight}
           />
-        ) : footerAction || tipCard ? (
+        ) : footerAction ? (
           /* Every entry in this sidebar is a pill on the page background, and
              a shape like that is already delimited: a line above the last one
              would divide a column that reads as grouped without it. The
@@ -744,8 +785,6 @@ export function AssistantSideMenu({
              on `SideMenu.Footer` is what holds it at the bottom while the
              list scrolls in `SideMenu.Body` above it. */
           <SideMenu.Footer>
-            {/* The collapsed rail drops the tip card (per design). */}
-            {isCollapsedRail ? null : tipCard}
             {footerAction}
           </SideMenu.Footer>
         ) : null}

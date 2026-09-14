@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { deriveStepLabel } from "@/domains/chat/components/tool-progress-card/derive-step-label";
+import {
+  deriveStepLabel,
+  type IconName,
+} from "@/domains/chat/components/tool-progress-card/derive-step-label";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
@@ -268,5 +271,44 @@ describe("deriveStepLabel", () => {
     expect(result.info).toBe("echo hi");
     expect(result.iconName).toBe("terminal");
     expect(result.activity).toBe("outer activity wins");
+  });
+  test("the file tools name the act, not the tool", () => {
+    // Left to the generic default these read "Running File Write", which is
+    // the wire name showing through rather than a description of the work.
+    const cases: [string, string, IconName][] = [
+      ["file_read", "Reading", "file"],
+      ["host_file_read", "Reading", "file"],
+      ["file_write", "Writing", "pen"],
+      ["host_file_write", "Writing", "pen"],
+      ["file_edit", "Editing", "pen"],
+      ["host_file_edit", "Editing", "pen"],
+      ["file_list", "Listing", "file"],
+    ];
+    for (const [name, title, iconName] of cases) {
+      const result = deriveStepLabel(
+        buildToolCall({ name, input: { path: "/tmp/notes/draft.md" } }),
+      );
+      expect(result.title).toBe(title);
+      // The basename alone: the full path is noise beside the verb.
+      expect(result.info).toBe("draft.md");
+      expect(result.iconName).toBe(iconName);
+    }
+  });
+
+  test("a file tool sharing a title with text_editor groups as one phase", () => {
+    // `title` is the phase-grouping key, so an edit made through either tool
+    // has to read as the same phase.
+    expect(
+      deriveStepLabel(
+        buildToolCall({ name: "file_edit", input: { path: "/a/b.ts" } }),
+      ).title,
+    ).toBe(
+      deriveStepLabel(
+        buildToolCall({
+          name: "text_editor",
+          input: { command: "str_replace", path: "/a/b.ts" },
+        }),
+      ).title,
+    );
   });
 });

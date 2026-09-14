@@ -11,6 +11,14 @@
  * re-sends without any caller. Best-effort: failures are logged, never
  * thrown, and leave the dedup key untouched; a failed request re-enqueues
  * itself on a bounded backoff (superseded by any new enqueue).
+ *
+ * The key a success persists is the one the request actually shipped. A lazy
+ * body can only find out what it can build after the dedup check has passed,
+ * so it may hand back a key of its own; persisting the payload's optimistic
+ * key instead would latch a sync that fell short of what the key promised for
+ * the key's whole lifetime. A reduced body serves the same end on the wire: a
+ * 400 that names one field re-sends without it once, under that body's key,
+ * rather than taking the rest of the payload down with it.
  */
 
 import type { getLogger } from "../util/logger.js";
@@ -20,11 +28,32 @@ type Logger = ReturnType<typeof getLogger>;
 
 type PatchBody = Record<string, unknown>;
 
+/** A body to PATCH, and the dedup key a success on it should persist. */
+export interface KeyedPatchBody {
+  body: PatchBody;
+  /** Persisted in place of {@link PatchPayload.key}; that key when absent. */
+  key?: string;
+}
+
+export interface PatchBodyResult extends KeyedPatchBody {
+  /**
+   * Sent once in place of {@link KeyedPatchBody.body} when the PATCH comes
+   * back 400 naming {@link ReducedPatchBody.field}, so one rejected field
+   * cannot take the rest of the payload down with it.
+   */
+  retryWithout?: ReducedPatchBody;
+}
+
+export interface ReducedPatchBody extends KeyedPatchBody {
+  /** The field a 400's body has to name for this reduced body to be tried. */
+  field: string;
+}
+
 export interface PatchPayload {
   /** Identifies the payload content; equal keys are not re-sent. */
   key: string;
   /** A function runs only after the key passes dedup; undefined skips. */
-  body: PatchBody | (() => Promise<PatchBody | undefined>);
+  body: PatchBody | (() => Promise<PatchBodyResult | undefined>);
 }
 
 export interface SyncedKey {
@@ -117,46 +146,71 @@ export function createPlatformPatchQueue<T = void>(
       if (!payload || requestSeq !== seq) {
         return;
       }
-      const key = `${client.baseUrl}|${assistantId}|${payload.key}`;
+      const destinationKey = (key: string): string =>
+        `${client.baseUrl}|${assistantId}|${key}`;
       lastSynced ??= loadSyncedKey?.() ?? null;
       if (
-        lastSynced?.key === key &&
+        lastSynced?.key === destinationKey(payload.key) &&
         (maxAgeMs === undefined || Date.now() - lastSynced.syncedAt < maxAgeMs)
       ) {
         armExpiry(input);
         return;
       }
-      const body =
+      const built: PatchBodyResult | undefined =
         typeof payload.body === "function"
           ? await payload.body()
-          : payload.body;
-      if (!body || requestSeq !== seq) {
+          : { body: payload.body };
+      if (!built || requestSeq !== seq) {
         return;
       }
 
-      const resp = await client.fetch(
-        `/v1/assistants/${encodeURIComponent(assistantId)}/`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(15_000),
-        },
-      );
+      const send = async (
+        body: PatchBody,
+      ): Promise<{ ok: boolean; status: number; text: string }> => {
+        const resp = await client.fetch(
+          `/v1/assistants/${encodeURIComponent(assistantId)}/`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(15_000),
+          },
+        );
+        return {
+          ok: resp.ok,
+          status: resp.status,
+          text: resp.ok ? "" : await resp.text(),
+        };
+      };
 
+      let sent: KeyedPatchBody = built;
+      let resp = await send(sent.body);
+      const reduced = built.retryWithout;
+      if (
+        !resp.ok &&
+        resp.status === 400 &&
+        reduced &&
+        resp.text.includes(reduced.field)
+      ) {
+        log.warn(
+          { field: reduced.field, assistantId },
+          `Re-sending ${label} without the field the platform rejected`,
+        );
+        sent = reduced;
+        resp = await send(sent.body);
+      }
+
+      const sentKey = sent.key ?? payload.key;
       if (resp.ok) {
-        lastSynced = { key, syncedAt: Date.now() };
+        lastSynced = { key: destinationKey(sentKey), syncedAt: Date.now() };
         saveSyncedKey?.(lastSynced);
         armExpiry(input);
-        log.info(
-          { key: payload.key, assistantId },
-          `Synced ${label} to platform`,
-        );
+        log.info({ key: sentKey, assistantId }, `Synced ${label} to platform`);
       } else {
         log.warn(
           {
             status: resp.status,
-            body: await resp.text(),
+            body: resp.text,
             assistantId,
             attempt,
           },

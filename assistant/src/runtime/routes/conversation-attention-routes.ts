@@ -11,13 +11,61 @@ import {
   listConversationAttention,
 } from "../../persistence/conversation-attention-store.js";
 import {
+  getAssistantMessageIdsInTurn,
   getConversation,
   getMessageById,
 } from "../../persistence/conversation-crud.js";
+import {
+  isPrivateAssistantText,
+  userFacingTextOfRow,
+} from "../../persistence/user-facing-content.js";
 import { truncate } from "../../util/truncate.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
+
+const SNIPPET_CHARS = 200;
+
+/**
+ * The words a conversation's latest assistant row leaves in this preview.
+ *
+ * Read through the user-facing projection rather than off the row: on a turn
+ * that routed its reply through `send_user_message` the row's plain text is a
+ * private scratchpad and the reply lives inside the tool call, so anything
+ * that serializes the row itself puts the scratchpad on this wire.
+ *
+ * A gated turn usually ends on wrap-up notes that project to nothing, so an
+ * empty private row walks back through its own turn to the row carrying the
+ * delivered message, the same way the schedule-result notification does. The
+ * walk stops at the first row that is not private: an ordinary turn is read
+ * from its latest row alone, exactly as before.
+ */
+export function resolveAssistantSnippet(messageId: string): string | null {
+  let ids: string[];
+  try {
+    ids = getAssistantMessageIdsInTurn(messageId);
+  } catch {
+    ids = [messageId];
+  }
+  // Newest first, starting at the row attention actually points at.
+  const anchorIndex = ids.lastIndexOf(messageId);
+  const ordered =
+    anchorIndex === -1 ? [messageId] : ids.slice(0, anchorIndex + 1);
+  for (let i = ordered.length - 1; i >= 0; i--) {
+    const row = getMessageById(ordered[i]);
+    if (!row?.content) {
+      continue;
+    }
+    const text = userFacingTextOfRow(row.content, row.metadata).trim();
+    if (text.length > 0) {
+      return truncate(text, SNIPPET_CHARS, "");
+    }
+    if (!isPrivateAssistantText(row.metadata)) {
+      return null;
+    }
+  }
+  return null;
+}
 
 function handleListConversationAttention({
   queryParams = {},
@@ -71,12 +119,9 @@ function handleListConversationAttention({
   const snippetMap = new Map<string, string>();
   for (const attn of pageStates) {
     if (attn.latestAssistantMessageId) {
-      const msg = getMessageById(attn.latestAssistantMessageId);
-      if (msg?.content) {
-        snippetMap.set(
-          attn.latestAssistantMessageId,
-          truncate(JSON.stringify(msg.content), 200, ""),
-        );
+      const snippet = resolveAssistantSnippet(attn.latestAssistantMessageId);
+      if (snippet !== null) {
+        snippetMap.set(attn.latestAssistantMessageId, snippet);
       }
     }
   }

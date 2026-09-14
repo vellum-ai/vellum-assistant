@@ -3,6 +3,7 @@ import { z } from "zod";
 import { AcpAuthRequiredEventSchema } from "./events/acp-auth-required.js";
 import { AcpSessionCompletedEventSchema } from "./events/acp-session-completed.js";
 import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
+import { AcpSessionModelUpdateEventSchema } from "./events/acp-session-model-update.js";
 import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
 import { AcpSessionUpdateEventSchema } from "./events/acp-session-update.js";
 import { AcpSessionUsageEventSchema } from "./events/acp-session-usage.js";
@@ -186,6 +187,10 @@ export {
   type AcpSessionErrorEvent,
   AcpSessionErrorEventSchema,
 } from "./events/acp-session-error.js";
+export {
+  type AcpSessionModelUpdateEvent,
+  AcpSessionModelUpdateEventSchema,
+} from "./events/acp-session-model-update.js";
 export {
   type AcpSessionSpawnedEvent,
   AcpSessionSpawnedEventSchema,
@@ -964,6 +969,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AcpAuthRequiredEventSchema,
   AcpSessionCompletedEventSchema,
   AcpSessionErrorEventSchema,
+  AcpSessionModelUpdateEventSchema,
   AcpSessionSpawnedEventSchema,
   AcpSessionUpdateEventSchema,
   AcpSessionUsageEventSchema,

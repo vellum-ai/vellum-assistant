@@ -331,3 +331,5 @@ function isSlackUserId(value: string): boolean {
 function looksLikeUrl(content: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\/\S+$/i.test(splitSlackLabel(content)[0]);
 }
+
+export { slackEmojiCharacter } from "./emoji.js";

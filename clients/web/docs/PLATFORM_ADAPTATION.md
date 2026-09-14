@@ -307,10 +307,16 @@ unreachable in practice.
 
 Inside the open drawer the contested edge flips: a leftward drag closes it
 ([`useSwipeCloseDrawer`](../src/hooks/use-swipe-close-drawer.ts)). Rows keep both edges there,
-because that gesture stands down over anything marked `data-slot="swipe-action-row"`, which
+because that gesture stands down over anything marked `data-swipe-action-row`, which
 [`SwipeActionReveal`](../src/components/swipe-action-reveal.tsx) sets on the branch that arms its own
 handlers. A panel gesture layered over rows needs the same opt-out, or it takes drags the rows were
 built to answer.
+
+That mark is an attribute of its own rather than a `data-slot`, and it is declared after the props a
+parent injects. A row wrapped in a Radix trigger with `asChild` is handed that trigger's own
+`data-slot`, so a mark sharing that attribute is replaced on exactly the rows that carry a context
+menu as well as a swipe, and the opt-out stops applying without anything failing loudly. Write a
+marker a gesture reads where a wrapper cannot overwrite it.
 
 ---
 

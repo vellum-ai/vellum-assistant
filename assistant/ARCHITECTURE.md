@@ -70,6 +70,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks) |
 | `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections        |
 | `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)        |
+| `local:<assistantId>:<conversationId>`   | `local`        | Local session or single-route grant |
 
 **Scope profiles:**
 
@@ -79,6 +80,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `gateway_ingress_v1` | `ingress.write`, `internal.write`                                                                                                                     | Gateway channel inbound + webhook forwarding |
 | `gateway_service_v1` | `chat.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `internal.write`                                                            | Gateway service-to-daemon calls              |
 | `local_v1`           | `local.all`                                                                                                                                           | Local (loopback) conversation sessions       |
+| `oauth_proxy_v1`     | `oauth.proxy`                                                                                                                                         | OAuth passthrough proxy route only           |
 | `speech_relay_v1`    | `speech.relay`                                                                                                                                        | Daemon dial of the gateway speech relay only |
 | `ui_page_v1`         | `settings.read`                                                                                                                                       | Served UI pages                              |
 
@@ -607,8 +609,10 @@ Every phone call connects over Twilio Media Streams: the voice webhook emits `<C
 
 Transcription mode is selected once per session in `media-stream-stt-session.ts`:
 
-- **Streaming** (default): when `calls.voice.telephonyStreaming` is enabled and the `telephony` role resolves a streaming transcriber (`resolveStreamingTranscriber({ role: "telephony" })`), inbound audio is decoded (mu-law → PCM16, resampled 8 kHz → 16 kHz) and fed to the provider's realtime adapter. Replies trigger only on utterance-boundary finals (for Deepgram, `speech_final`/`UtteranceEnd`, never mid-sentence `is_final` segments), and barge-in fires from local energy VAD, never from transcriber partials.
+- **Streaming** (default): when `calls.voice.telephonyStreaming` is enabled and the `telephony` role resolves a streaming transcriber (`resolveStreamingTranscriber({ role: "telephony" })`), inbound audio is decoded (mu-law → PCM16, resampled 8 kHz → 16 kHz) and fed to the provider's realtime adapter. Replies trigger only on utterance-boundary finals (for Deepgram, `speech_final`/`UtteranceEnd`, never mid-sentence `is_final` segments), and barge-in fires from local energy VAD, never from transcriber partials. While something is interruptible (an assistant turn in flight, thinking or speaking, or a completed turn's tail still playing from Twilio's buffer), caller speech arms the shared sustained-speech barge-in guard (`src/calls/barge-in-guard.ts`, the same accounting live voice uses: speech accumulates toward 250 ms, short gaps are tolerated, a run that is mostly silence resets) and every inbound frame feeds it; outside that window the guard is dropped, so the caller's own utterance never carries into a turn that starts before the local VAD ends it. Only a fired guard reaches `CallController.handleBargeIn`, which interrupts a turn in either phase and ignores an idle controller (the playing tail is cleared instead).
 - **Batch fallback**: otherwise the session segments turns with the energy-based `MediaTurnDetector` and transcribes each completed turn via the same role's batch API. Both halves of a call read the `telephony` role, which is why a role names its consumer rather than a boundary.
+
+Every phone turn runs the same two-leg triage as live voice through `startVoiceTurn` (`src/calls/voice-session-bridge.ts`): `call-controller.ts` opens on a toolless front-door leg (`routingLeg: "front-door"`, the `voiceFrontDoor` call site) and drives it through the shared `createFrontDoorLegCoordinator` (`src/calls/voice-leg-coordinator.ts`), which reads the stream through the verdict machine and sequences the hand-off (pause narration, abort the leg, resolve and speak the bridge, mark it as the floor holder, start the escalated leg pinned to the conversation's own model, re-arm narration); each driver supplies only a host for how text and the bridge are spoken, how a leg is started or aborted, and (live voice only) the speculative hold and commit. Phone has no partial transcripts, so the hold verdict is never taught and routing is escalate-only. The controller also passes the bridge's turn callbacks (tool activity is recorded as `tool_use_started` / `tool_use_completed` call events, persisted row ids ride the `assistant_spoke` event), `launchedAtMs` for dispatch timing, and a `voiceTelemetry` bag keyed by the call session with a `phone_inbound` / `phone_outbound` entry. Both drivers share the spoken progress narration cadence (`src/calls/voice-progress-cadence.ts`, tuned by `voice.frontModel.progress`): the cadence owns the tool-activity log, the triggers (an ops burst, a long operation completing, a full interval of audible silence with news, the `maxSilenceMs` heartbeat) and the generated or static phrase, while each driver supplies its own view of audible silence (live voice from its TTS queue and playback-tail estimate; the media-stream transport from `isPlaybackIdle()` and a running sum of sent frame durations) and how to speak a phrase.
 
 A credential preflight (`resolveTelephonyCredentialReadiness()` in `src/calls/telephony-credential-preflight.ts`) gates every call: it requires a credentialed, telephony-capable STT provider **and** a media-stream-playable TTS provider (the configured one or a credentialed playable fallback). Inbound calls that fail the preflight receive `<Say>` setup-required copy plus `<Hangup/>` instead of a doomed stream; outbound placement fails before dialing via `preflightVoiceIngress()` with the same user-facing message.
 
@@ -727,9 +731,9 @@ The assistant-side live voice module is intentionally bounded under `src/live-vo
 | `live-voice-archive.ts`         | Audio artifact creation/linking for user utterance and assistant response message IDs                                                                       |
 | `live-voice-metrics.ts`         | Per-session and per-turn latency snapshots emitted as `metrics` frames                                                                                      |
 
-Live voice STT uses the same `resolveStreamingTranscriber()` path as conversation streaming. For V1 latency-sensitive behavior, the selected `services.stt.provider` must resolve to a `daemon-streaming` transcriber whose catalog entry has `conversationStreamingMode: "realtime-ws"` and usable credentials. Providers that only support batch or incremental-batch transcription remain valid for other voice surfaces, but do not satisfy live voice's streaming STT requirement.
+Live voice STT uses the same `resolveStreamingTranscriber()` path as conversation streaming, dialed with the provider the `liveVoice` STT role resolves to after managed-speech defaulting (`resolveEffectiveSpeechProviders`, see `config/managed-speech-defaults.ts`). For V1 latency-sensitive behavior, that provider must resolve to a `daemon-streaming` transcriber whose catalog entry has `conversationStreamingMode: "realtime-ws"` and usable credentials. Providers that only support batch or incremental-batch transcription remain valid for other voice surfaces, but do not satisfy live voice's streaming STT requirement.
 
-Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Providers whose catalog entry advertises `supportsStreaming` (currently all four catalog providers: ElevenLabs, Fish Audio, Deepgram, and xAI) satisfy this requirement; a buffered-only provider would remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
+Live voice TTS uses `streamLiveVoiceTtsAudio()` and the TTS provider that `resolveEffectiveSpeechProviders` settles on (the configured `services.tts.provider`, or the managed `vellum` provider when the configured one has no usable credentials). The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Providers whose catalog entry advertises `supportsStreaming` (currently all five catalog providers: ElevenLabs, Fish Audio, Deepgram, xAI, and the managed Vellum provider) satisfy this requirement; a buffered-only provider would remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
 
 The `voiceFrontDoor` prompt skips current-turn legacy and v3 memory retrieval, while prior frozen memory cards and static memory context remain available. The front-door rule escalates rather than guessing when required personal context is absent. The escalated leg runs the ordinary memory pipeline against the latest visible caller prompt before the quality model, with low selector effort. This keeps memory work off the front-door TTFT path without cross-leg speculative state.
 
@@ -1292,9 +1296,8 @@ graph TB
         RM_DIR["rmSync skill directory"]
     end
 
-    subgraph "File Watcher"
-        WATCHER["Skills directory watcher<br/>detects changes"]
-        EVICT["Session eviction<br/>+ recreation"]
+    subgraph "Capability reseed"
+        RESEED["SKILL.md mtime poll<br/>reseeds capability cards"]
     end
 
     SNIPPET --> EVAL_TOOL
@@ -1307,14 +1310,12 @@ graph TB
     SCAFFOLD --> MANAGED_STORE
     MANAGED_STORE --> SKILL_DIR
 
-    SKILL_DIR --> WATCHER
-    WATCHER --> EVICT
-
+    SKILL_DIR --> RESEED
     SKILL_DIR --> SKILL_LOAD
     SKILL_LOAD --> SESSION
 
     DELETE --> RM_DIR
-    RM_DIR --> WATCHER
+    RM_DIR --> RESEED
 ```
 
 **Key design decisions:**
@@ -1322,7 +1323,7 @@ graph TB
 - `evaluate_typescript_code` always forces `sandbox.enabled = true` regardless of global config.
 - Snippet contract: must export `default` or `run` with signature `(input: unknown) => unknown | Promise<unknown>`.
 - Managed-store writes are atomic (tmp file + rename) to prevent partial `SKILL.md` files.
-- After persist or delete, the file watcher triggers conversation eviction; the next turn runs in a fresh conversation. The model's system prompt instructs it to continue normally.
+- After persist or delete, capability cards reseed from the `SKILL.md` set. The next turn continues in the same conversation.
 - macOS UI shows Inspect and Delete controls for managed skills only (source = "managed").
 - `skill_load` resolves the recursive include graph (via `include-graph.ts`) before emitting output. Missing children are listed as suggested skills without child `<loaded_skill>` markers; cycles still produce `isError: true` with no marker. Valid includes produce an "Included Skills (immediate)" metadata section showing child ID, name, description, and path.
 
@@ -2190,7 +2191,7 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 - **`native-twilio`** — the text-token path: spoken text is sent via `sendTextToken()`, which the media-stream transport re-synthesizes through daemon TTS. Collapsing this mode into `synthesized-play` is a documented deferred follow-up.
 - **`synthesized-play`** — The assistant synthesises audio via the provider's HTTP API and streams it through the audio store / `sendPlayUrl()` path.
 
-**Phone call integration:** Phone calls run on the media-stream transport, where the daemon synthesises speech via the configured TTS provider and transcodes it to mu-law 8 kHz frames (`media-stream-output.ts`). Each catalog entry declares `mediaStreamPlayback.outputFormat` (`pcm`, `wav`, or `none`); `resolveTelephonyTtsCapability()` (`src/calls/telephony-tts-capability.ts`) combines that field with credential availability into a playable / not-playable verdict, and the call TTS resolver falls back to a credentialed playable provider rather than producing silence.
+**Phone call integration:** Phone calls run on the media-stream transport, where the daemon synthesises speech via the effective TTS provider (the configured one after managed-speech defaulting, `resolveEffectiveSpeechProviders`, the same substitution live voice makes) and transcodes it to mu-law 8 kHz frames (`media-stream-output.ts`). Each catalog entry declares `mediaStreamPlayback.outputFormat` (`pcm`, `wav`, or `none`); `resolveTelephonyTtsCapability()` (`src/calls/telephony-tts-capability.ts`) combines that field with credential availability into a playable / not-playable verdict, and the call TTS resolver falls back to a credentialed playable provider rather than producing silence.
 
 **Adding a new TTS provider (catalog-first checklist):**
 

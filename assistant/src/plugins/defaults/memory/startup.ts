@@ -28,7 +28,10 @@ import { join } from "node:path";
 import { usesConceptPageMemory } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/schema.js";
 import { reconcileEmbeddingIdentity } from "../../../daemon/embedding-reconcile.js";
-import { refreshSkillCapabilityMemories } from "../../../daemon/skill-memory-refresh.js";
+import {
+  refreshSkillCapabilityMemories,
+  startWorkspaceSkillMdMtimePoll,
+} from "../../../daemon/skill-memory-refresh.js";
 import { selectEmbeddingBackend } from "../../../persistence/embeddings/embedding-backend.js";
 import {
   initMessagesLexicalIndex,
@@ -262,6 +265,8 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   } catch (err) {
     log.warn({ err }, "Graph capability seeding failed — continuing");
   }
+
+  startWorkspaceSkillMdMtimePoll();
 
   // ---- v1 (legacy engine) — delete with v1 ----
   // Auto-bootstrap: if the graph has no non-procedural nodes but historical

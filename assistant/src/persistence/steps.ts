@@ -484,6 +484,7 @@ import { migrateAcpAuthMarkerIndex } from "./migrations/373-acp-auth-marker-inde
 import { migrateChannelInboundMessageIdIndex } from "./migrations/374-channel-inbound-message-id-index.js";
 import { migrateCreateChannelOutboundPosts } from "./migrations/375-create-channel-outbound-posts.js";
 import { migrateNotificationDeliveriesCanonicalMessageId } from "./migrations/376-notification-deliveries-canonical-message-id.js";
+import { migrateAddSubagentBudgetStopReason } from "./migrations/377-add-subagent-budget-stop-reason.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1602,4 +1603,12 @@ export const migrationSteps: MigrationStep[] = [
   migrateChannelInboundMessageIdIndex,
   migrateCreateChannelOutboundPosts,
   migrateNotificationDeliveriesCanonicalMessageId,
+  {
+    name: "migrateAddSubagentBudgetStopReason",
+    run: migrateAddSubagentBudgetStopReason,
+    // The column guard treats a missing table as nothing-to-do, so the table
+    // must be checkpointed first or a repair flow could permanently checkpoint
+    // this as a no-op.
+    dependsOn: ["migrateCreateSubagentsTable"],
+  },
 ];

@@ -10,6 +10,48 @@ const path = require("path");
 const { Arch } = require("builder-util");
 const { findIdentity } = require("app-builder-lib/out/codeSign/macCodeSign");
 
+// `lipo -archs` names the x64 slice x86_64, and electron-builder.config.cjs
+// only ever targets one of these two.
+const NOTIFIER_SLICE = {
+  arm64: "arm64",
+  x64: "x86_64",
+};
+
+/**
+ * The addon is compiled for one architecture, is looked up at runtime under
+ * `bin/notifier/<process.arch>/`, and electron-builder packs whatever sits
+ * under resources/notifier. An addon built for the other architecture would
+ * ship an app that quietly falls back to plain notifications, so fail the
+ * build instead.
+ *
+ * @param {{ name: string, path: string }} addon
+ * @param {string | undefined} packagedArch
+ */
+function assertNotifierArch(addon, packagedArch) {
+  const expected = packagedArch ? NOTIFIER_SLICE[packagedArch] : undefined;
+  if (!expected) {
+    throw new Error(
+      `afterSign: cannot check ${addon.name} against packaged architecture "${packagedArch}"; the notifier addon supports ${Object.keys(NOTIFIER_SLICE).join(" and ")}`
+    );
+  }
+  const remedy = `Rebuild it with ELECTRON_TARGET_ARCH=${packagedArch} bash scripts/build-notifier.sh.`;
+  if (!addon.name.startsWith(`notifier/${packagedArch}/`)) {
+    throw new Error(
+      `afterSign: ${addon.name} is not under notifier/${packagedArch}/, so the runtime lookup by process.arch would miss it. ${remedy}`
+    );
+  }
+  const slices = execFileSync("lipo", ["-archs", addon.path], {
+    encoding: "utf8",
+  })
+    .trim()
+    .split(/\s+/);
+  if (!slices.includes(expected)) {
+    throw new Error(
+      `afterSign: ${addon.name} is built for ${slices.join(", ")}, but this build packages ${packagedArch}. ${remedy}`
+    );
+  }
+}
+
 function getConfiguredQualifier(options) {
   if (options.identity !== undefined) {
     return options.identity;
@@ -96,7 +138,7 @@ exports.default = async function afterSign(context) {
     return;
   }
 
-  const { appOutDir, packager } = context;
+  const { appOutDir, arch, packager } = context;
   const productName = packager.appInfo.productFilename;
   const appDir = path.join(appOutDir, `${productName}.app`);
   const resourcesDir = path.join(appDir, "Contents", "Resources");
@@ -136,6 +178,34 @@ exports.default = async function afterSign(context) {
     ? path.join(binDir, `${helperAppName}.app`)
     : path.join(binDir, "vellum-mac-helper.app");
 
+  // The notifier addon is packed per architecture under bin/notifier/<arch>/,
+  // so collect whatever architectures this build shipped.
+  const notifierAddons = [];
+  const packagedArch = Arch[arch];
+  const notifierDir = path.join(binDir, "notifier");
+  if (fs.existsSync(notifierDir)) {
+    for (const archEntry of fs.readdirSync(notifierDir, {
+      withFileTypes: true,
+    })) {
+      if (!archEntry.isDirectory()) {
+        continue;
+      }
+      const archDir = path.join(notifierDir, archEntry.name);
+      for (const file of fs.readdirSync(archDir)) {
+        if (!file.endsWith(".node")) {
+          continue;
+        }
+        const addon = {
+          name: `notifier/${archEntry.name}/${file}`,
+          path: path.join(archDir, file),
+          entitlements: path.join(entitlementsDir, "inherit.plist"),
+        };
+        assertNotifierArch(addon, packagedArch);
+        notifierAddons.push(addon);
+      }
+    }
+  }
+
   const executables = [
     {
       name: "bun",
@@ -147,6 +217,7 @@ exports.default = async function afterSign(context) {
       path: helperAppPath,
       entitlements: path.join(entitlementsDir, "helper.plist"),
     },
+    ...notifierAddons,
   ];
 
   for (const executable of executables) {
@@ -166,7 +237,15 @@ exports.default = async function afterSign(context) {
   console.log(
     `afterSign: re-signing ${productName}.app with identity="${identity.name}"`
   );
-  codesign(appDir, path.join(entitlementsDir, "app.plist"), identity);
+  // Read back the decision electron-builder.config.cjs already made, rather
+  // than re-reading the environment: only a build configured with a
+  // provisioning profile may carry the restricted Communication Notifications
+  // entitlement, and this pass has to sign the same set electron-builder did.
+  const macOptions = packager.platformSpecificBuildOptions || {};
+  const appEntitlements = macOptions.provisioningProfile
+    ? macOptions.entitlements
+    : path.join(entitlementsDir, "app.plist");
+  codesign(appDir, appEntitlements, identity);
 };
 
 exports.__resolveSigningIdentityForTesting = resolveSigningIdentity;

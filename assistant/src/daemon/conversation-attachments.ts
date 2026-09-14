@@ -10,6 +10,7 @@ import { getLogger } from "../util/logger.js";
 import {
   type ApproveHostRead,
   type AssistantAttachmentDraft,
+  type AttachmentSourceType,
   contentBlocksToDrafts,
   deduplicateDrafts,
   type DirectiveRequest,
@@ -63,10 +64,30 @@ export async function approveHostAttachmentRead(
   return response.decision === "allow";
 }
 
+/**
+ * A file the assistant named that survived resolution, validation, and
+ * persistence. Rejected directives (missing, oversized, denied) and drafts
+ * whose upload was skipped never appear here, so a caller pointing a user
+ * at "the files this turn produced" cannot offer a broken one.
+ */
+export interface PersistedAttachmentFile {
+  /** Absolute path the attachment was read from. */
+  sourcePath: string;
+  /** Name the attachment was persisted under. */
+  displayName: string;
+  /**
+   * Boundary the path was resolved against. A caller that surfaces the path
+   * needs it: only `sandbox_file` paths are the assistant's own workspace,
+   * and a `host_file` path is the user's machine.
+   */
+  sourceType: AttachmentSourceType;
+}
+
 export interface AttachmentResolutionResult {
   assistantAttachments: AssistantAttachmentDraft[];
   emittedAttachments: UserMessageAttachment[];
   directiveWarnings: string[];
+  persistedFiles: PersistedAttachmentFile[];
 }
 
 /**
@@ -84,6 +105,17 @@ export async function resolveAssistantAttachments(
 ): Promise<AttachmentResolutionResult> {
   let assistantAttachments: AssistantAttachmentDraft[] = [];
   const emittedAttachments: UserMessageAttachment[] = [];
+  const persistedFiles: PersistedAttachmentFile[] = [];
+
+  const recordPersistedFile = (draft: AssistantAttachmentDraft): void => {
+    if (draft.sourcePath) {
+      persistedFiles.push({
+        sourcePath: draft.sourcePath,
+        displayName: draft.filename,
+        sourceType: draft.sourceType,
+      });
+    }
+  };
 
   log.info(
     {
@@ -208,6 +240,7 @@ export async function resolveAssistantAttachments(
         }
       }
 
+      recordPersistedFile(draft);
       emittedAttachments.push({
         id: stored.id,
         filename: draft.filename,
@@ -220,6 +253,9 @@ export async function resolveAssistantAttachments(
       });
     }
   } else if (assistantAttachments.length > 0) {
+    // No assistant message to attach to: the drafts are emitted to the client
+    // for this turn only and nothing is stored, so none of them is a
+    // persisted file.
     for (const draft of assistantAttachments) {
       emittedAttachments.push({
         filename: draft.filename,
@@ -230,5 +266,10 @@ export async function resolveAssistantAttachments(
     }
   }
 
-  return { assistantAttachments, emittedAttachments, directiveWarnings };
+  return {
+    assistantAttachments,
+    emittedAttachments,
+    directiveWarnings,
+    persistedFiles,
+  };
 }

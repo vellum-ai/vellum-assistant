@@ -65,11 +65,17 @@ const firstSeenDirty = new Map<string, number>();
  * Heartbeat service that periodically checks all tracked workspaces for
  * uncommitted changes and auto-commits them when thresholds are met.
  *
- * This is a SAFETY NET -- turn-boundary commits (M2) handle the primary case.
+ * This is a SAFETY NET. Turn-boundary commits handle the primary case.
  * The heartbeat catches:
  * - Long-running bash scripts that modify files without returning to the agent loop
  * - Background processes that write to the workspace
  * - Forgotten state from crashed or interrupted sessions
+ *
+ * The monitoring worker owns the periodic timer so git add/commit of large
+ * working trees cannot stall the daemon event loop. Turn-boundary commits
+ * still run in the daemon process. Daemon shutdown still flushes pending
+ * changes via commitAllPendingWorkspaceChanges() against the daemon's
+ * GitService registry.
  */
 export class WorkspaceHeartbeatService {
   private readonly ageThresholdMs: number;
@@ -113,6 +119,7 @@ export class WorkspaceHeartbeatService {
         log.error({ err }, "Heartbeat check failed");
       });
     }, this.intervalMs);
+    this.timer.unref?.();
   }
 
   /**
@@ -382,32 +389,50 @@ export class WorkspaceHeartbeatService {
 
 let instance: WorkspaceHeartbeatService | null = null;
 
-/** Construct and start the workspace heartbeat service singleton. */
+/**
+ * Construct (if needed) and start the workspace heartbeat service singleton.
+ * Idempotent: a second call reuses the existing instance and does not start
+ * a second timer.
+ */
 export function startWorkspaceHeartbeatService(): void {
-  instance = new WorkspaceHeartbeatService();
+  if (!instance) {
+    instance = new WorkspaceHeartbeatService();
+  }
   instance.start();
 }
 
 /**
- * Stop the workspace heartbeat service singleton if one is running. The instance
- * is retained so a final commitAllPendingWorkspaceChanges() during shutdown can
- * still flush after the periodic loop has stopped.
+ * Stop the periodic timer and wait for any in-flight check. The instance
+ * is retained so a later commitAllPendingWorkspaceChanges() can still flush.
  */
 export async function stopWorkspaceHeartbeatService(): Promise<void> {
   await instance?.stop();
 }
 
 /**
- * Commit any uncommitted workspace changes via the singleton; no-op when the
- * service was never started.
+ * Commit any uncommitted workspace changes via the singleton. Constructs the
+ * service if it was never started, so daemon shutdown can flush pending
+ * workspace git changes even when the periodic timer runs in another process.
  */
 export async function commitAllPendingWorkspaceChanges(): Promise<void> {
-  await instance?.commitAllPending();
+  if (!instance) {
+    instance = new WorkspaceHeartbeatService();
+  }
+  await instance.commitAllPending();
 }
 
 /**
  * @internal Test-only: clear the dirty tracking state
  */
 export function _resetHeartbeatState(): void {
+  firstSeenDirty.clear();
+}
+
+/**
+ * @internal Test-only: stop the singleton and drop it so later tests start clean.
+ */
+export async function _resetHeartbeatServiceForTests(): Promise<void> {
+  await instance?.stop();
+  instance = null;
   firstSeenDirty.clear();
 }

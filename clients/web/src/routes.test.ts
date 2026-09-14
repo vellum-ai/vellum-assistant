@@ -64,7 +64,8 @@ function middlewareExecutionOrder(path: string): unknown[] {
 function leafRouteComponentName(path: string): string | undefined {
   const matches = matchRoutes(routeTree as never, path) ?? [];
   const leaf = matches.at(-1)?.route as
-    { Component?: { name?: string } } | undefined;
+    | { Component?: { name?: string } }
+    | undefined;
   return leaf?.Component?.name;
 }
 
@@ -195,6 +196,21 @@ describe("skills routes", () => {
   });
 });
 
+describe("Inspiration List route", () => {
+  // The celebration modal's "See the full list" navigates here. Without a
+  // route of its own the path falls through to the `/assistant/*` catch-all
+  // and the reward for finishing the checklist is a not-found page.
+  test("the celebration's destination matches a route of its own", async () => {
+    const { routes } = await import("@/utils/routes");
+    const matches =
+      matchRoutes(routeTree as never, routes.activationList) ?? [];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.at(-1)?.pathname).toBe(routes.activationList);
+    expect(matches.at(-1)?.params["*"]).toBeUndefined();
+    expect(hasRouteMiddleware(routes.activationList)).toBe(true);
+  });
+});
+
 describe("billing settings route", () => {
   // A platform probe that reports after the auth guard's wait timed out
   // corrects its forced decision by revalidating the router, and revalidation
@@ -264,7 +280,8 @@ describe("settings route compatibility", () => {
       "/assistant/settings/debug",
     );
     const leaf = matches?.at(-1)?.route as
-      { lazy?: unknown; Component?: { name?: string } } | undefined;
+      | { lazy?: unknown; Component?: { name?: string } }
+      | undefined;
     // `lazy` is the page itself; a redirect route would carry a named
     // `Component` instead.
     expect(leaf?.lazy).toBeDefined();
@@ -289,6 +306,37 @@ describe("Activity route compatibility", () => {
     expect(await leaf?.lazy?.Component()).toBe(
       (await import("@/domains/home/activity-redirect-page"))
         .ActivityRedirectPage,
+    );
+  });
+});
+
+describe("Settings route prefetching", () => {
+  // What `prefetchRoute` warms is every `lazy` on the matched branch, so the
+  // number of lazy properties on this branch is the number of round trips a
+  // cold tap on Settings pays before the router will commit. The layout and
+  // its index page are separate chunks, and warming the root has to cover
+  // both: warming only the layout would still leave the page to fetch on tap.
+  test("the Settings root carries the layout chunk and its index page chunk", async () => {
+    const matches =
+      matchRoutes(routeTree as never, "/assistant/settings") ?? [];
+    const lazyRoutes = matches.filter(
+      (m) => (m.route as { lazy?: unknown }).lazy !== undefined,
+    );
+
+    expect(lazyRoutes).toHaveLength(2);
+
+    const loaded = await Promise.all(
+      lazyRoutes.map(async (m) =>
+        (
+          m.route as { lazy: { Component: () => Promise<unknown> } }
+        ).lazy.Component(),
+      ),
+    );
+    expect(loaded).toContain(
+      (await import("@/domains/settings/settings-layout")).SettingsLayout,
+    );
+    expect(loaded).toContain(
+      (await import("@/domains/settings/pages/general-page")).GeneralPage,
     );
   });
 });

@@ -7,6 +7,8 @@
 
 import { readFileSync } from "node:fs";
 
+import { channelForBotProvider } from "@vellumai/service-contracts/channels";
+
 import {
   getConfig,
   loadRawConfig,
@@ -19,7 +21,10 @@ import {
   ServicesSchema,
 } from "../../config/schemas/services.js";
 import type { OAuthConnectionRequest } from "../../oauth/connection.js";
-import { isBinaryOAuthBody, jsonSafeOAuthBody } from "../../oauth/connection.js";
+import {
+  isBinaryOAuthBody,
+  jsonSafeOAuthBody,
+} from "../../oauth/connection.js";
 import {
   resolveOAuthConnection,
   type ResolveOAuthConnectionOptions,
@@ -966,13 +971,21 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   }
 
   if (response.status === 401 || response.status === 403) {
-    result.hint = managed
-      ? `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-        `Run 'assistant oauth status ${b.provider}' to check connection health.\n` +
-        `To reconnect, run 'assistant oauth connect --help'.`
-      : `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-        `Run 'assistant oauth status ${b.provider}' to check connection status.\n` +
-        `To reconnect, run 'assistant oauth connect --help'.`;
+    // The recovery steps follow the credential's kind, not the door the
+    // request came through: a channel bot's token was stored by the channel's
+    // setup, so the OAuth status and connect commands cannot repair it.
+    const botChannel = channelForBotProvider(b.provider);
+    result.hint = botChannel
+      ? `Request returned HTTP ${response.status}. The ${botChannel} bot credential was rejected; it may have been revoked or reinstalled with fewer scopes.\n\n` +
+        `Run 'assistant channels get ${botChannel}' to re-probe the channel and see what it reports.\n` +
+        `To reconnect, run the channel's setup skill again.`
+      : managed
+        ? `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
+          `Run 'assistant oauth status ${b.provider}' to check connection health.\n` +
+          `To reconnect, run 'assistant oauth connect --help'.`
+        : `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
+          `Run 'assistant oauth status ${b.provider}' to check connection status.\n` +
+          `To reconnect, run 'assistant oauth connect --help'.`;
   } else if (response.status === 404 && isHtmlResponse(response.headers)) {
     // An HTML 404 (rather than a JSON API error) is the signature of a request
     // reaching a valid host but a path that host does not serve — e.g. a

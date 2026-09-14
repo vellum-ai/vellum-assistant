@@ -56,15 +56,13 @@ const CHECKOUT_URL = "https://stripe.test/checkout/session";
 
 type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
-let machineTierCall: Captured | null = null;
-let storageTierCall: Captured | null = null;
-let creditTierCall: Captured | null = null;
+let changePackageCall: Captured | null = null;
 let openedUrl: string | null = null;
 // True puts the app in the iOS Capacitor shell for the anchor-routing tests.
 let nativePlatform = false;
-// When non-null, the change-machine-tier call rejects with this — drives the
+// When non-null, the change-package call rejects with this, driving the
 // error path (the hook toasts and the caller keeps the modal open).
-let machineTierError: unknown = null;
+let changePackageError: unknown = null;
 // Read fixtures returned by the mocked SDK so post-mutation invalidation
 // refetches resolve deterministically instead of hitting the network.
 let subscriptionFixture: SubscriptionResponse | null = null;
@@ -83,20 +81,15 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
-  organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
-    machineTierCall = opts;
-    if (machineTierError !== null) {
-      return Promise.reject(machineTierError);
+  organizationsBillingSubscriptionChangePackageCreate: (opts: Captured) => {
+    changePackageCall = opts;
+    if (changePackageError !== null) {
+      return Promise.reject(changePackageError);
     }
-    return Promise.resolve({ data: {}, response: { ok: true } });
-  },
-  organizationsBillingSubscriptionChangeStorageTierCreate: (opts: Captured) => {
-    storageTierCall = opts;
-    return Promise.resolve({ data: {}, response: { ok: true } });
-  },
-  organizationsBillingSubscriptionChangeCreditTierCreate: (opts: Captured) => {
-    creditTierCall = opts;
-    return Promise.resolve({ data: {}, response: { ok: true } });
+    return Promise.resolve({
+      data: { status: "ok", package: null },
+      response: { ok: true },
+    });
   },
   organizationsBillingSubscriptionRetrieve: () =>
     Promise.resolve({ data: subscriptionFixture, response: { ok: true } }),
@@ -399,12 +392,10 @@ function continueButton(): HTMLButtonElement {
 
 beforeEach(() => {
   upgradeCall = null;
-  machineTierCall = null;
-  storageTierCall = null;
-  creditTierCall = null;
+  changePackageCall = null;
   openedUrl = null;
   nativePlatform = false;
-  machineTierError = null;
+  changePackageError = null;
   onboardingHangs = false;
   subscriptionFixture = null;
   plansFixture = null;
@@ -725,9 +716,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     fireEvent.click(continueButton());
 
     getByText("Create a custom plan");
-    expect(machineTierCall).toBeNull();
-    expect(storageTierCall).toBeNull();
-    expect(creditTierCall).toBeNull();
+    expect(changePackageCall).toBeNull();
     expect(queryByTestId("resize-takeover")).toBeNull();
   });
 
@@ -834,17 +823,19 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     expect(strikethroughs()).toContain(BASELINE_MACHINE_LABEL);
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
-    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
-    // Storage and credit stayed at their seeded values, so neither dispatches.
-    expect(storageTierCall).toBeNull();
-    expect(creditTierCall).toBeNull();
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    // Storage and credit travel at their seeded values alongside the change.
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "medium",
+      storage_tier: "xs",
+      credit_tier: null,
+    });
     // Baseline → medium is an upgrade, so the resize takeover opens.
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
   });
 
-  test("Continue dispatches only the changed tiers and opens the resize takeover", async () => {
+  test("Continue posts the whole selection to change-package and opens the resize takeover", async () => {
     // Current config is medium machine / 10 GB (xs) storage / no credits.
     const { getByRole, findByTestId } = renderPage(proMightySubscription());
 
@@ -856,11 +847,14 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     selectOption("Usage bundle", "50 credits");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
-    expect(machineTierCall!.body).toEqual({ machine_tier: "large" });
-    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
-    // Storage is unchanged, so no storage-tier request fires.
-    expect(storageTierCall).toBeNull();
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    // One call carries every dimension as explicit tiers, the unchanged
+    // storage included; the server diffs and applies it as one change.
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "large",
+      storage_tier: "xs",
+      credit_tier: "credits_50",
+    });
 
     // A machine change resizes the assistant, so the takeover opens.
     const takeover = await findByTestId("resize-takeover");
@@ -882,8 +876,12 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     selectOption("Machine size", "Medium machine (2.5 vCPU, 5 GiB)");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
-    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "medium",
+      storage_tier: "xs",
+      credit_tier: null,
+    });
     // The modal closes and the takeover never opens for a downgrade.
     await waitFor(() => expect(queryByText("Create a custom plan")).toBeNull());
     expect(queryByTestId("resize-takeover")).toBeNull();
@@ -906,7 +904,7 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
   });
 
   test("a failed dispatch keeps the modal open and skips the takeover", async () => {
-    machineTierError = { detail: "Payment failed. Your card was declined." };
+    changePackageError = { detail: "Payment failed. Your card was declined." };
     const { getByRole, getByText, queryByTestId } = renderPage(
       proMightySubscription(),
     );
@@ -918,9 +916,61 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
     selectOption("Usage bundle", "No extra usage");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
     // The hook toasted; the configurator stays open and the takeover is absent.
     getByText("Create a custom plan");
+    expect(queryByTestId("resize-takeover")).toBeNull();
+  });
+});
+
+describe("CustomPlanModal: a fee-less (Mighty) Pro sub", () => {
+  // Only the Mighty package is sold without the platform fee, and a custom
+  // plan always carries it, so leaving Mighty for a custom plan adds (and
+  // bills) the fee even when every tier stays the same.
+  test("opens with the fee row marked as a change and Continue enabled", () => {
+    const { getByRole } = renderPage(
+      proMightySubscription({ has_platform_fee: false }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+
+    // The seeded tiers are unchanged, yet the fee is new: Continue is live.
+    expect(continueButton().disabled).toBe(false);
+    expect(recapRows()).toEqual([
+      "Platform fee: $20/mo",
+      "Medium machine (2.5 vCPU, 5 GiB)",
+      "10 GB storage",
+      "No extra usage",
+    ]);
+    // The fee row's check goes green; nothing is struck through (there was no
+    // previous fee to strike).
+    const checks = checkIconClasses();
+    expect(checks[0]).toContain("text-[var(--system-positive-strong)]");
+    expect(strikethroughs()).toEqual([]);
+    // previous = medium 3500 + xs 500 = 4000 ($40) with no fee;
+    // new = base 2000 + medium 3500 + xs 500 = 6000 ($60); delta = +$20/mo.
+    const delta = deltaLine();
+    expect(delta).not.toBeNull();
+    expect(delta!.textContent).toBe("+$20/mo compared to previous ($40)");
+  });
+
+  test("Continue with the seeded tiers posts them so the fee is added", async () => {
+    const { getByRole, queryByText, queryByTestId } = renderPage(
+      proMightySubscription({ has_platform_fee: false }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Configure" }));
+    fireEvent.click(continueButton());
+
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "medium",
+      storage_tier: "xs",
+      credit_tier: null,
+    });
+    // No ceiling moved and the bundle is unchanged: the modal closes with no
+    // takeover to run.
+    await waitFor(() => expect(queryByText("Create a custom plan")).toBeNull());
     expect(queryByTestId("resize-takeover")).toBeNull();
   });
 });
@@ -983,11 +1033,14 @@ describe("CustomPlanModal — Pro plan holding a deprecated (legacy) credit bund
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
-    expect(machineTierCall!.body).toEqual({ machine_tier: "large" });
-    // The held credit is unchanged, so it's neither re-sent nor dropped.
-    expect(creditTierCall).toBeNull();
-    expect(storageTierCall).toBeNull();
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    // The held legacy credit travels unchanged, so it is kept rather than
+    // dropped (the server allows a retired bundle only when unchanged).
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "large",
+      storage_tier: "xs",
+      credit_tier: "credits_25",
+    });
     const takeover = await findByTestId("resize-takeover");
     expect(takeover.getAttribute("data-mode")).toBe("resize");
   });

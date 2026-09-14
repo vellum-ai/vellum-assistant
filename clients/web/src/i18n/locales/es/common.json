@@ -1,7 +1,8 @@
 {
   "aboutPage": {
     "build": "Compilación",
-    "tagline": "Asistente de IA para tu Mac",
+    "taglineMacOS": "Asistente de IA para tu Mac",
+    "taglineWindows": "Asistente de IA para tu PC",
     "version": "Versión"
   },
   "activeAssistantGate": {
@@ -167,6 +168,12 @@
     "captureWindows": "Ventanas",
     "deny": "Denegar",
     "draw": "Dibujar",
+    "clearMarks": "Borrar marcas",
+    "drawTools": "Herramienta de dibujo",
+    "drawFreehand": "Mano alzada",
+    "drawLine": "Línea",
+    "drawBox": "Recuadro",
+    "drawCircle": "Círculo",
     "endSession": "Finalizar sesión",
     "muteAssistant": "Silenciar asistente",
     "muteMicrophone": "Silenciar micrófono",
@@ -203,6 +210,9 @@
     "copyFileContentsAria": "Copiar contenido del archivo",
     "downloadFileAria": "Descargar archivo",
     "editFileAria": "Editar archivo"
+  },
+  "conversationTitle": {
+    "untitled": "Sin título"
   },
   "createAssistantDialog": {
     "cancel": "Cancelar",
@@ -346,12 +356,15 @@
   "localNotification": {
     "goToConversation": "Ir a la conversación"
   },
-  "macosAppBanner": {
-    "ariaLabel": "Descargar la app de macOS",
-    "ctaAriaLabel": "Descargar la app de macOS",
+  "desktopAppBanner": {
+    "ariaLabelMacOS": "Descargar la app de macOS",
+    "ariaLabelWindows": "Descargar la app de Windows",
+    "ctaAriaLabelMacOS": "Descargar la app de macOS",
+    "ctaAriaLabelWindows": "Descargar la app de Windows",
     "ctaLabel": "Descargar",
     "subtitle": "Uso del ordenador · acceso a terminal · automatización nativa",
-    "title": "Consigue la app de macOS"
+    "titleMacOS": "Consigue la app de macOS",
+    "titleWindows": "Consigue la app de Windows"
   },
   "nativeAppBanner": {
     "bannerAria": "Descargar la app de {appName}",
@@ -431,6 +444,9 @@
     "title": "Retirar asistente"
   },
   "rootHydrateFallback": {
+    "loadingAria": "Cargando"
+  },
+  "routePendingIndicator": {
     "loadingAria": "Cargando"
   },
   "rootLayout": {
@@ -581,6 +597,7 @@
     "reloadApp": "Recargar app"
   },
   "statusBanner": {
+    "reconnecting": "Reconectando con tu asistente…",
     "dismiss": "Descartar",
     "goToDoctor": "Ir a Doctor",
     "resumeAssistant": "Reanudar asistente",
@@ -708,22 +725,6 @@
     "system": "Sistema",
     "velvet": "Velvet"
   },
-  "tipCard": {
-    "computerUseBodyLinux": "En este ordenador puedo trabajar con archivos, el terminal y el navegador.",
-    "computerUseBodyMacos": "En este Mac puedo controlar aplicaciones y el escritorio por ti.",
-    "computerUseBodyWindows": "En este PC puedo controlar aplicaciones y el escritorio por ti.",
-    "computerUseTitleLinux": "Déjame usar este ordenador",
-    "computerUseTitleMacos": "Déjame usar tu Mac",
-    "computerUseTitleWindows": "Déjame usar tu PC",
-    "dismiss": "Descartar",
-    "nextTip": "Consejo siguiente",
-    "pluginsBodyLinux": "Desde un copiloto de finanzas personales hasta un resumen familiar diario.",
-    "pluginsBodyMacos": "Desde un copiloto de finanzas personales hasta un modo que vive en la muesca de tu MacBook.",
-    "pluginsBodyWindows": "Desde un copiloto de finanzas personales hasta un resumen familiar diario.",
-    "quickInputBody": "Pulsa {shortcut} para enviarme un mensaje rápido desde cualquier aplicación.",
-    "quickInputBodyWithoutShortcut": "Envíame un mensaje rápido desde cualquier aplicación usando Entrada rápida.",
-    "previousTip": "Consejo anterior"
-  },
   "ttsProviderForm": {
     "apiKey": "Clave de API",
     "apiKeyRequired": "Guarda una clave de API para este proveedor antes de probar.",
@@ -850,7 +851,9 @@
     "verificationFailed": "Verificación fallida",
     "verifiedTitle": "Los registros DNS se han verificado. Tu dominio está listo para enviar y recibir correo.",
     "verifyingDomain": "Verificando dominio…",
-    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos."
+    "verifyingTitle": "Los registros DNS se han aprovisionado. Esperando a que el proveedor de correo los verifique; esto suele tardar unos minutos.",
+    "setupRequired": "Configuración del dominio requerida",
+    "setupRequiredTitle": "Este dominio no se ha aprovisionado con el proveedor de correo. No puede enviar ni recibir correo hasta completar la configuración."
   },
   "managedServicesBanner": {
     "body": "Los servicios administrados se miden y se deducen del saldo de tu cuenta de Vellum. <link>Ver precios</link>"

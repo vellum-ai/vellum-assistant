@@ -1,4 +1,8 @@
 import { isArchiveBySenderAuthorized } from "../../../../runtime/effective-capabilities.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -28,6 +32,7 @@ export async function run(
   if (!query) {
     return err("query is required.");
   }
+  throwIfCancelled(context);
 
   try {
     const provider = await resolveProvider(platform);
@@ -40,6 +45,9 @@ export async function run(
 
     const account = input.account as string | undefined;
     const conn = await getProviderConnection(provider, account);
+    // Recheck: provider resolution and the connection lookup are awaits, and a
+    // cancel landing during either must not still archive up to 5000 messages.
+    throwIfCancelled(context);
     const result = await provider.archiveByQuery!(conn, query);
 
     if (result.archived === 0) {
@@ -54,6 +62,11 @@ export async function run(
     }
     return ok(summary);
   } catch (e) {
+    // A cancelled turn is not an archive failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(e)) {
+      throw e;
+    }
     return err(e instanceof Error ? e.message : String(e));
   }
 }

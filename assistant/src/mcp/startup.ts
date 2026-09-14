@@ -13,13 +13,14 @@
  * further process that starts hosting turns has one call to make.
  */
 
-import { getConfig, invalidateConfigCache } from "../config/loader.js";
+import { invalidateConfigCache } from "../config/loader.js";
 import type { McpConfig } from "../config/schemas/mcp.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { buildEffectiveMcpConfig } from "./effective-config.js";
 import { getMcpServerManager, stopMcpServerManager } from "./manager.js";
+import { loadWorkspaceMcpConfig } from "./workspace-mcp-config.js";
 
 const log = getLogger("mcp-startup");
 
@@ -36,7 +37,8 @@ const log = getLogger("mcp-startup");
  * is a startup step in processes whose other work must not be held hostage to
  * a third-party server being up.
  *
- * @param workspaceMcpConfig The `mcp` block of the assistant config, if any.
+ * @param workspaceMcpConfig The projected workspace MCP config. Callers
+ * that omit it read `/workspace/mcp.json`.
  * @returns The number of tools registered across all servers.
  */
 export async function startConfiguredMcpServers(
@@ -44,7 +46,9 @@ export async function startConfiguredMcpServers(
 ): Promise<number> {
   let registered = 0;
   try {
-    const mcpConfig = buildEffectiveMcpConfig(workspaceMcpConfig);
+    const mcpConfig = buildEffectiveMcpConfig(
+      workspaceMcpConfig ?? loadWorkspaceMcpConfig(),
+    );
     if (Object.keys(mcpConfig.servers).length === 0) {
       return 0;
     }
@@ -97,5 +101,5 @@ export async function restartConfiguredMcpServers(): Promise<number> {
   }
   unregisterAllMcpTools();
   invalidateConfigCache();
-  return startConfiguredMcpServers(getConfig().mcp);
+  return startConfiguredMcpServers(loadWorkspaceMcpConfig());
 }

@@ -37,6 +37,7 @@ export function injectMessageIntoParent(
   parentConversationId: string,
   message: string,
   metadata?: Record<string, unknown>,
+  opts?: { cronRunId?: string | null },
 ): void {
   const existing = findConversation(parentConversationId);
   if (!existing) {
@@ -56,7 +57,7 @@ export function injectMessageIntoParent(
         getOrCreateConversation(parentConversationId),
       )
       .then((parent) =>
-        deliverToParent(parent, parentConversationId, message, metadata),
+        deliverToParent(parent, parentConversationId, message, metadata, opts),
       )
       .catch((err) => {
         log.error(
@@ -66,7 +67,7 @@ export function injectMessageIntoParent(
       });
     return;
   }
-  deliverToParent(existing, parentConversationId, message, metadata);
+  deliverToParent(existing, parentConversationId, message, metadata, opts);
 }
 
 function deliverToParent(
@@ -75,6 +76,7 @@ function deliverToParent(
       content: string;
       metadata?: Record<string, unknown>;
       isInteractive: boolean;
+      cronRunId?: string | null;
     }) => { queued: boolean; rejected?: boolean };
     persistUserMessage: (options: {
       content: string;
@@ -83,13 +85,19 @@ function deliverToParent(
     runAgentLoop: (
       message: string,
       messageId: string,
-      options: { isInteractive: boolean },
+      options: { isInteractive: boolean; cronRunId?: string | null },
     ) => Promise<unknown>;
   },
   parentConversationId: string,
   message: string,
   metadata?: Record<string, unknown>,
+  opts?: { cronRunId?: string | null },
 ): void {
+  // The continuation this notification starts is still the scheduled firing's
+  // work, so it carries the same run id as the child whose result triggered it.
+  // Both delivery paths need it: the queued one drains after the enqueuing turn
+  // has ended, so the id has to travel on the message.
+  const cronRunId = opts?.cronRunId ?? null;
   // Machine-injected with no human asserted present, so the notification
   // turn runs non-interactive; it still streams to whoever is watching
   // through the parent's sink.
@@ -97,6 +105,7 @@ function deliverToParent(
     content: message,
     metadata,
     isInteractive: false,
+    ...(cronRunId ? { cronRunId } : {}),
   });
   if (!enqueueResult.queued && !enqueueResult.rejected) {
     parentConversation
@@ -104,6 +113,7 @@ function deliverToParent(
       .then(({ id: messageId }) =>
         parentConversation.runAgentLoop(message, messageId, {
           isInteractive: false,
+          ...(cronRunId ? { cronRunId } : {}),
         }),
       )
       .catch((err) => {

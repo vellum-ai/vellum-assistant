@@ -35,6 +35,16 @@ export interface SubagentRecord {
    */
   parentToolUseId: string | null;
   status: string;
+  /**
+   * Which budget stopped this run, or null when no ceiling did. Distinguishes
+   * a run that burned its `maxRuntimeMs` / `maxToolCalls` allowance from a
+   * cancellation, both of which record status `aborted`.
+   *
+   * Optional on the way in, since only a budget stop has one to write, and
+   * always present on the way out: a row read back reports null when no ceiling
+   * stopped it.
+   */
+  budgetStopReason?: string | null;
   error: string | null;
   createdAt: number;
   startedAt: number | null;
@@ -73,6 +83,7 @@ interface SubagentRow {
   input_tokens: number;
   output_tokens: number;
   estimated_cost: number;
+  budget_stop_reason: string | null;
 }
 
 interface RehydratableSubagentRow extends SubagentRow {
@@ -92,6 +103,7 @@ function rowToRecord(r: SubagentRow): SubagentRecord {
       r.send_result_to_user == null ? null : r.send_result_to_user === 1,
     parentToolUseId: r.parent_tool_use_id,
     status: r.status,
+    budgetStopReason: r.budget_stop_reason ?? null,
     error: r.error,
     createdAt: r.created_at,
     startedAt: r.started_at,
@@ -120,11 +132,12 @@ export function upsertSubagentRecord(rec: SubagentRecord): void {
        id, parent_conversation_id, conversation_id, label, objective, role,
        is_fork, send_result_to_user, parent_tool_use_id, status, error,
        created_at, started_at, completed_at, input_tokens, output_tokens,
-       estimated_cost
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       estimated_cost, budget_stop_reason
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        status = excluded.status,
        error = excluded.error,
+       budget_stop_reason = excluded.budget_stop_reason,
        started_at = excluded.started_at,
        completed_at = excluded.completed_at,
        input_tokens = excluded.input_tokens,
@@ -147,6 +160,7 @@ export function upsertSubagentRecord(rec: SubagentRecord): void {
     rec.inputTokens,
     rec.outputTokens,
     rec.estimatedCost,
+    rec.budgetStopReason ?? null,
   );
 }
 
@@ -365,6 +379,16 @@ export interface SimilarSpawnTally {
    * evidence of duplicated work in progress, not of an available answer.
    */
   inFlight: number;
+  /**
+   * Runs stopped at a `maxRuntimeMs` or `maxToolCalls` ceiling. Kept apart from
+   * both: they left no answer to read, so they are not `count`, and they are
+   * not running, so they are not `inFlight`. They are the one dead end worth
+   * counting, because an objective that burns its whole allowance and is spawned
+   * again burns it again, and the shape repeats until something stops it.
+   */
+  budgetStopped: number;
+  /** Summed `estimated_cost` of the budget-stopped rows. */
+  budgetStoppedCost: number;
 }
 
 /** The two scopes a repeat spawn is judged against. */
@@ -381,17 +405,19 @@ export interface RecentSimilarSpawns {
  * split by whether each run finished with an answer or is still under way.
  *
  * Runs that ended without an answer are left out entirely: spawning their
- * objective again is recovery rather than repetition. Advisor rows are left out
- * too: an advisor consult blocks its caller and is not rate-limited, so its
- * history must not count against a background spawn.
+ * objective again is recovery rather than repetition. Every role counts,
+ * advisor included: a consult is a background child on a premium profile, so a
+ * standing re-ask of one brief is exactly the spend the guard exists to
+ * surface.
  *
  * Both scopes come from one bounded scan because the assistant-wide set
  * contains the conversation's, so a second query would read the same rows
  * twice.
  *
- * Rows hold the raw objective, so the fold has to happen on the column too.
- * It runs in JS rather than SQL: SQLite's `lower()` folds ASCII only and has no
- * whitespace-collapsing function, so a SQL predicate would disagree with
+ * Rows hold the raw objective as the caller wrote it, every role alike, which
+ * is what lets one fold compare them, so the fold has to happen on the column
+ * too. It runs in JS rather than SQL: SQLite's `lower()` folds ASCII only and
+ * has no whitespace-collapsing function, so a SQL predicate would disagree with
  * {@link normalizeSpawnObjective} on exactly the objectives (accented, oddly
  * spaced) a re-run is most likely to differ by.
  */
@@ -405,11 +431,16 @@ export function countRecentSimilarSpawns(args: {
     objective: string;
     status: string;
     estimated_cost: number;
+    budget_stop_reason: string | null;
   }>(
     "subagent:countRecentSimilar",
-    `SELECT parent_conversation_id, objective, status, estimated_cost FROM subagents
-       WHERE created_at >= ? AND role <> 'advisor'
-         AND status NOT IN (${DEAD_END_SPAWN_STATUSES.map(() => "?").join(", ")})
+    `SELECT parent_conversation_id, objective, status, estimated_cost, budget_stop_reason
+       FROM subagents
+       WHERE created_at >= ?
+         AND (
+           status NOT IN (${DEAD_END_SPAWN_STATUSES.map(() => "?").join(", ")})
+           OR budget_stop_reason IS NOT NULL
+         )
        ORDER BY created_at DESC
        LIMIT ?`,
     args.sinceMs,
@@ -418,16 +449,35 @@ export function countRecentSimilarSpawns(args: {
   );
 
   const tally: RecentSimilarSpawns = {
-    conversation: { count: 0, estimatedCost: 0, inFlight: 0 },
-    assistant: { count: 0, estimatedCost: 0, inFlight: 0 },
+    conversation: {
+      count: 0,
+      estimatedCost: 0,
+      inFlight: 0,
+      budgetStopped: 0,
+      budgetStoppedCost: 0,
+    },
+    assistant: {
+      count: 0,
+      estimatedCost: 0,
+      inFlight: 0,
+      budgetStopped: 0,
+      budgetStoppedCost: 0,
+    },
   };
   const add = (scope: SimilarSpawnTally, row: (typeof rows)[number]): void => {
     if (row.status === REUSABLE_SPAWN_STATUS) {
       scope.count += 1;
       scope.estimatedCost += row.estimated_cost;
-    } else {
-      scope.inFlight += 1;
+      return;
     }
+    // Checked before the in-flight fallback: a budget stop is terminal, so a
+    // row carrying one is never still running whatever its status reads.
+    if (row.budget_stop_reason != null) {
+      scope.budgetStopped += 1;
+      scope.budgetStoppedCost += row.estimated_cost;
+      return;
+    }
+    scope.inFlight += 1;
   };
   for (const row of rows) {
     if (normalizeSpawnObjective(row.objective) !== args.normalizedObjective) {

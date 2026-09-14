@@ -226,12 +226,10 @@ export function ExtensibilityMcpContent() {
             prompting under the default auto-approve threshold.{" "}
             <code>mcp.json</code> has no risk field (the spec defines none). The
             review is the marketplace whitelist plus the user&apos;s decision to
-            install. A user who wants a different bar sets{" "}
-            <code>defaultRiskLevel</code> on a workspace <code>config.json</code>{" "}
-            entry of the same id, which outranks the plugin&apos;s declaration
-            and replaces it wholesale (transport included). Each server is
-            capped at 20 tools (<code>maxTools</code>), the same default a
-            workspace MCP entry ships with.
+            install. A workspace entry of the same id replaces the plugin
+            server wholesale (transport included) and uses the workspace origin
+            risk (<code>medium</code>). Each server is capped at 20 tools.
+            That cap is code-owned, not a config field.
           </p>
         </section>
 

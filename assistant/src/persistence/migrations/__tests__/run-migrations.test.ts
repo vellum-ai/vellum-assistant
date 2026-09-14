@@ -7,7 +7,13 @@ import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
 import {
   clearMigrationStepCheckpoints,
+  compactMigrationError,
+  FAILED_STEP_CHECKPOINT_MAX_ERROR_CHARS,
+  failedStepCheckpointValue,
+  isFailedStepCheckpointValue,
   type MigrationStep,
+  parseFailedStepCheckpointValue,
+  recoverCrashedMigrations,
   runMigrationSteps,
 } from "../run-migrations.js";
 
@@ -136,10 +142,11 @@ describe("runMigrationSteps — checkpointing", () => {
     expect(row).toBeNull();
   });
 
-  test("does not checkpoint a failed step so it retries on the next boot", async () => {
+  test("records a failed checkpoint so it still retries on the next boot", async () => {
     /**
-     * A step whose body throws is reported in `failed` and left uncheckpointed,
-     * so the next boot retries it instead of silently skipping it.
+     * A step whose body throws is reported in `failed` and checkpointed as
+     * `failed:<error>` (not `1`), so the next boot retries it instead of
+     * silently skipping it.
      */
 
     // GIVEN a step that throws on its first run and succeeds afterwards
@@ -155,13 +162,22 @@ describe("runMigrationSteps — checkpointing", () => {
     const db = createTestDb();
     const first = await runMigrationSteps(db, steps);
 
-    // AND the first run reports the failure
+    // AND the first run reports the failure and persists it
     expect(first.failed).toEqual(["flakyStep"]);
+    expect(first.failedMigrations).toEqual([
+      { name: "flakyStep", error: "transient failure" },
+    ]);
+    const failedRow = getSqliteFrom(db)
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:flakyStep'`,
+      )
+      .get() as { value: string } | null;
+    expect(failedRow?.value).toBe("failed:transient failure");
 
     // WHEN the step runs again on the next boot
     const second = await runMigrationSteps(db, steps);
 
-    // THEN it retries, succeeds, and is then checkpointed
+    // THEN it retries, succeeds, and is then checkpointed as applied
     expect(calls.flaky).toBe(2);
     expect(second.failed).toEqual([]);
     expect((await runMigrationSteps(db, steps)).skipped).toEqual(["flakyStep"]);
@@ -229,10 +245,11 @@ describe("runMigrationSteps — checkpointing", () => {
     ]);
   });
 
-  test("a rejected async step is reported failed and left uncheckpointed", async () => {
+  test("a rejected async step is reported failed and checkpointed as failed", async () => {
     /**
      * A step whose promise rejects must be treated exactly like a synchronous
-     * throw: reported in `failed`, not checkpointed, and retried next boot.
+     * throw: reported in `failed`, checkpointed as `failed:<error>` (not `1`),
+     * and retried next boot.
      */
 
     // GIVEN an async step that rejects on its first run and resolves afterwards
@@ -251,8 +268,14 @@ describe("runMigrationSteps — checkpointing", () => {
     // WHEN it runs and rejects
     const first = await runMigrationSteps(db, steps);
 
-    // THEN the rejection is reported and the step is not checkpointed
+    // THEN the rejection is reported and the step is checkpointed as failed
     expect(first.failed).toEqual(["flakyAsyncStep"]);
+    const failedRow = getSqliteFrom(db)
+      .query(
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:flakyAsyncStep'`,
+      )
+      .get() as { value: string } | null;
+    expect(failedRow?.value).toBe("failed:transient async failure");
 
     // WHEN it runs again on the next boot
     const second = await runMigrationSteps(db, steps);
@@ -379,7 +402,13 @@ describe("runMigrationSteps — checkpointing", () => {
     // THEN the dependent step never ran and is reported deferred
     expect(calls.dependent).toBe(0);
     expect(result.failed).toEqual(["creatorStep"]);
+    expect(result.failedMigrations).toEqual([
+      { name: "creatorStep", error: "creator failed" },
+    ]);
     expect(result.deferred).toEqual(["dependentStep"]);
+    expect(result.deferredMigrations).toEqual([
+      { name: "dependentStep", missing: ["creatorStep"] },
+    ]);
 
     // AND nothing was written to the ledger for the deferred step —
     // no 'started' marker and no applied checkpoint
@@ -531,5 +560,51 @@ describe("runMigrationSteps — checkpointing", () => {
       >(`SELECT value FROM memory_checkpoints WHERE key = 'step:asyncWithInspection'`)
       .get();
     expect(final?.value).toBe("1");
+  });
+
+  test("recoverCrashedMigrations leaves failed checkpoints in place", async () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    raw.run(
+      `CREATE TABLE IF NOT EXISTS memory_checkpoints (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+    );
+    raw.run(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:failedStep', 'failed:boom', 0)`,
+    );
+    raw.run(
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:crashedStep', 'started', 0)`,
+    );
+
+    const recovered = recoverCrashedMigrations(db);
+    expect(recovered).toEqual(["step:crashedStep"]);
+
+    const failed = raw
+      .query<
+        { value: string },
+        []
+      >(`SELECT value FROM memory_checkpoints WHERE key = 'step:failedStep'`)
+      .get();
+    expect(failed?.value).toBe("failed:boom");
+  });
+
+  test("failed checkpoint helpers compact and parse error suffixes", () => {
+    expect(isFailedStepCheckpointValue("failed")).toBe(true);
+    expect(isFailedStepCheckpointValue("failed:no such table")).toBe(true);
+    expect(isFailedStepCheckpointValue("1")).toBe(false);
+    expect(isFailedStepCheckpointValue("started")).toBe(false);
+
+    expect(failedStepCheckpointValue()).toBe("failed");
+    expect(failedStepCheckpointValue(new Error("no such table"))).toBe(
+      "failed:no such table",
+    );
+    expect(parseFailedStepCheckpointValue("failed")).toBeUndefined();
+    expect(parseFailedStepCheckpointValue("failed:no such table")).toBe(
+      "no such table",
+    );
+
+    const long = "x".repeat(FAILED_STEP_CHECKPOINT_MAX_ERROR_CHARS + 50);
+    expect(compactMigrationError(long).length).toBe(
+      FAILED_STEP_CHECKPOINT_MAX_ERROR_CHARS,
+    );
   });
 });

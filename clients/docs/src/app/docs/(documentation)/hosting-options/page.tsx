@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Hosting options - Vellum Docs",
   description:
-    "Choose where your assistant runs: Vellum Cloud (recommended), local on your Mac, or self-hosted on your own infrastructure.",
+    "Choose where your assistant runs: Vellum Cloud (recommended), local on your Mac or Windows PC, or self-hosted on your own infrastructure.",
   path: "/docs/hosting-options",
 });
 

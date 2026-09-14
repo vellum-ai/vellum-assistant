@@ -36,6 +36,7 @@ export function makeCtx(
   } = overrides;
 
   return {
+    eventConversationId: "conv-1",
     router: { push: mock(() => {}) },
     isNative: false,
     streamContext: { assistantId: "ast-1", conversationId: "conv-1" },
@@ -116,6 +117,7 @@ export function makeCtx(
       return true;
     }),
     lastActivityVersionRef: { current: new Map() },
+    lastCompletedToolNameRef: { current: undefined },
     currentAssistantMessageIdRef: { current: undefined },
     ...restOverrides,
   };

@@ -6,6 +6,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { basename } from "node:path";
 import { Readable, Writable } from "node:stream";
 
 import type {
@@ -14,14 +15,24 @@ import type {
   AuthMethodEnvVar,
   Client,
   InitializeResponse,
+  LoadSessionResponse,
   NewSessionResponse,
   PromptResponse,
+  ResumeSessionResponse,
+  SessionConfigOption,
+  SetSessionConfigOptionRequest,
 } from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
-import { AcpAuthRequiredError, isAcpAuthRequired } from "./auth-required.js";
-import type { AcpAgentConfig } from "./types.js";
+import {
+  AcpAuthRequiredError,
+  CLAUDE_ACP_COMMAND,
+  isAcpAuthRequired,
+  isClaudeAuthFailureMessage,
+  requestErrorReason,
+} from "./auth-required.js";
+import { type AcpAgentConfig, AcpConfigOptionRefusedError } from "./types.js";
 
 const log = getLogger("acp");
 
@@ -31,6 +42,16 @@ const log = getLogger("acp");
  * stays bounded.
  */
 const STDERR_RETENTION_BYTES = 4096;
+
+/**
+ * Normalizes the SDK's optional-and-nullable config-option field to an array,
+ * so every session call hands its caller the same shape.
+ */
+function normalizeConfigOptions(
+  configOptions: SessionConfigOption[] | null | undefined,
+): SessionConfigOption[] {
+  return configOptions ?? [];
+}
 
 function isEnvVarMethod(
   method: AuthMethod,
@@ -355,16 +376,21 @@ export class AcpAgentProcess {
 
   /**
    * Creates a new ACP session in the specified working directory.
-   * Returns the session ID.
+   * Returns the session ID and the config options the agent reported.
    */
-  async createSession(cwd: string): Promise<string> {
+  async createSession(
+    cwd: string,
+  ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
     log.info({ agentId: this.agentId, cwd }, "Creating ACP session");
 
     const result: NewSessionResponse = await this.withAuthRetry(() =>
       this.requireConnection().newSession({ cwd, mcpServers: [] }),
     );
 
-    return result.sessionId;
+    return {
+      sessionId: result.sessionId,
+      configOptions: normalizeConfigOptions(result.configOptions),
+    };
   }
 
   /**
@@ -375,12 +401,17 @@ export class AcpAgentProcess {
    * callers should suppress forwarding of those replayed updates (see
    * VellumAcpClientHandler.beginReplaySuppression).
    */
-  async loadSession(sessionId: string, cwd: string): Promise<void> {
+  async loadSession(
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ configOptions: SessionConfigOption[] }> {
     log.info({ agentId: this.agentId, sessionId, cwd }, "Loading ACP session");
 
-    await this.withAuthRetry(() =>
+    const result: LoadSessionResponse = await this.withAuthRetry(() =>
       this.requireConnection().loadSession({ sessionId, cwd, mcpServers: [] }),
     );
+
+    return { configOptions: normalizeConfigOptions(result.configOptions) };
   }
 
   /**
@@ -390,16 +421,70 @@ export class AcpAgentProcess {
    * preferred when the agent advertises the capability
    * (see supportsSessionResume).
    */
-  async resumeSession(sessionId: string, cwd: string): Promise<void> {
+  async resumeSession(
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ configOptions: SessionConfigOption[] }> {
     log.info({ agentId: this.agentId, sessionId, cwd }, "Resuming ACP session");
 
-    await this.withAuthRetry(() =>
+    const result: ResumeSessionResponse = await this.withAuthRetry(() =>
       this.requireConnection().resumeSession({
         sessionId,
         cwd,
         mcpServers: [],
       }),
     );
+
+    return { configOptions: normalizeConfigOptions(result.configOptions) };
+  }
+
+  /**
+   * Sets one session config option (e.g. the model selector) via
+   * `session/set_config_option`. The agent answers with the full refreshed
+   * option set, which is returned to the caller.
+   *
+   * A boolean value sends the `type: "boolean"` request variant; a string
+   * sends the value-id variant.
+   */
+  async setConfigOption(
+    sessionId: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<SessionConfigOption[]> {
+    log.info(
+      { agentId: this.agentId, sessionId, configId, value },
+      "Setting ACP session config option",
+    );
+
+    const request: SetSessionConfigOptionRequest =
+      typeof value === "boolean"
+        ? { sessionId, configId, type: "boolean", value }
+        : { sessionId, configId, value };
+
+    const response = await this.withAuthRetry(async () => {
+      try {
+        return await this.requireConnection().setSessionConfigOption(request);
+      } catch (err) {
+        // Wrapped here, at the request itself, so `withAuthRetry` still sees
+        // an auth_required answer and a caller cannot confuse the adapter's
+        // refusal with a transport or authentication failure. Claude's
+        // expired-token failure travels as a generic error whose reason is
+        // the only signal, so under the Claude adapter it is left for the
+        // caller to classify.
+        if (err instanceof acp.RequestError && !isAcpAuthRequired(err)) {
+          const reason = requestErrorReason(err);
+          const claudeAuthFailure =
+            basename(this.config.command) === CLAUDE_ACP_COMMAND &&
+            isClaudeAuthFailureMessage(reason);
+          if (!claudeAuthFailure) {
+            throw new AcpConfigOptionRefusedError(reason);
+          }
+        }
+        throw err;
+      }
+    });
+
+    return normalizeConfigOptions(response.configOptions);
   }
 
   /**

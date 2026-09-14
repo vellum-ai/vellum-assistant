@@ -24,10 +24,11 @@ import {
 import { toast } from "@vellumai/design-library/components/toast";
 
 import type { HomeRecapRowDecision } from "../home-recap-row";
-import { useShouldOfferBriefingRecipe } from "../hooks/use-should-offer-briefing-recipe";
+import { useFeedItemConversationLink } from "../hooks/use-feed-item-conversation-link";
 import { useFeedItemEntityLinks } from "../hooks/use-feed-item-entity-links";
 import { useGuardianDecision } from "../hooks/use-guardian-decision";
 import { useHomeFeedQuery } from "../hooks/use-home-feed-query";
+import { useShouldOfferBriefingRecipe } from "../hooks/use-should-offer-briefing-recipe";
 import {
   clearAllArgs,
   getVisibleFeedItems,
@@ -138,30 +139,25 @@ export function NotificationsBell() {
   );
 
   // A notification can point at a conversation that has since been deleted, so
-  // the detail's "Go to Conversation" link is checked against the foreground,
-  // background, and scheduled lists merged. They load only while a detail is
-  // open: each list is a full drain of its bucket, the bell renders in the top
-  // bar on every route, and the list view has no use for the ids. Disabled,
-  // these stay subscribed to the caches without fetching, so the foreground
-  // list the chat layout already loaded is read for free and opening a
-  // detail costs the background and scheduled lists at most.
+  // the detail's "Go to Conversation" link is checked by id, not against the
+  // sidebar lists. Scheduled and background runs are absent from the
+  // foreground list, and the background drain drops scheduled rows, so list
+  // membership treats a live scheduled inbox-pass as gone. The by-id read is
+  // the same answer the chat route uses.
   //
-  // The rows name their threads off those same caches, and only off the
-  // caches: a title the sidebar has already loaded is shown, and one it has
-  // not is left to the row's source-label fallback rather than paid for with
-  // a drain of every bucket each time the panel opens.
-  const {
-    conversations: foregroundConversations,
-    isPending: isForegroundPending,
-  } = useConversationListQuery(assistantId, isDetailOpen);
-  const {
-    conversations: backgroundConversations,
-    isPending: isBackgroundPending,
-  } = useBackgroundConversationListQuery(assistantId, isDetailOpen);
-  const {
-    conversations: scheduledConversations,
-    isPending: isScheduledPending,
-  } = useScheduledConversationListQuery(assistantId, isDetailOpen);
+  // The rows still name their threads off the conversation-list caches, and
+  // only off the caches: a title the sidebar has already loaded is shown, and
+  // one it has not is left to the row's source-label fallback rather than paid
+  // for with a drain of every bucket. Those lists stay subscribed without
+  // fetching so a cache another surface already filled is read for free.
+  const { conversations: foregroundConversations } = useConversationListQuery(
+    assistantId,
+    false,
+  );
+  const { conversations: backgroundConversations } =
+    useBackgroundConversationListQuery(assistantId, false);
+  const { conversations: scheduledConversations } =
+    useScheduledConversationListQuery(assistantId, false);
   const mergedConversations = useMemo(
     () =>
       mergeConversationLists(
@@ -170,13 +166,6 @@ export function NotificationsBell() {
         scheduledConversations,
       ),
     [foregroundConversations, backgroundConversations, scheduledConversations],
-  );
-  const validConversationIds = useMemo(
-    () =>
-      new Set(
-        mergedConversations.map((conversation) => conversation.conversationId),
-      ),
-    [mergedConversations],
   );
   // Only conversations with a title: an untitled one leaves its row's thread
   // line to the source label, or to nothing.
@@ -189,8 +178,19 @@ export function NotificationsBell() {
     }
     return titles;
   }, [mergedConversations]);
-  const areConversationListsPending =
-    isForegroundPending || isBackgroundPending || isScheduledPending;
+
+  const conversationLink = useFeedItemConversationLink(
+    selectedItem?.conversationId ?? null,
+    assistantId,
+    isDetailOpen,
+  );
+  const validConversationIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (conversationLink.conversationId) {
+      ids.add(conversationLink.conversationId);
+    }
+    return ids;
+  }, [conversationLink.conversationId]);
 
   // A pending approval can be decided from its row, through the same hook
   // the detail card decides with, so every outcome (applied, declined for a
@@ -421,7 +421,7 @@ export function NotificationsBell() {
           contentHeight={contentHeight}
           contentMaxHeight={contentMaxHeight}
           validConversationIds={validConversationIds}
-          areConversationListsPending={areConversationListsPending}
+          areConversationListsPending={conversationLink.isPending}
           entityLinks={entityLinks}
           areEntityLinksPending={areEntityLinksPending}
           isActionPending={feedQuery.triggerAction.isPending}

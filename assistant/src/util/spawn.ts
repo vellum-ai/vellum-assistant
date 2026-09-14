@@ -22,8 +22,13 @@ export const FFMPEG_PALETTE_TIMEOUT_MS = 30_000;
 export function spawnWithTimeout(
   cmd: string[],
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      return;
+    }
     // Augment PATH so Homebrew-installed tools (ffmpeg, ffprobe)
     // are found even when the daemon runs as a bundled binary with minimal PATH.
     const proc = Bun.spawn(cmd, {
@@ -46,8 +51,16 @@ export function spawnWithTimeout(
       proc.kill();
       reject(new Error(`Process timed out after ${timeoutMs}ms: ${cmd[0]}`));
     }, timeoutMs);
+    // A cancelled caller stops the process rather than waiting out a transcode
+    // it has already been told never happened.
+    const onAbort = () => {
+      proc.kill();
+      reject(signal!.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     proc.exited.then(async (exitCode) => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       const stdout = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
       resolve({ exitCode, stdout, stderr });

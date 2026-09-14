@@ -41,29 +41,3 @@ export async function getMe(botToken: string): Promise<TelegramGetMeResponse> {
 
   return resp.json() as Promise<TelegramGetMeResponse>;
 }
-
-/** Result returned by sendMessage. */
-export interface TelegramSendResult {
-  ok: boolean;
-  /**
-   * The `message_id` Telegram assigned to the last chunk sent. Telegram
-   * returns the sent Message on every successful `sendMessage`, so this is
-   * absent only when the API answered with an unexpected shape.
-   */
-  lastMessageId?: string;
-}
-
-/**
- * Send a Telegram text message via the Bot API directly.
- *
- * Delegates to sendTelegramReply which handles text splitting (Telegram's
- * sendMessage API has a 4096-char limit per call).
- */
-export async function sendMessage(
-  chatId: string,
-  text: string,
-): Promise<TelegramSendResult> {
-  const { sendTelegramReply } = await import("./send.js");
-  const sent = await sendTelegramReply(chatId, text);
-  return { ok: true, lastMessageId: sent.lastMessageId };
-}

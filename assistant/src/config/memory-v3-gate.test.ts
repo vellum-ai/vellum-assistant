@@ -6,6 +6,7 @@ import {
   isMemoryV1Active,
   isMemoryV2ExplicitlyDisabled,
   isMemoryV3Live,
+  isSkillImprovementActive,
   isV2InjectionEngineActive,
   isV3TierActive,
   usesConceptPageMemory,
@@ -55,12 +56,16 @@ function makeConfig(
   enabled: TriState,
   v2Enabled: TriState,
   v3Live: TriState,
+  skillImprovement?: boolean,
 ): AssistantConfig {
   return {
     memory: {
       ...(enabled === undefined ? {} : { enabled }),
       ...(v2Enabled === undefined ? {} : { v2: { enabled: v2Enabled } }),
       ...(v3Live === undefined ? {} : { v3: { live: v3Live } }),
+      ...(skillImprovement === undefined
+        ? {}
+        : { retrospective: { skillImprovement } }),
     },
   } as AssistantConfig;
 }
@@ -296,6 +301,32 @@ describe("v1-staleness guard is one condition", () => {
  * proc-to-skills alias of `isMemoryV3Live` (which did not). One predicate now
  * answers for both features.
  */
+describe("skill improvement gate", () => {
+  test("defaults on for a live v3 tier", () => {
+    expect(isSkillImprovementActive(makeConfig(true, undefined, true))).toBe(
+      true,
+    );
+    expect(isSkillImprovementActive(makeConfig(undefined, undefined, true))).toBe(
+      true,
+    );
+  });
+
+  test("explicit opt-out disables skill improvement without disabling v3", () => {
+    const config = makeConfig(true, undefined, true, false);
+
+    expect(isV3TierActive(config)).toBe(true);
+    expect(isSkillImprovementActive(config)).toBe(false);
+  });
+
+  test("requires the live v3 tier even when explicitly enabled", () => {
+    const v2Config = makeConfig(true, true, false, true);
+    const memoryOffConfig = makeConfig(false, undefined, true, true);
+
+    expect(isSkillImprovementActive(v2Config)).toBe(false);
+    expect(isSkillImprovementActive(memoryOffConfig)).toBe(false);
+  });
+});
+
 describe("v3 tier is one condition", () => {
   test("memory off suppresses the v3 tier even with memory.v3.live set", () => {
     const config = makeConfig(false, undefined, true);

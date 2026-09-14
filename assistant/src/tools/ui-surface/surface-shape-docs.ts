@@ -81,7 +81,7 @@ interface SurfaceShapeDoc {
 
 /** templateData shape of a task_progress card (shared with channel variants). */
 export const TASK_PROGRESS_TEMPLATE_SHAPE =
-  '{ title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] }';
+  '{ title, status: "pending"|"in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] }';
 
 /** Data keys the file_upload renderer reads; any other key is silently stripped. */
 const FILE_UPLOAD_KEYS = new Set<string>(

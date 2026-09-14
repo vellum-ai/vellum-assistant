@@ -389,11 +389,11 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
           {/* History items in chronological order — oldest at top. In the
            *  no-anchor mode (assistant-only history, e.g. recovered
            *  conversation) the avatar renders directly below the history
-           *  list, so its last message-kind item is the "latest message" and
-           *  collapses its hover-actions row — trailing non-message rows
-           *  (thinking slot, pending prompts, ephemeral meta) carry no
-           *  trailer, so the flag skips past them. With an anchor present
-           *  the latest turn owns the flag instead (see `LatestTurnRow`). */}
+           *  list, so its last message-kind item is the "latest message"
+           *  (Retry attaches there). Trailing non-message rows (thinking
+           *  slot, pending prompts, ephemeral meta) carry no trailer, so
+           *  the flag skips past them. With an anchor present the latest
+           *  turn owns the flag instead (see `LatestTurnRow`). */}
           {partition.historyItems.map((item, i) => (
             <Fragment key={item.key}>
               <TranscriptColumn>

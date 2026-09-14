@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  jest,
+  mock,
+  test,
+} from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { CompanionAnnotationStroke } from "@vellumai/ipc-contract";
 
@@ -7,6 +15,9 @@ const sent: {
   strokes: readonly CompanionAnnotationStroke[];
 }[] = [];
 
+/** What the layer told main about the frame stepping aside for a scroll. */
+const scrolled: boolean[] = [];
+
 mock.module("@/runtime/companion-surface", () => ({
   annotateCompanionShare: (
     phase: string,
@@ -14,12 +25,18 @@ mock.module("@/runtime/companion-surface", () => ({
   ) => {
     sent.push({ phase, strokes });
   },
+  setCompanionFrameScrolling: (scrolling: boolean) => {
+    scrolled.push(scrolling);
+  },
 }));
 
 const {
   CompanionShareAnnotation,
+  COMPANION_CIRCLE_SEGMENTS,
   COMPANION_INK_FADE_MS,
   COMPANION_INK_HOLD_MS,
+  pencilCursor,
+  shapePoints,
 } = await import("./companion-share-annotation");
 
 /**
@@ -33,6 +50,7 @@ const INK = "#a78bfa";
 
 beforeEach(() => {
   sent.length = 0;
+  scrolled.length = 0;
   // The window is what the shell sizes to the shared surface, and what the
   // marks are measured against.
   Object.defineProperty(window, "innerWidth", { value: SIDE, writable: true });
@@ -41,6 +59,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  jest.useRealTimers();
 });
 
 const layerOf = (container: HTMLElement): Element => {
@@ -69,6 +88,83 @@ const move = (layer: Element, x: number, y: number): void => {
 const up = (layer: Element, x: number, y: number): void => {
   fireEvent.pointerUp(layer, { pointerId: 1, clientX: x, clientY: y });
 };
+const wheel = (layer: Element): void => {
+  fireEvent.wheel(layer, { deltaY: 40 });
+};
+
+/**
+ * Scrolling the app under the frame. The layer takes the wheel along with the
+ * presses and cannot hand it on, so what it does is tell main to step aside
+ * for the rest of the scroll, and to take the mouse back once the pointer
+ * moves. Each edge is said once, however many events make it up.
+ */
+describe("scrolling the app under the frame", () => {
+  /**
+   * In the window itself, only the first wheel event of a scroll ever
+   * reaches the layer: the frame steps aside on it and the rest go to the
+   * app. A second one arriving is therefore the next scroll, after main took
+   * the mouse back on its own when the desktop said the first had ended,
+   * which this layer is never told about. Each has to ask again, or a scroll
+   * that follows a scroll, with no move between, is swallowed whole.
+   */
+  test("every wheel event that reaches the layer asks main to step aside", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    wheel(layer);
+    wheel(layer);
+    expect(scrolled).toEqual([true, true]);
+    move(layer, 200, 200);
+    move(layer, 300, 300);
+    expect(scrolled).toEqual([true, true, false]);
+  });
+
+  test("the pointer moving afterwards takes the mouse back", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    wheel(layer);
+    move(layer, 200, 200);
+    move(layer, 300, 300);
+    expect(scrolled).toEqual([true, false]);
+    // A move with no stroke in flight draws nothing.
+    expect(sent).toHaveLength(0);
+  });
+
+  test("a press arriving first takes the mouse back as well", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    wheel(layer);
+    down(layer, 200, 200);
+    up(layer, 200, 200);
+    expect(scrolled).toEqual([true, false]);
+    expect(sent.filter((one) => one.phase === "released")).toHaveLength(1);
+  });
+
+  /**
+   * The hand is down and captured. A frame that let go of the mouse now would
+   * lose the release that sends the mark and lifts the hold on the session's
+   * frames.
+   */
+  test("a wheel event mid-stroke keeps the hand", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    wheel(layer);
+    move(layer, 500, 500);
+    up(layer, 500, 500);
+    expect(scrolled).toHaveLength(0);
+    expect(sent.at(-1)?.phase).toBe("released");
+    expect(sent.at(-1)?.strokes[0]?.points).toHaveLength(2);
+  });
+
+  test("says nothing about the mouse when nothing was scrolled", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    move(layer, 200, 200);
+    down(layer, 200, 200);
+    up(layer, 200, 200);
+    expect(scrolled).toHaveLength(0);
+  });
+});
 
 /**
  * Drawing on the surface a call is being shown. What these pin is the bargain
@@ -186,9 +282,12 @@ describe("drawing on what the call is shown", () => {
   /**
    * The mark is a gesture rather than an annotation layer: it has been sent,
    * and a circle still sitting on the user's screen a minute later is one
-   * they have to clear up themselves.
+   * they have to clear up themselves. But it stays for the sentence that goes
+   * with it: a mark gone before the user has finished saying "this one" is a
+   * drawing that looks like it failed.
    */
-  test("the mark fades and is taken away once it has been sent", async () => {
+  test("the mark stays through the hold, then fades and is taken away", () => {
+    jest.useFakeTimers();
     const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 100, 100);
@@ -197,12 +296,34 @@ describe("drawing on what the call is shown", () => {
     expect(
       container.querySelector(".companion-share-ink-spent"),
     ).not.toBeNull();
-    await act(async () => {
-      await new Promise((resolve) =>
-        setTimeout(resolve, COMPANION_INK_HOLD_MS + COMPANION_INK_FADE_MS + 20),
+    // The hold is a few seconds, not a beat: long enough to say what the
+    // mark is about.
+    expect(COMPANION_INK_HOLD_MS).toBeGreaterThanOrEqual(4000);
+    act(() => {
+      jest.advanceTimersByTime(
+        COMPANION_INK_HOLD_MS + COMPANION_INK_FADE_MS - 1,
       );
     });
+    expect(container.querySelector("polyline")).not.toBeNull();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
     expect(container.querySelector("polyline")).toBeNull();
+  });
+
+  /**
+   * The stylesheet fades the mark on the layer's own numbers, so the element
+   * cannot be dropped mid-fade or sit invisible after it.
+   */
+  test("tells the stylesheet how long the hold and the fade are", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container) as HTMLElement;
+    expect(layer.style.getPropertyValue("--companion-ink-hold")).toBe(
+      `${COMPANION_INK_HOLD_MS}ms`,
+    );
+    expect(layer.style.getPropertyValue("--companion-ink-fade")).toBe(
+      `${COMPANION_INK_FADE_MS}ms`,
+    );
   });
 
   /**
@@ -276,5 +397,214 @@ describe("drawing on what the call is shown", () => {
       clientY: 500,
     });
     expect(sent.filter((one) => one.phase === "released")).toHaveLength(1);
+  });
+});
+
+/**
+ * The pointer is the one thing on screen that can say the mode took: the
+ * surface under it is someone else's app, and nothing on that app changes.
+ */
+describe("the pointer while drawing is on", () => {
+  test("is a pencil, drawn in the ink the mark will be", () => {
+    const cursor = pencilCursor(INK);
+    expect(cursor.startsWith('url("data:image/svg+xml,')).toBe(true);
+    expect(cursor).toContain(encodeURIComponent(`stroke="${INK}"`));
+  });
+
+  test("points from the pencil's tip and falls back to a crosshair", () => {
+    expect(pencilCursor(INK).endsWith(") 2 22, crosshair")).toBe(true);
+  });
+
+  test("hangs on the drawing layer", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    expect(layer.getAttribute("style")).toContain("data:image/svg+xml");
+  });
+});
+
+/**
+ * The shape tools. A shape is the same stroke on the wire that a freehand
+ * mark is, which is what these pin: what a drag with each tool sends, and
+ * that it is the drag's ends and not its path that the shape is made from.
+ */
+describe("the shape tools", () => {
+  test("the pencil is the tool when none is named", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    expect(layerOf(container).getAttribute("data-tool")).toBe("freehand");
+  });
+
+  test("a line is the press and the release, whatever the hand did between", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="line" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    move(layer, 300, 900);
+    move(layer, 500, 200);
+    up(layer, 500, 200);
+    expect(sent.at(-1)?.strokes[0]?.points).toEqual([
+      { x: 0.1, y: 0.1 },
+      { x: 0.5, y: 0.2 },
+    ]);
+  });
+
+  test("a box is the drag's corners, closed", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="box" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    move(layer, 500, 300);
+    up(layer, 500, 300);
+    expect(sent.at(-1)?.strokes[0]?.points).toEqual([
+      { x: 0.1, y: 0.1 },
+      { x: 0.5, y: 0.1 },
+      { x: 0.5, y: 0.3 },
+      { x: 0.1, y: 0.3 },
+      { x: 0.1, y: 0.1 },
+    ]);
+  });
+
+  test("a circle is the ellipse inside the drag, closed", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="circle" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 200, 200);
+    move(layer, 600, 400);
+    up(layer, 600, 400);
+    const points = sent.at(-1)?.strokes[0]?.points ?? [];
+    expect(points).toHaveLength(COMPANION_CIRCLE_SEGMENTS + 1);
+    expect(points[0]?.x).toBeCloseTo(0.6);
+    expect(points[0]?.y).toBeCloseTo(0.3);
+    expect(points.at(-1)?.x).toBeCloseTo(0.6);
+    expect(points.at(-1)?.y).toBeCloseTo(0.3);
+    // Every point sits on the ellipse centred in the drag's box, with the
+    // box's half-sides as its radii.
+    for (const point of points) {
+      const dx = (point.x - 0.4) / 0.2;
+      const dy = (point.y - 0.3) / 0.1;
+      expect(dx * dx + dy * dy).toBeCloseTo(1);
+    }
+  });
+
+  /**
+   * A hand that overshoots and comes back gets the smaller box. The shape is
+   * remade from the press to the pointer on every move rather than grown,
+   * which is the whole difference between a shape and a path.
+   */
+  test("a shape is remade from the press, not added to", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="box" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    move(layer, 900, 900);
+    move(layer, 500, 500);
+    up(layer, 500, 500);
+    const points = sent.at(-1)?.strokes[0]?.points ?? [];
+    expect(points).toHaveLength(5);
+    expect(points[2]).toEqual({ x: 0.5, y: 0.5 });
+  });
+
+  test("a shape tool's press that never moved is still a dot", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="circle" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 400, 400);
+    up(layer, 400, 400);
+    expect(sent.at(-1)?.strokes[0]?.points).toHaveLength(1);
+    expect(container.querySelector("circle")).not.toBeNull();
+  });
+
+  /**
+   * The pointer is how the user sees the choice on the pill took here: the
+   * surface under it is someone else's app, and nothing else on screen can
+   * say what the next press will make.
+   */
+  test("a shape tool puts a crosshair on the pointer; the pencil keeps its pencil", () => {
+    const shape = render(<CompanionShareAnnotation ink={INK} tool="box" />);
+    expect((layerOf(shape.container) as HTMLElement).style.cursor).toBe(
+      "crosshair",
+    );
+    shape.unmount();
+    const pencil = render(<CompanionShareAnnotation ink={INK} />);
+    expect((layerOf(pencil.container) as HTMLElement).style.cursor).not.toBe(
+      "crosshair",
+    );
+  });
+
+  test("the shapes are built from the drag's two ends", () => {
+    expect(shapePoints("line", { x: 0, y: 0 }, { x: 1, y: 1 })).toEqual([
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+    ]);
+    // A drag made from the bottom-right corner is the same box.
+    expect(shapePoints("box", { x: 1, y: 1 }, { x: 0, y: 0 })).toEqual([
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+    ]);
+    expect(shapePoints("circle", { x: 0, y: 0 }, { x: 1, y: 1 }).length).toBe(
+      COMPANION_CIRCLE_SEGMENTS + 1,
+    );
+  });
+});
+
+/**
+ * Clear on the pill, arriving as a step in a count on the pushed state. The
+ * press is in another window and this layer holds the ink, so the count is
+ * the one place the two meet.
+ */
+describe("the pill's Clear", () => {
+  test("takes the finished marks off the overlay", () => {
+    const view = render(<CompanionShareAnnotation ink={INK} cleared={0} />);
+    const layer = layerOf(view.container);
+    down(layer, 100, 100);
+    move(layer, 900, 900);
+    up(layer, 900, 900);
+    expect(view.container.querySelector("polyline")).not.toBeNull();
+    view.rerender(<CompanionShareAnnotation ink={INK} cleared={1} />);
+    expect(view.container.querySelector("polyline")).toBeNull();
+  });
+
+  /**
+   * Main replays its state into a window it has just opened, so the first
+   * value here is however many clears came before this layer existed. None
+   * of them was a press on marks it has.
+   */
+  test("the count the layer mounts with is not a press", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} cleared={3} />,
+    );
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    move(layer, 900, 900);
+    up(layer, 900, 900);
+    expect(container.querySelector("polyline")).not.toBeNull();
+  });
+
+  /**
+   * A clear is about what is already on the surface. The stroke under the
+   * hand is not there yet, and goes to the call on its release as it would
+   * have; the cleared one does not go with it, since it is no longer on the
+   * overlay the release sends.
+   */
+  test("leaves the mark under the hand, which alone is sent on its release", () => {
+    const view = render(<CompanionShareAnnotation ink={INK} cleared={0} />);
+    const layer = layerOf(view.container);
+    down(layer, 100, 100);
+    move(layer, 900, 900);
+    up(layer, 900, 900);
+    down(layer, 200, 200);
+    move(layer, 300, 300);
+    view.rerender(<CompanionShareAnnotation ink={INK} cleared={1} />);
+    expect(view.container.querySelectorAll("polyline")).toHaveLength(1);
+    up(layer, 300, 300);
+    expect(sent.at(-1)?.strokes).toHaveLength(1);
+    expect(sent.at(-1)?.strokes[0]?.points[0]).toEqual({ x: 0.2, y: 0.2 });
   });
 });

@@ -15,6 +15,7 @@ import type {
   BundleScanData,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCoachmark,
   CompanionCapturePick,
   CompanionCaptureSources,
@@ -81,8 +82,8 @@ import {
   createDownloadsBridge,
   createHotkeysBridge,
   createLaunchAtLoginBridge,
+  createNotificationsBridge,
   createUpdateBridge,
-  createWindowAttentionSubscriber,
 } from "@vellumai/electron-desktop/preload";
 
 export type {
@@ -283,11 +284,20 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:permissions:getState",
       ) as Promise<SystemPermissionsState>,
-    request: (kind: SystemPermissionKind): Promise<SystemPermissionStateItem> =>
-      ipcRenderer.invoke(
-        "vellum:permissions:request",
-        kind,
-      ) as Promise<SystemPermissionStateItem>,
+    request: (
+      kind: SystemPermissionKind,
+      presentation?: Parameters<VellumBridge["permissions"]["request"]>[1],
+    ): Promise<SystemPermissionStateItem> =>
+      (presentation
+        ? ipcRenderer.invoke(
+            "vellum:permissions:request",
+            kind,
+            presentation,
+          )
+        : ipcRenderer.invoke(
+            "vellum:permissions:request",
+            kind,
+          )) as Promise<SystemPermissionStateItem>,
     openSettings: (
       kind: SystemPermissionKind,
     ): Promise<SystemPermissionStateItem> =>
@@ -420,28 +430,7 @@ const bridge: VellumBridge = {
         "vellum:connectivity:retry",
       ) as Promise<ConnectivityState>,
   },
-  notifications: {
-    show: (
-      payload: ShowNotificationPayload,
-    ): Promise<{ success: boolean; errorMessage?: string }> =>
-      ipcRenderer.invoke("vellum:notifications:show", payload) as Promise<{
-        success: boolean;
-        errorMessage?: string;
-      }>,
-    onAction: (callback) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        event: NotificationActionEvent,
-      ) => {
-        callback(event);
-      };
-      ipcRenderer.on("vellum:notifications:action", handler);
-      return () => {
-        ipcRenderer.off("vellum:notifications:action", handler);
-      };
-    },
-    onWindowAttention: createWindowAttentionSubscriber(ipcRenderer),
-  },
+  notifications: createNotificationsBridge(ipcRenderer),
   bundleConfirm: createBundleConfirmBridge(ipcRenderer),
   quickInput: {
     submit: (message: string): Promise<void> =>
@@ -548,6 +537,9 @@ const bridge: VellumBridge = {
     moveBy: (dx: number, dy: number): void => {
       ipcRenderer.send("vellum:companion:moveBy", dx, dy);
     },
+    release: (): void => {
+      ipcRenderer.send("vellum:companion:release");
+    },
     startVoice: (): void => {
       ipcRenderer.send("vellum:companion:startVoice");
     },
@@ -579,12 +571,21 @@ const bridge: VellumBridge = {
     toggleAnnotating: (): void => {
       ipcRenderer.send("vellum:companion:toggleAnnotating");
     },
+    clearMarks: (): void => {
+      ipcRenderer.send("vellum:companion:clearMarks");
+    },
+    setAnnotationTool: (tool: CompanionAnnotationTool): void => {
+      ipcRenderer.send("vellum:companion:setAnnotationTool", tool);
+    },
     annotateShare: (
       phase: CompanionAnnotationPhase,
       strokes: readonly CompanionAnnotationStroke[],
       ink: string,
     ): void => {
       ipcRenderer.send("vellum:companion:annotateShare", phase, strokes, ink);
+    },
+    setFrameScrolling: (scrolling: boolean): void => {
+      ipcRenderer.send("vellum:companion:setFrameScrolling", scrolling);
     },
     sharedFrame: (target: WatchCaptureTarget): void => {
       ipcRenderer.send("vellum:companion:sharedFrame", target);

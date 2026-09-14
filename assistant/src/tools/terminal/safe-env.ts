@@ -55,10 +55,30 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS",
   "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
   "CES_MANAGED_MODE",
-  // Socket path only. The CES HTTP bearer (`CES_SERVICE_TOKEN`) and
-  // `CES_CREDENTIAL_URL` stay in the assistant process: child shells must
-  // not inherit a vault token they can printenv or log.
   "CES_LOCAL_SOCKET",
+  // Child processes (bash, skill sandbox, scheduled scripts) run
+  // `assistant oauth request` in-process and resolve managed connections
+  // through CES HTTP (`getSecureKeyAsync` / platform client). They need
+  // both the credential URL and the service token. CES_LOCAL_SOCKET alone
+  // is not enough on managed pods: the socket is often absent or does not
+  // complete the lazy RPC path those children use, so a connected account
+  // looks disconnected from sanitized children while the daemon still
+  // reports healthy.
+  //
+  // To drop these later, children must resolve the same ACTIVE managed
+  // connections without inheriting a reusable vault bearer. That means
+  // CES RPC over CES_LOCAL_SOCKET works on managed pods (present,
+  // reachable, and sufficient for secure-key / platform-client reads), or
+  // a narrower grant protocol issues a one-shot provider token.
+  //
+  // Before removing them again, reproduce from a sanitized child on a
+  // platform-managed pod. After `buildSanitizedEnv()`,
+  // `assistant oauth request --provider <key> --json <provider-url>` must
+  // succeed for an ACTIVE connection and match a direct terminal
+  // invocation. Unit tests that only assert the vars are absent are not
+  // enough: also cover skill sandbox and scheduled-script children.
+  "CES_CREDENTIAL_URL",
+  "CES_SERVICE_TOKEN",
   // Per-instance port of the assistant-managed Qdrant sidecar, so skill and
   // bash-tool subprocesses that use the vector helpers (e.g. embed/search over
   // `@vellumai/plugin-api`) resolve the same local sidecar as the daemon

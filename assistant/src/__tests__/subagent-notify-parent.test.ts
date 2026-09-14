@@ -41,6 +41,20 @@ const capturedMessages: string[] = [];
 /** Parent conversation ids that a notification was routed to (findConversation). */
 const capturedParentIds: string[] = [];
 
+/**
+ * Cron attribution seen by each delivery path. The queued path hands it to
+ * `enqueueMessage` (the drain applies it later); the immediate path hands it
+ * straight to `runAgentLoop`.
+ */
+const capturedEnqueueCronRunIds: (string | null | undefined)[] = [];
+const capturedLoopCronRunIds: (string | null | undefined)[] = [];
+
+/**
+ * Whether the stub parent accepts an enqueue. `false` sends
+ * `injectMessageIntoParent` down its immediate persist-and-run path.
+ */
+let parentAcceptsEnqueue = true;
+
 // Live subagent conversations, keyed by conversationId. notifyParentFromChild
 // routes to the parent recorded here (the non-writable in-process source), so
 // tests register a child before expecting a notification to route.
@@ -58,12 +72,22 @@ mock.module("../daemon/conversation-registry.js", () => ({
     return {
       isStale: () => false,
       hasInFlightWork: () => false,
-      enqueueMessage: (options: { content: string }) => {
+      enqueueMessage: (options: {
+        content: string;
+        cronRunId?: string | null;
+      }) => {
         capturedMessages.push(options.content);
-        return { queued: true };
+        capturedEnqueueCronRunIds.push(options.cronRunId);
+        return { queued: parentAcceptsEnqueue };
       },
       persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
-      runAgentLoop: async () => {},
+      runAgentLoop: async (
+        _message: string,
+        _messageId: string,
+        options?: { cronRunId?: string | null },
+      ) => {
+        capturedLoopCronRunIds.push(options?.cronRunId);
+      },
     };
   },
   findConversationOrSubagent: (id: string) => {
@@ -88,7 +112,10 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 import type { Conversation } from "../daemon/conversation.js";
 import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
 import type { SubagentRecord } from "../persistence/subagent-store.js";
-import { notifyParentFromChild } from "../subagent/notify.js";
+import {
+  injectMessageIntoParent,
+  notifyParentFromChild,
+} from "../subagent/notify.js";
 import {
   executeSubagentNotifyParent,
   notifyParentTool,
@@ -155,6 +182,9 @@ function lastCapturedMessage(): string {
 
 function clearCaptured(): void {
   capturedMessages.length = 0;
+  capturedEnqueueCronRunIds.length = 0;
+  capturedLoopCronRunIds.length = 0;
+  parentAcceptsEnqueue = true;
 }
 
 // ── Tool definition ────────────────────────────────────────────────
@@ -394,5 +424,50 @@ describe("notify_parent — model-input schema validation (LUM-2857)", () => {
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content) as { urgency: string };
     expect(parsed.urgency).toBe("info");
+  });
+});
+
+// ── Cron attribution on the injected parent turn ───────────────────
+
+describe("injectMessageIntoParent cron attribution", () => {
+  test("the queued delivery path carries the firing's run id", () => {
+    clearCaptured();
+
+    injectMessageIntoParent("parent-cron", "notification", undefined, {
+      cronRunId: "cron-run-7",
+    });
+
+    // The drain runs after the enqueuing turn has ended, so the id has to
+    // travel on the queued message for the continuation's spend to land on
+    // the firing rather than on a null `cron_run_id`.
+    expect(capturedEnqueueCronRunIds).toEqual(["cron-run-7"]);
+  });
+
+  test("the immediate delivery path carries the firing's run id", async () => {
+    clearCaptured();
+    // A parent that is not processing rejects the enqueue, so the injection
+    // persists and runs the turn itself.
+    parentAcceptsEnqueue = false;
+
+    injectMessageIntoParent("parent-cron", "notification", undefined, {
+      cronRunId: "cron-run-7",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(capturedLoopCronRunIds).toEqual(["cron-run-7"]);
+  });
+
+  test("an unscheduled notification carries no run id on either path", async () => {
+    clearCaptured();
+
+    injectMessageIntoParent("parent-plain", "notification");
+    parentAcceptsEnqueue = false;
+    injectMessageIntoParent("parent-plain", "notification");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Not merely falsy: the option is absent, so nothing downstream reads an
+    // attribution no firing produced.
+    expect(capturedEnqueueCronRunIds).toEqual([undefined, undefined]);
+    expect(capturedLoopCronRunIds).toEqual([undefined]);
   });
 });

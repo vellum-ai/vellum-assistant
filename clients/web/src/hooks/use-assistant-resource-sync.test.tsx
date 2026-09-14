@@ -12,10 +12,12 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
 import {
+  activationProgressGetQueryKey,
   appsGetQueryKey,
   configGetQueryKey,
   documentsGetQueryKey,
   homeFeedGetQueryKey,
+  homeStateGetQueryKey,
   configLlmCallsitesGetQueryKey,
   inferenceProfilesGetQueryKey,
   pluginsGetQueryKey,
@@ -359,6 +361,33 @@ describe("useAssistantResourceSync", () => {
       expect(claims(LIBRARY_DOCUMENTS_KEY)).toBe(true);
     });
     expect(claims(CONVERSATION_DOCUMENTS_KEY)).toBe(true);
+  });
+
+  test("invalidates activation progress on the activation:progress sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(
+      syncEvent([SYNC_TAGS.activationProgress]) as unknown as AssistantEvent,
+    );
+    await waitFor(() => {
+      const queryKeys = calls.map(
+        (arg) => (arg as { queryKey: readonly unknown[] }).queryKey,
+      );
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          activationProgressGetQueryKey({
+            path: { assistant_id: "asst-1" },
+          }),
+        ]) as never,
+      );
+    });
   });
 
   test("invalidates plugin list / catalog / open-detail queries on plugins:list sync tag", async () => {
@@ -792,6 +821,58 @@ describe("useAssistantResourceSync", () => {
     expect(
       predicates.every((p) => !p({ queryKey: avatarQueryKey("asst-1") })),
     ).toBe(true);
+  });
+
+  // The relationship snapshot carries the capability tiers the activation
+  // checklist reads (`domains/activation/capabilities.ts`), so a connection
+  // made on another client has to reach this query or an eligible task stays
+  // hidden behind a prerequisite that is already met.
+  test("invalidates the home state on relationship_state_updated", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = ((arg: InvalidateCall) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit({
+      type: "relationship_state_updated",
+      updatedAt: "2026-05-21T00:00:00Z",
+    } as unknown as AssistantEvent);
+    const homeStateKey = keyId(
+      homeStateGetQueryKey({ path: { assistant_id: "asst-1" } }),
+    );
+    await waitFor(() => {
+      expect(calls.some((call) => keyId(call.queryKey) === homeStateKey)).toBe(
+        true,
+      );
+    });
+  });
+
+  // The event above is missed outright while the transport is down, so the
+  // catch-up has to cover the same query.
+  test("reconciles the home state on non-fresh sse.opened reconnect", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = ((arg: InvalidateCall) => {
+      calls.push(arg);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+    await flushReconnectSweep();
+
+    const homeStateKey = keyId(
+      homeStateGetQueryKey({ path: { assistant_id: "asst-1" } }),
+    );
+    expect(calls.some((call) => keyId(call.queryKey) === homeStateKey)).toBe(
+      true,
+    );
   });
 
   test("invalidates identity query on identity_changed event", async () => {

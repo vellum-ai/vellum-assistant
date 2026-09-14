@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import { eq } from "drizzle-orm";
+
 import {
   countMessagesAfter,
   getMessagesAfter,
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { resolveMessagesAfterBound } from "../persistence/message-cursor.js";
 import { conversations, messages } from "../persistence/schema/index.js";
 
 await initializeDb();
@@ -111,5 +114,93 @@ describe("countMessagesAfter / getMessagesAfter — millisecond-collision tie-br
     expect(countMessagesAfter(CONV_ID, "")).toBe(2);
     expect(getMessagesAfter(CONV_ID, null)).toHaveLength(2);
     expect(getMessagesAfter(CONV_ID, "")).toHaveLength(2);
+  });
+});
+
+describe("countMessagesAfter / getMessagesAfter: a cursor survives its row's deletion", () => {
+  beforeEach(() => {
+    clearDb();
+    seedConversation();
+  });
+
+  test("a cursor carrying createdAt keeps bounding the read after its row is deleted", () => {
+    const ts = 1_700_000_000_000;
+    insertMessage("a", ts);
+    // The row the cursor points at: a reply the user then regenerates.
+    insertMessage("b", ts + 1);
+    insertMessage("c", ts + 2);
+    getDb().delete(messages).where(eq(messages.id, "b")).run();
+    // The regenerated reply.
+    insertMessage("d", ts + 3);
+
+    const cursor = { id: "b", createdAt: ts + 1 };
+    expect(countMessagesAfter(CONV_ID, cursor)).toBe(2);
+    expect(getMessagesAfter(CONV_ID, cursor).map((m) => m.id)).toEqual([
+      "c",
+      "d",
+    ]);
+  });
+
+  test("a cursor without createdAt keeps the conservative id-only semantics once its row is gone", () => {
+    insertMessage("a", 1_700_000_000_000);
+
+    const cursor = { id: "nonexistent", createdAt: null };
+    expect(countMessagesAfter(CONV_ID, cursor)).toBe(0);
+    expect(getMessagesAfter(CONV_ID, cursor)).toEqual([]);
+  });
+
+  test("the live row wins over the timestamp the cursor carries", () => {
+    const ts = 1_700_000_000_000;
+    insertMessage("a", ts);
+    insertMessage("b", ts + 10);
+
+    // A stale cursor timestamp must not pull processed rows back in, nor
+    // hide unprocessed ones, while the row itself can still be read.
+    expect(countMessagesAfter(CONV_ID, { id: "b", createdAt: ts - 100 })).toBe(
+      0,
+    );
+    expect(countMessagesAfter(CONV_ID, { id: "a", createdAt: ts + 999 })).toBe(
+      1,
+    );
+  });
+
+  test("a cursor with an empty id reads everything, like null and the empty string", () => {
+    insertMessage("a", 1_700_000_000_000);
+
+    expect(countMessagesAfter(CONV_ID, { id: "", createdAt: 5 })).toBe(1);
+    expect(getMessagesAfter(CONV_ID, { id: "", createdAt: 5 })).toHaveLength(1);
+  });
+});
+
+describe("resolveMessagesAfterBound", () => {
+  beforeEach(() => {
+    clearDb();
+    seedConversation();
+  });
+
+  test("resolves the unbounded, live-row, stored-timestamp, and vanished cases", () => {
+    insertMessage("a", 1_000);
+
+    expect(resolveMessagesAfterBound(null)).toEqual({ kind: "all" });
+    expect(resolveMessagesAfterBound("")).toEqual({ kind: "all" });
+    expect(resolveMessagesAfterBound({ id: "", createdAt: 3 })).toEqual({
+      kind: "all",
+    });
+    expect(resolveMessagesAfterBound("a")).toEqual({
+      kind: "after",
+      bound: { createdAt: 1_000, id: "a" },
+    });
+    expect(resolveMessagesAfterBound({ id: "a", createdAt: 99 })).toEqual({
+      kind: "after",
+      bound: { createdAt: 1_000, id: "a" },
+    });
+    expect(resolveMessagesAfterBound("gone")).toEqual({ kind: "vanished" });
+    expect(resolveMessagesAfterBound({ id: "gone", createdAt: null })).toEqual({
+      kind: "vanished",
+    });
+    expect(resolveMessagesAfterBound({ id: "gone", createdAt: 7 })).toEqual({
+      kind: "after",
+      bound: { createdAt: 7, id: "gone" },
+    });
   });
 });

@@ -191,6 +191,36 @@ export function existingMessageIds(
 }
 
 /**
+ * `createdAt` of each of `messageIds` that exists as a row, keyed by id, in
+ * any state.
+ *
+ * Any-state deliberately: a row's `createdAt` is fixed at insert, so its
+ * completeness does not change the answer, and the callers (retrospective
+ * cursor bookkeeping) hold ids taken from rows they have already reviewed.
+ * An empty input returns an empty map without querying.
+ */
+export function messageCreatedAtByIds(
+  messageIds: readonly string[],
+  opts?: { db?: MessageReadHandle },
+): Map<string, number> {
+  const db = opts?.db ?? getDb();
+  const result = new Map<string, number>();
+  // Chunked so a whole-conversation id list stays under SQLite's bound
+  // parameter limit.
+  for (let offset = 0; offset < messageIds.length; offset += 500) {
+    const rows = db
+      .select({ id: messages.id, createdAt: messages.createdAt })
+      .from(messages)
+      .where(inArray(messages.id, messageIds.slice(offset, offset + 500)))
+      .all();
+    for (const row of rows) {
+      result.set(row.id, row.createdAt);
+    }
+  }
+  return result;
+}
+
+/**
  * The conversation that owns `messageId`, in any state, or null when the
  * message does not exist.
  *

@@ -18,12 +18,15 @@ import {
 import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
 
 const moveByMock = mock((_dx: number, _dy: number) => undefined);
+const releaseMock = mock(() => undefined);
 const setInteractiveMock = mock((_interactive: boolean) => undefined);
 const activateMock = mock(() => undefined);
 const startVoiceMock = mock(() => undefined);
 const toggleWatchMock = mock((_pick?: unknown) => undefined);
 const setScreenShareMock = mock((_pick?: unknown) => undefined);
 const setAnnotatingMock = mock((_annotating: boolean) => undefined);
+const clearMarksMock = mock(() => undefined);
+const setAnnotationToolMock = mock((_tool: string) => undefined);
 /**
  * What the shell lists for the picker. Null is a shell with no picker to
  * offer, which is what a bridge that predates it answers.
@@ -132,11 +135,14 @@ mock.module("@/runtime/companion-surface", () => ({
   },
   setCompanionInteractive: setInteractiveMock,
   moveCompanionBy: moveByMock,
+  releaseCompanionSurface: releaseMock,
   activateCompanionApp: activateMock,
   startCompanionVoice: startVoiceMock,
   toggleCompanionWatch: toggleWatchMock,
   setCompanionScreenShare: setScreenShareMock,
   setCompanionAnnotating: setAnnotatingMock,
+  clearCompanionMarks: clearMarksMock,
+  setCompanionAnnotationTool: setAnnotationToolMock,
   listCompanionCaptureSources: listSourcesMock,
   // The picker's tiles ask for these; a desktop with nothing to picture is
   // the shape the page is exercised in.
@@ -160,12 +166,15 @@ afterEach(() => {
   cleanup();
   resetState();
   moveByMock.mockClear();
+  releaseMock.mockClear();
   setInteractiveMock.mockClear();
   activateMock.mockClear();
   startVoiceMock.mockClear();
   toggleWatchMock.mockClear();
   setScreenShareMock.mockClear();
   setAnnotatingMock.mockClear();
+  clearMarksMock.mockClear();
+  setAnnotationToolMock.mockClear();
   listSourcesMock.mockClear();
   captureSources = null;
   answerOfferMock.mockClear();
@@ -254,6 +263,40 @@ const pinSurface = async (
   pin(found.avatar, boxes.avatar);
   pin(found.pill, boxes.pill);
   return found;
+};
+
+/**
+ * The window's tile. The card opens on the screens, so the windows are a
+ * segment away. The sources-arriving effect resets the chosen kind, so a
+ * single click can lose to that reset; keep selecting Windows until it
+ * sticks, then wait for the tile.
+ */
+const windowTileOf = async (container: HTMLElement) => {
+  await waitFor(() => {
+    const kind = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[data-slot="segment-control"] [role="radio"]',
+      ),
+    ].find((each) => each.textContent === "Windows");
+    if (!kind) {
+      throw new Error("Expected the Windows segment");
+    }
+    if (kind.getAttribute("aria-checked") !== "true") {
+      fireEvent.click(kind);
+    }
+    if (kind.getAttribute("aria-checked") !== "true") {
+      throw new Error("Expected Windows to be selected");
+    }
+  });
+  return waitFor(() => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Groceries (Notes)"]',
+    );
+    if (!found) {
+      throw new Error("Expected the window tile");
+    }
+    return found;
+  });
 };
 
 /**
@@ -468,6 +511,101 @@ describe("the companion surface at two sizes", () => {
 });
 
 describe("dragging the companion surface", () => {
+  /**
+   * Main hears the hand let go after every press, moved or not: mid-call a
+   * drag's release is the drop that docks the bar to an edge, and main is
+   * the side that knows whether this press was one. A press that never
+   * moved lets go too, since a click on the creature is a press main may
+   * have been shown moves for that this window never saw as a drag.
+   */
+  test("tells main when the hand lets go", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 530,
+      screenY: 520,
+      buttons: 1,
+    });
+    expect(releaseMock).not.toHaveBeenCalled();
+    fireEvent.mouseUp(canvas);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+    // A release with no press behind it is nothing to tell main about.
+    fireEvent.mouseUp(canvas);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("tells main about a release this window never saw", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.mouseMove(canvas, {
+      clientX: 120,
+      clientY: 120,
+      screenX: 530,
+      screenY: 520,
+      buttons: 0,
+    });
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("tells main when the host takes the pointer away mid-press", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    const { pill } = await pinSurface(container);
+    const canvas = canvasOf(container);
+
+    fireEvent.mouseMove(canvas, { clientX: 120, clientY: 120 });
+    fireEvent.pointerDown(pill, {
+      button: 0,
+      pointerId: 1,
+      screenX: 500,
+      screenY: 500,
+    });
+    fireEvent.pointerCancel(canvas);
+    expect(releaseMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * The edge the bar rests on arrives on the state, like the growths, and
+   * the surface draws the bar for it: a column against a side.
+   */
+  test("stands the call bar up on the side main docked it to", async () => {
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    pushState({ ...STATE, call: LISTENING_CALL, dock: "left" });
+    await waitFor(() => {
+      if (
+        container.querySelector(".transition-\\[width\\,height\\]") === null
+      ) {
+        throw new Error("Expected the bar to stand up");
+      }
+    });
+    pushState({ ...STATE, call: LISTENING_CALL, dock: "top" });
+    await waitFor(() => {
+      if (container.querySelector(".transition-\\[width\\]") === null) {
+        throw new Error("Expected the bar to lie back down");
+      }
+    });
+  });
+
   /**
    * Both drawn halves are handles. The drag is a window move, so whichever the
    * hand happens to land on takes the whole surface with it, and a creature
@@ -934,33 +1072,6 @@ describe("the picker behind Teach", () => {
   };
   const pickerOf = (container: HTMLElement): HTMLElement | null =>
     container.querySelector<HTMLElement>("[data-companion-capture-picker]");
-  /**
-   * The window's tile. The card opens on the screens, so the windows are a
-   * segment away: pressing it is what a user does before picking one.
-   */
-  const rowOf = async (container: HTMLElement) => {
-    const kind = await waitFor(() => {
-      const found = [
-        ...container.querySelectorAll<HTMLButtonElement>(
-          '[data-slot="segment-control"] [role="radio"]',
-        ),
-      ].find((each) => each.textContent === "Windows");
-      if (!found) {
-        throw new Error("Expected the Windows segment");
-      }
-      return found;
-    });
-    fireEvent.click(kind);
-    return waitFor(() => {
-      const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Groceries (Notes)"]',
-      );
-      if (!found) {
-        throw new Error("Expected the window tile");
-      }
-      return found;
-    });
-  };
 
   const SOURCES = {
     displays: [
@@ -1005,7 +1116,7 @@ describe("the picker behind Teach", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(teachOf(container));
-    const row = await rowOf(container);
+    const row = await windowTileOf(container);
 
     fireEvent.click(row);
 
@@ -1734,33 +1845,6 @@ describe("the picker behind Share", () => {
   };
   const pickerOf = (container: HTMLElement): HTMLElement | null =>
     container.querySelector<HTMLElement>("[data-companion-capture-picker]");
-  /**
-   * The window's tile. The card opens on the screens, so the windows are a
-   * segment away: pressing it is what a user does before picking one.
-   */
-  const rowOf = async (container: HTMLElement) => {
-    const kind = await waitFor(() => {
-      const found = [
-        ...container.querySelectorAll<HTMLButtonElement>(
-          '[data-slot="segment-control"] [role="radio"]',
-        ),
-      ].find((each) => each.textContent === "Windows");
-      if (!found) {
-        throw new Error("Expected the Windows segment");
-      }
-      return found;
-    });
-    fireEvent.click(kind);
-    return waitFor(() => {
-      const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Groceries (Notes)"]',
-      );
-      if (!found) {
-        throw new Error("Expected the window tile");
-      }
-      return found;
-    });
-  };
 
   const SOURCES = {
     displays: [
@@ -1804,7 +1888,7 @@ describe("the picker behind Share", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(shareOf(container));
-    const row = await rowOf(container);
+    const row = await windowTileOf(container);
 
     fireEvent.click(row);
 
@@ -1832,13 +1916,13 @@ describe("the picker behind Share", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(shareOf(container));
-    await rowOf(container);
+    await windowTileOf(container);
 
     pushState({ ...STATE, screenShare: { kind: "window", windowId: 9 } });
     expect(pickerOf(container)).toBeNull();
 
     fireEvent.click(teachOf(container));
-    await rowOf(container);
+    await windowTileOf(container);
     pushState({ ...STATE, screenShare: undefined });
     expect(pickerOf(container)).not.toBeNull();
     expect(pickerOf(container)?.getAttribute("aria-label")).toBe(
@@ -1850,7 +1934,7 @@ describe("the picker behind Share", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(shareOf(container));
-    await rowOf(container);
+    await windowTileOf(container);
 
     fireEvent.click(teachOf(container));
 
@@ -1925,6 +2009,232 @@ describe("the picker behind Share", () => {
       expect(drawOf(container).getAttribute("aria-pressed")).toBe("true");
       fireEvent.click(drawOf(container));
       expect(setAnnotatingMock.mock.calls).toEqual([[false]]);
+    });
+
+    /**
+     * Clear, beside Draw. What is on the shared surface is main's to say:
+     * the assistant's marks arrive on the pushed state, and the mode is
+     * where the user's own ink is drawn, which main never sees. A shell
+     * with a Clear to answer names the count it steps on every clear.
+     */
+    describe("clearing what is on it", () => {
+      const clearOf = (container: HTMLElement): HTMLButtonElement | null =>
+        container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Clear marks"]',
+        );
+      const MARK = {
+        kind: "region" as const,
+        x: 0.1,
+        y: 0.2,
+        width: 0.3,
+        height: 0.1,
+      };
+
+      test("is offered while the assistant has marks up", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        expect(clearOf(container)).toBeNull();
+
+        pushState({ ...STATE, marksCleared: 0, coachmarks: [MARK] });
+        expect(clearOf(container)).not.toBeNull();
+
+        pushState({ ...STATE, marksCleared: 0 });
+        expect(clearOf(container)).toBeNull();
+      });
+
+      test("is offered while drawing is on, where the user's own ink is", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, marksCleared: 0, annotating: true });
+        expect(clearOf(container)).not.toBeNull();
+      });
+
+      /**
+       * A newer renderer can meet an older shell, which publishes marks and
+       * the mode but has no Clear on its bridge. A control drawn for it
+       * would be one whose press goes nowhere.
+       */
+      test("is not offered by a shell that has no Clear to answer it", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, coachmarks: [MARK], annotating: true });
+        expect(clearOf(container)).toBeNull();
+      });
+
+      test("the press asks main to clear", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, marksCleared: 0, coachmarks: [MARK] });
+        const clear = clearOf(container);
+        if (clear === null) {
+          throw new Error("Expected Clear to render");
+        }
+        fireEvent.click(clear);
+        expect(clearMarksMock).toHaveBeenCalledTimes(1);
+        // Nothing comes down off the press: the marks going from the pushed
+        // state is what happened.
+        expect(clearOf(container)).not.toBeNull();
+      });
+    });
+
+    /**
+     * The tools, main's the same way: a press asks, and what draws a tool
+     * held down is main saying it is the one the frame draws with.
+     */
+    describe("the tools", () => {
+      const stripOf = (container: HTMLElement): HTMLElement | null =>
+        container.querySelector<HTMLElement>(
+          "[data-testid='companion-draw-tools']",
+        );
+      const toolOf = (
+        container: HTMLElement,
+        label: string,
+      ): HTMLButtonElement => {
+        const found = stripOf(container)?.querySelector<HTMLButtonElement>(
+          `button[aria-label="${label}"]`,
+        );
+        if (!found) {
+          throw new Error(`Expected the ${label} tool to render`);
+        }
+        return found;
+      };
+      const drawing = (): void => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        STATE.annotating = true;
+        STATE.annotationTool = "freehand";
+      };
+      afterEach(() => {
+        delete STATE.annotating;
+        delete STATE.annotationTool;
+      });
+
+      test("are offered once main says the frame took the mouse", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        expect(stripOf(container)).toBeNull();
+
+        pushState({ ...STATE, annotating: true, annotationTool: "freehand" });
+        expect(stripOf(container)).not.toBeNull();
+      });
+
+      /**
+       * A shell that predates the shapes names no tool and has no channel to
+       * take one on: a press on Line there would leave the pencil held down.
+       * So it is offered nothing beyond the pencil it already has.
+       */
+      test("are not offered by a shell that names no tool", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, annotating: true });
+        expect(drawOf(container).getAttribute("aria-pressed")).toBe("true");
+        expect(stripOf(container)).toBeNull();
+      });
+
+      test("a press asks main for the tool, and main's answer is what draws it held down", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+
+        fireEvent.click(toolOf(container, "Box"));
+        expect(setAnnotationToolMock.mock.calls).toEqual([["box"]]);
+        expect(toolOf(container, "Box").getAttribute("aria-pressed")).toBe(
+          "false",
+        );
+
+        pushState({ ...STATE, annotationTool: "box" });
+        expect(toolOf(container, "Box").getAttribute("aria-pressed")).toBe(
+          "true",
+        );
+      });
+
+      /**
+       * The strip stands off the pill, so a window that tested the pill
+       * alone would be click-through over every tool on it.
+       */
+      test("keep the window clickable under the pointer", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        const canvas = canvasOf(container);
+        const strip = stripOf(container);
+        if (strip === null) {
+          throw new Error("Expected the tools to render");
+        }
+        pin(strip, { left: 250, right: 370, top: 40, bottom: 72 });
+
+        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 56 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 20 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+      });
+
+      /**
+       * The mode can end from the keyboard or with the share, under a
+       * pointer resting on the strip that nothing then moves: no mouse-move
+       * arrives to say the pointer is now over empty canvas.
+       */
+      test("give the desktop back when the strip goes under a still pointer", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        const canvas = canvasOf(container);
+        const strip = stripOf(container);
+        if (strip === null) {
+          throw new Error("Expected the tools to render");
+        }
+        pin(strip, { left: 250, right: 370, top: 40, bottom: 72 });
+        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 56 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+        pushState({ ...STATE, annotating: false });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+      });
+
+      /**
+       * The mode stays on while an approval takes the row, and the strip
+       * goes with the row. What matters is the strip leaving, whatever took
+       * it.
+       */
+      test("give the desktop back when an approval takes the strip under a still pointer", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        const canvas = canvasOf(container);
+        const strip = stripOf(container);
+        if (strip === null) {
+          throw new Error("Expected the tools to render");
+        }
+        pin(strip, { left: 250, right: 370, top: 40, bottom: 72 });
+        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 56 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+        pushState({
+          ...STATE,
+          call: { ...LISTENING_CALL, approvalRequestId: "req-1" },
+        });
+        expect(stripOf(container)).toBeNull();
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+      });
+
+      /** A press on Draw leaves the pointer on the pill, which is still there. */
+      test("keep the window clickable when the mode ends under a pointer on the pill", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        const canvas = canvasOf(container);
+        fireEvent.mouseMove(canvas, { clientX: 200, clientY: 122 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+        pushState({ ...STATE, annotating: false });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+      });
     });
   });
 });

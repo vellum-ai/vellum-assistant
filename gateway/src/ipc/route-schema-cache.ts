@@ -58,6 +58,11 @@ export interface RouteMatch {
   pathParams: Record<string, string>;
 }
 
+/** A route matched, but a path param carries malformed percent-encoding. */
+export interface MalformedPathMatch {
+  malformedPath: true;
+}
+
 // ---------------------------------------------------------------------------
 // Compiled route — pre-built regex for parameterized endpoint matching
 // ---------------------------------------------------------------------------
@@ -185,13 +190,15 @@ export async function refreshRouteSchema(): Promise<boolean> {
  * The `path` should be the portion after `/v1/` (e.g. `acp/abc123/steer`
  * for a request to `/v1/acp/abc123/steer`).
  *
- * Returns the operationId and extracted path params on match, or
- * `undefined` if no cached route matches.
+ * Returns the operationId and extracted path params on match, `undefined` if
+ * no cached route matches, or {@link MalformedPathMatch} when a matched
+ * route's param cannot be percent-decoded. The caller answers that with a 400,
+ * matching the daemon's own router (`assistant/src/runtime/http-router.ts`).
  */
 export function matchRoute(
   method: string,
   path: string,
-): RouteMatch | undefined {
+): RouteMatch | MalformedPathMatch | undefined {
   const upperMethod = method.toUpperCase();
   for (const compiled of compiledRoutes) {
     if (compiled.entry.method.toUpperCase() !== upperMethod) continue;
@@ -200,7 +207,13 @@ export function matchRoute(
 
     const pathParams: Record<string, string> = {};
     for (let i = 0; i < compiled.paramNames.length; i++) {
-      pathParams[compiled.paramNames[i]] = decodeURIComponent(match[i + 1]);
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(match[i + 1]);
+      } catch {
+        return { malformedPath: true };
+      }
+      pathParams[compiled.paramNames[i]] = decoded;
     }
     return { operationId: compiled.entry.operationId, pathParams };
   }

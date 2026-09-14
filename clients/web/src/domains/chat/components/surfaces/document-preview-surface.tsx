@@ -2,7 +2,7 @@ import type { Surface } from "@/domains/chat/types/types";
 import { useTranslation } from "@/i18n";
 
 import { DocumentCard } from "@/domains/chat/components/document-card";
-import { useIsDocumentOpen } from "@/domains/chat/components/local-file/open-local-file";
+import { useIsDocumentOpen } from "@/components/local-file/open-local-file";
 
 interface DocumentPreviewSurfaceData {
   documentName: string;

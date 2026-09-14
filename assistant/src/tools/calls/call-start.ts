@@ -4,6 +4,7 @@ import { startCall } from "../../calls/call-domain.js";
 import { findActiveSession } from "../../channels/gateway-verification-sessions.js";
 import { getConfig } from "../../config/loader.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -66,6 +67,7 @@ export async function executeCallStart(
     }
   }
 
+  throwIfCancelled(context);
   const result = await startCall({
     phoneNumber: parsed.phone_number,
     task: parsed.task,
@@ -74,6 +76,9 @@ export async function executeCallStart(
     assistantId: context.assistantId,
     callerIdentityMode: parsed.caller_identity_mode,
     skipDisclosure: input.skip_disclosure === true,
+    // Setup is asynchronous, and the domain rechecks immediately before it
+    // dials, so a turn stopped during setup never places the call.
+    ...(context.signal ? { signal: context.signal } : {}),
   });
 
   if (!result.ok) {

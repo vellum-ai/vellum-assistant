@@ -55,8 +55,8 @@ export function WhatIsVellumContent() {
             <strong>It has tools, not just words.</strong> Your assistant can browse
             the web, read your files, run code, send emails, manage your calendar,
             and interact with dozens of services. It can also see your screen and
-            control your Mac directly — clicking, typing, and navigating apps on
-            your behalf through macOS accessibility APIs. Sensitive actions always
+            control your Mac or Windows PC directly, clicking, typing, and navigating apps
+            through the desktop app. Sensitive actions always
             require your approval first. It doesn&apos;t describe what you{" "}
             <em>could</em> do. It does it.
           </p>
@@ -100,8 +100,8 @@ export function WhatIsVellumContent() {
             handle the plumbing yourself.
           </p>
           <p className="mb-3 text-zinc-600">
-            <strong>It has a real interface.</strong> A polished web app and a
-            native macOS desktop app, not a terminal prompt. You can see your
+            <strong>It has a real interface.</strong> A polished web app and
+            desktop apps for macOS and Windows. You can see your
             memories, browse your skills, manage integrations, and read
             conversation history in a UI designed for humans. OpenClaw and Hermes
             live in the terminal, which works if you&apos;re a developer who lives
@@ -155,7 +155,7 @@ export function WhatIsVellumContent() {
 
           <h3 className="mb-3 text-base font-semibold text-zinc-800">🖥️ Automation &amp; Control</h3>
           <ul className="mb-6 list-disc space-y-2 pl-6 text-zinc-600">
-            <li><strong>Computer Use</strong> — Control your Mac directly: click, type, and navigate apps via macOS accessibility APIs</li>
+            <li><strong>Computer Use</strong>: Control your Mac or Windows PC: click, type, and navigate supported apps</li>
             <li><strong>Browser</strong> — Navigate and interact with web pages using a headless browser</li>
             <li><strong>Screen Watch</strong> — Observe the screen at regular intervals with OCR</li>
             <li><strong>Watcher</strong> — Poll and monitor external sources for changes</li>
@@ -244,16 +244,17 @@ export function WhatIsVellumContent() {
             </ul>
           </div>
           <div className="mb-6">
-            <h3 className="mb-2 text-base font-semibold text-zinc-800">🖥️ macOS desktop app</h3>
+            <h3 className="mb-2 text-base font-semibold text-zinc-800">🖥️ Desktop apps for macOS and Windows</h3>
             <p className="mb-2 text-zinc-600">
-              Native macOS app with a menu bar presence. Same assistant as the
-              web app, plus the ability to control your computer through macOS
-              accessibility APIs. Supports macOS 15 (Sequoia) and above.
+              A menu bar app on macOS and a system tray app on Windows. Same assistant as the
+              web app, plus computer control and voice input. See the{" "}
+              <a href="/docs/getting-started/installation">installation guide</a> for
+              system requirements and setup.
             </p>
             <ul className="list-disc space-y-1 pl-6 text-zinc-600">
-              <li>One-click DMG install</li>
-              <li>Desktop automation via macOS accessibility APIs</li>
-              <li>Voice input with hold-to-talk (Fn key)</li>
+              <li>macOS DMG or Windows EXE installer</li>
+              <li>Desktop automation through macOS accessibility APIs or Windows UI Automation</li>
+              <li>Voice input with platform-specific shortcuts</li>
               <li>Connects to your Vellum Cloud assistant, or run a fully self-hosted local workspace</li>
             </ul>
           </div>

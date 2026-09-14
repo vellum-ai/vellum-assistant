@@ -75,11 +75,13 @@ export interface SkillToolProjection {
 }
 
 /**
- * Conversation-scoped cache for skill projection. Avoids re-scanning the entire
- * conversation history and re-reading the filesystem on every agent turn.
+ * Conversation-scoped cache for skill projection. Avoids re-scanning the
+ * conversation history on every agent turn. Catalog membership is not stored
+ * here: each projection reads a fresh `loadSkillCatalog()` so newly
+ * installed or removed skills are visible on the next turn.
  *
- * Each conversation should own its own cache instance to prevent cross-conversation
- * state bleed.
+ * Each conversation should own its own cache instance to prevent
+ * cross-conversation state bleed.
  */
 export interface SkillProjectionCache {
   /** Cached deriveActiveSkills result. */
@@ -95,9 +97,6 @@ export interface SkillProjectionCache {
     /** The accumulated active skill entries. */
     entries: ActiveSkillEntry[];
   };
-  /** Cached skill catalog. Invalidated when the conversation is marked stale
-   *  (e.g. skill directories changed on disk while a run is in progress). */
-  catalog?: SkillSummary[];
 }
 
 export interface ProjectSkillToolsOptions {
@@ -113,9 +112,9 @@ export interface ProjectSkillToolsOptions {
    */
   previouslyActiveSkillIds?: Map<string, string>;
   /**
-   * Conversation-scoped projection cache. When provided, projectSkillTools will
-   * avoid redundant deriveActiveSkills scans and loadSkillCatalog filesystem
-   * reads across agent turns.
+   * Conversation-scoped projection cache. When provided, projectSkillTools
+   * avoids redundant deriveActiveSkills scans across agent turns. Catalog
+   * membership is always a fresh `loadSkillCatalog()` read.
    */
   cache?: SkillProjectionCache;
   /**
@@ -310,23 +309,6 @@ function getCachedActiveSkills(
   return entries;
 }
 
-/**
- * Return the skill catalog, caching it across agent turns.
- *
- * The cache is invalidated when the conversation is marked stale (e.g. skill
- * directories changed on disk while the conversation is still processing).
- */
-function getCachedCatalog(cache?: SkillProjectionCache): SkillSummary[] {
-  if (!cache) {
-    return loadSkillCatalog();
-  }
-
-  if (!cache.catalog) {
-    cache.catalog = loadSkillCatalog();
-  }
-  return cache.catalog;
-}
-
 // ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
@@ -363,11 +345,11 @@ export function projectSkillTools(
   const contextIds = contextEntries.map((e) => e.id);
   const allCandidateIds = new Set<string>([...contextIds, ...preactivated]);
 
-  // Load the catalog (cached for conversation lifetime), then scope it to the
-  // conversation's per-chat plugin selection so plugin-contributed skills from
-  // unselected plugins are not resolvable for this run (null = no restriction).
+  // Load the catalog, then scope it to the conversation's per-chat plugin
+  // selection so plugin-contributed skills from unselected plugins are not
+  // resolvable for this run (null = no restriction).
   const catalog = filterSkillsByEnabledPlugins(
-    getCachedCatalog(options?.cache),
+    loadSkillCatalog(),
     options?.effectiveEnabledPluginSet ?? null,
   );
   const catalogById = new Map<string, SkillSummary>();

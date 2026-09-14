@@ -109,7 +109,10 @@ mock.module("../../../ipc/gateway-client.js", () => ({
   }),
 }));
 
+const actualSlackSend =
+  await import("../../../messaging/providers/slack/send.js");
 mock.module("../../../messaging/providers/slack/send.js", () => ({
+  ...actualSlackSend,
   updateSlackMessage: async () => ({ ok: true, ts: "ts" }),
   sendSlackReply: async (
     chatId: string,

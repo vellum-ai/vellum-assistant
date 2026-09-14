@@ -1,6 +1,8 @@
-import type {
-  ResolvedMcpConfig,
-  ResolvedMcpServerConfig,
+import {
+  MCP_GLOBAL_MAX_TOOLS,
+  MCP_MAX_TOOLS_PER_SERVER,
+  type ResolvedMcpConfig,
+  type ResolvedMcpServerConfig,
 } from "../config/schemas/mcp.js";
 import { getLogger } from "../util/logger.js";
 import { McpClient, type McpToolInfo } from "./client.js";
@@ -24,12 +26,6 @@ export class McpServerManager {
       `[MCP] Starting ${Object.keys(config.servers).length} server(s)...`,
     );
     for (const [serverId, serverConfig] of Object.entries(config.servers)) {
-      if (!serverConfig.enabled) {
-        console.log(`[MCP] Server "${serverId}" is disabled, skipping`);
-        log.info({ serverId }, "MCP server disabled, skipping");
-        continue;
-      }
-
       try {
         console.log(
           `[MCP] Starting server "${serverId}" (transport: ${serverConfig.transport.type})`,
@@ -40,7 +36,7 @@ export class McpServerManager {
         ) {
           log.debug(
             { serverId },
-            "HTTP transport — OAuth provider will be available if server requires authentication",
+            "HTTP transport: OAuth provider will be available if server requires authentication",
           );
         }
         // The server's own origin decides whether it may resolve
@@ -62,16 +58,16 @@ export class McpServerManager {
           "MCP server tools discovered",
         );
 
-        // Apply tool filtering
-        tools = this.filterTools(tools, serverConfig);
-
-        // Apply per-server maxTools limit
-        if (tools.length > serverConfig.maxTools) {
+        if (tools.length > MCP_MAX_TOOLS_PER_SERVER) {
           log.warn(
-            { serverId, discovered: tools.length, max: serverConfig.maxTools },
-            "MCP server exceeded maxTools limit, truncating",
+            {
+              serverId,
+              discovered: tools.length,
+              max: MCP_MAX_TOOLS_PER_SERVER,
+            },
+            "MCP server exceeded per-server tool cap, truncating",
           );
-          tools = tools.slice(0, serverConfig.maxTools);
+          tools = tools.slice(0, MCP_MAX_TOOLS_PER_SERVER);
         }
 
         results.push({ serverId, serverConfig, tools });
@@ -92,14 +88,13 @@ export class McpServerManager {
       }
     }
 
-    // Apply global max tools limit
     const totalTools = results.reduce((sum, r) => sum + r.tools.length, 0);
-    if (totalTools > config.globalMaxTools) {
+    if (totalTools > MCP_GLOBAL_MAX_TOOLS) {
       log.warn(
-        { totalTools, globalMax: config.globalMaxTools },
-        "Total MCP tools exceed globalMaxTools, truncating",
+        { totalTools, globalMax: MCP_GLOBAL_MAX_TOOLS },
+        "Total MCP tools exceed the global cap, truncating",
       );
-      let remaining = config.globalMaxTools;
+      let remaining = MCP_GLOBAL_MAX_TOOLS;
       for (const result of results) {
         if (remaining <= 0) {
           result.tools = [];
@@ -143,25 +138,6 @@ export class McpServerManager {
 
   getClient(serverId: string): McpClient | undefined {
     return this.clients.get(serverId);
-  }
-
-  private filterTools(
-    tools: McpToolInfo[],
-    config: ResolvedMcpServerConfig,
-  ): McpToolInfo[] {
-    let filtered = tools;
-
-    if (config.allowedTools) {
-      const allowed = new Set(config.allowedTools);
-      filtered = filtered.filter((t) => allowed.has(t.name));
-    }
-
-    if (config.blockedTools) {
-      const blocked = new Set(config.blockedTools);
-      filtered = filtered.filter((t) => !blocked.has(t.name));
-    }
-
-    return filtered;
   }
 }
 

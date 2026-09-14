@@ -13,6 +13,7 @@ import {
   registerMediaAsset,
   updateMediaAssetStatus,
 } from "../../../../persistence/media-store.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -83,7 +84,10 @@ function classifyMediaType(mimeType: string): MediaType | null {
 // ffprobe duration extraction
 // ---------------------------------------------------------------------------
 
-async function extractDuration(filePath: string): Promise<number | null> {
+async function extractDuration(
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
   try {
     const result = await spawnWithTimeout(
       [
@@ -97,6 +101,7 @@ async function extractDuration(filePath: string): Promise<number | null> {
         filePath,
       ],
       FFPROBE_TIMEOUT_MS,
+      signal,
     );
     if (result.exitCode !== 0) {
       return null;
@@ -125,6 +130,7 @@ export async function run(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   // Validate file exists
   try {
@@ -177,7 +183,7 @@ export async function run(
   let durationSeconds: number | null = null;
   if (mediaType === "video" || mediaType === "audio") {
     context.onOutput?.("Extracting duration via ffprobe...\n");
-    durationSeconds = await extractDuration(filePath);
+    durationSeconds = await extractDuration(filePath, context.signal);
   }
 
   // Determine title
@@ -188,6 +194,8 @@ export async function run(
   if (input.metadata && typeof input.metadata === "object") {
     metadata = input.metadata as Record<string, unknown>;
   }
+
+  throwIfCancelled(context);
 
   // Register the asset
   const asset = registerMediaAsset({

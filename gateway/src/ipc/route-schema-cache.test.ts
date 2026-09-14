@@ -82,6 +82,31 @@ describe("refreshRouteSchema — happy path", () => {
     expect(matchRoute("GET", "health")).toBeDefined();
     expect(matchRoute("GET", "settings")).toBeDefined();
   });
+
+  test("reports a matched route whose param cannot be percent-decoded", async () => {
+    // Callers author these paths verbatim through the OAuth passthrough, so
+    // the decode has to report rather than throw out of the proxy.
+    setSchema([
+      {
+        operationId: "oauth_proxy_get",
+        endpoint: "oauth/proxy/:provider/:path*",
+        method: "GET",
+        policy: {
+          requiredScopes: ["oauth.proxy"],
+          allowedPrincipalTypes: ["local"],
+        },
+      },
+    ]);
+    expect(await refreshRouteSchema()).toBe(true);
+
+    expect(matchRoute("GET", "oauth/proxy/gh/a%zz")).toEqual({
+      malformedPath: true,
+    });
+    expect(matchRoute("GET", "oauth/proxy/gh/a%20b")).toEqual({
+      operationId: "oauth_proxy_get",
+      pathParams: { provider: "gh", path: "a b" },
+    });
+  });
 });
 
 describe("refreshRouteSchema — validation fails closed", () => {

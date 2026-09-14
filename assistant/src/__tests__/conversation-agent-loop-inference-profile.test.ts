@@ -230,6 +230,7 @@ mock.module("../daemon/conversation-attachments.js", () => ({
     assistantAttachments: [],
     emittedAttachments: [],
     directiveWarnings: [],
+    persistedFiles: [],
   }),
   approveHostAttachmentRead: async () => true,
   formatAttachmentWarnings: () => "",

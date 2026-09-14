@@ -554,6 +554,78 @@ describe("the companion surface's control captions", () => {
     }
   });
 
+  const SHORTCUTS = {
+    share: "⌥S",
+    draw: "⌥D",
+    muteMicrophone: "⌥M",
+    muteAssistant: "⌥A",
+  };
+
+  const shortcutOf = (container: HTMLElement, name: string): string | null =>
+    captionOf(container, name)?.querySelector("[data-shortcut]")?.textContent ??
+    null;
+
+  /**
+   * The key after the name and inside the same caption, so the pointer that
+   * learns what a control is learns in the same glance how to reach it from
+   * another application. The accessible name stays the name alone: the caption
+   * is hidden from a reader, and a key written into `aria-label` would be read
+   * out as part of what the control is.
+   */
+  test("writes each control's key into its caption when the host has one", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled
+        sharing
+        shortcuts={SHORTCUTS}
+      />,
+    );
+    expect(shortcutOf(container, "Share")).toBe("⌥S");
+    expect(shortcutOf(container, "Draw")).toBe("⌥D");
+    expect(shortcutOf(container, "Mute microphone")).toBe("⌥M");
+    expect(shortcutOf(container, "Mute assistant")).toBe("⌥A");
+    expect(shortcutOf(container, "End session")).toBeNull();
+    expect(buttonOf(container, "Share").getAttribute("aria-label")).toBe(
+      "Share",
+    );
+  });
+
+  /** Off a host that watches no chord, the captions are the names alone. */
+  test("names the controls alone when the host has no keys for them", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled
+        sharing
+      />,
+    );
+    expect(shortcutOf(container, "Share")).toBeNull();
+    expect(shortcutOf(container, "Mute microphone")).toBeNull();
+  });
+
+  /**
+   * A share that outlives the answer that offered it keeps its stop and its
+   * pen, but the keys for both are armed on that answer, so the captions stop
+   * promising them. The mutes are the call's and keep theirs.
+   */
+  test("withholds the share and pen keys once the call cannot be shown the screen", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled={false}
+        sharing
+        shortcuts={SHORTCUTS}
+      />,
+    );
+    expect(shortcutOf(container, "Share")).toBeNull();
+    expect(shortcutOf(container, "Draw")).toBeNull();
+    expect(shortcutOf(container, "Mute microphone")).toBe("⌥M");
+  });
+
   /**
    * The variant and the thing it resolves against, together. `group-hover:` on
    * a button that is not a `group` is a word that never appears, and that is
@@ -1143,6 +1215,153 @@ describe("the companion surface's call bar", () => {
     );
     expect(ringOf(container)).not.toBeNull();
     expect(pillOf(container).style.left).toBe("50%");
+  });
+});
+
+/**
+ * The bar docked to a side of the display, which stands it up. The same
+ * controls in the same order read down a column under the creature, and
+ * everything the row says over or across its controls stands off the column
+ * toward the middle of the screen instead.
+ */
+describe("the companion surface's call bar docked to a side", () => {
+  const columnOf = (container: HTMLElement): HTMLElement => {
+    const column = container.querySelector<HTMLElement>(
+      ".transition-\\[width\\,height\\]",
+    );
+    if (!column) {
+      throw new Error("Expected the column to render");
+    }
+    return column;
+  };
+  const creatureOf = (container: HTMLElement): HTMLElement => {
+    const creature = container.querySelector<HTMLElement>(".size-11");
+    if (!creature) {
+      throw new Error("Expected the creature to render");
+    }
+    return creature;
+  };
+  const lineOf = (container: HTMLElement): HTMLElement | null =>
+    container.querySelector<HTMLElement>("[data-label='line']");
+  const captionsOf = (container: HTMLElement): HTMLElement[] =>
+    Array.from(container.querySelectorAll<HTMLElement>("[data-label='hover']"));
+
+  test("is a column centred on the creature's point", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="left" />,
+    );
+    const column = columnOf(container);
+    expect(column.className).toContain("flex-col");
+    expect(column.style.left).toBe("50%");
+    expect(column.style.top).toBe("50%");
+    expect(column.style.transform).toBe("translate(-50%, -50%)");
+    expect(column.style.height).not.toBe("");
+  });
+
+  test("keeps the row on the top and bottom", () => {
+    for (const dock of ["top", "bottom"] as const) {
+      const { container, unmount } = render(
+        <CompanionSurface phase="call" call={LISTENING_CALL} dock={dock} />,
+      );
+      expect(
+        container.querySelector(".transition-\\[width\\]")?.className,
+      ).toContain("h-11");
+      unmount();
+    }
+  });
+
+  /** Only a call stands the bar up; every other pill hangs off the creature. */
+  test("leaves every other pill a row whatever the dock", () => {
+    const { container } = render(
+      <CompanionSurface phase="watching" watching dock="right" />,
+    );
+    expect(container.querySelector(".transition-\\[width\\]")).not.toBeNull();
+  });
+
+  /**
+   * Half the column back from the centre, then the gap and the creature's
+   * own half box: the step the creature takes beside a row, read up.
+   */
+  test("stands the creature at the column's top end, across the gap", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="right" />,
+    );
+    const half = parseFloat(columnOf(container).style.height) / 2;
+    const creature = creatureOf(container);
+    expect(creature.style.left).toBe("50%");
+    expect(creature.style.top).toBe(`calc(50% - ${half + 34}px)`);
+  });
+
+  test("stands the captions off the column toward the middle of the screen", () => {
+    const left = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="left" />,
+    );
+    for (const caption of captionsOf(left.container)) {
+      expect(caption.className).toContain("translate-x-[calc(50%+22px)]");
+      expect(caption.className).not.toContain("-translate-x-");
+    }
+    left.unmount();
+    const right = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="right" />,
+    );
+    for (const caption of captionsOf(right.container)) {
+      expect(caption.className).toContain("-translate-x-[calc(50%+22px)]");
+    }
+  });
+
+  test("keeps the captions over the controls on a row", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="top" />,
+    );
+    for (const caption of captionsOf(container)) {
+      expect(caption.className).toContain("-translate-y-[calc(50%+22px)]");
+    }
+  });
+
+  /**
+   * In the column, not beside it, and running along it: the line is what the
+   * bar is saying, and a line written across would be the widest thing in a
+   * column of icons.
+   */
+  test("runs the activity line down the column at the row's one length", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={{ ...LISTENING_CALL, label: "Thinking\u2026" }}
+        dock="left"
+      />,
+    );
+    const line = lineOf(container);
+    expect(line?.textContent).toContain("Thinking\u2026");
+    expect(columnOf(container).contains(line)).toBe(true);
+    expect(line?.style.writingMode).toBe("vertical-rl");
+    expect(line?.style.height).toBe("84px");
+    expect(line?.style.width).toBe("");
+  });
+
+  test("keeps the activity line in the row on the top and bottom", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} dock="bottom" />,
+    );
+    expect(lineOf(container)?.style.width).toBe("120px");
+  });
+
+  test("hangs the drawing tools beside the column", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        annotating
+        annotationTool="freehand"
+        dock="left"
+        call={LISTENING_CALL}
+      />,
+    );
+    const strip = container.querySelector<HTMLElement>(
+      "[data-testid='companion-draw-tools']",
+    );
+    expect(strip?.classList).toContain("companion-draw-tools-right");
+    expect(strip?.classList).toContain("flex-col");
   });
 });
 
@@ -2209,5 +2428,203 @@ describe("the companion surface's Draw action", () => {
     rerender(surface(true));
     fireEvent.click(drawOf(container));
     expect(asked).toEqual([true, false]);
+  });
+});
+
+/**
+ * The strip of tools Draw opens: the pencil, a line, a box and a circle,
+ * standing off the control while the frame is taking the mouse. What a tool
+ * does is the frame's business; what this pins is that the strip is drawn
+ * exactly while there is a press for it to be about, says which tool is
+ * current, and hands a press on to the page.
+ */
+describe("the companion surface's drawing tools", () => {
+  const stripOf = (container: HTMLElement): HTMLDivElement | null =>
+    container.querySelector<HTMLDivElement>(
+      "[data-testid='companion-draw-tools']",
+    );
+  const toolOf = (container: HTMLElement, label: string): HTMLButtonElement => {
+    const found = stripOf(container)?.querySelector<HTMLButtonElement>(
+      `button[aria-label="${label}"]`,
+    );
+    if (!found) {
+      throw new Error(`Expected the ${label} tool to render`);
+    }
+    return found;
+  };
+
+  test("are absent while the frame is not taking the mouse", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" sharing call={LISTENING_CALL} />,
+    );
+    expect(stripOf(container)).toBeNull();
+  });
+
+  test("stand off the control while it is, with the current one held down", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        annotating
+        annotationTool="box"
+        call={LISTENING_CALL}
+      />,
+    );
+    const strip = stripOf(container);
+    expect(strip).not.toBeNull();
+    expect(
+      [...(strip?.querySelectorAll("button") ?? [])].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Freehand", "Line", "Box", "Circle"]);
+    expect(toolOf(container, "Box").getAttribute("aria-pressed")).toBe("true");
+    expect(toolOf(container, "Freehand").getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+  });
+
+  /**
+   * A shell that names no tool is one that predates the shapes and cannot
+   * take the choice: a strip drawn for it would show the pencil held down
+   * whatever was pressed.
+   */
+  test("are absent on a shell that names no tool", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        annotating
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(stripOf(container)).toBeNull();
+  });
+
+  test("a press on a tool hands it to the page", () => {
+    const chosen: string[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        annotating
+        annotationTool="freehand"
+        call={LISTENING_CALL}
+        onAnnotationTool={(tool) => {
+          chosen.push(tool);
+        }}
+      />,
+    );
+    fireEvent.click(toolOf(container, "Circle"));
+    fireEvent.click(toolOf(container, "Line"));
+    expect(chosen).toEqual(["circle", "line"]);
+  });
+
+  /**
+   * The canvas keeps only its own pad on the side the card does not grow
+   * on, so the strip goes where the card goes.
+   */
+  test("stand on the card side of the pill", () => {
+    const up = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        annotating
+        annotationTool="freehand"
+        cardGrowth="up"
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(stripOf(up.container)?.classList).toContain(
+      "companion-draw-tools-above",
+    );
+    up.unmount();
+    const down = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        annotating
+        annotationTool="freehand"
+        cardGrowth="down"
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(stripOf(down.container)?.classList).toContain(
+      "companion-draw-tools-below",
+    );
+  });
+
+  test("hand their element out for the host to hit-test", () => {
+    const handed: (HTMLDivElement | null)[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        annotating
+        annotationTool="freehand"
+        call={LISTENING_CALL}
+        drawToolsRef={(element) => {
+          handed.push(element);
+        }}
+      />,
+    );
+    expect(handed[0]).toBe(stripOf(container));
+  });
+});
+
+/**
+ * Clear, beside Draw: what is on the shared surface comes down and the share
+ * goes on. What is up there is the host's to say, since the marks are on a
+ * window this surface cannot see. What this pins is that the control is
+ * drawn exactly while the host says something is, and that a press leaves.
+ */
+describe("the companion surface's Clear action", () => {
+  const clearOf = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Clear marks"]',
+    );
+
+  test("is absent while nothing is on the shared surface", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" sharing call={LISTENING_CALL} />,
+    );
+    expect(clearOf(container)).toBeNull();
+  });
+
+  test("stands behind Draw once the host says something is up", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" sharing marked call={LISTENING_CALL} />,
+    );
+    const labels = [...container.querySelectorAll("button")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+    expect(labels.indexOf("Clear marks")).toBe(labels.indexOf("Draw") + 1);
+  });
+
+  test("is absent off a share, whatever the host says is up", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" marked call={LISTENING_CALL} />,
+    );
+    expect(clearOf(container)).toBeNull();
+  });
+
+  test("a press hands the clear to the page", () => {
+    let pressed = 0;
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        marked
+        call={LISTENING_CALL}
+        onClearMarks={() => {
+          pressed += 1;
+        }}
+      />,
+    );
+    const clear = clearOf(container);
+    if (clear === null) {
+      throw new Error("Expected Clear to render");
+    }
+    fireEvent.click(clear);
+    expect(pressed).toBe(1);
   });
 });

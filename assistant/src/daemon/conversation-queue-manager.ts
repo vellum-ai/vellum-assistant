@@ -47,6 +47,13 @@ export interface QueuedMessage {
   transport?: ConversationTransportMetadata;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
   displayContent?: string;
+  /**
+   * Firing's `cron_runs.id` captured at enqueue time. The drain runs after the
+   * enqueuing turn has ended, so the attribution has to travel with the
+   * message; without it a scheduled firing's queued continuation records its
+   * spend under a null `cron_run_id` and the schedule's cost is undercounted.
+   */
+  cronRunId?: string | null;
   /** Wall-clock time (ms since epoch) when the message was enqueued, used as the display timestamp. */
   sentAt: number;
   /** Client-generated correlation nonce. Echoed back on `user_message_echo`

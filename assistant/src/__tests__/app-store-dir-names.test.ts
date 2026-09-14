@@ -19,6 +19,7 @@ import {
   getAppDirPath,
   getAppsDir,
   resolveAppDir,
+  resolveAppSource,
   slugify,
   updateApp,
   validateDirName,
@@ -412,5 +413,32 @@ describe("guard: getAppsDir + appId path construction", () => {
     expect(existsSync(join(__dirname, "app-dir-path-guard.test.ts"))).toBe(
       true,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAppSource(): an id off the wire either resolves or does not
+// ---------------------------------------------------------------------------
+
+describe("resolveAppSource()", () => {
+  test("resolves a workspace app", () => {
+    const app = createApp(makeAppParams("Resolvable"));
+    const source = resolveAppSource(app.id);
+
+    expect(source).not.toBeNull();
+    expect(source!.dirName).toBe("resolvable");
+    expect(source!.origin).toEqual({ kind: "workspace" });
+  });
+
+  test("an unsafe id is unresolved rather than a throw", () => {
+    // `GET /pages/:appId` percent-decodes its path param, so these arrive
+    // from the wire. A caller reads them as "no such app", never as a fault.
+    for (const id of ["../foo", "..", "a/b", "a\\b", " untrimmed", "", "."]) {
+      expect(resolveAppSource(id)).toBeNull();
+    }
+  });
+
+  test("an id that is safe but unknown is unresolved too", () => {
+    expect(resolveAppSource("no-such-app")).toBeNull();
   });
 });

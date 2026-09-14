@@ -1,6 +1,7 @@
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../../util/logger.js";
+import { directDeliveryContext } from "../callback-routing.js";
 import type {
   CallbackContext,
   ChannelTransport,
@@ -9,6 +10,7 @@ import { isBusyActivityPhase } from "../channel-transport.js";
 import { openDiscordDmChannel } from "./api.js";
 import type { DiscordSendTarget } from "./send.js";
 import {
+  describeDiscordReactionEmoji,
   editDiscordMessage,
   sendDiscordAttachments,
   sendDiscordReaction,
@@ -50,6 +52,22 @@ async function sendTarget(
 export const discordTransport: ChannelTransport = {
   channel: "discord",
 
+  /**
+   * A chat is a channel id, with `threadId` naming the thread, which is its
+   * own channel. Reaching a person who has not been named as a chat would
+   * mean opening their DM first, a platform call this resolution does not
+   * make; the inbound `dm` param below is how an event-carried callback says
+   * its `chatId` is a recipient rather than a room.
+   */
+  addressFor(target) {
+    const threadId = target.threadId?.trim();
+    return {
+      ctx: directDeliveryContext("discord", threadId ? { threadId } : {}),
+      chatId: target.chatId,
+      ...(threadId ? { threadId } : {}),
+    };
+  },
+
   // Discord clears a typing indicator after ten seconds.
   activityRefreshMs: 8_000,
 
@@ -77,6 +95,8 @@ export const discordTransport: ChannelTransport = {
     return { ok: true };
   },
 
+  describeReactionEmoji: describeDiscordReactionEmoji,
+
   async react(target) {
     return sendDiscordReaction(
       target.threadId ?? target.chatId,
@@ -91,9 +111,11 @@ export const discordTransport: ChannelTransport = {
     const target = await sendTarget(ctx, chatId);
 
     let sentId: string | undefined;
+    let messageIds: string[] = [];
     if (text) {
       const result = await sendDiscordReply(target, text);
       sentId = result.lastMessageId;
+      messageIds = result.messageIds;
     } else if (approval) {
       // Approvals deliver as plain text, so the prompt is readable but not
       // clickable. Discord is not a guardian channel: approval prompts are
@@ -103,6 +125,7 @@ export const discordTransport: ChannelTransport = {
         approval.plainTextFallback || "Approval required",
       );
       sentId = result.lastMessageId;
+      messageIds = result.messageIds;
     }
 
     if (attachments && attachments.length > 0) {
@@ -119,6 +142,7 @@ export const discordTransport: ChannelTransport = {
       { channelId: target.channelId, hasText: !!text },
       "Discord reply delivered (direct)",
     );
-    return { ok: true, ts: sentId };
+    // Every chunk the text became is acknowledged; attachment posts are not.
+    return { ok: true, ts: sentId, messageIds };
   },
 };

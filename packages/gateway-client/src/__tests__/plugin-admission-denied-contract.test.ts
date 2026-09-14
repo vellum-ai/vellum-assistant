@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ACCESS_DENIED_NOT_APPROVED_REPLY,
   PLUGIN_ADMISSION_DENIED_NOTICE_PATH,
+  PLUGIN_NOTICES_ROUTE_PREFIX,
   PluginAdmissionDeniedNoticeSchema,
 } from "../plugin-admission-denied-contract.js";
 
@@ -16,6 +17,15 @@ describe("plugin admission-denied contract", () => {
   test("names the internal plugin notice path", () => {
     expect(PLUGIN_ADMISSION_DENIED_NOTICE_PATH).toBe(
       "notices/admission-denied",
+    );
+  });
+
+  test("the notice lives under the gateway-only notices prefix", () => {
+    // The runtime reserves this prefix for the gateway's service principal,
+    // so a notice posted anywhere else would be reachable by actor clients.
+    expect(PLUGIN_NOTICES_ROUTE_PREFIX).toBe("notices");
+    expect(PLUGIN_ADMISSION_DENIED_NOTICE_PATH).toStartWith(
+      `${PLUGIN_NOTICES_ROUTE_PREFIX}/`,
     );
   });
 

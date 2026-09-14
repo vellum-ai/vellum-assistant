@@ -1,0 +1,8 @@
+{
+  "name": "vellum-notifier",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "description": "Objective-C++ Node addon that posts macOS notifications through UNUserNotificationCenter with Communication Notification intents. Built by clients/macos/scripts/build-notifier.sh; never installed as a dependency.",
+  "gypfile": true
+}

@@ -35,6 +35,7 @@
     "closeRunDetail": "Close run detail",
     "goToNewest": "Go to newest",
     "inputLabel": "Input",
+    "modelLabel": "Model",
     "objective": "Objective",
     "outputLabel": "Output",
     "sendSteerAria": "Send steering instruction",
@@ -87,12 +88,36 @@
   "assistantContentDisclosure": {
     "earlierActivity": "Earlier activity"
   },
+  "assistantDesktop": {
+    "busy": "The desktop is in use by another viewer.",
+    "connecting": "Connecting to the desktop…",
+    "failed": "The desktop couldn't start.",
+    "lost": "The connection to the desktop was lost.",
+    "openAria": "Open desktop",
+    "reconnectButton": "Reconnect",
+    "title": "Desktop",
+    "unavailable": "The desktop isn't available on this assistant.",
+    "installButton": "Install desktop",
+    "installDescription": "Install Google Chrome and the components needed for your assistant’s desktop. This may take a few minutes.",
+    "checkingSetup": "Checking desktop setup…",
+    "installingPackages": "Installing desktop components…",
+    "installingChrome": "Installing Google Chrome…",
+    "checkingInstall": "Checking the installation…",
+    "installBackground": "Setup continues if you close this window.",
+    "installFailed": "Installation failed. Try again to finish setup.",
+    "setupRequestFailed": "Could not check desktop setup. Reconnect to try again.",
+    "setupUnsupported": "Desktop installation requires a Linux x64 or ARM64 container with administrator access."
+  },
   "assistantNavItem": {
     "newChat": "New Chat"
   },
   "assistantSection": {
     "emptyTitle": "Nothing on my mind yet.",
     "emptyBody": "I'm always thinking. When something's worth your time, I'll start a thread here."
+  },
+  "assistantSectionToggle": {
+    "hide": "Hide threads from {name}",
+    "show": "Show threads from {name}"
   },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
@@ -137,6 +162,8 @@
     "closePreviewAria": "Close preview",
     "downloadAria": "Download {filename}",
     "downloadLabel": "Download",
+    "legacyUnavailable": "Preview unavailable. The file content was not preserved in chat history.",
+    "loadFailed": "Failed to load preview.",
     "nextAttachmentAria": "Next attachment",
     "pdfLoadFailed": "Couldn't display this PDF",
     "previewAria": "Preview of {filename}",
@@ -377,8 +404,27 @@
   },
   "chatConversationHeader": {
     "archived": "[Archived]",
-    "newChat": "New Chat",
-    "untitled": "Untitled"
+    "newChat": "New Chat"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "Apps",
+    "backAria": "Back to chat info",
+    "backTooltip": "Chat info",
+    "closeAria": "Close chat info",
+    "empty": "No assets in this chat yet",
+    "filesTitle": "Documents & Images",
+    "framesTitle": "Camera Frames",
+    "loadFailed": "Assets could not be loaded",
+    "loadMore": "Load more",
+    "openAppAria": "Open {name}",
+    "openDocumentAria": "Open {name}",
+    "previewAttachmentAria": "Preview {filename}",
+    "previewFrameAria": "Preview camera frame",
+    "seeAll": "See All",
+    "seeAllAppsAria": "See all apps",
+    "seeAllFilesAria": "See all documents and images",
+    "seeAllFramesAria": "See all camera frames",
+    "title": "Chat Info"
   },
   "chatLayout": {
     "navigationAria": "Navigation"
@@ -441,6 +487,9 @@
     "timeoutTitle": "Cleanup is taking longer than expected",
     "title": "Cleaning up your assistant…",
     "warningAria": "warning"
+  },
+  "coachmarkPress": {
+    "turn": "I clicked {label}. Now what?"
   },
   "collapsedGroupIcon": {
     "noConversations": "No conversations"
@@ -617,12 +666,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Conversation assets, {count, plural, one {# item} other {# items}}",
+    "ariaLabelUnavailable": "Conversation assets, could not be loaded",
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
-    "heading": "Assets",
-    "label": "{count, plural, one {# asset} other {# assets}}"
-  },
-  "conversationRow": {
-    "untitled": "Untitled"
+    "label": "{count, plural, one {# asset} other {# assets}}",
+    "labelUnavailable": "Assets could not be loaded"
   },
   "conversationStarterDock": {
     "caption": "Try some suggestions:"
@@ -669,8 +716,7 @@
     "cancel": "Cancel",
     "confirm": "Delete",
     "message": "Delete “{title}”? This permanently removes the conversation and its messages. Related assets and memories may still persist. This cannot be undone.",
-    "title": "Delete conversation",
-    "untitled": "Untitled"
+    "title": "Delete conversation"
   },
   "deletedMessageRow": {
     "label": "This message was deleted"
@@ -1146,17 +1192,30 @@
     "bookmark": "Bookmark",
     "copied": "Copied",
     "copy": "Copy",
+    "copyFailed": "Couldn't copy the message.",
     "forkFromHere": "Fork from here",
     "inspect": "Inspect",
+    "loading": "Reading…",
     "openInSlack": "Open in Slack",
+    "playFailed": "Couldn't read this message.",
+    "readAloud": "Read aloud",
     "removeBookmark": "Remove bookmark",
     "retry": "Retry",
+    "stop": "Stop",
     "summarizeUpToHere": "Summarize up to here"
   },
   "messageLongPressActions": {
     "bookmark": "Bookmark",
     "copied": "Copied",
+    "copy": "Copy",
+    "copyFailed": "Couldn't copy the message.",
+    "forkFromHere": "Fork from here",
+    "inspect": "Inspect",
+    "openInSlack": "Open in Slack",
+    "readAloud": "Read aloud",
     "removeBookmark": "Remove bookmark",
+    "stop": "Stop",
+    "summarizeUpToHere": "Summarize up to here",
     "title": "Message actions"
   },
   "micPermissionPrimer": {
@@ -1328,7 +1387,8 @@
     "railAria": "Progress",
     "stepCounter": "{current} of {total}",
     "title": "Progress",
-    "titleFinished": "Finished"
+    "titleFinished": "Finished",
+    "titleStopped": "Stopped"
   },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."
@@ -1671,11 +1731,14 @@
     "settings": "Settings"
   },
   "toolDetailPanel": {
+    "changes": "Changes",
     "closeAria": "Close tool details",
+    "command": "Command",
     "denied": "This tool call was not approved, so it did not run.",
     "emptyOutput": "The tool returned no output.",
+    "input": "Input",
     "output": "Output",
-    "riskLevel": "Risk Level",
+    "requestedChanges": "Requested changes",
     "running": "Running…"
   },
   "toolStepPill": {
@@ -1690,7 +1753,8 @@
     "stopWorkflow": "Stop workflow"
   },
   "transcriptRow": {
-    "thinking": "Thinking"
+    "thinking": "Thinking",
+    "working": "Working"
   },
   "useConversationLoader": {
     "authFailed": "Failed to authenticate user."
@@ -1699,9 +1763,6 @@
     "assistantBusy": "Your assistant is busy. Try again when it finishes replying.",
     "retryFailed": "Couldn't retry the response",
     "summarizeFailed": "Couldn't summarize the conversation"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "Untitled"
   },
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",
@@ -1901,5 +1962,9 @@
     "failedReplacementRejected": "Vellum rejected the replacement credential. Log in to the Vellum platform, then try again.",
     "failedUnconfirmed": "The replacement was saved but could not be confirmed with Vellum. It may start working shortly.",
     "failedGeneric": "Could not restore access. Try again in a moment."
+  },
+  "sidebarExpandRow": {
+    "expand": "Expand",
+    "collapse": "Collapse"
   }
 }

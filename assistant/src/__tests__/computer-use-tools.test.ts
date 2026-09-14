@@ -104,7 +104,10 @@ describe("computer_use_click (unified)", () => {
   test("execute returns isError when no proxy resolver is configured", async () => {
     const result = await computerUseClickTool.execute({}, ctx);
     expect(result.isError).toBe(true);
-    expect(result.content).toMatch(/No proxy resolver/);
+    expect(result.content).toContain(
+      "The Vellum desktop app is needed to view or control your screen",
+    );
+    expect(result.content).toContain("https://www.vellum.ai/downloads");
   });
 });
 
@@ -119,7 +122,10 @@ describe("computer_use_type_text", () => {
   test("execute returns isError when no proxy resolver is configured", async () => {
     const result = await computerUseTypeTextTool.execute({}, ctx);
     expect(result.isError).toBe(true);
-    expect(result.content).toMatch(/No proxy resolver/);
+    expect(result.content).toContain(
+      "The Vellum desktop app is needed to view or control your screen",
+    );
+    expect(result.content).toContain("https://www.vellum.ai/downloads");
   });
 });
 
@@ -134,7 +140,10 @@ describe("computer_use_key", () => {
   test("execute returns isError when no proxy resolver is configured", async () => {
     const result = await computerUseKeyTool.execute({}, ctx);
     expect(result.isError).toBe(true);
-    expect(result.content).toMatch(/No proxy resolver/);
+    expect(result.content).toContain(
+      "The Vellum desktop app is needed to view or control your screen",
+    );
+    expect(result.content).toContain("https://www.vellum.ai/downloads");
   });
 });
 
@@ -241,8 +250,11 @@ describe("forwardComputerUseProxyTool", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("no proxy resolver available");
-    expect(result.content).toContain("computer_use_click");
+    expect(result.content).toContain(
+      "The Vellum desktop app is needed to view or control your screen",
+    );
+    expect(result.content).toContain("https://www.vellum.ai/downloads");
+    expect(result.content).not.toContain("computer_use_click");
   });
 
   test("delegates to proxy resolver when available", async () => {

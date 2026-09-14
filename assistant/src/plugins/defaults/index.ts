@@ -65,6 +65,7 @@ import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { typ
 import memoryConversationDeleted from "./memory/hooks/conversation-deleted.js";
 import memoryConversationsCleared from "./memory/hooks/conversations-cleared.js";
 import memoryInit from "./memory/hooks/init.js";
+import memoryMessageDeleted from "./memory/hooks/message-deleted.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
@@ -199,6 +200,7 @@ export const defaultMemoryPlugin: Plugin = {
     "post-compact": memoryPostCompact,
     "conversation-deleted": memoryConversationDeleted,
     "conversations-cleared": memoryConversationsCleared,
+    "message-deleted": memoryMessageDeleted,
   },
   injectors: memoryInjectors,
 };

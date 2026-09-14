@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<!-- Required on an appex: App Store Connect rejects the whole upload
+	     ("Missing Info.plist value ... CFBundleDisplayName") when an extension
+	     omits it, and the failure lands at the altool step long after the
+	     archive has built and signed. Distinct from CFBundleName below, which
+	     XcodeGen derives from the target name. -->
+	<key>CFBundleDisplayName</key>
+	<string>$(BUNDLE_DISPLAY_NAME)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.usernotifications.service</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).NotificationService</string>
+	</dict>
+	<!-- The App Group this appex shares with its containing app, so code here
+	     can open the shared container. The entitlement grants access but is not
+	     readable from Swift, so the identifier travels as this plain string,
+	     populated from the same $(APP_GROUP_ID) variable that fills the
+	     entitlement. -->
+	<key>VellumAppGroupId</key>
+	<string>$(APP_GROUP_ID)</string>
+</dict>
+</plist>

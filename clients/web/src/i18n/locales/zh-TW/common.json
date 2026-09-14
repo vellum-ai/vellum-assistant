@@ -1,7 +1,8 @@
 {
   "aboutPage": {
     "build": "建置",
-    "tagline": "您 Mac 的 AI 助理",
+    "taglineMacOS": "您 Mac 的 AI 助理",
+    "taglineWindows": "您 Windows PC 的 AI 助理",
     "version": "版本"
   },
   "activeAssistantGate": {
@@ -189,7 +190,13 @@
     "unmuteMicrophone": "解除麥克風靜音",
     "dictating": "正在聆聽",
     "dictatingTranscribing": "正在思考",
-    "draw": "繪製"
+    "draw": "繪製",
+    "clearMarks": "清除標記",
+    "drawTools": "繪圖工具",
+    "drawFreehand": "自由繪製",
+    "drawLine": "直線",
+    "drawBox": "方框",
+    "drawCircle": "圓形"
   },
   "companionWatchFramePage": {
     "sharingScreen": "正在分享你的螢幕",
@@ -205,6 +212,9 @@
     "copyFileContentsAria": "複製檔案內容",
     "downloadFileAria": "下載檔案",
     "editFileAria": "編輯檔案"
+  },
+  "conversationTitle": {
+    "untitled": "未命名"
   },
   "createAssistantDialog": {
     "cancel": "取消",
@@ -348,12 +358,15 @@
   "localNotification": {
     "goToConversation": "前往對話"
   },
-  "macosAppBanner": {
-    "ariaLabel": "下載 macOS 應用程式",
-    "ctaAriaLabel": "下載 macOS 應用程式",
+  "desktopAppBanner": {
+    "ariaLabelMacOS": "下載 macOS 應用程式",
+    "ariaLabelWindows": "下載 Windows 應用程式",
+    "ctaAriaLabelMacOS": "下載 macOS 應用程式",
+    "ctaAriaLabelWindows": "下載 Windows 應用程式",
     "ctaLabel": "下載",
     "subtitle": "電腦使用 · 終端機存取 · 原生自動化",
-    "title": "取得 macOS 應用程式"
+    "titleMacOS": "取得 macOS 應用程式",
+    "titleWindows": "取得 Windows 應用程式"
   },
   "nativeAppBanner": {
     "bannerAria": "下載 {appName} 應用程式",
@@ -433,6 +446,9 @@
     "title": "停用助理"
   },
   "rootHydrateFallback": {
+    "loadingAria": "正在載入"
+  },
+  "routePendingIndicator": {
     "loadingAria": "正在載入"
   },
   "rootLayout": {
@@ -583,6 +599,7 @@
     "reloadApp": "重新載入應用程式"
   },
   "statusBanner": {
+    "reconnecting": "正在重新連線至你的助理…",
     "dismiss": "關閉",
     "goToDoctor": "前往診斷",
     "resumeAssistant": "恢復助理",
@@ -709,22 +726,6 @@
     "light": "淺色",
     "system": "系統",
     "velvet": "絲絨"
-  },
-  "tipCard": {
-    "computerUseBodyLinux": "在這台電腦上，我可以處理檔案、終端機和瀏覽器。",
-    "computerUseBodyMacos": "在此 Mac 上，我可以為您控制應用程式和桌面。",
-    "computerUseBodyWindows": "在此電腦上，我可以為您控制應用程式和桌面。",
-    "computerUseTitleLinux": "讓我使用這台電腦",
-    "computerUseTitleMacos": "讓我使用您的 Mac",
-    "computerUseTitleWindows": "讓我使用您的電腦",
-    "dismiss": "關閉",
-    "nextTip": "下一個提示",
-    "pluginsBodyLinux": "從個人理財副駕駛到每日家庭簡報。",
-    "pluginsBodyMacos": "從個人理財副駕駛到常駐 MacBook 瀏海區域的模式。",
-    "pluginsBodyWindows": "從個人理財副駕駛到每日家庭簡報。",
-    "quickInputBody": "按下 {shortcut}，即可從任何應用程式向我傳送快速訊息。",
-    "quickInputBodyWithoutShortcut": "使用快速輸入，即可從任何應用程式向我傳送快速訊息。",
-    "previousTip": "上一個提示"
   },
   "ttsProviderForm": {
     "apiKey": "API 金鑰",
@@ -856,7 +857,9 @@
     "verificationFailed": "驗證失敗",
     "verifiedTitle": "DNS 記錄已驗證。您的網域已準備好傳送和接收電子郵件。",
     "verifyingDomain": "正在驗證網域…",
-    "verifyingTitle": "DNS 記錄已佈建。正在等待電子郵件提供者驗證它們 - 這通常需要幾分鐘。"
+    "verifyingTitle": "DNS 記錄已佈建。正在等待電子郵件提供者驗證它們 - 這通常需要幾分鐘。",
+    "setupRequired": "需要設定網域",
+    "setupRequiredTitle": "此網域尚未在電子郵件提供者完成佈建。在完成設定前，它無法傳送或接收電子郵件。"
   },
   "managedServicesBanner": {
     "body": "受管服務按用量計費，並從您的 Vellum 帳戶餘額中扣除。<link>檢視定價</link>"

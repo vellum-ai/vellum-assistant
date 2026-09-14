@@ -25,6 +25,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const isMobileRef = { value: false };
 const setTopBarCenterMock = mock((_node: unknown) => {});
+const setMobileTopBarMock = mock((_slot: unknown) => {});
 
 mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => isMobileRef.value,
@@ -35,12 +36,15 @@ mock.module("@/components/layout/chat-layout-slots-store", () => ({
   useChatLayoutSlotsStore: {
     use: {
       setTopBarCenter: () => setTopBarCenterMock,
+      setMobileTopBar: () => setMobileTopBarMock,
     },
   },
 }));
 
 const { IntelligenceLayout } =
   await import("@/domains/intelligence/intelligence-layout");
+const { useIntelligenceLayoutSlotsStore } =
+  await import("@/components/layout/intelligence-layout-slots-store");
 
 const renderLayoutAt = (path: string) =>
   render(
@@ -52,12 +56,14 @@ const renderLayoutAt = (path: string) =>
 beforeEach(() => {
   isMobileRef.value = false;
   setTopBarCenterMock.mockClear();
+  setMobileTopBarMock.mockClear();
   useAssistantIdentityStore.getState().setIdentity("Ada", null);
 });
 
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
+  useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
 });
 
 describe("IntelligenceLayout — section pages", () => {
@@ -106,6 +112,19 @@ describe("IntelligenceLayout — section pages", () => {
     );
   });
 
+  test("renders a registered header action on the heading row", () => {
+    useIntelligenceLayoutSlotsStore
+      .getState()
+      .setHeaderTrailing(<button type="button">Import</button>);
+    const { container } = renderLayoutAt("/assistant/library");
+
+    const heading = container.querySelector("h1")!;
+    const action = container.querySelector("button")!;
+    expect(action.textContent).toBe("Import");
+    // Same row as the title: the heading's own flex container holds it.
+    expect(heading.parentElement!.contains(action)).toBe(true);
+  });
+
   test("on mobile, registers the section label as the top-bar title", () => {
     isMobileRef.value = true;
     renderLayoutAt("/assistant/workspace");
@@ -118,9 +137,45 @@ describe("IntelligenceLayout — section pages", () => {
     );
   });
 
+  test("on mobile, Library registers one back, title, and action top bar", () => {
+    isMobileRef.value = true;
+    useIntelligenceLayoutSlotsStore
+      .getState()
+      .setHeaderTrailing(<button type="button">Import</button>);
+    const { container } = renderLayoutAt("/assistant/library");
+
+    const slot = setMobileTopBarMock.mock.calls.at(-1)?.[0] as
+      | {
+          leading: React.ReactNode;
+          center: React.ReactNode;
+          trailing: React.ReactNode;
+        }
+      | undefined;
+    expect(slot).toBeDefined();
+    expect(
+      renderToStaticMarkup(slot?.center as React.ReactElement),
+    ).toContain("Library");
+    expect(
+      renderToStaticMarkup(slot?.trailing as React.ReactElement),
+    ).toContain("Import");
+    expect(isValidElement(slot?.leading)).toBe(true);
+    expect(
+      (
+        slot?.leading as
+          | { props?: { className?: string } }
+          | null
+          | undefined
+      )?.props?.className,
+    ).toContain("rounded-full");
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
+    expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
+  });
+
   test("on desktop, clears the top-bar center", () => {
     renderLayoutAt("/assistant/contacts");
     expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);
+    expect(setMobileTopBarMock).toHaveBeenLastCalledWith(null);
   });
 
   /**

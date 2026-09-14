@@ -3,8 +3,15 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import type { ToolContext } from "../../../../tools/types.js";
+import { createAbortReason } from "../../../../util/abort-reasons.js";
 import { run as clearMarks } from "./screen-clear-marks.js";
 import { run as pointAt } from "./screen-point-at.js";
+
+function abortedSignal(): AbortSignal {
+  const controller = new AbortController();
+  controller.abort(createAbortReason("user_cancel", "screen-annotation.test"));
+  return controller.signal;
+}
 
 function recorder() {
   const calls: { toolName: string; input: Record<string, unknown> }[] = [];
@@ -46,7 +53,20 @@ describe("screen_point_at", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("connected desktop client");
+    expect(result.content).toContain(
+      "The Vellum desktop app is needed to view or control your screen",
+    );
+    expect(result.content).toContain("https://www.vellum.ai/downloads");
+  });
+
+  /** Drawing on the user's screen is a side effect a stopped turn must not have. */
+  test("a cancelled turn draws nothing", async () => {
+    const { calls, context } = recorder();
+
+    await expect(
+      pointAt({ marks: [MARK] }, { ...context, signal: abortedSignal() }),
+    ).rejects.toThrow();
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -72,6 +92,25 @@ describe("screen_clear_marks", () => {
       target_client_id: "client-9",
       marks: [],
     });
+  });
+
+  /**
+   * Teardown, so it runs on a cancelled turn. It shares a wire name with
+   * pointing, which the guard does stop, so the exemption is stated by the
+   * caller rather than read off the name.
+   */
+  test("a cancelled turn still takes the marks down", async () => {
+    const { calls, context } = recorder();
+
+    const result = await clearMarks({}, {
+      ...context,
+      signal: abortedSignal(),
+    } as ToolContext);
+
+    expect(result.isError).toBe(false);
+    expect(calls).toEqual([
+      { toolName: "computer_use_point_at", input: { marks: [] } },
+    ]);
   });
 });
 

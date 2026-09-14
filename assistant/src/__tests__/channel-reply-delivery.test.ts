@@ -217,10 +217,36 @@ mock.module("../persistence/attachments-store.js", () => ({
  */
 const renderedHistoryContentByContent = new Map<string, RenderedHistoryStub>();
 
+/**
+ * Metadata each render was handed, in call order. The projection that decides
+ * whether a row's plain text is working notes keys on the row's own
+ * `assistantTextVisibility` marker, so delivery has to forward the row's
+ * metadata rather than rendering it blind.
+ */
+const renderMetadataCalls: unknown[] = [];
+
 mock.module("../daemon/handlers/shared.js", () => ({
-  renderHistoryContent: (content: unknown) => {
-    if (typeof content === "string") {
-      const keyed = renderedHistoryContentByContent.get(content);
+  renderHistoryContent: (
+    content: unknown,
+    _attachmentBlocks?: unknown,
+    _messageId?: string,
+    metadata?: unknown,
+  ) => {
+    renderMetadataCalls.push(metadata);
+    // A row read through `getMessageById` carries its stored string; one read
+    // through `getMessages` has already been resolved to blocks. Key on the
+    // stored text either way, so a scan that walks the turn renders the same
+    // per-row stub as a targeted read of one of its rows.
+    const key =
+      typeof content === "string"
+        ? content
+        : Array.isArray(content) &&
+            content.length === 1 &&
+            (content[0] as { type?: string })?.type === "text"
+          ? (content[0] as { text?: string }).text
+          : undefined;
+    if (key !== undefined) {
+      const keyed = renderedHistoryContentByContent.get(key);
       if (keyed) {
         return keyed;
       }
@@ -233,6 +259,7 @@ const {
   deliverRenderedReplyViaCallback,
   deliverReplyViaCallback,
   findAssistantReplyMessageIdForTurn,
+  resolveTurnReplyMessageId,
 } = await import("../runtime/channel-reply-delivery.js");
 
 describe("channel-reply-delivery", () => {
@@ -249,6 +276,7 @@ describe("channel-reply-delivery", () => {
     onRecordOutboundPost = null;
     renderedHistoryContentQueue.length = 0;
     renderedHistoryContentByContent.clear();
+    renderMetadataCalls.length = 0;
     renderedHistoryContent = {
       text: "",
       textSegments: [],
@@ -300,6 +328,83 @@ describe("channel-reply-delivery", () => {
 
     expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
       "assistant-target",
+    );
+  });
+
+  it("resolves the reply row past a trailing row that renders empty", () => {
+    // The shape a tool-gated turn ends in: the reply is on the row carrying
+    // the `send_user_message` call, and the turn's LAST row is private wrap-up
+    // text that projects to nothing. The push preview and the attachment link
+    // both resolve through this helper so they land on the row with words.
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "target" },
+      { id: "assistant-reply", role: "assistant", content: "sent message" },
+      { id: "assistant-private", role: "assistant", content: "working notes" },
+    );
+    // The scan runs newest-first, so the private row renders first.
+    renderedHistoryContentQueue.push(
+      {
+        text: "",
+        textSegments: [],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: [],
+        surfaces: [],
+        thinkingSegments: ["working notes"],
+      },
+      {
+        text: "You have two meetings today.",
+        textSegments: ["You have two meetings today."],
+        toolCalls: [],
+        toolCallsBeforeText: false,
+        contentOrder: ["text:0"],
+        surfaces: [],
+        thinkingSegments: [],
+      },
+    );
+
+    expect(
+      resolveTurnReplyMessageId("conv-1", "user-target", "assistant-private"),
+    ).toBe("assistant-reply");
+  });
+
+  it("falls back to the caller's row when the turn has no resolvable reply", () => {
+    expect(resolveTurnReplyMessageId("conv-1", undefined, "assistant-x")).toBe(
+      "assistant-x",
+    );
+    expect(
+      resolveTurnReplyMessageId("conv-1", "missing-user", "assistant-x"),
+    ).toBe("assistant-x");
+  });
+
+  it("renders a candidate reply with the row's own visibility metadata", () => {
+    // A fallback turn marks its row `visible`, so its raw text has to render
+    // and deliver like any reply. Delivery cannot know that without handing
+    // the row's metadata to the renderer.
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "target" },
+      {
+        id: "assistant-fallback",
+        role: "assistant",
+        content: "raw reply",
+        metadata: JSON.stringify({ assistantTextVisibility: "visible" }),
+      },
+    );
+    renderedHistoryContentQueue.push({
+      text: "Two meetings today.",
+      textSegments: ["Two meetings today."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+
+    expect(findAssistantReplyMessageIdForTurn("conv-1", "user-target")).toBe(
+      "assistant-fallback",
+    );
+    expect(renderMetadataCalls).toContain(
+      JSON.stringify({ assistantTextVisibility: "visible" }),
     );
   });
 
@@ -1753,6 +1858,218 @@ describe("channel-reply-delivery", () => {
       expect(envelope.additionalMessageIds).toEqual(["1700001200.000200"]);
       expect(envelope.deletedMessageIds).toEqual(["1700001200.000100"]);
       expect(envelope.deletedAt).toBeUndefined();
+    });
+  });
+});
+
+/**
+ * A gated turn can speak more than once: a progress message before the tool
+ * work, the result after. Each lands on its own `"private"` row, and the
+ * durable scan resolves one row, so a transport with no surviving live stream
+ * (Telegram's draft evaporates; a transport without streaming has none at all)
+ * would receive only the last message even though the tool reported every one
+ * of them as delivered.
+ */
+describe("a gated turn that spoke more than once", () => {
+  // This block sits outside the shared `beforeEach` above, so it owns the
+  // reset of every array the mocks accumulate into.
+  beforeEach(() => {
+    deliveryCalls.length = 0;
+    conversationMessages.length = 0;
+    renderedHistoryContentQueue.length = 0;
+    renderedHistoryContentByContent.clear();
+    renderMetadataCalls.length = 0;
+    renderedHistoryContent = {
+      text: "",
+      textSegments: [],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: [],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+  });
+
+  const stub = (text: string): RenderedHistoryStub => ({
+    text,
+    textSegments: [text],
+    toolCalls: [],
+    toolCallsBeforeText: false,
+    contentOrder: ["text:0"],
+    surfaces: [],
+    thinkingSegments: [],
+  });
+  const PRIVATE = JSON.stringify({ assistantTextVisibility: "private" });
+
+  const seedTurn = (): void => {
+    renderedHistoryContentByContent.set("progress", stub("Looking now."));
+    renderedHistoryContentByContent.set("result", stub("Two meetings today."));
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "what's on today?" },
+      {
+        id: "assistant-progress",
+        role: "assistant",
+        content: "progress",
+        metadata: PRIVATE,
+      },
+      {
+        id: "assistant-result",
+        role: "assistant",
+        content: "result",
+        metadata: PRIVATE,
+      },
+    );
+  };
+
+  it("delivers every message of the turn, in the order it sent them", async () => {
+    seedTurn();
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-1",
+      "https://callback.example.com/reply",
+      undefined,
+      { messageId: "assistant-result", sinceMessageId: "user-target" },
+    );
+
+    // One posted message per segment, in order.
+    expect(deliveryCalls.map((c) => c.payload.text)).toEqual([
+      "Looking now.",
+      "Two meetings today.",
+    ]);
+  });
+
+  it("stops at the turn boundary, never quoting an older turn", async () => {
+    renderedHistoryContentByContent.set("older", stub("Yesterday's answer."));
+    conversationMessages.push(
+      { id: "user-older", role: "user", content: "older ask" },
+      {
+        id: "assistant-older",
+        role: "assistant",
+        content: "older",
+        metadata: PRIVATE,
+      },
+    );
+    seedTurn();
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-1",
+      "https://callback.example.com/reply",
+      undefined,
+      { messageId: "assistant-result", sinceMessageId: "user-target" },
+    );
+
+    expect(deliveryCalls.map((c) => c.payload.text)).toEqual([
+      "Looking now.",
+      "Two meetings today.",
+    ]);
+  });
+
+  it("leaves an ordinary turn's delivery exactly as it was", async () => {
+    // No private rows, so nothing is combined and the single row's own
+    // rendering is what goes out.
+    renderedHistoryContentByContent.set("plain", stub("Just the one reply."));
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "hi" },
+      { id: "assistant-plain", role: "assistant", content: "plain" },
+    );
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-1",
+      "https://callback.example.com/reply",
+      undefined,
+      { messageId: "assistant-plain", sinceMessageId: "user-target" },
+    );
+
+    expect(deliveryCalls.map((c) => c.payload.text)).toEqual([
+      "Just the one reply.",
+    ]);
+  });
+});
+
+/**
+ * The reconciliation half of the same contract.
+ *
+ * `channel-reply-session` reports how many segments its live stream already
+ * delivered; durable delivery resumes from that index. When the projection and
+ * the live path agree on boundaries, a fully streamed reply resumes past the
+ * end and posts nothing more.
+ */
+describe("resuming after a stream that delivered every segment", () => {
+  beforeEach(() => {
+    deliveryCalls.length = 0;
+    conversationMessages.length = 0;
+    renderedHistoryContentQueue.length = 0;
+    renderedHistoryContentByContent.clear();
+  });
+
+  it("posts nothing when the stream already carried the whole reply", () => {
+    // One segment rendered, one segment reported delivered: nothing is owed.
+    renderedHistoryContentByContent.set("two-calls", {
+      text: "Looking now.\n\nTwo meetings today.",
+      textSegments: ["Looking now.\n\nTwo meetings today."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "what's on today?" },
+      {
+        id: "assistant-two-calls",
+        role: "assistant",
+        content: "two-calls",
+        metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+      },
+    );
+
+    return deliverReplyViaCallback(
+      "conv-1",
+      "chat-1",
+      "https://callback.example.com/reply",
+      undefined,
+      {
+        messageId: "assistant-two-calls",
+        sinceMessageId: "user-target",
+        startFromSegment: 1,
+        messageTs: "1700000000.000100",
+      },
+    ).then(() => {
+      expect(deliveryCalls).toHaveLength(0);
+    });
+  });
+
+  it("still posts the tail when the stream stopped short", () => {
+    // Two segments rendered, one delivered: the second is genuinely owed.
+    renderedHistoryContentByContent.set("partial", {
+      text: "First. Second.",
+      textSegments: ["First.", "Second."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0", "text:1"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "hi" },
+      { id: "assistant-partial", role: "assistant", content: "partial" },
+    );
+
+    return deliverReplyViaCallback(
+      "conv-1",
+      "chat-1",
+      "https://callback.example.com/reply",
+      undefined,
+      {
+        messageId: "assistant-partial",
+        sinceMessageId: "user-target",
+        startFromSegment: 1,
+      },
+    ).then(() => {
+      expect(deliveryCalls.map((c) => c.payload.text)).toEqual(["Second."]);
     });
   });
 });

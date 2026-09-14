@@ -29,14 +29,12 @@ const { McpClient } = await import("../mcp/client.js");
 const { createMcpTool } = await import("../tools/mcp/mcp-tool-factory.js");
 const { RiskLevel } = await import("../permissions/types.js");
 
-type ServerRisk = "low" | "medium" | "high";
+type ServerSource = "workspace" | "plugin";
 
-function serverConfig(defaultRiskLevel: ServerRisk) {
+function serverConfig(source: ServerSource) {
   return {
     transport: { type: "stdio" as const, command: "echo", args: [] },
-    enabled: true,
-    defaultRiskLevel,
-    maxTools: 100,
+    source,
   };
 }
 
@@ -57,51 +55,44 @@ function toolWithAnnotations(annotations?: RiskAnnotations) {
 describe("MCP tool risk from annotations", () => {
   const fakeManager = { callTool: jest.fn() } as never;
 
-  function riskFor(server: ServerRisk, annotations?: RiskAnnotations) {
+  function riskFor(source: ServerSource, annotations?: RiskAnnotations) {
     return createMcpTool(
       toolWithAnnotations(annotations),
       "server",
-      serverConfig(server),
+      serverConfig(source),
       fakeManager,
     ).defaultRiskLevel;
   }
 
-  test("no annotations keeps the server level", () => {
-    expect(riskFor("low")).toBe(RiskLevel.Low);
-    expect(riskFor("medium")).toBe(RiskLevel.Medium);
-    expect(riskFor("high")).toBe(RiskLevel.High);
+  test("no annotations keeps the origin level", () => {
+    expect(riskFor("plugin")).toBe(RiskLevel.Low);
+    expect(riskFor("workspace")).toBe(RiskLevel.Medium);
   });
 
-  test("readOnlyHint steps down from the medium default", () => {
-    expect(riskFor("medium", { readOnlyHint: true })).toBe(RiskLevel.Low);
+  test("readOnlyHint steps down from the workspace medium default", () => {
+    expect(riskFor("workspace", { readOnlyHint: true })).toBe(RiskLevel.Low);
   });
 
-  test("readOnlyHint cannot lower a server the user pinned to high", () => {
-    expect(riskFor("high", { readOnlyHint: true })).toBe(RiskLevel.High);
-  });
-
-  test("readOnlyHint cannot step below low", () => {
-    expect(riskFor("low", { readOnlyHint: true })).toBe(RiskLevel.Low);
+  test("readOnlyHint cannot step below the plugin low default", () => {
+    expect(riskFor("plugin", { readOnlyHint: true })).toBe(RiskLevel.Low);
   });
 
   test("destructiveHint steps up one level", () => {
-    expect(riskFor("low", { destructiveHint: true })).toBe(RiskLevel.Medium);
-    expect(riskFor("medium", { destructiveHint: true })).toBe(RiskLevel.High);
-  });
-
-  test("destructiveHint cannot step above high", () => {
-    expect(riskFor("high", { destructiveHint: true })).toBe(RiskLevel.High);
+    expect(riskFor("plugin", { destructiveHint: true })).toBe(RiskLevel.Medium);
+    expect(riskFor("workspace", { destructiveHint: true })).toBe(
+      RiskLevel.High,
+    );
   });
 
   test("destructiveHint wins when a server sends both", () => {
     expect(
-      riskFor("medium", { readOnlyHint: true, destructiveHint: true }),
+      riskFor("workspace", { readOnlyHint: true, destructiveHint: true }),
     ).toBe(RiskLevel.High);
   });
 
-  test("hints set to false leave the server level alone", () => {
+  test("hints set to false leave the origin level alone", () => {
     expect(
-      riskFor("medium", { readOnlyHint: false, destructiveHint: false }),
+      riskFor("workspace", { readOnlyHint: false, destructiveHint: false }),
     ).toBe(RiskLevel.Medium);
   });
 });

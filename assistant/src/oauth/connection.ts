@@ -2,6 +2,16 @@ export interface OAuthConnectionRequest {
   method: string;
   path: string; // relative, e.g. "/2/tweets"
   query?: Record<string, string | string[]>;
+  /**
+   * Query string appended to the URL verbatim, leading `?` optional and the
+   * text already wire-encoded. For callers forwarding a query a provider signs,
+   * where rebuilding {@link OAuthConnectionRequest.query} would reorder
+   * interleaved repeated keys, rewrite `%20` as `+`, and give a valueless flag
+   * an `=`. An empty one falls through to `query`. Honored by BYO connections;
+   * a managed connection sends `query` to the platform proxy, which rebuilds
+   * it.
+   */
+  rawQuery?: string;
   headers?: Record<string, string>;
   /**
    * A string is forwarded to the provider verbatim under the caller's own
@@ -19,6 +29,45 @@ export interface OAuthConnectionRequest {
   baseUrl?: string;
   /** Optional abort signal to cancel the request. */
   signal?: AbortSignal;
+  /**
+   * When true the connection returns the response body as raw bytes with no
+   * JSON parsing, for callers that must preserve the provider's exact payload.
+   * Mirrors `RouteDefinition.rawRequestBody` on the inbound side.
+   */
+  rawResponseBody?: boolean;
+  /**
+   * When true the connection returns a 3xx response as-is, `Location` header
+   * intact, rather than following it. For callers that must surface the
+   * provider's own redirect instead of an upstream hop the caller never made.
+   */
+  manualRedirect?: boolean;
+  /**
+   * When true the connection makes exactly one upstream attempt and surfaces a
+   * retryable status to the caller instead of replaying the request. For
+   * callers forwarding writes they cannot safely repeat. Governs status-driven
+   * retries only: a BYO connection's refresh-and-retry follows a provider 401,
+   * which rejected the request before it took effect.
+   */
+  singleAttempt?: boolean;
+}
+
+/** Methods HTTP defines as idempotent, so replaying one is safe. */
+const IDEMPOTENT_METHODS = new Set([
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "PUT",
+  "DELETE",
+  "TRACE",
+]);
+
+/**
+ * Whether repeating this method is safe by HTTP semantics. Callers forwarding
+ * arbitrary traffic pair this with `singleAttempt` so POST and PATCH are never
+ * replayed on their behalf.
+ */
+export function isIdempotentHttpMethod(method: string): boolean {
+  return IDEMPOTENT_METHODS.has(method.toUpperCase());
 }
 
 export interface OAuthConnectionResponse {

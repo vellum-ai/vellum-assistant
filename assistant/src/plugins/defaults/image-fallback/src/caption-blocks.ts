@@ -27,9 +27,11 @@
  * image was auto-described to text, so the model treats the block as a derived
  * description rather than a verbatim transcript.
  *
- * Fail-open is the dominant error mode: a captioning failure leaves a
- * placeholder text block rather than the raw image (which a text-only provider
- * would reject) or nothing (which would lose information).
+ * Fail-open is the dominant error mode: a captioning failure or timeout
+ * leaves a placeholder text block rather than the raw image (which a
+ * text-only provider would reject) or nothing (which would lose information).
+ * A vision-request timeout uses a distinct placeholder so the model can tell
+ * the user to try a different vision-capable model.
  */
 
 import {
@@ -44,7 +46,30 @@ import {
 } from "@vellumai/plugin-api";
 
 import { persistImage } from "./image-persist.js";
-import { captionImage } from "./vision-caption.js";
+import {
+  captionImage,
+  type CaptionResult,
+  visionProfileLabel,
+} from "./vision-caption.js";
+
+/**
+ * Prompt text substituted for an image block after captioning. A timeout
+ * names the vision model that timed out so the turn can continue and the
+ * model can tell the user to try a different one.
+ */
+function captionPromptText(
+  result: CaptionResult,
+  visionProfileKey: string,
+): string {
+  if (result.status === "caption") {
+    return `[Image auto-described for text-only model: ${result.text}]`;
+  }
+  if (result.status === "timeout") {
+    const label = visionProfileLabel(visionProfileKey);
+    return `[Image: the vision model "${label}" timed out reading it. Consider using a different vision-capable model.]`;
+  }
+  return `[Image: auto-description failed (text-only model)]`;
+}
 
 /**
  * Whether the profile a turn runs needs image→text fallback (i.e. it can't
@@ -102,7 +127,7 @@ export async function captionImageBlocks(
     }
 
     if (visionProfileKey != null) {
-      const caption = await captionImage(
+      const result = await captionImage(
         image,
         conversationId,
         visionProfileKey,
@@ -110,10 +135,7 @@ export async function captionImageBlocks(
       );
       blocks[i] = {
         type: "text",
-        text:
-          caption != null
-            ? `[Image auto-described for text-only model: ${caption}]`
-            : `[Image: auto-description failed (text-only model)]`,
+        text: captionPromptText(result, visionProfileKey),
       };
     } else {
       // No vision profile configured at all: fail-open placeholder.

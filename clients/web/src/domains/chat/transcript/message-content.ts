@@ -17,6 +17,14 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
+import {
+  type AssistantTextVisibility,
+  isSendUserMessageCall,
+} from "@/domains/chat/utils/assistant-text-visibility";
+import {
+  isSilentToolCall,
+  isUiSurfaceToolCall,
+} from "@/domains/chat/utils/silent-tool-calls";
 import { isArtifactPointerSurface } from "@/domains/chat/transcript/response-artifacts";
 import {
   containsInlineThinkingTag,
@@ -72,6 +80,91 @@ export interface GroupContentBlocksOptions {
    * render verbatim.
    */
   splitInlineThinking?: boolean;
+  /**
+   * Drop `thinking` blocks instead of grouping them. Pass for a row whose
+   * prose is a scratchpad: its reasoning is the same working text the reply
+   * tool already spoke around, so a "Thinking" row over the delivered message
+   * shows the user their assistant talking to itself. Dropping the blocks
+   * here, rather than at each render site, keeps the inline view, the steps
+   * timeline, and the detail drawer reading one projection.
+   */
+  dropThinking?: boolean;
+  /**
+   * Drop bookkeeping and surface tool calls (see `isSilentToolCall`) instead of
+   * grouping them, the way a `send_user_message` call is dropped. Pass under
+   * the `send-user-message` flag, where the assistant's own filing away, a
+   * memory write landing after the answer, a skill body load, a follow-up it
+   * left for itself, is not a step of the work the user asked for. Dropping
+   * rather than suppressing later leaves the surrounding run open, so the tool
+   * calls either side merge as they would had the call never been made.
+   */
+  dropSilentTools?: boolean;
+}
+
+/**
+ * The grouping options a message row implies. One place decides both, so the
+ * render body, the live activity group, and the thinking drawer project the
+ * same row the same way.
+ *
+ * `hideThinkingUi` is the transcript-wide gate (see `useHideThinkingUi`); the
+ * row's own `private` marker says the same thing about this row alone. Either
+ * is enough to drop the reasoning. Only the transcript-wide gate drops the
+ * silent tools, so a transcript rendered with the flag off keeps every step it
+ * has always drawn.
+ */
+export function groupOptionsForMessage(
+  message: {
+    role?: string;
+    assistantTextVisibility?: AssistantTextVisibility;
+  },
+  hideThinkingUi = false,
+): GroupContentBlocksOptions {
+  return {
+    splitInlineThinking: message.role !== "user",
+    dropThinking:
+      hideThinkingUi || message.assistantTextVisibility === "private",
+    dropSilentTools: hideThinkingUi,
+  };
+}
+
+/**
+ * Whether a row shows reasoning the user can open. The inline thinking link
+ * owns the streaming loading state whenever it renders, so the standalone
+ * thinking-dots row reads this to know when to defer to it; a row whose
+ * reasoning the projection drops has no such link, and the dots keep the wait.
+ */
+export function hasRenderedThinking(
+  message: {
+    role?: string;
+    assistantTextVisibility?: AssistantTextVisibility;
+    thinkingSegments?: string[];
+    contentBlocks?: ConversationContentBlock[];
+  },
+  hideThinkingUi = false,
+): boolean {
+  if (groupOptionsForMessage(message, hideThinkingUi).dropThinking) {
+    return false;
+  }
+  return (
+    (message.thinkingSegments?.length ?? 0) > 0 ||
+    !!message.contentBlocks?.some((block) => block.type === "thinking")
+  );
+}
+
+/**
+ * Whether a row already shows a step stack: at least one tool call the
+ * projection renders as a step. Under `send-user-message` the step stack is
+ * the turn's one progress label, so the standalone thinking row reads this to
+ * stand down once a step exists. A bookkeeping call the projection drops does
+ * not count, and the flag-off path never asks.
+ */
+export function hasRenderedStepStack(message: {
+  toolCalls?: { name: string; pendingConfirmation?: unknown }[];
+}): boolean {
+  return !!message.toolCalls?.some(
+    (toolCall) =>
+      !isSendUserMessageCall(toolCall) && !isSilentToolCall(toolCall),
+  );
 }
 
 /**
@@ -137,6 +230,9 @@ export function groupContentBlocks(
 
   for (const block of walked) {
     if (block.type === "thinking") {
+      if (options?.dropThinking) {
+        continue;
+      }
       const activity = openActivity();
       const lastItem = activity.items[activity.items.length - 1];
       if (lastItem?.type === "thinking") {
@@ -167,6 +263,22 @@ export function groupContentBlocks(
       }
     } else if (block.type === "tool_use") {
       if (!hasToolCallId(block.toolCall)) {
+        continue;
+      }
+      // A `send_user_message` call is dropped rather than grouped, the way a
+      // pointer surface is: its message is already a text block beside it, and
+      // grouping it would open an activity run holding nothing renderable,
+      // which draws a shimmering "Thinking" row under the reply for the rest of
+      // a streaming turn and counts a step no card has anything to show.
+      // Leaving the open run open lets the tool calls either side of it merge
+      // into one run, the way they would had the call never been made.
+      if (isSendUserMessageCall(block.toolCall)) {
+        continue;
+      }
+      // Every other silent tool is dropped the same way, and for the same
+      // reason: it draws nothing, so grouping it only opens a run with nothing
+      // renderable in it and adds a step no card can show.
+      if (options?.dropSilentTools && isSilentToolCall(block.toolCall)) {
         continue;
       }
       openActivity().items.push({
@@ -291,17 +403,14 @@ export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
 }
 
 /**
- * UI surface tools are rendered by the inline surface widget, not as tool-call
- * chips — unless they carry a pending confirmation, in which case the chip must
- * render so the inline confirmation card is visible.
+ * Tool calls that draw no chip of their own. UI surface tools are rendered by
+ * the inline surface widget, unless they carry a pending confirmation, in
+ * which case the chip must render so the inline confirmation card is visible.
+ * `send_user_message` is rendered as the prose it carries, and has no
+ * confirmation policy, so it is suppressed unconditionally.
  */
 export function isSuppressedUiTool(tc: ChatMessageToolCall): boolean {
-  return (
-    !tc.pendingConfirmation &&
-    (tc.name === "ui_show" ||
-      tc.name === "ui_update" ||
-      tc.name === "ui_dismiss")
-  );
+  return isSendUserMessageCall(tc) || isUiSurfaceToolCall(tc);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getAcpSessionManager } from "../../acp/index.js";
+import type { AcpSessionState } from "../../acp/types.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -16,6 +17,40 @@ export const acpStatusInputSchema = z.looseObject({
   acp_session_id: nullAsOmitted(z.string()),
 });
 
+/**
+ * The session fields worth spending LLM context on. An allowlist rather than
+ * an omission: `availableModels` is a picker for the human surfaces (HTTP and
+ * SSE) that says nothing the agent can act on, and a field added to
+ * `AcpSessionState` for those surfaces should not reach this one by default.
+ * `model` stays: which model a session is running on is answerable.
+ */
+function projectSession(state: AcpSessionState) {
+  return {
+    id: state.id,
+    agentId: state.agentId,
+    acpSessionId: state.acpSessionId,
+    parentConversationId: state.parentConversationId,
+    status: state.status,
+    startedAt: state.startedAt,
+    completedAt: state.completedAt,
+    error: state.error,
+    stopReason: state.stopReason,
+    task: state.task,
+    parentToolUseId: state.parentToolUseId,
+    authErrorCode: state.authErrorCode,
+    authErrorCredential: state.authErrorCredential,
+    latestUsage: state.latestUsage,
+    model: state.model,
+  };
+}
+
+/** Projects either shape `getStatus` answers with. */
+function projectStatus(status: AcpSessionState | AcpSessionState[]): unknown {
+  return Array.isArray(status)
+    ? status.map(projectSession)
+    : projectSession(status);
+}
+
 export async function executeAcpStatus(
   input: Record<string, unknown>,
   _context: ToolContext,
@@ -29,9 +64,8 @@ export async function executeAcpStatus(
 
   try {
     if (acpSessionId) {
-      const state = manager.getStatus(acpSessionId);
       return {
-        content: JSON.stringify(state),
+        content: JSON.stringify(projectStatus(manager.getStatus(acpSessionId))),
         isError: false,
       };
     }
@@ -42,7 +76,10 @@ export async function executeAcpStatus(
       return { content: "No ACP sessions found.", isError: false };
     }
 
-    return { content: JSON.stringify(allStates), isError: false };
+    return {
+      content: JSON.stringify(projectStatus(allStates)),
+      isError: false,
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: msg, isError: true };

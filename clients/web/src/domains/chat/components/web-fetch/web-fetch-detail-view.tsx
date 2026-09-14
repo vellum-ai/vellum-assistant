@@ -19,6 +19,7 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { CodeBlock } from "@/components/detail-primitives";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { extractDomain } from "@/domains/chat/utils/web-search-result-text";
+import { readToolInputString } from "@/domains/chat/utils/tool-input";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { useTranslation } from "@/i18n";
 
@@ -156,8 +157,9 @@ export function WebFetchDetailView({
   // so a fetch that lands while the drawer is open reaches the user only if the
   // view reads what `ToolDetailBody` resolved.
   const body = typeof result === "string" ? result : "";
-  const fallbackUrl =
-    typeof detail.input?.url === "string" ? detail.input.url : undefined;
+  // `parseWebFetchResult` distinguishes an absent fallback from an empty one,
+  // so a blank url stays `undefined` rather than becoming "".
+  const fallbackUrl = readToolInputString(detail.input, "url") || undefined;
   const parsed = useMemo(
     () => parseWebFetchResult(body, fallbackUrl),
     [body, fallbackUrl],

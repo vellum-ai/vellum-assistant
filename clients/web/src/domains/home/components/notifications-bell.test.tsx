@@ -186,6 +186,44 @@ mock.module("@/hooks/conversation-queries", () => ({
   ) => conversationListResult("scheduled", enabled),
 }));
 
+/**
+ * The by-id existence check the detail uses for "Go to Conversation". Default
+ * is that any named conversation still exists, matching production: a
+ * scheduled run is reachable even when it is in none of the sidebar lists.
+ * `missing` is the 404 case; `isPending` is the in-flight case.
+ */
+const conversationLinkRef: {
+  missing: Set<string>;
+  isPending: boolean;
+} = {
+  missing: new Set(),
+  isPending: false,
+};
+
+const conversationLinkEnabledCalls: boolean[] = [];
+
+mock.module("@/domains/home/hooks/use-feed-item-conversation-link", () => ({
+  useFeedItemConversationLink: (
+    conversationId: string | null,
+    assistantId: string | null | undefined,
+    enabled: boolean,
+  ) => {
+    const canFetch =
+      enabled && Boolean(assistantId) && Boolean(conversationId);
+    conversationLinkEnabledCalls.push(canFetch);
+    if (!conversationId || !canFetch) {
+      return { conversationId: null, isPending: false };
+    }
+    if (conversationLinkRef.isPending) {
+      return { conversationId, isPending: true };
+    }
+    if (conversationLinkRef.missing.has(conversationId)) {
+      return { conversationId: null, isPending: false };
+    }
+    return { conversationId, isPending: false };
+  },
+}));
+
 function conversation(conversationId: string): Conversation {
   return { conversationId } as Conversation;
 }
@@ -451,6 +489,9 @@ beforeEach(() => {
   enabledCalls.foreground = [];
   enabledCalls.background = [];
   enabledCalls.scheduled = [];
+  conversationLinkRef.missing = new Set();
+  conversationLinkRef.isPending = false;
+  conversationLinkEnabledCalls.length = 0;
   schedulesRef.list = [];
   schedulesRef.isPending = false;
   schedulesRef.isError = false;
@@ -1218,7 +1259,6 @@ describe("NotificationsBell detail", () => {
 
   test("offers Go to Conversation when the item has a conversation", async () => {
     feedRef.items = [{ ...FIRST, conversationId: "conversation-1" }];
-    conversationListsRef.foreground = [conversation("conversation-1")];
 
     await openDetail("Watcher job failed");
     fireEvent.click(screen.getByRole("button", { name: "Go to Conversation" }));
@@ -1255,10 +1295,27 @@ describe("NotificationsBell detail", () => {
     ).toBeTruthy();
   });
 
+  test("offers Go to Conversation for a scheduled run that is not in the sidebar lists", async () => {
+    feedRef.items = [
+      {
+        ...FIRST,
+        conversationId: "scheduled-1",
+        metadata: { scheduleId: "schedule-1" },
+      },
+    ];
+    schedulesRef.list = [schedule("schedule-1")];
+
+    await openDetail("Watcher job failed");
+
+    expect(screen.getByRole("button", { name: "View schedule" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Go to Conversation" }),
+    ).toBeTruthy();
+  });
+
   test("omits the conversation footer when the conversation is gone", async () => {
     feedRef.items = [{ ...FIRST, conversationId: "deleted-1" }];
-    conversationListsRef.foreground = [conversation("other-1")];
-    conversationListsRef.scheduled = [conversation("other-2")];
+    conversationLinkRef.missing.add("deleted-1");
 
     await openDetail("Watcher job failed");
 
@@ -1267,9 +1324,9 @@ describe("NotificationsBell detail", () => {
     ).toBeNull();
   });
 
-  test("withholds Go to Conversation while the lists are still loading", async () => {
+  test("withholds Go to Conversation while the conversation read is still loading", async () => {
     feedRef.items = [{ ...FIRST, conversationId: "background-1" }];
-    conversationListsRef.isPending = true;
+    conversationLinkRef.isPending = true;
 
     await openDetail("Watcher job failed");
 
@@ -1434,7 +1491,7 @@ describe("NotificationsBell detail", () => {
         metadata: { scheduleId: "schedule-1" },
       },
     ];
-    conversationListsRef.isPending = true;
+    conversationLinkRef.isPending = true;
     schedulesRef.isPending = true;
 
     await openDetail("Watcher job failed");
@@ -1467,7 +1524,7 @@ describe("NotificationsBell detail", () => {
         metadata: { scheduleId: "schedule-1" },
       },
     ];
-    conversationListsRef.isPending = true;
+    conversationLinkRef.isPending = true;
     schedulesRef.isPending = true;
 
     const { rerender } = render(<NotificationsBell />);
@@ -1483,8 +1540,7 @@ describe("NotificationsBell detail", () => {
       "Go to Conversation",
     ]);
 
-    conversationListsRef.isPending = false;
-    conversationListsRef.foreground = [conversation("conversation-1")];
+    conversationLinkRef.isPending = false;
     schedulesRef.isPending = false;
     schedulesRef.list = [schedule("schedule-1")];
     rerender(<NotificationsBell />);
@@ -1514,7 +1570,7 @@ describe("NotificationsBell detail", () => {
         metadata: { scheduleId: "deleted-2" },
       },
     ];
-    conversationListsRef.foreground = [conversation("other-1")];
+    conversationLinkRef.missing.add("deleted-1");
     schedulesRef.list = [schedule("other-2")];
 
     await openDetail("Watcher job failed");
@@ -1605,14 +1661,17 @@ describe("NotificationsBell detail", () => {
     await openBell();
 
     // The list view names its threads off whatever the caches already hold
-    // and fetches nothing for it: each conversation list is a drain of its
-    // whole bucket, and the bell renders on every route. Schedule and skill
-    // ids matter only to a detail's links, so those lists stay untouched
-    // too.
+    // and fetches nothing for it. Conversation lists stay cache-only: the
+    // Go to Conversation link is a by-id read, not a drain of every bucket.
+    // Schedule and skill ids matter only to a detail's links, so those lists
+    // stay untouched too.
     expect(enabledCalls.foreground.length).toBeGreaterThan(0);
     expect(enabledCalls.foreground.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.background.some((enabled) => enabled)).toBe(false);
     expect(enabledCalls.scheduled.some((enabled) => enabled)).toBe(false);
+    expect(conversationLinkEnabledCalls.some((enabled) => enabled)).toBe(
+      false,
+    );
     expect(skillsEnabledCalls.length).toBeGreaterThan(0);
     expect(skillsEnabledCalls.some((enabled) => enabled)).toBe(false);
     // The recipe gate reads the same list, but only for an empty feed, and
@@ -1623,11 +1682,27 @@ describe("NotificationsBell detail", () => {
     fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
     await act(async () => {});
 
-    expect(enabledCalls.foreground.at(-1)).toBe(true);
-    expect(enabledCalls.background.at(-1)).toBe(true);
-    expect(enabledCalls.scheduled.at(-1)).toBe(true);
+    expect(enabledCalls.foreground.at(-1)).toBe(false);
+    expect(enabledCalls.background.at(-1)).toBe(false);
+    expect(enabledCalls.scheduled.at(-1)).toBe(false);
+    // This item names no conversation, so the by-id read stays off.
+    expect(conversationLinkEnabledCalls.at(-1)).toBe(false);
     expect(skillsEnabledCalls.at(-1)).toBe(true);
     expect(schedulesEnabledCalls.some((enabled) => enabled)).toBe(true);
+  });
+
+  test("reads the conversation by id once a detail that names one is open", async () => {
+    feedRef.items = [{ ...FIRST, conversationId: "scheduled-1" }];
+
+    await openBell();
+    expect(conversationLinkEnabledCalls.some((enabled) => enabled)).toBe(
+      false,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Watcher job failed" }));
+    await act(async () => {});
+
+    expect(conversationLinkEnabledCalls.at(-1)).toBe(true);
   });
 
   test("reopening the bell lands back on the list", async () => {

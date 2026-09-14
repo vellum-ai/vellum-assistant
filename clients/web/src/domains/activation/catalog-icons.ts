@@ -1,0 +1,132 @@
+/**
+ * Glyph for every `icon` name the activation catalog uses.
+ *
+ * Named imports rather than a namespace import of `lucide-react`: the bundler
+ * can only drop the icons nobody uses when each one is reached by name, and
+ * indexing the whole module would pull the entire icon set into the app.
+ *
+ * Kept out of `catalog.ts` so the data loader stays free of the icon library,
+ * the same split `components/prechat-task-icons.ts` makes. `catalog.test.ts`
+ * asserts this map covers every icon the catalog names and that each entry is
+ * the lucide export of the same name.
+ */
+
+import {
+  BarChart3,
+  BellRing,
+  BookOpen,
+  Boxes,
+  Brain,
+  Cake,
+  Calculator,
+  Calendar,
+  CalendarCheck,
+  CalendarClock,
+  CalendarDays,
+  ChefHat,
+  ClipboardList,
+  CloudSun,
+  Download,
+  Eye,
+  FileText,
+  Flame,
+  GitBranch,
+  GraduationCap,
+  Hash,
+  Image,
+  Inbox,
+  Laugh,
+  LayoutGrid,
+  ListChecks,
+  Mail,
+  MailOpen,
+  MailX,
+  Megaphone,
+  MessageCircle,
+  MessageCircleQuestion,
+  Mic,
+  MonitorSmartphone,
+  Newspaper,
+  NotebookPen,
+  PenLine,
+  PiggyBank,
+  Plane,
+  Receipt,
+  Reply,
+  Scale,
+  SearchCheck,
+  Share2,
+  ShoppingCart,
+  Sparkles,
+  SpellCheck,
+  Star,
+  Sunrise,
+  Telescope,
+  Users,
+  UtensilsCrossed,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
+
+/** Stand-in for a catalog entry whose icon name the map does not carry. */
+export const ACTIVATION_FALLBACK_ICON: LucideIcon = Sparkles;
+
+export const ACTIVATION_ICONS: Record<string, LucideIcon> = {
+  BarChart3,
+  BellRing,
+  BookOpen,
+  Boxes,
+  Brain,
+  Cake,
+  Calculator,
+  Calendar,
+  CalendarCheck,
+  CalendarClock,
+  CalendarDays,
+  ChefHat,
+  ClipboardList,
+  CloudSun,
+  Download,
+  Eye,
+  FileText,
+  Flame,
+  GitBranch,
+  GraduationCap,
+  Hash,
+  Image,
+  Inbox,
+  Laugh,
+  LayoutGrid,
+  ListChecks,
+  Mail,
+  MailOpen,
+  MailX,
+  Megaphone,
+  MessageCircle,
+  MessageCircleQuestion,
+  Mic,
+  MonitorSmartphone,
+  Newspaper,
+  NotebookPen,
+  PenLine,
+  PiggyBank,
+  Plane,
+  Receipt,
+  Reply,
+  Scale,
+  SearchCheck,
+  Share2,
+  ShoppingCart,
+  SpellCheck,
+  Star,
+  Sunrise,
+  Telescope,
+  Users,
+  UtensilsCrossed,
+  Wallet,
+};
+
+/** Glyph for an icon name, or `null` when the catalog names an unknown one. */
+export function resolveActivationIcon(name: string): LucideIcon | null {
+  return ACTIVATION_ICONS[name] ?? null;
+}

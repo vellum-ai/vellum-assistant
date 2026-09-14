@@ -2,9 +2,9 @@
  * Tests for `SubagentManager.spawnAndAwait` — the synchronous run primitive.
  *
  * Unlike fire-and-forget `spawn` (covered elsewhere), `spawnAndAwait` awaits
- * the child's run, resolves to its final assistant text, forwards streaming
- * deltas via `onText`, supports external abort via `signal`, and MUST NOT
- * trigger the terminal parent-injection that the fire-and-forget path uses.
+ * the child's run, resolves to its final assistant text, supports external
+ * abort via `signal`, and MUST NOT trigger the terminal parent-injection that
+ * the fire-and-forget path uses.
  *
  * The harness mocks `Conversation` + bootstrap + provider registry + config
  * (same pattern as subagent-call-site-routing.test.ts) so the manager runs
@@ -45,7 +45,35 @@ interface FakeConversationConfig {
    * captures partial trailing text.
    */
   onLoopStart?: () => void;
+  /**
+   * Text the run flushes as its trailing assistant message when it is aborted,
+   * modelling the real loop's final partial flush. Written when `abort()` is
+   * called, which is AFTER a budget stop raises the abort and before
+   * `runAgentLoop` finishes unwinding, so a notification sent from the stop
+   * itself cannot see it and one sent from the run's teardown can.
+   */
+  flushOnAbort?: string;
+  /**
+   * Usage the conversation accrues as the run unwinds, modelling the final LLM
+   * turn's accounting landing after a budget stop has already raised the abort.
+   * Applied inside `runAgentLoop`, so a manager that snapshots usage from the
+   * synchronous abort path sees the pre-settlement numbers instead.
+   */
+  settledUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+  };
+  /**
+   * How long the loop keeps unwinding after the abort is raised, modelling the
+   * real one's final flush. It is this window that lets a parent-wide stop land
+   * between a budget stop and the run's teardown.
+   */
+  unwindDelayMs?: number;
 }
+
+/** Ordered record of the flush and the parent injection, for the budget tests. */
+let teardownOrder: string[] = [];
 
 let nextConversationConfig: FakeConversationConfig = {};
 /** Set true when any FakeConversation's runAgentLoop is invoked. */
@@ -127,6 +155,11 @@ class FakeConversation {
     return { id: "msg-id", deduplicated: false };
   }
 
+  /** A busy child queues a follow-up; `sendMessage` reads `queued` off this. */
+  enqueueMessage() {
+    return { queued: true, rejected: false, requestId: "req-child" };
+  }
+
   async runAgentLoop() {
     runLoopInvoked = true;
     this.cfg.onLoopStart?.();
@@ -142,6 +175,13 @@ class FakeConversation {
           this.resolveAbort = resolve;
         });
       }
+      if (this.cfg.unwindDelayMs !== undefined) {
+        const delay = this.cfg.unwindDelayMs;
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      }
+      if (this.cfg.settledUsage) {
+        this.usageStats = { ...this.cfg.settledUsage };
+      }
       if (this.cfg.resolveOnAbort) {
         return;
       }
@@ -154,6 +194,15 @@ class FakeConversation {
 
   abort() {
     this.aborted = true;
+    if (this.cfg.flushOnAbort !== undefined) {
+      this.messages = [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: this.cfg.flushOnAbort }],
+        },
+      ];
+      teardownOrder.push("flush");
+    }
     this.resolveAbort?.();
   }
   dispose() {}
@@ -163,9 +212,54 @@ mock.module("../daemon/conversation.js", () => ({
   Conversation: FakeConversation,
 }));
 
+/** Durable rows the manager wrote, newest last. */
+const persistedRecords: {
+  id: string;
+  status: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+}[] = [];
+
+mock.module("../persistence/subagent-store.js", () => ({
+  upsertSubagentRecord: (record: {
+    id: string;
+    status: string;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+  }) => {
+    persistedRecords.push({
+      id: record.id,
+      status: record.status,
+      inputTokens: record.inputTokens,
+      outputTokens: record.outputTokens,
+      estimatedCost: record.estimatedCost,
+    });
+  },
+  deleteAllSubagentRecords: () => {},
+  deleteSubagentRecordsByParent: () => {},
+  loadRehydratableSubagentRecords: () => [],
+}));
+
+/** The last row written for `subagentId`, which is what a reader would find. */
+function lastPersisted(subagentId: string) {
+  return [...persistedRecords].reverse().find((r) => r.id === subagentId);
+}
+
+/**
+ * When set, `bootstrapConversation` awaits this before resolving. Lets a test
+ * hold spawn setup open and cancel the turn while it is in flight, which is the
+ * window `spawn`'s post-setup signal recheck exists to close.
+ */
+let bootstrapGate: Promise<void> | undefined;
+
 mock.module("../persistence/conversation-bootstrap.js", () => ({
-  bootstrapConversation: (opts: Record<string, unknown>) => {
+  bootstrapConversation: async (opts: Record<string, unknown>) => {
     lastBootstrapOptions = opts;
+    if (bootstrapGate) {
+      await bootstrapGate;
+    }
     return { id: `conv-${Math.random()}` };
   },
 }));
@@ -206,7 +300,11 @@ import {
   clearConversations,
   setConversation,
 } from "../daemon/conversation-registry.js";
-import { SubagentAbortedError, SubagentManager } from "../subagent/manager.js";
+import {
+  SubagentAbortedError,
+  SubagentManager,
+  SubagentSpawnCancelledError,
+} from "../subagent/manager.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 
 function makeConfig(overrides: Record<string, unknown> = {}) {
@@ -228,8 +326,20 @@ function broadcastStatuses(events: AssistantEvent[]): string[] {
 /** A fake parent conversation that records injected (enqueued) messages. */
 function registerFakeParent(parentConversationId: string): {
   enqueuedCount: () => number;
+  messages: () => string[];
+  /**
+   * What `hasActiveChildren` answered at each delivery. The real
+   * `Conversation.hasInFlightWork()` folds that in, and the notify path skips
+   * its stale-instance rebuild when it is true, so this is the value that
+   * decides whether a reloaded parent gets the continuation on a fresh
+   * instance. Wire it with `watchChildrenOf`.
+   */
+  inFlightAtDelivery: () => boolean[];
+  watchChildrenOf: (manager: SubagentManager) => void;
 } {
-  let enqueued = 0;
+  const enqueued: string[] = [];
+  const inFlight: boolean[] = [];
+  let watched: SubagentManager | undefined;
   setConversation(
     parentConversationId,
     asConversation({
@@ -237,13 +347,24 @@ function registerFakeParent(parentConversationId: string): {
       trustContext: undefined,
       getAuthContext: () => undefined,
       assistantId: undefined,
-      enqueueMessage: () => {
-        enqueued += 1;
+      enqueueMessage: (options: { content: string }) => {
+        enqueued.push(options.content);
+        if (watched) {
+          inFlight.push(watched.hasActiveChildren(parentConversationId));
+        }
+        teardownOrder.push("notify");
         return { rejected: false, queued: true, requestId: "req-fake" };
       },
     }),
   );
-  return { enqueuedCount: () => enqueued };
+  return {
+    enqueuedCount: () => enqueued.length,
+    messages: () => enqueued,
+    inFlightAtDelivery: () => inFlight,
+    watchChildrenOf: (manager: SubagentManager) => {
+      watched = manager;
+    },
+  };
 }
 
 describe("SubagentManager.spawnAndAwait", () => {
@@ -375,75 +496,6 @@ describe("SubagentManager.spawnAndAwait", () => {
 
     expect(parent.enqueuedCount()).toBe(0);
     clearConversations();
-  });
-
-  test("forwards streaming text/thinking deltas via onText", async () => {
-    nextConversationConfig = {
-      messages: [
-        { role: "assistant", content: [{ type: "text", text: "done" }] },
-      ],
-      emitDeltas: [
-        { type: "assistant_text_delta", text: "Hello " } as AssistantEvent,
-        {
-          type: "assistant_thinking_delta",
-          thinking: "(pondering) ",
-        } as AssistantEvent,
-        { type: "assistant_text_delta", text: "world" } as AssistantEvent,
-        // Non-delta events must not be forwarded to onText.
-        { type: "subagent_status_changed" } as AssistantEvent,
-      ],
-    };
-
-    const chunks: string[] = [];
-    const manager = new SubagentManager();
-    await manager.spawnAndAwait(makeConfig(), () => {}, {
-      onText: (chunk) => chunks.push(chunk),
-    });
-
-    expect(chunks).toEqual(["Hello ", "(pondering) ", "world"]);
-  });
-
-  test("reports tool activity via onProgress, which onText never sees", async () => {
-    // A subagent executing a tool streams no delta, so a caller bounding the
-    // run by an idle window has no signal from onText alone. onProgress is that
-    // signal, and it is a strict superset: text deltas count as progress too.
-    nextConversationConfig = {
-      messages: [
-        { role: "assistant", content: [{ type: "text", text: "done" }] },
-      ],
-      emitDeltas: [
-        { type: "assistant_text_delta", text: "Reading " } as AssistantEvent,
-        {
-          type: "tool_use_start",
-          toolName: "file_read",
-          input: { path: "a.ts" },
-        } as unknown as AssistantEvent,
-        {
-          type: "tool_output_chunk",
-          chunk: "export const a = 1;",
-        } as unknown as AssistantEvent,
-        {
-          type: "tool_result",
-          result: "export const a = 1;",
-        } as unknown as AssistantEvent,
-        // Lifecycle chatter is not progress.
-        { type: "subagent_status_changed" } as AssistantEvent,
-      ],
-    };
-
-    const chunks: string[] = [];
-    let progressCount = 0;
-    const manager = new SubagentManager();
-    await manager.spawnAndAwait(makeConfig(), () => {}, {
-      onText: (chunk) => chunks.push(chunk),
-      onProgress: () => {
-        progressCount++;
-      },
-    });
-
-    // One text delta plus three tool events; the status event is excluded.
-    expect(progressCount).toBe(4);
-    expect(chunks).toEqual(["Reading "]);
   });
 
   test("aborting the provided signal rejects the run", async () => {
@@ -598,8 +650,9 @@ describe("SubagentManager — first user message framing", () => {
       () => {},
     );
 
-    // The consult is a regular blocking spawn, so its user turn is the brief
-    // itself: the fork directive would fight the advisor system prompt.
+    // The consult's user turn is the brief itself: the fork directive would
+    // fight the advisor system prompt. Framing is shared by both entry points,
+    // so awaiting here exercises the same path the advisor's own spawn takes.
     expect(lastPersistedUserMessage).toBe("Please advise.");
     expect(lastPersistedUserMessage).not.toContain("FORK TASK");
   });
@@ -671,6 +724,524 @@ describe("SubagentManager.spawn (fire-and-forget) — unaffected", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(parent.enqueuedCount()).toBeGreaterThan(0);
+    clearConversations();
+  });
+});
+
+// ── Cancellation during spawn setup ─────────────────────────────────────────
+
+describe("SubagentManager.spawn cancellation", () => {
+  beforeEach(() => {
+    runLoopInvoked = false;
+    bootstrapGate = undefined;
+  });
+
+  test("an already-cancelled turn spawns nothing at all", async () => {
+    nextConversationConfig = {};
+    const controller = new AbortController();
+    controller.abort();
+
+    const manager = new SubagentManager();
+    await expect(
+      manager.spawn(makeConfig(), () => {}, { signal: controller.signal }),
+    ).rejects.toBeInstanceOf(SubagentSpawnCancelledError);
+
+    // Not merely "did not run": no conversation was bootstrapped either, so the
+    // stopped turn costs nothing.
+    expect(runLoopInvoked).toBe(false);
+  });
+
+  test("cancelling during setup leaves the child terminal and never runs it", async () => {
+    // The race this closes: setup is async, so `abortAllForParent` can sweep the
+    // parent while this child is not yet in the manager to be swept. Without the
+    // post-setup recheck the abandoned promise would launch a run afterwards.
+    clearConversations();
+    nextConversationConfig = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      ],
+    };
+    const controller = new AbortController();
+    let openGate: () => void = () => {};
+    bootstrapGate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+
+    const parentConversationId = "parent-cancelled-mid-setup";
+    const manager = new SubagentManager();
+    const spawning = manager.spawn(
+      makeConfig({ parentConversationId }),
+      () => {},
+      {
+        signal: controller.signal,
+      },
+    );
+
+    // Stop the turn while the child conversation is still being built, then let
+    // setup finish.
+    controller.abort();
+    openGate();
+    // The child is terminal before its loop can start, so the caller hears the
+    // cancellation rather than an id it would report as a pending subagent.
+    await expect(spawning).rejects.toBeInstanceOf(SubagentSpawnCancelledError);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const children = manager.getChildrenOf(parentConversationId);
+    expect(runLoopInvoked).toBe(false);
+    expect(children).toHaveLength(1);
+    expect(children[0]?.status).toBe("aborted");
+    clearConversations();
+  });
+
+  test("a live turn spawns normally", async () => {
+    // The guard must cost an uncancelled spawn nothing.
+    nextConversationConfig = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      ],
+    };
+    const controller = new AbortController();
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(makeConfig(), () => {}, {
+      signal: controller.signal,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(runLoopInvoked).toBe(true);
+    expect(manager.getState(subagentId)?.status).toBe("completed");
+  });
+});
+
+// ── Advisor follow-ups ──────────────────────────────────────────────────────
+
+describe("SubagentManager.sendMessage on an advisor", () => {
+  beforeEach(() => {
+    clearConversations();
+    bootstrapGate = undefined;
+  });
+
+  test("an advisor refuses a follow-up rather than running an unbudgeted turn", async () => {
+    // A queued follow-up drains after `runSubagent` has already settled the run
+    // and cleared the runtime timer, so it would run on the premium profile
+    // under neither the time nor the tool-call ceiling. The advisor is
+    // documented as one-shot, so the refusal is the consistent answer.
+    const cfg = makeConfig({ role: "advisor", maxToolCalls: 8 });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    // Mid-run, which is exactly when a follow-up would be queued.
+    expect(manager.getState(subagentId)?.status).toBe("running");
+
+    await expect(
+      manager.sendMessage(subagentId, "one more thing"),
+    ).resolves.toBe("one_shot");
+
+    // Nothing was queued, so no drained turn can escape the budget later.
+    expect(manager.getState(subagentId)?.status).toBe("running");
+    manager.abort(subagentId, () => {}, undefined, {
+      suppressNotification: true,
+    });
+    clearConversations();
+  });
+
+  test("other roles still take follow-ups", async () => {
+    // The refusal is the advisor's alone: delegated work is steerable mid-run,
+    // which is what subagent_message is for.
+    const cfg = makeConfig({ role: "researcher" });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+
+    await expect(
+      manager.sendMessage(subagentId, "also check the queue"),
+    ).resolves.not.toBe("one_shot");
+
+    manager.abort(subagentId, () => {}, undefined, {
+      suppressNotification: true,
+    });
+    clearConversations();
+  });
+});
+
+// ── Run budgets ─────────────────────────────────────────────────────────────
+
+describe("SubagentManager run budgets", () => {
+  /** One child tool call, as the agent loop emits it. */
+  function toolCallEvent(toolUseId: string): AssistantEvent {
+    return {
+      type: "tool_use_start",
+      toolName: "file_read",
+      toolUseId,
+    } as unknown as AssistantEvent;
+  }
+
+  beforeEach(() => {
+    clearConversations();
+    bootstrapGate = undefined;
+    teardownOrder = [];
+    persistedRecords.length = 0;
+  });
+
+  test("a budget stop persists the usage the run settled on", async () => {
+    // The stop aborts the child from a timer while `runAgentLoop` is still
+    // awaited, so the record written there carries the tokens spent so far.
+    // The final turn's accounting lands as the loop unwinds; without a second
+    // write the durable row keeps the pre-settlement numbers and the stopped
+    // child's cost is undercounted forever.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      waitForAbort: true,
+      settledUsage: {
+        inputTokens: 900,
+        outputTokens: 400,
+        estimatedCost: 0.42,
+      },
+    };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const row = lastPersisted(subagentId);
+    expect(row?.status).toBe("aborted");
+    expect(row).toMatchObject({
+      inputTokens: 900,
+      outputTokens: 400,
+      estimatedCost: 0.42,
+    });
+    // The in-memory state and the durable row agree, so a reader gets the
+    // same numbers either way.
+    expect(manager.getState(subagentId)?.usage).toEqual({
+      inputTokens: 900,
+      outputTokens: 400,
+      estimatedCost: 0.42,
+    });
+    clearConversations();
+  });
+
+  test("a budget stop sends the settled usage to the client too", async () => {
+    // The durable row is only half the story. The terminal event went out from
+    // inside the abort, carrying the same pre-settlement totals, so a client
+    // that never re-reads the record would keep showing them.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      waitForAbort: true,
+      settledUsage: {
+        inputTokens: 900,
+        outputTokens: 400,
+        estimatedCost: 0.42,
+      },
+    };
+
+    const statusEvents: {
+      status: string;
+      usage?: { inputTokens: number; outputTokens: number };
+    }[] = [];
+    const manager = new SubagentManager();
+    await manager.spawn(cfg, (msg) => {
+      if (msg.type === "subagent_status_changed") {
+        statusEvents.push(
+          msg as unknown as {
+            status: string;
+            usage?: { inputTokens: number; outputTokens: number };
+          },
+        );
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const aborted = statusEvents.filter((e) => e.status === "aborted");
+    // Two: the prompt one from the abort, then the settled one from teardown.
+    // The prompt one is what keeps the stop responsive, so it must still fire.
+    expect(aborted.length).toBe(2);
+    expect(aborted[aborted.length - 1].usage).toMatchObject({
+      inputTokens: 900,
+      outputTokens: 400,
+    });
+    clearConversations();
+  });
+
+  test("a parent stopped mid-run gets no deferred budget notification", async () => {
+    // The stop marks the child terminal, so the parent's abort sweep cannot
+    // suppress the notification the usual way: `abort` returns early on a
+    // terminal child. Without the sweep dropping it, the run's teardown injects
+    // into a conversation the user has just stopped.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    // The loop keeps unwinding after the budget stop raises its abort, which is
+    // the window the parent's stop has to land in.
+    nextConversationConfig = { waitForAbort: true, unwindDelayMs: 60 };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    // Let the budget timer mark the child aborted, with its loop still unwinding.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+
+    // The user presses Stop on the parent.
+    manager.abortAllForParent(cfg.parentConversationId, () => {}, {
+      userCancelled: true,
+    });
+
+    // Let the child's run finish unwinding and reach its teardown.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    expect(parent.messages().join("\n")).not.toContain("stopped at its budget");
+    clearConversations();
+  });
+
+  test("an evicted parent still gets its deferred budget notification", async () => {
+    // Eviction, stale rebuild, and config-reload teardown all sweep the same
+    // way, but none of them means the user stopped anything: the conversation
+    // id lives on and its next turn still wants to know its child hit a
+    // ceiling. Only a stop suppresses.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true, unwindDelayMs: 60 };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+
+    // The evictor's sweep: same call, no user cancel.
+    manager.abortAllForParent(cfg.parentConversationId, () => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    expect(parent.messages().join("\n")).toContain("stopped at its budget");
+    clearConversations();
+  });
+
+  test("a completing child is not in-flight work when it notifies its parent", async () => {
+    // The notify path rebuilds a stale idle parent so the continuation runs on
+    // the current provider, prompt, and credentials, and it skips that rebuild
+    // when the parent has in-flight work. `hasInFlightWork()` folds in this
+    // parent's active children, so a child still reading as in-flight at
+    // delivery would pin its own continuation to the instance a reload has
+    // already replaced.
+    const cfg = makeConfig();
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "done" }] },
+      ],
+    };
+
+    const manager = new SubagentManager();
+    parent.watchChildrenOf(manager);
+    await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(parent.enqueuedCount()).toBe(1);
+    expect(parent.inFlightAtDelivery()).toEqual([false]);
+    clearConversations();
+  });
+
+  test("a budget-stopped child is not in-flight work when its notice is delivered", async () => {
+    // The deferred notification runs from the teardown, where the marker that
+    // held the parent against eviction is still set unless delivery clears it.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true, unwindDelayMs: 40 };
+
+    const manager = new SubagentManager();
+    parent.watchChildrenOf(manager);
+    await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 140));
+
+    expect(parent.messages().join("\n")).toContain("stopped at its budget");
+    expect(parent.inFlightAtDelivery()).toEqual([false]);
+    clearConversations();
+  });
+
+  test("a budget-stopped child holds its parent against eviction until it unwinds", async () => {
+    // `hasActiveChildren` is what the evictor's `shouldProtect` reads. The
+    // budget stop makes the child terminal while its loop is still unwinding,
+    // and that teardown still injects into the parent and releases the child's
+    // conversation, so dropping protection there would let eviction race it.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true, unwindDelayMs: 60 };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    // Terminal by status, but the run has not finished unwinding.
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+    expect(manager.hasActiveChildren(cfg.parentConversationId)).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    // Teardown done: the parent is evictable again.
+    expect(manager.hasActiveChildren(cfg.parentConversationId)).toBe(false);
+    clearConversations();
+  });
+
+  test("a child that outlives maxRuntimeMs is stopped and the parent told", async () => {
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    // Runs until something aborts it, which here is the budget timer.
+    nextConversationConfig = { waitForAbort: true };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+    const injected = parent.messages().join("\n");
+    expect(injected).toContain("stopped at its budget");
+    expect(injected).toContain("time limit");
+    // Not the plain abort text: nobody cancelled this, and the output it did
+    // produce is worth reading.
+    expect(injected).not.toContain("cancelled on purpose");
+    expect(injected).toContain("subagent_read");
+    clearConversations();
+  });
+
+  test("a child that runs past maxToolCalls is stopped and the parent told", async () => {
+    const cfg = makeConfig({ maxToolCalls: 2 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      waitForAbort: true,
+      // The budget is spent in full first: the third call is the one past the
+      // ceiling of two, so both results inside the budget are kept.
+      emitDeltas: [
+        toolCallEvent("tool-1"),
+        toolCallEvent("tool-2"),
+        toolCallEvent("tool-3"),
+      ],
+    };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+    const injected = parent.messages().join("\n");
+    expect(injected).toContain("stopped at its budget");
+    expect(injected).toContain("full budget of 2 tool calls");
+    expect(injected).not.toContain("cancelled on purpose");
+    clearConversations();
+  });
+
+  test("the budget notification waits for the run's final flush", async () => {
+    // The stop is raised from a timer while `runAgentLoop` is still awaited, so
+    // sending the notification there would point the parent at a transcript
+    // that does not yet contain the guidance. The flush lands during teardown;
+    // the notification must come after it, and must carry what it wrote.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      waitForAbort: true,
+      flushOnAbort: "Lead with the data model.",
+    };
+
+    const manager = new SubagentManager();
+    await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(teardownOrder).toEqual(["flush", "notify"]);
+    // The inlined guidance is the proof the notification read the settled run:
+    // sent from the stop itself, this text does not exist yet.
+    const injected = parent.messages().join("\n");
+    expect(injected).toContain("Lead with the data model.");
+    expect(injected).toContain("stopped at its budget");
+    clearConversations();
+  });
+
+  test("a tool-cap stop reports the guidance the child had written", async () => {
+    // Same ordering on the other ceiling, which fires from the event tap rather
+    // than a timer.
+    const cfg = makeConfig({ maxToolCalls: 1 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      waitForAbort: true,
+      flushOnAbort: "Check the migration ordering first.",
+      emitDeltas: [toolCallEvent("tool-1"), toolCallEvent("tool-2")],
+    };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(teardownOrder).toEqual(["flush", "notify"]);
+    const injected = parent.messages().join("\n");
+    expect(injected).toContain("Check the migration ordering first.");
+    expect(injected).toContain("full budget of 1 tool calls");
+    // What a read after the notification would find is the same text, because
+    // the run had settled before the parent was told anything.
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+    clearConversations();
+  });
+
+  test("a stop with nothing written points at the read instead", async () => {
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true };
+
+    const manager = new SubagentManager();
+    await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const injected = parent.messages().join("\n");
+    expect(injected).toContain("before writing anything");
+    expect(injected).toContain("subagent_read");
+    clearConversations();
+  });
+
+  test("tool calls inside the ceiling leave the child running", async () => {
+    const cfg = makeConfig({ maxToolCalls: 3 });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "done" }] },
+      ],
+      emitDeltas: [
+        toolCallEvent("tool-1"),
+        toolCallEvent("tool-2"),
+        toolCallEvent("tool-3"),
+        // Non-tool traffic must not count against the ceiling.
+        { type: "assistant_text_delta", text: "thinking" } as AssistantEvent,
+      ],
+    };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(manager.getState(subagentId)?.status).toBe("completed");
+    clearConversations();
+  });
+
+  test("a child with no declared budget is bounded by neither", async () => {
+    // Delegated work whose length is the point must not inherit the advisor's
+    // ceilings, so an unbudgeted spawn runs to its own completion.
+    const cfg = makeConfig();
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "done" }] },
+      ],
+      emitDeltas: Array.from({ length: 30 }, (_, i) =>
+        toolCallEvent(`tool-${i}`),
+      ),
+    };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(manager.getState(subagentId)?.status).toBe("completed");
     clearConversations();
   });
 });

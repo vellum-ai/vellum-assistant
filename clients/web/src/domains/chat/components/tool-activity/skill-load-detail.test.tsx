@@ -91,6 +91,7 @@ function renderDetail(overrides: Partial<DetailProps> = {}) {
       streamedOutput={undefined}
       isRunning={false}
       isError={false}
+      isDenied={false}
       assistantId="assistant-1"
       {...overrides}
     />,

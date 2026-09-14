@@ -13,6 +13,7 @@
 
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
+import { isNarrowScopeProfile } from "./scopes.js";
 import type { AuthContext, PrincipalType, Scope } from "./types.js";
 
 const log = getLogger("route-policy");
@@ -72,8 +73,10 @@ export const LOCAL_PRINCIPALS: PrincipalType[] = ["local"];
  * Returns an error Response if the request should be denied, or null
  * if the request is allowed to proceed.
  *
- * When `policy` is null the route is explicitly unprotected (e.g.
- * health, debug) — always allowed.
+ * A route naming no scope (`policy` null, or empty `requiredScopes`) is
+ * unprotected (e.g. health, debug) for a broad profile, and closed to a
+ * narrow one. {@link isNarrowScopeProfile} classifies every profile, so a new
+ * one has to be classified there rather than compiling into either answer.
  *
  * When auth is bypassed (dev mode), the policy is still checked
  * against the synthetic context for type safety but always returns
@@ -84,13 +87,34 @@ export function enforcePolicy(
   policy: RoutePolicy | null,
   authCtx: AuthContext,
 ): Response | null {
-  if (!policy) {
-    // No policy declared — unprotected endpoint (e.g. health, debug)
+  // Dev bypass: log but allow everything through
+  if (isHttpAuthDisabled()) {
     return null;
   }
 
-  // Dev bypass: log but allow everything through
-  if (isHttpAuthDisabled()) {
+  // A single-route grant reaches only a route that names its scope, so an
+  // unprotected one refuses it rather than admitting any valid token.
+  if (
+    (policy?.requiredScopes.length ?? 0) === 0 &&
+    isNarrowScopeProfile(authCtx.scopeProfile)
+  ) {
+    log.warn(
+      { endpoint, scopeProfile: authCtx.scopeProfile },
+      "Route policy denied: grant is scoped to a single route",
+    );
+    return Response.json(
+      {
+        error: {
+          code: "FORBIDDEN",
+          message: "This grant is not permitted for this endpoint",
+        },
+      },
+      { status: 403 },
+    );
+  }
+
+  if (!policy) {
+    // An endpoint with no policy declared is unprotected (e.g. health, debug).
     return null;
   }
 

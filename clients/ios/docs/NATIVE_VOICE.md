@@ -814,7 +814,7 @@ agree character for character across the portal, the xcconfigs, and
 | `App/VoiceActivity/` | Widget extension: bundle, Live Activity, island views, Control Center controls |
 | `App/VoiceActivity/Widgets/` | The three Home Screen widgets, their shared snapshot timeline, and the widget palette; snapshot-driven and unrelated to voice apart from a shared voice button |
 | `App/App/Config/Extension*.xcconfig` | Extension build settings; bundle IDs, schemes, profile specifiers |
-| `App/project.yml` | Six targets, `VOICE_ACTIVITY_EXTENSION`, embed relationships |
+| `App/project.yml` | Thirteen targets, `VOICE_ACTIVITY_EXTENSION`, embed relationships |
 
 Web-side counterparts:
 

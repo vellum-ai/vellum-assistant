@@ -12,6 +12,9 @@
  *   turn, and a non-main-agent call site.
  * - The signal is scoped to the current response cycle — a surface left open in
  *   a prior cycle (before the last genuine user prompt) does not trigger it.
+ * - The `surface_id` correlation reads the tool result the real `ui_show` tool
+ *   produces, including the update hint it carries on a task_progress card, so
+ *   the producer and this consumer cannot drift apart unnoticed.
  * - The one-shot bound is split across the two hooks: `post-model-call` marks it
  *   (nudging at most once per run) and `stop` clears it so the next run nudges
  *   afresh.
@@ -36,6 +39,7 @@ import {
   resetSurfaceCompletionNudgeStoreForTests,
 } from "../plugins/defaults/surface-completion-nudge/nudge-state-store.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+import { uiShowTool } from "../tools/ui-surface/definitions.js";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -54,7 +58,11 @@ let surfaceCounter = 0;
  * An assistant `ui_show` turn paired with its `{ surfaceId }` tool result.
  * Returns both messages plus the assigned surface id.
  */
-function showSurface(input: Record<string, unknown>): {
+function showSurface(
+  input: Record<string, unknown>,
+  resultContent: (surfaceId: string) => string = (surfaceId) =>
+    JSON.stringify({ surfaceId }),
+): {
   messages: Message[];
   surfaceId: string;
 } {
@@ -74,12 +82,34 @@ function showSurface(input: Record<string, unknown>): {
           {
             type: "tool_result",
             tool_use_id: toolUseId,
-            content: JSON.stringify({ surfaceId }),
+            content: resultContent(surfaceId),
           },
         ],
       },
     ],
   };
+}
+
+/**
+ * The tool result the real `ui_show` tool hands the model for `input`, with
+ * the daemon's proxy answering `{ surfaceId }`. Exercises the same code path
+ * production history is written from, hint and all.
+ */
+async function realUiShowResult(
+  input: Record<string, unknown>,
+  surfaceId: string,
+): Promise<string> {
+  const result = await uiShowTool.execute(input, {
+    conversationId: "conv-scn",
+    workingDir: "/tmp",
+    trustClass: "guardian",
+    proxyToolResolver: async () => ({
+      content: JSON.stringify({ surfaceId }),
+      isError: false,
+    }),
+  });
+  expect(result.isError).toBe(false);
+  return result.content as string;
 }
 
 function updateSurface(
@@ -188,6 +218,26 @@ describe("surface-completion-nudge — nudges on a dangling progress surface", (
       text: SURFACE_COMPLETION_NUDGE_TEXT,
     });
     expect(isSurfaceCompletionNudged("conv-scn")).toBe(true);
+  });
+
+  test("task_progress card shown via the real ui_show tool result → continue with nudge", async () => {
+    const input = taskProgressShow("in_progress");
+    const shown = showSurface(input, () => "placeholder");
+    const content = await realUiShowResult(input, shown.surfaceId);
+    // The real result carries the ui_update hint alongside the id.
+    expect(content).toContain("ui_update");
+    const result = shown.messages[1].content[0];
+    if (result.type !== "tool_result") {
+      throw new Error("expected a tool_result block");
+    }
+    result.content = content;
+    const ctx = makeCtx({
+      messages: [userPrompt("do the thing"), ...shown.messages],
+    });
+
+    await postModelCall(ctx);
+
+    expect(ctx.decision).toBe("continue");
   });
 
   test("task_progress card shown with no explicit status → continue with nudge", async () => {

@@ -2,6 +2,7 @@
 <resources>
     <string name="new_chat_shortcut_label">New chat</string>
     <string name="new_chat_shortcut_long_label">Start a new chat</string>
+    <string name="notification_self_name">You</string>
     <string name="voice_notification_channel">Voice session</string>
     <string name="voice_notification_channel_description">Status for the voice session running in Vellum</string>
     <string name="voice_notification_title">Vellum Voice</string>

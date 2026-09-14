@@ -292,8 +292,21 @@ export interface LiveVoiceSessionStarter {
    * Put a typed turn to the running session. Returns whether it went out: a
    * session that is not up, or an assistant without typed turns, takes
    * nothing, and the caller keeps the words.
+   *
+   * `bargeIn` cuts the assistant off first if it is mid-reply, the way a
+   * person stops explaining a step once they see it done. `retryWhenBusy`
+   * keeps the turn if the assistant still refuses it and puts it again until
+   * it is taken or the user says something else. Both are for a turn the
+   * user did not type and cannot see refused: a click on a pointed-at control
+   * is one, and it usually lands while the step is still being said.
    */
-  sendText(text: string): boolean;
+  sendText(text: string, options?: LiveVoiceTypedTurnOptions): boolean;
+}
+
+/** How a typed turn is put to the session. See {@link LiveVoiceSessionStarter}. */
+export interface LiveVoiceTypedTurnOptions {
+  bargeIn?: boolean;
+  retryWhenBusy?: boolean;
 }
 
 /**

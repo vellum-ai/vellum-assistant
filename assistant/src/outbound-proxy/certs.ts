@@ -2,6 +2,8 @@ import { X509Certificate } from "node:crypto";
 import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { writeCombinedCABundle } from "../util/ca-bundle.js";
+
 const CA_CERT_FILENAME = "ca.pem";
 const CA_KEY_FILENAME = "ca-key.pem";
 const COMBINED_CA_FILENAME = "combined-ca-bundle.pem";
@@ -263,11 +265,7 @@ export async function ensureCombinedCABundle(
   }
 
   try {
-    const [systemCAs, proxyCACert] = await Promise.all([
-      readFile(systemBundlePath, "utf-8"),
-      readFile(caCertPath, "utf-8"),
-    ]);
-    await writeFile(combinedPath, systemCAs + "\n" + proxyCACert);
+    await writeCombinedCABundle(systemBundlePath, caCertPath, combinedPath);
     return combinedPath;
   } catch {
     return null;

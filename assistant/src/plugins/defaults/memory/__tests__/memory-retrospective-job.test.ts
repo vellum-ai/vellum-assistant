@@ -20,6 +20,7 @@ let mockState: StateRow = null;
 let stateUpserts: Array<{
   conversationId: string;
   lastProcessedMessageId: string;
+  lastProcessedCreatedAt?: number | null;
   lastRunAt: number;
   rememberedLog?: string[];
 }> = [];
@@ -149,6 +150,7 @@ mock.module("../memory-retrospective-state.js", () => ({
   upsertRetrospectiveState: (args: {
     conversationId: string;
     lastProcessedMessageId: string;
+    lastProcessedCreatedAt?: number | null;
     lastRunAt: number;
     rememberedLog?: string[];
   }) => {
@@ -332,15 +334,16 @@ mock.module("../../../../persistence/jobs-store.js", () => ({
   },
 }));
 
-// The v3-tier gate. Drives both `buildForkInstruction`'s skill-authoring
-// section (proc-to-skills) and the wake's origin pin behavior. Default inactive
-// (remember-only), matching a stock install; tests flip it on to assert the
-// authoring section.
-let mockV3TierActive = false;
+// Retrospective skill improvement is distinct from the v3 tier. Keep v3 live
+// while flipping the authoring gate so these tests prove the job reads the
+// dedicated predicate rather than using the broader tier predicate.
+let mockV3TierActive = true;
+let mockSkillImprovementActive = false;
 mock.module("../../../../config/memory-v3-gate.js", () => ({
   isMemoryEnabled: (config?: { memory?: { enabled?: boolean } }) =>
     config?.memory?.enabled !== false,
   isV3TierActive: () => mockV3TierActive,
+  isSkillImprovementActive: () => mockSkillImprovementActive,
   isMemoryV3Live: () => mockV3TierActive,
   usesConceptPageMemory: (memory?: {
     enabled?: boolean;
@@ -504,7 +507,8 @@ describe("memoryRetrospectiveJob", () => {
     processingStartedAtById = {};
     mockResolvedUserSlug = "alice";
     resolveUserSlugCalls = [];
-    mockV3TierActive = false;
+    mockV3TierActive = true;
+    mockSkillImprovementActive = false;
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -518,6 +522,11 @@ describe("memoryRetrospectiveJob", () => {
     }
     expect(stateUpserts).toHaveLength(1);
     expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    // The cutoff's `createdAt` rides along so the cursor keeps bounding reads
+    // after a regenerate deletes m3.
+    expect(stateUpserts[0]!.lastProcessedCreatedAt).toBe(
+      Date.parse("2026-05-11T10:10:00Z"),
+    );
     expect(lastRunAtBumps).toHaveLength(0);
     expect(wakeCalls).toHaveLength(1);
     // Forks off the source so future runs can find it via
@@ -1308,7 +1317,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("wake allows memory saves + skill authoring and suppresses the internal wake surface", async () => {
-    mockV3TierActive = true;
+    mockSkillImprovementActive = true;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(forkCalls).toHaveLength(1);
@@ -1331,8 +1340,9 @@ describe("memoryRetrospectiveJob", () => {
     expect(opts.hintRole).toBe("user");
   });
 
-  test("wake is remember-only when proc-to-skills is inactive", async () => {
-    mockV3TierActive = false;
+  test("wake is remember-only when skill improvement is disabled on a live v3 tier", async () => {
+    mockV3TierActive = true;
+    mockSkillImprovementActive = false;
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 
     expect(wakeCalls).toHaveLength(1);
@@ -2538,7 +2548,7 @@ describe("memoryRetrospectiveJob", () => {
   });
 
   test("proc-to-skills active: instruction carries the pre-check + dedup + companion-file directives", async () => {
-    mockV3TierActive = true;
+    mockSkillImprovementActive = true;
 
     await memoryRetrospectiveJob(makeJob(), stubConfig);
 

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   decodeJsonSafeOAuthBody,
   decodeOAuthResponseBytes,
+  isIdempotentHttpMethod,
   jsonSafeOAuthBody,
   materializeOAuthRequestOutput,
 } from "./connection.js";
@@ -37,10 +38,7 @@ describe("decodeOAuthResponseBytes", () => {
   });
 
   test("treats Google Drive media downloads as raw bytes", () => {
-    const body = decodeOAuthResponseBytes(
-      PNG_MAGIC,
-      "application/pdf",
-    );
+    const body = decodeOAuthResponseBytes(PNG_MAGIC, "application/pdf");
     expect(Buffer.from(body as Uint8Array).equals(PNG_MAGIC)).toBe(true);
   });
 
@@ -62,9 +60,9 @@ describe("jsonSafeOAuthBody", () => {
       body: PNG_MAGIC.toString("base64"),
       bodyEncoding: "base64",
     });
-    expect(Buffer.from(PNG_MAGIC.toString("base64"), "base64").equals(PNG_MAGIC)).toBe(
-      true,
-    );
+    expect(
+      Buffer.from(PNG_MAGIC.toString("base64"), "base64").equals(PNG_MAGIC),
+    ).toBe(true);
   });
 });
 
@@ -107,5 +105,23 @@ describe("materializeOAuthRequestOutput", () => {
 
   test("returns null for a missing body", () => {
     expect(materializeOAuthRequestOutput({ body: null })).toBeNull();
+  });
+});
+
+describe("isIdempotentHttpMethod", () => {
+  test("accepts the methods HTTP defines as idempotent", () => {
+    for (const method of ["GET", "HEAD", "PUT", "DELETE", "OPTIONS", "TRACE"]) {
+      expect(isIdempotentHttpMethod(method)).toBe(true);
+    }
+  });
+
+  test("rejects POST and PATCH", () => {
+    expect(isIdempotentHttpMethod("POST")).toBe(false);
+    expect(isIdempotentHttpMethod("PATCH")).toBe(false);
+  });
+
+  test("is case-insensitive", () => {
+    expect(isIdempotentHttpMethod("get")).toBe(true);
+    expect(isIdempotentHttpMethod("post")).toBe(false);
   });
 });

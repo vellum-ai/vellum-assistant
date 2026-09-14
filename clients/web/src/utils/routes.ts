@@ -151,6 +151,14 @@ export const routes = {
   personality: r("/assistant/personality"),
   memory: r("/assistant/memory"),
   /**
+   * The Inspiration List: every activation task of the active persona list,
+   * reached from the Preferences menu and from the checklist's celebration
+   * modal. A standalone page rather than an About Assistant section, so it
+   * carries no `ABOUT_ASSISTANT_SECTIONS` entry, inherits none of that
+   * drill-down chrome and takes no sidebar highlight.
+   */
+  activationList: r("/assistant/suggestions"),
+  /**
    * The My Superpowers surface — skills and plugins combined into one
    * list. The legacy `/assistant/skills` and `/assistant/plugins` list
    * URLs redirect here (query params preserved) so old bookmarks and

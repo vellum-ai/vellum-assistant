@@ -6,14 +6,22 @@
  *
  * The class opens a `fetch()` SSE stream, parses `data:` frames,
  * and forwards unwrapped event payloads to the caller via `onMessage`.
- * It handles reconnection with exponential backoff on unexpected closes.
+ * It handles reconnection with exponential backoff on unexpected closes
+ * and aborts a silently stalled stream (no events or heartbeat comments)
+ * via the idle watchdog.
  *
  * Client registration headers (`X-Vellum-Client-Id`,
  * `X-Vellum-Interface-Id`) are sent on every connect so the daemon's
  * ClientRegistry tracks this extension instance.
  */
 
-import { getClientRegistrationHeaders } from './client-identity.js';
+import {
+  createIdleWatchdog,
+  DEFAULT_SSE_IDLE_TIMEOUT_MS,
+  type IdleWatchdog,
+} from "./sse-idle-watchdog.js";
+
+import { getClientRegistrationHeaders } from "./client-identity.js";
 
 /** Reconnect backoff bounds for transient SSE disconnects. */
 const SSE_RECONNECT_BASE_MS = 1_000;
@@ -26,7 +34,7 @@ const SSE_RECONNECT_MAX_MS = 30_000;
  */
 export type SseMode =
   | {
-      kind: 'vellum-cloud';
+      kind: "vellum-cloud";
       runtimeUrl: string;
       assistantId: string;
       token: string | null;
@@ -34,7 +42,7 @@ export type SseMode =
       organizationId: string | null;
     }
   | {
-      kind: 'self-hosted';
+      kind: "self-hosted";
       /** Local gateway base URL, e.g. `http://127.0.0.1:7830`. */
       runtimeUrl: string;
       /**
@@ -63,6 +71,23 @@ export interface SseConnectionDeps {
    * If not provided, 404 is treated as a generic reconnectable error.
    */
   onNotFound?: () => void;
+  /**
+   * Invoked when the idle watchdog aborts a silently stalled stream
+   * (no events or heartbeat comments within the idle window). The
+   * connection still reconnects through the ordinary unexpected-close
+   * path; this hook is for logging.
+   */
+  onIdleTimeout?: () => void;
+  /**
+   * Idle window before a silent stall is aborted. Defaults to
+   * {@link DEFAULT_SSE_IDLE_TIMEOUT_MS}. Exposed for tests.
+   */
+  idleTimeoutMs?: number;
+  /**
+   * Initial reconnect backoff after an unexpected close. Defaults to
+   * 1s. Exposed for tests.
+   */
+  reconnectBaseDelayMs?: number;
 }
 
 /**
@@ -72,12 +97,24 @@ export class SseConnection {
   private deps: SseConnectionDeps;
   private abortController: AbortController | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectDelay = SSE_RECONNECT_BASE_MS;
+  private reconnectDelay: number;
+  private reconnectAttempt = 0;
   private closedByCaller = false;
+  private connectGeneration = 0;
   private _isOpen = false;
+  private readonly reconnectBaseMs: number;
+  private readonly watchdog: IdleWatchdog;
 
   constructor(deps: SseConnectionDeps) {
     this.deps = deps;
+    this.reconnectBaseMs = deps.reconnectBaseDelayMs ?? SSE_RECONNECT_BASE_MS;
+    this.reconnectDelay = this.reconnectBaseMs;
+    this.watchdog = createIdleWatchdog({
+      idleTimeoutMs: deps.idleTimeoutMs ?? DEFAULT_SSE_IDLE_TIMEOUT_MS,
+      onFire: () => {
+        this.deps.onIdleTimeout?.();
+      },
+    });
   }
 
   /** Is the SSE stream currently open and receiving events? */
@@ -93,7 +130,8 @@ export class SseConnection {
   /** Begin (or resume) connecting. */
   start(): void {
     this.closedByCaller = false;
-    this.reconnectDelay = SSE_RECONNECT_BASE_MS;
+    this.reconnectDelay = this.reconnectBaseMs;
+    this.reconnectAttempt = 0;
     void this.connect();
   }
 
@@ -103,7 +141,9 @@ export class SseConnection {
    */
   close(): void {
     this.closedByCaller = true;
+    this.connectGeneration += 1;
     this._isOpen = false;
+    this.watchdog.clear();
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -125,58 +165,89 @@ export class SseConnection {
 
   // ── Internals ─────────────────────────────────────────────────────
 
+  private isCurrentConnect(generation: number): boolean {
+    return !this.closedByCaller && generation === this.connectGeneration;
+  }
+
+  private handleUnexpectedClose(generation: number): void {
+    if (!this.isCurrentConnect(generation)) {
+      return;
+    }
+    this._isOpen = false;
+    this.watchdog.clear();
+    this.deps.onClose();
+    this.scheduleReconnect();
+  }
+
   private async connect(): Promise<void> {
-    if (this._isOpen || this.closedByCaller) return;
+    if (this._isOpen || this.closedByCaller) {
+      return;
+    }
+    const generation = ++this.connectGeneration;
 
     const { mode } = this.deps;
-    const baseUrl = mode.runtimeUrl.replace(/\/$/, '');
+    const baseUrl = mode.runtimeUrl.replace(/\/$/, "");
 
     // Self-hosted: the gateway proxies /v1/events using the pair token for auth.
     // Cloud: use the assistant-scoped path with the session token.
     const url =
-      mode.kind === 'self-hosted'
+      mode.kind === "self-hosted"
         ? `${baseUrl}/v1/events`
         : `${baseUrl}/v1/assistants/${encodeURIComponent(mode.assistantId)}/events`;
 
     const headers: Record<string, string> = {
-      Accept: 'text/event-stream',
+      Accept: "text/event-stream",
       ...(await getClientRegistrationHeaders()),
     };
-    if (mode.kind === 'vellum-cloud') {
+    if (!this.isCurrentConnect(generation)) {
+      return;
+    }
+    if (mode.kind === "vellum-cloud") {
       if (mode.token) {
-        headers['Authorization'] = `Bearer ${mode.token}`;
+        headers["Authorization"] = `Bearer ${mode.token}`;
       }
       if (mode.sessionToken) {
-        headers['X-Session-Token'] = mode.sessionToken;
+        headers["X-Session-Token"] = mode.sessionToken;
       }
       if (mode.organizationId) {
-        headers['Vellum-Organization-Id'] = mode.organizationId;
+        headers["Vellum-Organization-Id"] = mode.organizationId;
       }
-    } else if (mode.kind === 'self-hosted' && mode.token) {
-      headers['Authorization'] = `Bearer ${mode.token}`;
+    } else if (mode.kind === "self-hosted" && mode.token) {
+      headers["Authorization"] = `Bearer ${mode.token}`;
     }
 
     const ac = new AbortController();
+    if (this.abortController && this.abortController !== ac) {
+      this.abortController.abort();
+    }
     this.abortController = ac;
+    this.watchdog.resetCounters();
+    this.watchdog.clear();
 
     let response: Response;
     try {
       response = await fetch(url, {
         headers,
         signal: ac.signal,
-        credentials: 'include',
+        credentials: "include",
       });
     } catch {
-      if (this.closedByCaller || ac.signal.aborted) return;
-      this.deps.onClose();
-      this.scheduleReconnect();
+      this.handleUnexpectedClose(generation);
+      return;
+    }
+
+    if (!this.isCurrentConnect(generation)) {
       return;
     }
 
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
-        const body = await response.text().catch(() => '');
+        const body = await response.text().catch(() => "");
+        if (!this.isCurrentConnect(generation)) {
+          return;
+        }
         this._isOpen = false;
+        this.watchdog.clear();
         this.deps.onClose(
           body || `Authentication failed (${response.status}). Sign in again to reconnect.`,
         );
@@ -185,72 +256,99 @@ export class SseConnection {
       if (response.status === 404 && this.deps.onNotFound) {
         // The assistant no longer exists — stop reconnecting and let
         // the worker handle recovery (re-validate, switch, or show picker).
+        if (!this.isCurrentConnect(generation)) {
+          return;
+        }
         this._isOpen = false;
+        this.watchdog.clear();
         this.deps.onNotFound();
         return;
       }
       // Other errors: notify the worker so health state transitions
       // (e.g. connected → reconnecting), then schedule a retry.
-      this.deps.onClose();
-      this.scheduleReconnect();
+      this.handleUnexpectedClose(generation);
       return;
     }
 
     if (!response.body) {
-      this.deps.onClose();
-      this.scheduleReconnect();
+      this.handleUnexpectedClose(generation);
       return;
     }
 
     this._isOpen = true;
-    this.reconnectDelay = SSE_RECONNECT_BASE_MS;
+    this.reconnectDelay = this.reconnectBaseMs;
+    this.reconnectAttempt = 0;
     this.deps.onOpen();
+    this.watchdog.arm(ac, this.reconnectAttempt);
 
     // Read the SSE stream
     try {
-      await this.readStream(response.body);
+      await this.readStream(response.body, ac);
     } catch {
       // Stream ended or errored
     }
 
-    this._isOpen = false;
-    if (!this.closedByCaller) {
-      this.deps.onClose();
-      this.scheduleReconnect();
-    }
+    this.handleUnexpectedClose(generation);
   }
 
-  private async readStream(body: ReadableStream<Uint8Array>): Promise<void> {
+  private async readStream(
+    body: ReadableStream<Uint8Array>,
+    ac: AbortController,
+  ): Promise<void> {
     const decoder = new TextDecoder();
     const reader = body.getReader();
-    let buffer = '';
+    let buffer = "";
+
+    const cancelReader = () => {
+      void reader.cancel().catch(() => {});
+    };
+    ac.signal.addEventListener("abort", cancelReader);
 
     try {
       while (true) {
+        if (ac.signal.aborted || this.closedByCaller) {
+          break;
+        }
         const { done, value } = await reader.read();
-        if (done) break;
-        if (this.closedByCaller) break;
+        if (done) {
+          break;
+        }
+        if (this.closedByCaller) {
+          break;
+        }
 
         buffer += decoder.decode(value, { stream: true });
 
         let boundary: number;
-        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+        while ((boundary = buffer.indexOf("\n\n")) !== -1) {
           const frame = buffer.slice(0, boundary);
           buffer = buffer.slice(boundary + 2);
 
-          // Skip empty frames and heartbeat comments
-          if (!frame.trim() || frame.startsWith(':')) continue;
+          if (!frame.trim()) {
+            continue;
+          }
+
+          const isHeartbeat = frame.startsWith(":");
+          if (isHeartbeat) {
+            this.watchdog.recordTraffic(false);
+            this.watchdog.arm(ac, this.reconnectAttempt);
+            continue;
+          }
 
           const dataLines: string[] = [];
-          for (const line of frame.split('\n')) {
-            if (line.startsWith('data: ')) {
+          for (const line of frame.split("\n")) {
+            if (line.startsWith("data: ")) {
               dataLines.push(line.slice(6));
-            } else if (line === 'data') {
-              dataLines.push('');
+            } else if (line === "data") {
+              dataLines.push("");
             }
           }
-          if (dataLines.length === 0) continue;
-          const data = dataLines.join('\n');
+          if (dataLines.length === 0) {
+            continue;
+          }
+          this.watchdog.recordTraffic(true);
+          this.watchdog.arm(ac, this.reconnectAttempt);
+          const data = dataLines.join("\n");
 
           try {
             const parsed = JSON.parse(data);
@@ -261,12 +359,20 @@ export class SseConnection {
         }
       }
     } finally {
-      reader.releaseLock();
+      ac.signal.removeEventListener("abort", cancelReader);
+      try {
+        reader.releaseLock();
+      } catch {
+        // cancel() may already have released the lock
+      }
     }
   }
 
   private scheduleReconnect(): void {
-    if (this.closedByCaller || this.reconnectTimer !== null) return;
+    if (this.closedByCaller || this.reconnectTimer !== null) {
+      return;
+    }
+    this.reconnectAttempt += 1;
     const delay = this.reconnectDelay;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

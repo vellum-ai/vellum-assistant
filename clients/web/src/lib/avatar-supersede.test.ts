@@ -1,4 +1,11 @@
-import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import {
   AVATAR_SUPERSEDE_WINDOW_MS,
@@ -6,6 +13,15 @@ import {
   markAvatarSuperseded,
   resetAvatarSupersedeForTests,
 } from "./avatar-supersede";
+
+// Freeze the clock before the first mark, so every `Date.now()` below reads the
+// same instant. On the live clock a mark is stamped at the real time and the
+// `setSystemTime(Date.now() + …)` that follows adds the milliseconds spent
+// getting there on top of the window, which puts the mark outside it as soon as
+// the test takes 1 ms.
+beforeEach(() => {
+  setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+});
 
 afterEach(() => {
   setSystemTime();

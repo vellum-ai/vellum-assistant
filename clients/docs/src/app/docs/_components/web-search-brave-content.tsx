@@ -44,7 +44,7 @@ export function WebSearchBraveContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              A running Vellum assistant. Cloud, self-hosted, or the macOS desktop app all work.
+              A running Vellum assistant. Cloud, self-hosted, or the desktop apps all work.
             </li>
             <li>
               A Brave Search API key. Create one at{" "}

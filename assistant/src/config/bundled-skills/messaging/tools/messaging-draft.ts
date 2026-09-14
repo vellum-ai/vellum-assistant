@@ -3,6 +3,7 @@ import {
   deleteDraft,
   listDrafts,
 } from "../../../../messaging/draft-store.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -11,7 +12,7 @@ import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const action = input.action as string;
 
@@ -31,6 +32,7 @@ export async function run(
         return err("text is required for creating a draft.");
       }
 
+      throwIfCancelled(context);
       const draft = createDraft({
         platform,
         conversationId,
@@ -62,6 +64,7 @@ export async function run(
       if (!platform) {
         return err("platform is required for deleting a draft.");
       }
+      throwIfCancelled(context);
       const deleted = deleteDraft(platform, draftId);
       if (!deleted) {
         return err("Draft not found.");

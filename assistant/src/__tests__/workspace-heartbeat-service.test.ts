@@ -23,10 +23,15 @@ import type {
 import {
   _getConsecutiveFailures,
   _resetGitServiceRegistry,
+  getWorkspaceGitService,
   WorkspaceGitService,
 } from "../workspace/git-service.js";
 import {
+  _resetHeartbeatServiceForTests,
   _resetHeartbeatState,
+  commitAllPendingWorkspaceChanges,
+  startWorkspaceHeartbeatService,
+  stopWorkspaceHeartbeatService,
   WorkspaceHeartbeatService,
 } from "../workspace/heartbeat-service.js";
 
@@ -568,6 +573,42 @@ describe("WorkspaceHeartbeatService", () => {
       expect(capturedCtx!.trigger).toBe("shutdown");
       expect(capturedCtx!.workspaceDir).toBe(testDir);
       expect(capturedCtx!.changedFiles).toContain("shutdown-file.txt");
+    });
+  });
+
+  describe("process singleton", () => {
+    afterEach(async () => {
+      await _resetHeartbeatServiceForTests();
+    });
+
+    test("stopWorkspaceHeartbeatService is a no-op when never started", async () => {
+      await _resetHeartbeatServiceForTests();
+      await stopWorkspaceHeartbeatService();
+    });
+
+    test("startWorkspaceHeartbeatService is idempotent", async () => {
+      await _resetHeartbeatServiceForTests();
+      startWorkspaceHeartbeatService();
+      startWorkspaceHeartbeatService();
+      await stopWorkspaceHeartbeatService();
+    });
+
+    test("commitAllPendingWorkspaceChanges constructs on demand", async () => {
+      await _resetHeartbeatServiceForTests();
+      _resetGitServiceRegistry();
+      const registered = getWorkspaceGitService(testDir);
+      await registered.ensureInitialized();
+      writeFileSync(join(testDir, "shutdown-on-demand.txt"), "pending");
+
+      await commitAllPendingWorkspaceChanges();
+
+      const commitMsg = execFileSync("git", ["log", "-1", "--pretty=%B"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(commitMsg).toContain("auto-commit");
+      expect(commitMsg).toContain("shutdown");
+      expect(commitMsg).toContain("safety net");
     });
   });
 });

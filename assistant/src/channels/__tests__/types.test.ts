@@ -4,6 +4,7 @@ import {
   CLIENT_OS_VALUES,
   INTERACTIVE_INTERFACES,
   INTERFACE_IDS,
+  type InterfaceId,
   isInterfaceId,
   parseClientOs,
   parseInterfaceId,
@@ -90,6 +91,22 @@ describe("parseInterfaceId", () => {
 });
 
 describe("supportsHostProxy", () => {
+  // The capability table is a plain object, so an id that names something on
+  // Object.prototype must not resolve to the inherited member. Lookups use
+  // Object.hasOwn; with `in` these return a function and the caller throws.
+  test("object prototype keys are not interfaces", () => {
+    for (const id of [
+      "toString",
+      "constructor",
+      "valueOf",
+      "hasOwnProperty",
+      "isPrototypeOf",
+    ] as unknown as InterfaceId[]) {
+      expect(supportsHostProxy(id)).toBe(false);
+      expect(supportsHostProxy(id, "host_bash")).toBe(false);
+    }
+  });
+
   // ── macOS: supports all four host proxy capabilities. ──
   test("macos returns true (no capability)", () => {
     expect(supportsHostProxy("macos")).toBe(true);

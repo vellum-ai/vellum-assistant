@@ -176,6 +176,12 @@ export function SkillsReferenceScheduleContent() {
               and delivered it nowhere, the assistant sends you its final reply as a notification,
               so a scheduled run never finishes silently in a conversation you don&apos;t have open.
             </li>
+            <li>
+              <strong>In-app links in Vellum chat.</strong> In Vellum chat, schedule and
+              conversation names the assistant mentions are links to their details. Those
+              links work in the Vellum app only, not in Slack, Telegram, Discord, email, or
+              notifications.
+            </li>
           </ul>
         </section>
       </DocsContent>

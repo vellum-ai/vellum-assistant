@@ -1,0 +1,45 @@
+{
+  "welcome": {
+    "title": "Welcome!",
+    "subtitle": "Try out some hand picked tasks to help you discover the full capabilities of your assistant.",
+    "showFullList": "See the full list",
+    "later": "Do it Later"
+  },
+  "celebration": {
+    "title": "You did it!",
+    "subtitle": "Three tasks down. The full list is here whenever you want more."
+  },
+  "row": {
+    "customLabel": "Custom:",
+    "writeYourOwn": "Write your own",
+    "customPlaceholder": "Type whatever you want",
+    "working": "Working",
+    "open": "Open",
+    "done": "Done",
+    "steps": "{count, plural, one {# step} other {# steps}}",
+    "send": "Send",
+    "openTask": "Open {title}"
+  },
+  "pill": {
+    "label": "Suggestions",
+    "progress": "{done} of {total}",
+    "aria": "Suggestions, {done} of {total} done"
+  },
+  "menu": {
+    "inspirationList": "Inspiration List"
+  },
+  "launch": {
+    "noAssistant": "No assistant is connected right now.",
+    "unknownTask": "That task is no longer available.",
+    "failed": "Could not start the task. Please try again.",
+    "running": "Running in the sidebar",
+    "openConversation": "Open conversation"
+  },
+  "page": {
+    "title": "Get started",
+    "loading": "Loading suggestions"
+  },
+  "catalog": {
+    "assistantFallback": "your assistant"
+  }
+}

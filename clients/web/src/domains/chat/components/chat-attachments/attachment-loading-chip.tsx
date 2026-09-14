@@ -3,7 +3,7 @@ import type { FC, MouseEventHandler } from "react";
 
 import { Button } from "@vellumai/design-library";
 
-import { middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
+import { middleTruncate } from "@/utils/attachment-utils";
 import { useTranslation } from "@/i18n";
 
 interface AttachmentLoadingChipProps {

@@ -1,5 +1,3 @@
-
-import { useTranslation } from "@/i18n";
 /**
  * Side-drawer panel listing every attachment on one transcript message.
  * Opened by the overflow tile on a truncated attachment strip (see
@@ -15,11 +13,14 @@ import { useTranslation } from "@/i18n";
 
 import { Paperclip } from "lucide-react";
 
-import { Typography } from "@vellumai/design-library";
-
-import { DetailShell } from "@/components/detail-shell";
+import {
+  DetailShell,
+  DetailShellNotice,
+  DetailShellTitleWithCount,
+} from "@/components/detail-shell";
 import { useAttachmentSquares } from "@/domains/chat/components/chat-attachments/use-attachment-squares";
 import { useLiveMessageAttachments } from "@/domains/chat/hooks/use-live-message-attachments";
+import { useTranslation } from "@/i18n";
 import type { MessageFilesPayload } from "@/stores/viewer-store";
 
 interface MessageFilesPanelProps {
@@ -43,38 +44,17 @@ export function MessageFilesPanel({
   return (
     <DetailShell
       Glyph={Paperclip}
-      // Matches the activity-steps panel header: title · N inline at the same
-      // size, separated by a 3px midline dot, count in the secondary tone.
       titleNode={
-        <span className="flex min-w-0 items-center gap-1.5 py-0.5">
-          <Typography
-            variant="title-medium"
-            className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
-          >
-            {t("messageFilesPanel.title")}
-          </Typography>
-          <span
-            aria-hidden
-            className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
-          />
-          <Typography
-            variant="title-medium"
-            className="shrink-0 whitespace-nowrap leading-snug text-[var(--content-secondary)]"
-          >
-            {displayAttachments.length}
-          </Typography>
-        </span>
+        <DetailShellTitleWithCount
+          title={t("messageFilesPanel.title")}
+          count={displayAttachments.length}
+        />
       }
       closeLabel={t("messageFilesPanel.closeAria")}
       onClose={onClose}
     >
       {displayAttachments.length === 0 ? (
-        <Typography
-          variant="body-small-default"
-          className="py-4 text-center text-[var(--content-tertiary)]"
-        >
-          {t("messageFilesPanel.empty")}
-        </Typography>
+        <DetailShellNotice>{t("messageFilesPanel.empty")}</DetailShellNotice>
       ) : (
         // Wraps rather than sitting on a fixed column count: the drawer is
         // drag-resizable and the mobile overlay renders this same panel at

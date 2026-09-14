@@ -5,6 +5,7 @@ import type { DrizzleDb } from "./db-connection.js";
 import { stringifyMessageContent } from "./message-content.js";
 import { messageConversationId } from "./message-reads.js";
 import { conversations, messageBookmarks, messages } from "./schema.js";
+import { projectPersistedRowText } from "./user-facing-content.js";
 
 /**
  * Wire-shape representation of a bookmark, joined with the bookmarked
@@ -33,9 +34,15 @@ const PREVIEW_MAX_CHARS = 240;
  * `ContentBlock[]`) into a single text string and cap it at
  * `PREVIEW_MAX_CHARS`. Without the decode step, modern rows would render as
  * raw JSON in the bookmark list.
+ *
+ * The row's own metadata decides what the preview may quote: a
+ * `send_user_message` turn's plain text is private working notes, so the
+ * preview shows the message the user actually read instead.
  */
-function buildPreview(content: string): string {
-  const text = stringifyMessageContent(content);
+function buildPreview(content: string, metadata: string | null): string {
+  const text = stringifyMessageContent(
+    projectPersistedRowText(content, metadata),
+  );
   return text.length > PREVIEW_MAX_CHARS
     ? text.slice(0, PREVIEW_MAX_CHARS)
     : text;
@@ -52,6 +59,7 @@ const BOOKMARK_JOIN_COLUMNS = {
   createdAt: messageBookmarks.createdAt,
   conversationTitle: conversations.title,
   messageContent: messages.content,
+  messageMetadata: messages.metadata,
   messageRole: messages.role,
   messageCreatedAt: messages.createdAt,
 } as const;
@@ -63,6 +71,7 @@ type BookmarkJoinRow = {
   createdAt: number;
   conversationTitle: string | null;
   messageContent: string;
+  messageMetadata: string | null;
   messageRole: string;
   messageCreatedAt: number;
 };
@@ -73,7 +82,7 @@ function rowToSummary(row: BookmarkJoinRow): BookmarkSummary {
     messageId: row.messageId,
     conversationId: row.conversationId,
     conversationTitle: row.conversationTitle,
-    messagePreview: buildPreview(row.messageContent),
+    messagePreview: buildPreview(row.messageContent, row.messageMetadata),
     messageRole: row.messageRole,
     messageCreatedAt: row.messageCreatedAt,
     createdAt: row.createdAt,

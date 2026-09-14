@@ -356,6 +356,9 @@ export type PostMessageResult =
        *  id, on the legacy flow it's the resolved/echoed id. */
       conversationId: string;
       messageId: string;
+      /** Present when the assistant returned one. Correlates a delivery failure
+       *  that arrives after acceptance back to this send. */
+      requestId?: string;
     }
   | {
       ok: true;
@@ -800,6 +803,11 @@ export async function postChatMessage(
     assistantId,
     conversationId: resolvedConversationId,
     messageId: sendData.messageId,
+    // Carried on the non-queued path too: a send the daemon accepted can still
+    // fail afterwards (an `interrupt-on-send` handover whose queue fallback is
+    // refused), and the request id is the only handle that failure event has.
+    requestId:
+      typeof sendData.requestId === "string" ? sendData.requestId : undefined,
   };
 }
 

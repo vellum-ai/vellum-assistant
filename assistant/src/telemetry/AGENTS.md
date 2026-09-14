@@ -16,7 +16,7 @@ The full cross-repo checklist lives with the serializer registry it governs, in 
 
 ### Emitting an outbox-backed event
 
-For a normal (outbox-backed) event, the sync PR is all the daemon needs — **no manual edits in this directory**. `OUTBOX_TELEMETRY_EVENT_NAMES` (in `types.ts`) and its flush source (in `telemetry-event-sources.ts`) are both **derived from the wire contract**, so a newly-synced type is outbox-backed and flushed automatically. Just call the generic, fully-typed recorder from your feature code:
+For a normal (outbox-backed) event, `OUTBOX_TELEMETRY_EVENT_NAMES` (in `types.ts`) and its flush source (in `telemetry-event-sources.ts`) are both **derived from the wire contract**, so a newly-synced type is outbox-backed and flushed automatically. A sync PR that adds a type also carries three touchpoints: a sample in `__tests__/telemetry-event-fixtures.ts` (with a `types.ts` alias when the sample wants one), the payload-order pin in `telemetry-event-sources.test.ts`, and a regenerated `assistant/openapi.yaml`. Then call the generic, fully-typed recorder from your feature code:
 
 ```ts
 import { recordTelemetryEvent } from "./telemetry-events-outbox.js";
@@ -30,7 +30,7 @@ recordTelemetryEvent(
 
 `recordTelemetryEvent` stamps the base fields (`type`, `daemon_event_id`, `recorded_at`, `assistant_version`) and gates on consent — dropping only on a confirmed `share_analytics` opt-out; an unknown consent state (cold cache) records, because consent is enforced again at flush time and a record-time drop would destroy the event permanently. Unknown-state buffering is bounded: the reporter prunes outbox rows older than `OUTBOX_MAX_ROW_AGE_MS` (30 days) at the start of every flush cycle, in every consent state, so a permanently-unknown state cannot grow the outbox forever. The `fields` argument is typed as everything except the base fields.
 
-Manual edits in this directory are needed **only** to override a default:
+Beyond those sync touchpoints, source edits in this directory are needed **only** to override a default:
 
 - **Watermark-flushed** (the type has its own high-volume table, not the outbox): add it to `WATERMARK_TELEMETRY_EVENT_NAMES` in `types.ts` and add its source to `WATERMARK_TELEMETRY_EVENT_SOURCES`.
 - **Custom flush behavior** (a non-default per-type source — e.g. re-checking consent at flush time): map the type to a custom source factory in `OUTBOX_SOURCE_FACTORY` in `telemetry-event-sources.ts`. (No type currently needs one — every outbox event, `onboarding_research` included, flushes through the default `outboxSource` under `share_analytics`.)

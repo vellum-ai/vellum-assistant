@@ -43,6 +43,7 @@ import { publishConversationMessagesChanged } from "../runtime/sync/resource-syn
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
+import { repairInterruptedToolUseBlocks } from "./conversation-interrupt-repair.js";
 import {
   CONVERSATION_BUSY_MESSAGE,
   persistQueuedMessageBody,
@@ -63,7 +64,7 @@ import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
-import { turnOrRestingTrust } from "./trust-context-types.js";
+import { restingTrust, turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -310,6 +311,13 @@ async function buildPassthroughBatch(
     if (!sameTrustIdentity(candidate.trustContext, head.trustContext)) {
       break;
     }
+    // The batch runs as one turn under one `cron_run_id`, so members from
+    // different firings (or a firing's message beside an unscheduled one)
+    // must not coalesce: the tail's LLM spend would be billed to the head's
+    // firing, or to no firing at all.
+    if ((candidate.cronRunId ?? null) !== (head.cronRunId ?? null)) {
+      break;
+    }
     if (classifySlash(candidate.content) !== "passthrough") {
       break;
     }
@@ -332,86 +340,6 @@ async function buildPassthroughBatch(
 
   const matched = i;
   return conversation.queue.shiftN(matched);
-}
-
-// ── Steer / interrupt repair ────────────────────────────────────────
-
-/**
- * When a steer-to-message abort (or a user interrupt with messages still
- * queued behind the stopped turn) cuts off an in-flight tool call, the
- * conversation history may end with an assistant message containing one
- * or more `tool_use` blocks that have no corresponding `tool_result`.
- * LLM providers reject this sequence. This helper scans the tail of the
- * history and injects synthetic error `tool_result` messages for any
- * unmatched `tool_use` blocks.
- */
-function repairPendingToolUseBlocks(conversation: Conversation): void {
-  const steered = conversation.pendingSteerRepair;
-  if (!steered && !conversation.pendingInterruptRepair) {
-    return;
-  }
-  conversation.pendingSteerRepair = false;
-  conversation.pendingInterruptRepair = false;
-
-  const messages = conversation.messages;
-  if (messages.length === 0) {
-    return;
-  }
-
-  // Walk backwards from the tail to find the last assistant message with
-  // tool_use blocks. Collect resolved IDs from any user messages between
-  // the tail and that assistant message, then subtract them.
-  const resolvedToolUseIds = new Set<string>();
-  const pendingToolUseIds: string[] = [];
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.role === "user") {
-      for (const block of msg.content) {
-        if (
-          block.type === "tool_result" ||
-          block.type === "web_search_tool_result"
-        ) {
-          resolvedToolUseIds.add(block.tool_use_id);
-        }
-      }
-    } else if (msg.role === "assistant") {
-      for (const block of msg.content) {
-        if (block.type === "tool_use" && !resolvedToolUseIds.has(block.id)) {
-          pendingToolUseIds.push(block.id);
-        }
-      }
-      // Only repair tool_use blocks from the last assistant message that
-      // has them — earlier history should already be consistent.
-      break;
-    }
-  }
-
-  if (pendingToolUseIds.length === 0) {
-    return;
-  }
-
-  log.info(
-    {
-      conversationId: conversation.conversationId,
-      pendingToolUseCount: pendingToolUseIds.length,
-      trigger: steered ? "steer" : "interrupt",
-    },
-    "Injecting synthetic tool_result for pending tool_use blocks",
-  );
-
-  // Build a single user message with tool_result blocks for all pending IDs.
-  const syntheticContent = pendingToolUseIds.map((toolUseId) => ({
-    type: "tool_result" as const,
-    tool_use_id: toolUseId,
-    content: steered
-      ? "Tool execution was interrupted by user steering."
-      : "Tool execution was interrupted by the user.",
-    is_error: true,
-  }));
-  conversation.messages.push({
-    role: "user",
-    content: syntheticContent,
-  });
 }
 
 // ── drainQueue ───────────────────────────────────────────────────────
@@ -557,7 +485,21 @@ export async function drainQueue(
 
   // Repair any pending tool_use blocks left over from a steered abort
   // before the drain path sends the next message to the LLM.
-  repairPendingToolUseBlocks(conversation);
+  //
+  // An interrupt-armed drain is the one that must have the repair durable. The
+  // flag is armed by an interrupt whose own durable repair failed, and the
+  // message it queued is the interrupting prompt: persisted after a durable
+  // `tool_use` with no durable result, it makes a sequence every provider
+  // rejects on every later load, however well the in-memory history reads to
+  // the turn that runs now. So a second failure throws rather than settling,
+  // and the throw is what keeps the prompt out of the history: nothing has been
+  // dequeued at this point, so the queue is intact, the repair leaves the flag
+  // armed on its way out, and `kickQueueDrain` retries and then reports the
+  // stall to the queued senders. A steered drain keeps its in-memory repair, as
+  // it has no row of its own to persist behind it.
+  await repairInterruptedToolUseBlocks(conversation, {
+    requireDurable: conversation.pendingInterruptRepair,
+  });
 
   if (steered) {
     const next = conversation.queue.shift();
@@ -806,9 +748,11 @@ async function drainSingleMessage(
   // a different actor's context if a concurrent request mutates the live fields.
   // Trust comes from the queued message, not the live slot: the slot holds
   // whichever actor sent most recently, which is this sender only when nobody
-  // else sent while this message waited.
-  conversation.currentTurnTrustContext =
-    next.trustContext ?? conversation.trustContext;
+  // else sent while this message waited. Held in a local as well, because the
+  // field is writable out-of-band across the awaits between here and the loop
+  // call below.
+  const turnTrustContext = next.trustContext ?? restingTrust(conversation);
+  conversation.currentTurnTrustContext = turnTrustContext;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
@@ -1275,12 +1219,13 @@ async function drainSingleMessage(
     titleText?: string;
     isHiddenPrompt?: boolean;
     turnTrustContext?: TrustContext;
+    cronRunId?: string | null;
   } = {
     isUserMessage: true,
-    // Carry the sender's trust into the run. The loop re-initializes the
-    // per-turn snapshot on entry, so without this the stamp above is undone
-    // and the turn reverts to the conversation's most recent actor.
-    turnTrustContext: conversation.currentTurnTrustContext,
+    // Carry the sender's trust into the run from the local captured at the
+    // commit: the loop re-initializes the per-turn snapshot on entry, and the
+    // field is writable out-of-band across the awaits above.
+    turnTrustContext,
   };
   if (next.isInteractive !== undefined) {
     drainLoopOptions.isInteractive = next.isInteractive;
@@ -1290,6 +1235,12 @@ async function drainSingleMessage(
   }
   if (isHiddenMessageMetadata(next.metadata)) {
     drainLoopOptions.isHiddenPrompt = true;
+  }
+  // The firing this message belongs to, captured at enqueue. The drain runs
+  // outside the enqueuing turn, so the loop has no other way to attribute the
+  // spend to that firing.
+  if (next.cronRunId) {
+    drainLoopOptions.cronRunId = next.cronRunId;
   }
 
   conversation
@@ -1409,9 +1360,9 @@ async function drainBatch(
   // The head's trust governs the batch, which is sound only because
   // `buildPassthroughBatch` refuses to coalesce messages from different
   // actors; without that boundary this would run a tail under the head's
-  // trust.
-  conversation.currentTurnTrustContext =
-    head.trustContext ?? conversation.trustContext;
+  // trust. Held in a local for the same reason as the single-message drain.
+  const turnTrustContext = head.trustContext ?? restingTrust(conversation);
+  conversation.currentTurnTrustContext = turnTrustContext;
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
@@ -1751,11 +1702,12 @@ async function drainBatch(
     isHiddenPrompt?: boolean;
     notifyUserMessageId?: string;
     turnTrustContext?: TrustContext;
+    cronRunId?: string | null;
   } = {
     isUserMessage: true,
-    // Same reason as the single-message drain: the loop re-initializes the
-    // per-turn snapshot, so the head's trust has to travel with the call.
-    turnTrustContext: conversation.currentTurnTrustContext,
+    // Same reason as the single-message drain: the head's trust travels from
+    // the local captured at the commit, not a late read of the field.
+    turnTrustContext,
   };
   if (lastPushEligibleUserMessageId !== undefined) {
     drainLoopOptions.notifyUserMessageId = lastPushEligibleUserMessageId;
@@ -1777,6 +1729,12 @@ async function drainBatch(
     successfulBatch.every((qm) => isHiddenMessageMetadata(qm.metadata))
   ) {
     drainLoopOptions.isHiddenPrompt = true;
+  }
+  // Every member carries the same attribution (`buildPassthroughBatch` refuses
+  // to coalesce across firings), so the head's stands for the batch.
+  const batchCronRunId = batch[0]?.cronRunId;
+  if (batchCronRunId) {
+    drainLoopOptions.cronRunId = batchCronRunId;
   }
 
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
@@ -1882,20 +1840,37 @@ export async function processMessage(
     metadata: callerMetadata,
     trustContext: committingTrustContext,
   } = options;
+  const priorRestingTrust = restingTrust(conversation);
   if (committingTrustContext) {
     conversation.setTrustContext(committingTrustContext);
   }
-  await conversation.ensureActorScopedHistory();
-  // Snapshot persona context at turn start so later tool turns can't pick up
-  // a different actor's context if a concurrent request mutates the live fields.
-  //
   // Held in a local as well as on the conversation: the field is writable
   // out-of-band while this turn is in flight (`agent-wake` stamps it and
   // restores the prior value in a `finally`), so reading it back at the agent
   // loop call below would reintroduce the late read this capture exists to
-  // avoid. The local is what the loop runs under.
-  const turnTrustContext = conversation.trustContext;
+  // avoid. The local is what the loop runs under. Captured before the history
+  // reload for the same reason: that await is one of the windows a writer can
+  // land in.
+  const turnTrustContext = restingTrust(conversation);
   conversation.currentTurnTrustContext = turnTrustContext;
+  try {
+    await conversation.ensureActorScopedHistory();
+  } catch (err) {
+    // This is the commitment point for the turn, so the stamp above is
+    // correct, but a reload that fails starts no turn: the conversation must
+    // not be left attributed to a sender that never ran. Guarded on identity
+    // so a writer that legitimately moved the slot across the await keeps it.
+    // Only the resting slot needs putting back; `runAgentLoopImpl` re-seeds
+    // the per-turn field at the head of every turn, so no later dispatch can
+    // inherit it.
+    if (
+      committingTrustContext &&
+      restingTrust(conversation) === committingTrustContext
+    ) {
+      conversation.setTrustContext(priorRestingTrust ?? null);
+    }
+    throw err;
+  }
   conversation.currentTurnAuthContext = conversation.authContext;
   conversation.currentTurnSourceActorPrincipalId =
     sourceActorPrincipalId ?? conversation.authContext?.actorPrincipalId;

@@ -7,8 +7,8 @@ export const mcpHelp: CliCommandHelp = {
   description: "Manage MCP (Model Context Protocol) servers",
   helpText: `
 MCP servers extend the assistant's capabilities with external tools. Servers
-are configured in the assistant's config.json under the mcp.servers key, or
-declared by an installed plugin in its root mcp.json. Each
+are configured in the assistant's mcp.json, or declared by an installed
+plugin in its root mcp.json. Each
 server uses one of three transport types:
 
   stdio             Local process communicating over stdin/stdout
@@ -30,25 +30,22 @@ Examples:
       options: [{ flags: "--json", description: "Output as JSON" }],
       helpText: `
 Shows each MCP server with its current status and configuration. Servers come
-from two places: the mcp.servers key in config.json, and the root mcp.json of
-any installed plugin that declares one.
+from two places: the workspace mcp.json, and the root mcp.json of any
+installed plugin that declares one.
 
   Name         The server identifier
   Status       Health check result for workspace servers:
                  ✓  Connected and responding
-                 ✗  Error or disabled
+                 ✗  Error
                  !  Needs authentication (OAuth required)
                Plugin-declared servers report "declared" instead. They are
                listed but not connected by the assistant, and they are not
                health-checked, so no stored credential can reach a URL a
                plugin chose.
   Source       Shown only for plugin-declared servers, naming the plugin.
-               Servers from config.json print no Source line.
+               Servers from workspace mcp.json print no Source line.
   Transport    stdio, sse, or streamable-http
   URL/Command  The server URL (sse/streamable-http) or command (stdio)
-  Risk         Default risk level: low, medium, or high
-  Allowed      Tool allowlist filter (if configured)
-  Blocked      Tool blocklist filter (if configured)
 
 Health checks run on the daemon side. With --json, outputs the raw server
 list including health status.
@@ -67,13 +64,13 @@ on their next turn automatically. The assistant must be running.
 
 Examples:
   $ vellum mcp reload
-  $ vellum mcp reload   # after editing config.json to add a new server
+  $ vellum mcp reload   # after editing mcp.json to add a new server
   $ vellum mcp reload   # after running "vellum mcp auth <server>"`,
     },
     {
-      // NOTE: the repeatable `-H, --header` collector option and the trailing
-      // `--disabled` are registered imperatively in `mcp.ts` (array-accumulating
-      // parser functions are not expressible as plain help data).
+      // NOTE: the repeatable `-H, --header` collector option is registered
+      // imperatively in `mcp.ts` (array-accumulating parser functions are
+      // not expressible as plain help data).
       name: "add",
       args: "<name>",
       description: "Add an MCP server configuration",
@@ -95,25 +92,15 @@ Examples:
           flags: "-a, --args <args...>",
           description: "Command arguments (for stdio)",
         },
-        {
-          flags: "-r, --risk <level>",
-          description:
-            "Risk level tools from this server start at: low, medium, or high",
-        },
       ],
       helpText: `
 Arguments:
-  name   Unique identifier for the server (used as the key in config.json)
+  name   Unique identifier for the server (used as the key in mcp.json)
 
 Transport-specific requirements:
   stdio             Requires --command (and optional --args for arguments)
   sse               Requires --url pointing to the SSE endpoint
   streamable-http   Requires --url pointing to the HTTP endpoint
-
-The --risk flag sets the risk level tools from this server start at. Omit it
-and the server tracks the shipped default, "medium". A tool's own MCP
-annotations move it one step from there: destructiveHint up, readOnlyHint
-down. The server starts enabled unless --disabled is passed.
 
 The --header (-H) flag adds custom HTTP headers to sse/streamable-http
 transports. Use it for Bearer Token or API Key authentication. The flag
@@ -124,8 +111,7 @@ existing server first with "assistant mcp remove <name>".
 
 Examples:
   $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
-  $ assistant mcp add remote-api -t streamable-http -u https://api.example.com/mcp -r medium
-  $ assistant mcp add legacy-sse -t sse -u https://old.example.com/events --disabled
+  $ assistant mcp add remote-api -t streamable-http -u https://api.example.com/mcp
   $ assistant mcp add authed-api -t sse -u https://api.example.com/mcp -H 'Authorization: Bearer tok123'
   $ assistant mcp add apikey-srv -t streamable-http -u https://srv.example.com/mcp -H 'X-API-Key: sk_live_abc'`,
     },
@@ -163,7 +149,7 @@ Examples:
 Arguments:
   name   Name of the MCP server to remove
 
-Removes the server entry from config.json and performs best-effort cleanup of
+Removes the server entry from mcp.json and performs best-effort cleanup of
 any stored OAuth credentials (tokens, client info, discovery metadata) for
 sse/streamable-http servers. If no OAuth credentials exist, the cleanup is
 silently skipped.

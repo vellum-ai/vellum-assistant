@@ -13,7 +13,7 @@
  *    gallery siblings.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
@@ -21,6 +21,8 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
   makeDisplayAttachment,
   makeMixedAttachments,
+} from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import {
   mockAttachmentPreviewModal,
   squareLabels,
 } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
@@ -30,15 +32,20 @@ import type {
   DisplayMessage,
 } from "@/domains/chat/types/types";
 
-mockAttachmentPreviewModal();
+const restorePreviewModal = mockAttachmentPreviewModal();
 
-const { MessageFilesPanel } = await import(
-  "@/domains/chat/components/message-files-panel"
-);
+const { MessageFilesPanel } =
+  await import("@/domains/chat/components/message-files-panel");
 
 afterEach(() => {
   cleanup();
   useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+});
+
+// `mock.module` is process-global in this runner, so the real preview modal
+// goes back before the next file loads.
+afterAll(() => {
+  restorePreviewModal();
 });
 
 const ATTACHMENTS = makeMixedAttachments();

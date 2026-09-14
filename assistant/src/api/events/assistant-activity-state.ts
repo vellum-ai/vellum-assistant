@@ -42,6 +42,7 @@ export type AssistantActivityAnchor = z.infer<
 
 export const AssistantActivityReasonSchema = z.enum([
   "message_dequeued",
+  "message_interrupted",
   "thinking_delta",
   "first_text_delta",
   "tool_use_start",

@@ -5,7 +5,7 @@ import com.getcapacitor.Logger;
 import com.getcapacitor.PluginCall;
 import java.util.function.Supplier;
 
-final class NativeFailureGuard {
+public final class NativeFailureGuard {
     private static volatile Context applicationContext;
 
     private NativeFailureGuard() {}
@@ -27,7 +27,7 @@ final class NativeFailureGuard {
         }
     }
 
-    static void run(String logMessage, Runnable operation) {
+    public static void run(String logMessage, Runnable operation) {
         try {
             operation.run();
         } catch (RuntimeException exception) {
@@ -35,7 +35,7 @@ final class NativeFailureGuard {
         }
     }
 
-    static <T> T get(String logMessage, Supplier<T> operation, T fallback) {
+    public static <T> T get(String logMessage, Supplier<T> operation, T fallback) {
         try {
             return operation.get();
         } catch (RuntimeException exception) {
@@ -44,7 +44,21 @@ final class NativeFailureGuard {
         }
     }
 
-    static void record(String logMessage, Throwable exception) {
+    /**
+     * {@link #get} widened to {@link Throwable} for work that can exhaust the
+     * heap, such as decoding a bitmap: the fallback is a notification without
+     * an avatar, while an escaping OutOfMemoryError loses the push entirely.
+     */
+    public static <T> T getAllocating(String logMessage, Supplier<T> operation, T fallback) {
+        try {
+            return operation.get();
+        } catch (Throwable throwable) {
+            record(logMessage, throwable);
+            return fallback;
+        }
+    }
+
+    public static void record(String logMessage, Throwable exception) {
         Logger.error(logMessage, exception);
         Context context = applicationContext;
         if (context == null) {

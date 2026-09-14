@@ -5,6 +5,8 @@ import remarkGfm from "remark-gfm";
 import { handleNativeAnchorClick } from "@/utils/native-anchor";
 import { cn } from "@vellumai/design-library";
 
+import { decodeLiteralLineBreaks } from "../decode-literal-line-breaks";
+
 interface HomeMarkdownContentProps {
   content: string;
   className?: string;
@@ -167,7 +169,7 @@ export function HomeMarkdownContent({
         remarkPlugins={[remarkGfm]}
         components={markdownComponents}
       >
-        {content}
+        {decodeLiteralLineBreaks(content)}
       </ReactMarkdown>
     </div>
   );

@@ -13,6 +13,10 @@ import type {
   ChannelReplyPayload,
   StreamOp,
 } from "@vellumai/gateway-client";
+import {
+  classifyReactionEmojiSpelling,
+  type ReactionEmojiIdentity,
+} from "@vellumai/service-contracts/reactions";
 
 import { a2aTransport } from "./a2a/transport.js";
 import type { DirectDeliveryChannel } from "./callback-routing.js";
@@ -73,6 +77,19 @@ export function getTransportForChannel(
  */
 export function supportsChannelReaction(channel: string | undefined): boolean {
   return getTransportForChannel(channel)?.react !== undefined;
+}
+
+/**
+ * What an emoji spelling the assistant reacts with means on a channel, as
+ * the channel's adapter states it; a channel without an adapter opinion has
+ * the spelling classified by the contract's grammar.
+ */
+export function describeChannelReactionEmoji(
+  channel: string,
+  emoji: string,
+): ReactionEmojiIdentity {
+  const describe = getTransportForChannel(channel)?.describeReactionEmoji;
+  return describe ? describe(emoji) : classifyReactionEmojiSpelling(emoji);
 }
 
 /**

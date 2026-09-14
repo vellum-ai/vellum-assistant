@@ -31,6 +31,7 @@ Examples:
   assistant oauth status google
   assistant oauth ping google
   assistant oauth request --provider google /gmail/v1/users/me/messages
+  assistant oauth proxy-url stripe_link --export
   assistant oauth disconnect google`,
   subcommands: [
     {
@@ -867,6 +868,60 @@ Examples:
   $ assistant oauth token twitter --json
   $ assistant oauth token google --account user@gmail.com
   $ assistant oauth token google --client-id abc123`,
+    },
+    {
+      name: "proxy-url",
+      args: "<provider>",
+      description:
+        "Mint a short-lived grant that points a third-party CLI at the OAuth passthrough proxy",
+      options: [
+        {
+          flags: "--account <account>",
+          description:
+            "Pin an account label or connection ID (required when several are connected)",
+        },
+        {
+          flags: "--ttl <seconds>",
+          description: "Grant lifetime in seconds, 60 to 3600 (default: 900)",
+        },
+        {
+          flags: "--export",
+          description: "Print `export` lines for `eval` instead of JSON",
+        },
+      ],
+      helpText: `
+Arguments:
+  provider   Provider name (e.g. stripe_link, google).
+             Run 'assistant oauth providers list' to see all available
+             providers.
+
+Stock third-party CLIs expect to be handed an API base URL and an access
+token. This command produces both without ever revealing the provider
+credential: the grant it mints can reach only the one connection it named,
+and it expires. The third-party CLI attaches the grant as its own bearer
+token, and the proxy strips it and substitutes the real credential before
+forwarding the request to the provider. The printed base URL is
+gateway-based, so the CLI talks to the proxy rather than to the provider
+directly.
+
+Environment variables (printed as \`export\` lines with --export):
+  VELLUM_OAUTH_PROXY_BASE_URL     Proxy base URL to point the CLI at
+  VELLUM_OAUTH_PROXY_TOKEN        Short-lived grant to use as the bearer token
+  VELLUM_OAUTH_PROXY_ACCOUNT      Account the grant resolved to (omitted when
+                                  the connection carries no account)
+  VELLUM_OAUTH_PROXY_EXPIRES_AT   When the grant stops working
+
+Use 'assistant oauth status <provider>' to find account identifiers for
+--account. Unlabeled connections can be selected by their connection ID.
+
+Managed connections forward Content-Type, Accept, User-Agent, and X-Request-Id.
+Requests with unsupported headers, including If-Match and Idempotency-Key,
+are rejected before calling the provider. A connection using your own OAuth
+app can preserve those headers.
+
+Examples:
+  $ assistant oauth proxy-url stripe_link
+  $ eval "$(assistant oauth proxy-url stripe_link --export)" && LINK_API_BASE_URL="$VELLUM_OAUTH_PROXY_BASE_URL" LINK_ACCESS_TOKEN="$VELLUM_OAUTH_PROXY_TOKEN" LINK_NO_REFRESH=1 link-cli payment-methods list --format json`,
     },
   ],
 };

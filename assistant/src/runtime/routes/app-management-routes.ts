@@ -51,6 +51,7 @@ import { compileApp, runCompile } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
 import type { SignatureJson } from "../../bundler/bundle-signer.js";
 import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
+import { notifyAppSurfacesChanged } from "../../daemon/app-change-notify.js";
 import { compareSemver } from "../../daemon/handlers/shared.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
@@ -127,6 +128,17 @@ const appListItemSchema = z.object({
 });
 
 type AppListItem = z.infer<typeof appListItemSchema>;
+
+const compileDiagnosticSchema = z.object({
+  text: z.string(),
+  location: z
+    .object({
+      file: z.string(),
+      line: z.number(),
+      column: z.number(),
+    })
+    .optional(),
+});
 
 /**
  * The pin route's body. `RouteDefinition.requestBody` is a codegen signal and
@@ -897,6 +909,44 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
 }
 
 /**
+ * Compile an app's source into dist/ and refresh open surfaces.
+ * Runs in the assistant process so open surfaces, client broadcasts, and
+ * published-app redeploy see the new build. Workspace and plugin apps both
+ * compile in place so local plugin edits can be rebuilt without waiting for
+ * the plugin source watcher.
+ */
+async function handleRefreshApp({ pathParams }: RouteHandlerArgs) {
+  const appId = pathParams?.id;
+  if (!appId) {
+    throw new BadRequestError("App id is required.");
+  }
+
+  const source = resolveAppSource(appId);
+  if (!source) {
+    throw new NotFoundError(
+      `App "${appId}" not found. Run 'assistant apps list' to see available apps.`,
+    );
+  }
+
+  const compileResult = await compileApp(source.sourceDir);
+  notifyAppSurfacesChanged(source.id, { fileChange: true });
+
+  return {
+    ok: true as const,
+    appId: source.id,
+    name: source.name,
+    compiled: compileResult.ok,
+    compile_duration_ms: compileResult.durationMs,
+    ...(compileResult.ok
+      ? {}
+      : {
+          compile_errors: compileResult.errors,
+          compile_warnings: compileResult.warnings,
+        }),
+  };
+}
+
+/**
  * Reject a mutation targeting a plugin-bundled app. Plugin apps are owned by
  * their plugin and are read-only over this surface — their source is not
  * user-editable and their lifecycle is the plugin's.
@@ -1251,6 +1301,29 @@ export const ROUTES: RouteDefinition[] = [
       name: z.string(),
       html: z.string(),
       origin: z.string(),
+    }),
+  },
+  {
+    operationId: "apps_refresh",
+    endpoint: "apps/:id/refresh",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: handleRefreshApp,
+    summary: "Compile an app",
+    description:
+      "Compile workspace or plugin app source into dist/ and refresh open surfaces.",
+    tags: ["apps"],
+    responseBody: z.object({
+      ok: z.literal(true),
+      appId: z.string(),
+      name: z.string(),
+      compiled: z.boolean(),
+      compile_duration_ms: z.number(),
+      compile_errors: z.array(compileDiagnosticSchema).optional(),
+      compile_warnings: z.array(compileDiagnosticSchema).optional(),
     }),
   },
   {

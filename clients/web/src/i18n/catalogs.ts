@@ -34,6 +34,8 @@
  * Reference: https://vite.dev/guide/features#dynamic-import
  */
 import enAccount from "@/i18n/locales/en/account.json";
+import enActivation from "@/i18n/locales/en/activation.json";
+import enActivationTasks from "@/i18n/locales/en/activation-tasks.json";
 import enChannels from "@/i18n/locales/en/channels.json";
 import enContacts from "@/i18n/locales/en/contacts.json";
 import enCredentialRequests from "@/i18n/locales/en/credential-requests.json";
@@ -85,6 +87,8 @@ export const FALLBACK_CATALOGS: LocaleCatalogs = {
   contacts: enContacts,
   onboarding: enOnboarding,
   intelligence: enIntelligence,
+  activation: enActivation,
+  "activation-tasks": enActivationTasks,
 };
 
 /** Loaders for the locales that are not bundled into the entry chunk. */
@@ -110,6 +114,9 @@ const CATALOG_LOADERS: Record<
     contacts: () => import("@/i18n/locales/es/contacts.json"),
     onboarding: () => import("@/i18n/locales/es/onboarding.json"),
     intelligence: () => import("@/i18n/locales/es/intelligence.json"),
+    activation: () => import("@/i18n/locales/es/activation.json"),
+    "activation-tasks": () =>
+      import("@/i18n/locales/es/activation-tasks.json"),
   },
   ru: {
     common: () => import("@/i18n/locales/ru/common.json"),
@@ -129,6 +136,9 @@ const CATALOG_LOADERS: Record<
     contacts: () => import("@/i18n/locales/ru/contacts.json"),
     onboarding: () => import("@/i18n/locales/ru/onboarding.json"),
     intelligence: () => import("@/i18n/locales/ru/intelligence.json"),
+    activation: () => import("@/i18n/locales/ru/activation.json"),
+    "activation-tasks": () =>
+      import("@/i18n/locales/ru/activation-tasks.json"),
   },
   zh: {
     common: () => import("@/i18n/locales/zh/common.json"),
@@ -148,6 +158,9 @@ const CATALOG_LOADERS: Record<
     contacts: () => import("@/i18n/locales/zh/contacts.json"),
     onboarding: () => import("@/i18n/locales/zh/onboarding.json"),
     intelligence: () => import("@/i18n/locales/zh/intelligence.json"),
+    activation: () => import("@/i18n/locales/zh/activation.json"),
+    "activation-tasks": () =>
+      import("@/i18n/locales/zh/activation-tasks.json"),
   },
   "zh-TW": {
     common: () => import("@/i18n/locales/zh-TW/common.json"),
@@ -167,6 +180,9 @@ const CATALOG_LOADERS: Record<
     contacts: () => import("@/i18n/locales/zh-TW/contacts.json"),
     onboarding: () => import("@/i18n/locales/zh-TW/onboarding.json"),
     intelligence: () => import("@/i18n/locales/zh-TW/intelligence.json"),
+    activation: () => import("@/i18n/locales/zh-TW/activation.json"),
+    "activation-tasks": () =>
+      import("@/i18n/locales/zh-TW/activation-tasks.json"),
   },
 };
 

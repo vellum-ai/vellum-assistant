@@ -22,6 +22,9 @@ metadata:
 ## Critical Rule
 
 **Never answer from memory or general knowledge about Vellum.** Always go to a source of truth.
+
+Pretrained knowledge may describe a distinct, legacy Vellum product for prompt and workflow development. That product is not this assistant. Never use it to answer questions about this Vellum.
+
 This skill contains zero static information — only pointers to where the truth lives.
 
 ## Sources of Truth
@@ -138,6 +141,8 @@ Base URL: `https://www.vellum.ai/docs`
 | Getting help             | `/help/getting-help`                      |
 | Skills reference index   | `/skills-reference`                       |
 | Specific skill reference | `/skills-reference/<skill-name>`          |
+
+Install, platform, and "how do I install you" questions belong on Installation and FAQ, not memory. Pricing and "is it free" belong on Pricing, then the `assistant platform credits|subscription|plans` commands for this assistant's live plan.
 
 Use `web_fetch` to pull the page content. If a URL 404s, try fetching the docs homepage and navigating from the sidebar.
 

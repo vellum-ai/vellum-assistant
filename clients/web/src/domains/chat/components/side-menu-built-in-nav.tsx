@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
 import { AssistantSwitcher } from "@/domains/chat/components/assistant-switcher";
 import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
@@ -17,6 +19,10 @@ export interface SideMenuBuiltInNavProps {
   activeAppId?: string;
   onOpenApp?: (appId: string) => void;
   onClose?: () => void;
+  /** The assistant section's toggle, beside the assistant pill. */
+  assistantAside?: ReactNode;
+  /** The assistant's own section, opened beneath the assistant row. */
+  assistantBeneath?: ReactNode;
 }
 
 /**
@@ -41,6 +47,8 @@ export function SideMenuBuiltInNav({
   activeAppId,
   onOpenApp,
   onClose,
+  assistantAside,
+  assistantBeneath,
 }: SideMenuBuiltInNavProps) {
   const { t } = useTranslation("chat");
   const { pinnedApps, unpin, setColor } = usePinnedApps(assistantId);
@@ -85,6 +93,8 @@ export function SideMenuBuiltInNav({
               : undefined
           }
           onSwitched={onClose}
+          aside={assistantAside}
+          beneath={assistantBeneath}
         />
       </div>
       {pinnedApps.length > 0 ? (

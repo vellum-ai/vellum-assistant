@@ -108,7 +108,9 @@ const postToolUse = (await import("../hooks/post-tool-use.js")).default;
 const postCompact = (await import("../hooks/post-compact.js")).default;
 const conversationDeleted = (await import("../hooks/conversation-deleted.js"))
   .default;
-const { findVisionProfile } = await import("../src/vision-caption.js");
+const { CAPTION_TIMEOUT_MS, findVisionProfile } = await import(
+  "../src/vision-caption.js"
+);
 const { flattenTextOnlyBlocks } = await import("../src/caption-blocks.js");
 const { closeCaptionStore, initCaptionStore, resetCaptionCacheForTests } =
   await import("../src/caption-cache.js");
@@ -370,6 +372,177 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect(
       (ctx.latestMessages[0].content[0] as { text: string }).text,
     ).toContain("auto-description failed");
+  });
+
+  test("the vision request time-box finishes inside the hook time-box", () => {
+    // Plugin hooks are time-boxed at 30s (HOOK_TIMEOUT_MS). The vision
+    // request must settle sooner so a timeout can still substitute prompt text.
+    expect(CAPTION_TIMEOUT_MS).toBe(25_000);
+    expect(CAPTION_TIMEOUT_MS).toBeLessThan(30_000);
+  });
+
+  test("substitutes timeout prompt text when the vision request times out", async () => {
+    /**
+     * Tests that a vision-caption timeout keeps the turn alive: the image
+     * becomes prompt text naming the model that timed out, instead of
+     * remaining a raw image a text-only provider would reject.
+     */
+
+    // GIVEN a vision caption request that times out
+    const timeoutProvider = {
+      name: "mock-vision-provider",
+      async sendMessage() {
+        throw new DOMException("The operation timed out", "TimeoutError");
+      },
+    };
+    installPluginApiMock({
+      getConfiguredProvider: async () => timeoutProvider,
+    });
+
+    // AND a turn that submits an image to a text-only model
+    const messages = [imageMsg()];
+    const ctx = makeCtx({ latestMessages: messages });
+
+    // WHEN the turn starts
+    await userPromptSubmit(ctx);
+
+    // THEN the image is replaced with timeout prompt text naming the vision model
+    const text = (ctx.latestMessages[0].content[0] as { text: string }).text;
+    expect(ctx.latestMessages[0].content[0].type).toBe("text");
+    expect(text).toBe(
+      '[Image: the vision model "Vision" timed out reading it. Consider using a different vision-capable model.]',
+    );
+  });
+
+  test("treats an aborted vision request as a timeout", async () => {
+    const abortProvider = {
+      name: "mock-vision-provider",
+      async sendMessage() {
+        throw new DOMException("This operation was aborted", "AbortError");
+      },
+    };
+    installPluginApiMock({
+      getConfiguredProvider: async () => abortProvider,
+    });
+
+    const ctx = makeCtx({ latestMessages: [imageMsg()] });
+    await userPromptSubmit(ctx);
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("timed out reading it");
+  });
+
+  test("uses fail-open placeholder when the vision request fails for a non-timeout reason", async () => {
+    const failingProvider = {
+      name: "mock-vision-provider",
+      async sendMessage() {
+        throw new Error("upstream 500");
+      },
+    };
+    installPluginApiMock({
+      getConfiguredProvider: async () => failingProvider,
+    });
+
+    const ctx = makeCtx({ latestMessages: [imageMsg()] });
+    await userPromptSubmit(ctx);
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("auto-description failed");
+    expect(
+      (ctx.latestMessages[0].content[0] as { text: string }).text,
+    ).not.toContain("timed out");
+  });
+
+  test("does not cache a timed-out caption; a later turn retries the vision call", async () => {
+    let callCount = 0;
+    const timeoutThenOk = {
+      name: "mock-vision-provider",
+      async sendMessage() {
+        callCount++;
+        if (callCount === 1) {
+          throw new DOMException("The operation timed out", "TimeoutError");
+        }
+        return sendMessageResponse;
+      },
+    };
+    installPluginApiMock({
+      getConfiguredProvider: async () => timeoutThenOk,
+    });
+
+    const ctx1 = makeCtx({ latestMessages: [imageMsg("timeout-then-ok")] });
+    await userPromptSubmit(ctx1);
+    expect(
+      (ctx1.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("timed out reading it");
+    expect(callCount).toBe(1);
+
+    const ctx2 = makeCtx({ latestMessages: [imageMsg("timeout-then-ok")] });
+    await userPromptSubmit(ctx2);
+    expect(callCount).toBe(2);
+    expect(
+      (ctx2.latestMessages[0].content[0] as { text: string }).text,
+    ).toContain("[Image auto-described");
+  });
+
+  test("passes an abort signal so the vision request is time-boxed", async () => {
+    let seenSignal: AbortSignal | undefined;
+    const trackingProvider = {
+      name: "mock-vision-provider",
+      async sendMessage(
+        _messages: unknown,
+        options?: { signal?: AbortSignal },
+      ) {
+        seenSignal = options?.signal;
+        return sendMessageResponse;
+      },
+    };
+    installPluginApiMock({
+      getConfiguredProvider: async () => trackingProvider,
+    });
+
+    await userPromptSubmit(makeCtx({ latestMessages: [imageMsg()] }));
+    expect(seenSignal).toBeDefined();
+    expect(seenSignal!.aborted).toBe(false);
+  });
+
+  test("settles a hung vision request at the caption time-box instead of failing the hook", async () => {
+    /**
+     * Tests that the timeout is on the vision request itself: a provider that
+     * never resolves is still settled, and the hook substitutes timeout
+     * prompt text instead of discarding the substitution.
+     */
+
+    // GIVEN a vision request that hangs and ignores abort
+    const hungProvider = {
+      name: "mock-vision-provider",
+      async sendMessage() {
+        return new Promise(() => {});
+      },
+    };
+    installPluginApiMock({
+      getConfiguredProvider: async () => hungProvider,
+    });
+
+    const originalTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeoutSpy = mock((ms: number) => {
+      expect(ms).toBe(CAPTION_TIMEOUT_MS);
+      return originalTimeout(5);
+    });
+    const abortSignal = AbortSignal as unknown as {
+      timeout: (ms: number) => AbortSignal;
+    };
+    abortSignal.timeout = timeoutSpy;
+
+    try {
+      const ctx = makeCtx({ latestMessages: [imageMsg("hung")] });
+      await userPromptSubmit(ctx);
+      expect(
+        (ctx.latestMessages[0].content[0] as { text: string }).text,
+      ).toContain("timed out reading it");
+      expect(timeoutSpy).toHaveBeenCalled();
+    } finally {
+      abortSignal.timeout = originalTimeout;
+    }
   });
 
   test("caches captions — second call with same image does not invoke provider", async () => {
@@ -788,6 +961,25 @@ describe("image-fallback post-tool-use hook", () => {
     expect(block.type).toBe("text");
     expect((block as { text: string }).text).toContain(
       "no vision-capable model",
+    );
+  });
+
+  test("substitutes timeout prompt text when the vision request times out", async () => {
+    const timeoutProvider = {
+      name: "mock-vision-provider",
+      async sendMessage() {
+        throw new DOMException("The operation timed out", "TimeoutError");
+      },
+    };
+    installPluginApiMock({
+      getConfiguredProvider: async () => timeoutProvider,
+    });
+    const ctx = makeToolCtx({
+      toolResponse: toolResult([imageBlock("shot1")]),
+    });
+    await postToolUse(ctx);
+    expect((ctx.toolResponse.contentBlocks![0] as { text: string }).text).toBe(
+      '[Image: the vision model "Vision" timed out reading it. Consider using a different vision-capable model.]',
     );
   });
 

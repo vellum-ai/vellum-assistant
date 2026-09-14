@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   companionAnnotationInkSchema,
   companionAnnotationStrokeSchema,
+  companionAnnotationToolSchema,
   companionCoachmarkSchema,
   COMPANION_COACHMARK_MAX,
   COMPANION_BASE_AVATAR_BOX,
@@ -15,6 +16,7 @@ import {
   companionCardSideFor,
   companionNearEdgeFor,
   companionScaleFor,
+  type CompanionDock,
   type CompanionSize,
   type CompanionSizeAxis,
   type CompanionSurfaceState,
@@ -378,16 +380,44 @@ type GlowWindow = {
   isVisible: () => boolean;
   /** Whether presses go through it, which is the whole of drawing mode. */
   clickThrough: boolean;
-  setIgnoreMouseEvents: (ignore: boolean) => void;
+  /**
+   * Whether mouse-move still reaches the page while presses go through,
+   * which is how the frame knows to take the mouse back after a scroll.
+   */
+  forwarded: boolean;
+  setIgnoreMouseEvents: (
+    ignore: boolean,
+    options?: { forward?: boolean },
+  ) => void;
+  /** Whether it may become key, which is what lets its cursor show. */
+  focusable: boolean;
+  setFocusable: (focusable: boolean) => void;
+  /** Whether it is key: `focus` makes it so, and nothing here resigns it. */
+  key: boolean;
+  focus: () => void;
 };
 let glow: GlowWindow | null = null;
+/**
+ * Every other window main has opened, by kind: the frame, and the edges a
+ * call's drag can drop the bar on. `glow` is the frame's own alias, since most
+ * cases about a second window are about that one.
+ */
+const others = new Map<string, GlowWindow>();
 const glowPushes: CompanionSurfaceState[] = [];
+/** The BrowserWindow options the frame was last opened with. */
+let glowOptions: Record<string, unknown> | undefined;
 
 const openGlow = (options: {
+  kind: string;
   position?: { x: number; y: number } | (() => { x: number; y: number });
   width: number;
   height: number;
+  browserWindow?: Record<string, unknown>;
 }): GlowWindow => {
+  const frame = options.kind === "companion-watch-frame";
+  if (frame) {
+    glowOptions = options.browserWindow;
+  }
   const at =
     typeof options.position === "function"
       ? options.position()
@@ -410,7 +440,10 @@ const openGlow = (options: {
     },
     close: () => {
       window.closed = true;
-      glow = null;
+      others.delete(options.kind);
+      if (frame) {
+        glow = null;
+      }
     },
     isDestroyed: () => false,
     on: () => {},
@@ -424,13 +457,33 @@ const openGlow = (options: {
     isVisible: () => window.visible,
     // How main opens it, and where it goes back to whenever drawing is off.
     clickThrough: true,
-    setIgnoreMouseEvents: (ignore) => {
+    forwarded: false,
+    setIgnoreMouseEvents: (ignore, options) => {
       window.clickThrough = ignore;
+      window.forwarded = ignore && options?.forward === true;
+    },
+    focusable: options.browserWindow?.focusable !== false,
+    setFocusable: (focusable) => {
+      window.focusable = focusable;
+    },
+    key: false,
+    focus: () => {
+      // The real one refuses a window that may not become key.
+      if (window.focusable) {
+        window.key = true;
+      }
     },
   };
-  glow = window;
+  others.set(options.kind, window);
+  if (frame) {
+    glow = window;
+  }
   return window;
 };
+
+/** The edges a call's drag can drop the bar on, while a drag is in flight. */
+const zonesWindow = (): GlowWindow | null =>
+  others.get("companion-dock-zones") ?? null;
 
 mock.module("@vellumai/electron-desktop/floating-window", () => ({
   createFloatingWindow: (options: {
@@ -448,7 +501,11 @@ mock.module("@vellumai/electron-desktop/floating-window", () => ({
     return surface;
   },
   getFloatingWindow: (kind: string) =>
-    kind === "companion" ? (companionOpen ? surface : null) : glow,
+    kind === "companion"
+      ? companionOpen
+        ? surface
+        : null
+      : (others.get(kind) ?? null),
 }));
 
 mock.module("@vellumai/electron-desktop/avatar", () => ({
@@ -489,11 +546,21 @@ const sizes: Record<CompanionSizeAxis, CompanionSize> = {
   options: "small",
 };
 
+/**
+ * The edge the store holds for the call bar, which is what the next call reads
+ * and what a drop writes.
+ */
+let storedDock: CompanionDock = "bottom";
+
 mock.module("@vellumai/electron-desktop/window-state", () => ({
   readCompanionSize: (axis: CompanionSizeAxis) => sizes[axis],
   readCompanionHidden: () => false,
   writeCompanionSize: (axis: CompanionSizeAxis, size: CompanionSize) => {
     sizes[axis] = size;
+  },
+  readCompanionCallDock: () => storedDock,
+  writeCompanionCallDock: (dock: CompanionDock) => {
+    storedDock = dock;
   },
   writeCompanionHidden: () => {},
   // Stubbed rather than omitted, like every other export here: the module
@@ -511,7 +578,9 @@ const {
   avatarOffsetFor,
   companionContextMenuTemplate,
   defaultAvatarCentre,
+  dockedAvatarCentre,
   geometryFor,
+  nearestDock,
   placeCanvas,
   callOnUpdate,
   callSurfaceFor,
@@ -527,6 +596,18 @@ const {
   installCompanionWindow,
 } = await import("./companion-window");
 
+const {
+  __resetFrameScrollWatchForTesting,
+  frameScrollEnded,
+  provideFrameScrollWatch,
+} = await import("./frame-scroll-watch");
+
+const {
+  __resetCoachmarkPressWatchForTesting,
+  coachmarkPressed,
+  provideCoachmarkPressWatch,
+} = await import("./coachmark-press-watch");
+
 installCompanionWindow();
 
 /**
@@ -534,6 +615,8 @@ installCompanionWindow();
  * size leaves it there. Put both axes back and forget the window's position.
  */
 beforeEach(() => {
+  __resetFrameScrollWatchForTesting();
+  __resetCoachmarkPressWatchForTesting();
   sizes.avatar = "small";
   sizes.options = "small";
   setCompanionSurfaceSize("avatar", "small");
@@ -541,6 +624,7 @@ beforeEach(() => {
   nearestDisplay = NEAREST_DISPLAY;
   boundsSet.length = 0;
   glow = null;
+  others.clear();
   glowPushes.length = 0;
   displays = [
     {
@@ -1157,6 +1241,273 @@ describe("the surface a call takes", () => {
 });
 
 /**
+ * The edge a call's bar rests on. The bottom by default, and any of the four
+ * once the user has dragged the bar there mid-call and let go: the drag moves
+ * the surface as freely as an idle drag does, the edges are shown for as long
+ * as it is in flight, and the release docks the bar to the nearest one. The
+ * sides stand the bar up, which is a canvas of another shape.
+ *
+ * Under "Reduce motion", as the call's cases are, so each move lands in the
+ * beat it is asked for.
+ */
+describe("the edge a call's bar docks to", () => {
+  const SCREEN = { x: 0, y: 0, width: 1440, height: 900 };
+  const SIDE = geometryFor("small", "small", "left");
+  /** The canvas main is drawing in, read off the last bounds it asked for. */
+  const canvas = (): typeof GEOMETRY =>
+    boundsSet.at(-1)?.height === SIDE.canvasHeight ? SIDE : GEOMETRY;
+  const centre = (): { x: number; y: number } => ({
+    x: origin.x + canvas().canvasWidth / 2,
+    y: origin.y + avatarOffsetFor(state().cardGrowth, canvas()),
+  });
+  /** Where a dock lands the avatar, read back the way `avatarCentre` reads it. */
+  const landing = (
+    dock: CompanionDock,
+    geometry: typeof GEOMETRY = GEOMETRY,
+  ): { x: number; y: number } => {
+    const placed = placeCanvas(
+      dockedAvatarCentre(dock, SCREEN, geometry),
+      SCREEN,
+      geometry,
+    );
+    return {
+      x: placed.origin.x + geometry.canvasWidth / 2,
+      y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, geometry),
+    };
+  };
+  /** Drag the bar so the avatar rests on a point, mid-call or not. */
+  const dragTo = (point: { x: number; y: number }): void => {
+    send("vellum:companion:moveBy", point.x - centre().x, point.y - centre().y);
+  };
+  const release = (): void => {
+    send("vellum:companion:release");
+  };
+
+  beforeEach(() => {
+    mainWindowOpen = true;
+    storedDock = "bottom";
+  });
+
+  /**
+   * Leave the bar docked to the bottom for the next case, the way a fresh
+   * install has it. The module holds the dock it was last dropped on, and a
+   * reset mid-call is the one way back that goes through the store.
+   */
+  afterEach(() => {
+    send("vellum:voiceActivity:end");
+    send("vellum:voiceActivity:control", { action: "endSession" });
+    send("vellum:companion:startVoice");
+    resetCompanionSurfacePosition();
+    send("vellum:voiceActivity:control", { action: "endSession" });
+    storedDock = "bottom";
+  });
+
+  describe("geometryFor", () => {
+    test("builds the ordinary canvas for the top and bottom", () => {
+      expect(geometryFor("small", "small", "top")).toEqual(GEOMETRY);
+      expect(geometryFor("small", "small", "bottom")).toEqual(GEOMETRY);
+    });
+
+    /**
+     * The column is centred on the avatar, so the canvas has to reach as far
+     * below it as above; and it has to hold half the column, the gap and the
+     * whole creature standing at its end.
+     */
+    test("builds a canvas symmetric about the avatar for a side", () => {
+      for (const dock of ["left", "right"] as const) {
+        const side = geometryFor("small", "small", dock);
+        expect(side.riseAbove).toBe(side.dropBelow);
+        expect(side.canvasHeight).toBe(side.riseAbove * 2);
+        expect(side.canvasWidth).toBe(GEOMETRY.canvasWidth);
+        const scale = companionScaleFor(side.optionsBox);
+        expect(side.riseAbove).toBeGreaterThanOrEqual(
+          (COMPANION_BASE_MAX_PILL_WIDTH * scale) / 2 + side.avatarBox,
+        );
+      }
+    });
+  });
+
+  describe("dockedAvatarCentre", () => {
+    test("is the bottom centre for the bottom", () => {
+      expect(dockedAvatarCentre("bottom", SCREEN, GEOMETRY)).toEqual(
+        defaultAvatarCentre(SCREEN, GEOMETRY),
+      );
+    });
+
+    /** As high as the canvas above the avatar lets the window server go. */
+    test("settles as high as the work area allows for the top", () => {
+      const top = landing("top");
+      expect(top.x).toBe(SCREEN.width / 2);
+      expect(top.y).toBe(SCREEN.y + DROP_BELOW);
+    });
+
+    test("stands the sides at the display's vertical centre, a margin in", () => {
+      const reach = companionLowerReachFor(SIDE.avatarBox, SIDE.optionsBox);
+      expect(dockedAvatarCentre("left", SCREEN, SIDE)).toEqual({
+        x: 2 + reach,
+        y: SCREEN.height / 2,
+      });
+      expect(dockedAvatarCentre("right", SCREEN, SIDE)).toEqual({
+        x: SCREEN.width - 2 - reach,
+        y: SCREEN.height / 2,
+      });
+    });
+  });
+
+  describe("nearestDock", () => {
+    test("is the edge the point is closest to", () => {
+      expect(nearestDock({ x: 700, y: 850 }, SCREEN)).toBe("bottom");
+      expect(nearestDock({ x: 700, y: 40 }, SCREEN)).toBe("top");
+      expect(nearestDock({ x: 30, y: 450 }, SCREEN)).toBe("left");
+      expect(nearestDock({ x: 1400, y: 450 }, SCREEN)).toBe("right");
+    });
+
+    test("resolves a tie to the bottom, the shape the bar is designed around", () => {
+      expect(nearestDock({ x: 720, y: 450 }, SCREEN)).toBe("bottom");
+    });
+
+    test("measures against the work area it is given, not the origin", () => {
+      const second = { x: 1440, y: 0, width: 1920, height: 1080 };
+      expect(nearestDock({ x: 1460, y: 500 }, second)).toBe("left");
+    });
+  });
+
+  test("a call goes to the remembered edge rather than the bottom", () => {
+    storedDock = "top";
+    // The dock is read once at load, so this case reaches it the way a drop
+    // does; the store's read is `window-state.test.ts`'s subject.
+    send("vellum:voiceActivity:start", START);
+    dragTo({ x: 700, y: 30 });
+    release();
+    send("vellum:voiceActivity:end");
+    send("vellum:companion:startVoice");
+    expect(centre()).toEqual(landing("top"));
+    expect(state().dock).toBe("top");
+  });
+
+  /**
+   * The window is built with the call and kept hidden, so the drag has a
+   * window to show rather than one to build and load.
+   */
+  test("a drag mid-call shows the edges and names the one it is heading for", () => {
+    expect(zonesWindow()).toBeNull();
+    send("vellum:companion:startVoice");
+    expect(zonesWindow()?.visible).toBe(false);
+    expect(zonesWindow()?.bounds).toEqual(SCREEN);
+    dragTo({ x: 100, y: 450 });
+    const zones = zonesWindow();
+    expect(zones?.visible).toBe(true);
+    expect(zones?.level).toEqual(["floating", -1]);
+    expect(state().docking).toBe("left");
+    dragTo({ x: 700, y: 60 });
+    expect(state().docking).toBe("top");
+  });
+
+  /**
+   * A click on the creature mid-call is a press the renderer reports moves
+   * for, jitter and all, and it must not flash the edges or move the bar.
+   */
+  test("a press that barely moves is a click, not a drag", () => {
+    send("vellum:companion:startVoice");
+    const docked = centre();
+    send("vellum:companion:moveBy", 1, -1);
+    expect(zonesWindow()?.visible).toBe(false);
+    expect(state().docking).toBeUndefined();
+    release();
+    expect(centre()).toEqual({ x: docked.x + 1, y: docked.y - 1 });
+    expect(state().dock).toBe("bottom");
+  });
+
+  test("an idle drag shows no edges", () => {
+    dragTo({ x: 100, y: 450 });
+    expect(zonesWindow()).toBeNull();
+    expect(state().docking).toBeUndefined();
+    release();
+    expect(state().dock).toBe("bottom");
+  });
+
+  test("the release docks the bar to the edge it was heading for and remembers it", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 100, y: 450 });
+    release();
+    expect(zonesWindow()?.visible).toBe(false);
+    expect(state().docking).toBeUndefined();
+    expect(state().dock).toBe("left");
+    expect(storedDock).toBe("left");
+    expect(centre()).toEqual(landing("left", SIDE));
+  });
+
+  /** The column needs a canvas of its own shape, and the row wants the old one back. */
+  test("a side dock stands the canvas up for the call and lays it back down after", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 1400, y: 450 });
+    release();
+    expect(boundsSet.at(-1)?.height).toBe(SIDE.canvasHeight);
+    expect(state().avatarBox).toBe(SIDE.avatarBox);
+    send("vellum:voiceActivity:end");
+    expect(boundsSet.at(-1)?.height).toBe(GEOMETRY.canvasHeight);
+  });
+
+  test("goes home after a call docked to a side", () => {
+    dragTo({ x: 300, y: 200 });
+    const home = centre();
+    send("vellum:companion:startVoice");
+    dragTo({ x: 1400, y: 450 });
+    release();
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(home);
+  });
+
+  test("the next call stands the bar up on the side it was left on", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 1400, y: 450 });
+    release();
+    send("vellum:voiceActivity:end");
+    send("vellum:companion:startVoice");
+    expect(centre()).toEqual(landing("right", SIDE));
+    expect(boundsSet.at(-1)?.height).toBe(SIDE.canvasHeight);
+  });
+
+  test("a call ending under a drag takes the edges down with it", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 100, y: 450 });
+    expect(zonesWindow()?.visible).toBe(true);
+    send("vellum:voiceActivity:end");
+    expect(zonesWindow()).toBeNull();
+    expect(state().docking).toBeUndefined();
+    // A release arriving after the call has nothing left to dock.
+    release();
+    expect(state().dock).toBe("bottom");
+  });
+
+  test("a reset mid-call puts the bar back on the bottom for this call and the next", () => {
+    send("vellum:companion:startVoice");
+    dragTo({ x: 100, y: 450 });
+    release();
+    expect(state().dock).toBe("left");
+    resetCompanionSurfacePosition();
+    expect(state().dock).toBe("bottom");
+    expect(storedDock).toBe("bottom");
+    expect(centre()).toEqual(landing("bottom"));
+    send("vellum:voiceActivity:end");
+    expect(centre()).toEqual(landing("bottom"));
+  });
+
+  test("the edges follow a drag onto another display", () => {
+    send("vellum:companion:startVoice");
+    const second = displays[1];
+    if (second === undefined) {
+      throw new Error("Expected a second display");
+    }
+    dragTo({ x: 100, y: 450 });
+    nearestDisplay = second;
+    dragTo({ x: 1500, y: 500 });
+    expect(zonesWindow()?.bounds).toEqual(second.workArea);
+    expect(state().docking).toBe("left");
+  });
+});
+
+/**
  * The menu's "Reset Position": the pill goes back to where the surface opens,
  * the bottom centre of its display, from wherever the user dragged it.
  *
@@ -1530,6 +1881,20 @@ describe("the light a watch session puts on the display", () => {
       }),
     );
     expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1920, height: 1080 });
+  });
+
+  test("is allowed to cover the menu bar, so it is the whole display", () => {
+    // macOS holds a window to the work area unless told otherwise, and a
+    // frame a menu bar short of the display draws every fraction measured
+    // against the display's picture low by that much.
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "display", displayId: 2 },
+      }),
+    );
+    expect(glowOptions?.enableLargerThanScreen).toBe(true);
   });
 
   test("is placed again when the picked display changes shape", () => {
@@ -3179,6 +3544,208 @@ describe("companion window: drawing on what is shared", () => {
   });
 
   /**
+   * What a press on the frame draws is main's for the reason the mode is:
+   * the pill chooses it and the frame draws with it, and both read it off
+   * the pushed state. Kept across the mode and the share, since it decides
+   * nothing about where a click goes and a user who reached for the box
+   * expects it under their hand next time.
+   */
+  test("the tool is the pencil until the pill says otherwise, and is kept", () => {
+    shareDisplay();
+    expect(state().annotationTool).toBe("freehand");
+    send("vellum:companion:setAnnotationTool", "box");
+    expect(state().annotationTool).toBe("box");
+
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(state().annotationTool).toBe("box");
+
+    send("vellum:companion:setContext", context());
+    expect(state().annotationTool).toBe("box");
+  });
+
+  test("the wire refuses a tool it does not know", () => {
+    expect(companionAnnotationToolSchema.safeParse("star").success).toBe(false);
+    expect(companionAnnotationToolSchema.safeParse("circle").success).toBe(
+      true,
+    );
+  });
+
+  /**
+   * A frame taking presses takes the wheel with them, and it cannot forward
+   * a wheel event it has taken. So on the first one the renderer sees, the
+   * frame steps aside for the rest of the scroll, with mouse-move forwarded
+   * so the renderer can see the pointer move and ask for the mouse back. The
+   * mode stays on the whole time: the user did not press Draw again.
+   */
+  test("a scroll on the frame lets the rest of it through to the app", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(glow?.clickThrough).toBe(true);
+    expect(glow?.forwarded).toBe(true);
+    expect(state().annotating).toBe(true);
+  });
+
+  test("the pointer moving after a scroll takes the mouse back", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setFrameScrolling", false);
+    expect(glow?.clickThrough).toBe(false);
+    expect(state().annotating).toBe(true);
+  });
+
+  /**
+   * A hand that scrolls and then presses without moving the pointer never
+   * sends the renderer a move to ask with, and the press would land on the
+   * app. The desktop knows when the scroll stopped, so main asks the helper
+   * to watch for that while the frame is stepped aside, and takes the mouse
+   * back the moment it hears it.
+   */
+  test("the scroll ending takes the mouse back without a move", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(watches).toEqual([true]);
+    frameScrollEnded();
+    expect(glow?.clickThrough).toBe(false);
+    expect(glow?.forwarded).toBe(false);
+    expect(state().annotating).toBe(true);
+    expect(watches).toEqual([true, false]);
+  });
+
+  /** The watch is up only while the frame is stepped aside, whichever way that ends. */
+  test("every way out of a scroll takes the watch down with it", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setFrameScrolling", false);
+    expect(watches).toEqual([true, false]);
+
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(watches).toEqual([true, false, true, false]);
+
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setContext", context());
+    expect(watches).toEqual([true, false, true, false, true, false]);
+
+    // A scroll that ended after the frame stopped waiting changes nothing.
+    frameScrollEnded();
+    expect(watches).toHaveLength(6);
+  });
+
+  /** Off the mode there is no watch to put up, and no scroll end to act on. */
+  test("a scroll ending with the mode off is nothing", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setFrameScrolling", true);
+    frameScrollEnded();
+    expect(watches).toEqual([]);
+    expect(glow?.clickThrough).toBe(true);
+  });
+
+  /**
+   * Off the mode the frame has no mouse to hand back, and a scroll remembered
+   * against the next press would open the mode click-through.
+   */
+  test("a scroll with the mode off changes nothing, now or later", () => {
+    shareDisplay();
+    send("vellum:companion:setFrameScrolling", true);
+    expect(glow?.clickThrough).toBe(true);
+    expect(glow?.forwarded).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+  });
+
+  /** The mode going off leaves nothing for the scroll to have stepped aside from. */
+  test("the mode going off forgets the scroll it stepped aside for", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(glow?.clickThrough).toBe(true);
+    expect(glow?.forwarded).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+  });
+
+  /**
+   * The mode outlives the frame's window, which is replaced when the share
+   * ends and starts again. The new window's renderer has seen no scroll, so
+   * one the old window stepped aside for would leave it click-through with
+   * nothing to ask for the mouse back.
+   */
+  test("a frame opened afresh takes the mouse whatever the last one did", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setContext", context());
+    expect(glow).toBeNull();
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+    expect(glow?.forwarded).toBe(false);
+  });
+
+  /**
+   * Chromium on macOS puts a page's cursor on the pointer only for the key
+   * window, and the frame opens unable to become one. So the mode lends it
+   * key status, or the pencil the layer hangs on the pointer never shows and
+   * nothing on screen says a press is now a mark.
+   */
+  test("drawing on lends the frame key status, so its pencil can show", () => {
+    shareDisplay();
+    expect(glow?.focusable).toBe(false);
+    expect(glow?.key).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.focusable).toBe(true);
+    expect(glow?.key).toBe(true);
+  });
+
+  /**
+   * Off the mode the frame may not become key again: a click-through window
+   * that still could would take the keyboard on the next press that reached
+   * it. Resigning key is not something main can ask for on macOS, so what it
+   * can do is stop the frame taking it back.
+   */
+  test("drawing off makes the frame unfocusable again", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(glow?.focusable).toBe(false);
+  });
+
+  /** The mode is still on across a scroll, and the mouse is coming back. */
+  test("a scroll the frame steps aside for leaves its key status alone", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(glow?.focusable).toBe(true);
+    expect(glow?.key).toBe(true);
+  });
+
+  /** A window that replaces the frame mid-mode is lent key the same way. */
+  test("a frame opened afresh is lent key status with the mouse", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setContext", context());
+    expect(glow).toBeNull();
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.focusable).toBe(true);
+    expect(glow?.key).toBe(true);
+  });
+
+  /**
    * A gesture made in the gap between a share ending and the surface hearing
    * about it asks for a mode there is nothing to draw in. Refused the same
    * way the press on the pill is, so the toggle cannot arm the mode ahead of
@@ -3422,6 +3989,68 @@ describe("companion window: pointing at what is shared", () => {
     await showCompanionCoachmarks([MARK], CALL);
     await showCompanionCoachmarks([], CALL);
     expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * The user's own way to take the marks down, from the pill. The share is
+   * what the marks are about and it goes on; the frame stays around it. The
+   * count is read as a difference, since it is main's own and outlives a
+   * case.
+   */
+  describe("the pill's Clear", () => {
+    const clears = (): number => state().marksCleared ?? 0;
+
+    test("takes the marks down and leaves the share running", async () => {
+      await shareAndSee();
+      await showCompanionCoachmarks([MARK], CALL);
+      const before = clears();
+      send("vellum:companion:clearMarks");
+      expect(state().coachmarks).toBeUndefined();
+      expect(state().screenShare).toEqual(DISPLAY);
+      expect(clears()).toBe(before + 1);
+    });
+
+    /**
+     * The user's own ink is on the frame's window and main never sees it,
+     * so the press reaches it as a step in a count on the pushed state. The
+     * step has to happen whether or not the assistant had marks up, since
+     * the ink is the other thing the press is about.
+     */
+    test("steps the count the frame drops its ink on, marks up or not", () => {
+      shareDisplay();
+      send("vellum:companion:setAnnotating", true);
+      const before = clears();
+      send("vellum:companion:clearMarks");
+      send("vellum:companion:clearMarks");
+      expect(clears()).toBe(before + 2);
+      // The mode is the user's, and stays where they put it.
+      expect(state().annotating).toBe(true);
+    });
+
+    test("is nothing with nothing shared", () => {
+      const before = clears();
+      send("vellum:companion:clearMarks");
+      expect(clears()).toBe(before);
+    });
+
+    /** The race `screen_clear_marks` runs, with the same answer. */
+    test("outranks a lookup still out when it is pressed", async () => {
+      windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+      await shareAndSee(WINDOW);
+      let letGo!: () => void;
+      locateHeldBy = new Promise<void>((resolve) => {
+        letGo = resolve;
+      });
+      const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+      send("vellum:companion:clearMarks");
+      letGo();
+
+      expect(await drawing).toEqual({
+        kind: "refused",
+        refusal: "superseded",
+      });
+      expect(state().coachmarks).toBeUndefined();
+    });
   });
 
   /**
@@ -3703,6 +4332,120 @@ describe("companion window: pointing at what is shared", () => {
     expect(result).toEqual({
       kind: "placed",
       marks: [{ kind: "region", ...MARK }],
+    });
+  });
+
+  /**
+   * A mark says go and press that, and the press is the step being done. The
+   * frame is click-through while marks stand, so the press is heard from the
+   * helper: main tells it where the control is, and is told which one was
+   * pressed.
+   */
+  describe("hearing the press", () => {
+    /** Every set of rectangles the helper was asked to watch, in order. */
+    const watches: unknown[][] = [];
+
+    beforeEach(() => {
+      watches.length = 0;
+      dispatched.length = 0;
+      // A window the control can be found on; without bounds there is no
+      // surface to measure against and nothing is drawn.
+      windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+      provideCoachmarkPressWatch((rects) => {
+        watches.push([...rects]);
+      });
+    });
+
+    test("a named control is watched at the frame the tree reported", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+      // The tree's frame in screen points, not the fraction the arrow is
+      // aimed at: a press is tested against the control's hit area.
+      expect(watches).toEqual([[{ x: 120, y: 80, width: 60, height: 20 }]]);
+    });
+
+    test("a press takes the marks down and tells the call which control", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+      coachmarkPressed(0);
+
+      expect(dispatched).toEqual([
+        { kind: "coachmarkPressed", label: "Share" },
+      ]);
+      expect(state().coachmarks).toBeUndefined();
+      // The watch went with the marks, so a second press on the same control
+      // reports nothing.
+      coachmarkPressed(0);
+      expect(dispatched).toHaveLength(1);
+    });
+
+    /**
+     * The control is on a window, and windows move. The frame follows the
+     * window, and the marks with it; a rectangle left where the control was
+     * would miss the press on it and take a press on empty desktop for it.
+     */
+    test("the watch follows the window the control is on", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      expect(watches).toEqual([[{ x: 120, y: 80, width: 60, height: 20 }]]);
+
+      windowBounds = { x: 300, y: 150, width: 1000, height: 500 };
+      await Bun.sleep(300);
+
+      expect(watches.at(-1)).toEqual([
+        { x: 320, y: 180, width: 60, height: 20 },
+      ]);
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([
+        { kind: "coachmarkPressed", label: "Share" },
+      ]);
+    });
+
+    /**
+     * A ring drawn from bounds the model gave is an extent someone means, not
+     * a button: a press inside it says nothing about a step.
+     */
+    test("an extent given as bounds is not something to press", async () => {
+      await shareAndSee();
+      await showCompanionCoachmarks([MARK], CALL);
+
+      expect(watches).toEqual([]);
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([]);
+    });
+
+    test("clearing the marks takes the watch down", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      await showCompanionCoachmarks([], CALL);
+
+      expect(watches.at(-1)).toEqual([]);
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([]);
+    });
+
+    test("the share ending takes the watch down", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      send("vellum:companion:setContext", context());
+
+      expect(watches.at(-1)).toEqual([]);
+    });
+
+    /** Pointing at the same control for a second step arms a second press. */
+    test("pointing again arms the watch again", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      coachmarkPressed(0);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([
+        { kind: "coachmarkPressed", label: "Share" },
+        { kind: "coachmarkPressed", label: "Share" },
+      ]);
     });
   });
 

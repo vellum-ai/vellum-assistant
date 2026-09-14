@@ -35,6 +35,7 @@
     "closeRunDetail": "关闭运行详情",
     "goToNewest": "前往最新",
     "inputLabel": "输入",
+    "modelLabel": "模型",
     "objective": "目标",
     "outputLabel": "输出",
     "sendSteerAria": "发送引导指令",
@@ -87,6 +88,26 @@
   "assistantContentDisclosure": {
     "earlierActivity": "更早的活动"
   },
+  "assistantDesktop": {
+    "busy": "桌面正在被其他用户使用。",
+    "connecting": "正在连接桌面…",
+    "failed": "桌面无法启动。",
+    "lost": "与桌面的连接已断开。",
+    "openAria": "打开桌面",
+    "reconnectButton": "重新连接",
+    "title": "桌面",
+    "unavailable": "此助理不支持桌面。",
+    "installButton": "安装桌面",
+    "installDescription": "安装 Google Chrome 和助手桌面所需的组件。这可能需要几分钟。",
+    "checkingSetup": "正在检查桌面设置…",
+    "installingPackages": "正在安装桌面组件…",
+    "installingChrome": "正在安装 Google Chrome…",
+    "checkingInstall": "正在检查安装…",
+    "installBackground": "关闭此窗口后，安装仍会继续。",
+    "installFailed": "安装失败。请重试以完成设置。",
+    "setupRequestFailed": "无法检查桌面设置。请重新连接后重试。",
+    "setupUnsupported": "桌面安装需要具有管理员权限的 Linux x64 或 ARM64 容器。"
+  },
   "assistantNavItem": {
     "newChat": "新建聊天"
   },
@@ -133,6 +154,8 @@
     "closePreviewAria": "关闭预览",
     "downloadAria": "下载 {filename}",
     "downloadLabel": "下载",
+    "legacyUnavailable": "预览不可用。文件内容未保存在聊天记录中。",
+    "loadFailed": "无法加载预览。",
     "nextAttachmentAria": "下一个附件",
     "pdfLoadFailed": "无法显示此 PDF",
     "previewAria": "{filename} 的预览",
@@ -373,8 +396,27 @@
   },
   "chatConversationHeader": {
     "archived": "[已归档]",
-    "newChat": "新建聊天",
-    "untitled": "无标题"
+    "newChat": "新建聊天"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "应用",
+    "backAria": "返回聊天信息",
+    "backTooltip": "聊天信息",
+    "closeAria": "关闭聊天信息",
+    "empty": "此聊天中还没有内容",
+    "filesTitle": "文档与图片",
+    "framesTitle": "相机帧",
+    "loadFailed": "无法加载内容",
+    "loadMore": "加载更多",
+    "openAppAria": "打开 {name}",
+    "openDocumentAria": "打开 {name}",
+    "previewAttachmentAria": "预览 {filename}",
+    "previewFrameAria": "预览相机帧",
+    "seeAll": "查看全部",
+    "seeAllAppsAria": "查看全部应用",
+    "seeAllFilesAria": "查看全部文档与图片",
+    "seeAllFramesAria": "查看全部相机帧",
+    "title": "聊天信息"
   },
   "chatLayout": {
     "navigationAria": "导航"
@@ -613,12 +655,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}",
+    "ariaLabelUnavailable": "对话资产，无法加载",
     "ariaLabelUnseen": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}（未查看的更改）",
-    "heading": "资产",
-    "label": "{count, plural, one {# 个资产} other {# 个资产}}"
-  },
-  "conversationRow": {
-    "untitled": "无标题"
+    "label": "{count, plural, one {# 个资产} other {# 个资产}}",
+    "labelUnavailable": "无法加载资产"
   },
   "conversationStarterDock": {
     "caption": "尝试以下建议："
@@ -665,8 +705,7 @@
     "cancel": "取消",
     "confirm": "删除",
     "message": "删除“{title}”？这将永久删除对话及其消息。相关资产和记忆可能仍会保留。此操作无法撤消。",
-    "title": "删除对话",
-    "untitled": "无标题"
+    "title": "删除对话"
   },
   "deletedMessageRow": {
     "label": "此消息已被删除"
@@ -808,7 +847,12 @@
     "stepWarmup": "预热",
     "surfaceVoice": "语音通话摄像头",
     "thresholds": "阈值",
-    "valueAbsent": "无"
+    "valueAbsent": "无",
+    "forcedNoveltyThresholdLabel": "主动请求阈值",
+    "reasonAnswered": "已请求，但上一张照片已包含该内容。",
+    "reasonSettling": "已停止移动，但静止时间尚不足。",
+    "stepAnswered": "已显示",
+    "stepSettling": "保持静止"
   },
   "groupActions": {
     "archiveAll": "全部归档…",
@@ -1137,17 +1181,30 @@
     "bookmark": "书签",
     "copied": "已复制",
     "copy": "复制",
+    "copyFailed": "无法复制这条消息。",
     "forkFromHere": "从此分叉",
     "inspect": "检查",
+    "loading": "朗读中…",
     "openInSlack": "在 Slack 中打开",
+    "playFailed": "无法朗读这条消息。",
+    "readAloud": "朗读",
     "removeBookmark": "移除书签",
     "retry": "重试",
+    "stop": "停止",
     "summarizeUpToHere": "总结到此处"
   },
   "messageLongPressActions": {
     "bookmark": "书签",
     "copied": "已复制",
+    "copy": "复制",
+    "copyFailed": "无法复制这条消息。",
+    "forkFromHere": "从此分叉",
+    "inspect": "检查",
+    "openInSlack": "在 Slack 中打开",
+    "readAloud": "朗读",
     "removeBookmark": "移除书签",
+    "stop": "停止",
+    "summarizeUpToHere": "总结到此处",
     "title": "消息操作"
   },
   "micPermissionPrimer": {
@@ -1319,7 +1376,8 @@
     "railAria": "进度",
     "stepCounter": "第 {current} 步，共 {total} 步",
     "title": "进度",
-    "titleFinished": "已完成"
+    "titleFinished": "已完成",
+    "titleStopped": "已停止"
   },
   "promptSubmission": {
     "noActiveSession": "无活动会话。请重试。"
@@ -1662,11 +1720,14 @@
     "settings": "设置"
   },
   "toolDetailPanel": {
+    "changes": "更改",
     "closeAria": "关闭工具详情",
+    "command": "命令",
     "denied": "此工具调用未获批准，因此没有运行。",
     "emptyOutput": "该工具没有返回任何输出。",
+    "input": "输入",
     "output": "输出",
-    "riskLevel": "风险级别",
+    "requestedChanges": "请求的更改",
     "running": "正在运行…"
   },
   "toolStepPill": {
@@ -1681,7 +1742,8 @@
     "stopWorkflow": "停止工作流"
   },
   "transcriptRow": {
-    "thinking": "思考中"
+    "thinking": "思考中",
+    "working": "处理中"
   },
   "useConversationLoader": {
     "authFailed": "用户身份验证失败。"
@@ -1690,9 +1752,6 @@
     "assistantBusy": "您的助手正忙。请在回复完成后重试。",
     "retryFailed": "无法重试响应",
     "summarizeFailed": "无法总结对话"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "无标题"
   },
   "useSendMessage": {
     "commandFailed": "无法运行该命令。请重试。",
@@ -1896,5 +1955,16 @@
   "assistantSection": {
     "emptyBody": "我随时都在思考。当有值得您关注的事情时，我会在这里发起对话。",
     "emptyTitle": "目前还没有任何想法。"
+  },
+  "sidebarExpandRow": {
+    "expand": "展开",
+    "collapse": "收起"
+  },
+  "assistantSectionToggle": {
+    "hide": "隐藏来自 {name} 的对话",
+    "show": "显示来自 {name} 的对话"
+  },
+  "coachmarkPress": {
+    "turn": "我点击了 {label}。接下来呢？"
   }
 }

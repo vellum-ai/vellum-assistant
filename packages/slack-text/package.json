@@ -13,6 +13,10 @@
   },
   "devDependencies": {
     "@types/bun": "1.3.10",
+    "emojibase": "17.0.0",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "emojibase-data": "17.0.0"
   }
 }

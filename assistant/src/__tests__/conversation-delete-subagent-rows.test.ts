@@ -23,6 +23,7 @@ import { getDb, getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
 import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356-add-subagent-parent-tool-use-id.js";
+import { migrateAddSubagentBudgetStopReason } from "../persistence/migrations/377-add-subagent-budget-stop-reason.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
   deleteAllSubagentRecords,
@@ -98,6 +99,7 @@ describe("DELETE /conversations/:id - subagent row purge order", () => {
   beforeEach(() => {
     migrateCreateSubagentsTable();
     migrateAddSubagentParentToolUseId(getDb());
+    migrateAddSubagentBudgetStopReason(getDb());
     resetTestTables("subagents");
     failNextDelete = false;
   });
@@ -137,6 +139,7 @@ describe("deleteConversation purges subagent rows transactionally", () => {
   beforeEach(() => {
     migrateCreateSubagentsTable();
     migrateAddSubagentParentToolUseId(getDb());
+    migrateAddSubagentBudgetStopReason(getDb());
     resetTestTables("subagents");
     failNextDelete = false;
   });
@@ -204,6 +207,7 @@ describe("deleteConversationGently purges subagent rows too", () => {
   beforeEach(() => {
     migrateCreateSubagentsTable();
     migrateAddSubagentParentToolUseId(getDb());
+    migrateAddSubagentBudgetStopReason(getDb());
     resetTestTables("subagents");
   });
 
@@ -228,6 +232,7 @@ describe("playground delete leaves the rows to the conversation transaction", ()
   beforeEach(() => {
     migrateCreateSubagentsTable();
     migrateAddSubagentParentToolUseId(getDb());
+    migrateAddSubagentBudgetStopReason(getDb());
     resetTestTables("subagents");
     failNextDelete = false;
   });
@@ -264,6 +269,7 @@ describe("clear-all defers subagent-row deletion to the DB wipe", () => {
   beforeEach(() => {
     migrateCreateSubagentsTable();
     migrateAddSubagentParentToolUseId(getDb());
+    migrateAddSubagentBudgetStopReason(getDb());
     resetTestTables("subagents");
   });
 

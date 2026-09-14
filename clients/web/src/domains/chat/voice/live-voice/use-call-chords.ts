@@ -16,10 +16,13 @@
 import { useEffect } from "react";
 
 import {
+  callChords,
   handleCallChord,
-  CALL_CHORDS,
 } from "@/domains/chat/voice/live-voice/call-chords";
-import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  isLiveVoiceSessionActive,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { liveVoiceCanBeShownTheScreen } from "@/domains/chat/voice/live-voice/screen-share-availability";
 import {
   setChordBinding,
@@ -28,10 +31,16 @@ import {
 } from "@/runtime/hotkey";
 
 export function useCallChords(): void {
-  // Subscribed through the store so the binding follows the session, and read
-  // through the shared conjunction so it is armed exactly when the pill's own
+  // Subscribed through the store so the binding follows the session. The
+  // mutes are armed for the whole of a call; the share and the pen join them
+  // on the shared conjunction, so they are armed exactly when the pill's own
   // Share control is: a chord that could do nothing is a key taken for nothing.
-  const onCall = useLiveVoiceStore(() => liveVoiceCanBeShownTheScreen());
+  const onCall = useLiveVoiceStore((session) =>
+    isLiveVoiceSessionActive(session.state),
+  );
+  const canBeShownTheScreen = useLiveVoiceStore(() =>
+    liveVoiceCanBeShownTheScreen(),
+  );
 
   useEffect(() => {
     if (!onCall || !supportsChords()) {
@@ -44,7 +53,7 @@ export function useCallChords(): void {
       }
       handleCallChord(event.key);
     });
-    void setChordBinding(CALL_CHORDS);
+    void setChordBinding(callChords(canBeShownTheScreen));
 
     return () => {
       unsubscribe();
@@ -52,5 +61,5 @@ export function useCallChords(): void {
       // between the two, a press of these keys is the user's own.
       void setChordBinding({ kind: "off" });
     };
-  }, [onCall]);
+  }, [onCall, canBeShownTheScreen]);
 }

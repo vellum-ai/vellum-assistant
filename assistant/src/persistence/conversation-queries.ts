@@ -47,6 +47,7 @@ import {
   conversationAssistantAttentionState,
   conversations,
 } from "./schema/index.js";
+import { projectPersistedRowText } from "./user-facing-content.js";
 
 const log = getLogger("conversation-store");
 
@@ -937,6 +938,8 @@ interface ConversationSearchMsgRow {
   role: string;
   content: string;
   created_at: number;
+  /** Stored envelope, read only for the row's user-facing visibility marker. */
+  metadata: string | null;
 }
 
 /**
@@ -1196,7 +1199,7 @@ export async function searchConversations(
         matchingMsgs = rawAll<ConversationSearchMsgRow>(
           "conversation:searchConversations:matchingMessages",
           `
-          SELECT id, role, content, created_at
+          SELECT id, role, content, created_at, metadata
           FROM messages
           WHERE conversation_id = ? AND id IN (${msgPlaceholders})
           ORDER BY created_at ASC
@@ -1216,7 +1219,13 @@ export async function searchConversations(
       matchingMessages: matchingMsgs.map((m) => ({
         messageId: m.id,
         role: m.role,
-        excerpt: buildExcerpt(m.content, query),
+        // The excerpt is shown to the user, so it quotes what the row's own
+        // marker says the user saw: a `send_user_message` turn's plain text is
+        // private working notes and never surfaces here.
+        excerpt: buildExcerpt(
+          projectPersistedRowText(m.content, m.metadata),
+          query,
+        ),
         createdAt: m.created_at,
       })),
     });

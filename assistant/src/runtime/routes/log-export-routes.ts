@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 
+import { overlayWorkspaceMcpForConfigRead } from "../../mcp/workspace-mcp-config.js";
 import { getDb, getLogsDb } from "../../persistence/db-connection.js";
 import {
   llmRequestLogs,
@@ -568,6 +569,7 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
       }
     }
 
+    overlayWorkspaceMcpForConfigRead(config);
     const mcpServers = asRecord(asRecord(config.mcp)?.servers);
     for (const server of Object.values(mcpServers ?? {})) {
       const transport = asRecord(asRecord(server)?.transport);

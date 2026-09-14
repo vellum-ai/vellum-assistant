@@ -17,6 +17,12 @@
  * envelope). Keep this module in sync with those two.
  */
 
+// Single keys, not the wider alias sets `derive-step-label` reads: the daemon
+// declares `skill_execute` as exactly `{ tool, input, activity }`, all required
+// (`assistant/src/tools/skills/execute.ts`), so there is no other spelling to
+// tolerate here.
+import { readToolInputString } from "@/domains/chat/utils/tool-input";
+
 /** A single parameter row under a skill tool's `Parameters:` list. */
 export interface SkillToolParam {
   name: string;
@@ -127,12 +133,6 @@ const MANIFEST_TERMINATORS = [
 
 /** `Skill:` / `ID:` / `Description:` / `Path:` header line at the body's head. */
 const HEADER_LINE = /^(Skill|ID|Description|Path):\s*(.*)$/;
-
-/** Read a trimmed string property from an input bag, else `""`. */
-function readString(bag: Record<string, unknown>, key: string): string {
-  const value = bag[key];
-  return typeof value === "string" ? value.trim() : "";
-}
 
 /** Coerce unknown tool input into a plain bag, tolerating null/non-objects. */
 function toBag(input: unknown): Record<string, unknown> {
@@ -332,7 +332,7 @@ export function parseSkillLoadActivity({
   isError?: boolean;
 }): SkillLoadActivity {
   const bag = toBag(input);
-  const skillId = readString(bag, "skill");
+  const skillId = readToolInputString(bag, "skill");
   const body = typeof result === "string" ? result : "";
 
   if (!body) {
@@ -415,8 +415,8 @@ function formatParamValue(
  */
 export function parseSkillExecuteActivity(input: unknown): SkillExecuteActivity {
   const bag = toBag(input);
-  const innerToolName = readString(bag, "tool");
-  const activity = readString(bag, "activity");
+  const innerToolName = readToolInputString(bag, "tool");
+  const activity = readToolInputString(bag, "activity");
 
   let inner = bag.input;
 

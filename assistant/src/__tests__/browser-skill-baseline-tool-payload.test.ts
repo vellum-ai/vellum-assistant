@@ -53,10 +53,13 @@ describe("startup tool payload — no browser tools", () => {
   test("serialized tool definitions payload is within expected size range", () => {
     const definitions = getAllToolDefinitions();
     const serialized = JSON.stringify(definitions);
-    // Startup payload is ~22 000 chars.
-    // Floor at 14 000 catches accidental wholesale removal; ceiling at 35 000
-    // gives headroom while still catching unexpected tool leakage.
+    // Startup payload is ~36 000 chars.
+    // Floor at 14 000 catches accidental wholesale removal; ceiling at 45 000
+    // gives headroom while still catching unexpected tool leakage. This is the
+    // whole startup registry, not the per-turn tool list the model receives:
+    // per-turn availability is filtered by `isToolActiveForContext`, so a
+    // flag-gated tool counts here even on installs that never see it.
     expect(serialized.length).toBeGreaterThan(14_000);
-    expect(serialized.length).toBeLessThan(35_000);
+    expect(serialized.length).toBeLessThan(45_000);
   });
 });

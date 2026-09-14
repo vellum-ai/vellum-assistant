@@ -71,19 +71,10 @@ import {
   NotFoundError,
   RouteError,
 } from "./errors.js";
+import { isPlatformManagedCredential } from "./platform-managed-credentials.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
-const MANAGED_PROXY_CREDENTIALS = [
-  { service: "vellum", field: "assistant_api_key" },
-  { service: "vellum", field: "platform_base_url" },
-] as const;
-
-function isManagedProxyCredential(service: string, field: string): boolean {
-  return MANAGED_PROXY_CREDENTIALS.some(
-    (c) => c.service === service && c.field === field,
-  );
-}
 
 const CES_READY_POLL_INTERVAL_MS = 500;
 const CES_READY_POLL_TIMEOUT_MS = 30_000;
@@ -401,7 +392,7 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           setPlatformUserId(effectiveValue || undefined);
         }
       }
-      if (isManagedProxyCredential(service, field)) {
+      if (isPlatformManagedCredential(service, field)) {
         await refreshProvidersAfterSecretChange();
         // Close the first-boot race where the startup capability seed ran before
         // the managed embedding credential was provisioned, leaving skill/CLI
@@ -645,7 +636,7 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
       if (service === "vellum" && field === "platform_user_id") {
         setPlatformUserId(undefined);
       }
-      if (isManagedProxyCredential(service, field)) {
+      if (isPlatformManagedCredential(service, field)) {
         await refreshProvidersAfterSecretChange();
       }
       invalidateConnectionsAfterCredentialDelete(affectedConnections);

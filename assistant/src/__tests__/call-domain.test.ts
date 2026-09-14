@@ -51,8 +51,16 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => null,
 }));
 
+/**
+ * Fires on each callback-URL resolution. Lets a test land a cancel inside the
+ * async setup that runs after the call session and its lease already exist.
+ */
+let onResolveCallbackUrl: (() => void) | null = null;
 mock.module("../inbound/platform-callback-registration.js", () => ({
-  resolveCallbackUrl: async (fn: () => string) => fn(),
+  resolveCallbackUrl: async (fn: () => string) => {
+    onResolveCallbackUrl?.();
+    return fn();
+  },
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
@@ -92,7 +100,7 @@ import type { AssistantConfig } from "../config/types.js";
 import { getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { conversations } from "../persistence/schema/index.js";
+import { callSessions, conversations } from "../persistence/schema/index.js";
 import { setConfig } from "./helpers/set-config.js";
 
 /** Seed the ingress block startCall's preflight reads for real. */
@@ -116,6 +124,7 @@ beforeEach(() => {
   twilioInitiateCallArgs = [];
   seedIngress(true);
   mockCredentialReadiness = { status: "ready" };
+  onResolveCallbackUrl = null;
 });
 
 let ensuredConvIds = new Set<string>();
@@ -143,6 +152,16 @@ function resetTables(): void {
   db.run("DELETE FROM messages");
   db.run("DELETE FROM conversations");
   ensuredConvIds = new Set();
+}
+
+function listCallSessions(): Array<{ status: string; endedAt: number | null }> {
+  return getDb()
+    .select({
+      status: callSessions.status,
+      endedAt: callSessions.endedAt,
+    })
+    .from(callSessions)
+    .all();
 }
 
 function getLatestAssistantText(conversationId: string): string | null {
@@ -433,5 +452,57 @@ describe("startCall — pointer message regression", () => {
 
     expect(cancelResult.ok).toBe(true);
     expect(getActiveCallLease(startResult.session.id)).toBeNull();
+  });
+});
+
+describe("startCall: a stopped turn never dials", () => {
+  test("an already-cancelled turn creates no session and places no call", async () => {
+    const convId = "conv-domain-abort-before-setup";
+    ensureConversation(convId);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      startCall({
+        phoneNumber: "+12025550142",
+        task: "Test call",
+        conversationId: convId,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow();
+
+    expect(twilioInitiateCallCount).toBe(0);
+    expect(listActiveCallLeases()).toHaveLength(0);
+    expect(listCallSessions()).toHaveLength(0);
+  });
+
+  test("a cancel during setup releases the session it already created", async () => {
+    const convId = "conv-domain-abort-during-setup";
+    ensureConversation(convId);
+    const controller = new AbortController();
+    // The callback-URL lookups run after the session, its voice conversation
+    // and its lease exist, so this is the window the late recheck guards.
+    onResolveCallbackUrl = () => controller.abort();
+
+    await expect(
+      startCall({
+        phoneNumber: "+12025550142",
+        task: "Test call",
+        conversationId: convId,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow();
+
+    expect(twilioInitiateCallCount).toBe(0);
+    expect(listActiveCallLeases()).toHaveLength(0);
+
+    const sessions = listCallSessions();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0].status).toBe("cancelled");
+    expect(sessions[0].endedAt).toEqual(expect.any(Number));
+
+    // No failure pointer: the user stopped the turn, nothing went wrong.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(getLatestAssistantText(convId)).toBeNull();
   });
 });

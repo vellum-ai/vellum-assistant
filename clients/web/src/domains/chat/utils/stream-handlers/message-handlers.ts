@@ -19,6 +19,7 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { hasAnyInteractiveSurface } from "@/domains/chat/utils/chat";
+import { isSendUserMessageCall } from "@/domains/chat/utils/assistant-text-visibility";
 
 /**
  * Resolve the conversation id for SSE handlers — events that carry it on
@@ -220,9 +221,19 @@ export function handleAssistantActivityState(
     // this tab's indicator.
     const activeConversationId =
       useConversationStore.getState().activeConversationId;
-    ctx.turnActions.onActivityThinking(event.statusText, {
-      canStartFromIdle: convId != null && convId === activeConversationId,
+    // The daemon names the last completed tool in its label ("Processing
+    // <tool> results"). When that tool is the reply channel, the label
+    // describes a step the transcript suppresses everywhere else, so the turn
+    // reports activity with no label rather than one naming the tool.
+    const describesReplyTool = isSendUserMessageCall({
+      name: ctx.lastCompletedToolNameRef.current ?? "",
     });
+    ctx.turnActions.onActivityThinking(
+      describesReplyTool ? undefined : event.statusText,
+      {
+        canStartFromIdle: convId != null && convId === activeConversationId,
+      },
+    );
     recordDiagnostic("sse_activity_state_thinking_handled", {
       convId,
       reason: event.reason,

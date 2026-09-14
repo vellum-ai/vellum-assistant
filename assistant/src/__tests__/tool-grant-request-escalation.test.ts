@@ -282,6 +282,49 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     });
     expect(requests.length).toBe(0);
   });
+
+  test("sibling tool calls escalating concurrently each get their own request", async () => {
+    // The agent loop runs a turn's tool_use blocks under Promise.all, so two
+    // grant-gated calls reach the gateway create in the same tick. Each is a
+    // distinct invocation (different input digest), so each needs its own
+    // row; the create must never collide on the primary key.
+    const context = makeContext({ trustClass: "trusted_contact" });
+    const results = await Promise.all([
+      handler.checkPreExecutionGates(
+        "bash",
+        { command: "ls -la" },
+        context,
+        "high",
+        Date.now(),
+      ),
+      handler.checkPreExecutionGates(
+        "bash",
+        { command: "cat README.md" },
+        context,
+        "high",
+        Date.now(),
+      ),
+    ]);
+
+    // Both escalate and time out on the short inline wait: a denial for each,
+    // never a thrown persistence error that would fail the whole turn.
+    for (const result of results) {
+      expect(result.allowed).toBe(false);
+      if (result.allowed) {
+        return;
+      }
+      expect(result.result.content).toContain("guardian approval");
+    }
+
+    const requests = await sim.module.listGuardianRequestsOrEmpty({
+      kind: "tool_grant_request",
+      status: "pending",
+    });
+    expect(requests.length).toBe(2);
+    expect(new Set(requests.map((r) => r.id)).size).toBe(2);
+    expect(new Set(requests.map((r) => r.inputDigest)).size).toBe(2);
+    expect(emittedSignals.length).toBe(2);
+  });
 });
 
 // ---------------------------------------------------------------------------

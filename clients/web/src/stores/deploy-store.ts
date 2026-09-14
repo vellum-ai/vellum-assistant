@@ -19,7 +19,7 @@ import type { AppsByIdPublishPostResponse } from "@/generated/daemon/types.gen";
 import { t } from "@/i18n";
 import { createSelectors } from "@/utils/create-selectors";
 import { publishApp } from "@/utils/publish-app";
-import { shareApp as shareAppApi } from "@/utils/share-app";
+import { shareAppWithToast } from "@/utils/share-app-with-toast";
 import { toast } from "@vellumai/design-library";
 
 // ---------------------------------------------------------------------------
@@ -116,14 +116,14 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
     }
     set({ isSharing: true });
     try {
-      await shareAppApi(assistantId, appId, appName);
-      toast.success(t("deployStore.appExported"), {
-        description: `${appName}.vellum`,
-      });
-    } catch (err) {
-      toast.error(t("deployStore.shareFailed"), {
-        description: err instanceof Error ? err.message : undefined,
-      });
+      await shareAppWithToast(
+        assistantId,
+        { id: appId, name: appName },
+        {
+          exported: t("deployStore.appExported"),
+          failed: t("deployStore.shareFailed"),
+        },
+      );
     } finally {
       set({ isSharing: false });
     }

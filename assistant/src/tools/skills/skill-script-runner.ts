@@ -1,6 +1,7 @@
 import { join, resolve } from "node:path";
 
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
+import { isAbortLikeError } from "../shared/abort.js";
 import type { ExecutionTarget } from "../tool-types.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { runSkillToolScriptSandbox } from "./sandbox-runner.js";
@@ -112,6 +113,12 @@ export async function runSkillToolScript(
   try {
     return await module.run(input, context);
   } catch (err) {
+    // A cancellation is not a script failure. Re-throw it so the tool executor
+    // classifies the call as cancelled instead of reporting the abort reason
+    // as an opaque script error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: `Skill tool script "${executorPath}" threw an error: ${message}`,

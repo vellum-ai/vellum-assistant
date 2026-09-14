@@ -284,12 +284,12 @@ describe("HomeRecapRow on a device that cannot hover", () => {
         `button[aria-label="${label}"]`,
       );
 
-    // Behind the row until a swipe slides it away, hence `aria-hidden` and out
-    // of the tab path rather than exposed by role.
-    expect(swipeControl("Mark as read")?.getAttribute("aria-hidden")).toBe(
-      "true",
-    );
-    expect(swipeControl("Dismiss")?.getAttribute("aria-hidden")).toBe("true");
+    // Behind the row until a swipe slides it away, so not exposed by role:
+    // in the DOM, but hidden from the accessibility tree and the tab path.
+    expect(screen.queryByRole("button", { name: "Mark as read" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(swipeControl("Mark as read")).not.toBeNull();
+    expect(swipeControl("Dismiss")).not.toBeNull();
     expect(swipeControl("Go to thread")).toBeNull();
 
     fireEvent.click(swipeControl("Mark as read")!);

@@ -22,10 +22,23 @@ export const ACCESS_DENIED_NOT_APPROVED_REPLY =
   "Sorry, you haven't been approved to message this assistant.";
 
 /**
- * Plugin route the gateway posts the notice to, under
+ * Prefix, under `/x/plugins/<plugin>/`, of the routes reserved for notices
+ * the gateway posts to a plugin.
+ *
+ * The runtime serves every path under it to the gateway's service principal
+ * only (`assistant/src/runtime/routes/user-routes.ts`). A notice is the
+ * gateway's own verified decision, and a plugin acts on it without running a
+ * turn, so an authenticated client must not be able to post one: a forged
+ * notice would have the plugin spend its vendor credentials on a recipient
+ * and a message the client chose.
+ */
+export const PLUGIN_NOTICES_ROUTE_PREFIX = "notices";
+
+/**
+ * Plugin route the gateway posts the admission-denied notice to, under
  * `/v1/x/plugins/<plugin>/`. Not a public ingress path.
  */
-export const PLUGIN_ADMISSION_DENIED_NOTICE_PATH = "notices/admission-denied";
+export const PLUGIN_ADMISSION_DENIED_NOTICE_PATH = `${PLUGIN_NOTICES_ROUTE_PREFIX}/admission-denied`;
 
 export const PluginAdmissionDeniedNoticeSchema = z.object({
   reason: z.literal("admission_floor"),

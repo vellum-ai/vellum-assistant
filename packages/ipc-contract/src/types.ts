@@ -16,6 +16,8 @@
  *     etc.); those are retired by this package.
  */
 
+import { NOTIFICATION_AVATAR_MAX_LOCAL_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -204,6 +206,22 @@ export type VellumCommand =
    * that draws it also draws a way to stop.
    */
   | { kind: "toggleVoice" }
+  /**
+   * The user pressed a control the assistant was pointing at on the shared
+   * surface, which is the step it was walking them through being done.
+   *
+   * `label` is the control's own name as the surface reports it, the same
+   * word the assistant was told it had pointed at. The window holding the
+   * session puts the press to the call as the user's turn, so the assistant
+   * hears the step is done and says what comes next without anyone having to
+   * say so. A press on a surface with no session up lands nowhere, which is
+   * right: there is no one to tell.
+   *
+   * Like `annotateShare`, this does not raise the app. The user is working
+   * in the app they were pointed at, and the whole point is that they stay
+   * there.
+   */
+  | { kind: "coachmarkPressed"; label: string }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "replayHatchFailure" }
@@ -242,11 +260,7 @@ export type HotkeyEventState = "down" | "up";
 
 /** A modifier key a binding can be built from, as the helpers name them. */
 export type KeyboardModifier =
-  | "function"
-  | "control"
-  | "shift"
-  | "option"
-  | "command";
+  "function" | "control" | "shift" | "option" | "command";
 
 export type VoiceModeChordModifier = KeyboardModifier;
 
@@ -319,8 +333,7 @@ export interface HotkeyEvent {
 
 /** Whether a helper took a binding, or why it did not. */
 export type HotkeyRegistrationResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
 
@@ -329,8 +342,7 @@ export type VoiceModeChordRegistrationResult = HotkeyRegistrationResult;
  * with nothing else. `off` is a binding the user has cleared.
  */
 export type ModifierHold =
-  | { kind: "off" }
-  | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
+  { kind: "off" } | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
 
@@ -432,11 +444,7 @@ export type ConnectivityState = (typeof CONNECTIVITY_STATES)[number];
 // ---------------------------------------------------------------------------
 
 export type PowerEventKind =
-  | "suspend"
-  | "resume"
-  | "lock"
-  | "unlock"
-  | "active";
+  "suspend" | "resume" | "lock" | "unlock" | "active";
 
 export interface PowerEvent {
   kind: PowerEventKind;
@@ -514,8 +522,7 @@ export type DeepLink =
 // ---------------------------------------------------------------------------
 
 export type DictationPartialsResult =
-  | { ok: true; enabled: boolean }
-  | { ok: false; reason: string };
+  { ok: true; enabled: boolean } | { ok: false; reason: string };
 
 export interface DictationPartialEvent {
   text: string;
@@ -537,8 +544,7 @@ export type DictationOverlayState =
   | { kind: "error"; message: string };
 
 export type DictationOverlayMessage =
-  | DictationOverlayState
-  | { kind: "dismiss" };
+  DictationOverlayState | { kind: "dismiss" };
 
 /**
  * Where the overlay's Stop control sits, in window-relative CSS pixels.
@@ -713,6 +719,140 @@ export const NOTIFICATION_CATEGORIES = [
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
+/**
+ * What a notification avatar's SHA-256 has to look like: 64 lowercase hex
+ * characters. The hash names the file a host writes the avatar to, so anything
+ * else could escape the cache directory. Shared by the IPC boundary that
+ * accepts it and the cache that writes it.
+ */
+export const NOTIFICATION_AVATAR_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+/**
+ * The longest base64 payload the notification-avatar channel carries: base64
+ * of {@link NOTIFICATION_AVATAR_MAX_LOCAL_BYTES}, the cap the renderer drops a
+ * heavier render at. A payload past this is malformed rather than merely
+ * large, and the host has to cache it on disk, so the boundary refuses it
+ * instead of writing it. Derived from the byte cap rather than restated, so
+ * the two cannot drift.
+ */
+export const NOTIFICATION_AVATAR_BASE64_MAX_CHARS =
+  Math.ceil(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES / 3) * 4;
+
+export const NOTIFICATION_IDENTITY_MAX_CHARS = 512;
+export const NOTIFICATION_SENDER_NAME_MAX_CHARS = 256;
+export const NOTIFICATION_DELIVERY_KEY_MAX_CHARS = 512;
+
+export const NOTIFICATION_PRESENTATIONS = ["assistant", "app"] as const;
+export type NotificationPresentation =
+  (typeof NOTIFICATION_PRESENTATIONS)[number];
+
+export const NOTIFICATION_NAME_PROVENANCES = [
+  "event",
+  "identity-store",
+  "verified-memory",
+  "title",
+] as const;
+export type NotificationNameProvenance =
+  (typeof NOTIFICATION_NAME_PROVENANCES)[number];
+
+export const VERIFIED_NOTIFICATION_NAME_PROVENANCES = [
+  "event",
+  "identity-store",
+  "verified-memory",
+] as const;
+export type VerifiedNotificationNameProvenance =
+  (typeof VERIFIED_NOTIFICATION_NAME_PROVENANCES)[number];
+
+/** Stable routing identity captured before notification work becomes async. */
+export interface NotificationIdentity {
+  scopeId: string;
+  assistantId: string;
+  nativeSenderId: string;
+}
+
+export interface NotificationAvatar {
+  /** Base64 PNG with no data URL prefix. */
+  avatarBase64: string;
+  /** SHA-256 of the PNG as 64 lowercase hex characters. */
+  avatarHash: string;
+}
+
+/**
+ * The assistant a notification is from, for the platforms that render a sender
+ * rather than the app: its name goes on the first line and its notification
+ * avatar becomes the icon.
+ */
+export interface NotificationSender extends NotificationAvatar {
+  id: string;
+  name: string;
+}
+
+/**
+ * A verified identity snapshot prepared before a notification is posted.
+ * Hosts keep these snapshots in process memory only.
+ */
+export interface PrepareNotificationIdentityPayload {
+  identity: NotificationIdentity;
+  scopeEpoch: number;
+  identityRevision: number;
+  /** Identifies one renderer lifetime for native generation translation. */
+  publisherSessionId?: string;
+  name?: string;
+  nameProvenance?: VerifiedNotificationNameProvenance;
+  avatar?: NotificationAvatar;
+}
+
+/** Invalidates one assistant or every assistant in a captured scope. */
+export interface ResetNotificationIdentitiesPayload {
+  scopeId: string;
+  scopeEpoch: number;
+  /** Identifies one renderer lifetime for native generation translation. */
+  publisherSessionId?: string;
+  assistantId?: string;
+  /** Revision tombstone for a targeted reset within the current scope epoch. */
+  identityRevision?: number;
+}
+
+/** Starts one renderer lifetime before it can publish native identity state. */
+export interface RegisterNotificationIdentityPublisherPayload {
+  publisherSessionId: string;
+}
+
+export interface NotificationDeliveryIdentifiers {
+  correlationId?: string;
+  deliveryId?: string;
+  requestKey?: string;
+}
+
+/** Resolve the full process-local deduplication key without truncation. */
+export function resolveNotificationDeliveryKey(
+  identifiers: NotificationDeliveryIdentifiers,
+): string | null {
+  for (const candidate of [
+    identifiers.correlationId,
+    identifiers.deliveryId,
+    identifiers.requestKey,
+  ]) {
+    const trimmed = candidate?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+export type NotificationDeliveryResult =
+  | { status: "posted" }
+  | { status: "duplicate" }
+  | { status: "blocked"; reason?: string }
+  | {
+      status: "failed";
+      postingMayHaveBegun: boolean;
+      errorMessage?: string;
+    }
+  | { status: "unknown"; errorMessage?: string }
+  | { status: "unavailable"; reason?: string };
+
 /** Renderer → main payload for posting a native notification. */
 export interface ShowNotificationPayload {
   category: NotificationCategory;
@@ -722,6 +862,21 @@ export interface ShowNotificationPayload {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  correlationId?: string;
+  requestKey?: string;
+  /** Absent on legacy payloads. Missing presentation never enables cache use. */
+  presentation?: NotificationPresentation;
+  /** Scoped routing identity for prepared sender lookup and tap handling. */
+  identity?: NotificationIdentity;
+  /** Identifies which name source was selected for assistant presentation. */
+  nameProvenance?: NotificationNameProvenance;
+  /** Omits duplicate group/subtitle text when the title supplies the name. */
+  suppressGroupTitle?: boolean;
+  /**
+   * Absent unless the renderer has a notification avatar to send, which leaves
+   * the notification with the app icon and the title on line one.
+   */
+  sender?: NotificationSender;
 }
 
 export type TextInsertionResult =
@@ -749,6 +904,9 @@ export interface NotificationActionEvent {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  correlationId?: string;
+  requestKey?: string;
+  identity?: NotificationIdentity;
 }
 
 // ---------------------------------------------------------------------------
@@ -803,12 +961,7 @@ export interface BundleScanData {
 // ---------------------------------------------------------------------------
 
 export type UpdateStatus =
-  | "idle"
-  | "checking"
-  | "available"
-  | "downloading"
-  | "downloaded"
-  | "error";
+  "idle" | "checking" | "available" | "downloading" | "downloaded" | "error";
 
 export interface UpdateState {
   status: UpdateStatus;
@@ -872,8 +1025,7 @@ export interface Lockfile {
 }
 
 export type LockfileWriteResult =
-  | { ok: true; lockfile: Lockfile }
-  | { ok: false; error: string };
+  { ok: true; lockfile: Lockfile } | { ok: false; error: string };
 
 export type LocalAssistantRuntimeState =
   | "healthy"
@@ -936,6 +1088,31 @@ export type CompanionGrowth = (typeof COMPANION_GROWTHS)[number];
 export const COMPANION_CARD_GROWTHS = ["up", "down"] as const;
 
 export type CompanionCardGrowth = (typeof COMPANION_CARD_GROWTHS)[number];
+
+/**
+ * Which edge of the display the call's bar rests on.
+ *
+ * A call takes the surface to an edge the way a meeting's controls sit on one,
+ * and the user picks which by dropping the bar there mid-call. `bottom` is the
+ * shape the bar is designed around. Along the top and bottom the bar keeps its
+ * row; along the sides it stands up as a column, since a row lying against a
+ * side edge would reach into the middle of the screen.
+ *
+ * Main decides and remembers it, for the reason it decides the growths: the
+ * edge is a fact about where the window was put, and the renderer has to be
+ * told it to draw the bar the way the window was placed for.
+ */
+export const COMPANION_DOCKS = ["bottom", "top", "left", "right"] as const;
+
+export type CompanionDock = (typeof COMPANION_DOCKS)[number];
+
+/**
+ * Whether a dock stands the bar up. Named once, since both sides of the bridge
+ * branch on it: main sizes the canvas for the column and the renderer draws
+ * one.
+ */
+export const companionDockIsSide = (dock: CompanionDock): boolean =>
+  dock === "left" || dock === "right";
 
 /**
  * How big the companion is drawn, as a named step rather than a number.
@@ -1400,14 +1577,32 @@ export type DictationOfferAnswer = "use" | "quit" | "copy" | "dismiss";
  * so by the time a target exists the tab has become a window.
  */
 export type WatchCaptureTarget =
-  | { kind: "display"; displayId: number }
-  | { kind: "window"; windowId: number };
+  { kind: "display"; displayId: number } | { kind: "window"; windowId: number };
 
 /**
  * Which edge of a drawing an `annotateShare` command is: the hand still on
  * it, or the hand off it. See the command.
  */
 export type CompanionAnnotationPhase = "drawing" | "released";
+
+/**
+ * What a press on the shared surface draws: the pointer's own path, or a
+ * shape stretched between the press and the release.
+ *
+ * `freehand` is the hand's path as it went. The other three are the shapes
+ * a hand cannot draw cleanly over someone else's work: a line between two
+ * points, the box on the drag's corners, and the ellipse inscribed in that
+ * box. Main holds which one is current ({@link CompanionSurfaceState.annotationTool}),
+ * since the pill chooses it and the frame draws with it.
+ */
+export const COMPANION_ANNOTATION_TOOLS = [
+  "freehand",
+  "line",
+  "box",
+  "circle",
+] as const;
+export type CompanionAnnotationTool =
+  (typeof COMPANION_ANNOTATION_TOOLS)[number];
 
 /**
  * One mark the user drew over the shared surface, as the points the pointer
@@ -1419,10 +1614,12 @@ export type CompanionAnnotationPhase = "drawing" | "released";
  * is the one description both agree on, and it survives the scaling that
  * happens between them.
  *
- * A polyline rather than a shape, because the user is drawing freehand and a
- * circle they made is not a circle anything should straighten. Thinned on the
- * way in ({@link COMPANION_ANNOTATION_MIN_STEP}), so a slow hand does not send
- * a point per frame.
+ * A polyline whatever the tool was. A freehand circle is not a circle anything
+ * should straighten, and a shape tool's line, box or ellipse is sent as the
+ * points along it rather than as a shape, so the frame it is drawn onto needs
+ * one idea of what a mark is. Thinned on the way in
+ * ({@link COMPANION_ANNOTATION_MIN_STEP}), so a slow hand does not send a
+ * point per frame.
  */
 export interface CompanionAnnotationStroke {
   points: readonly { x: number; y: number }[];
@@ -1523,8 +1720,7 @@ export interface CompanionCoachmarkPoint {
  * place.
  */
 export type CompanionCoachmark =
-  | CompanionCoachmarkRegion
-  | CompanionCoachmarkPoint;
+  CompanionCoachmarkRegion | CompanionCoachmarkPoint;
 
 /**
  * How many marks stand at once, and how long a caption may be.
@@ -1552,10 +1748,7 @@ export const COMPANION_COACHMARK_CAPTION_MAX = 80;
  * many words that it must not reach into the windows for anything.
  */
 export type CoachmarkRefusal =
-  | "unshared"
-  | "not-this-call"
-  | "stale-surface"
-  | "superseded";
+  "unshared" | "not-this-call" | "stale-surface" | "superseded";
 
 /**
  * One thing to point at: a control named, or a rectangle given.
@@ -1935,6 +2128,26 @@ export interface CompanionSurfaceState {
    */
   cardGrowth: CompanionCardGrowth;
   /**
+   * Which edge of the display the call's bar rests on. See
+   * {@link CompanionDock}.
+   *
+   * Optional, and absence means a shell that predates the docks, which the
+   * renderer reads as `bottom`: the one edge every shell has ever put the bar
+   * on.
+   */
+  dock?: CompanionDock;
+  /**
+   * The edge a call's drag would drop the bar on if the hand let go now, or
+   * absent while no such drag is in flight.
+   *
+   * Set for the length of the drag and cleared on the release, so the window
+   * that shows the four edges as places to drop on knows which one to light.
+   * Absent rather than `null` outside a drag, for the reason `dock` is
+   * optional: a shell that has never heard of docks pushes the same shape as
+   * one between drags.
+   */
+  docking?: CompanionDock;
+  /**
    * The avatar's box in points, which is the creature's whole scale.
    *
    * Numbers rather than the named sizes, because a name is a lookup both sides
@@ -2061,6 +2274,34 @@ export interface CompanionSurfaceState {
    * about where the next click goes.
    */
   annotating?: boolean;
+  /**
+   * What a press on the frame draws while `annotating`: the pointer's path or
+   * one of the shapes. See {@link CompanionAnnotationTool}.
+   *
+   * Main's, alongside `annotating` and for the same reason: the pill is where
+   * it is chosen and the frame is where it is drawn with, and the two are
+   * different windows. Kept across the mode going off and on, so the tool a
+   * user reached for is the one under their hand next time. Absent on a shell
+   * that predates it, which reads as freehand, the one tool that shell had.
+   */
+  annotationTool?: CompanionAnnotationTool;
+
+  /**
+   * How many times the user has cleared the shared surface from the pill.
+   *
+   * A running count rather than an event, the way `captureCount` is. The
+   * frame's drawing layer holds the user's own ink and main never sees it,
+   * so a press on the pill reaches that ink only on the state everything
+   * else reaches it on. A step in the number is one clear. The value a
+   * window mounts with is history, since main replays its state into a
+   * window it has just opened, and a layer that dropped its ink on the
+   * replay would be clearing for a press made before it existed.
+   *
+   * The assistant's marks need no such signal: main holds those and takes
+   * them down itself. Absent on a shell that predates the control, which
+   * reads as no clears yet.
+   */
+  marksCleared?: number;
 
   /**
    * What the assistant is pointing at on the shared surface, drawn on the

@@ -1,15 +1,25 @@
 /**
- * `assistant channels` — inspect messaging channels.
+ * `assistant channels`: inspect messaging channels, and act as their bots.
  *
- *   list                     — overview of every channel + ready state
- *   get <channel>            — detailed live snapshot of a single channel
+ *   list                          : overview of every channel + ready state
+ *   get <channel>                 : detailed live snapshot of a single channel
+ *   request <channel> <url>       : call the channel's platform API as its bot
+ *   send <channel> <chat-id>      : post text to a chat, recorded
  *
  * `get` always re-runs remote probes (it invalidates the readiness cache
  * before reading), so the CLI answer matches the live source-of-truth.
  *
- * A mutating `refresh` verb (for reconnecting channels — e.g. supplying
- * fresh Slack tokens) is intentionally not shipped here; it will land in
- * its own PR.
+ * `request` is the bot-identity door (see ./request.ts): it resolves the
+ * channel's bot credential and makes the same authenticated request
+ * `oauth request` makes, without the caller naming a provider.
+ *
+ * `send` is the send door (see ./send.ts): it runs the daemon's one send
+ * implementation for the channel, so the post is threaded, rendered, and
+ * recorded like every other message the assistant sends there. Posting
+ * through `request` instead reaches the platform API and leaves no record.
+ *
+ * A mutating `refresh` verb (for reconnecting channels, e.g. supplying
+ * fresh Slack tokens) is intentionally not part of this group.
  */
 
 import type { Command } from "commander";
@@ -21,6 +31,8 @@ import { registerCommand } from "../../lib/register-command.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import { CHANNELS_PLUGIN_SEARCH_HINT, channelsHelp } from "./index.help.js";
+import { registerChannelsRequestCommand } from "./request.js";
+import { registerChannelsSendCommand } from "./send.js";
 
 // ---------------------------------------------------------------------------
 // Snapshot shape
@@ -200,6 +212,18 @@ export function registerChannelsCommand(program: Command): void {
           }
         },
       );
+
+      // -----------------------------------------------------------------------
+      // request: call the channel's platform API as its bot
+      // -----------------------------------------------------------------------
+
+      registerChannelsRequestCommand(channels);
+
+      // -----------------------------------------------------------------------
+      // send: post text to a chat, through the channel's transport
+      // -----------------------------------------------------------------------
+
+      registerChannelsSendCommand(channels);
     },
   });
 }

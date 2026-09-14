@@ -23,6 +23,7 @@ mock.module("@/hooks/conversation-queries", () => ({
   useBackgroundConversationListQuery: () => ({ conversations: [] }),
   useScheduledConversationListQuery: () => ({ conversations: [] }),
   useArchivedConversationListQuery: () => ({ conversations: [] }),
+  useSectionConversationListQuery: () => ({ conversations: [] }),
 }));
 
 // Spread the real modules and override only what this suite drives:
@@ -56,9 +57,8 @@ mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
 }));
 
-const { useAttentionTracking } = await import(
-  "@/domains/chat/hooks/use-attention-tracking"
-);
+const { useAttentionTracking } =
+  await import("@/domains/chat/hooks/use-attention-tracking");
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({

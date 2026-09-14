@@ -21,6 +21,7 @@ import {
   companionAnnotationInkSchema,
   companionAnnotationPhaseSchema,
   companionAnnotationStrokeSchema,
+  companionAnnotationToolSchema,
   COMPANION_ANNOTATION_MAX_STROKES,
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
@@ -28,6 +29,7 @@ import {
   COMPANION_INTRO_BEATS,
   companionBoxFor,
   companionCardSideFor,
+  companionDockIsSide,
   companionGapFor,
   companionNearEdgeFor,
   companionPadFor,
@@ -40,8 +42,10 @@ import {
   type CoachmarkUnresolved,
   namesATarget,
   type PlacedCoachmark,
+  type CompanionAnnotationTool,
   type CompanionCardGrowth,
   type CompanionCoachmark,
+  type CompanionDock,
   type CompanionGrowth,
   type CompanionContext,
   type CompanionIntroAction,
@@ -59,9 +63,11 @@ import {
   readSetting,
 } from "@vellumai/electron-desktop/settings";
 import {
+  readCompanionCallDock,
   readCompanionHidden,
   readCompanionIntroSeen,
   readCompanionSize,
+  writeCompanionCallDock,
   writeCompanionIntroSeen,
   writeCompanionSize,
   writeCompanionHidden,
@@ -89,7 +95,13 @@ import {
   resolveCapturePick,
   windowBoundsFor,
 } from "./companion-capture-sources";
+import {
+  unwatchCoachmarkPress,
+  watchCoachmarkPress,
+  type CoachmarkPressRect,
+} from "./coachmark-press-watch";
 import { setPointerOnCompanion } from "./companion-pointer";
+import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
 import {
@@ -223,10 +235,21 @@ export interface CompanionGeometry {
  * process, which is what the fixed canvas exists to avoid. It *is* resized when
  * the user picks a different size on either axis, which is a deliberate,
  * one-off event rather than something that happens mid-gesture.
+ *
+ * A call docked to a side of the display is the other such event. The bar
+ * stands up as a column centred on the avatar, and a column reaches as far
+ * below the avatar as above it, where the canvas above keeps only the near
+ * edge below. So for a side dock the canvas is symmetric about the avatar
+ * instead: as tall each way as the column's half length, the gap, the creature
+ * standing at the column's end and the pad. Taller below than the ordinary
+ * canvas, which the window server allows (the canvas may hang off the bottom
+ * of a display), and shorter above, which is what keeps the avatar reachable
+ * near the top on a display shorter than the ordinary canvas is wide.
  */
 export const geometryFor = (
   avatar: CompanionSize,
   options: CompanionSize,
+  dock: CompanionDock = "bottom",
 ): CompanionGeometry => {
   const avatarBox = companionBoxFor("avatar", avatar);
   const optionsBox = companionBoxFor("options", options);
@@ -258,13 +281,30 @@ export const geometryFor = (
   // drawing the creature on another, and a card side is a ceiling with slack in
   // it where a near edge is the line itself.
   const riseAbove = canvasHeight - dropBelow;
+  // Twice a whole half rather than a whole total. The renderer puts the
+  // avatar on the canvas's centre line, so an odd width would stand the
+  // creature on a half point and a resize would not land back on it.
+  const canvasWidth = Math.round(maxReach + pad) * 2;
+  if (companionDockIsSide(dock)) {
+    // Half the column's greatest length, then the gap and the whole of the
+    // creature standing at its end, then the pad: the same reach the width
+    // holds for the row, read up from the avatar's centre. Whole for the
+    // reason the width is twice a whole half.
+    const sideHalf = Math.round(maxPillWidth / 2 + gap + avatarBox + pad);
+    return {
+      avatarBox,
+      optionsBox,
+      canvasWidth,
+      canvasHeight: sideHalf * 2,
+      riseAbove: sideHalf,
+      dropBelow: sideHalf,
+      maxReach,
+    };
+  }
   return {
     avatarBox,
     optionsBox,
-    // Twice a whole half rather than a whole total. The renderer puts the
-    // avatar on the canvas's centre line, so an odd width would stand the
-    // creature on a half point and a resize would not land back on it.
-    canvasWidth: Math.round(maxReach + pad) * 2,
+    canvasWidth,
     canvasHeight,
     riseAbove,
     dropBelow,
@@ -309,12 +349,49 @@ let growth: CompanionGrowth = "right";
 let cardGrowth: CompanionCardGrowth = "up";
 
 /**
+ * Which edge of the display a call takes the bar to. See `CompanionDock`.
+ *
+ * Read from the store at startup and replaced when the user drops the bar on
+ * another edge mid-call. Held beside {@link growth} for the same reason: it is
+ * a fact about where the window is put, and the renderer has to be told it to
+ * draw the bar the way the window was placed for.
+ */
+let dock: CompanionDock = readCompanionCallDock();
+
+/**
+ * The edge a call's drag would drop the bar on if the hand let go now, or
+ * `null` while no such drag is in flight.
+ *
+ * Set on each move of a drag during a call and cleared by the release. The
+ * window showing the four edges reads it off the pushed state to light one,
+ * and the release reads it to know where to send the bar.
+ */
+let docking: CompanionDock | null = null;
+
+/**
+ * How far a press has carried the bar since it began, in points, while a
+ * call has the surface.
+ *
+ * A press is a drag once it has travelled this far and a click until then,
+ * the same slop the renderer keeps for its own click. The renderer reports
+ * every move of a held button, jitter included, so without this a click on
+ * the creature mid-call would flash the four edges for a frame and glide the
+ * bar a point back to its dock.
+ */
+const DOCK_DRAG_SLOP = 3;
+let dockDragTravel = 0;
+
+/**
  * The canvas the surface is currently drawn in.
  *
  * Read from the store at startup and replaced when the user picks a different
- * size. Held rather than derived per call because it is what every position
+ * size, and when a call docks the bar to a side of the display or ends there.
+ * Held rather than derived per call because it is what every position
  * computed here is measured in, and reading the store on each mouse-move of a
  * drag would be a file read per frame.
+ *
+ * Built for the bottom at startup whatever the remembered dock: no call is
+ * running, and the canvas a side dock needs is the call's alone.
  */
 let geometry: CompanionGeometry = geometryFor(
   readCompanionSize("avatar"),
@@ -452,6 +529,15 @@ const WATCH_FRAME_KIND = "companion-watch-frame";
 const WATCH_FRAME_ROUTE = "/floating/companion-watch-frame";
 
 /**
+ * The edges a call's drag can drop the bar on, drawn over the display the
+ * drag is on for as long as it is in flight. Its own click-through window the
+ * size of the work area, like the frame and for the same reason: the surface's
+ * canvas is sized for the pill, and the edges are the display's.
+ */
+const DOCK_ZONES_KIND = "companion-dock-zones";
+const DOCK_ZONES_ROUTE = "/floating/companion-dock-zones";
+
+/**
  * How often the frame asks where a picked window is.
  *
  * A window the user is dragging moves every frame, and nothing tells this
@@ -574,6 +660,9 @@ const currentState = (): CompanionSurfaceState => {
   return {
     growth,
     cardGrowth,
+    dock,
+    // Absent rather than null between drags, as the contract has it.
+    docking: docking ?? undefined,
     avatarBox: geometry.avatarBox,
     optionsBox: geometry.optionsBox,
     character: character === null ? undefined : character,
@@ -614,8 +703,10 @@ const currentState = (): CompanionSurfaceState => {
     // starts capturing the user's screen, so not knowing reads as not offering.
     screenShareEnabled: context.screenShareEnabled === true,
     // Main's own, along with the marks below. Every line above passes on what
-    // the app's window said; these two are what main did with its frame.
+    // the app's window said; these are what main did with its frame.
     annotating,
+    marksCleared,
+    annotationTool,
     // Absent rather than empty, so a surface reads one shape for nothing
     // being pointed at whether the shell holds marks or has never heard of
     // them.
@@ -808,6 +899,85 @@ export const defaultAvatarCentre = (
 });
 
 /**
+ * Where the avatar's centre goes for a call docked to an edge of the display.
+ *
+ * The bottom is {@link defaultAvatarCentre}, which is where every call has
+ * ever put the bar. The top is asked for at the work area's own top line and
+ * left to {@link placeCanvas} to settle as high as the window server allows,
+ * since the canvas above the avatar is what decides that and the clamp already
+ * knows it. The sides stand the bar up as a column centred on the avatar, so
+ * the avatar goes to the display's vertical centre and the same margin in from
+ * the edge the bottom keeps up from its own: the column's cross reach is the
+ * bar's half box and its lit edge, which is the same number the bottom
+ * measures its margin from (see `companionLowerReachFor`).
+ *
+ * Exported for its tests and pure for the same reason as {@link placeCanvas}.
+ */
+export const dockedAvatarCentre = (
+  dock: CompanionDock,
+  workArea: { x: number; y: number; width: number; height: number },
+  geometry: CompanionGeometry,
+): { x: number; y: number } => {
+  const reach = companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
+  switch (dock) {
+    case "bottom":
+      return defaultAvatarCentre(workArea, geometry);
+    case "top":
+      return { x: workArea.x + workArea.width / 2, y: workArea.y };
+    case "left":
+      return {
+        x: workArea.x + DEFAULT_MARGIN + reach,
+        y: workArea.y + workArea.height / 2,
+      };
+    case "right":
+      return {
+        x: workArea.x + workArea.width - DEFAULT_MARGIN - reach,
+        y: workArea.y + workArea.height / 2,
+      };
+  }
+};
+
+/**
+ * The edge a bar dropped at a point would dock to: whichever of the four is
+ * closest to it.
+ *
+ * Plain distance rather than a fraction of the display's size, so the answer
+ * is the edge the hand is nearest, which is the edge it was dragging toward.
+ * A point equally far from two edges goes to the earlier of the two in the
+ * order the docks are named, which puts the bottom first: it is the edge the
+ * bar is designed around, so a tie resolves to the shape the user already
+ * knows.
+ *
+ * Exported for its tests, as {@link growthFor} is.
+ */
+export const nearestDock = (
+  point: { x: number; y: number },
+  workArea: { x: number; y: number; width: number; height: number },
+): CompanionDock => {
+  const distances: [CompanionDock, number][] = [
+    ["bottom", workArea.y + workArea.height - point.y],
+    ["top", point.y - workArea.y],
+    ["left", point.x - workArea.x],
+    ["right", workArea.x + workArea.width - point.x],
+  ];
+  return distances.reduce((nearest, candidate) =>
+    candidate[1] < nearest[1] ? candidate : nearest,
+  )[0];
+};
+
+/**
+ * Which dock the canvas is currently built for: the remembered one while a
+ * call has the surface, and the bottom otherwise.
+ *
+ * The bottom outside a call whatever the user last dropped the bar on, because
+ * the side dock's canvas is the column's and the idle pill is a row hanging
+ * off the creature with the introduction's card above it, which is the shape
+ * the ordinary canvas is sized for.
+ */
+const canvasDock = (): CompanionDock =>
+  callSurfaceFor(call, dialing) ? dock : "bottom";
+
+/**
  * Where the surface opens with no remembered position: the bottom centre of
  * the display under the cursor.
  *
@@ -831,8 +1001,9 @@ const pushState = (): void => {
   const state = currentState();
   // The glow reads the same state the surface does, for the same reason the
   // surface holds none of it: one push, two windows, no second idea of which
-  // call is running or what colour it is.
-  for (const kind of [COMPANION_KIND, WATCH_FRAME_KIND]) {
+  // call is running or what colour it is. The edges a call's drag can drop
+  // the bar on read it the same way, for which of them to light.
+  for (const kind of [COMPANION_KIND, WATCH_FRAME_KIND, DOCK_ZONES_KIND]) {
     const win = getFloatingWindow(kind);
     if (win) {
       win.webContents.send("vellum:companion:state", state);
@@ -1078,6 +1249,18 @@ const glideAvatarTo = (
 let annotating = false;
 
 /**
+ * What a press on the frame draws while {@link annotating}: the pointer's
+ * path, or a shape between press and release.
+ *
+ * Main's for the reason the mode is: the pill is where it is chosen and the
+ * frame is where it is drawn with, and both read it back off the pushed state.
+ * Not lowered with the mode or the share. It decides nothing about where a
+ * click goes, so there is nothing for a stale value to take, and a user who
+ * reached for the box last time expects it under their hand again.
+ */
+let annotationTool: CompanionAnnotationTool = "freehand";
+
+/**
  * Whether the frame is drawn around the shared surface: something is shared,
  * and the frame is around *that*.
  *
@@ -1094,9 +1277,67 @@ let annotating = false;
 const framesTheShare = (): boolean =>
   context.watching !== true && context.screenShare !== undefined;
 
-/** Give the frame the mouse, or give it back to the desktop. */
+/**
+ * Whether the frame has handed the mouse back to the desktop for a scroll,
+ * while the mode stays on.
+ *
+ * A frame taking presses takes the wheel with them, and a transparent window
+ * the size of the shared surface that eats every wheel event is a shared
+ * app the user cannot scroll or move through. Nothing on the desktop forwards
+ * a wheel event through a window that is taking the mouse, so the frame
+ * steps aside instead: the renderer reports the first wheel event it
+ * receives, the frame goes click-through with mouse-move forwarded so the
+ * rest of that scroll reaches the app underneath, and the frame takes the
+ * mouse back when the scroll ends. Two things say it has. The renderer
+ * reports the first move it is forwarded, since a hand that has moved the
+ * pointer is pointing at something again. The mac helper reports the scroll
+ * stopping, since a hand that scrolls and then presses without moving the
+ * pointer is one the renderer would never hear from, and the press would
+ * land on the app.
+ *
+ * Main's for the reason {@link annotating} is: it decides what a window main
+ * opened does with the mouse.
+ */
+let frameScrolling = false;
+
+/**
+ * Give the frame the mouse, or give it back to the desktop.
+ *
+ * Forwarded mouse-move only while the frame has stepped aside for a scroll:
+ * that is the one state in which the renderer has to see the pointer without
+ * holding it, so it can ask for the mouse back. Off the mode, nothing is
+ * forwarded, since there is nothing on the frame to point at and a forwarded
+ * move over a display-sized window is a move on every pixel of the screen.
+ *
+ * Key status goes with the mouse. Chromium on macOS puts a page's cursor on
+ * the pointer only while the page's window is the key window, and a window
+ * opened `focusable: false` can never be one, so the pencil the layer hangs
+ * on the pointer would never show and the user would have nothing to say the
+ * mode took. Lent with `setFocusable` and then `focus`, which on a panel
+ * makes it key without bringing Vellum forward, and released with
+ * `setFocusable` alone: `blur` would flash the frame and drop it to the back
+ * of its level, and `setFocusable(false)` does not resign key on macOS, so
+ * the keyboard returns to the user's app on their next press in it rather
+ * than the moment the mode ends. Left key across a scroll the frame stepped
+ * aside for, since the mode is still on and the mouse is coming back.
+ */
 const applyFrameMouse = (): void => {
-  getFloatingWindow(WATCH_FRAME_KIND)?.setIgnoreMouseEvents(!annotating);
+  const frame = getFloatingWindow(WATCH_FRAME_KIND);
+  if (frame === null) {
+    return;
+  }
+  if (!annotating) {
+    frame.setIgnoreMouseEvents(true);
+    frame.setFocusable(false);
+    return;
+  }
+  if (frameScrolling) {
+    frame.setIgnoreMouseEvents(true, { forward: true });
+    return;
+  }
+  frame.setIgnoreMouseEvents(false);
+  frame.setFocusable(true);
+  frame.focus();
 };
 
 /**
@@ -1106,6 +1347,11 @@ const applyFrameMouse = (): void => {
  * Idempotent, and run after every change to the context as well as on the
  * press: a mode left on over a share that ended is a transparent window
  * eating every click on that display.
+ *
+ * Either edge forgets a scroll the frame stepped aside for. The mode going
+ * on is the user asking for the mouse, whatever the pointer was doing before
+ * the press; the mode going off leaves nothing for the scroll to have stepped
+ * aside from.
  */
 const setAnnotating = (next: boolean): void => {
   const resolved = next && framesTheShare();
@@ -1113,8 +1359,40 @@ const setAnnotating = (next: boolean): void => {
     return;
   }
   annotating = resolved;
+  frameScrolling = false;
+  unwatchFrameScroll();
   applyFrameMouse();
   pushState();
+};
+
+/** Choose what the frame draws with. Settles: choosing the current tool pushes nothing. */
+const setAnnotationTool = (next: CompanionAnnotationTool): void => {
+  if (next === annotationTool) {
+    return;
+  }
+  annotationTool = next;
+  pushState();
+};
+
+/**
+ * Step aside for a scroll on the frame, or take the mouse back after one.
+ *
+ * Refused off the mode rather than remembered: a frame that is not taking
+ * presses has no mouse to hand back, and a scroll recorded against the next
+ * time the mode goes on would open it click-through.
+ */
+const setFrameScrolling = (next: boolean): void => {
+  const resolved = next && annotating;
+  if (resolved === frameScrolling) {
+    return;
+  }
+  frameScrolling = resolved;
+  if (resolved) {
+    watchFrameScroll(() => setFrameScrolling(false));
+  } else {
+    unwatchFrameScroll();
+  }
+  applyFrameMouse();
 };
 
 /**
@@ -1161,6 +1439,18 @@ let coachmarkTarget: WatchCaptureTarget | undefined;
 let coachmarkRequests = 0;
 
 /**
+ * How many times the user has cleared the shared surface from the pill.
+ *
+ * The assistant's marks are main's and come down here directly. The user's
+ * own ink is the frame window's, drawn there and never seen by main, so the
+ * only way a press on the pill reaches it is on the pushed state: this steps
+ * on every clear, and the drawing layer drops its ink on the step. A count
+ * rather than a flag, since a flag would have to be lowered again, and a
+ * window that mounted between the raise and the lower would never see it.
+ */
+let marksCleared = 0;
+
+/**
  * The surface of the last frame this process handed to the window holding the
  * session, or nothing before it has served one.
  *
@@ -1191,8 +1481,93 @@ const sameCaptureTarget = (
   return b.kind === "window" && a.windowId === b.windowId;
 };
 
-/** Point at things on the shared surface, or take down what is pointed at. */
-const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
+/**
+ * A pointed-at control the user can press, and what to call it when they do.
+ *
+ * Only a control found by name has one. Its rectangle is the frame the tree
+ * reported for it, in screen points, which is the one description of where
+ * a press would land that does not go through the picture. A ring drawn from
+ * bounds the model gave is an extent someone means, not a button, and a
+ * press inside it says nothing about a step.
+ */
+interface CoachmarkPress {
+  /**
+   * The control's hit area as fractions of the surface it was found on, the
+   * way the mark's centre is. A window share moves, and the frame follows
+   * it; a rectangle kept in screen points would stay where the control was,
+   * so it is kept the way the mark is and measured out again wherever the
+   * frame is now.
+   */
+  rect: CoachmarkPressRect;
+  /** The control's own name, for the turn the press becomes. */
+  label: string;
+}
+
+const NO_PRESSES: readonly CoachmarkPress[] = [];
+
+/** The presses the marks on screen can be heard as, if any. */
+let coachmarkPresses: readonly CoachmarkPress[] = NO_PRESSES;
+
+/**
+ * Ask the helper to watch the presses where they are now. The rectangles it
+ * is given are in screen points, which is the one thing it tests a press
+ * against, and they are measured out on the frame's bounds each time rather
+ * than kept: the frame is the surface the marks are drawn on, and asking it
+ * is what keeps a press and its mark the same rectangle wherever the frame
+ * has followed the window to. Run again whenever the frame moves.
+ */
+const armCoachmarkPressWatch = (): void => {
+  const presses = coachmarkPresses;
+  const surface = getFloatingWindow(WATCH_FRAME_KIND)?.getBounds() ?? null;
+  if (surface === null || presses.length === 0) {
+    unwatchCoachmarkPress();
+    return;
+  }
+  watchCoachmarkPress(
+    presses.map((press) => ({
+      x: surface.x + press.rect.x * surface.width,
+      y: surface.y + press.rect.y * surface.height,
+      width: press.rect.width * surface.width,
+      height: press.rect.height * surface.height,
+    })),
+    (index) => {
+      const press = presses[index];
+      if (press !== undefined) {
+        onCoachmarkPressed(press);
+      }
+    },
+  );
+};
+
+/**
+ * The user pressed the control a mark was pointing at.
+ *
+ * The marks come down first: the step they described is done, and a mark
+ * left on a button that has just been pressed is one the user has to work
+ * out is stale. Then the press goes to the window holding the call, which
+ * puts it to the assistant as the user's turn. Main cannot say it itself,
+ * since the call lives in the renderer; the command is how the surface has
+ * always reached it.
+ */
+const onCoachmarkPressed = (press: CoachmarkPress): void => {
+  setCoachmarks(NO_COACHMARKS);
+  dispatchToMain({ kind: "coachmarkPressed", label: press.label });
+};
+
+/**
+ * Point at things on the shared surface, or take down what is pointed at.
+ *
+ * `presses` are the marks among `next` the user can press, which is how the
+ * step a mark describes is heard to be done. Asked for beside the marks
+ * rather than kept with them, because the
+ * renderer draws the marks and has no use for a hit area, and because they
+ * are one-shot where the marks are not: a press consumes the watch and
+ * leaves the marks to whoever asked for them.
+ */
+const setCoachmarks = (
+  next: readonly CompanionCoachmark[],
+  presses: readonly CoachmarkPress[] = NO_PRESSES,
+): void => {
   const resolved = framesTheShare() ? next : NO_COACHMARKS;
   if (resolved.length > 0) {
     // A mark says go and press that, so the press has to reach the app under
@@ -1203,6 +1578,13 @@ const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
     // pressing Draw again gets it back.
     setAnnotating(false);
   }
+  // Before the settle below, because the watch is armed by a request and
+  // not by the marks changing: pointing at the same control twice is two
+  // steps, and the second one's press has to be heard too. Marks coming
+  // down for any reason take the watch with them, since a press on a
+  // control nothing points at is not a step being done.
+  coachmarkPresses = resolved === NO_COACHMARKS ? NO_PRESSES : presses;
+  armCoachmarkPressWatch();
   const against = resolved === NO_COACHMARKS ? undefined : context.screenShare;
   if (resolved === coachmarks && sameCaptureTarget(against, coachmarkTarget)) {
     return;
@@ -1228,6 +1610,31 @@ const syncCoachmarks = (): void => {
     return;
   }
   setCoachmarks(NO_COACHMARKS);
+};
+
+/**
+ * Take down everything on the shared surface, from the pill: the assistant's
+ * marks, and the user's own ink.
+ *
+ * Nothing about the share moves. The frame stays up, the mode stays where it
+ * was, and the marks go. Counted as a request the way `screen_clear_marks`
+ * is, so a lookup still out when the press lands is refused when it answers
+ * rather than putting back what the user just took down. Refused off the
+ * share: with no frame there is nothing on it to clear.
+ */
+const clearMarks = (): void => {
+  if (!framesTheShare()) {
+    return;
+  }
+  coachmarkRequests += 1;
+  marksCleared += 1;
+  const marksWereUp = coachmarks.length > 0;
+  setCoachmarks(NO_COACHMARKS);
+  // Taking the marks down pushes on its own; the count has to reach the
+  // frame whether or not any were up.
+  if (!marksWereUp) {
+    pushState();
+  }
 };
 
 /**
@@ -1316,6 +1723,7 @@ export const showCompanionCoachmarks = async (
   const sequence = coachmarkRequests;
 
   const marks: PlacedCoachmark[] = [];
+  const presses: CoachmarkPress[] = [];
   for (const request of requests) {
     if (!namesATarget(request)) {
       // Bounds given outright are an extent someone means, so they keep the
@@ -1324,7 +1732,7 @@ export const showCompanionCoachmarks = async (
       marks.push({ kind: "region", ...request });
       continue;
     }
-    const placed = await placeOnNamedTarget(share, request);
+    const located = await placeOnNamedTarget(share, request);
     // Both asked after every await, because both answers can change across
     // one. Something else asking to point in the meantime owns the screen
     // now, and this request touching it at all would undo that.
@@ -1341,20 +1749,25 @@ export const showCompanionCoachmarks = async (
     if (moved !== null) {
       return { kind: "refused", refusal: moved };
     }
-    if ("reason" in placed) {
+    if ("reason" in located) {
       // A request replaces everything on screen, and it has replaced it with
       // nothing it can draw. Leaving the last step's mark up would point the
       // user at a control this turn is about to say it could not find.
       setCoachmarks(NO_COACHMARKS);
-      return { kind: "unresolved", unresolved: placed };
+      return { kind: "unresolved", unresolved: located };
     }
+    const { hit, ...placed } = located;
     marks.push(placed);
+    presses.push({ rect: hit, label: placed.matched });
   }
 
   // The name a mark resolved from is for the caller to read back, not for the
   // frame to draw: what goes on screen is a rectangle, and the renderer has
   // no use for the label it came from.
-  setCoachmarks(marks.map(({ matched: _matched, ...mark }) => mark));
+  setCoachmarks(
+    marks.map(({ matched: _matched, ...mark }) => mark),
+    presses,
+  );
   return { kind: "placed", marks };
 };
 
@@ -1395,6 +1808,19 @@ const whyNotToDraw = (
 };
 
 /**
+ * A mark that was found by name, with the frame it was found at.
+ *
+ * `hit` is where a press on the control would land, as fractions of the
+ * surface the way the centre is. It stays on this side: the mark the
+ * renderer draws is the centre alone, for the reason
+ * {@link placeOnNamedTarget} gives.
+ */
+type LocatedCoachmark = PlacedCoachmark & {
+  matched: string;
+  hit: CoachmarkPressRect;
+};
+
+/**
  * One named control as a mark, or why it could not be one.
  *
  * The conversion is the whole point of resolving through the tree: the helper
@@ -1404,7 +1830,7 @@ const whyNotToDraw = (
 const placeOnNamedTarget = async (
   share: WatchCaptureTarget,
   request: { target: string; caption?: string },
-): Promise<PlacedCoachmark | CoachmarkUnresolved> => {
+): Promise<LocatedCoachmark | CoachmarkUnresolved> => {
   const located = await locateOnTarget(share, request.target);
   if (!located.found) {
     return {
@@ -1424,13 +1850,22 @@ const placeOnNamedTarget = async (
   // routinely a good deal larger than the thing drawn inside it, and it can
   // belong to the small triangle that discloses a row rather than the row.
   // Its position is trustworthy where its extent is not, so the arrow is
-  // aimed at the middle of it and nothing claims a size.
+  // aimed at the middle of it and nothing claims a size. The extent is still
+  // the right answer to a different question, which is whether a press
+  // landed on the control: a hit area is exactly what a press is tested
+  // against.
   return {
     kind: "point",
     x: (located.x + located.width / 2 - bounds.x) / bounds.width,
     y: (located.y + located.height / 2 - bounds.y) / bounds.height,
     ...(request.caption === undefined ? {} : { caption: request.caption }),
     matched: located.label,
+    hit: {
+      x: (located.x - bounds.x) / bounds.width,
+      y: (located.y - bounds.y) / bounds.height,
+      width: located.width / bounds.width,
+      height: located.height / bounds.height,
+    },
   };
 };
 
@@ -1444,12 +1879,11 @@ const surfaceBounds = async (
   share: WatchCaptureTarget,
 ): Promise<Rectangle | null> => {
   // The frame's own rectangle, because that is the one the marks are drawn
-  // on, and it is not always the one the share names. A frame asked for a
-  // display's whole bounds is held to that display's work area, which begins
-  // a menu bar lower and ends a menu bar shorter, so a fraction measured
-  // against the display and drawn into the frame lands low by exactly that
-  // much. Deriving the surface twice is what let the two disagree; asking the
-  // frame is what keeps them the same rectangle by construction.
+  // on. It is placed on the share's bounds, and `placeWatchFrame` asks for
+  // the whole display rather than its work area, so the two should agree;
+  // asking the frame rather than deriving the surface a second time is what
+  // keeps them the same rectangle by construction, whatever the window
+  // system did with the request.
   const frame = getFloatingWindow(WATCH_FRAME_KIND);
   if (frame !== null) {
     return frame.getBounds();
@@ -1488,6 +1922,9 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       current.height !== bounds.height
     ) {
       existing.setBounds(bounds);
+      // The controls the marks point at moved with the window under the
+      // frame, so the presses are measured out again on the new bounds.
+      armCoachmarkPressWatch();
     }
     if (!existing.isVisible()) {
       existing.showInactive();
@@ -1508,13 +1945,29 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       minimizable: false,
       maximizable: false,
       backgroundColor: "#00000000",
+      // **The frame must be the surface, to the pixel.** Without this macOS
+      // holds a window to the display's work area: asked for the whole
+      // display it comes back a menu bar lower and a menu bar shorter, and
+      // says nothing. The assistant measures its marks against a picture of
+      // the whole display, and a fraction of that drawn into the shorter
+      // window lands low by the menu bar's height at the top, shrinking to
+      // nothing at the foot. The menu bar draws over the top of the window
+      // either way; `frameInsetTop` is what keeps the rim clear of it.
+      enableLargerThanScreen: true,
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
   // A frame opened while the mode is already on is one the user is expecting
   // to draw on: the mode outlives the window, which is replaced whenever the
-  // share moves to another target.
+  // share moves to another target. A scroll the old window stepped aside for
+  // does not: this window's renderer has seen no scroll and would never ask
+  // for a mouse it does not know it gave up.
+  frameScrolling = false;
+  unwatchFrameScroll();
   applyFrameMouse();
+  // Marks still up are drawn on this window from here on, so the presses
+  // they can be heard as are measured out on it.
+  armCoachmarkPressWatch();
 };
 
 /**
@@ -1727,10 +2180,16 @@ const syncCallSurface = (): void => {
     // arrives on the way home must send the pill back to that home when it
     // ends, not to wherever it was passing through when the call came.
     callHome = glide === null ? avatarCentre(win) : glide.to;
+    // The column's canvas before the glide to a side, so the bar arrives
+    // already standing in a canvas that can hold it.
+    syncCanvas();
     const display = displayUnder(callHome);
+    // The edges, loaded now and kept hidden, so the first drag of the call
+    // has a window to show rather than one to build.
+    readyDockZones(display.workArea);
     glideAvatarTo(
       win,
-      defaultAvatarCentre(display.workArea, geometry),
+      dockedAvatarCentre(dock, display.workArea, geometry),
       display.workArea,
     );
     return;
@@ -1740,10 +2199,132 @@ const syncCallSurface = (): void => {
   }
   const home = callHome;
   callHome = null;
+  // A drag the call ends under has nothing left to dock.
+  docking = null;
+  dockDragTravel = 0;
+  closeDockZones();
   if (win === null) {
     return;
   }
+  syncCanvas();
   glideAvatarTo(win, home, displayUnder(home).workArea);
+};
+
+/**
+ * Have the edges' window built and hidden over a display, ready to show.
+ *
+ * Built when the call takes the surface rather than on the first move of a
+ * drag: a window has to load its page before it can draw, and a drag that
+ * had to wait for that would be halfway to the edge before the edges
+ * appeared. Hidden straight after it is built; its page draws nothing until
+ * a drag is in flight anyway, so nothing is seen either way.
+ */
+const readyDockZones = (bounds: Rectangle): BrowserWindow => {
+  const existing = getFloatingWindow(DOCK_ZONES_KIND);
+  if (existing !== null) {
+    const current = existing.getBounds();
+    if (
+      current.x !== bounds.x ||
+      current.y !== bounds.y ||
+      current.width !== bounds.width ||
+      current.height !== bounds.height
+    ) {
+      existing.setBounds(bounds);
+    }
+    return existing;
+  }
+  const win = createFloatingWindow({
+    kind: DOCK_ZONES_KIND,
+    route: DOCK_ZONES_ROUTE,
+    width: bounds.width,
+    height: bounds.height,
+    ignoreMouseEvents: true,
+    position: { x: bounds.x, y: bounds.y },
+    browserWindow: {
+      hasShadow: false,
+      focusable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      backgroundColor: "#00000000",
+    },
+  });
+  // Under the surface being dragged over it, so the bar is never hidden by
+  // the edge it is about to land on.
+  win.setAlwaysOnTop(true, "floating", -1);
+  win.hide();
+  return win;
+};
+
+/**
+ * Show the edges over a display, or move them to it.
+ *
+ * On each move of a drag during a call, so the edges follow the drag from
+ * display to display. Hidden again by the release, and closed by the call
+ * ending.
+ */
+const placeDockZones = (bounds: Rectangle): void => {
+  const win = readyDockZones(bounds);
+  if (!win.isVisible()) {
+    win.showInactive();
+  }
+};
+
+const hideDockZones = (): void => {
+  getFloatingWindow(DOCK_ZONES_KIND)?.hide();
+};
+
+const closeDockZones = (): void => {
+  getFloatingWindow(DOCK_ZONES_KIND)?.close();
+};
+
+/**
+ * Note where a drag during a call would drop the bar, and show the edges.
+ *
+ * Run after each move of such a drag, against the display the avatar is now
+ * over: a drag across displays docks to an edge of the display it ends on.
+ * Pushed only when the answer changes, since the surface is pushed the same
+ * state and a drag is a message per pixel.
+ */
+const armDock = (centre: { x: number; y: number }): void => {
+  const { workArea } = displayUnder(centre);
+  placeDockZones(workArea);
+  const next = nearestDock(centre, workArea);
+  if (next === docking) {
+    return;
+  }
+  docking = next;
+  pushState();
+};
+
+/**
+ * Drop the bar on an edge: remember it, and glide the bar there in a canvas
+ * that fits it.
+ *
+ * The release of a drag during a call, and the mid-call reset. The edge is
+ * the user's stated placement of the call's bar, so it is written to the store
+ * the way a size pick is and every call after this one takes the bar there.
+ */
+const dropOnDock = (next: CompanionDock): void => {
+  docking = null;
+  hideDockZones();
+  writeCompanionCallDock(next);
+  dock = next;
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (win === null || win.isDestroyed()) {
+    pushState();
+    return;
+  }
+  const resting = glide === null ? avatarCentre(win) : glide.to;
+  // Before the glide, as on the way into a call: the canvas is rebuilt
+  // around where the bar rests now, and the glide then crosses to the edge
+  // in the canvas the edge needs. A rebuild pushes the surface itself; the
+  // push is owed either way, since the dock and the drag both moved.
+  if (!syncCanvas()) {
+    pushState();
+  }
+  const { workArea } = displayUnder(resting);
+  glideAvatarTo(win, dockedAvatarCentre(dock, workArea, geometry), workArea);
 };
 
 /**
@@ -1990,8 +2571,29 @@ export const installCompanionWindow = (): void => {
       // clamped to that display's edges instead of being held back at the
       // first one's.
       moveAvatarTo(win, wanted, displayUnder(wanted).workArea);
+      // A drag during a call is a drag toward an edge: the bar moves as
+      // freely as the idle pill does, and the release docks it to whichever
+      // edge it is nearest. Read back off the window rather than from
+      // `wanted`, since the clamp is what decided where the avatar is.
+      if (callSurfaceFor(call, dialing)) {
+        dockDragTravel += Math.abs(dx) + Math.abs(dy);
+        if (dockDragTravel > DOCK_DRAG_SLOP) {
+          armDock(avatarCentre(win));
+        }
+      }
     },
   );
+
+  // The hand letting go. Sent after every press, and what it settles is
+  // main's to know: a drag during a call docks the bar to the edge it was
+  // heading for, and every other release has nothing to do.
+  on("vellum:companion:release", z.tuple([]), () => {
+    dockDragTravel = 0;
+    if (docking === null) {
+      return;
+    }
+    dropOnDock(docking);
+  });
 
   /**
    * Talk, delivered to the renderer that can act on it.
@@ -2132,6 +2734,42 @@ export const installCompanionWindow = (): void => {
    */
   on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
     setAnnotating(!annotating);
+  });
+
+  /**
+   * Clear, from the pill: everything on the shared surface comes down and
+   * the share goes on. The frame's drawing layer drops its ink off the count
+   * this steps on the pushed state.
+   */
+  on("vellum:companion:clearMarks", z.tuple([]), () => {
+    clearMarks();
+  });
+
+  /**
+   * The drawing tool, from the pill. Taken whether or not the mode is on:
+   * the strip it is chosen from is drawn only while the mode is, but a choice
+   * that crossed a share ending is still the user's choice for the next one.
+   */
+  on(
+    "vellum:companion:setAnnotationTool",
+    z.tuple([companionAnnotationToolSchema]),
+    ([tool]) => {
+      setAnnotationTool(tool);
+    },
+  );
+
+  /**
+   * A scroll on the frame, or the pointer moving after one, from the frame's
+   * own window.
+   *
+   * The frame is what decides where a wheel event lands, and it cannot
+   * forward one it has taken. What it can do is stop taking them: on the
+   * first the renderer sees, the frame steps aside so the rest of the scroll
+   * reaches the app underneath, and on the first forwarded move it takes the
+   * mouse back. See {@link frameScrolling}.
+   */
+  on("vellum:companion:setFrameScrolling", z.tuple([z.boolean()]), ([next]) => {
+    setFrameScrolling(next);
   });
 
   /**
@@ -2651,6 +3289,9 @@ export const openCompanionWindow = (): void => {
   win.on("closed", () => {
     cancelGlide();
     callHome = null;
+    // A drag on a window that no longer exists has nothing left to drop.
+    docking = null;
+    closeDockZones();
   });
   // `createFloatingWindow` has already shown it. A surface opened while the
   // app is in front, which is where a sign-in opens it from, goes straight back
@@ -2721,10 +3362,48 @@ export const setCompanionSurfaceSize = (
   size: CompanionSize,
 ): void => {
   writeCompanionSize(axis, size);
+  applyGeometry(
+    geometryFor(
+      readCompanionSize("avatar"),
+      readCompanionSize("options"),
+      canvasDock(),
+    ),
+  );
+};
+
+/**
+ * Rebuild the canvas for the dock the surface is on, if it is not already
+ * built for it.
+ *
+ * The call's way in and out and a drop on another edge all go through here:
+ * each can change which dock the canvas answers for, and only a change that
+ * moves an edge of the canvas is worth a window resize. Answers whether the
+ * canvas was rebuilt, since a rebuild pushes the surface and a caller with a
+ * push of its own to make can then leave it at that.
+ */
+const syncCanvas = (): boolean => {
   const next = geometryFor(
     readCompanionSize("avatar"),
     readCompanionSize("options"),
+    canvasDock(),
   );
+  if (
+    next.canvasHeight === geometry.canvasHeight &&
+    next.riseAbove === geometry.riseAbove
+  ) {
+    return false;
+  }
+  applyGeometry(next);
+  return true;
+};
+
+/**
+ * Swap the canvas for another one built around the same avatar point.
+ *
+ * The surface is not moved by it: the avatar rests exactly where it was, and
+ * the window is placed in the new canvas around that point.
+ */
+const applyGeometry = (next: CompanionGeometry): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     geometry = next;
@@ -2768,11 +3447,13 @@ export const setCompanionSurfaceSize = (
  * pointer. Where the pill rests, for a glide in flight, is where the glide is
  * headed, as every other reader of its resting place has it.
  *
- * During a call the surface is already at this point unless the user dragged
- * it away, and the call is holding the place the pill goes back to when the
- * call ends. A reset asked for mid-call makes the default that place too:
- * the user has just said where the surface belongs, and a call ending by
- * sending it back to wherever it was before would undo that.
+ * During a call the surface is at the edge the bar is docked to unless the
+ * user dragged it away, and the call is holding the place the pill goes back
+ * to when the call ends. A reset asked for mid-call makes the default that
+ * place too, and the bottom the bar's dock again: the user has just said
+ * where the surface belongs, and a call ending by sending it back to wherever
+ * it was before, or the next call standing the bar up on a side, would undo
+ * that.
  *
  * A glide rather than a jump, the way the call moves it, and instant under
  * "Reduce motion" for the same reason.
@@ -2784,11 +3465,15 @@ export const resetCompanionSurfacePosition = (): void => {
   }
   const resting = glide === null ? avatarCentre(win) : glide.to;
   const { workArea } = displayUnder(resting);
-  const home = defaultAvatarCentre(workArea, geometry);
   if (callHome !== null) {
-    callHome = home;
+    // In the ordinary canvas, which the drop on the bottom rebuilds before
+    // it measures the home: the bottom's margin is the same in both, so the
+    // point is the same either way.
+    callHome = defaultAvatarCentre(workArea, geometry);
+    dropOnDock("bottom");
+    return;
   }
-  glideAvatarTo(win, home, workArea);
+  glideAvatarTo(win, defaultAvatarCentre(workArea, geometry), workArea);
 };
 
 /**

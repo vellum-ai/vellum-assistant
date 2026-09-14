@@ -16,6 +16,7 @@ const TOC_ITEMS = [
   { id: "directory-scoped-rules", label: "Directory-scoped rules", level: 3 },
   { id: "skill-tool-permissions", label: "Skill tool permissions", level: 2 },
   { id: "macos-system-permissions", label: "macOS system permissions", level: 2 },
+  { id: "windows-system-permissions", label: "Windows system permissions", level: 2 },
   { id: "cross-channel-approvals", label: "Cross-channel approvals", level: 2 },
   { id: "what-happens-when-you-say-no", label: "What happens when you say no", level: 2 },
 ];
@@ -476,6 +477,25 @@ export function TrustSecurityPermissionsModelContent() {
             These are the &ldquo;can it access this at all&rdquo; layer. The
             assistant&apos;s Allow/Deny prompts are the &ldquo;should it access
             this right now&rdquo; layer. Both must pass for an action to execute.
+          </p>
+        </section>
+
+        <section id="windows-system-permissions" className="mt-12">
+          <SectionHeading id="windows-system-permissions" level={2}>
+            Windows system permissions
+          </SectionHeading>
+          <p className="mb-4 text-zinc-600">
+            Windows does not have macOS Accessibility, Input Monitoring, or Automation
+            permission prompts. Those rows are hidden in Vellum on Windows. Open
+            Settings &gt; Permissions &amp; Privacy in Vellum to check microphone, screen
+            capture, speech, and notification access; the settings links open the
+            corresponding Windows settings pages.
+          </p>
+          <p className="mb-0 text-zinc-600">
+            Computer control runs as your Windows user without requesting administrator
+            access. It cannot interact with elevated apps, UAC prompts, or protected
+            windows. An in-app approval does not override that boundary. For tasks in
+            an app you control, use its normal, non-administrator window.
           </p>
         </section>
 
