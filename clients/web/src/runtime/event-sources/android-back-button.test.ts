@@ -411,6 +411,39 @@ describe("subscribeAndroidBackButtonSource", () => {
     expect(closeAppMock).not.toHaveBeenCalled();
   });
 
+  test("pops history to close a minimized app viewer", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    viewerMainView = "app";
+    viewerAppMinimized = true;
+    mountActiveChatView();
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(closeAppMock).not.toHaveBeenCalled();
+    expect(historyBackSpy).toHaveBeenCalledTimes(1);
+    historyBackSpy.mockRestore();
+  });
+
+  test("exits the split before changing history", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    viewerMainView = "app-editing";
+    mountActiveChatView();
+
+    subscribeAndroidBackButtonSource();
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(exitAppEditingMock).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
+    historyBackSpy.mockRestore();
+  });
+
   test("ignores stale viewer state outside the active chat route", async () => {
     const historyBackSpy = spyOn(window.history, "back").mockImplementation(
       () => undefined,

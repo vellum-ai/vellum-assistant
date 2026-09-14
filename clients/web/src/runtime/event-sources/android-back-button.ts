@@ -96,6 +96,11 @@ async function dismissEscapeLayer(): Promise<boolean> {
   return true;
 }
 
+/**
+ * The viewer layer owns layout only: minimizing an expanded app, and leaving
+ * the split. Which app is open is the URL's business, so leaving a minimized
+ * app is a history pop rather than a viewer call.
+ */
 function dismissViewerLayer(): boolean {
   if (!document.querySelector(ACTIVE_CHAT_SELECTOR)) {
     return false;
@@ -104,10 +109,9 @@ function dismissViewerLayer(): boolean {
   switch (viewer.mainView) {
     case "app":
       if (viewer.isAppMinimized) {
-        viewer.closeApp();
-      } else {
-        viewer.minimizeApp();
+        return false;
       }
+      viewer.minimizeApp();
       return true;
     case "app-editing":
       viewer.exitAppEditing();
@@ -118,7 +122,9 @@ function dismissViewerLayer(): boolean {
 }
 
 /**
- * Route Android system Back through the active web UI before leaving the app.
+ * Route Android system Back through the active web UI before leaving the app:
+ * an open Escape layer takes it first, then viewer layout, then WebView
+ * history.
  */
 export function subscribeAndroidBackButtonSource(): () => void {
   if (!isNativeAndroid()) {
