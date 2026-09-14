@@ -34,6 +34,7 @@ import {
   setLocalNumber,
 } from "@/utils/local-settings";
 import {
+  conversationIdForPath,
   isAboutAssistantPath,
   isConversationChatPath,
   isConversationPath,
@@ -68,6 +69,7 @@ import { useMaterializedDraftReconcile } from "@/domains/chat/hooks/use-material
 import { useGroupNameRequestStore } from "@/domains/chat/group-name-request-store";
 import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import {
+  keptAppId,
   navigateToConversation,
   navigateToNewConversation,
 } from "@/utils/conversation-navigation";
@@ -869,9 +871,10 @@ export function ChatLayout({
       if (!activeConversationId) {
         return;
       }
-      const target = routes.conversation(activeConversationId);
-      if (location.pathname !== target) {
-        void navigate(target);
+      // The app sub-route is another presentation of the same conversation,
+      // so the comparison is by id rather than by whole path.
+      if (conversationIdForPath(location.pathname) !== activeConversationId) {
+        void navigate(routes.conversation(activeConversationId, keptAppId()));
       }
       requestComposerFocus();
     },

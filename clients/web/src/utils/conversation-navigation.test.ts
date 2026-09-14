@@ -247,6 +247,7 @@ describe("navigateToNewConversation", () => {
     navigateToNewConversation(navigate as unknown as NavigateFunction);
 
     expect(hapticLight).toHaveBeenCalledTimes(1);
+    expect(playSound).toHaveBeenCalledWith("new_conversation");
     expect(useViewerStore.getState().mainView).toBe("chat");
     const newId = useConversationStore.getState().activeConversationId;
     expect(newId).toBeTruthy();
@@ -272,6 +273,20 @@ describe("navigateToNewConversation", () => {
     expect(hapticLight).not.toHaveBeenCalled();
     expect(playSound).not.toHaveBeenCalled();
     expect(useViewerStore.getState().activeMessageFiles).toBeNull();
+  });
+
+  test("sound: false drops the sound, keeping the tap, navigation, and focus", () => {
+    const navigate = mock((_to: string) => {});
+    navigateToNewConversation(navigate as unknown as NavigateFunction, {
+      sound: false,
+    });
+
+    expect(playSound).not.toHaveBeenCalled();
+    expect(hapticLight).toHaveBeenCalledTimes(1);
+    const newId = useConversationStore.getState().activeConversationId;
+    expect(newId).toBeTruthy();
+    expect(navigate).toHaveBeenCalledWith(routes.conversation(newId!));
+    expect(composerFocus).toHaveBeenCalledTimes(1);
   });
 
   test("keeps an open app in the side-by-side layout with the new draft", () => {

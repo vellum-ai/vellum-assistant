@@ -41,6 +41,7 @@ import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { keptAppId } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { toast } from "@vellumai/design-library/components/toast";
 import { VOICE_START_REQUEST_TTL_MS } from "@vellumai/ipc-contract";
@@ -99,7 +100,7 @@ export type VoiceStartNavigate = (
  */
 function bindFreshConversation(navigate: VoiceStartNavigate): string {
   const draftId = mintVoiceDraftConversation();
-  void navigate(routes.conversation(draftId), { replace: true });
+  void navigate(routes.conversation(draftId, keptAppId()), { replace: true });
   return draftId;
 }
 

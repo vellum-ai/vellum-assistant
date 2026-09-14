@@ -11,18 +11,21 @@
  * to ignore the parameter, which is what an older assistant does, and cover
  * the paged search the loader falls back to when the answer proves that.
  *
- * The last block covers what the loader does to the URL once it holds a key:
+ * The last blocks cover what the loader does to the URL once it holds a key:
  * a URL that already names the resolved key is left alone, segments and all,
- * so the app viewer sub-route survives a reload.
+ * so the app viewer sub-route survives a reload, and a new chat started while
+ * an app is kept beside it names that app in the URL it lands on.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, createRef } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import {
   conversationListPrefix,
   conversationListQueryKey,
@@ -604,5 +607,60 @@ describe("URL path is kept when it already names the key", () => {
     expect(useConversationStore.getState().activeConversationId).toBe(
       "stored-chat",
     );
+  });
+});
+
+describe("startNewConversation carries the app the viewer keeps", () => {
+  const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
+  let restoreViewport: (() => void) | undefined;
+
+  beforeEach(() => {
+    /* A wide viewport, the only shape with a side-by-side app layout. */
+    restoreViewport = stubViewportAxes({ narrow: false, coarsePointer: false });
+    window.history.replaceState({}, "", routes.conversation("c1"));
+  });
+
+  afterEach(() => {
+    restoreViewport?.();
+    useViewerStore.getState().reset();
+  });
+
+  /** The path the loader navigated to for a fresh draft, and that draft's id. */
+  async function startFreshChat(): Promise<{ draftId: string; path: string }> {
+    const { result } = renderColdBoot(new QueryClient(), "c1");
+    await waitFor(() => {
+      expect(useConversationStore.getState().activeConversationId).toBe("c1");
+    });
+    navigateMock.mockClear();
+    act(() => {
+      result.current.startNewConversation();
+    });
+    const draftId = useConversationStore.getState().activeConversationId;
+    if (draftId === null || draftId === "c1") {
+      throw new Error("expected a fresh draft to be selected");
+    }
+    return {
+      draftId,
+      path: (navigateMock.mock.calls[0] as unknown as [string])[0],
+    };
+  }
+
+  test("names the open app, so the new chat opens beside it", async () => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
+
+    const { draftId, path } = await startFreshChat();
+
+    expect(path).toBe(routes.conversation(draftId, SAMPLE_APP.appId));
+    expect(path).toEndWith(`/app/${SAMPLE_APP.appId}`);
+  });
+
+  test("names no app when the viewer is on the chat", async () => {
+    const { draftId, path } = await startFreshChat();
+
+    expect(path).toBe(routes.conversation(draftId));
   });
 });
