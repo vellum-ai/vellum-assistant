@@ -192,7 +192,7 @@ jobs:
   # branch protection is updated to require the individual jobs above.
   checks:
     name: Lint, Type Check & Build
-    needs: [lint, typecheck, test, build]
+    needs: [lint, typecheck, test, gesture-browser, build]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -201,13 +201,15 @@ jobs:
           LINT: ${{ needs.lint.result }}
           TYPECHECK: ${{ needs.typecheck.result }}
           TEST: ${{ needs.test.result }}
+          GESTURE_BROWSER: ${{ needs.gesture-browser.result }}
           BUILD: ${{ needs.build.result }}
         run: |
           echo "Lint:       $LINT"
           echo "Type Check: $TYPECHECK"
           echo "Test:       $TEST"
+          echo "Gestures:   $GESTURE_BROWSER"
           echo "Build:      $BUILD"
-          for r in "$LINT" "$TYPECHECK" "$TEST" "$BUILD"; do
+          for r in "$LINT" "$TYPECHECK" "$TEST" "$GESTURE_BROWSER" "$BUILD"; do
             if [ "$r" != "success" ]; then
               echo "::error::At least one web CI job failed."
               exit 1
