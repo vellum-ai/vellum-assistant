@@ -207,4 +207,36 @@ struct UserActivityGateTests {
             ) == false
         )
     }
+
+    @Test("a modifier flag left behind by our own shortcut is not the user's")
+    func staleSyntheticModifierIsNotTheUser() {
+        // The flags last changed well before our post: nothing physical was
+        // pressed since, so whatever still reads as held came from our event.
+        let ourPost = now.addingTimeInterval(-0.5)
+        #expect(UserActivityGate.modifierHeldByUser(
+            now: now, modifierFlagsDown: true, secondsSinceFlagsChanged: 60, lastSyntheticPostAt: ourPost
+        ) == false)
+    }
+
+    @Test("a modifier pressed after our last post is the user's")
+    func modifierPressedAfterOurPostIsTheUser() {
+        let ourPost = now.addingTimeInterval(-5)
+        #expect(UserActivityGate.modifierHeldByUser(
+            now: now, modifierFlagsDown: true, secondsSinceFlagsChanged: 2, lastSyntheticPostAt: ourPost
+        ))
+    }
+
+    @Test("a held modifier with no synthetic post yet is the user's")
+    func modifierWithNoPostIsTheUser() {
+        #expect(UserActivityGate.modifierHeldByUser(
+            now: now, modifierFlagsDown: true, secondsSinceFlagsChanged: 120, lastSyntheticPostAt: nil
+        ))
+    }
+
+    @Test("no modifier down is never held")
+    func noModifierIsNotHeld() {
+        #expect(UserActivityGate.modifierHeldByUser(
+            now: now, modifierFlagsDown: false, secondsSinceFlagsChanged: 0, lastSyntheticPostAt: nil
+        ) == false)
+    }
 }
