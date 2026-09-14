@@ -13,6 +13,10 @@
     "createTriggerTitle": "新建文件或文件夹",
     "nameLabel": "名称",
     "nameError": "请输入不含斜杠的单个文件或文件夹名称。",
+    "nameTaken": "此文件夹中已存在“{name}”。",
+    "createFailed": "创建失败。请检查名称后重试。",
+    "renameFailed": "重命名失败。请检查名称后重试。",
+    "deleteFailed": "删除失败。请重试。",
     "cancel": "取消",
     "sortByNameAria": "按名称排序",
     "sortBySizeAria": "按大小排序",
@@ -43,6 +47,7 @@
     "browseFiles": "浏览文件",
     "fileNotFound": "文件未找到",
     "saveFailed": "保存失败",
+    "unknownSize": "大小未知",
     "downloadAria": "下载 {name}"
   }
 }

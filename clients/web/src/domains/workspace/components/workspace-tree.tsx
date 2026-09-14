@@ -33,6 +33,10 @@ import { Trans, useTranslation } from "@/i18n";
 import { formatFileSize } from "@/utils/format-file-size";
 import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
 import {
+  WorkspaceNameTakenError,
+  workspaceMutationErrorMessage,
+} from "@/domains/workspace/utils/workspace-mutation-error";
+import {
   sortEntries,
   type WorkspaceSortMode,
 } from "@/domains/workspace/utils/sort-entries";
@@ -97,11 +101,11 @@ async function assertNameAvailable(
     query: parentPath ? { path: parentPath } : {},
   });
   const conflict = data?.entries?.some((entry) => {
-    const existing = (entry.name ?? "").toLowerCase();
+    const existing = entry.name.toLowerCase();
     return existing === target && existing !== excluded;
   });
   if (conflict) {
-    throw new Error(`"${name}" already exists here.`);
+    throw new WorkspaceNameTakenError(name);
   }
 }
 
@@ -571,11 +575,7 @@ export function WorkspaceTree({
               throwOnError: false,
             });
       if (error || !response?.ok) {
-        throw new Error(
-          typeof error === "string"
-            ? error
-            : "Failed to create — check the name and try again.",
-        );
+        throw new Error("Workspace create failed", { cause: error });
       }
       return { ...input, path };
     },
@@ -592,7 +592,7 @@ export function WorkspaceTree({
       }
     },
     onError: (err: unknown) => {
-      setDialogError(err instanceof Error ? err.message : "Failed to create.");
+      setDialogError(workspaceMutationErrorMessage(err, "create", t));
     },
   });
 
@@ -616,11 +616,7 @@ export function WorkspaceTree({
         throwOnError: false,
       });
       if (error || !response?.ok) {
-        throw new Error(
-          typeof error === "string"
-            ? error
-            : "Failed to rename — check the name and try again.",
-        );
+        throw new Error("Workspace rename failed", { cause: error });
       }
       return { oldPath: input.oldPath, newPath };
     },
@@ -630,7 +626,7 @@ export function WorkspaceTree({
       onPathRenamed(oldPath, newPath);
     },
     onError: (err: unknown) => {
-      setDialogError(err instanceof Error ? err.message : "Failed to rename.");
+      setDialogError(workspaceMutationErrorMessage(err, "rename", t));
     },
   });
 
@@ -657,9 +653,7 @@ export function WorkspaceTree({
         throwOnError: false,
       });
       if (error || !response?.ok) {
-        throw new Error(
-          typeof error === "string" ? error : "Failed to delete — try again.",
-        );
+        throw new Error("Workspace delete failed", { cause: error });
       }
       return target;
     },
@@ -889,7 +883,11 @@ export function WorkspaceTree({
                 className="mt-2 block"
                 style={{ color: "var(--system-negative-strong)" }}
               >
-                {deleteMutation.error.message}
+                {workspaceMutationErrorMessage(
+                  deleteMutation.error,
+                  "delete",
+                  t,
+                )}
               </span>
             )}
           </>
