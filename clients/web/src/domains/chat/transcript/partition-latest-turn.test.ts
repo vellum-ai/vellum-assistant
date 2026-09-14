@@ -9,6 +9,7 @@ import type {
 } from "@/domains/chat/transcript/types";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
+import { buildTranscriptItems } from "./build-items";
 function makeMessage(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },
 ): DisplayMessage {
@@ -26,6 +27,55 @@ function messageItem(message: DisplayMessage): MessageItem {
 function thinkingItem(): ThinkingItem {
   return { kind: "thinking", key: "thinking", active: true };
 }
+
+describe("camera frame group partitions", () => {
+  test.each([false, true])(
+    "keeps the user host as the latest anchor (utterance: %j)",
+    (withUtterance) => {
+      const before = makeMessage({
+        id: "before",
+        role: "assistant",
+        ...textBody("Ready"),
+      });
+      const frames = ["f1", "f2"].map((id) =>
+        makeMessage({
+          id,
+          role: "user",
+          isCameraFrame: true,
+          ...textBody("(camera frame)"),
+        }),
+      );
+      const utterance = makeMessage({
+        id: "speech",
+        role: "user",
+        ...textBody("What is this?"),
+      });
+      const response = makeMessage({
+        id: "response",
+        role: "assistant",
+        ...textBody("A camera"),
+      });
+      const items = buildTranscriptItems({
+        messages: [
+          before,
+          ...frames,
+          ...(withUtterance ? [utterance] : []),
+          response,
+        ],
+        pendingSecret: null,
+        pendingConfirmation: null,
+        isThinking: true,
+      });
+      const partition = partitionLatestTurn(items);
+      expect(partition.historyItems).toEqual([items[0]!]);
+      expect(partition.anchorMessage?.message).toBe(
+        withUtterance ? utterance : frames[0],
+      );
+      expect(partition.anchorMessage?.cameraFrames).toEqual(frames);
+      expect(partition.responseItems).toEqual(items.slice(2));
+    },
+  );
+});
 
 describe("partitionLatestTurn", () => {
   test("empty items → null anchor, empty history + response", () => {

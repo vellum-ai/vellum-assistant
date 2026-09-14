@@ -15,6 +15,9 @@ import type {
 } from "@/domains/chat/transcript/types";
 import { isCreditsExhaustedProviderError } from "@/domains/chat/utils/error-classification";
 
+import { isCameraFrameRow } from "./camera-frame-rows";
+import { getMessageRenderKind } from "./message-render-kind";
+
 export interface BuildTranscriptItemsInput {
   messages: DisplayMessage[];
   pendingSecret: { requestId: string } | null;
@@ -76,18 +79,30 @@ export interface BuildTranscriptItemsInput {
  * swap doesn't remount the row.
  */
 const messageItemCache = new WeakMap<DisplayMessage, MessageItem>();
+const cameraFrameItemCache = new WeakMap<DisplayMessage, MessageItem>();
 
-function toMessageItem(message: DisplayMessage): MessageItem {
-  const cached = messageItemCache.get(message);
-  if (cached) {
+function toMessageItem(
+  message: DisplayMessage,
+  cameraFrames?: DisplayMessage[],
+): MessageItem {
+  const frames = cameraFrames?.length ? cameraFrames : undefined;
+  const cache = frames ? cameraFrameItemCache : messageItemCache;
+  const cached = cache.get(message);
+  if (
+    cached &&
+    (!frames ||
+      (cached.cameraFrames?.length === frames.length &&
+        frames.every((frame, index) => frame === cached.cameraFrames?.[index])))
+  ) {
     return cached;
   }
   const item: MessageItem = {
     kind: "message",
     key: message.clientMessageId ?? message.id,
     message,
+    ...(frames ? { cameraFrames: [...frames] } : {}),
   };
-  messageItemCache.set(message, item);
+  cache.set(message, item);
   return item;
 }
 
@@ -122,14 +137,16 @@ const PROACTIVE_CREDITS_UPSELL_ITEM: CreditsUpsellItem = {
  *
  * Rules:
  *
- *   1. For each `DisplayMessage` in order, emit a `MessageItem` (keyed by the
- *      stable client identity `clientMessageId ?? id`, memoized by message ref
- *      via `toMessageItem`). Inline surfaces attached to a message are rendered
- *      within the message body by `TranscriptMessageBody` via `contentOrder` —
- *      they are NOT separate transcript rows. Tool calls stay inside the
- *      `MessageItem` — the Transcript component flattens them at render time.
+ *   1. Hidden notifications and queued user rows neither render nor split runs.
+ *      Consecutive camera frames join the next user row that renders normal
+ *      user content. A visible incompatible row or list end leaves the run on
+ *      its first frame. All source messages remain intact.
  *
- *   2. After the last message, emit trailers in this exact order:
+ *   2. Items use `clientMessageId ?? id` for stable client identity and retain
+ *      their references while their host and every grouped frame are unchanged.
+ *      Inline surfaces and tool calls stay within the message body.
+ *
+ *   3. After the last message, emit trailers in this exact order:
  *        a. `ThinkingItem` when `isThinking`.
  *        b. `PendingSecretItem` when `pendingSecret` is set.
  *        c. `PendingConfirmationItem` when `pendingConfirmation` is set.
@@ -148,6 +165,13 @@ export function buildTranscriptItems(
   } = input;
 
   const items: TranscriptItem[] = [];
+  let pendingFrames: DisplayMessage[] = [];
+  function flushPendingFrames(): void {
+    if (pendingFrames.length > 0) {
+      items.push(toMessageItem(pendingFrames[0]!, pendingFrames));
+      pendingFrames = [];
+    }
+  }
 
   for (const message of messages) {
     // Daemon-injected run lifecycle notifications (subagent + ACP + any wake
@@ -185,12 +209,26 @@ export function buildTranscriptItems(
       input.creditsExhausted &&
       isCreditsExhaustedProviderError(message.providerError)
     ) {
+      flushPendingFrames();
       items.push(toCreditsUpsellItem(message));
       continue;
     }
 
+    if (getMessageRenderKind(message) === "user") {
+      if (isCameraFrameRow(message)) {
+        pendingFrames.push(message);
+      } else {
+        items.push(toMessageItem(message, pendingFrames));
+        if (pendingFrames.length > 0) {
+          pendingFrames = [];
+        }
+      }
+      continue;
+    }
+    flushPendingFrames();
     items.push(toMessageItem(message));
   }
+  flushPendingFrames();
 
   // While the balance is exhausted, the proactive upsell card lands directly
   // after the message rows of an open conversation, so the credit wall shows
