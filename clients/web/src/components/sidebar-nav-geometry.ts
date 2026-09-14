@@ -90,14 +90,17 @@ export const SIDEBAR_SECTION_INDENT = 0;
 
 /**
  * Tallest a non-last section's row list grows before it scrolls within
- * itself. Only the bottom-most section claims the sidebar's actual leftover
- * space (see `isLast` on `ConversationRowList`) - flex-grow has no notion of
- * "this section needs the room," so giving every open section a share
- * stretched a two-row group into a mostly-empty box the same size as a busy
- * one beside it. Every section above the last one gets this fixed cap
- * instead: about nine desktop rows (30px each plus their 4px gap), enough to
- * read as a list rather than a preview while still leaving room for its
- * neighbours.
+ * itself. Only the bottom-most section may take the sidebar's actual
+ * leftover space (see `isLast` on `ConversationRowList`) - flex-grow has no
+ * notion of "this section needs the room," so giving every open section a
+ * share stretched a two-row group into a mostly-empty box the same size as
+ * a busy one beside it. Every section above the last one gets this fixed
+ * cap instead: ten desktop rows (30px each, the card zeroes their gap),
+ * enough to read as a list rather than a preview while still leaving room
+ * for its neighbours. It is also the mid height an expandable last section
+ * (Chats) rests at until the reader expands it (see `expandable` on
+ * `ConversationRowList`), so the one number says how tall a section is
+ * before it scrolls, wherever it sits.
  */
 export const SIDEBAR_SECTION_MAX_HEIGHT = 300;
 

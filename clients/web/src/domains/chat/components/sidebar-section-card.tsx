@@ -230,14 +230,18 @@ export function SidebarSectionCard({
         "transition-[width] duration-[100ms]",
         "has-[>[data-state=open]]:ease-[step-start]",
         "ease-[var(--anim-ease-out)]",
-        /* Only the bottom-most section ever claims leftover flex space (see
+        /* Only the bottom-most section ever takes leftover flex space (see
            `isLast` on `ConversationRowList`): flex-grow has no notion of
            "this section needs the room," so giving every open section a
            share stretched a two-row group into a mostly-empty box the same
-           size as a busy one beside it. */
+           size as a busy one beside it. Even the last one hugs its rows and
+           only shrinks (`min-h-0`) under the rail's space; it fills
+           (`flex-1`) only around a windowed row list, which needs a definite
+           height. The marker is the list's own `data-slot`, since only the
+           list knows which path it took. */
         !section.unbounded &&
           section.isLast &&
-          "has-[>[data-state=open]]:flex has-[>[data-state=open]]:min-h-0 has-[>[data-state=open]]:flex-1 has-[>[data-state=open]]:flex-col",
+          "has-[>[data-state=open]]:flex has-[>[data-state=open]]:min-h-0 has-[>[data-state=open]]:flex-col has-[[data-slot=conversation-list-windowed]]:flex-1",
         /* The card is the drag handle, so it says so. Every interactive thing
            inside it sets its own `cursor-pointer`, which wins wherever one is
            actually under the pointer - so the grab cursor shows on the card's
