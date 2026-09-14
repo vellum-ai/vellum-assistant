@@ -16,8 +16,10 @@ export type WorkspaceMutation = "create" | "rename" | "delete";
 /**
  * The message a failed workspace create, rename, or delete shows the user.
  *
- * The assistant's own error body is not shown: its text is not translated,
- * and the dialog only needs to say which action failed and what to try next.
+ * The assistant's message is not shown, even for a 400. `badRequestMessage`
+ * exists for verdicts written for the user; the workspace routes' 400s are
+ * developer strings ("Invalid path"), and the tree's own name check keeps
+ * them from firing in normal use.
  */
 export function workspaceMutationErrorMessage(
   error: unknown,

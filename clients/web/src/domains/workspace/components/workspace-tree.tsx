@@ -52,6 +52,7 @@ import {
   WORKSPACE_TREE_QUERY_KEY,
   workspaceTreeQueryOptions,
 } from "@/lib/workspace-tree-query";
+import { toApiError } from "@/utils/api-errors";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
@@ -575,7 +576,7 @@ export function WorkspaceTree({
               throwOnError: false,
             });
       if (error || !response?.ok) {
-        throw new Error("Workspace create failed", { cause: error });
+        throw response ? toApiError(error, response) : error;
       }
       return { ...input, path };
     },
@@ -616,7 +617,7 @@ export function WorkspaceTree({
         throwOnError: false,
       });
       if (error || !response?.ok) {
-        throw new Error("Workspace rename failed", { cause: error });
+        throw response ? toApiError(error, response) : error;
       }
       return { oldPath: input.oldPath, newPath };
     },
@@ -653,7 +654,7 @@ export function WorkspaceTree({
         throwOnError: false,
       });
       if (error || !response?.ok) {
-        throw new Error("Workspace delete failed", { cause: error });
+        throw response ? toApiError(error, response) : error;
       }
       return target;
     },
