@@ -46,8 +46,8 @@ import {
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import {
   CredentialStorageError,
-  InvalidCredentialInputError,
   deleteCredentialPlaintext,
+  InvalidCredentialInputError,
   storeCredentialValue,
 } from "../../tools/credentials/store.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
