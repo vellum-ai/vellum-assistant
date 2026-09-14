@@ -151,6 +151,7 @@ import { sttFluxProviderToModelFamilyMigration } from "./150-stt-flux-provider-t
 import { repairRenamedFireworksDeepseekProModelIdMigration } from "./151-repair-renamed-fireworks-deepseek-pro-model-id.js";
 import { repairRetiredFireworksMinimaxM2p7ModelIdMigration } from "./152-repair-retired-fireworks-minimax-m2p7-model-id.js";
 import { stripMcpPolicyFieldsMigration } from "./153-strip-mcp-policy-fields.js";
+import { migrateDesktopDockMigration } from "./154-migrate-desktop-dock.js";
 import { repairRetiredCodexGpt54ModelIdsMigration } from "./154-repair-retired-codex-gpt-5-4-model-ids.js";
 import { moveFrontModelConfigToVoiceMigration } from "./155-move-front-model-config-to-voice.js";
 import { extractWorkspaceMcpJsonMigration } from "./156-extract-workspace-mcp-json.js";
@@ -320,6 +321,7 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   repairRenamedFireworksDeepseekProModelIdMigration,
   repairRetiredFireworksMinimaxM2p7ModelIdMigration,
   stripMcpPolicyFieldsMigration,
+  migrateDesktopDockMigration,
   repairRetiredCodexGpt54ModelIdsMigration,
   moveFrontModelConfigToVoiceMigration,
   extractWorkspaceMcpJsonMigration,
