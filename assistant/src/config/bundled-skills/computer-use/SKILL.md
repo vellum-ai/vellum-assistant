@@ -23,6 +23,14 @@ The skill is internally preactivated for conversations with a connected desktop 
 Tools in this skill are proxy tools. Execution is forwarded to a connected
 desktop client and is never handled locally by the assistant.
 
+## Observations
+
+Every computer-use step returns the accessibility tree. A screenshot comes with
+a desktop's first look, with window-scoped observations, or when you call
+`computer_use_observe` with `include_screenshot: true`. Ask for one whenever the
+tree is not enough to act on: a canvas, a game, a custom-drawn view, few or
+unlabeled controls, or a layout question.
+
 ## Window-scoped observation (macOS)
 
 `computer_use_observe` accepts optional `capture_window_id`, a native macOS
@@ -33,8 +41,7 @@ including secondary windows, even when another app covers the selected window.
 A missing window must not be replaced with a desktop capture.
 
 This is a **single observation**, not a session-wide privacy boundary: normal
-click/type/scroll and other action tools still return their normal desktop
-observations. Do not promise app-only capture for a whole control session.
+click/type/scroll and other action tools still observe the whole desktop. Do not promise app-only capture for a whole control session.
 The desktop must explicitly advertise `host_cu_window_capture` support on its
 connection; the daemon rejects older or unsupported clients before requesting
 any capture. Other desktop platforms reject this option.

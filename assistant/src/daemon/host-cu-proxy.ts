@@ -166,7 +166,6 @@ function actionSignature(record: ActionRecord): string {
   return `${record.toolName}:${JSON.stringify(record.input)}`;
 }
 
-/** Whether `input` scopes the observation to one window or display. */
 /**
  * The key a desktop's first look is tracked under. An untargeted request has
  * no client id, so it gets a key no real id can take.
@@ -177,6 +176,7 @@ function observedTargetKey(targetClientId: string | undefined): string {
     : `client:${targetClientId}`;
 }
 
+/** Whether `input` scopes the observation to one window or display. */
 function hasCaptureTarget(input: Record<string, unknown>): boolean {
   return (
     Object.hasOwn(input, "capture_window_id") ||
@@ -357,6 +357,7 @@ export class HostCuProxy {
       this._previousAXTree = undefined;
       this._consecutiveUnchangedSteps = 0;
     }
+    const targetKey = observedTargetKey(resolvedTargetClientId);
     // Pointing never reaches the helper's capture path, so its input goes out
     // as given. Every other request carries the screenshot decision made now,
     // at dispatch, and never the model-facing snake_case key.
@@ -367,7 +368,7 @@ export class HostCuProxy {
       screenshotSkipped = !this.shouldAttachScreenshot(
         toolName,
         input,
-        observedTargetKey(resolvedTargetClientId),
+        targetKey,
       );
       dispatchInput = screenshotSkipped
         ? { ...rest, includeScreenshot: false }
@@ -419,7 +420,7 @@ export class HostCuProxy {
       this._ownedRequests.set(requestId, {
         scoped: scopedObservation,
         screenshotSkipped,
-        targetKey: observedTargetKey(resolvedTargetClientId),
+        targetKey,
         resetGeneration: this._resetGeneration,
         dispatchedAt: Date.now(),
         toolName,
@@ -686,10 +687,12 @@ export class HostCuProxy {
       parts.push(...screenshotMeta);
     }
 
-    // Only a deliberate omission is announced. A step that asked for pixels
-    // and got none is a capture failure, which this line must not disguise.
+    // Only a deliberate omission is announced, and only beside a tree the line
+    // can point at. A step that asked for pixels and got none is a capture
+    // failure, which this line must not disguise. A refused or failed step
+    // still carries the line, since that is where asking for pixels helps most.
     const isError = obs.executionError != null;
-    if (screenshotSkipped && !obs.screenshot && !isError) {
+    if (screenshotSkipped && !obs.screenshot && obs.axTree) {
       parts.push("", SCREENSHOT_OMITTED_MESSAGE);
     }
 

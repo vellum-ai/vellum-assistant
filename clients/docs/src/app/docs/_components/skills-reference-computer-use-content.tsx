@@ -139,8 +139,8 @@ export function SkillsReferenceComputerUseContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <strong>Accessibility tree + screenshots.</strong> The assistant reads the
-              accessibility tree (same API screen readers use) AND takes screenshots for a complete
-              picture.
+              accessibility tree (same API screen readers use) on every step and takes screenshots
+              when it needs to see the screen.
             </li>
             <li>
               <strong>Element-based clicking.</strong> It prefers clicking by element name rather
