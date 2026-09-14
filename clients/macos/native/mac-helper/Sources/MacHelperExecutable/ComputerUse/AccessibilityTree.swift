@@ -59,6 +59,14 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
     /// Track total elements enumerated in current call to prevent infinite loops
     private var totalElementsEnumerated = 0
+
+    /// How deep the next focused or targeted window walk goes. Callers that do
+    /// not set it get the full depth.
+    var depthLimit = AXDepthPolicy.fullDepth
+    /// Whether the last window walk skipped elements below `depthLimit`.
+    private(set) var lastWalkTruncated = false
+    /// How many elements the last window walk visited.
+    private(set) var lastWalkElementCount = 0
     /// Maximum elements to enumerate before bailing out (protects against circular refs)
     private let maxElementsPerEnumeration = 10000
 
@@ -219,7 +227,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         nextId = 1
         totalElementsEnumerated = 0
-        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+        lastWalkTruncated = false
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
+        lastWalkElementCount = totalElementsEnumerated
 
         let flat = AccessibilityTreeEnumerator.flattenElements(elements)
         let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
@@ -306,7 +316,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         nextId = 1
         totalElementsEnumerated = 0
-        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+        lastWalkTruncated = false
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
+        lastWalkElementCount = totalElementsEnumerated
 
         guard !elements.isEmpty else { return nil }
         lastTargetPid = pid
@@ -435,7 +447,9 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
         nextId = 1
         totalElementsEnumerated = 0
-        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+        lastWalkTruncated = false
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
+        lastWalkElementCount = totalElementsEnumerated
 
         let flat = AccessibilityTreeEnumerator.flattenElements(elements)
         let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
@@ -516,7 +530,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     }
 
     private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
-        guard depth < maxDepth else { return [] }
+        guard depth < maxDepth else {
+            lastWalkTruncated = true
+            return []
+        }
 
         let role = getStringAttribute(element, kAXRoleAttribute as CFString) ?? ""
         // Emptiness, not nil, is what makes an attribute worth falling past:

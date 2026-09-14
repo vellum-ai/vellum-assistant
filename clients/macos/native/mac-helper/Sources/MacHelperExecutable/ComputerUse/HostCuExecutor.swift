@@ -17,6 +17,13 @@ private enum CuPhase: String {
     case capture
     case encode
     case secondaryWindows
+    /// Turning an element ID into coordinates, when the action named one.
+    case resolve
+    /// Counters about the tree walk rather than durations: the depth it used,
+    /// how many elements it visited, and 1 when it was cut off by that depth.
+    case axDepth
+    case axElements
+    case axTruncated
 }
 
 /// Collects the wall time each phase of one `cu.perform` step costs, in whole
@@ -130,6 +137,7 @@ enum HostCuActionRunner {
         let isObserveOnly = toolName == "computer_use_observe" || toolName == "cu_observe"
         let captureTarget = captureTarget(from: input)
         let includeScreenshot = ObservationCapture.includeScreenshot(from: input["includeScreenshot"])
+        let fullTree = AXDepthPolicy.fullTreeRequested(from: input["full_tree"])
 
         var executionResult: String? = nil
         var executionError: String? = nil
@@ -190,7 +198,17 @@ enum HostCuActionRunner {
             }
 
             // Resolve element IDs to coordinates if needed
-            guard let resolvedAction = await resolveCoordinatesIfNeeded(for: agentAction, enumerator: enumerator, stepNumber: stepNumber) else {
+            let resolveStart = DispatchTime.now()
+            let resolvedAction = await resolveCoordinatesIfNeeded(
+                for: agentAction,
+                enumerator: enumerator,
+                stepNumber: stepNumber,
+                conversationId: conversationId
+            )
+            if agentAction.resolvedFromElementId != nil || agentAction.resolvedToElementId != nil {
+                timer.record(.resolve, since: resolveStart)
+            }
+            guard let resolvedAction else {
                 let obs = await buildObservation(
                     enumerator: enumerator,
                     screenCapture: screenCapture,
@@ -318,7 +336,8 @@ enum HostCuActionRunner {
             conversationId: conversationId,
             timer: timer,
             captureTarget: captureTarget,
-            includeScreenshot: includeScreenshot
+            includeScreenshot: includeScreenshot,
+            fullTree: fullTree
         )
 
         return finish(obs)
@@ -410,7 +429,12 @@ enum HostCuActionRunner {
     // MARK: - Coordinate Resolution
 
     /// Resolve element IDs to screen coordinates when x/y are not provided.
-    private static func resolveCoordinatesIfNeeded(for action: AgentAction, enumerator: AccessibilityTreeProviding, stepNumber: Int) async -> AgentAction? {
+    private static func resolveCoordinatesIfNeeded(
+        for action: AgentAction,
+        enumerator: AccessibilityTreeEnumerator,
+        stepNumber: Int,
+        conversationId: String
+    ) async -> AgentAction? {
         var resolved = action
 
         switch resolved.type {
@@ -420,7 +444,7 @@ enum HostCuActionRunner {
                     log.error("[\(stepNumber)] Action requires either x/y coordinates or element_id")
                     return nil
                 }
-                guard let center = await elementCenter(for: sourceId, enumerator: enumerator) else {
+                guard let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
                     return nil
                 }
@@ -430,7 +454,7 @@ enum HostCuActionRunner {
 
         case .scroll:
             if (resolved.x == nil || resolved.y == nil), let sourceId = resolved.resolvedFromElementId {
-                guard let center = await elementCenter(for: sourceId, enumerator: enumerator) else {
+                guard let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
                     return nil
                 }
@@ -440,13 +464,13 @@ enum HostCuActionRunner {
 
         case .drag:
             if resolved.x == nil || resolved.y == nil, let sourceId = resolved.resolvedFromElementId {
-                if let center = await elementCenter(for: sourceId, enumerator: enumerator) {
+                if let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) {
                     resolved.x = center.x
                     resolved.y = center.y
                 }
             }
             if resolved.toX == nil || resolved.toY == nil, let targetId = resolved.resolvedToElementId {
-                if let center = await elementCenter(for: targetId, enumerator: enumerator) {
+                if let center = await elementCenter(for: targetId, conversationId: conversationId, enumerator: enumerator) {
                     resolved.toX = center.x
                     resolved.toY = center.y
                 }
@@ -459,8 +483,21 @@ enum HostCuActionRunner {
         return resolved
     }
 
-    /// Find the center point of an AX element by ID in the current window.
-    private static func elementCenter(for elementId: Int, enumerator: AccessibilityTreeProviding) async -> CGPoint? {
+    /// Find the center point of an AX element by ID. The IDs the model names
+    /// come from the last observation it was shown, so that stored tree is
+    /// read first: it costs nothing, and it is the numbering the model used.
+    /// A walk renumbers from scratch, so it only runs when the stored tree
+    /// does not have the element, and it goes to full depth so a shallow
+    /// observation cannot hide it.
+    private static func elementCenter(
+        for elementId: Int,
+        conversationId: String,
+        enumerator: AccessibilityTreeEnumerator
+    ) async -> CGPoint? {
+        if let element = previousAXElements[conversationId]?.first(where: { $0.id == elementId }) {
+            return CGPoint(x: element.frame.midX, y: element.frame.midY)
+        }
+        enumerator.depthLimit = AXDepthPolicy.fullDepth
         guard let result = await enumerator.enumerateCurrentWindow() else { return nil }
         let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
         guard let element = flat.first(where: { $0.id == elementId }) else { return nil }
@@ -510,7 +547,7 @@ enum HostCuActionRunner {
     /// `includeScreenshot` false and no `captureTarget`, a readable tree is
     /// returned without a screenshot.
     private static func buildObservation(
-        enumerator: AccessibilityTreeProviding,
+        enumerator: AccessibilityTreeEnumerator,
         screenCapture: ScreenCaptureProviding,
         executionResult: String?,
         executionError: String?,
@@ -518,7 +555,8 @@ enum HostCuActionRunner {
         conversationId: String,
         timer: PhaseTimer,
         captureTarget: CaptureTarget? = nil,
-        includeScreenshot: Bool = true
+        includeScreenshot: Bool = true,
+        fullTree: Bool = false
     ) async -> ObservationData {
         var axTreeText: String?
         var axDiffText: String?
@@ -555,7 +593,8 @@ enum HostCuActionRunner {
             ? timedCapture(screenCapture, target: captureTarget)
             : nil
 
-        let windowResult = await timer.measure(.axWalk) { () -> WindowRead? in
+        func walk(depth: Int) async -> WindowRead? {
+            enumerator.depthLimit = depth
             switch captureTarget {
             case .window(let windowId):
                 return await enumerator.enumerateWindow(windowId: windowId)
@@ -566,6 +605,31 @@ enum HostCuActionRunner {
                 return await enumerator.enumerateCurrentWindow()
             }
         }
+        func interactiveCount(_ read: WindowRead) -> Int {
+            AccessibilityTreeEnumerator.flattenElements(read.elements)
+                .filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
+        }
+
+        // Walk shallow first. Only a walk that was cut off and found nothing to
+        // act on goes deeper on its own; otherwise the observation says it was
+        // cut off and the model asks for the full tree if it needs it.
+        let walkStart = DispatchTime.now()
+        var depth = AXDepthPolicy.startingDepth(fullTreeRequested: fullTree)
+        var windowResult = await walk(depth: depth)
+        if let read = windowResult,
+           let deeper = AXDepthPolicy.retryDepth(
+               after: depth,
+               truncated: enumerator.lastWalkTruncated,
+               interactiveCount: interactiveCount(read)
+           ) {
+            depth = deeper
+            windowResult = await walk(depth: depth)
+        }
+        timer.record(.axWalk, since: walkStart)
+        let walkTruncated = enumerator.lastWalkTruncated
+        timer.record(.axDepth, millis: depth)
+        timer.record(.axElements, millis: enumerator.lastWalkElementCount)
+        timer.record(.axTruncated, millis: walkTruncated ? 1 : 0)
 
         if let result = windowResult {
             axTreeText = AccessibilityTreeEnumerator.formatAXTree(
@@ -573,6 +637,9 @@ enum HostCuActionRunner {
                 windowTitle: result.windowTitle,
                 appName: result.appName
             )
+            if walkTruncated, depth < AXDepthPolicy.fullDepth {
+                axTreeText? += "\n\n(Tree cut off at depth \(depth). Call computer_use_observe with full_tree: true to see deeper elements.)"
+            }
             let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
             currentElements = captureTarget == nil ? flat : nil
             let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count

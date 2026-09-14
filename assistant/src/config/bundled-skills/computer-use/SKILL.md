@@ -31,6 +31,10 @@ a desktop's first look, with window-scoped observations, or when you call
 tree is not enough to act on: a canvas, a game, a custom-drawn view, few or
 unlabeled controls, or a layout question.
 
+The tree is walked to a limited depth to keep steps fast, and says when it was
+cut off. If the element you need is not in it, call `computer_use_observe` with
+`full_tree: true`.
+
 ## Window-scoped observation (macOS)
 
 `computer_use_observe` accepts optional `capture_window_id`, a native macOS

@@ -465,6 +465,11 @@ export const computerUseObserveTool = {
         description:
           "Force a screenshot with this observation. The accessibility tree is returned every step; ask for pixels whenever the tree is not enough to act on, such as a canvas, a game, a custom-drawn view, a window with few or unlabeled controls, or a question about layout.",
       },
+      full_tree: {
+        type: "boolean",
+        description:
+          "Walk the accessibility tree to full depth. Observations list the tree to a limited depth and say when it was cut off; pass this when the element you need is not in the tree.",
+      },
       target_client_id: {
         type: "string",
         description:
