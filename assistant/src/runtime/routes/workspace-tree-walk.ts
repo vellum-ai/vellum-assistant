@@ -46,7 +46,11 @@ export interface WorkspaceTreeWalk {
   entries: WorkspaceEntry[];
   /** The entry cap or the deadline stopped a recursive walk early. */
   truncated: boolean;
-  /** Workspace-relative directories the walk listed but did not enter. */
+  /**
+   * Workspace-relative directories the walk listed but did not enter, for
+   * any reason: a gitignore rule, a symlink, or a directory that could not
+   * be read. A client that wants their contents asks for them one at a time.
+   */
   skipped: string[];
 }
 
@@ -64,6 +68,8 @@ export interface WorkspaceTreeWalkOptions {
   directorySize?: (absPath: string) => number | null;
   maxEntries?: number;
   maxWalkMs?: number;
+  /** Clock for the deadline. Tests hand in a scripted one. */
+  now?: () => number;
 }
 
 function byDirectoriesThenName(a: WorkspaceEntry, b: WorkspaceEntry): number {
@@ -85,21 +91,44 @@ interface ListedDirectory {
 }
 
 /**
+ * What a nested directory may cost a recursive walk. The listing stops
+ * before any stat work when the directory has more entries than the
+ * response has room for, and between stats once the deadline passes, so a
+ * single wide or slow directory cannot carry the walk past its bound.
+ */
+interface ListingBudget {
+  room: number;
+  deadline: number;
+}
+
+/**
  * One directory's entries, sorted directories first then by name. Types
  * follow `stat`, so a symlinked directory reads as a directory; the caller
- * decides whether to enter it.
+ * decides whether to enter it. Returns `null` when a budget stops the
+ * listing, in which case none of it is reported.
  */
 async function listDirectory(
   absDir: string,
-  { workspaceDir, showHidden, directorySize }: WorkspaceTreeWalkOptions,
-): Promise<ListedDirectory> {
-  const dirents: Dirent[] = await readdir(absDir, { withFileTypes: true });
+  {
+    workspaceDir,
+    showHidden,
+    directorySize,
+    now = Date.now,
+  }: WorkspaceTreeWalkOptions,
+  budget?: ListingBudget,
+): Promise<ListedDirectory | null> {
+  const dirents: Dirent[] = (
+    await readdir(absDir, { withFileTypes: true })
+  ).filter((dirent) => showHidden || !dirent.name.startsWith("."));
+  if (budget && dirents.length > budget.room) {
+    return null;
+  }
   const entries: WorkspaceEntry[] = [];
   const subdirectories: ListedDirectory["subdirectories"] = [];
 
   for (const dirent of dirents) {
-    if (!showHidden && dirent.name.startsWith(".")) {
-      continue;
+    if (budget && now() > budget.deadline) {
+      return null;
     }
     const absPath = join(absDir, dirent.name);
     let stats: Stats;
@@ -145,8 +174,9 @@ async function listDirectory(
  * non-recursive request would, or nothing for it at all.
  *
  * Symlinked directories are listed but never entered, so a link cannot make
- * the walk cycle or leave the workspace. The root's own read error is the
- * caller's to report; an unreadable directory found mid-walk is left empty.
+ * the walk cycle or leave the workspace; they are reported in `skipped`, as
+ * is a directory found mid-walk that cannot be read. The root's own read
+ * error is the caller's to report.
  */
 export async function walkWorkspaceTree(
   options: WorkspaceTreeWalkOptions,
@@ -156,18 +186,20 @@ export async function walkWorkspaceTree(
     recursive,
     maxEntries = MAX_RECURSIVE_ENTRIES,
     maxWalkMs = MAX_RECURSIVE_WALK_MS,
+    now = Date.now,
   } = options;
   // A recursive listing carries every file, so a client sums directory
   // sizes itself and no per-directory sizer runs.
   const listOptions = recursive
     ? { ...options, directorySize: undefined }
     : options;
-  const root = await listDirectory(rootPath, listOptions);
+  // The root is listed without a budget: its listing is always whole.
+  const root = (await listDirectory(rootPath, listOptions))!;
   if (!recursive) {
     return { entries: root.entries, truncated: false, skipped: [] };
   }
 
-  const deadline = Date.now() + maxWalkMs;
+  const deadline = now() + maxWalkMs;
   const entries: WorkspaceEntry[] = [...root.entries];
   const skipped: string[] = [];
   // Reversed so the stack pops subdirectories in listing order.
@@ -175,26 +207,27 @@ export async function walkWorkspaceTree(
 
   while (stack.length > 0) {
     const dir = stack.pop()!;
-    if (dir.isSymlink) {
-      continue;
-    }
-    if (isDescentSkipped(dir.relativePath, dir.name)) {
+    if (dir.isSymlink || isDescentSkipped(dir.relativePath, dir.name)) {
       skipped.push(dir.relativePath);
       continue;
     }
-    if (entries.length >= maxEntries || Date.now() > deadline) {
+    if (entries.length >= maxEntries || now() > deadline) {
       return { entries, truncated: true, skipped };
     }
 
-    let listed: ListedDirectory;
+    let listed: ListedDirectory | null;
     try {
-      listed = await listDirectory(dir.absPath, listOptions);
+      listed = await listDirectory(dir.absPath, listOptions, {
+        room: maxEntries - entries.length,
+        deadline,
+      });
     } catch {
+      skipped.push(dir.relativePath);
       continue;
     }
     // A directory is carried whole or not at all, so a client grouping the
     // result by parent never mistakes part of a listing for all of it.
-    if (entries.length + listed.entries.length > maxEntries) {
+    if (listed === null) {
       return { entries, truncated: true, skipped };
     }
     entries.push(...listed.entries);
