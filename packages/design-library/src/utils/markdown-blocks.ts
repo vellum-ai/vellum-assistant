@@ -1,0 +1,146 @@
+/**
+ * Splits a markdown document into top-level blocks so a document that grows
+ * by appends (a streamed reply, a reasoning trace) can be parsed and rendered
+ * one block at a time, with every block but the last reused verbatim as the
+ * tail grows.
+ *
+ * A cut is made at a blank line that sits outside any fence (a ``` / ~~~ code
+ * fence or a $$ math fence) and is followed by a line starting at column 0.
+ * An indented follow-on line stays with its block, since it continues a list
+ * item or an indented code block, and a list item that follows a list keeps
+ * the loose list whole. A block therefore never splits a construct that a
+ * blank line does not already end, so each block parses on its own to the
+ * same tree it would inside the whole document. The exceptions are the
+ * document-wide references CommonMark resolves after parsing (link reference
+ * definitions, GFM footnotes), which resolve only within the block that
+ * defines them, and the few raw HTML blocks that run past a blank line
+ * (`<pre>`, `<script>`, comments), which end at the blank line instead.
+ *
+ * Every block carries its own trailing blank lines, so the blocks always
+ * concatenate back to the exact source: `blocks.join("") === content`.
+ */
+
+export interface MarkdownBlockSplit {
+  /** The source the blocks were cut from. */
+  readonly content: string;
+  /**
+   * The blocks in document order. Empty for empty content; otherwise the last
+   * block is the open tail that the next append lands in.
+   */
+  readonly blocks: readonly string[];
+}
+
+const CODE_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+const MATH_FENCE_OPEN = /^ {0,3}\$\$(?!.*\$\$)/;
+const MATH_FENCE_CLOSE = /^ {0,3}\$\$\s*$/;
+const BLANK_LINE = /^\s*$/;
+const INDENTED_LINE = /^[ \t]/;
+const LIST_MARKER = /^(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
+
+/** The fence a scanner is inside, if any. */
+type Fence =
+  | { readonly kind: "code"; readonly marker: string }
+  | { readonly kind: "math" };
+
+function closesFence(line: string, fence: Fence): boolean {
+  if (fence.kind === "math") {
+    return MATH_FENCE_CLOSE.test(line);
+  }
+  const match = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
+  if (match === null) {
+    return false;
+  }
+  const marker = match[1]!;
+  return marker[0] === fence.marker[0] && marker.length >= fence.marker.length;
+}
+
+function opensFence(line: string): Fence | null {
+  const code = CODE_FENCE_OPEN.exec(line);
+  if (code !== null) {
+    return { kind: "code", marker: code[1]! };
+  }
+  if (MATH_FENCE_OPEN.test(line)) {
+    return { kind: "math" };
+  }
+  return null;
+}
+
+/** One pass over `text` from a block boundary; see the module docs for the cut rule. */
+function scanBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  let blockStart = 0;
+  let blockFirstLine: string | null = null;
+  let fence: Fence | null = null;
+  let afterBlank = false;
+
+  let lineStart = 0;
+  while (lineStart < text.length) {
+    const newline = text.indexOf("\n", lineStart);
+    const lineEnd = newline === -1 ? text.length : newline + 1;
+    const line = text.slice(lineStart, newline === -1 ? text.length : newline);
+
+    if (fence !== null) {
+      if (closesFence(line, fence)) {
+        fence = null;
+      }
+      afterBlank = false;
+    } else if (BLANK_LINE.test(line)) {
+      afterBlank = true;
+    } else {
+      const startsNewBlock =
+        afterBlank &&
+        blockFirstLine !== null &&
+        !INDENTED_LINE.test(line) &&
+        !(LIST_MARKER.test(blockFirstLine) && LIST_MARKER.test(line));
+      if (startsNewBlock) {
+        blocks.push(text.slice(blockStart, lineStart));
+        blockStart = lineStart;
+        blockFirstLine = null;
+      }
+      afterBlank = false;
+      if (blockFirstLine === null) {
+        blockFirstLine = line;
+      }
+      fence = opensFence(line);
+    }
+
+    lineStart = lineEnd;
+  }
+
+  if (blockStart < text.length) {
+    blocks.push(text.slice(blockStart));
+  }
+  return blocks;
+}
+
+/**
+ * Split `content` into top-level markdown blocks.
+ *
+ * Pass the previous result for the same growing document and only the open
+ * tail is rescanned: when `content` extends `previous.content`, every settled
+ * block is carried over as the same string, so a renderer keyed on block text
+ * can skip all of them. Content that is not an extension (a rewrite, a reset)
+ * is scanned in full.
+ */
+export function splitMarkdownBlocks(
+  content: string,
+  previous?: MarkdownBlockSplit,
+): MarkdownBlockSplit {
+  if (content.length === 0) {
+    return { content, blocks: [] };
+  }
+  if (
+    previous !== undefined &&
+    previous.blocks.length > 0 &&
+    content.startsWith(previous.content)
+  ) {
+    const settled = previous.blocks.slice(0, -1);
+    const tail = previous.blocks[previous.blocks.length - 1]!;
+    const tailStart = previous.content.length - tail.length;
+    return {
+      content,
+      blocks: [...settled, ...scanBlocks(content.slice(tailStart))],
+    };
+  }
+  return { content, blocks: scanBlocks(content) };
+}
