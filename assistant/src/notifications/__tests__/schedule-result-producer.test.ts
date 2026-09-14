@@ -354,7 +354,10 @@ describe("emitScheduleResultNotification", () => {
     expect(emitCalls).toHaveLength(1);
   });
 
-  test("stays silent when the run posted to Slack through chat.postMessage", async () => {
+  test("notifies after a Web API post, whose success cannot prove Slack accepted it", async () => {
+    // Slack refuses a call with HTTP 200 and `ok: false`, so a successful bash
+    // result is no evidence the post landed. This is the best case the route
+    // can produce, and it still gets the fallback.
     turnRows = [
       makeToolCallRow("bash", {
         command:
@@ -368,7 +371,7 @@ describe("emitScheduleResultNotification", () => {
 
     await run();
 
-    expect(emitCalls).toHaveLength(0);
+    expect(emitCalls).toHaveLength(1);
   });
 
   test("notifies when the Web API post failed", async () => {

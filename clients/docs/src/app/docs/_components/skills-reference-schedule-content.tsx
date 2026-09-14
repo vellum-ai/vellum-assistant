@@ -177,11 +177,13 @@ export function SkillsReferenceScheduleContent() {
               arrives as a draft in your mailbox for you to review, not as
               something sent on your behalf. The exception is a message built
               around interactive buttons, which Slack takes by a different route
-              that your assistant cannot read back afterwards. If a run finishes
-              with output and nothing delivered it, whether it never tried or
-              the send failed, the assistant sends you its final reply as a
-              notification, so a scheduled run never finishes silently in a
-              conversation you don&apos;t have open.
+              that your assistant can neither read back afterwards nor confirm
+              landed, so a scheduled run that posts one also sends you its final
+              reply as a notification. If a run finishes with output and nothing
+              delivered it, whether it never tried or the send failed, the
+              assistant sends you its final reply as a notification, so a
+              scheduled run never finishes silently in a conversation you
+              don&apos;t have open.
             </li>
             <li>
               <strong>In-app links in Vellum chat.</strong> In Vellum chat,
