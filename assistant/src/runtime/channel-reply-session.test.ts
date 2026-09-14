@@ -253,11 +253,11 @@ describe("createChannelReplySession", () => {
     // durable, so recording it would send recovery to edit a message that
     // never existed and lose the reply instead of posting it.
     transportImpl = { streamReply: () => undefined, streamPersists: false };
-    const opened: string[] = [];
+    const recorded: Array<{ messageTs: string; role: string }> = [];
     const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
-      onStreamOpen: (ts) => opened.push(ts),
+      recordStream: (stream) => recorded.push(stream),
     })!;
 
     session.observeEvent(textDelta("The complete answer."));
@@ -265,22 +265,22 @@ describe("createChannelReplySession", () => {
     await session.finish();
 
     expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
-    expect(opened).toEqual([]);
+    expect(recorded).toEqual([]);
   });
 
   test("a stream that becomes the reply does record its id", async () => {
-    const opened: string[] = [];
+    const recorded: Array<{ messageTs: string; role: string }> = [];
     const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
-      onStreamOpen: (ts) => opened.push(ts),
+      recordStream: (stream) => recorded.push(stream),
     })!;
 
     session.observeEvent(textDelta("The complete answer."));
     session.observeEvent(messageComplete("assistant-msg-1"));
     await session.finish();
 
-    expect(opened).toEqual(["stream-ts-1"]);
+    expect(recorded).toEqual([{ messageTs: "stream-ts-1", role: "reply" }]);
   });
 
   test("streams a fast turn as a single start then stop", async () => {
@@ -519,16 +519,16 @@ describe("createChannelReplySession", () => {
     expect(reconciliation).toEqual({ mode: "fallback" });
   });
 
-  test("keeps streaming when the onStreamOpen breadcrumb write throws", async () => {
-    // The stream opened on Slack's side, so a throwing `onStreamOpen` (e.g. a
+  test("keeps streaming when recording the stream throws", async () => {
+    // The stream opened on Slack's side, so a throwing `recordStream` (e.g. a
     // transient breadcrumb write error) must not knock the session into
     // fallback — that would repost the already-visible streamed reply.
-    const onStreamOpenCalls: string[] = [];
+    const recordCalls: Array<{ messageTs: string; role: string }> = [];
     const session = createChannelReplySession({
       replyCallbackUrl: CALLBACK_URL,
       chatId: CHANNEL,
-      onStreamOpen: (streamTs) => {
-        onStreamOpenCalls.push(streamTs);
+      recordStream: (stream) => {
+        recordCalls.push(stream);
         throw new Error("transient SQLite write error");
       },
     })!;
@@ -538,10 +538,129 @@ describe("createChannelReplySession", () => {
     session.observeEvent(messageComplete("assistant-msg-1"));
     const reconciliation = await session.finish();
 
-    // The callback fired with the opened stream's ts, and its throw left the
-    // session streaming: the stop still lands and finalize reconciles in place.
-    expect(onStreamOpenCalls).toEqual(["stream-ts-1"]);
+    // The recording is attempted when the stream opens on text and again when
+    // the stop confirms it, because a failed recording is retried. Neither
+    // throw left the session anything but streaming: the stop still lands and
+    // finalize reconciles in place.
+    expect(recordCalls).toEqual([
+      { messageTs: "stream-ts-1", role: "reply" },
+      { messageTs: "stream-ts-1", role: "reply" },
+    ]);
     expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
+    expect(reconciliation).toEqual({
+      mode: "streamed",
+      messageTs: "stream-ts-1",
+      deliveredSegmentCount: 1,
+    });
+  });
+
+  test("a stream a plan opened is recorded as progress until reply text lands in it", async () => {
+    // Recovery reads this record to decide whether a crashed turn's streamed
+    // message is the reply to finish or a plan card to leave alone. A message a
+    // plan opened holds no reply yet, so recording it as the reply would have a
+    // retry rewrite the card into the answer.
+    const recorded: Array<{ messageTs: string; role: string }> = [];
+    const session = createChannelReplySession({
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+      recordStream: (stream) => recorded.push(stream),
+    })!;
+
+    session.observeEvent(
+      taskProgressShow([{ label: "Search docs", status: "in_progress" }]),
+    );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
+    await tick(15);
+
+    // A crash here leaves a breadcrumb naming a plan card, not a reply.
+    expect(recorded).toEqual([{ messageTs: "stream-ts-1", role: "progress" }]);
+
+    session.observeEvent(textDelta("Found it."));
+    await tick(15);
+
+    // The reply's first text is confirmed in the same message, which is what
+    // makes it the reply a retry may finish in place.
+    expect(recorded).toEqual([
+      { messageTs: "stream-ts-1", role: "progress" },
+      { messageTs: "stream-ts-1", role: "reply" },
+    ]);
+
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    // The normal live path is unchanged: one message grows from the plan into
+    // the reply, and the stop records nothing new.
+    expect(slackStreamOps().map((op) => op.action)).toEqual([
+      "start",
+      "append",
+      "stop",
+    ]);
+    expect(recorded).toHaveLength(2);
+  });
+
+  test("a plan-only stream whose reply text never lands stays recorded as progress", async () => {
+    // Every operation that would carry the reply fails, so the message still
+    // shows only the plan. A retry has to post the reply beneath that card,
+    // which is what a `progress` record tells it.
+    streamOpImpl = async (op) => {
+      if (op.action === "start") {
+        return { ok: true, ts: "stream-ts-1" };
+      }
+      throw new Error("Slack rejected the operation");
+    };
+    const recorded: Array<{ messageTs: string; role: string }> = [];
+    const session = createChannelReplySession({
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+      recordStream: (stream) => recorded.push(stream),
+    })!;
+
+    session.observeEvent(
+      taskProgressShow([{ label: "Search docs", status: "in_progress" }]),
+    );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
+    await tick(15);
+    session.observeEvent(textDelta("Found it."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    const reconciliation = await session.finish();
+
+    expect(recorded).toEqual([{ messageTs: "stream-ts-1", role: "progress" }]);
+    expect(reconciliation).toEqual({ mode: "fallback" });
+  });
+
+  test("reply text that first lands with the stop records the stream as the reply", async () => {
+    // A stop that carries the reply is confirmation too. Once it lands the
+    // message is the finished reply, so a crash before durable delivery must
+    // not have a retry post the reply a second time beneath its own card.
+    streamOpImpl = async (op) => {
+      if (op.action === "append") {
+        throw new Error("Slack rejected the append");
+      }
+      return { ok: true, ts: "stream-ts-1" };
+    };
+    const recorded: Array<{ messageTs: string; role: string }> = [];
+    const session = createChannelReplySession({
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+      coalesceMs: 5,
+      recordStream: (stream) => recorded.push(stream),
+    })!;
+
+    session.observeEvent(
+      taskProgressShow([{ label: "Search docs", status: "in_progress" }]),
+    );
+    session.observeEvent(toolOk("tool-ui-show", "ui_show"));
+    await tick(15);
+    session.observeEvent(textDelta("Found it."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    const reconciliation = await session.finish();
+
+    expect(recorded).toEqual([
+      { messageTs: "stream-ts-1", role: "progress" },
+      { messageTs: "stream-ts-1", role: "reply" },
+    ]);
     expect(reconciliation).toEqual({
       mode: "streamed",
       messageTs: "stream-ts-1",

@@ -822,12 +822,54 @@ export function storeReplyMessageId(
 }
 
 /**
- * Persist the `ts` of a Slack message already streamed for an inbound event.
- * A processing retry reconciles its durable delivery into this message instead
- * of opening a second stream, preventing a duplicate reply.
+ * What a persistent streamed message holds so far.
+ *
+ * `progress` is a message a plan opened before any reply text was confirmed in
+ * it; `reply` is one the reader can already see the reply growing in. Recovery
+ * finishes only a `reply` in place: rewriting a `progress` message as the reply
+ * would replace the plan card instead of answering beneath it.
  */
-export function storeStreamedReplyTs(eventId: string, streamTs: string): void {
-  mergeRawPayload(eventId, { slackStreamMessageTs: streamTs });
+export type StreamedReplyRole = "progress" | "reply";
+
+/**
+ * Persist the streamed message an inbound event's reply is growing in, and what
+ * it holds so far. Recorded when the stream opens and again when its first
+ * reply text is confirmed, so a crash leaves a breadcrumb that says whether a
+ * retry should finish that message or post the reply beneath it.
+ */
+export function storeStreamedReply(
+  eventId: string,
+  stream: { readonly messageTs: string; readonly role: StreamedReplyRole },
+): void {
+  mergeRawPayload(eventId, {
+    slackStreamMessageTs: stream.messageTs,
+    slackStreamRole: stream.role,
+  });
+}
+
+/**
+ * The streamed message a retry should finish in place, read from an inbound
+ * event's stored payload.
+ *
+ * A message recorded as `progress` is omitted, so the retry posts the reply as
+ * a new message and the plan card stays as it was. A breadcrumb with no role
+ * was written before roles were recorded, and reconciles in place as it always
+ * did.
+ *
+ * One window stays open: a crash after Slack accepts the first reply text but
+ * before the role update lands reads as `progress`, so the retry posts the
+ * reply beside a message that already shows part of it. Slack documents no
+ * idempotency key for posts and no read-back shape for an unfinished stream,
+ * so that window repeats the reply rather than risk overwriting a plan card.
+ */
+export function streamedReplyTsToReconcile(
+  payload: Record<string, unknown>,
+): string | undefined {
+  const ts = payload.slackStreamMessageTs;
+  if (typeof ts !== "string" || ts.length === 0) {
+    return undefined;
+  }
+  return payload.slackStreamRole === "progress" ? undefined : ts;
 }
 
 /**
@@ -863,14 +905,17 @@ export function storeInboundChannelMetadata(
 }
 
 /**
- * Return the `slackStreamMessageTs` durably recorded by any sibling inbound
- * event linked to the given user message (excluding `excludeEventId`).
+ * Return the streamed reply message recorded by any sibling inbound event
+ * linked to the given user message (excluding `excludeEventId`).
  *
  * A deduplicated redelivery is `linkMessage`d to the original turn's
  * `messageId`, so the two events share it. When the original attempt streamed
  * its reply live into Slack but crashed before finalizing delivery, its `ts`
  * survives on the sibling row — the redelivery reads it here to edit that
  * message in place instead of posting the persisted reply a second time.
+ *
+ * A sibling whose stream only ever held a plan is skipped, so the redelivery
+ * posts the reply beneath that plan card rather than rewriting it.
  */
 export function getSiblingStreamedReplyTs(
   messageId: string,
@@ -889,8 +934,9 @@ export function getSiblingStreamedReplyTs(
     .all();
 
   for (const row of rows) {
-    const ts = parseRawPayloadObject(row.rawPayload)?.slackStreamMessageTs;
-    if (typeof ts === "string" && ts.length > 0) {
+    const payload = parseRawPayloadObject(row.rawPayload);
+    const ts = payload ? streamedReplyTsToReconcile(payload) : undefined;
+    if (ts) {
       return ts;
     }
   }

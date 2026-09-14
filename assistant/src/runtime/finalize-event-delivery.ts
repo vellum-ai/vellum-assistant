@@ -28,9 +28,10 @@ export async function finalizeEventDelivery(params: {
   userMessageId: string | undefined;
   replySession: ChannelReplySession | undefined;
   /**
-   * `ts` of a Slack message streamed on a previous, failed attempt. A retry
-   * has no live stream of its own, so it edits this message in place rather
-   * than posting a duplicate reply.
+   * `ts` of a Slack message a previous, failed attempt had already streamed
+   * reply text into. A retry has no live stream of its own, so it edits this
+   * message in place rather than posting a duplicate reply. A message that
+   * only held a plan is never passed here, so its plan card is not rewritten.
    */
   priorStreamMessageTs?: string;
 }): Promise<void> {

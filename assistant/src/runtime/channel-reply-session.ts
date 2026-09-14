@@ -13,6 +13,7 @@ import {
   getTransportForCallback,
   sendChannelStreamOp,
 } from "../messaging/providers/index.js";
+import type { StreamedReplyRole } from "../persistence/delivery-crud.js";
 import { getLogger } from "../util/logger.js";
 import { needsBoundarySpace } from "../util/text-spacing.js";
 import {
@@ -104,18 +105,27 @@ export function createChannelReplySession(params: {
   /** Gap between coalesced `appendStream` calls. Defaults to {@link STREAM_COALESCE_MS}. */
   coalesceMs?: number;
   /**
-   * Invoked once with the streamed message's id the moment a stream that
-   * BECOMES the reply opens, so the caller can durably record it before
-   * delivery finalizes: a crash mid-turn then leaves a breadcrumb, and a
-   * retry reconciles against the already-visible message instead of posting
-   * a duplicate reply.
+   * Invoked with a persistent stream's message id and what it holds, so the
+   * caller can durably record it before delivery finalizes: a crash mid-turn
+   * then leaves a breadcrumb a retry reconciles against instead of posting a
+   * duplicate reply.
+   *
+   * Called when the stream opens, as `progress` when a plan opened it before
+   * any reply text and as `reply` when it opened on text, then once more as
+   * `reply` when a `progress` stream's first reply text is confirmed by the
+   * channel. That distinction is what keeps recovery from rewriting a plan
+   * card as the reply. A recording that throws is attempted again at the next
+   * confirmed text.
    *
    * Never invoked for a preview stream. A preview leaves no message behind,
    * so there is nothing for a retry to reconcile against, and recording its
    * id would point recovery at a message that never existed: the retry would
    * try to edit it and the reply would be lost rather than posted.
    */
-  onStreamOpen?: (streamTs: string) => void;
+  recordStream?: (stream: {
+    readonly messageTs: string;
+    readonly role: StreamedReplyRole;
+  }) => void;
 }): ChannelReplySession | undefined {
   if (
     !params.replyCallbackUrl ||
@@ -141,6 +151,9 @@ export function createChannelReplySession(params: {
   let started = false;
   let finished = false;
   let streamTs: string | undefined;
+  // What the caller has durably recorded this stream as holding. Advances to
+  // `reply` at most once, when reply text is first confirmed in the message.
+  let recordedRole: StreamedReplyRole | undefined;
 
   let rawText = "";
   let confirmedLength = 0;
@@ -191,6 +204,39 @@ export function createChannelReplySession(params: {
     opChain = opChain.catch(() => undefined).then(op);
   };
 
+  /**
+   * Record what the persistent stream holds, once per change.
+   *
+   * A throw never downgrades the session: the stream is already visible on the
+   * channel, so falling back would repost it. Losing a recording only forfeits
+   * crash-window dedup, and the next confirmed text attempts it again.
+   */
+  const recordRole = (role: StreamedReplyRole): void => {
+    if (!streamIsTheReply || !streamTs || recordedRole === "reply") {
+      return;
+    }
+    if (recordedRole === role) {
+      return;
+    }
+    try {
+      params.recordStream?.({ messageTs: streamTs, role });
+      recordedRole = role;
+    } catch (err) {
+      log.warn(
+        { err, chatId, role },
+        "Recording the stream failed; keeping streamed state",
+      );
+    }
+  };
+
+  // Reply text the channel has confirmed, not a plan chunk or whitespace, is
+  // what turns a message a plan opened into the reply.
+  const recordConfirmedReplyText = (clean: string): void => {
+    if (hasDeliverableAssistantText(clean.slice(0, confirmedLength))) {
+      recordRole("reply");
+    }
+  };
+
   const enqueueStart = (): void => {
     enqueue(async () => {
       const clean = streamableText();
@@ -224,20 +270,9 @@ export function createChannelReplySession(params: {
           confirmedLength = firstChunk.length;
           deliveredProgressKey = progressKey(plan);
           state = "streaming";
-          // The stream is already open on the channel's side, so an `onStreamOpen`
-          // failure must not downgrade to fallback and repost the visible
-          // reply. Losing the breadcrumb only forfeits crash-window dedup —
-          // strictly better than a guaranteed duplicate post.
-          try {
-            if (streamIsTheReply) {
-              params.onStreamOpen?.(result.ts);
-            }
-          } catch (err) {
-            log.warn(
-              { err, chatId },
-              "onStreamOpen callback failed; keeping streamed state",
-            );
-          }
+          recordRole(
+            hasDeliverableAssistantText(firstChunk) ? "reply" : "progress",
+          );
         } else {
           state = "fallback";
         }
@@ -277,6 +312,7 @@ export function createChannelReplySession(params: {
           });
           confirmedLength += chunk.length;
           deliveredProgressKey = key ?? deliveredProgressKey;
+          recordConfirmedReplyText(clean);
         } catch (err) {
           log.warn({ err, chatId }, "Stream append failed; deferring delta");
           return;
@@ -497,6 +533,7 @@ export function createChannelReplySession(params: {
             ...(plan ? { plan } : {}),
           });
           confirmedLength = clean.length;
+          recordConfirmedReplyText(clean);
         } catch (err) {
           log.warn(
             { err, chatId },

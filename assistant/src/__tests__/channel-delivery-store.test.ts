@@ -12,10 +12,13 @@ import {
   clearPayload,
   findMessageByProviderMessageId,
   findMessageBySourceId,
+  getSiblingStreamedReplyTs,
   linkMessage,
   recordInbound,
   recordOutboundPost,
   storePayload,
+  storeStreamedReply,
+  streamedReplyTsToReconcile,
 } from "../persistence/delivery-crud.js";
 import {
   acknowledgeDelivery,
@@ -289,6 +292,52 @@ describe("channel-delivery-store", () => {
         "555666777888999000",
       ),
     ).toBeNull();
+  });
+
+  test("a sibling's streamed message is reconciled into only once it held reply text", () => {
+    const original = recordInbound("slack", "D-SIBLING", "slack-msg-original");
+    const redelivery = recordInbound(
+      "slack",
+      "D-SIBLING",
+      "slack-msg-redelivery",
+    );
+    insertMessage("user-sibling", original.conversationId);
+    linkMessage(original.eventId, "user-sibling");
+    linkMessage(redelivery.eventId, "user-sibling");
+    storePayload(original.eventId, { content: "hello" });
+
+    // The original attempt's stream was opened by a plan and crashed before
+    // any reply text: the redelivery posts beneath that card.
+    storeStreamedReply(original.eventId, {
+      messageTs: "1700000000.000101",
+      role: "progress",
+    });
+    expect(
+      getSiblingStreamedReplyTs("user-sibling", redelivery.eventId),
+    ).toBeUndefined();
+
+    // Once reply text was confirmed in it, the same message is the reply the
+    // redelivery finishes in place.
+    storeStreamedReply(original.eventId, {
+      messageTs: "1700000000.000101",
+      role: "reply",
+    });
+    expect(getSiblingStreamedReplyTs("user-sibling", redelivery.eventId)).toBe(
+      "1700000000.000101",
+    );
+  });
+
+  test("a streamed-message breadcrumb written before roles still reconciles in place", () => {
+    expect(
+      streamedReplyTsToReconcile({ slackStreamMessageTs: "1700000000.000102" }),
+    ).toBe("1700000000.000102");
+    expect(
+      streamedReplyTsToReconcile({
+        slackStreamMessageTs: "1700000000.000102",
+        slackStreamRole: "progress",
+      }),
+    ).toBeUndefined();
+    expect(streamedReplyTsToReconcile({})).toBeUndefined();
   });
 
   test("same chat on same channel reuses the same conversation", () => {

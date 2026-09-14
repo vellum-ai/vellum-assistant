@@ -24,6 +24,7 @@ import {
   clearPayload,
   linkMessage,
   storeReplyMessageId,
+  streamedReplyTsToReconcile,
 } from "../persistence/delivery-crud.js";
 import {
   deferRetryUntilIdle,
@@ -454,11 +455,9 @@ export async function sweepFailedEvents(
         : undefined;
     // A retry never opens a new stream: a prior attempt may already have
     // streamed a message, so re-streaming would duplicate the reply. The
-    // durable delivery below edits that message in place when one exists.
-    const priorStreamMessageTs =
-      typeof payload.slackStreamMessageTs === "string"
-        ? payload.slackStreamMessageTs
-        : undefined;
+    // durable delivery below finishes that message in place when it already
+    // held reply text, and posts beneath it when it only held a plan.
+    const priorStreamMessageTs = streamedReplyTsToReconcile(payload);
     let replyMessageId: string | undefined;
     const observeAgentEvent = (msg: AssistantEvent): void => {
       if (
@@ -701,13 +700,11 @@ export async function sweepFailedEvents(
         : undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
-    // A prior attempt may already have streamed a message; its first
-    // undelivered segment edits that message in place rather than posting a
-    // duplicate reply beside it.
-    const priorStreamMessageTs =
-      typeof payload.slackStreamMessageTs === "string"
-        ? payload.slackStreamMessageTs
-        : undefined;
+    // A prior attempt may already have streamed a message. When it held reply
+    // text, its first undelivered segment finishes that message in place
+    // rather than posting a duplicate beside it; a message that only held a
+    // plan stays the plan card, and the reply is posted beneath it.
+    const priorStreamMessageTs = streamedReplyTsToReconcile(payload);
     if (!replyCallbackUrl || !externalChatId) {
       recordDeliveryFailure(
         event.id,

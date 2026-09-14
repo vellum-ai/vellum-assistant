@@ -19,9 +19,11 @@
  * This step, run once from the monitor process at startup, promotes those
  * orphans to `delivery_status = 'failed'` with an immediate `retry_after` so
  * the existing delivery-retry arm of the sweep re-delivers from the stored
- * payload. That arm is idempotent against a reply that already streamed: the
- * `slackStreamMessageTs` breadcrumb makes it edit the visible message in
- * place, and the sent-message-id reconciliation stamps the row. Guards:
+ * payload. That arm reconciles against a reply that already streamed: the
+ * streamed-message breadcrumb makes it finish the visible message in place
+ * when that message already held reply text, leaves a plan-only card as it
+ * was and posts the reply beneath it, and the sent-message-id reconciliation
+ * stamps the row. Guards:
  *
  *   - **Boot-time fence.** Only rows created BEFORE this daemon booted are
  *     touched. A newer row belongs to a live turn on the running daemon;

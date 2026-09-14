@@ -1288,6 +1288,226 @@ describe("channel-retry-sweep", () => {
     expect(row?.deliveryStatus).toBe("failed");
   });
 
+  test("Slack DM processing retry posts beneath a stream that only held a plan instead of rewriting it", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "slack",
+      "D-PLAN-ONLY-RETRY",
+      "slack-msg-d-plan-only-retry",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "retry me",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "D-PLAN-ONLY-RETRY",
+      replyCallbackUrl: "https://example.test/deliver/slack",
+      sourceMetadata: { chatType: "im" },
+      trustCtx: {
+        trustClass: "unknown",
+        sourceChannel: "slack",
+        requesterChatId: "D-PLAN-ONLY-RETRY",
+      },
+    });
+    // The prior attempt opened its stream on a plan and crashed before any
+    // reply text landed in it. No `messageTs` below: the reply is posted as a
+    // new message, so the plan card the reader saw is not rewritten into it.
+    deliveryCrud.storeStreamedReply(inbound.eventId, {
+      messageTs: "1700000000.000111",
+      role: "progress",
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Reprocessed response.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-d-plan-only-retry",
+      });
+      db.insert(messages)
+        .values({
+          id: "user-d-plan-only-retry",
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId: "user-d-plan-only-retry" };
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+
+    expect(liveDeliveryCalls).toEqual([]);
+    expect(deliveryCalls).toEqual([
+      {
+        conversationId: inbound.conversationId,
+        externalChatId: "D-PLAN-ONLY-RETRY",
+        callbackUrl: "https://example.test/deliver/slack",
+        assistantId: undefined,
+        messageId: "assistant-d-plan-only-retry",
+        startFromSegment: 0,
+      },
+    ]);
+    expect(row?.deliveryStatus).toBe("delivered");
+  });
+
+  test("Slack DM processing retry finishes a stream that already held reply text in place", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "slack",
+      "D-REPLY-STARTED-RETRY",
+      "slack-msg-d-reply-started-retry",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "retry me",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "D-REPLY-STARTED-RETRY",
+      replyCallbackUrl: "https://example.test/deliver/slack",
+      sourceMetadata: { chatType: "im" },
+      trustCtx: {
+        trustClass: "unknown",
+        sourceChannel: "slack",
+        requesterChatId: "D-REPLY-STARTED-RETRY",
+      },
+    });
+    // The prior attempt's reply text had already landed in its stream before
+    // the crash, so the reader can see the reply growing there: the retry
+    // finishes that message rather than posting the reply a second time.
+    deliveryCrud.storeStreamedReply(inbound.eventId, {
+      messageTs: "1700000000.000122",
+      role: "reply",
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      options?.onEvent?.({
+        type: "assistant_text_delta",
+        text: "Reprocessed response.",
+        conversationId,
+      });
+      options?.onEvent?.({
+        type: "message_complete",
+        conversationId,
+        messageId: "assistant-d-reply-started-retry",
+      });
+      db.insert(messages)
+        .values({
+          id: "user-d-reply-started-retry",
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId: "user-d-reply-started-retry" };
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+
+    expect(liveDeliveryCalls).toEqual([]);
+    expect(deliveryCalls).toEqual([
+      {
+        conversationId: inbound.conversationId,
+        externalChatId: "D-REPLY-STARTED-RETRY",
+        callbackUrl: "https://example.test/deliver/slack",
+        assistantId: undefined,
+        messageId: "assistant-d-reply-started-retry",
+        startFromSegment: 0,
+        messageTs: "1700000000.000122",
+      },
+    ]);
+    expect(row?.deliveryStatus).toBe("delivered");
+  });
+
+  test("delivery retry posts beneath a streamed plan card instead of rewriting it", async () => {
+    const inbound = deliveryCrud.recordInbound(
+      "slack",
+      "D-DELIVERY-ONLY-PLAN",
+      "msg-delivery-only-plan",
+    );
+    deliveryCrud.storePayload(inbound.eventId, {
+      content: "already processed",
+      sourceChannel: "slack",
+      interface: "slack",
+      externalChatId: "D-DELIVERY-ONLY-PLAN",
+      replyCallbackUrl: "https://example.test/deliver/slack",
+      assistantId: "assistant-1",
+      replyMessageId: "assistant-delivery-only-plan",
+    });
+    // The turn persisted, but its stream only ever held the plan when the
+    // process died: the row stranded-delivery recovery hands to this lane.
+    deliveryCrud.storeStreamedReply(inbound.eventId, {
+      messageTs: "1700000000.000133",
+      role: "progress",
+    });
+
+    const db = getDb();
+    db.update(channelInboundEvents)
+      .set({
+        processingStatus: "processed",
+        deliveryStatus: "failed",
+        processingAttempts: 1,
+        retryAfter: Date.now() - 1,
+        deliveredSegmentCount: 0,
+      })
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .run();
+
+    let processMessageCalls = 0;
+    await sweepFailedEvents(async () => {
+      processMessageCalls++;
+      throw new Error("processMessage should not be called");
+    });
+
+    const row = db
+      .select()
+      .from(channelInboundEvents)
+      .where(eq(channelInboundEvents.id, inbound.eventId))
+      .get();
+    expect(processMessageCalls).toBe(0);
+    expect(deliveryCalls).toEqual([
+      {
+        conversationId: inbound.conversationId,
+        externalChatId: "D-DELIVERY-ONLY-PLAN",
+        callbackUrl: "https://example.test/deliver/slack",
+        assistantId: "assistant-1",
+        messageId: "assistant-delivery-only-plan",
+        startFromSegment: 0,
+      },
+    ]);
+    expect(row?.deliveryStatus).toBe("delivered");
+  });
+
   test("delivery retry for processed events resumes delivery without processing", async () => {
     const inbound = deliveryCrud.recordInbound(
       "telegram",

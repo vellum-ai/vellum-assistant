@@ -31,7 +31,7 @@ import {
   storeInboundChannelMetadata,
   storeInboundSlackMetadata,
   storeReplyMessageId,
-  storeStreamedReplyTs,
+  storeStreamedReply,
 } from "../../../persistence/delivery-crud.js";
 import {
   deferRetryUntilIdle,
@@ -252,10 +252,10 @@ export function processChannelMessageInBackground(
         chatId: externalChatId,
         recipientUserId: slackInbound?.actorExternalUserId,
         recipientTeamId: slackInbound?.actorTeamId,
-        // Durably record the streamed message `ts` the instant the stream
-        // opens, so a crash before `finalizeEventDelivery` leaves a breadcrumb
-        // the redelivery path can reuse to edit the reply in place.
-        onStreamOpen: (streamTs) => storeStreamedReplyTs(eventId, streamTs),
+        // Durably record the streamed message and what it holds, so a crash
+        // before `finalizeEventDelivery` leaves a breadcrumb that tells the
+        // redelivery path whether to finish that message or post beneath it.
+        recordStream: (stream) => storeStreamedReply(eventId, stream),
       });
       const observeAgentEvent = (msg: AssistantEvent): void => {
         if (
@@ -310,9 +310,10 @@ export function processChannelMessageInBackground(
         }
         markProcessed(eventId);
       } catch (err) {
-        // Stop any live Slack stream cleanly. Its `ts` is already durably
-        // recorded via `onStreamOpen`, so the retry sweep can reconcile
-        // against that message rather than posting a duplicate.
+        // Stop any live Slack stream cleanly. The message and what it holds
+        // are already durably recorded via `recordStream`, so the retry sweep
+        // finishes a reply in place rather than posting a duplicate, and posts
+        // beneath a plan card rather than rewriting it.
         await replySession?.finish();
         if (isConversationBusyError(err)) {
           if (onTurnLostToBusy) {
@@ -373,7 +374,7 @@ export function processChannelMessageInBackground(
       //     `pending`, so this redelivery is the only path that can recover the
       //     undelivered reply → fall through and deliver. If that first attempt
       //     had already streamed its reply live into Slack, its message `ts` is
-      //     durably recorded on the sibling row (via `onStreamOpen`); reuse it so
+      //     durably recorded on the sibling row (via `recordStream`); reuse it so
       //     recovery edits that visible message in place instead of posting the
       //     persisted reply a second time.
       let priorDeduplicatedDeliveryOwned = false;

@@ -19,6 +19,7 @@ const storedReplyMessageIds: Array<{
 const storedStreamedReplyTs: Array<{
   eventId: string;
   messageTs: string;
+  role: string;
 }> = [];
 const replyDeliveryCalls: Array<{
   messageId?: string;
@@ -47,9 +48,12 @@ mock.module("../../../persistence/delivery-crud.js", () => ({
     operationOrder.push("store-reply-id");
     storedReplyMessageIds.push({ eventId, replyMessageId });
   },
-  storeStreamedReplyTs: (eventId: string, messageTs: string) => {
+  storeStreamedReply: (
+    eventId: string,
+    stream: { messageTs: string; role: string },
+  ) => {
     operationOrder.push("store-streamed-ts");
-    storedStreamedReplyTs.push({ eventId, messageTs });
+    storedStreamedReplyTs.push({ eventId, ...stream });
   },
   getSiblingStreamedReplyTs: () => siblingStreamedReplyTs,
 }));
@@ -649,7 +653,7 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     // The stream `ts` is durably recorded the moment the stream opens, so a
     // crash before delivery finalizes leaves a breadcrumb for recovery.
     expect(storedStreamedReplyTs).toEqual([
-      { eventId: "evt-streamed", messageTs: streamTs },
+      { eventId: "evt-streamed", messageTs: streamTs, role: "reply" },
     ]);
     expect(deliveredEvents).toEqual(["evt-streamed"]);
   });
@@ -810,7 +814,11 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
     expect(replyDeliveryCalls).toEqual([]);
     expect(storedStreamedReplyTs).toEqual([
-      { eventId: "evt-stream-processing-failure", messageTs: streamTs },
+      {
+        eventId: "evt-stream-processing-failure",
+        messageTs: streamTs,
+        role: "reply",
+      },
     ]);
     expect(processingFailureEvents).toEqual(["evt-stream-processing-failure"]);
     expect(operationOrder).toEqual(["store-streamed-ts", "processing-failure"]);
