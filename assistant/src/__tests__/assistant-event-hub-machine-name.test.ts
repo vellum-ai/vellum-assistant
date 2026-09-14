@@ -125,7 +125,10 @@ describe("AssistantEventHub — machineName", () => {
   });
 });
 
-describe("window capture negotiation", () => {
+describe.each([
+  ["x-vellum-cu-window-capture", "host_cu_window_capture"],
+  ["x-vellum-cu-sequence", "host_cu_sequence"],
+] as const)("%s negotiation", (header, capability) => {
   test.each([
     ["macos", undefined, false],
     ["macos", "0", false],
@@ -145,18 +148,14 @@ describe("window capture negotiation", () => {
             headers: {
               "x-vellum-client-id": "client-1",
               "x-vellum-interface-id": interfaceId,
-              ...(advertised
-                ? { "x-vellum-cu-window-capture": advertised }
-                : {}),
+              ...(advertised ? { [header]: advertised } : {}),
             },
             abortSignal: ac.signal,
           },
           { hub },
         );
         expect(
-          hub
-            .getClientById("client-1")
-            ?.capabilities.includes("host_cu_window_capture"),
+          hub.getClientById("client-1")?.capabilities.includes(capability),
         ).toBe(supported);
       } finally {
         ac.abort();

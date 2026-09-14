@@ -1798,6 +1798,76 @@ describe("HostCuProxy", () => {
     });
   });
 
+  describe("batched actions", () => {
+    const ACTIONS = [
+      { action: "open_app", app_name: "Google Chrome" },
+      { action: "key", key: "cmd+n" },
+      { action: "type_text", text: "example.com" },
+      { action: "key", key: "enter" },
+    ];
+
+    function connect(capabilities: string[]) {
+      mockClients = [
+        { clientId: "mac-1", actorPrincipalId: "user-1", capabilities },
+      ];
+    }
+    function sequence(targetClientId?: string) {
+      return proxy.request(
+        "computer_use_sequence",
+        { actions: ACTIONS, reasoning: "open a new window on a known URL" },
+        "session-1",
+        1,
+        "open a new window on a known URL",
+        undefined,
+        targetClientId,
+        "user-1",
+      );
+    }
+
+    test("a client without host_cu_sequence is refused and nothing is sent", async () => {
+      setup();
+      connect(["host_cu", "host_cu_window_capture"]);
+      for (const target of [undefined, "mac-1"]) {
+        const result = await sequence(target);
+        expect(result.isError).toBe(true);
+        expect(result.content).toContain(
+          "Batched actions require a desktop app that supports computer_use_sequence",
+        );
+        expect(result.content).toContain("Nothing was run.");
+      }
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("no connected client never falls back to an untargeted broadcast", async () => {
+      setup();
+      expect((await sequence()).isError).toBe(true);
+      expect(sentMessages).toHaveLength(0);
+    });
+
+    test("a client with host_cu_sequence gets one request carrying the actions", async () => {
+      setup();
+      connect(["host_cu", "host_cu_sequence"]);
+      const pending = sequence();
+      expect(sentMessages).toHaveLength(1);
+      const sent = sentMessages[0] as {
+        requestId: string;
+        toolName: string;
+        targetClientId: string;
+        input: Record<string, unknown>;
+      };
+      expect(sent.toolName).toBe("computer_use_sequence");
+      expect(sent.targetClientId).toBe("mac-1");
+      expect(sent.input.actions).toEqual(ACTIONS);
+      proxy.processObservation(sent.requestId, {
+        axTree: "Window: New Tab",
+        executionResult: "Ran 4 actions",
+      });
+      const result = await pending;
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Ran 4 actions");
+    });
+  });
+
   describe("screenshot on request", () => {
     const TREE = 'Window: "Inbox" (Mail)\n  [1] button "Reply" at (10, 10)';
     const OMITTED = "Screenshot omitted";

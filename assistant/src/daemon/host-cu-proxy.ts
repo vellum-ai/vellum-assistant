@@ -42,6 +42,8 @@ const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
 
+const SEQUENCE_TOOL = "computer_use_sequence";
+
 const SCREENSHOT_OMITTED_MESSAGE =
   "Screenshot omitted: the accessibility tree above is current. Pass include_screenshot: true on computer_use_observe to see the screen.";
 
@@ -183,6 +185,21 @@ function hasCaptureTarget(input: Record<string, unknown>): boolean {
     Object.hasOwn(input, "captureWindowId") ||
     Object.hasOwn(input, "captureDisplayId")
   );
+}
+
+/**
+ * Whether the resolved client claimed `capability` on its connection. An
+ * untargeted request has no client to vouch for it, so it never qualifies.
+ */
+function clientAdvertises(
+  targetClientId: string | undefined,
+  capability: "host_cu_window_capture" | "host_cu_sequence",
+): boolean {
+  const client =
+    targetClientId == null
+      ? undefined
+      : assistantEventHub.getClientById(targetClientId);
+  return client?.capabilities.includes(capability) ?? false;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,17 +357,25 @@ export class HostCuProxy {
       }
       // Never dispatch this option to a legacy executor: it would forward the
       // unknown snake-case key and silently capture the entire desktop.
-      const client =
-        resolvedTargetClientId == null
-          ? undefined
-          : assistantEventHub.getClientById(resolvedTargetClientId);
-      if (!client?.capabilities.includes("host_cu_window_capture")) {
+      if (!clientAdvertises(resolvedTargetClientId, "host_cu_window_capture")) {
         return Promise.resolve({
           content:
             "Window-only observation requires a connected client advertising host_cu_window_capture; update the desktop app before retrying. No capture was requested.",
           isError: true,
         });
       }
+    }
+    // An older helper answers an unknown tool name as done, which would end
+    // the session with nothing run.
+    if (
+      toolName === SEQUENCE_TOOL &&
+      !clientAdvertises(resolvedTargetClientId, "host_cu_sequence")
+    ) {
+      return Promise.resolve({
+        content:
+          "Batched actions require a desktop app that supports computer_use_sequence; update the desktop app, or send the actions one at a time. Nothing was run.",
+        isError: true,
+      });
     }
     const scopedObservation = hasCaptureTarget(input);
     if (scopedObservation) {

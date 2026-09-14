@@ -155,6 +155,12 @@ export function SkillsReferenceComputerUseContent() {
               unsupported tools are not offered to the assistant.
             </li>
             <li>
+              <strong>Batched actions on macOS.</strong> When the assistant already knows several
+              steps, such as opening a window, typing a URL, and pressing Enter, it can run them
+              in one step and look at the screen once afterward. It stops at the first action
+              that fails. This needs a desktop app that supports batched actions.
+            </li>
+            <li>
               <strong>Single-window observations on macOS.</strong> The observe tool accepts
               <code> capture_window_id</code>, a current native CGWindowID, not a browser tab
               or accessibility element ID. It captures only that window and its accessibility

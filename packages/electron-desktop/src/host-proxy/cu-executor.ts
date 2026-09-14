@@ -44,6 +44,8 @@ export interface CuExecutorDeps {
   resolveHelper: () => CuHelperClient;
   /** Only enable on hosts whose native helper supports CGWindowID capture. */
   supportsWindowCapture?: boolean;
+  /** Only enable on hosts whose native helper runs `computer_use_sequence`. */
+  supportsSequence?: boolean;
 }
 
 export function cuExecutorConfig(
@@ -59,6 +61,9 @@ export function cuExecutorConfig(
       const toolName = message.toolName as string | undefined;
       if (!toolName) {
         return { error: "Missing toolName" };
+      }
+      if (toolName === "computer_use_sequence" && !deps.supportsSequence) {
+        return { error: "Batched actions are not supported by this desktop client. Nothing was run." };
       }
       const input = { ...((message.input as Record<string, unknown> | undefined) ?? {}) };
       if (input.capture_window_id !== undefined) {

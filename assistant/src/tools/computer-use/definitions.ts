@@ -383,6 +383,107 @@ export const computerUseRunAppleScriptTool = {
 } satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
+// sequence
+// ---------------------------------------------------------------------------
+
+export const computerUseSequenceTool = {
+  name: "computer_use_sequence",
+  description:
+    "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest observation, so use them only for actions that act before the screen changes. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action.",
+  category: "computer-use",
+  defaultRiskLevel: RiskLevel.Low,
+  executionTarget: "host",
+  supportedClientOs: ["macos"],
+
+  input_schema: {
+    type: "object",
+    properties: {
+      actions: {
+        type: "array",
+        minItems: 1,
+        maxItems: 10,
+        description: "The actions to run, in order",
+        items: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: [
+                "key",
+                "type_text",
+                "click",
+                "double_click",
+                "right_click",
+                "scroll",
+                "wait",
+                "open_app",
+              ],
+              description: "The action to run",
+            },
+            key: {
+              type: "string",
+              description:
+                "key: key or shortcut to press (e.g. enter, tab, cmd+n)",
+            },
+            text: {
+              type: "string",
+              description: "type_text: the text to type",
+            },
+            element_id: {
+              type: "integer",
+              description:
+                "click, double_click, right_click, scroll: the [ID] of the element from the latest accessibility tree (preferred)",
+            },
+            x: {
+              type: "integer",
+              description:
+                "click, double_click, right_click, scroll: X coordinate on screen (fallback when no element_id)",
+            },
+            y: {
+              type: "integer",
+              description:
+                "click, double_click, right_click, scroll: Y coordinate on screen (fallback when no element_id)",
+            },
+            direction: {
+              type: "string",
+              enum: ["up", "down", "left", "right"],
+              description: "scroll: scroll direction",
+            },
+            amount: {
+              type: "integer",
+              description: "scroll: scroll amount (1-10)",
+            },
+            duration_ms: {
+              type: "integer",
+              description: "wait: milliseconds to wait",
+            },
+            app_name: {
+              type: "string",
+              description:
+                'open_app: the name of the application to open (e.g. "Google Chrome")',
+            },
+          },
+          required: ["action"],
+        },
+      },
+      reasoning: {
+        type: "string",
+        description:
+          "Explanation of what these actions do and why none of them needs to see the result of the one before",
+      },
+      target_client_id: {
+        type: "string",
+        description:
+          "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+      },
+    },
+    required: ["actions", "reasoning"],
+  },
+
+  execute: proxyExecute("computer_use_sequence"),
+} satisfies ToolDefinition;
+
+// ---------------------------------------------------------------------------
 // done
 // ---------------------------------------------------------------------------
 
@@ -496,6 +597,7 @@ export const allComputerUseTools: ToolDefinition[] = [
   computerUseWaitTool,
   computerUseOpenAppTool,
   computerUseRunAppleScriptTool,
+  computerUseSequenceTool,
   computerUseDoneTool,
   computerUseRespondTool,
 ];

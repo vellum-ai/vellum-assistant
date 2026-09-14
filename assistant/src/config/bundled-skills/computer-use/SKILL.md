@@ -35,6 +35,13 @@ The tree is walked to a limited depth to keep steps fast, and says when it was
 cut off. If the element you need is not in it, call `computer_use_observe` with
 `full_tree: true`.
 
+## Batching known steps (macOS)
+
+When you already know the next few actions and none depends on seeing the
+result of the one before, send them as one `computer_use_sequence` call, for
+example opening a new window, typing a URL and pressing enter. Act one step at
+a time whenever the next action depends on what the screen shows.
+
 ## Window-scoped observation (macOS)
 
 `computer_use_observe` accepts optional `capture_window_id`, a native macOS
