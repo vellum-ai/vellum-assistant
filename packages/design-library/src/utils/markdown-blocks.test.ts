@@ -129,6 +129,31 @@ describe("splitMarkdownBlocks", () => {
     ]);
   });
 
+  test("a list whose first marker is indented up to three spaces is still a list", () => {
+    expect(blocksOf(" - one\n\n- two\n\nafter")).toEqual([
+      " - one\n\n- two\n\n",
+      "after",
+    ]);
+    expect(blocksOf("   1. one\n\n2. two\n\nafter")).toEqual([
+      "   1. one\n\n2. two\n\n",
+      "after",
+    ]);
+  });
+
+  test("a line of non-breaking spaces is content, not a blank line", () => {
+    // CommonMark blank lines hold only spaces and tabs, so this stays one
+    // paragraph and must not be cut.
+    expect(blocksOf("a\n \nb\n\nc")).toEqual(["a\n \nb\n\n", "c"]);
+    expect(blocksOf("a\n \t \nb")).toEqual(["a\n \t \n", "b"]);
+  });
+
+  test("a fence line followed by a non-breaking space does not close the fence", () => {
+    expect(blocksOf("```\nx\n``` \n\ny\n```\n\nafter")).toEqual([
+      "```\nx\n``` \n\ny\n```\n\n",
+      "after",
+    ]);
+  });
+
   test("a lazy continuation keeps the list open", () => {
     expect(blocksOf("- one\nstill one\n\n- two\n\nafter")).toEqual([
       "- one\nstill one\n\n- two\n\n",

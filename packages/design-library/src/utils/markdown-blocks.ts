@@ -34,10 +34,14 @@ const CODE_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 // remark-math's flow construct: a run of two or more dollars, optional meta
 // that may not contain another dollar, and a closing run at least as long.
 const MATH_FENCE_OPEN = /^ {0,3}(\${2,})[^$]*$/;
-const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,}|\${2,})\s*$/;
-const BLANK_LINE = /^\s*$/;
+// Only spaces and tabs count as whitespace to CommonMark, so a closing fence
+// or a blank line may carry nothing else (a stray U+00A0 makes a line
+// content). The optional CR is what CRLF input leaves after the split.
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,}|\${2,})[ \t]*\r?$/;
+const BLANK_LINE = /^[ \t]*\r?$/;
 const INDENTED_LINE = /^[ \t]/;
-const LIST_MARKER = /^(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
+// A top-level list item may sit up to three spaces in.
+const LIST_MARKER = /^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
 
 /**
  * The fence a scanner is inside, if any: the run of characters that opened
