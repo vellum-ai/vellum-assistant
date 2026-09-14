@@ -1,18 +1,14 @@
 /**
- * The URL names the app on screen, and this hook is the only place that turns
- * that into viewer state. Surfaces open and close an app by navigating to
- * `routes.conversation(conversationId, appId)` or back to the plain
- * conversation URL; nothing else writes `activeAppId`.
- *
- * Split, minimized, and the bound edit conversation stay in memory: they are
- * layout, not identity.
+ * The URL segment `app/:appId` names an app for the viewer to show: this hook
+ * loads it when the viewer does not already hold it, brings it back in front
+ * when an overlay holds the main view, and drops the segment from the URL when
+ * the app cannot be loaded.
  */
 
 import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 
 import { isAppMainView } from "@/stores/pane-state";
-import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
@@ -30,26 +26,17 @@ export function useAppRouteSync(
   }, [conversationId]);
 
   useEffect(() => {
+    if (routeAppId === null || !assistantId) {
+      return;
+    }
+
     const viewer = useViewerStore.getState();
-
-    if (routeAppId === null) {
-      if (viewer.activeAppId !== null || isAppMainView(viewer.mainView)) {
-        viewer.closeApp();
-        useConversationStore.getState().setEditingConversationId(null);
-      }
-      return;
-    }
-
-    if (!assistantId) {
-      return;
-    }
 
     if (
       viewer.activeAppId === routeAppId &&
       viewer.openedAppState?.appId === routeAppId
     ) {
       if (!isAppMainView(viewer.mainView)) {
-        // The app was hidden behind an overlay and the URL still names it.
         viewer.setMainView("app");
       }
       return;
@@ -66,12 +53,12 @@ export function useAppRouteSync(
         return;
       }
       if (useViewerStore.getState().activeAppId === routeAppId) {
-        // The app loaded but the viewer moved to an overlay mid-request, so
-        // the URL still names what the viewer holds.
+        // The viewer holds the app behind an overlay, so the URL still names
+        // what the viewer holds.
         return;
       }
-      // An app that no longer exists must not stay in the URL, otherwise
-      // Forward and reload would retry it forever.
+      // An app id the viewer cannot load does not belong in the URL, where
+      // reload and Forward would retry it forever.
       const cid = conversationIdRef.current;
       if (cid) {
         void navigate(routes.conversation(cid), { replace: true });

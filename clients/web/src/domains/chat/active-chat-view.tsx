@@ -417,7 +417,7 @@ export function ActiveChatView() {
   // Legacy deep-link: ?app=<id> redirects onto the app route.
   useDeepLinkApp(urlConversationId ?? null, searchParams);
 
-  // The app segment of the URL decides which app the viewer shows.
+  // The app segment of the URL names an app for the viewer to show.
   useAppRouteSync(assistantId, urlConversationId ?? null, urlAppId ?? null);
 
   // Conversation-change side effects (dismiss prompts, reset subagent state,

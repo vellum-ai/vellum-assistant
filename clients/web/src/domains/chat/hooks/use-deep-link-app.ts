@@ -1,10 +1,9 @@
 /**
- * Legacy `?app=<id>` links land on the app route.
- *
- * The app viewer lives at `/assistant/conversations/:conversationId/app/:appId`
- * (see `useAppRouteSync`), so the param is only a redirect now. The pending id
- * is held in a ref because an index landing (`/assistant?app=x`) is rewritten
- * to a conversation URL by the loader before the conversation id is known.
+ * Legacy `?app=<id>` links redirect onto the app route
+ * `/assistant/conversations/:conversationId/app/:appId`, which `useAppRouteSync`
+ * turns into an open app. The pending id is held in a ref because an index
+ * landing (`/assistant?app=x`) is rewritten to a conversation URL by the loader
+ * before the conversation id is known.
  */
 
 import { useEffect, useRef } from "react";

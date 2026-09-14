@@ -165,33 +165,8 @@ describe("useAppRouteSync", () => {
     expect(loadAppMock).not.toHaveBeenCalled();
   });
 
-  test("closes the app when the URL stops naming one", () => {
-    // GIVEN an app is open on its route
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: APP_ID,
-      openedAppState: APP,
-    });
-    const { rerender } = renderSync({
-      assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
-      routeAppId: APP_ID,
-    });
-
-    // WHEN the route loses its app segment (Back, or an explicit close)
-    rerender({
-      assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
-      routeAppId: null,
-    });
-
-    // THEN the viewer closes the app and drops the bound edit conversation
-    expect(closeAppMock).toHaveBeenCalledTimes(1);
-    expect(setEditingConversationIdMock).toHaveBeenCalledWith(null);
-  });
-
   test("leaves the app route when the store gave up on the app", async () => {
-    // GIVEN the app no longer exists, so the store falls back to chat
+    // GIVEN the app is missing, so the store falls back to chat
     loadAppMock.mockImplementation(async () => {
       useViewerStore.setState({
         mainView: "chat",
