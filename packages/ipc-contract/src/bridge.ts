@@ -58,11 +58,13 @@ import type {
   LockfileWriteResult,
   LocalAssistantStatusResult,
   NotificationActionEvent,
+  PrepareNotificationIdentityPayload,
   PowerEvent,
   VoiceModeChord,
   VoiceModeChordRegistrationResult,
   ResolvedHotkey,
   ShowNotificationPayload,
+  ResetNotificationIdentitiesPayload,
   SystemPermissionKind,
   SystemPermissionStateItem,
   SystemPermissionsState,
@@ -172,8 +174,7 @@ export type LocalListDevicesResult =
   | { ok: false; error: string };
 
 export type LocalRevokeDeviceResult =
-  | { ok: true }
-  | { ok: false; error: string };
+  { ok: true } | { ok: false; error: string };
 
 /**
  * A local assistant's avatar as read off its workspace by the host. `null`
@@ -331,7 +332,13 @@ export interface VellumBridge {
   };
   permissions: {
     getState(): Promise<SystemPermissionsState>;
-    request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
+    request(
+      kind: SystemPermissionKind,
+      presentation?: Pick<
+        ShowNotificationPayload,
+        "presentation" | "identity" | "sender"
+      >,
+    ): Promise<SystemPermissionStateItem>;
     openSettings(
       kind: SystemPermissionKind,
     ): Promise<SystemPermissionStateItem>;
@@ -535,6 +542,16 @@ export interface VellumBridge {
     show(
       payload: ShowNotificationPayload,
     ): Promise<{ success: boolean; errorMessage?: string }>;
+    /** Registers this preload's renderer lifetime before identity publication. */
+    registerIdentityPublisher?(publisherSessionId?: string): Promise<boolean>;
+    /** Optional until every installed desktop preload supports preparation. */
+    prepareIdentity?(
+      payload: PrepareNotificationIdentityPayload,
+    ): Promise<void>;
+    /** Optional until every installed desktop preload supports scoped reset. */
+    resetIdentities?(
+      payload: ResetNotificationIdentitiesPayload,
+    ): Promise<void>;
     onAction(callback: (event: NotificationActionEvent) => void): () => void;
     /**
      * Authoritative state of the window this renderer belongs to, pushed from

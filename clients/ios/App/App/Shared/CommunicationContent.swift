@@ -18,7 +18,8 @@ import UserNotifications
 func communicationContent(
     from content: UNNotificationContent,
     sender: SenderPayload,
-    avatar: Data
+    avatar: Data,
+    suppressGroupTitle: Bool = false
 ) async throws -> UNNotificationContent {
     // INImage(url:) reads local files only, so the bytes travel inline.
     let image = INImage(imageData: avatar)
@@ -47,7 +48,9 @@ func communicationContent(
     // becomes a two-recipient group named after the conversation. Its image has
     // to be set explicitly or iOS composes a glyph out of the participants
     // instead of showing the assistant.
-    let title = content.title.trimmingCharacters(in: .whitespacesAndNewlines)
+    let title = suppressGroupTitle
+        ? ""
+        : content.title.trimmingCharacters(in: .whitespacesAndNewlines)
     let groupName = title.isEmpty ? nil : INSpeakableString(spokenPhrase: title)
 
     let intent = INSendMessageIntent(

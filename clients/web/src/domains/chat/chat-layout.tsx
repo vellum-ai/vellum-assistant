@@ -108,6 +108,7 @@ import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
+import { useDocumentHeaderVisible } from "./hooks/use-document-header-visible";
 import {
   ArchiveAllConfirmDialog,
   useArchiveAllConfirmation,
@@ -965,6 +966,7 @@ export function ChatLayout({
   // attention tracking, message reconciliation) rely on it persisting
   // across route changes.
   const isOnConversationRoute = isConversationPath(location.pathname);
+  const documentHeaderVisible = useDocumentHeaderVisible();
   const sidebarActiveConversationId = isOnConversationRoute
     ? (activeConversationId ?? undefined)
     : undefined;
@@ -1121,7 +1123,7 @@ export function ChatLayout({
           host renders null when there is no session to show. */}
       {!isPopout && isMobile ? <VoiceSessionPillHost variant="row" /> : null}
 
-      {!isPopout && (
+      {!isPopout && !documentHeaderVisible && (
         <ChatLayoutHeader
           isMobile={isMobile}
           drawerOpen={drawerOpen}

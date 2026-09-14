@@ -127,6 +127,30 @@ jobs:
       - name: Test
         run: bun run test:ci
 
+  gesture-browser:
+    name: Gesture Browser Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --filter=@vellumai/web
+
+      - name: Install Playwright browsers
+        run: bunx playwright install --with-deps chromium webkit
+
+      - name: Test gestures in Chromium and WebKit
+        run: bun run test:edge-swipe:browser
+
   build:
     name: Build
     runs-on: ubuntu-latest
@@ -168,7 +192,7 @@ jobs:
   # branch protection is updated to require the individual jobs above.
   checks:
     name: Lint, Type Check & Build
-    needs: [lint, typecheck, test, build]
+    needs: [lint, typecheck, test, gesture-browser, build]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -177,13 +201,15 @@ jobs:
           LINT: ${{ needs.lint.result }}
           TYPECHECK: ${{ needs.typecheck.result }}
           TEST: ${{ needs.test.result }}
+          GESTURE_BROWSER: ${{ needs.gesture-browser.result }}
           BUILD: ${{ needs.build.result }}
         run: |
           echo "Lint:       $LINT"
           echo "Type Check: $TYPECHECK"
           echo "Test:       $TEST"
+          echo "Gestures:   $GESTURE_BROWSER"
           echo "Build:      $BUILD"
-          for r in "$LINT" "$TYPECHECK" "$TEST" "$BUILD"; do
+          for r in "$LINT" "$TYPECHECK" "$TEST" "$GESTURE_BROWSER" "$BUILD"; do
             if [ "$r" != "success" ]; then
               echo "::error::At least one web CI job failed."
               exit 1

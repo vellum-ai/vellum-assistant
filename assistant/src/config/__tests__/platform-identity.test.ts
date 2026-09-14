@@ -1,15 +1,25 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  getPlatformBaseUrl,
   setPlatformAssistantId,
+  setPlatformBaseUrl,
   setPlatformOrganizationId,
   setPlatformUserId,
 } from "../env.js";
-import {
+
+const actualSecureKeys = await import("../../security/secure-keys.js");
+mock.module("../../security/secure-keys.js", () => ({
+  ...actualSecureKeys,
+  getSecureKeyAsync: async () => undefined,
+}));
+
+const {
+  _resetPlatformIdentityEnsureForTests,
   fetchPlatformIdentityIds,
   PLATFORM_IDENTITY_VALIDATE_PATH,
   resolvePlatformAssistantId,
-} from "../platform-identity.js";
+} = await import("../platform-identity.js");
 
 const BASE_URL = "https://platform.vellum.ai";
 const ASSISTANT_ID = "11111111-2222-4333-8444-555555555555";
@@ -104,14 +114,142 @@ describe("fetchPlatformIdentityIds", () => {
 });
 
 describe("resolvePlatformAssistantId", () => {
-  afterEach(() => {
+  const originalFetch = globalThis.fetch;
+  const originalAssistantApiKeyEnv = process.env.ASSISTANT_API_KEY;
+  const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
+  let fetchImpl: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response> = async () =>
+    new Response("not found", { status: 404 });
+
+  beforeEach(() => {
+    fetchCalls.length = 0;
+    fetchImpl = async () => new Response("not found", { status: 404 });
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = typeof input === "string" ? input : input.toString();
+      fetchCalls.push({ url, init });
+      return fetchImpl(input, init);
+    }) as unknown as typeof fetch;
+    delete process.env.ASSISTANT_API_KEY;
+    setPlatformBaseUrl(undefined);
     setPlatformAssistantId(undefined);
     setPlatformOrganizationId(undefined);
     setPlatformUserId(undefined);
+    _resetPlatformIdentityEnsureForTests();
   });
 
-  test("returns the in-memory override", async () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalAssistantApiKeyEnv === undefined) {
+      delete process.env.ASSISTANT_API_KEY;
+    } else {
+      process.env.ASSISTANT_API_KEY = originalAssistantApiKeyEnv;
+    }
+    setPlatformBaseUrl(undefined);
+    setPlatformAssistantId(undefined);
+    setPlatformOrganizationId(undefined);
+    setPlatformUserId(undefined);
+    _resetPlatformIdentityEnsureForTests();
+  });
+
+  test("returns the in-memory override without calling validate", async () => {
     setPlatformAssistantId(ASSISTANT_ID);
+    process.env.ASSISTANT_API_KEY = "assistant-key";
     await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("returns empty when the in-memory override is unset and there is no API key", async () => {
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("loads ids from validate when the in-memory override is empty", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    setPlatformBaseUrl(BASE_URL);
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0]?.url).toBe(
+      `${getPlatformBaseUrl().replace(/\/+$/, "")}${PLATFORM_IDENTITY_VALIDATE_PATH}`,
+    );
+  });
+
+  test("does not retry validate during the cooldown after a failure", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    setPlatformBaseUrl(BASE_URL);
+    fetchImpl = async () => new Response("down", { status: 503 });
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+    expect(fetchCalls).toHaveLength(1);
+  });
+
+  test("retries validate after a failed attempt once the cooldown is cleared", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    setPlatformBaseUrl(BASE_URL);
+    fetchImpl = async () => new Response("down", { status: 503 });
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+    _resetPlatformIdentityEnsureForTests();
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+    expect(fetchCalls).toHaveLength(2);
+  });
+
+  test("concurrent resolves share one in-flight validate", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    setPlatformBaseUrl(BASE_URL);
+    let release!: (value: Response) => void;
+    let notifyFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      notifyFetchStarted = resolve;
+    });
+    fetchImpl = () => {
+      notifyFetchStarted();
+      return new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+    };
+
+    const first = resolvePlatformAssistantId();
+    const second = resolvePlatformAssistantId();
+    await fetchStarted;
+    expect(fetchCalls).toHaveLength(1);
+    release(
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      ),
+    );
+    await expect(first).resolves.toBe(ASSISTANT_ID);
+    await expect(second).resolves.toBe(ASSISTANT_ID);
+    expect(fetchCalls).toHaveLength(1);
   });
 });

@@ -55,7 +55,7 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
  * Patterns excluded from workspace git tracking.
  * These are written to .gitignore on init and appended to existing .gitignore files.
  */
-const WORKSPACE_GITIGNORE_RULES = [
+export const WORKSPACE_GITIGNORE_RULES = [
   // Runtime state directories
   "data/db/",
   "data/qdrant/",

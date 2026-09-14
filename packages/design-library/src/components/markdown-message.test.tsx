@@ -125,6 +125,7 @@ describe("MarkdownMessage", () => {
     // wrapped lines onto each other.
     expect(html).toContain("text-body-small-lighter");
     expect(html).not.toContain("text-body-small-default");
+    expect(html).toMatch(/<div[^>]*data-owns-horizontal-scroll=""[^>]*><table/);
   });
 
   test("inline code in table cells wraps with preserved spacing and breathing room", () => {
@@ -244,10 +245,12 @@ describe("MarkdownMessage", () => {
     const codeTag = html.match(/<code[^>]*>/)?.[0] ?? "";
 
     expect(preTag).toContain("overflow-auto");
+    expect(preTag).toContain('data-owns-horizontal-scroll=""');
     expect(preTag).toContain("max-height:400px");
     expect(codeTag).toContain("w-max");
     expect(codeTag).toContain("min-w-full");
     expect(codeTag).not.toContain("overflow-");
+    expect(codeTag).not.toContain("data-owns-horizontal-scroll");
   });
 
   test("inline code renders a chip with no scroll container", () => {

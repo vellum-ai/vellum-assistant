@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.12.0
+  version: 0.12.1
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -37047,8 +37047,18 @@ paths:
           schema:
             type: string
           description:
-            "Compute recursive byte size for each directory entry (true/false). Budget-bounded — large subtrees may
-            return size: null."
+            "Compute recursive byte size for each directory entry (true/false). Budget-bounded: large subtrees may
+            return size: null. Not applied to a recursive listing, which carries every file for the client to sum."
+        - name: recursive
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            "List the whole subtree in one response (true/false). Depth-first, each directory's entries in listing
+            order, so grouping by parent path recovers per-directory listings. Bounded: sets truncated when the entry
+            cap or deadline stops the walk, and does not enter directories the workspace gitignore rules exclude, which
+            are named in skipped."
       responses:
         "200":
           description: Successful response
@@ -37092,6 +37102,18 @@ paths:
                         - modifiedAt
                       additionalProperties: false
                     description: Directory entry objects
+                  truncated:
+                    description:
+                      A recursive walk stopped at its entry cap or deadline, so deeper entries are missing. Absent from
+                      assistants that predate recursive listings.
+                    type: boolean
+                  skipped:
+                    description:
+                      Directories a recursive walk listed but did not enter. Absent from assistants that predate recursive
+                      listings.
+                    type: array
+                    items:
+                      type: string
                 required:
                   - path
                   - entries

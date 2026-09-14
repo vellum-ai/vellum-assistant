@@ -159,6 +159,7 @@ mock.module(
 );
 
 const { useAuthStore } = await import("@/stores/auth-store");
+const { useOrganizationStore } = await import("@/stores/organization-store");
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const { useAssistantIdentityStore } =
@@ -174,6 +175,7 @@ const {
 const { avatarQueryKey } = await import("@/hooks/use-assistant-avatar");
 
 const initialAuthState = useAuthStore.getState();
+const initialOrganizationState = useOrganizationStore.getState();
 const { chooserRowAvatarCacheQueryKey, persistLastSeenAvatar } =
   await import("@/lib/persist-last-seen-avatar");
 const { platformAvatarUrlsQueryKey } =
@@ -269,6 +271,12 @@ beforeEach(() => {
   selfHostedIngressUrl = null;
   orgReady = true;
   hostAvailable = false;
+  signInToPlatform();
+  useOrganizationStore.setState({
+    currentOrganizationId: "org-1",
+    persistedOrganizationId: "org-1",
+    status: "ready",
+  });
   useResolvedAssistantsStore.getState().setActiveAssistantId("active");
   // useAssistantAvatar gates its own path on the identity store's version.
   useAssistantIdentityStore.getState().setIdentity("active", MIN_VERSION);
@@ -295,6 +303,7 @@ afterEach(() => {
   resolvePairedAssistantPlatformId.mockReset();
   resolvePairedAssistantPlatformId.mockImplementation(async (id) => id);
   useAuthStore.setState(initialAuthState, true);
+  useOrganizationStore.setState(initialOrganizationState, true);
   readAssistantAvatarHost.mockResolvedValue({ ok: true, avatar: null });
   readLastSeenAvatar.mockResolvedValue(null);
   fetchAvatarState.mockResolvedValue(characterState);
@@ -627,7 +636,7 @@ describe("useChooserRowAvatar", () => {
       expect(
         queryClient
           .getQueryData<Map<string, string>>(
-            platformAvatarUrlsQueryKey("user-1", null),
+            platformAvatarUrlsQueryKey("user-1", "org-1"),
           )
           ?.has("uuid-other"),
       ).toBe(false);
@@ -670,7 +679,7 @@ describe("useChooserRowAvatar", () => {
       expect(
         queryClient
           .getQueryData<Map<string, string>>(
-            platformAvatarUrlsQueryKey("user-1", null),
+            platformAvatarUrlsQueryKey("user-1", "org-1"),
           )
           ?.has("other"),
       ).toBe(false);

@@ -6,7 +6,7 @@
  *   - platform             → build managed proxy URL and fetch the platform API key
  *   - none                 → pass through with no auth headers
  *   - oauth_subscription   → fetch OAuth token from vault (with auto-refresh) → inject as bearer header
- *   - service_account      → reject (v2 not yet shipped)
+ *   - service_account      → sign JWT and exchange for bearer token at token_uri (Google Vertex AI)
  */
 
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
@@ -119,10 +119,28 @@ export async function resolveAuth(
       };
     }
 
-    case "service_account":
+    case "service_account": {
+      const { getValidServiceAccountToken } =
+        await import("./service-account-token.js");
+      const result = await getValidServiceAccountToken(auth.credential);
+      if (!result.ok) {
+        if (result.reason === "exchange_failed") {
+          return { ok: false, error: { code: "platform_unavailable" } };
+        }
+        // not_found or invalid_config: the credential needs to be supplied or fixed.
+        return {
+          ok: false,
+          error: { code: "credential_not_found", credential: auth.credential },
+        };
+      }
       return {
-        ok: false,
-        error: { code: "not_implemented", authType: auth.type },
+        ok: true,
+        resolved: {
+          kind: "header",
+          headers: { Authorization: `Bearer ${result.token}` },
+          ...(safeBaseUrl ? { baseUrl: safeBaseUrl } : {}),
+        },
       };
+    }
   }
 }

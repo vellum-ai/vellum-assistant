@@ -613,6 +613,29 @@ describe("useSendMessage: a local command answering after a switch", () => {
  * its own conversation otherwise.
  */
 describe("useSendMessage: a send whose POST throws", () => {
+  test.todo("restores off-screen attachment payloads with their failed draft", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    useComposerStore.getState().resetAttachments();
+    throwWhileAnswering({ switchFirst: true });
+    const { result } = renderSendFor(SEND_CONVERSATION);
+    const attachment = {
+      id: "attachment-1",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      previewUrl: null,
+    };
+
+    await act(async () => {
+      await result.current.sendMessage("read these notes", [attachment]);
+    });
+
+    expect(draftFor(SEND_CONVERSATION)).toBe("read these notes");
+    expect(useComposerStore.getState().attachments).toEqual([
+      expect.objectContaining(attachment),
+    ]);
+  });
+
   test("off screen it idles no turn, banners nothing, and parks the text", async () => {
     useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
     throwWhileAnswering({ switchFirst: true });

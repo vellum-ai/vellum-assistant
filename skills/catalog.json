@@ -579,7 +579,7 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-09-10T13:30:30.000Z"
+      "updatedAt": "2026-09-14T10:34:19.000Z"
     },
     {
       "id": "meme-generator",
@@ -644,7 +644,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T14:11:35.000Z"
+      "updatedAt": "2026-09-11T17:47:34.000Z"
     },
     {
       "id": "notion",
@@ -765,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-11T21:15:40.000Z"
+      "updatedAt": "2026-09-14T10:34:19.000Z"
     },
     {
       "id": "public-ingress",
@@ -870,7 +870,7 @@
     {
       "id": "slack",
       "name": "slack",
-      "description": "Read, send, and manage Slack messages via the Web API",
+      "description": "Send, read, and manage Slack messages",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "💬",
@@ -880,7 +880,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T20:37:43.000Z"
+      "updatedAt": "2026-09-14T15:55:05.000Z"
     },
     {
       "id": "slack-app-setup",

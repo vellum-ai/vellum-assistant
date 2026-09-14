@@ -19,10 +19,10 @@ import {
   documentsGetOptions,
   schedulesGetQueryKey,
   skillsGetOptions,
-  workspaceTreeGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useTranslation } from "@/i18n";
 import { installedPluginsQueryOptions } from "@/lib/installed-plugins-query";
+import { workspaceTreeQueryOptions } from "@/lib/workspace-tree-query";
 import { fetchSchedules } from "@/utils/schedules";
 
 export interface SchedulePreview {
@@ -100,8 +100,11 @@ export function useIdentitySectionStats(
     select: (data) => data.documents.length,
     ...common,
   });
+  // Shares the workspace browser's root listing cache entry (see
+  // `lib/workspace-tree-query.ts`), so a file created, renamed, or deleted
+  // there refreshes this count too.
   const workspace = useQuery({
-    ...workspaceTreeGetOptions({ path }),
+    ...workspaceTreeQueryOptions({ assistantId }),
     select: (data) => data.entries.length,
     ...common,
     enabled: !isNativeMobile,

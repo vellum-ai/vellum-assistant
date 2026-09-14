@@ -708,6 +708,51 @@ describe("BYOOAuthConnection", () => {
       expect(headers.get("Authorization")).toBe("Bearer test-access-token");
     });
 
+    test("sends the token in the provider's own header when one is configured", async () => {
+      // Shopify's Admin API reads X-Shopify-Access-Token and ignores
+      // Authorization, so a Bearer header reaches the shop unauthenticated.
+      await setupCredential("google");
+      const conn = new BYOOAuthConnection({
+        id: "conn-google",
+        provider: "google",
+        baseUrl: "https://example-store.myshopify.com",
+        accountInfo: null,
+        tokenHeader: { name: "X-Shopify-Access-Token", valuePrefix: "" },
+      });
+
+      await conn.request({
+        method: "GET",
+        path: "/admin/api/2026-07/shop.json",
+        // A caller-supplied Authorization must not ride along.
+        headers: { Authorization: "Bearer caller-supplied" },
+      });
+
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe(
+        "https://example-store.myshopify.com/admin/api/2026-07/shop.json",
+      );
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("X-Shopify-Access-Token")).toBe("test-access-token");
+      expect(headers.has("Authorization")).toBe(false);
+    });
+
+    test("keeps the value prefix from the token header template", async () => {
+      await setupCredential("google");
+      const conn = new BYOOAuthConnection({
+        id: "conn-google",
+        provider: "google",
+        baseUrl: "https://discord.com/api",
+        accountInfo: null,
+        tokenHeader: { name: "Authorization", valuePrefix: "Bot " },
+      });
+
+      await conn.request({ method: "GET", path: "/users/@me" });
+
+      const [, init] = mockFetch.mock.calls[0];
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.get("Authorization")).toBe("Bot test-access-token");
+    });
+
     test("uses Telegram Bot API token URL format without Bearer auth", async () => {
       await setupTelegramCredential();
       const conn = createConnection("telegram");

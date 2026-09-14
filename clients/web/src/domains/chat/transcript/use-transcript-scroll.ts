@@ -56,6 +56,8 @@ export interface UseTranscriptScrollArgs {
   hasMore: boolean;
   isLoadingOlder: boolean;
   onLoadOlder: () => void;
+  /** Hidden transcript content stays mounted without measuring or scrolling. */
+  isVisible?: boolean;
 }
 
 export interface UseTranscriptScrollReturn {
@@ -77,6 +79,7 @@ export function useTranscriptScroll(
     hasMore,
     isLoadingOlder,
     onLoadOlder,
+    isVisible = true,
   } = args;
 
   // Coerced to boolean so the dep arrays below re-fire exactly once on
@@ -108,6 +111,7 @@ export function useTranscriptScroll(
     onLoadOlder,
     isPinnedToLatest,
     showScrollToLatest,
+    isVisible,
   });
   useLayoutEffect(() => {
     latestRef.current = {
@@ -118,6 +122,7 @@ export function useTranscriptScroll(
       onLoadOlder,
       isPinnedToLatest,
       showScrollToLatest,
+      isVisible,
     };
   }, [
     items,
@@ -127,6 +132,7 @@ export function useTranscriptScroll(
     onLoadOlder,
     isPinnedToLatest,
     showScrollToLatest,
+    isVisible,
   ]);
 
   // ---------- Saved anchor for prepend preservation ---------------------
@@ -195,6 +201,8 @@ export function useTranscriptScroll(
   // token to *start*) does not trigger auto-follow.
   const shouldAutoPinRef = useRef(false);
   const autoPinTimeoutRef = useRef<number | null>(null);
+  const previousVisibilityRef = useRef(isVisible);
+  const pendingScrollToLatestRef = useRef(false);
 
   const disengageAutoPin = useCallback(() => {
     shouldAutoPinRef.current = false;
@@ -225,6 +233,20 @@ export function useTranscriptScroll(
     [],
   );
 
+  useLayoutEffect(() => {
+    if (
+      isVisible &&
+      !previousVisibilityRef.current &&
+      (latestRef.current.isPinnedToLatest || pendingScrollToLatestRef.current)
+    ) {
+      engageAutoPin();
+    }
+    if (isVisible) {
+      pendingScrollToLatestRef.current = false;
+    }
+    previousVisibilityRef.current = isVisible;
+  }, [isVisible, engageAutoPin]);
+
   // -----------------------------------------------------------------------
   // Conversation switch: reset pinned state and engage the auto-pin
   // window. The items effect + content ResizeObserver will land the
@@ -252,8 +274,8 @@ export function useTranscriptScroll(
   // Items change handler — runs in useLayoutEffect so the anchor correction
   // happens before the browser paints.
   //
-  // Deps are intentionally narrow: `items` + `conversationId` (the two
-  // values that determine WHEN this work should run) plus the two
+  // Deps are intentionally narrow: `items`, `conversationId` and visibility
+  // (hidden updates are processed on reveal), plus the two
   // stable refs (`transcriptRef`, `engageAutoPin`). Everything else
   // that the body reads — `hasMore`, `isLoadingOlder`, `onLoadOlder`,
   // `isPinnedToLatest`, `showScrollToLatest` — comes from `latestRef`,
@@ -265,6 +287,9 @@ export function useTranscriptScroll(
   // chain-load bug).
   // -----------------------------------------------------------------------
   useLayoutEffect(() => {
+    if (!isVisible) {
+      return;
+    }
     const prev = previousItemsRef.current;
     previousItemsRef.current = items;
     const latest = latestRef.current;
@@ -389,7 +414,7 @@ export function useTranscriptScroll(
         latest.onLoadOlder();
       }
     }
-  }, [items, conversationId, transcriptRef, engageAutoPin]);
+  }, [items, conversationId, isVisible, transcriptRef, engageAutoPin]);
 
   // -----------------------------------------------------------------------
   // Container resize re-pin. When the scroll container resizes (e.g. the
@@ -433,7 +458,7 @@ export function useTranscriptScroll(
     }
 
     const observer = new ResizeObserver(() => {
-      if (!latestRef.current.isPinnedToLatest) {
+      if (!latestRef.current.isVisible || !latestRef.current.isPinnedToLatest) {
         return;
       }
       // A row's own text field outranks the pin: keep the field the user is in
@@ -492,7 +517,7 @@ export function useTranscriptScroll(
     }
 
     const observer = new ResizeObserver(() => {
-      if (!shouldAutoPinRef.current) {
+      if (!latestRef.current.isVisible || !shouldAutoPinRef.current) {
         return;
       }
       // Same precedence as the container observer above, inside this
@@ -528,7 +553,7 @@ export function useTranscriptScroll(
   // -----------------------------------------------------------------------
   const maybeGestureLoadOlder = useCallback(() => {
     const el = transcriptRef.current?.getScrollElement();
-    if (!el || loadOlderInFlightRef.current) {
+    if (!latestRef.current.isVisible || !el || loadOlderInFlightRef.current) {
       return;
     }
     const latest = latestRef.current;
@@ -552,6 +577,9 @@ export function useTranscriptScroll(
 
   const handleWheelGesture = useCallback(
     (event: WheelEvent) => {
+      if (!latestRef.current.isVisible) {
+        return;
+      }
       disengageAutoPin();
       if (event.deltaY < 0) {
         maybeGestureLoadOlder();
@@ -560,6 +588,9 @@ export function useTranscriptScroll(
     [disengageAutoPin, maybeGestureLoadOlder],
   );
   const handleTouchGesture = useCallback(() => {
+    if (!latestRef.current.isVisible) {
+      return;
+    }
     disengageAutoPin();
     // Touch direction is unknown without tracking the start point; any drag
     // on an underfilled transcript reads as intent to see more.
@@ -567,6 +598,9 @@ export function useTranscriptScroll(
   }, [disengageAutoPin, maybeGestureLoadOlder]);
   const handleKeyGesture = useCallback(
     (event: KeyboardEvent) => {
+      if (!latestRef.current.isVisible) {
+        return;
+      }
       disengageAutoPin();
       if (
         event.key === "ArrowUp" ||
@@ -606,7 +640,7 @@ export function useTranscriptScroll(
   // -----------------------------------------------------------------------
   const handleScroll = useCallback((event: Event) => {
     const target = event.currentTarget as HTMLElement | null;
-    if (!target) {
+    if (!latestRef.current.isVisible || !target) {
       return;
     }
     const metrics: ScrollMetrics = {
@@ -661,6 +695,10 @@ export function useTranscriptScroll(
   const scrollToLatest = useCallback(
     (opts?: { behavior?: "auto" | "smooth" }) => {
       savedAnchorRef.current = null;
+      if (!latestRef.current.isVisible) {
+        pendingScrollToLatestRef.current = true;
+        return;
+      }
       engageAutoPin();
       transcriptRef.current?.scrollToLatest({
         behavior: opts?.behavior ?? "smooth",

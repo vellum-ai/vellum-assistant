@@ -12,6 +12,8 @@ import {
   assistantsDomainsListOptions,
   assistantsDomainsListQueryKey,
   assistantsDomainsVerificationStatusRetrieveOptions,
+  assistantsDomainsVerificationStatusRetrieveQueryKey,
+  assistantsDomainsVerificationStatusRetrieveSetQueryData,
   assistantsEmailAddressesCreateMutation,
   assistantsEmailAddressesDestroyMutation,
   assistantsEmailAddressesListOptions,
@@ -20,7 +22,9 @@ import {
   assistantsEmailAddressesStatusRetrieveQueryKey,
   assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
+  useAssistantsDomainsProvisionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
+import type { DomainVerificationStatusStatusEnum } from "@/generated/api/types.gen";
 import {
   channelsReadinessGetQueryKey,
   channelsReadinessRefreshPostMutation,
@@ -39,6 +43,22 @@ import { DomainVerificationChip } from "@/components/domain-verification-chip";
 
 const CONFIRM_CODE_CLASS =
   "rounded bg-[var(--surface-active)] px-1 py-0.5 font-mono text-[0.9em]";
+
+export const DOMAIN_VERIFICATION_POLL_MS = 10_000;
+
+/**
+ * Poll cadence for domain verification. `not_started` means the provider does
+ * not have the domain yet, so a status poll cannot make progress until the
+ * user runs Complete domain setup.
+ */
+export function domainVerificationRefetchInterval(
+  status: DomainVerificationStatusStatusEnum | undefined,
+): number | false {
+  if (status === "verified" || status === "failed" || status === "not_started") {
+    return false;
+  }
+  return DOMAIN_VERIFICATION_POLL_MS;
+}
 
 interface EmailManagedContentProps {
   assistantId: string;
@@ -65,6 +85,8 @@ export function EmailManagedContent({
   const [releaseConfirmOpen, setReleaseConfirmOpen] = useState(false);
   const [removeAddressConfirmOpen, setRemoveAddressConfirmOpen] =
     useState(false);
+  const [repairConfirmOpen, setRepairConfirmOpen] = useState(false);
+  const [repairError, setRepairError] = useState<string | null>(null);
 
   useEffect(() => {
     if (subdomainPrefilled || !assistantHandle || subdomainDraft) {
@@ -133,13 +155,8 @@ export function EmailManagedContent({
       path: { assistant_id: assistantId, id: domain?.id ?? "" },
     }),
     enabled: !!domain?.id,
-    refetchInterval: (query) => {
-      const st = query.state.data?.status;
-      if (st === "verified" || st === "failed") {
-        return false;
-      }
-      return 10_000;
-    },
+    refetchInterval: (query) =>
+      domainVerificationRefetchInterval(query.state.data?.status),
     refetchOnWindowFocus: true,
   });
 
@@ -161,6 +178,7 @@ export function EmailManagedContent({
   // -- Mutations -------------------------------------------------------------
   const registerDomain = useMutation(assistantsDomainsCreateMutation());
   const deleteDomain = useMutation(assistantsDomainsDestroyMutation());
+  const provisionDomain = useAssistantsDomainsProvisionCreateMutation();
   const registerAddress = useMutation(assistantsEmailAddressesCreateMutation());
   const deleteAddress = useMutation(assistantsEmailAddressesDestroyMutation());
   const refreshReadiness = useMutation(channelsReadinessRefreshPostMutation());
@@ -311,6 +329,39 @@ export function EmailManagedContent({
     refreshChannelReadiness,
     t,
   ]);
+
+  const handleProvisionDomain = useCallback(async () => {
+    if (!domain?.id || provisionDomain.isPending) {
+      return;
+    }
+    setRepairError(null);
+    try {
+      const result = await provisionDomain.mutateAsync({
+        path: { assistant_id: assistantId, id: domain.id },
+      });
+      setRepairConfirmOpen(false);
+      assistantsDomainsVerificationStatusRetrieveSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId, id: domain.id } },
+        result,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: assistantsDomainsVerificationStatusRetrieveQueryKey({
+          path: { assistant_id: assistantId, id: domain.id },
+        }),
+      });
+      toast.success(t("emailManagedContent.repairStartedToast"));
+    } catch (err) {
+      captureError(err, { context: "email_domain_provision" });
+      const message = extractErrorMessage(
+        err,
+        undefined,
+        t("emailManagedContent.repairFailedFallback"),
+      );
+      setRepairError(message);
+      toast.error(message);
+    }
+  }, [assistantId, domain?.id, provisionDomain, queryClient, t]);
 
   const handleDeleteDomain = useCallback(async () => {
     if (!domain?.id) {
@@ -583,6 +634,56 @@ export function EmailManagedContent({
           onCancel={() => setRemoveAddressConfirmOpen(false)}
         />
       </div>
+
+      {verificationQuery.data?.status === "not_started" && (
+        <>
+          <Notice
+            tone="warning"
+            title={t("emailManagedContent.repairNoticeTitle")}
+            actions={
+              <Button
+                size="compact"
+                onClick={() => {
+                  setRepairError(null);
+                  setRepairConfirmOpen(true);
+                }}
+                disabled={provisionDomain.isPending}
+              >
+                {provisionDomain.isPending
+                  ? t("emailManagedContent.completingSetup")
+                  : t("emailManagedContent.completeSetup")}
+              </Button>
+            }
+          >
+            {t("emailManagedContent.repairNoticeBody")}
+          </Notice>
+          <ConfirmDialog
+            open={repairConfirmOpen}
+            title={t("emailManagedContent.repairConfirmTitle")}
+            message={
+              <Trans
+                i18nKey="emailManagedContent.repairConfirmMessage"
+                ns="channels"
+                values={{ domain: fullDomain }}
+                components={{
+                  code: <code className={CONFIRM_CODE_CLASS} />,
+                }}
+              />
+            }
+            confirmLabel={t("emailManagedContent.completeSetup")}
+            isPending={provisionDomain.isPending}
+            error={repairError}
+            onConfirm={() => {
+              void handleProvisionDomain();
+            }}
+            onCancel={() => {
+              if (!provisionDomain.isPending) {
+                setRepairConfirmOpen(false);
+              }
+            }}
+          />
+        </>
+      )}
 
       {statusQuery.data?.usage && (
         <p className="text-body-small-default text-[var(--content-tertiary)]">
