@@ -8,8 +8,8 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { OpenAIChatCompletionsProvider } from "../chat-completions-provider.js";
 import { OpenRouterProvider } from "../../openrouter/client.js";
+import { OpenAIChatCompletionsProvider } from "../chat-completions-provider.js";
 
 type MockChunk = {
   choices: Array<{
@@ -36,17 +36,17 @@ function makeStream(chunks: MockChunk[]): AsyncIterable<MockChunk> {
   };
 }
 
-function stubCreate(
-  provider: OpenAIChatCompletionsProvider,
-): { requests: Record<string, unknown>[] } {
+function stubCreate(provider: OpenAIChatCompletionsProvider): {
+  requests: Record<string, unknown>[];
+} {
   const requests: Record<string, unknown>[] = [];
   const inner = provider as unknown as {
     client: {
       chat: {
         completions: {
-          create: (params: Record<string, unknown>) => Promise<
-            AsyncIterable<MockChunk>
-          >;
+          create: (
+            params: Record<string, unknown>,
+          ) => Promise<AsyncIterable<MockChunk>>;
         };
       };
     };
@@ -60,7 +60,10 @@ function stubCreate(
 
 describe("chat-completions output-token-limit wire key", () => {
   test("default OpenAI path sends max_completion_tokens and omits max_tokens", async () => {
-    const provider = new OpenAIChatCompletionsProvider("test-key", "test-model");
+    const provider = new OpenAIChatCompletionsProvider(
+      "test-key",
+      "test-model",
+    );
     const { requests } = stubCreate(provider);
 
     await provider.sendMessage(
