@@ -7,7 +7,15 @@ import {
   spyOn,
   test,
 } from "bun:test";
-import { cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
+import {
+  MemoryRouter,
+  NavigationType,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+} from "react-router";
 
 // `mock.module` is safe for `use-is-mobile` because it's a pure
 // derived-value hook (no module-local state). The mobile case is
@@ -23,6 +31,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
+import { routes } from "@/utils/routes";
 
 import {
   openAppFromChat,
@@ -43,12 +52,45 @@ let selectionSnapshot: ReturnType<typeof useResolvedAssistantsStore.getState>;
 
 let lightSpy: ReturnType<typeof spyOn<typeof haptic, "light">>;
 
-const loadAppMock = mock(async (_assistantId: string, _appId: string) => {});
+const loadAppMock = mock(async (_assistantId: string, _appId: string) => true);
 const loadDocumentMock = mock(
   async (_assistantId: string, _surfaceId: string) => {},
 );
 const enterAppEditingMock = mock(() => undefined);
+const exitAppEditingMock = mock(() => undefined);
 const setEditingConversationIdMock = mock((_id: string | null) => undefined);
+
+const ASSISTANT_ID = "asst-1";
+const APP_ID = "app-1";
+const CONV_ID = "conv-1";
+const CHAT_PATH = `/assistant/conversations/${CONV_ID}`;
+const APP_PATH = `${CHAT_PATH}/app/${APP_ID}`;
+const OTHER_CONV_ID = "conv-2";
+const OTHER_CHAT_PATH = `/assistant/conversations/${OTHER_CONV_ID}`;
+const OTHER_APP_PATH = `${OTHER_CHAT_PATH}/app/${APP_ID}`;
+const OTHER_APP_ID = "app-2";
+const OTHER_CONV_OTHER_APP_PATH = `${OTHER_CHAT_PATH}/app/${OTHER_APP_ID}`;
+
+// Renders the hook beside the router's location, so a test reads where the
+// open landed from `result.current.pathname` instead of the router internals.
+function renderOpenApp(initialPath: string) {
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(
+      MemoryRouter,
+      { initialEntries: [initialPath] },
+      children,
+    );
+  }
+  return renderHook(
+    () => ({
+      openApp: useOpenAppFromChat(),
+      navigate: useNavigate(),
+      pathname: useLocation().pathname,
+      navigationType: useNavigationType(),
+    }),
+    { wrapper: Wrapper },
+  );
+}
 
 beforeEach(() => {
   viewerSnapshot = useViewerStore.getState();
@@ -61,6 +103,7 @@ beforeEach(() => {
   loadAppMock.mockReset();
   loadDocumentMock.mockReset();
   enterAppEditingMock.mockReset();
+  exitAppEditingMock.mockReset();
   setEditingConversationIdMock.mockReset();
 
   // Default: loadApp succeeds, leaving viewer state pointing at the
@@ -77,25 +120,26 @@ beforeEach(() => {
         html: "",
       },
     });
+    return true;
   });
 
   useViewerStore.setState({
-    // Start from the split view so each test proves the hook leaves the
-    // viewer full-width rather than merely never leaving `"app"`.
-    mainView: "app-editing",
+    mainView: "chat",
     activeAppId: null,
     openedAppState: null,
     loadApp: loadAppMock as unknown as typeof viewerSnapshot.loadApp,
     loadDocument:
       loadDocumentMock as unknown as typeof viewerSnapshot.loadDocument,
     enterAppEditing: enterAppEditingMock,
+    exitAppEditing: exitAppEditingMock,
   });
   useConversationStore.setState({
     activeConversationId: null,
+    draftConversationIds: new Set(),
     setEditingConversationId:
       setEditingConversationIdMock as unknown as typeof conversationSnapshot.setEditingConversationId,
   });
-  useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+  useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
 });
 
 afterEach(() => {
@@ -108,74 +152,226 @@ afterEach(() => {
 
 describe("useOpenAppFromChat", () => {
   test("no-ops when there is no active assistant", async () => {
+    // GIVEN no assistant is selected
     useResolvedAssistantsStore.setState({ activeAssistantId: null });
-    const { result } = renderHook(() => useOpenAppFromChat());
+    const { result } = renderOpenApp(CHAT_PATH);
 
-    await result.current("app-42");
+    // WHEN a surface asks to open an app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
 
+    // THEN nothing happens: no load, no viewer mutation, no navigation
+    expect(loadAppMock).not.toHaveBeenCalled();
+    expect(enterAppEditingMock).not.toHaveBeenCalled();
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    expect(result.current.pathname).toBe(CHAT_PATH);
+  });
+
+  test("navigates to the app route for the conversation on screen", async () => {
+    // GIVEN a conversation is on screen
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    const { result } = renderOpenApp(CHAT_PATH);
+
+    // WHEN the user opens an app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the URL names the app and `useAppRouteSync` owns the load, so
+    // browser Back closes the app
+    expect(result.current.pathname).toBe(APP_PATH);
     expect(loadAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
   });
 
+  test("mints a draft conversation to carry the app when none is on screen", async () => {
+    // GIVEN nothing is on screen for the app segment to hang off
+    const { result } = renderOpenApp(routes.assistant);
+
+    // WHEN the user opens an app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN a fresh draft is selected and registered, and its app route is
+    // what we land on
+    const draftId = useConversationStore.getState().activeConversationId;
+    expect(typeof draftId).toBe("string");
+    expect(
+      useConversationStore.getState().draftConversationIds.has(draftId!),
+    ).toBe(true);
+    expect(result.current.pathname).toBe(routes.conversation(draftId!, APP_ID));
+    expect(loadAppMock).not.toHaveBeenCalled();
+  });
+
   // LUM-2553: opening an app is a view action, so the entry point must not
-  // decide the layout. A wide viewport with an active conversation is the
-  // one combination that could justify the `app-editing` split, and it
-  // still lands full-width, matching an open from Home / Library.
-  test("stays full-width with an active conversation on a wide viewport", async () => {
-    useConversationStore.setState({ activeConversationId: "conv-7" });
-    const { result } = renderHook(() => useOpenAppFromChat());
+  // decide the layout. It lands full width from the split as it does from
+  // chat, matching an open from Home / Library.
+  test("drops the split view on the way in", async () => {
+    // GIVEN the viewer is in the chat+app split
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    useViewerStore.setState({ mainView: "app-editing" });
+    const { result } = renderOpenApp(CHAT_PATH);
 
-    await result.current("app-42");
+    // WHEN the user opens an app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
 
-    expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
-    expect(useViewerStore.getState().mainView).toBe("app");
+    // THEN the app lands full width at its route
+    expect(exitAppEditingMock).toHaveBeenCalledTimes(1);
     expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    expect(result.current.pathname).toBe(APP_PATH);
   });
 
-  test("stays full-width with an active conversation on a mobile viewport", async () => {
+  test("opens the same way on a mobile viewport", async () => {
+    // GIVEN a phone-sized viewport, in the split
     mobileRef.current = true;
-    useConversationStore.setState({ activeConversationId: "conv-7" });
-    const { result } = renderHook(() => useOpenAppFromChat());
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    useViewerStore.setState({ mainView: "app-editing" });
+    const { result } = renderOpenApp(CHAT_PATH);
 
-    await result.current("app-42");
+    // WHEN the user opens an app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
 
-    expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
-    expect(useViewerStore.getState().mainView).toBe("app");
+    // THEN the layout does not depend on the viewport either
+    expect(exitAppEditingMock).toHaveBeenCalledTimes(1);
     expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    expect(result.current.pathname).toBe(APP_PATH);
   });
 
-  test("stays full-width when no conversation is active", async () => {
-    const { result } = renderHook(() => useOpenAppFromChat());
+  test("reloads in place when the URL already names the app", async () => {
+    // GIVEN the app is already open at its own route
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    const { result } = renderOpenApp(APP_PATH);
 
-    await result.current("app-42");
+    // WHEN the user clicks it again
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
 
-    expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
-    expect(useViewerStore.getState().mainView).toBe("app");
-    expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    // THEN there is nowhere to navigate, so the app refetches in place, which
+    // is how an app the assistant edited picks up its new HTML
+    expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+    expect(result.current.pathname).toBe(APP_PATH);
   });
 
-  test("leaves the viewer alone when the load fails", async () => {
-    useConversationStore.setState({ activeConversationId: "conv-7" });
-    // The real `loadApp` falls back to chat when the open request fails.
-    loadAppMock.mockImplementationOnce(async () => {
+  test("drops the app segment when an in-place reload gives up", async () => {
+    // GIVEN the app at its own route is gone, so the viewer falls back to chat
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    loadAppMock.mockImplementation(async () => {
       useViewerStore.setState({
         mainView: "chat",
         activeAppId: null,
         openedAppState: null,
       });
+      return false;
+    });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user clicks it again
+    await act(async () => {
+      await result.current.openApp(APP_ID);
     });
 
-    const { result } = renderHook(() => useOpenAppFromChat());
+    // THEN the dead segment leaves the URL, and it leaves without a history
+    // entry, so a refresh or a copied bookmark does not retry the app
+    expect(result.current.pathname).toBe(CHAT_PATH);
+    expect(result.current.navigationType).toBe(NavigationType.Replace);
+  });
 
-    await result.current("app-42");
+  test("drops the app segment from the conversation the user moved to", async () => {
+    // GIVEN a reload of the app that is still in flight
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    let releaseLoad: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    loadAppMock.mockImplementation(async () => {
+      await pending;
+      useViewerStore.setState({
+        mainView: "chat",
+        activeAppId: null,
+        openedAppState: null,
+      });
+      return false;
+    });
+    const { result } = renderOpenApp(APP_PATH);
 
-    expect(useViewerStore.getState().mainView).toBe("chat");
-    expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+    // WHEN the user selects another conversation that keeps the app beside it,
+    // and only then does the reload give up
+    let open: Promise<void> | undefined;
+    await act(async () => {
+      open = result.current.openApp(APP_ID);
+      void result.current.navigate(OTHER_APP_PATH);
+    });
+    await act(async () => {
+      releaseLoad?.();
+      await open;
+    });
+
+    // THEN the dead segment leaves the conversation the user is on, not the
+    // one the reload started from, and it leaves without a history entry
+    expect(result.current.pathname).toBe(OTHER_CHAT_PATH);
+    expect(result.current.navigationType).toBe(NavigationType.Replace);
+  });
+
+  test("leaves a route naming another app alone", async () => {
+    // GIVEN a reload of the app that is still in flight
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    let releaseLoad: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => {
+      releaseLoad = resolve;
+    });
+    loadAppMock.mockImplementation(async () => {
+      await pending;
+      useViewerStore.setState({
+        mainView: "chat",
+        activeAppId: null,
+        openedAppState: null,
+      });
+      return false;
+    });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user moves to a route that names a different app, and only then
+    // does the old reload give up
+    let open: Promise<void> | undefined;
+    await act(async () => {
+      open = result.current.openApp(APP_ID);
+      void result.current.navigate(OTHER_CONV_OTHER_APP_PATH);
+    });
+    await act(async () => {
+      releaseLoad?.();
+      await open;
+    });
+
+    // THEN the stale failure leaves that route alone: the segment names an app
+    // of its own, and `useAppRouteSync` answers for the load there
+    expect(result.current.pathname).toBe(OTHER_CONV_OTHER_APP_PATH);
+  });
+
+  test("keeps the app route when the viewer still holds the app", async () => {
+    // GIVEN a reload that resolves false while the viewer keeps the app behind
+    // an overlay
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    loadAppMock.mockImplementation(async (_assistantId, appId) => {
+      useViewerStore.setState({ activeAppId: appId });
+      return false;
+    });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user clicks it again
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the URL still names what the viewer holds
+    expect(result.current.pathname).toBe(APP_PATH);
   });
 });
 

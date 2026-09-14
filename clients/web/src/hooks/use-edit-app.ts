@@ -18,8 +18,8 @@ import { routes } from "@/utils/routes";
  *
  * Resolves (and persists) the edit conversation for this `(assistant, app)`
  * pair so repeated edits land back in the same thread, loads the app into the
- * viewer if it isn't already there, and navigates to that conversation so
- * `ChatMainPanel` renders the `app-editing` split.
+ * viewer if it isn't already there, and navigates to that conversation's app
+ * URL so `ChatMainPanel` renders the `app-editing` split.
  *
  * On a mobile viewport the split layout doesn't fit, so instead the app is
  * minimized to its bottom strip and the edit conversation becomes the primary
@@ -55,6 +55,9 @@ export function useEditApp(): (app: OpenedAppState) => void {
         createDraftConversationId();
       setEditChatConversationId(assistantId, app.appId, convId);
 
+      // Seeding the viewer with the HTML this caller already holds lets
+      // `useAppRouteSync` recognize the app the target URL names and skip a
+      // refetch.
       const viewer = useViewerStore.getState();
       if (viewer.activeAppId !== app.appId || !viewer.openedAppState) {
         viewer.openApp(app.appId);
@@ -71,11 +74,12 @@ export function useEditApp(): (app: OpenedAppState) => void {
         viewer.enterAppEditing();
       }
 
-      // The split edit view only renders on the conversation route. Navigate
-      // whenever we aren't already there — comparing the path rather than the
-      // active conversation id, since off-chat routes (e.g. the Library app
-      // view) can still hold a stale matching id without mounting the viewer.
-      const target = routes.conversation(convId);
+      // The split edit view only renders on the conversation route, and the
+      // URL names the app it shows. Navigate whenever we aren't already
+      // there, comparing the path rather than the active conversation id,
+      // since off-chat routes (e.g. the Library app view) can still hold a
+      // stale matching id without mounting the viewer.
+      const target = routes.conversation(convId, app.appId);
       if (pathname !== target) {
         void navigate(target);
       }

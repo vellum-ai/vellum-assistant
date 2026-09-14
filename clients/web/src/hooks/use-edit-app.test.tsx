@@ -49,7 +49,7 @@ const CONV_ID = "conv-edit";
 const ASSISTANT_ID = "asst-1";
 const REMEMBERED_ID = "conv-remembered";
 const LIBRARY_PATH = "/assistant/library/app-42";
-const CONVERSATION_PATH = `/assistant/conversations/${CONV_ID}`;
+const APP_CONVERSATION_PATH = `/assistant/conversations/${CONV_ID}/app/${APP.appId}`;
 
 // Renders the router's current path into the DOM so tests can assert
 // navigation via `screen` without reaching into router internals.
@@ -142,7 +142,7 @@ describe("useEditApp", () => {
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
     // Desktop uses the split view, not the mobile minimized strip.
     expect(minimizeAppMock).not.toHaveBeenCalled();
-    expect(currentPath()).toBe(routes.conversation(CONV_ID));
+    expect(currentPath()).toBe(routes.conversation(CONV_ID, APP.appId));
   });
 
   test("starts a conversation, registered as a draft, when none is selected", () => {
@@ -201,7 +201,7 @@ describe("useEditApp", () => {
 
     // THEN the edit conversation is still bound and we navigate to it...
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
-    expect(currentPath()).toBe(routes.conversation(CONV_ID));
+    expect(currentPath()).toBe(routes.conversation(CONV_ID, APP.appId));
     // ...the app is minimized so the chat is the primary surface (the strip
     // shows "Open app", not a duplicate "Edit" over a full-screen app)...
     expect(minimizeAppMock).toHaveBeenCalledTimes(1);
@@ -221,7 +221,7 @@ describe("useEditApp", () => {
     expect(openAppMock).not.toHaveBeenCalled();
     expect(setLoadedAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(currentPath()).toBe(routes.conversation(CONV_ID));
+    expect(currentPath()).toBe(routes.conversation(CONV_ID, APP.appId));
   });
 
   test("navigates to the edit conversation from an off-chat route even when its id is already the active conversation", () => {
@@ -236,14 +236,14 @@ describe("useEditApp", () => {
 
     // THEN we still navigate to the conversation so the split view appears
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(currentPath()).toBe(CONVERSATION_PATH);
+    expect(currentPath()).toBe(APP_CONVERSATION_PATH);
   });
 
   test("skips redundant navigation when already on the edit conversation route", () => {
     // GIVEN the user is already on this app's edit conversation route
     useConversationStore.setState({ activeConversationId: CONV_ID });
     const { result } = renderHook(() => useEditApp(), {
-      wrapper: wrapperAt(CONVERSATION_PATH),
+      wrapper: wrapperAt(APP_CONVERSATION_PATH),
     });
 
     // WHEN the user clicks Edit
@@ -251,6 +251,6 @@ describe("useEditApp", () => {
 
     // THEN the split view still opens but the path is unchanged
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(currentPath()).toBe(CONVERSATION_PATH);
+    expect(currentPath()).toBe(APP_CONVERSATION_PATH);
   });
 });
