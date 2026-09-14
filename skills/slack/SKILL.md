@@ -197,7 +197,7 @@ assistant oauth request --provider slack_channel \
   "https://files.slack.com/files-pri/T0123456789-F0123456789/download/shot.png"
 ```
 
-The bot needs `files:read` for this; a token without it is answered with a sign-in page instead of the file. Do not fetch the URL with `curl` or paste a token into a shell: the command is the only place the token is allowed to be.
+The token needs `files:read`; one without it is answered with a sign-in page instead of the file. The bot has it from the app manifest. The `slack` integration requests it when it connects, so a connection made before that scope was requested reports it missing and Slack stays off until the person reconnects from Integrations. Do not fetch the URL with `curl` or paste a token into a shell: the command is the only place the token is allowed to be.
 
 ### Search messages
 

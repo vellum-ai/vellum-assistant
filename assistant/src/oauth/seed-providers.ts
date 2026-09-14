@@ -207,14 +207,13 @@ export const PROVIDER_SEED_DATA: Record<
     clientIdPlaceholder: null,
     logoUrl:
       "https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/slack/default.svg",
-    // Sent as the bot `scope` parameter, while this flow persists the
-    // `authed_user` token and stores `authed_user.scope` as `grantedScopes`.
-    // Credential health compares this list against that grant, so a scope
-    // listed here that `user_scope` does not also request reports as
-    // `missing_scopes`, a hard failure that disables the provider's tools.
-    // The wider bot set belongs to Socket Mode installs, which verify the live
-    // `x-oauth-scopes` header against SLACK_REQUIRED_BOT_SCOPES in
-    // channel-readiness-service.ts.
+    // Sent as the bot `scope` parameter on the same authorize request. This
+    // flow persists the `authed_user` token and stores `authed_user.scope` as
+    // `grantedScopes`; credential health measures that grant against
+    // `user_scope` below, never against this list, so a scope the stored
+    // token needs belongs in `user_scope`. The wider bot set belongs to Socket
+    // Mode installs, which verify the live `x-oauth-scopes` header against
+    // SLACK_REQUIRED_BOT_SCOPES in channel-readiness-service.ts.
     defaultScopes: [
       "channels:join",
       "channels:read",
@@ -236,9 +235,14 @@ export const PROVIDER_SEED_DATA: Record<
     // only credential this flow stores, so it acts as the installer for every
     // call including `chat.postMessage`. The manifest's user list is read-only
     // instead, since a Socket Mode install keeps a bot token beside it.
+    // `files:read` is what lets that token fetch a file shared in a message
+    // from files.slack.com. Credential health measures every stored grant
+    // against this list, so a scope added here reports each existing
+    // connection as `missing_scopes` until it reconnects: that is how a newly
+    // required scope reaches an install.
     authorizeParams: {
       user_scope:
-        "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
+        "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write,files:read",
     },
     loopbackPort: 17322,
     injectionTemplates: SLACK_PROVIDER_INJECTION_TEMPLATES,
