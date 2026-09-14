@@ -29,6 +29,15 @@ test("initializes the dock and preserves user changes across restarts", () => {
   mkdirSync(profileDir, { recursive: true });
   writeFileSync(join(profileDir, "Preferences"), "browser preferences");
   writeFileSync(join(configDir, "wallpaper.png"), "keep");
+  const obsoleteFiles = [
+    "tint2rc",
+    "browser.png",
+    "chromium.desktop",
+    "terminal.desktop",
+  ];
+  for (const name of obsoleteFiles) {
+    writeFileSync(join(configDir, name), "obsolete generated file");
+  }
   const request = {
     configDir,
     chromiumPath: "/opt/chrome-v1/chrome",
@@ -36,6 +45,9 @@ test("initializes the dock and preserves user changes across restarts", () => {
     terminalPath: "/usr/bin/xterm",
   };
   writeDesktopPanelConfig(request);
+  for (const name of obsoleteFiles) {
+    expect(fs.existsSync(join(configDir, name))).toBe(false);
+  }
   const settingsPath = join(configDir, "glib-2.0", "settings", "keyfile");
   const pinsDir = join(configDir, "plank", "dock1", "launchers");
   const settings = readFileSync(settingsPath, "utf8");
