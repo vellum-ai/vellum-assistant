@@ -209,9 +209,10 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  the generic `openai-compatible` adapter, whose upstream is unknown. */
   omitToolChoiceWhenReasoning?: boolean;
   /** Wire field for the output-token limit. OpenAI and OpenAI-compatible
-   *  backends use `max_completion_tokens`. OpenRouter uses `max_tokens`
-   *  because its parameter router matches that key on
-   *  `require_parameters` routes. */
+   *  backends use `max_completion_tokens`. OpenRouter defaults to
+   *  `max_tokens` because its parameter router matches that key on
+   *  `require_parameters` routes; see
+   *  {@link OpenAIChatCompletionsProvider.resolveOutputTokenLimitField}. */
   outputTokenLimitField?: "max_completion_tokens" | "max_tokens";
 }
 
@@ -907,11 +908,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
         };
 
       if (maxTokens) {
-        if (this.outputTokenLimitField === "max_tokens") {
-          params.max_tokens = maxTokens;
-        } else {
-          params.max_completion_tokens = maxTokens;
-        }
+        params[this.resolveOutputTokenLimitField(modelOverride ?? this.model)] =
+          maxTokens;
       }
 
       // Profile-scoped token biasing (e.g. the `suppress-cjk` preset). Resolved
@@ -1587,6 +1585,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
     _model: string,
   ): "high" | "xhigh" | "max" {
     return this.maxReasoningEffort;
+  }
+
+  /** Per-request output-token-limit wire key. Defaults to the constructor
+   *  `outputTokenLimitField`. Subclasses override when support varies by
+   *  model. */
+  protected resolveOutputTokenLimitField(
+    _model: string,
+  ): "max_completion_tokens" | "max_tokens" {
+    return this.outputTokenLimitField;
   }
 
   /**

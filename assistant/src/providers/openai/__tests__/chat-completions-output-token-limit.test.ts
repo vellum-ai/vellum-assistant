@@ -3,12 +3,16 @@
  *
  * The shared OpenAI-compatible transport defaults to `max_completion_tokens`.
  * OpenRouter's parameter router matches `max_tokens` on `require_parameters`
- * routes, so OpenRouterProvider emits that key instead.
+ * routes, except GPT-5.1/5.2 Codex and Chat which advertise only
+ * `max_completion_tokens`.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { OpenRouterProvider } from "../../openrouter/client.js";
+import {
+  openRouterOutputTokenLimitField,
+  OpenRouterProvider,
+} from "../../openrouter/client.js";
 import { OpenAIChatCompletionsProvider } from "../chat-completions-provider.js";
 
 type MockChunk = {
@@ -88,5 +92,50 @@ describe("chat-completions output-token-limit wire key", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0].max_tokens).toBe(64000);
     expect(requests[0]).not.toHaveProperty("max_completion_tokens");
+  });
+
+  test("OpenRouter GPT-5.2 Codex sends max_completion_tokens and omits max_tokens", async () => {
+    const provider = new OpenRouterProvider("or-key", "openai/gpt-5.2-codex");
+    const { requests } = stubCreate(provider);
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { config: { max_tokens: 64000 } },
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].max_completion_tokens).toBe(64000);
+    expect(requests[0]).not.toHaveProperty("max_tokens");
+  });
+
+  test("OpenRouter per-call model override uses the overridden model's wire key", async () => {
+    const provider = new OpenRouterProvider("or-key", "x-ai/grok-4.20");
+    const { requests } = stubCreate(provider);
+
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      { config: { model: "openai/gpt-5.1-codex-mini", max_tokens: 64000 } },
+    );
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].max_completion_tokens).toBe(64000);
+    expect(requests[0]).not.toHaveProperty("max_tokens");
+  });
+});
+
+describe("openRouterOutputTokenLimitField", () => {
+  test.each([
+    ["@preset/example", "max_tokens"],
+    ["x-ai/grok-4.20", "max_tokens"],
+    ["openai/gpt-5.2", "max_tokens"],
+    ["openai/gpt-5.2-pro", "max_tokens"],
+    ["openai/gpt-5.3-codex", "max_tokens"],
+    ["openai/gpt-5.2-codex", "max_completion_tokens"],
+    ["openai/gpt-5.2-chat", "max_completion_tokens"],
+    ["openai/gpt-5.1-codex", "max_completion_tokens"],
+    ["openai/gpt-5.1-codex-max", "max_completion_tokens"],
+    ["openai/gpt-5.1-codex-mini", "max_completion_tokens"],
+  ] as const)("%s -> %s", (model, field) => {
+    expect(openRouterOutputTokenLimitField(model)).toBe(field);
   });
 });
