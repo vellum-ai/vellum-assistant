@@ -176,15 +176,25 @@ describe("SidebarSectionItem — the assistant-initiated section", () => {
     );
   });
 
-  /* Its rows hover in the accent's raised wash, the New Chat pill's own
-     hover, rather than the neutral gray the other cards' rows hover in. */
-  test("raises a hovered row to the New Chat pill's wash", () => {
+  /* Its rows hover and open in the accent's raised wash, the New Chat
+     pill's own hover, rather than the neutral gray the other cards' rows use.
+     The wash is derived from `--avatar-accent` without a fallback, so where no
+     accent is published it is unset and each state's own neutral fallback
+     stands: an open thread under a custom-image avatar keeps the visible
+     `--surface-active` rather than dissolving into the card. */
+  test("raises a hovered or open row to the New Chat pill's wash, with neutral fallbacks", () => {
     const { container } = renderSection(assistantSection());
     const card = container.querySelector<HTMLElement>(
       "[class*='--sidebar-card-surface:']",
     );
     expect(card!.className).toContain(
-      "[--panel-item-hover:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
+      "[--assistant-row-raised:color-mix(in_srgb,var(--avatar-accent)_24%,var(--surface-lift))]",
+    );
+    expect(card!.className).toContain(
+      "[--panel-item-hover:var(--assistant-row-raised,var(--surface-hover))]",
+    );
+    expect(card!.className).toContain(
+      "[--panel-item-active:var(--assistant-row-raised,var(--surface-active))]",
     );
   });
 

@@ -9,6 +9,7 @@ import type {
 
 import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
+import { isCameraFrameRow } from "./camera-frame-rows";
 function makeMessage(
   overrides: Omit<DisplayMessage, "id"> & { id?: string },
 ): DisplayMessage {
@@ -37,6 +38,284 @@ function emptyInput() {
     isThinking: false,
   };
 }
+
+function frame(
+  id: string,
+  overrides: Partial<DisplayMessage> = {},
+): DisplayMessage {
+  return makeMessage({
+    id,
+    role: "user",
+    ...textBody("(camera frame)"),
+    isCameraFrame: true,
+    ...overrides,
+  });
+}
+
+function projectedIds(items: TranscriptItem[]): string[] {
+  return items.flatMap((item) => {
+    if (item.kind === "creditsUpsell") {
+      return item.message ? [item.message.id] : [];
+    }
+    if (item.kind !== "message") {
+      return [];
+    }
+    const frames = item.cameraFrames?.map((frame) => frame.id) ?? [];
+    return item.cameraFrames?.length && isCameraFrameRow(item.message)
+      ? frames
+      : [...frames, item.message.id];
+  });
+}
+
+describe("camera frame grouping", () => {
+  test("folds pending and hydrated frames into the next utterance in chronological order", () => {
+    const frames = [
+      frame("f1"),
+      frame("f2", {
+        attachments: [
+          {
+            id: "att-2",
+            filename: "frame.png",
+            mimeType: "image/png",
+            sizeBytes: 1,
+            previewUrl: null,
+          },
+        ],
+      }),
+    ];
+    const utterance = makeMessage({
+      id: "speech",
+      role: "user",
+      ...textBody("What is this?"),
+    });
+    const messages = [...frames, utterance];
+    const original = structuredClone(messages);
+    const items = buildTranscriptItems({ ...emptyInput(), messages });
+    expect(items).toEqual([
+      {
+        kind: "message",
+        key: "speech",
+        message: utterance,
+        cameraFrames: frames,
+      },
+    ]);
+    expect(projectedIds(items)).toEqual(messages.map((message) => message.id));
+    expect(messages).toEqual(original);
+    expectDistinctNonEmptyKeys(items);
+  });
+
+  test("a live tail stays on its first frame and flushes before trailers", () => {
+    const frames = [frame("f1"), frame("f2")];
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: frames,
+      isThinking: true,
+      pendingSecret: { requestId: "secret-1" },
+    });
+    expect(items[0]).toEqual({
+      kind: "message",
+      key: "f1",
+      message: frames[0],
+      cameraFrames: frames,
+    });
+    expect(items.map((item) => item.kind)).toEqual([
+      "message",
+      "thinking",
+      "pendingSecret",
+    ]);
+    expect(projectedIds(items)).toEqual(["f1", "f2"]);
+  });
+
+  test.each([
+    { name: "assistant", props: { role: "assistant" } },
+    { name: "deleted user", props: { deletedAt: 1 } },
+    {
+      name: "reaction",
+      props: {
+        reaction: { emoji: "🎉", op: "added", targetMessageId: "target-1" },
+      },
+    },
+    { name: "system card", props: { isSystemCard: true } },
+    { name: "silent row", props: { isNoResponse: true } },
+    {
+      name: "Slack reaction",
+      props: {
+        slackMessage: {
+          channelId: "channel-1",
+          channelTs: "1",
+          eventKind: "reaction",
+        },
+      },
+    },
+  ] satisfies { name: string; props: Partial<DisplayMessage> }[])(
+    "flushes before $name even when it carries a camera marker",
+    ({ props }) => {
+      const before = frame("before");
+      const special = frame("special", props);
+      const after = frame("after");
+      const items = buildTranscriptItems({
+        ...emptyInput(),
+        messages: [before, special, after],
+      });
+      expect(items).toHaveLength(3);
+      expect(items[0]).toMatchObject({ key: "before", cameraFrames: [before] });
+      expect(items[1]).toEqual({
+        kind: "message",
+        key: "special",
+        message: special,
+      });
+      expect(items[2]).toMatchObject({ key: "after", cameraFrames: [after] });
+      expect(projectedIds(items)).toEqual(["before", "special", "after"]);
+      expectDistinctNonEmptyKeys(items);
+    },
+  );
+
+  test.each([
+    { isSubagentNotification: true },
+    { isAcpNotification: true },
+    { isBackgroundEventNotification: true },
+    { queueStatus: "queued" },
+  ] satisfies Partial<DisplayMessage>[])(
+    "skipped rows neither join nor split runs: %j",
+    (props) => {
+      const before = frame("before");
+      const hidden = frame("hidden", props);
+      const after = frame("after");
+      const items = buildTranscriptItems({
+        ...emptyInput(),
+        messages: [before, hidden, after],
+      });
+      expect(items).toEqual([
+        {
+          kind: "message",
+          key: "before",
+          message: before,
+          cameraFrames: [before, after],
+        },
+      ]);
+      expect(projectedIds(items)).toEqual(["before", "after"]);
+    },
+  );
+
+  test.each([
+    { name: "literal sentinel", props: textBody("(camera frame)") },
+    {
+      name: "parked spoken frame",
+      props: {
+        ...textBody("What is this?"),
+        attachments: [
+          {
+            id: "parked",
+            filename: "frame.png",
+            mimeType: "image/png",
+            sizeBytes: 1,
+            previewUrl: null,
+          },
+        ],
+      },
+    },
+    {
+      name: "shutter photo",
+      props: {
+        ...textBody("here's a photo:"),
+        attachments: [
+          {
+            id: "photo",
+            filename: "photo.png",
+            mimeType: "image/png",
+            sizeBytes: 1,
+            previewUrl: null,
+          },
+        ],
+      },
+    },
+    {
+      name: "Slack message with neutral reaction",
+      props: {
+        reaction: { emoji: "🎉", op: "added", targetMessageId: "target-1" },
+        slackMessage: {
+          channelId: "channel-1",
+          channelTs: "1",
+          eventKind: "message",
+        },
+      },
+    },
+  ] satisfies { name: string; props: Partial<DisplayMessage> }[])(
+    "$name adopts earlier frames without becoming a frame",
+    ({ props }) => {
+      const before = frame("before");
+      const host = makeMessage({ id: "host", role: "user", ...props });
+      const items = buildTranscriptItems({
+        ...emptyInput(),
+        messages: [before, host],
+      });
+      expect(items).toEqual([
+        { kind: "message", key: "host", message: host, cameraFrames: [before] },
+      ]);
+      expect(projectedIds(items)).toEqual(["before", "host"]);
+    },
+  );
+
+  test("flushes before substituted and proactive credits cards", () => {
+    const before = frame("before");
+    const error = frame("billing", {
+      providerError: { category: "credits_exhausted" },
+    });
+    const after = frame("after");
+    const items = buildTranscriptItems({
+      ...emptyInput(),
+      messages: [before, error, after],
+      creditsExhausted: true,
+    });
+    expect(items.map((item) => item.kind)).toEqual([
+      "message",
+      "creditsUpsell",
+      "message",
+      "creditsUpsell",
+    ]);
+    expect(projectedIds(items)).toEqual(["before", "billing", "after"]);
+    expectDistinctNonEmptyKeys(items);
+  });
+
+  test("reuses framed items only while every frame reference and the host are unchanged", () => {
+    const frames = [frame("f1"), frame("f2"), frame("f3")];
+    const host = makeMessage({
+      id: "speech",
+      role: "user",
+      ...textBody("Hello"),
+    });
+    const build = (messages: DisplayMessage[]) =>
+      buildTranscriptItems({ ...emptyInput(), messages });
+    const plain = build([host])[0];
+    const first = build([...frames, host])[0];
+    expect(build([...frames, host])[0]).toBe(first);
+    expect(build([host])[0]).toBe(plain);
+    expect(first).not.toBe(plain);
+    const hydrated: DisplayMessage = {
+      ...frames[1]!,
+      attachments: [
+        {
+          id: "hydrated",
+          filename: "frame.png",
+          mimeType: "image/png",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+    };
+    const next = build([frames[0]!, hydrated, frames[2]!, host])[0];
+    expect(next).not.toBe(first);
+    expect(next?.key).toBe(first?.key);
+    expect(build([frames[0]!, hydrated, frames[2]!, host])[0]).toBe(next);
+    expect(build([frames[0]!, hydrated, frames[2]!, { ...host }])[0]).not.toBe(
+      next,
+    );
+    const tail = build(frames)[0];
+    expect(build(frames)[0]).toBe(tail);
+    expect(build([...frames, frame("f4")])[0]).not.toBe(tail);
+    expect(tail).toMatchObject({ cameraFrames: frames });
+  });
+});
 
 function expectDistinctNonEmptyKeys(items: TranscriptItem[]): void {
   const keys = items.map((i) => i.key);

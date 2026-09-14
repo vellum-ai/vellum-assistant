@@ -5,6 +5,11 @@
  * Uses `assistant oauth request` under the hood for portable OAuth.
  */
 
+import {
+  MAX_CONCURRENT_OAUTH_REQUESTS,
+  withOauthRequestSlot,
+} from "./oauth-request-slot.js";
+
 export interface GmailRequestOptions {
   method?: string;
   path: string;
@@ -61,7 +66,7 @@ const IDEMPOTENT_METHODS = new Set([
   "OPTIONS",
   "PATCH",
 ]);
-const BATCH_CONCURRENCY = 10;
+const BATCH_CONCURRENCY = MAX_CONCURRENT_OAUTH_REQUESTS;
 
 /**
  * Thrown when Gmail returns a 403 indicating the daily sending/read quota
@@ -130,22 +135,32 @@ export async function gmailRequest<T = unknown>(
     args.push(path);
     args.push("--json");
 
-    let proc: ReturnType<typeof Bun.spawn>;
-    try {
-      proc = Bun.spawn(args, {
-        windowsHide: true,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-    } catch (err) {
-      throw new Error(
-        `Failed to spawn assistant oauth request: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    const { stdout, stderr, exitCode } = await withOauthRequestSlot(
+      async () => {
+        let proc: ReturnType<typeof Bun.spawn>;
+        try {
+          proc = Bun.spawn(args, {
+            windowsHide: true,
+            stdout: "pipe",
+            stderr: "pipe",
+          });
+        } catch (err) {
+          throw new Error(
+            `Failed to spawn assistant oauth request: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
 
-    const stdout = await new Response(proc.stdout).text();
-    const stderr = await new Response(proc.stderr).text();
-    const exitCode = await proc.exited;
+        const [out, err] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+        ]);
+        return {
+          stdout: out,
+          stderr: err,
+          exitCode: await proc.exited,
+        };
+      },
+    );
 
     let result: {
       ok: boolean;
@@ -237,7 +252,7 @@ export async function gmailDelete(
 
 /**
  * Fetch multiple messages individually with bounded concurrency.
- * Processes messages in waves of BATCH_CONCURRENCY (10) at a time.
+ * Processes messages in waves of BATCH_CONCURRENCY at a time.
  * Supports AbortSignal for cancellation between waves.
  */
 export async function batchFetchMessages(

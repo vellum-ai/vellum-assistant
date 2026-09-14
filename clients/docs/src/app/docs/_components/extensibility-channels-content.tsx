@@ -9,8 +9,8 @@ import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 const TOC_ITEMS = [
   { id: "the-declaration", label: "The declaration", level: 2 },
   { id: "route-fields", label: "Route fields", level: 3 },
-  { id: "approval-and-signatures", label: "Approval and signatures", level: 2 },
-  { id: "third-party-verification", label: "Third-party verification", level: 2 },
+  { id: "approval-and-signatures", label: "Approval and verification", level: 2 },
+  { id: "third-party-verification", label: "Ingress verification", level: 2 },
   { id: "inbound-messages", label: "Delivering inbound messages", level: 2 },
   { id: "presentation", label: "Presentation", level: 2 },
   { id: "anatomy-of-a-channel", label: "Anatomy of a channel", level: 2 },
@@ -64,7 +64,7 @@ const ROUTE_FIELDS: FieldRow[] = [
     field: "verification",
     required: "no",
     fallback: "vendor HMAC",
-    notes: "How a third-party caller's signature is checked. HTTP only.",
+    notes: "How an outside caller is verified. HTTP only: hmac, standard-webhooks, or bearer.",
   },
   {
     field: "inbound",
@@ -84,8 +84,8 @@ export function ExtensibilityChannelsContent() {
       >
         <p className="mb-8 text-zinc-600 dark:text-zinc-400">
           The gateway owns the public surface: it validates the declaration,
-          signature-checks every request, and holds{" "}
-          <code>plugin</code>-signed routes behind a guardian&apos;s approval.
+          verifies every request, and holds plugin-owned ingress behind a
+          guardian&apos;s approval.
           Plugins that declare a channel ingress are considered themselves a
           channel in all contexts where channels are viewed.
         </p>
@@ -181,14 +181,14 @@ export function ExtensibilityChannelsContent() {
 
         <section id="approval-and-signatures" className="mt-12">
           <SectionHeading id="approval-and-signatures" level={2}>
-            Approval and signatures
+            Approval and verification
           </SectionHeading>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
-            Every public plugin route is signature-checked. An unsigned plugin
-            route does not exist. A route whose signing secret is missing is
-            refused rather than served unsigned, and an unauthenticated probe
-            sees <code>404</code> whether the route is undeclared, pending, or
-            missing a secret.
+            Every public plugin route is verified. An unverified plugin route
+            does not exist. A route whose signing secret or bearer token is
+            missing is refused rather than served unsigned, and an
+            unauthenticated probe sees <code>404</code> whether the route is
+            undeclared, pending, or missing a secret.
           </p>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
             A guardian has to approve the declaration before the gateway serves
@@ -204,7 +204,7 @@ export function ExtensibilityChannelsContent() {
 
         <section id="third-party-verification" className="mt-12">
           <SectionHeading id="third-party-verification" level={2}>
-            Third-party verification
+            Ingress verification
           </SectionHeading>
           <p className="mb-4 text-zinc-600 dark:text-zinc-400">
             A vendor that signs <code>X-Example-Signature</code> has its own
@@ -234,6 +234,39 @@ export function ExtensibilityChannelsContent() {
   }
 }`}</code>
           </pre>
+          <p className="mb-4 text-zinc-600 dark:text-zinc-400">
+            An automation client that cannot calculate an HMAC, such as an iOS
+            Shortcut, can use a static bearer token. The gateway verifies the
+            <code>Authorization</code> header before it forwards the request:
+          </p>
+          <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
+            <code>{`{
+  "path": "shortcuts/health",
+  "kind": "http",
+  "description": "Health data submitted by an automation shortcut",
+  "verification": {
+    "kind": "bearer",
+    "secret": { "field": "shortcut_ingress_token" }
+  }
+}`}</code>
+          </pre>
+          <p className="mb-4 text-zinc-600 dark:text-zinc-400">
+            Store <code>shortcut_ingress_token</code> through{" "}
+            <code>assistant credentials prompt</code> or{" "}
+            <code>storeCredential</code>, then configure the client to send
+            exactly one token in{" "}
+            <code>Authorization: Bearer &lt;shortcut_ingress_token&gt;</code>.
+            The scheme name is case-insensitive, but the token is not. Do not
+            put the token in a URL or query string. URLs can be retained in
+            browser history, logs, and referrer data, and the gateway accepts
+            bearer credentials only in <code>Authorization</code>.
+          </p>
+          <p className="mb-4 text-zinc-600 dark:text-zinc-400">
+            A static bearer token does not provide replay protection. Prefer
+            <code>hmac</code> with <code>freshness</code> when a vendor supports
+            signed timestamps, and rotate the token after any suspected
+            disclosure.
+          </p>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600 dark:text-zinc-400">
             <li>
               The credential <strong>service</strong> is the plugin&apos;s

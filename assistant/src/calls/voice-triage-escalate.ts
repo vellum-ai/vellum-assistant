@@ -27,7 +27,10 @@
  */
 
 import { NON_LATIN_SENTENCE_ENDING_PUNCTUATION } from "../tts/speakable-segments.js";
-import { localizedOrDefault } from "../util/language-subtag.js";
+import {
+  fixedPhraseLanguage,
+  localizedOrDefault,
+} from "../util/language-subtag.js";
 import {
   ESCALATE_VERDICT_TOKEN,
   HOLD_VERDICT_TOKEN,
@@ -102,6 +105,36 @@ export function fallbackEscalationBridgeFor(language?: string): string {
  * is spoken before the quality leg runs.
  */
 export const MIN_SPOKEN_BRIDGE_CHARS = 3;
+
+/**
+ * The phrase spoken across an escalation hand-off, for both voice drivers:
+ * the front-door leg's own capped bridge when it is a real bridge, else the
+ * canned fallback in the caller's language. `usesFallback` marks the canned
+ * phrase as audio-only: the model never produced it, so no transcript row
+ * carries it (the bridge's hygiene pass deletes the leg's row), and the
+ * driver keeps it out of the turn's recorded text. `language` is the TTS
+ * hint the phrase must carry: "en" when the canned table has no entry for
+ * the caller's language (the phrase is English text then), undefined when
+ * the phrase rides the turn's own language.
+ */
+export function resolveSpokenEscalationBridge(
+  cappedBridge: string,
+  language?: string,
+): { spokenBridge: string; usesFallback: boolean; language?: string } {
+  const usesFallback = cappedBridge.length < MIN_SPOKEN_BRIDGE_CHARS;
+  if (!usesFallback) {
+    return { spokenBridge: cappedBridge, usesFallback };
+  }
+  const fixedLanguage = fixedPhraseLanguage(
+    FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
+    language,
+  );
+  return {
+    spokenBridge: fallbackEscalationBridgeFor(language),
+    usesFallback,
+    ...(fixedLanguage !== undefined ? { language: fixedLanguage } : {}),
+  };
+}
 
 /**
  * Hard cap on the spoken escalation bridge. The bridge is supposed to be a

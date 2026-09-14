@@ -21,7 +21,6 @@ import {
   useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
-import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -29,6 +28,8 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 export type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
   message: DisplayMessage;
+  /** Hide Copy and Read aloud when the rendered row has no message text. */
+  showTextActions?: boolean;
   /** Conversation the message belongs to. Required for the bookmark toggle —
    *  the bookmark API keys on (messageId, conversationId). */
   conversationId?: string | null;
@@ -113,6 +114,7 @@ function latestMessageActivityTimestamp(
 
 export function MessageHoverActions({
   message,
+  showTextActions = true,
   conversationId,
   openInSlackUrl,
   onFork,
@@ -127,7 +129,6 @@ export function MessageHoverActions({
   // (and only touch TanStack Query) for bookmarkable rows; that keeps the
   // unsupported-assistant and no-conversation paths free of any query client.
   const canBookmark = useCanBookmark(message, conversationId);
-  const canReadAloud = useCanUseInternalThreadActions();
 
   // Flat plain-text body derived from the message's text blocks (empty for a
   // row deleted on its channel); this is the copy payload and mirrors the
@@ -145,7 +146,7 @@ export function MessageHoverActions({
   const [fallbackTimestamp] = useState(() => Date.now());
   const displayTimestamp = timestamp ?? fallbackTimestamp;
 
-  const hasCopyableText = content.trim().length > 0;
+  const hasCopyableText = showTextActions && content.trim().length > 0;
 
   useEffect(() => {
     return () => {
@@ -211,7 +212,7 @@ export function MessageHoverActions({
         </button>
       )}
 
-      {hasCopyableText && message.id && canReadAloud && (
+      {hasCopyableText && message.id && (
         <MessageReadAloudButton
           messageId={message.id}
           text={content}

@@ -4,10 +4,25 @@ import {
   appendLoggedInBrowserOffer,
   CHROME_WEB_STORE_INSTALL_URL,
   DESKTOP_APP_DOWNLOAD_URL,
+  formatDesktopAppRequired,
   formatLoggedInBrowserOffer,
   isPhoneSurface,
   shouldOfferLoggedInBrowser,
 } from "./capability-offer.js";
+
+describe("formatDesktopAppRequired", () => {
+  test("offers a direct desktop-app download and retry step", () => {
+    const message = formatDesktopAppRequired("shell");
+
+    expect(message).toContain(
+      "The Vellum desktop app is needed to run commands on your computer",
+    );
+    expect(message).toContain(DESKTOP_APP_DOWNLOAD_URL);
+    expect(message).toContain("Open it, then retry.");
+    expect(message).not.toContain("client");
+    expect(message).not.toContain("daemon");
+  });
+});
 
 describe("isPhoneSurface", () => {
   test("is true for iOS transport and mobile client OS", () => {
@@ -49,7 +64,9 @@ describe("shouldOfferLoggedInBrowser", () => {
     expect(shouldOfferLoggedInBrowser('Invalid browser_mode "bogus"')).toBe(
       false,
     );
-    expect(shouldOfferLoggedInBrowser("url must use http or https")).toBe(false);
+    expect(shouldOfferLoggedInBrowser("url must use http or https")).toBe(
+      false,
+    );
   });
 });
 
@@ -71,6 +88,7 @@ describe("formatLoggedInBrowserOffer", () => {
     });
     expect(offer).toContain("no in-app browser");
     expect(offer).toContain("Do not describe a browser panel");
+    expect(offer).toContain("Mac or Windows PC");
     expect(offer).toContain(DESKTOP_APP_DOWNLOAD_URL);
     expect(offer).toContain(CHROME_WEB_STORE_INSTALL_URL);
   });
@@ -78,7 +96,9 @@ describe("formatLoggedInBrowserOffer", () => {
 
 describe("appendLoggedInBrowserOffer", () => {
   test("appends the offer once", () => {
-    const once = appendLoggedInBrowserOffer("Error: Navigation failed: timeout");
+    const once = appendLoggedInBrowserOffer(
+      "Error: Navigation failed: timeout",
+    );
     expect(once).toContain("Error: Navigation failed: timeout");
     expect(once).toContain(DESKTOP_APP_DOWNLOAD_URL);
     const twice = appendLoggedInBrowserOffer(once);

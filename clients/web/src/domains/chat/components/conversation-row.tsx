@@ -275,9 +275,12 @@ export function ConversationRow({
           // The wash belongs to the row rather than the panel: declared on the
           // menu it would reach every active PanelItem in the drawer, and a
           // tinted pill that publishes `--panel-item-bg` and no active value
-          // of its own would lose its colour to it.
+          // of its own would lose its colour to it. It reads through the
+          // row's hover property first so the active row matches whatever
+          // its card hovers in: the assistant card publishes an accent wash
+          // for hover, and a value stated on the row itself would beat it.
           ctx.overlayCards
-            ? "min-h-[var(--side-menu-tile-size)] [--panel-item-active:var(--surface-hover)]"
+            ? "min-h-[var(--side-menu-tile-size)] [--panel-item-active:var(--panel-item-hover,var(--surface-hover))]"
             : "h-[30px]",
         )}
       />

@@ -36,6 +36,19 @@ const OPENROUTER_APP_ATTRIBUTION_HEADERS = {
 
 const OPENROUTER_MODEL_EFFORT_CEILINGS = modelEffortCeilings("openrouter");
 
+const OPENROUTER_MAX_COMPLETION_TOKENS_ONLY = /gpt-5\.[12]-(?:codex|chat)/;
+
+/** Output-token-limit wire key for an OpenRouter model id. Most endpoints
+ *  advertise `max_tokens`; GPT-5.1/5.2 Codex and Chat advertise only
+ *  `max_completion_tokens`. Exported for tests. */
+export function openRouterOutputTokenLimitField(
+  model: string,
+): "max_completion_tokens" | "max_tokens" {
+  return OPENROUTER_MAX_COMPLETION_TOKENS_ONLY.test(model)
+    ? "max_completion_tokens"
+    : "max_tokens";
+}
+
 /**
  * Extract the normalized `openrouter.only` list from a per-call config. Returns
  * an empty array when the field is absent, empty, or contains no usable string
@@ -143,6 +156,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       streamTimeoutMs: options.streamTimeoutMs,
       requestHeaders: OPENROUTER_APP_ATTRIBUTION_HEADERS,
       assistantReasoningField: "reasoning",
+      outputTokenLimitField: "max_tokens",
     });
     this.openRouterApiKey = apiKey;
     this.resolvedBaseURL = baseURL;
@@ -248,6 +262,12 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       OPENROUTER_MODEL_EFFORT_CEILINGS.get(model) ??
       super.resolveMaxReasoningEffort(model)
     );
+  }
+
+  protected override resolveOutputTokenLimitField(
+    model: string,
+  ): "max_completion_tokens" | "max_tokens" {
+    return openRouterOutputTokenLimitField(model);
   }
 
   private resolveEffectiveModel(options?: SendMessageOptions): string {

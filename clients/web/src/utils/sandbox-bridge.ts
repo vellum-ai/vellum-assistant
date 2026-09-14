@@ -72,6 +72,36 @@ export function isRelayableExternalHref(href: unknown): href is string {
   return typeof href === "string" && RELAYABLE_LINK_SCHEME_RE.test(href.trim());
 }
 
+const APP_ROUTE_ORIGIN = "https://app-route.invalid";
+
+/** Normalize a root-relative Vellum route received from a sandboxed frame. */
+export function getRelayableAppRoute(href: unknown): string | null {
+  if (typeof href !== "string") {
+    return null;
+  }
+
+  const candidate = href.trim();
+  if (!candidate.startsWith("/") || candidate.startsWith("//")) {
+    return null;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(candidate, APP_ROUTE_ORIGIN);
+  } catch {
+    return null;
+  }
+
+  if (
+    url.origin !== APP_ROUTE_ORIGIN ||
+    (url.pathname !== "/assistant" && !url.pathname.startsWith("/assistant/"))
+  ) {
+    return null;
+  }
+
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 // ---------------------------------------------------------------------------
 // Script serialization
 // ---------------------------------------------------------------------------
@@ -168,9 +198,9 @@ export function buildStoragePolyfill(): string {
  * 2. **External links** (http:, https:, mailto:, tel:) — opened in a new tab
  *    via `window.open()` with `noopener,noreferrer`.
  *
- * Anchor links (`#foo`), relative paths, and `javascript:` URIs are left
- * alone — the former are in-page navigation, the latter are already blocked
- * by the sandbox.
+ * Anchor links (`#foo`) and `javascript:` URIs are left alone. Root-relative
+ * `/assistant/...` routes are also left alone unless `relayAppRoutes` is set,
+ * in which case the host router receives them through `vellum_navigate`.
  *
  * Which of the two paths a frame takes follows from its sandbox tokens, and
  * they differ by surface. The `visual` frame carries no popup tokens and
@@ -187,10 +217,12 @@ export function buildStoragePolyfill(): string {
  * @param options.relayExternal Relay external links to the parent as
  *   `vellum_open_link` instead of calling `window.open()`. Required for frames
  *   sandboxed without `allow-popups`, where `window.open()` is a silent no-op.
+ * @param options.relayAppRoutes Relay root-relative `/assistant/...` routes to
+ *   the parent as `vellum_navigate` instead of loading them in the iframe.
  */
 export function buildLinkInterceptorScript(
   frameId: string,
-  options?: { relayExternal?: boolean },
+  options?: { relayExternal?: boolean; relayAppRoutes?: boolean },
 ): string {
   const externalHandler = options?.relayExternal
     ? `window.parent.postMessage({
@@ -200,6 +232,17 @@ export function buildLinkInterceptorScript(
               linkText: (el.textContent || '').trim()
             }, '*');`
     : `window.open(rawHref, '_blank', 'noopener,noreferrer');`;
+  const appRouteHandler = options?.relayAppRoutes
+    ? `if (rawHref === '/assistant' || rawHref.indexOf('/assistant/') === 0 || rawHref.indexOf('/assistant?') === 0 || rawHref.indexOf('/assistant#') === 0) {
+            e.preventDefault();
+            window.parent.postMessage({
+              type: 'vellum_navigate',
+              frameId: ${jsonForScript(frameId)},
+              href: rawHref
+            }, '*');
+            return;
+          }`
+    : "";
 
   return `<script>
 (function() {
@@ -219,6 +262,7 @@ export function buildLinkInterceptorScript(
           // embedding page URL, producing absolute http(s) URLs that would
           // be wrongly intercepted. The raw attribute preserves the scheme.
           var rawHref = el.getAttribute('href');
+          ${appRouteHandler}
           // vellum:// deep links — forward to the parent for in-app
           // navigation. Checked before external schemes because
           // window.open() cannot handle custom schemes (a vellum:// URL
@@ -479,6 +523,8 @@ export interface BridgeOptions {
   fetch?: boolean;
   /** Deep-link route exposed as `window.vellum.route`. */
   route?: string;
+  /** Relay root-relative `/assistant/...` links to the host router. */
+  relayAppRoutes?: boolean;
 }
 
 /**
@@ -644,7 +690,9 @@ export function buildBridgeScript(
   return (
     buildStoragePolyfill() +
     buildBridgeLogicScript(frameId, options) +
-    buildLinkInterceptorScript(frameId)
+    buildLinkInterceptorScript(frameId, {
+      relayAppRoutes: options?.relayAppRoutes,
+    })
   );
 }
 
@@ -732,7 +780,9 @@ export function injectBridge(
     injectScript(
       html,
       buildBridgeLogicScript(frameId, options) +
-        buildLinkInterceptorScript(frameId),
+        buildLinkInterceptorScript(frameId, {
+          relayAppRoutes: options?.relayAppRoutes,
+        }),
     ),
     buildStoragePolyfill(),
   );

@@ -9,6 +9,16 @@ export const MemoryRetrospectiveConfigSchema = z
         "Whether the memory-retrospective background pass runs. When false, no retrospective is enqueued by any trigger (interval, message count, pre-compaction, scheduled sweep), the scheduled sweep job stops being queued, and any row already queued completes as a no-op. The rest of the memory system (extraction, retrieval, embeddings, `<memory>` injection) is unaffected. Use `memory.enabled` to disable memory as a whole.",
       ),
 
+    skillImprovement: z
+      .boolean({
+        error:
+          "memory.retrospective.skillImprovement must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "Whether retrospectives may discover, refine, and create managed skills from observed procedures. When false, retrospectives still capture ordinary memories through `remember`, but cannot load skill management, search for similar skills, or scaffold managed skills.",
+      ),
+
     timeThresholdMs: z
       .number({
         error: "memory.retrospective.timeThresholdMs must be a number",

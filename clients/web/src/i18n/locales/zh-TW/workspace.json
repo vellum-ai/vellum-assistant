@@ -13,6 +13,10 @@
     "createTriggerTitle": "新檔案或資料夾",
     "nameLabel": "名稱",
     "nameError": "請輸入不含斜線的單一檔案或資料夾名稱。",
+    "nameTaken": "此資料夾中已有「{name}」。",
+    "createFailed": "建立失敗。請檢查名稱後再試一次。",
+    "renameFailed": "重新命名失敗。請檢查名稱後再試一次。",
+    "deleteFailed": "刪除失敗。請再試一次。",
     "cancel": "取消",
     "sortByNameAria": "依名稱排序",
     "sortBySizeAria": "依大小排序",
@@ -43,6 +47,7 @@
     "browseFiles": "瀏覽檔案",
     "fileNotFound": "找不到檔案",
     "saveFailed": "儲存失敗",
+    "unknownSize": "大小不明",
     "downloadAria": "下載 {name}"
   }
 }

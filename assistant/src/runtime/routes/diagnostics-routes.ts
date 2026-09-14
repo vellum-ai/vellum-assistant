@@ -22,6 +22,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { isMaxTokensStopReason } from "../../providers/stop-reasons.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
@@ -176,9 +177,44 @@ function buildCommandPrompt(body: DictationBody, stylePrompt?: string): string {
   return sections.join("\n");
 }
 
-function computeMaxTokens(inputLength: number): number {
+export function computeMaxTokens(inputLength: number): number {
   const estimatedInputTokens = Math.ceil(inputLength / 3);
-  return Math.max(256, estimatedInputTokens + 128);
+  // The cleanup tool call carries the whole transcript back in its `text`
+  // argument, plus a `reasoning` string and the JSON scaffolding around both,
+  // so the budget has to cover well more than the input alone. `max_tokens` is
+  // a ceiling rather than a target: a call that stops short of it costs no
+  // extra latency.
+  return Math.max(512, estimatedInputTokens * 2 + 256);
+}
+
+export type CleanupRejection = "truncated";
+
+/**
+ * Decide whether the cleanup model's rewrite is safe to use as the payload.
+ *
+ * The rewrite replaces what the user actually said. A token-cap stop means the
+ * tool JSON was cut mid-argument, so however complete the `text` argument
+ * happens to look, it is a fragment; the raw transcript is the safer payload
+ * then. Unpolished beats wrong.
+ *
+ * Whether a shorter rewrite still preserved the meaning is the model's call
+ * (the prompt asks it to drop fillers and tighten phrasing), so there is no
+ * length check here: a deterministic ratio cannot tell a concise cleanup from
+ * a summary.
+ */
+export function resolveCleanedDictation(
+  raw: string,
+  cleaned: string,
+  stopReason: string | null | undefined,
+): { text: string; rejected: CleanupRejection | null } {
+  const trimmed = cleaned.trim();
+  if (!trimmed) {
+    return { text: raw, rejected: null };
+  }
+  if (isMaxTokensStopReason(stopReason)) {
+    return { text: raw, rejected: "truncated" };
+  }
+  return { text: trimmed, rejected: null };
 }
 
 interface DictationResult {
@@ -329,7 +365,23 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
             ...profileMeta,
           };
         }
-        const cleanedText = input.text?.trim() || transcription;
+        const { text: cleanedText, rejected } = resolveCleanedDictation(
+          transcription,
+          input.text ?? "",
+          response.stopReason,
+        );
+        if (rejected) {
+          // Lengths only -- transcript content must never be logged.
+          log.warn(
+            {
+              rejected,
+              stopReason: response.stopReason,
+              rawChars: transcription.length,
+              cleanedChars: input.text?.trim().length ?? 0,
+            },
+            "Dictation cleanup rejected, using raw transcription",
+          );
+        }
         const normalizedText = applyDictionary(cleanedText, profile.dictionary);
         return {
           text: normalizedText,

@@ -17,8 +17,18 @@ import "./test-preload.js";
 let mockReadCredential = mock(
   async (_key: string): Promise<string | undefined> => undefined,
 );
+let mockPlatformUserIdUnreachable = false;
 mock.module("../credential-reader.js", () => ({
   readCredential: (key: string) => mockReadCredential(key),
+}));
+mock.module("../platform-user-id.js", () => ({
+  readStoredPlatformUserId: async () => {
+    if (mockPlatformUserIdUnreachable) {
+      return { userId: undefined, unreachable: true };
+    }
+    const userId = await mockReadCredential("vellum:platform_user_id");
+    return { userId, unreachable: false };
+  },
 }));
 
 let mockFindVellumGuardian = mock(
@@ -69,6 +79,7 @@ function makeLoopbackServer(address = "127.0.0.1") {
 
 beforeEach(() => {
   mockReadCredential = mock(async () => undefined);
+  mockPlatformUserIdUnreachable = false;
   mockFindVellumGuardian = mock(async () => null);
   mockValidateEdgeToken = mock(() => ({ ok: false, reason: "noop" }));
   loopbackFallbackCountTracker.reset();
@@ -99,6 +110,15 @@ describe("requireEdgeGuardianAuth — platform header mode", () => {
     mockReadCredential = mock(async () => {
       throw new Error("simulated lookup failure");
     });
+    const { requireEdgeGuardianAuth } = makeMiddleware();
+    const res = await requireEdgeGuardianAuth(
+      makeReq({ "x-vellum-user-id": PLATFORM_USER_ID }),
+    );
+    expect(res?.status).toBe(503);
+  });
+
+  test("returns 503 when platform_user_id vault is unreachable", async () => {
+    mockPlatformUserIdUnreachable = true;
     const { requireEdgeGuardianAuth } = makeMiddleware();
     const res = await requireEdgeGuardianAuth(
       makeReq({ "x-vellum-user-id": PLATFORM_USER_ID }),

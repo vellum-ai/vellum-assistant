@@ -37,14 +37,13 @@ export function LibraryGridSection({
 
   return (
     <section>
-      <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
+      <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)] max-md:sr-only">
         {title}
       </h2>
-      {/* The colour the cards sit on: the page paints `--surface-base` and
-          the grid nothing of its own. A card's title and date are transparent
-          on it, and the swipe wrapper backs the card with this so a swiped
-          card covers the action behind it instead of showing it through. */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(max(220px,calc((100%-6rem)/5)),1fr))] gap-6 [--swipe-item-surface:var(--surface-base)]">
+      {/* On mobile each app name sits directly on the page surface. The swipe
+          item uses that same opaque surface so its actions stay covered at
+          rest, while desktop keeps its established card surface. */}
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(max(220px,calc((100%-6rem)/5)),1fr))] gap-6 [--swipe-item-surface:var(--surface-base)] max-md:[--swipe-item-surface:var(--surface-overlay)]">
         {apps.map((app) => (
           <LibraryAppCard
             key={app.id}

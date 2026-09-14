@@ -15,15 +15,22 @@ final class ActionVerifier {
         self.maxSteps = maxSteps
     }
 
-    func verify(_ action: AgentAction) -> VerifyResult {
-        // 1. Step limit
-        if actionHistory.count >= maxSteps {
-            return .blocked("Maximum step limit (\(maxSteps)) reached")
-        }
+    /// `batchItem` is true for every action of a `computer_use_sequence` after
+    /// the first. A batch is one step: its first action counts toward the step
+    /// limit and the repeat detector, and the rest get only the per-action
+    /// safety checks, since pressing down three times in one batch is not a
+    /// loop.
+    func verify(_ action: AgentAction, batchItem: Bool = false) -> VerifyResult {
+        if !batchItem {
+            // 1. Step limit
+            if actionHistory.count >= maxSteps {
+                return .blocked("Maximum step limit (\(maxSteps)) reached")
+            }
 
-        // 2. Loop detection — repeating action patterns
-        if detectLoop(including: action) {
-            return .blocked("Agent appears stuck in a repeating action loop")
+            // 2. Loop detection, repeating action patterns
+            if detectLoop(including: action) {
+                return .blocked("Agent appears stuck in a repeating action loop")
+            }
         }
 
         // Note: detecting "sensitive" typed text (passwords/SSNs/cards) is a
@@ -42,12 +49,10 @@ final class ActionVerifier {
             }
         }
 
-        // 5. Form submission (Enter after typing)
-        if action.type == .key, let key = action.key?.lowercased(),
-           (key == "enter" || key == "return"),
-           let lastAction = actionHistory.last, lastAction.type == .type {
-            return .needsConfirmation("Pressing Enter may submit a form")
-        }
+        // Pressing Enter after typing is not checked. Whether submitting is what
+        // the user wanted is the assistant's call, and proxy mode has no
+        // confirmation path, so a check here could only block the most common
+        // sequence there is: type into a field, then press Enter.
 
         // 6. Forbidden screen region (system menu bar)
         if let y = action.y, y < 25, action.type == .click || action.type == .doubleClick || action.type == .rightClick {
@@ -79,7 +84,9 @@ final class ActionVerifier {
         }
 
         // All checks passed
-        actionHistory.append(action)
+        if !batchItem {
+            actionHistory.append(action)
+        }
         return .allowed
     }
 

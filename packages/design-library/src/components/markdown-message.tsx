@@ -208,6 +208,7 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
       )}
       <pre
         ref={preRef}
+        data-owns-horizontal-scroll=""
         className="overflow-auto p-3"
         style={{ maxHeight: MAX_CODE_BLOCK_HEIGHT }}
       >
@@ -435,7 +436,10 @@ function buildMarkdownComponents(
       </blockquote>
     ),
     table: ({ children }) => (
-      <div className="mb-2 overflow-x-auto last:mb-0">
+      <div
+        data-owns-horizontal-scroll=""
+        className="mb-2 overflow-x-auto last:mb-0"
+      >
         <table className="min-w-full border-collapse text-body-small-lighter">
           {children}
         </table>

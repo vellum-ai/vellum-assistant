@@ -407,6 +407,55 @@ answers nothing here.
       (`cameraError.permissionDenied` and the like) reach the screen, and no
       English is left over.
 
+## Grouped frame transcript
+
+Run on desktop web, macOS, mobile Safari, and the installed iPhone app in Live.
+Use a development build with `vision-mode` enabled.
+
+- [ ] Let five keeps land without speaking. One standalone bubble grows on its
+      first frame, with every tile visible. Say "What is this?": the words and
+      all five tiles share one user bubble and the sentinel text stays hidden.
+- [ ] Open a frame preview before speaking. Speech rehosts the grid and closes
+      the preview. This is accepted; every tile and its message anchor remains.
+- [ ] Read the saved-time labels, including seconds, on mouse hover and touch.
+      These are row saved times, not evidence of when the model consumed a frame.
+- [ ] Throttle the connection so pending and hydrated frames appear together.
+      Hydration preserves tile height. The preview gallery includes only hydrated
+      frames in chronological order, and each download matches its selected tile.
+      Keep a later preview open while earlier frames hydrate or history prepends.
+      The selected frame, counter, and next/previous navigation stay consistent,
+      including legacy frames that share an attachment id.
+- [ ] Follow links to frame 6 and the final loaded frame. Both scroll to the
+      corresponding tile without expanding a group. Reload and repeat.
+- [ ] Page older history above a group, then into a standalone group. Preserve
+      the viewport even when the entire loaded page is one run and its first
+      host changes. Repeat while a new ambient keep arrives. A genuine spoken
+      or typed message arriving during pagination must still pin its new turn.
+      In a tall, underfilled viewport, pages containing only frames for an
+      existing utterance must continue loading until the viewport fills or
+      history ends. Hydration alone must not restart a stopped load chain.
+- [ ] Take a shutter photo after ambient keeps. The photo adopts the preceding
+      run and keeps its own attachment. Plain text reading `(camera frame)` and
+      speech carrying a parked frame retain ordinary user-message behavior.
+- [ ] Insert visible deleted messages, reactions (including Slack), status
+      cards, deliberate-silence rows, and assistant replies between runs. Every
+      preceding frame remains visible. Hidden notifications and queued messages
+      neither appear nor split a run.
+- [ ] Exercise roughly 120 frames at desktop and narrow phone widths. All tiles
+      render, wrap without horizontal overflow, and the final tile opens promptly.
+- [ ] Inspect the following utterance's model context: each keep remains a
+      separate persisted row. Ordinary messages, retention, and turn timing retain
+      their behavior.
+
+Synthetic Storybook observations (2026-09-14): the 120-frame story rendered 120
+DOM tiles at desktop and 390px viewport widths. At the narrow width, the grid's
+379px client width equaled its scroll width, with no horizontal overflow. The
+final tile opened slide 120 of 120 at both sizes and interactions responded
+promptly. Mixed pending and hydrated tiles each measured 78px high and showed
+distinct saved times including seconds. These observations used synthetic story
+data. Physical iPhone behavior, a live camera session, and actual model-context
+inspection remain unverified.
+
 ## Design review
 
 Deliberate departures from the handoff. Each needs a yes or a correction before

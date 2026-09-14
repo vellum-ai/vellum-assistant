@@ -63,7 +63,7 @@ export async function initializeProvidersAndTools(
   // Start MCP servers — workspace-configured and plugin-declared alike —
   // and register their tools. Shared with the schedule worker, which hosts
   // agent turns in its own process and so needs its own connections.
-  await startConfiguredMcpServers(config.mcp);
+  await startConfiguredMcpServers();
 
   log.info("Daemon startup: providers and tools initialized");
 }

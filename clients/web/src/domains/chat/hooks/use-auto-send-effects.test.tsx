@@ -33,6 +33,20 @@ function baseProps(
 }
 
 describe("useAutoSendEffects — URL prompt dedupe", () => {
+  it("preserves document return history state when consuming a prompt", () => {
+    const props = baseProps(
+      "prompt=feedback&document=surface-1",
+      mock(async () => {}),
+    );
+    const navigationState = {
+      documentEntry: { surfaceId: "surface-1", returnTo: "/assistant/library" },
+    };
+    renderHook(() => useAutoSendEffects({ ...props, navigationState }));
+    expect(props.setSearchParams.mock.calls[0][1]).toEqual({
+      replace: true,
+      state: navigationState,
+    });
+  });
   it("sends once and ignores an identical re-render", () => {
     const sendMessage = mock(async (_content: string) => {});
     const props = baseProps("prompt=hello", sendMessage);

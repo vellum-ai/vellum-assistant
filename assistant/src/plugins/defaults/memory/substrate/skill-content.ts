@@ -1,4 +1,4 @@
-import { getConfig } from "../../../../config/loader.js";
+import { loadWorkspaceMcpConfig } from "../../../../mcp/workspace-mcp-config.js";
 
 /**
  * Generic input for building capability statements: the capability fields of
@@ -92,7 +92,7 @@ export function augmentMcpSetupDescription(
   if (input.id !== "mcp-setup") {
     return input;
   }
-  const servers = getConfig().mcp?.servers;
+  const servers = loadWorkspaceMcpConfig().servers;
   if (!servers) {
     return input;
   }

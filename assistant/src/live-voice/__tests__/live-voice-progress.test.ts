@@ -1,5 +1,14 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import type {
+  VoiceProgressNarrator,
+  VoiceProgressTextInput,
+} from "../../calls/progress-narration.js";
+import {
+  pickProgressPhrase,
+  PROGRESS_FALLBACK_PHRASES,
+  PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
+} from "../../calls/progress-phrases.js";
 import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnCallbacks,
@@ -7,9 +16,9 @@ import type {
 } from "../../calls/voice-session-bridge.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type {
-  LiveVoiceFrontModelConfig,
-  LiveVoiceProgressConfig,
-} from "../../config/schemas/live-voice.js";
+  VoiceFrontModelConfig,
+  VoiceProgressConfig,
+} from "../../config/schemas/voice.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -21,15 +30,6 @@ import {
 } from "../live-voice-session.js";
 import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
 import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
-import type {
-  VoiceProgressNarrator,
-  VoiceProgressTextInput,
-} from "../progress-narration.js";
-import {
-  pickProgressPhrase,
-  PROGRESS_FALLBACK_PHRASES,
-  PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
-} from "../progress-phrases.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
@@ -142,8 +142,8 @@ function makeProgressNarrator(
 }
 
 function progressConfig(
-  overrides: Partial<LiveVoiceProgressConfig> = {},
-): Partial<LiveVoiceFrontModelConfig> {
+  overrides: Partial<VoiceProgressConfig> = {},
+): Partial<VoiceFrontModelConfig> {
   const idleIntervalMs = overrides.idleIntervalMs ?? 60_000;
   return {
     progress: {
@@ -163,7 +163,7 @@ function progressConfig(
 }
 
 function createProgressHarness(options: {
-  frontModelConfig: Partial<LiveVoiceFrontModelConfig>;
+  frontModelConfig: Partial<VoiceFrontModelConfig>;
   progressNarrator: VoiceProgressNarrator;
   emitMetrics?: boolean;
   gateTtsText?: (text: string) => Promise<void> | null;

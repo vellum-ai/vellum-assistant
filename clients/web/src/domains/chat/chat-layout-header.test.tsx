@@ -32,6 +32,14 @@ stubModule("@/runtime/is-electron", await import("@/runtime/is-electron"), {
   isElectron: () => mockIsElectron,
 });
 
+stubModule(
+  "@/components/windows-menu-bar",
+  await import("@/components/windows-menu-bar"),
+  {
+    WindowsMenuBar: () => <div data-testid="windows-menu-bar" />,
+  },
+);
+
 // The two stores the header writes through are driven by their own state
 // rather than a module stub, so the spies are checked against the real store
 // shapes. Both stores are process-global, so the real actions go back below.
@@ -132,6 +140,85 @@ describe("ChatLayoutHeader mobile affordances", () => {
     expect(
       screen.getByRole("button", { name: "Search (Ctrl+K)" }),
     ).toBeTruthy();
+  });
+
+  test("replaces the standard clusters with a route-owned mobile top bar", () => {
+    renderHeader({
+      topBarRightSlot: <button type="button">Notifications</button>,
+      mobileTopBar: {
+        leading: <button type="button">Back</button>,
+        center: <span>Library</span>,
+        trailing: <button type="button">Import</button>,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(screen.getByText("Library")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Import" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Open navigation" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Search (Ctrl+K)" }),
+    ).toBeNull();
+    expect(screen.queryByText("Notifications")).toBeNull();
+  });
+
+  test("ignores a mobile top-bar override on desktop", () => {
+    renderHeader({
+      isMobile: false,
+      mobileTopBar: {
+        leading: <span>Mobile back</span>,
+        center: <span>Mobile title</span>,
+        trailing: <span>Mobile action</span>,
+      },
+      topBarCenter: <span>Desktop title</span>,
+    });
+
+    expect(screen.getByText("Desktop title")).toBeTruthy();
+    expect(screen.queryByText("Mobile title")).toBeNull();
+  });
+
+  test("keeps custom mobile controls clear of macOS traffic lights", () => {
+    mockIsElectron = true;
+    mockElectronHostOS = "macos";
+    renderHeader({
+      mobileTopBar: {
+        leading: <span>Back</span>,
+        center: <span>Library</span>,
+        trailing: <span>Import</span>,
+      },
+    });
+
+    expect(screen.getByText("Back").parentElement?.style.paddingLeft).toBe(
+      "80px",
+    );
+  });
+
+  test("keeps menu and actions separate in a narrowed Windows shell", () => {
+    mockIsElectron = true;
+    mockElectronHostOS = "windows";
+    renderHeader({
+      mobileTopBar: {
+        leading: <span>Back</span>,
+        center: <span>Library</span>,
+        trailing: <span>Import</span>,
+      },
+    });
+
+    const customTopBar = screen.getByText("Library").parentElement?.parentElement;
+    expect(customTopBar?.className).toContain(
+      "grid-cols-[max-content_minmax(0,1fr)_max-content]",
+    );
+    expect(customTopBar?.style.minHeight).toBe("44px");
+    expect(screen.getByText("Library").parentElement?.className).toContain(
+      "overflow-hidden",
+    );
+    const windowsMenu = screen.getByTestId("windows-menu-bar");
+    expect(customTopBar?.contains(windowsMenu)).toBe(false);
+    expect(windowsMenu.parentElement?.style.width).toBe(
+      "calc(100% + 150px)",
+    );
   });
 });
 

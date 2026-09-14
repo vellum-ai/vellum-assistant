@@ -14,6 +14,7 @@ const restorePreviewModal = mockAttachmentPreviewModal();
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
+import type { AttachmentSquareLabels } from "@/domains/chat/components/chat-attachments/message-attachment-square";
 import { useAttachmentSquares } from "@/domains/chat/components/chat-attachments/use-attachment-squares";
 
 // `mock.module` is process-global, so the real preview modal goes back before
@@ -27,13 +28,19 @@ afterEach(() => {
 });
 
 /** The layout every caller writes for itself, reduced to the squares. */
-function Squares({ attachments }: { attachments: DisplayAttachment[] }) {
+function Squares({
+  attachments,
+  labels,
+}: {
+  attachments: DisplayAttachment[];
+  labels?: AttachmentSquareLabels;
+}) {
   const { displayAttachments, renderSquare, previewModal } =
     useAttachmentSquares({ attachments });
 
   return (
     <>
-      {displayAttachments.map((att, index) => renderSquare(att, index))}
+      {displayAttachments.map((att, index) => renderSquare(att, index, labels))}
       {previewModal}
     </>
   );
@@ -102,4 +109,39 @@ describe("useAttachmentSquares", () => {
 
     expect(logged.map(String).join("\n")).not.toContain("same key");
   });
+});
+
+test("label overrides reach the square without changing attachment actions", () => {
+  const { getByRole, getByText, queryByText, getByTestId } = render(
+    <Squares
+      attachments={[SHARED_ID[0]!]}
+      labels={{
+        primary: "14:30:05",
+        secondary: null,
+        title: "Saved 14:30:05",
+        ariaLabel: "Saved frame",
+      }}
+    />,
+  );
+  const square = getByRole("button", { name: "Saved frame" });
+  expect(square.getAttribute("title")).toBe("Saved 14:30:05");
+  expect(getByText("14:30:05")).toBeTruthy();
+  expect(queryByText("first.pdf")).toBeNull();
+  expect(queryByText("1.0 KB")).toBeNull();
+  expect(getByRole("button", { name: "Download first.pdf" })).toBeTruthy();
+  fireEvent.click(square);
+  expect(getByTestId("preview-modal").getAttribute("data-attachment-id")).toBe(
+    "rehydrated:0",
+  );
+});
+
+test("omitting label overrides preserves filename and size defaults", () => {
+  const { getByRole, getByText } = render(
+    <Squares attachments={[SHARED_ID[0]!]} />,
+  );
+  expect(getByRole("button", { name: "first.pdf" }).getAttribute("title")).toBe(
+    "first.pdf",
+  );
+  expect(getByText("first.pdf")).toBeTruthy();
+  expect(getByText("1.0 KB")).toBeTruthy();
 });

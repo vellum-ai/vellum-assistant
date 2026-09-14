@@ -93,8 +93,6 @@ import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { AssistantSleepStage } from "@/domains/chat/components/assistant-sleep-stage";
 import { useAssistantSleepStageStore } from "@/stores/assistant-sleep-stage-store";
-import { SidebarTipCard } from "@/components/tips/sidebar-tip-card";
-import { ensureTipsFirstSeenAt } from "@/utils/tips-storage";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
 import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
@@ -110,6 +108,7 @@ import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
+import { useDocumentHeaderVisible } from "./hooks/use-document-header-visible";
 import {
   ArchiveAllConfirmDialog,
   useArchiveAllConfirmation,
@@ -355,6 +354,7 @@ export function ChatLayout({
   const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
   const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
+  const mobileTopBar = useChatLayoutSlotsStore.use.mobileTopBar();
   const showInternalActions = useCanUseInternalThreadActions();
   const isNative = useIsNativePlatform();
   const electron = isElectron();
@@ -365,7 +365,6 @@ export function ChatLayout({
     selectHeaderControlsHidden,
   );
   const headerCenterHidden = useInChatOnboardingStore(selectHeaderCenterHidden);
-  const navTourActive = useInChatOnboardingStore.use.navTourActive();
   const tourActive = useInChatOnboardingStore(selectTourActive);
 
   // --- Assistant identity from store (written by ChatPage) ---
@@ -564,13 +563,6 @@ export function ChatLayout({
     openDrawer: openDrawerForDeepLink,
     expandSidebar: expandSidebarForDeepLink,
   });
-
-  // The tips new-user grace clock anchors to first app use. Stamping here
-  // (not only in the tip hook) covers mobile, where the drawer-gated tip
-  // card may not mount for days.
-  useEffect(() => {
-    ensureTipsFirstSeenAt();
-  }, []);
 
   useEffect(() => {
     if (!sidebarCollapseRequested) {
@@ -974,6 +966,7 @@ export function ChatLayout({
   // attention tracking, message reconciliation) rely on it persisting
   // across route changes.
   const isOnConversationRoute = isConversationPath(location.pathname);
+  const documentHeaderVisible = useDocumentHeaderVisible();
   const sidebarActiveConversationId = isOnConversationRoute
     ? (activeConversationId ?? undefined)
     : undefined;
@@ -1085,17 +1078,6 @@ export function ChatLayout({
           triggerVariant={args.variant === "overlay" ? "pill" : "item"}
         />
       }
-      // The overlay subtree mounts mid edge-swipe while still off-screen;
-      // mounting the tip card there stamps an impression for a tip never
-      // seen, so the overlay only gets it once the drawer settles open.
-      // Hidden during the avatar tour for the same reason (plus noise) —
-      // the tour owns the sidebar's attention.
-      tipCard={
-        (args.variant === "overlay" && !drawerOpen) ||
-        navTourActive ? undefined : (
-          <SidebarTipCard />
-        )
-      }
       onClose={args.onClose}
     />
   );
@@ -1141,7 +1123,7 @@ export function ChatLayout({
           host renders null when there is no session to show. */}
       {!isPopout && isMobile ? <VoiceSessionPillHost variant="row" /> : null}
 
-      {!isPopout && (
+      {!isPopout && !documentHeaderVisible && (
         <ChatLayoutHeader
           isMobile={isMobile}
           drawerOpen={drawerOpen}
@@ -1155,6 +1137,7 @@ export function ChatLayout({
           // the tour runs, so it doubles as the dim signal.)
           controlsDimmed={headerCenterHidden}
           topBarCenter={topBarCenter}
+          mobileTopBar={mobileTopBar}
           // The voice-session pill is composed here — NOT registered through
           // useChatLayoutSlotsStore — because slot registration is owned by
           // per-route hooks that unmount on navigation, exactly when the pill

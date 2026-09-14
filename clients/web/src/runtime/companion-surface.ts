@@ -75,6 +75,17 @@ export function moveCompanionBy(dx: number, dy: number): void {
 }
 
 /**
+ * Tell main the hand has let go of the surface.
+ *
+ * After every press, moved or not: main knows whether a drag was in flight
+ * and what its release settles. Mid-call it is the drop that docks the bar
+ * to an edge of the display.
+ */
+export function releaseCompanionSurface(): void {
+  bridge()?.release?.();
+}
+
+/**
  * Ask for a live-voice session, which is what Talk does.
  *
  * The surface is a renderer of its own with no session in it, so the press is

@@ -190,6 +190,9 @@ export function mapRuntimeToDisplayMessage(
   if (m.noResponse) {
     msg.isNoResponse = true;
   }
+  if (m.cameraFrame) {
+    msg.isCameraFrame = true;
+  }
   const assistantTextVisibility = readAssistantTextVisibility(m);
   if (assistantTextVisibility) {
     msg.assistantTextVisibility = assistantTextVisibility;

@@ -735,6 +735,9 @@ final class MacHelper: @unchecked Sendable {
             case "cu.perform":
                 dispatchCuPerform(line: line)
                 return
+            case "cu.cancel":
+                dispatchCuCancel(line: line)
+                return
             case "capture.frame":
                 dispatchCaptureFrame(line: line)
                 return
@@ -781,6 +784,27 @@ final class MacHelper: @unchecked Sendable {
             self?.writeResponse(
                 JsonRpcCodec.successResponse(id: id, result: CaptureSources.raise(windowId: windowId))
             )
+        }
+    }
+
+    /// Stop a `cu.perform` still in flight. Runs on the main actor with the
+    /// runner, and returns at once: the running request notices before its
+    /// next action.
+    private func dispatchCuCancel(line: String) {
+        Task { @MainActor in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] ?? NSNull()
+            let params = object?["params"] as? [String: Any] ?? [:]
+            guard let requestId = params["requestId"] as? String else {
+                self.writeResponse(JsonRpcCodec.errorResponse(
+                    id: id,
+                    code: JsonRpcErrorCode.invalidParams,
+                    message: "cu.cancel requires requestId"
+                ))
+                return
+            }
+            HostCuActionRunner.cancel(requestId: requestId)
+            self.writeResponse(JsonRpcCodec.successResponse(id: id, result: ["cancelled": true]))
         }
     }
 

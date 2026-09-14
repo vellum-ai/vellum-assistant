@@ -140,7 +140,10 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
-import { isNoResponseMetadata } from "../../persistence/conversation-types.js";
+import {
+  isNoResponseMetadata,
+  messageMetadataIsAmbientSightKeep,
+} from "../../persistence/conversation-types.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { assistantTextVisibilityOf } from "../../persistence/user-facing-content.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
@@ -1037,6 +1040,9 @@ export async function handleListMessages({
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
     let noResponse: boolean | undefined;
+    const cameraFrame = messageMetadataIsAmbientSightKeep(msg.metadata)
+      ? true
+      : undefined;
     let reaction: ConversationMessage["reaction"];
     let providerError: ConversationMessage["providerError"];
     let deletedAt: number | undefined;
@@ -1136,6 +1142,7 @@ export async function handleListMessages({
       backgroundToolCompletion,
       systemCard,
       noResponse,
+      cameraFrame,
       reaction,
       providerError,
       slackMessage,
@@ -1353,6 +1360,7 @@ export async function handleListMessages({
           : {}),
         ...(m.systemCard ? { systemCard: true } : {}),
         ...(m.noResponse ? { noResponse: true } : {}),
+        ...(m.cameraFrame ? { cameraFrame: true as const } : {}),
         // The row's own marker, so a client gates per-row presentation on what
         // this row was written with rather than on the live flag.
         ...(m.assistantTextVisibility

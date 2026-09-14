@@ -77,6 +77,7 @@ import type {
   UpdateState,
   UpdateStatus,
   VellumCommand,
+  VellumBridge,
   VoiceActivityContent,
   VoiceActivityControl,
   VoiceActivityControlAction,
@@ -212,15 +213,7 @@ declare global {
           ): () => void;
         };
       };
-      permissions?: {
-        getState(): Promise<SystemPermissionsState>;
-        request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
-        openSettings(
-          kind: SystemPermissionKind,
-        ): Promise<SystemPermissionStateItem>;
-        quitAndReopen(): Promise<void>;
-        onState(callback: (state: SystemPermissionsState) => void): () => void;
-      };
+      permissions?: VellumBridge["permissions"];
       commands: {
         on(callback: (command: VellumCommand) => void): () => void;
       };
@@ -405,6 +398,7 @@ declare global {
         onState(callback: (state: CompanionSurfaceState) => void): () => void;
         setInteractive?(interactive: boolean): void;
         moveBy?(dx: number, dy: number): void;
+        release?(): void;
         startVoice?(): void;
         toggleWatch?(pick?: CompanionCapturePick): void;
         listCaptureSources?(): Promise<CompanionCaptureSources>;

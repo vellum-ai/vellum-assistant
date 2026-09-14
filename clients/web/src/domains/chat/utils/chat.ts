@@ -87,6 +87,7 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "acp_session_spawned",
   "acp_session_update",
   "acp_session_usage",
+  "acp_session_model_update",
   "acp_session_completed",
   "acp_session_error",
   "acp_auth_required",

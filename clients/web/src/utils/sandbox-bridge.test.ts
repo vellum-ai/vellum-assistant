@@ -6,6 +6,7 @@ import {
   buildWidgetHeightReporterScript,
   buildWidgetPromptScript,
   buildWidgetWidthFitScript,
+  getRelayableAppRoute,
   injectBridge,
   injectScript,
   injectWidgetBridge,
@@ -222,6 +223,12 @@ describe("injectBridge", () => {
     expect(out).not.toContain("window.vellum.fetch");
   });
 
+  it("opts full app HTML into host-routed standard URLs", () => {
+    const html = "<html><body></body></html>";
+    const out = injectBridge(html, FRAME_ID, { relayAppRoutes: true });
+    expect(out).toContain("vellum_navigate");
+  });
+
   it("normalizes a missing /v1 prefix on custom-route fetch paths", () => {
     const html = "<html><body></body></html>";
     const out = injectBridge(html, FRAME_ID, { fetch: true });
@@ -229,6 +236,27 @@ describe("injectBridge", () => {
     // "/v1/x/" check accepts callers that omit the version prefix.
     expect(out).toContain("path.indexOf('/x/') === 0");
     expect(out).toContain("'/v1' + path");
+  });
+});
+
+describe("getRelayableAppRoute", () => {
+  it("normalizes root-relative Vellum app routes", () => {
+    expect(
+      getRelayableAppRoute("/assistant/conversations/conversation-1"),
+    ).toBe("/assistant/conversations/conversation-1");
+    expect(getRelayableAppRoute(" /assistant?view=queue#task ")).toBe(
+      "/assistant?view=queue#task",
+    );
+  });
+
+  it("rejects external, custom-scheme, and non-app URLs", () => {
+    expect(getRelayableAppRoute("https://example.com/assistant")).toBeNull();
+    expect(getRelayableAppRoute("//example.com/assistant")).toBeNull();
+    expect(
+      getRelayableAppRoute("vellum-assistant://thread/conversation-1"),
+    ).toBeNull();
+    expect(getRelayableAppRoute("/account/login")).toBeNull();
+    expect(getRelayableAppRoute("javascript:alert(1)")).toBeNull();
   });
 });
 
@@ -272,6 +300,20 @@ describe("buildLinkInterceptorScript", () => {
     const out = buildLinkInterceptorScript(FRAME_ID);
     expect(out).toContain("window.open");
     expect(out).toContain("noopener,noreferrer");
+  });
+
+  it("relays standard app routes to the parent when asked", () => {
+    const out = buildLinkInterceptorScript(FRAME_ID, {
+      relayAppRoutes: true,
+    });
+    expect(out).toContain("vellum_navigate");
+    expect(out).toContain("/assistant/");
+    expect(out).toContain(JSON.stringify(FRAME_ID));
+  });
+
+  it("leaves standard app routes alone by default", () => {
+    const out = buildLinkInterceptorScript(FRAME_ID);
+    expect(out).not.toContain("vellum_navigate");
   });
 
   it("relays external links to the parent when asked", () => {

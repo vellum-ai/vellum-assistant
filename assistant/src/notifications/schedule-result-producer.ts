@@ -32,6 +32,7 @@ import { getAttentionStateByConversationIds } from "../persistence/conversation-
 import {
   getAssistantMessageIdsInTurn,
   getMessageById,
+  getMessagesAfter,
   type MessageRow,
 } from "../persistence/conversation-crud.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
@@ -39,7 +40,6 @@ import {
   isPrivateAssistantText,
   projectPersistedAssistantContent,
 } from "../persistence/user-facing-content.js";
-import type { ContentBlock } from "../providers/types.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import { hasNotifiedSourceContextSince } from "./events-store.js";
 import {
@@ -79,28 +79,72 @@ export interface ScheduleResultNotificationParams {
 }
 
 /**
- * Whether a tool call in the run's turn delivered the result somewhere the
- * user will see it, outside the notification pipeline.
+ * Whether the run delivered its result through the messaging tool, and the
+ * call succeeded.
  *
- * The schedule skill prescribes two such routes for rich content — the
- * messaging tool for email, and the Slack Web API's `chat.postMessage` through
- * bash — and neither writes a `notification_events` row, so the pipeline probe
- * cannot see them. Without this check a well-authored Slack digest would post
+ * The messaging tool is the route the schedule skill prescribes for rich
+ * content, and it writes no `notification_events` row, so the pipeline probe
+ * cannot see it. Without this check a well-authored Slack digest would post
  * its summary and then get a second notification whose body is "Posted the
- * digest to #general." This is a recognized-routes list, not a general "did
- * the run do anything?" heuristic: a route that is not here gets the fallback,
- * which is the safe failure.
+ * digest to #general."
+ *
+ * Both conditions are load-bearing. The route has to be recognized, because
+ * this is a known-routes list rather than a general "did the run do anything?"
+ * heuristic. And the call has to have succeeded: a `tool_use` block records
+ * only that the model called the tool, so a send the channel refused leaves
+ * the same block as one that landed, and suppressing on it costs the user both
+ * the digest and the run's explanation of the failure. The executor's verdict
+ * is on the `tool_result` the call produced, so success is read from there,
+ * and a call with no result counts as undelivered. Either condition unmet gets
+ * the fallback, which is the safe failure.
+ *
+ * The result read starts at the run's first row, so it covers the results
+ * interleaved through the turn. Rows from a later turn in a reused
+ * conversation can come back too and are harmless, because only this run's
+ * own call ids are matched.
+ *
+ * A Slack Web API post through bash is deliberately not a route, because its
+ * success proves nothing about the post. Slack refuses a call with HTTP 200
+ * and `ok: false` in the body, and the authenticated-request command fails
+ * only on a non-2xx status, so a post Slack refused still leaves a successful
+ * tool result. A run that posts that way gets the fallback too: at worst a
+ * duplicate, never a silence.
  */
-function isDirectDelivery(block: ContentBlock): boolean {
-  if (block.type !== "tool_use") {
+function deliveredThroughMessagingTool(
+  conversationId: string,
+  runRows: readonly MessageRow[],
+): boolean {
+  const callIds = new Set<string>();
+  for (const row of runRows) {
+    for (const block of row.content) {
+      if (block.type === "tool_use" && block.name === "messaging_send") {
+        callIds.add(block.id);
+      }
+    }
+  }
+  if (callIds.size === 0) {
     return false;
   }
-  if (block.name === "messaging_send") {
-    return true;
-  }
-  if (block.name === "bash") {
-    const command = (block.input as { command?: unknown } | undefined)?.command;
-    return typeof command === "string" && command.includes("chat.postMessage");
+  const [firstRunRow] = runRows;
+  for (const row of getMessagesAfter(conversationId, {
+    id: firstRunRow.id,
+    createdAt: firstRunRow.createdAt,
+  })) {
+    if (row.role !== "user") {
+      continue;
+    }
+    for (const block of row.content) {
+      // guard:allow-tool-result-only: the local executor's verdict on a
+      // delivery it ran. A server-side `web_search_tool_result` carries no
+      // `is_error` and never delivers anything.
+      if (
+        block.type === "tool_result" &&
+        block.is_error !== true &&
+        callIds.has(block.tool_use_id)
+      ) {
+        return true;
+      }
+    }
   }
   return false;
 }
@@ -237,11 +281,11 @@ export async function emitScheduleResultNotification(
       return;
     }
 
-    // The run delivered around the pipeline — an email through the messaging
-    // tool, a Slack post through the Web API. The user has the result; a
-    // notification reading "posted it" on top would be the duplicate.
+    // The run delivered around the pipeline through the messaging tool, and
+    // the call succeeded. The user has the result; a notification reading
+    // "posted it" on top would be the duplicate.
     const runRows = collectRunRows(latestRow, conversationId, runStartedAt);
-    if (runRows.some((row) => row.content.some(isDirectDelivery))) {
+    if (deliveredThroughMessagingTool(conversationId, runRows)) {
       return;
     }
 

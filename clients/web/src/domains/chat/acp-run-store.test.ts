@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
+  MAX_PENDING_MODEL_UPDATES,
   useAcpRunStore,
   type AcpRunEntry,
   type AcpRunRawEvent,
@@ -12,6 +13,28 @@ import { computeAcpRunSteps } from "@/domains/chat/acp-run-step-projection";
 
 function getState() {
   return useAcpRunStore.getState();
+}
+
+type SetModelParams = Parameters<ReturnType<typeof getState>["setModel"]>[0];
+
+const OLD_MODEL_REVISION_EPOCH = "018f0000-0000-7000-8000-000000000001";
+const MODEL_REVISION_EPOCH = "01900000-0000-7000-8000-000000000001";
+const NEW_MODEL_REVISION_EPOCH = "01910000-0000-7000-8000-000000000001";
+let nextModelRevision = 1;
+
+function setModel(
+  params: Omit<SetModelParams, "modelRevisionEpoch" | "modelRevision"> & {
+    modelRevisionEpoch?: string;
+    modelRevision?: number;
+  },
+): void {
+  const modelRevision = params.modelRevision ?? nextModelRevision;
+  nextModelRevision = Math.max(nextModelRevision, modelRevision + 1);
+  useAcpRunStore.getState().setModel({
+    ...params,
+    modelRevisionEpoch: params.modelRevisionEpoch ?? MODEL_REVISION_EPOCH,
+    modelRevision,
+  });
 }
 
 const NOW = 1700000000000;
@@ -30,6 +53,21 @@ function spawn(
   });
 }
 
+/** A run that reported Opus and then completed, ready to be resumed. */
+function spawnCompletedRunOnOpus() {
+  spawn();
+  setModel({
+    acpSessionId: "acp-1",
+    model: "opus",
+    availableModels: [{ value: "opus", label: "Opus" }],
+  });
+  getState().setTerminal({
+    acpSessionId: "acp-1",
+    status: "completed",
+    completedAt: NOW + 1000,
+  });
+}
+
 function event(overrides: Partial<AcpRunRawEvent> = {}): AcpRunRawEvent {
   return {
     seq: 1,
@@ -39,6 +77,7 @@ function event(overrides: Partial<AcpRunRawEvent> = {}): AcpRunRawEvent {
 }
 
 beforeEach(() => {
+  nextModelRevision = 1;
   getState().reset();
 });
 
@@ -85,6 +124,36 @@ describe("spawnRun", () => {
     expect(getState().orderedIds).toEqual(["acp-1"]);
     expect(getState().byId["acp-1"]!.agent).toBe("claude");
     expect(getState().byId["acp-1"]!.startedAt).toBe(NOW);
+  });
+
+  it("applies a model update buffered before the spawn event", () => {
+    // An update the daemon publishes while the spawn is still pinning the
+    // model arrives with no entry to hold it.
+    setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    spawn();
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
+  });
+
+  it("applies a buffered empty-picker withdrawal to the spawned entry", () => {
+    setModel({ acpSessionId: "acp-1", availableModels: [] });
+
+    spawn();
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toEqual([]);
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
   });
 
   it("indexes byToolUseId when parentToolUseId is present", () => {
@@ -168,6 +237,155 @@ describe("spawnRun", () => {
 
     expect(getState().byId["acp-1"]!.parentToolUseId).toBe("tool-use-1");
     expect(getState().byToolUseId.get("tool-use-1")).toBe("acp-1");
+  });
+
+  // An adapter without a model selector gets no model event after the spawn,
+  // so the resume itself retires the pair the earlier session reported.
+  it("a resume with no model report drops the pre-resume model", () => {
+    spawnCompletedRunOnOpus();
+
+    spawn();
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toBeUndefined();
+  });
+
+  it("a model update after the resume shows the new model", () => {
+    spawnCompletedRunOnOpus();
+    spawn();
+
+    setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+  });
+
+  it("accepts revision one from a newer assistant incarnation after resume", () => {
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    getState().setTerminal({
+      acpSessionId: "acp-1",
+      status: "completed",
+      completedAt: NOW + 1000,
+    });
+
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: OLD_MODEL_REVISION_EPOCH,
+      modelRevision: 1,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.modelRevisionEpoch).toBe(OLD_MODEL_REVISION_EPOCH);
+    expect(entry.modelRevision).toBe(1);
+  });
+
+  it("rejects a pre-fetch incarnation after a live transition lands", () => {
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    const modelRevisionsAtFetch = new Map([
+      [
+        "acp-1",
+        {
+          modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+          modelRevision: 10,
+        },
+      ],
+    ]);
+
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: OLD_MODEL_REVISION_EPOCH,
+      modelRevision: 1,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+          modelRevision: 10,
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+        }),
+      ],
+      modelRevisionsAtFetch,
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.modelRevisionEpoch).toBe(OLD_MODEL_REVISION_EPOCH);
+    expect(entry.modelRevision).toBe(1);
+  });
+
+  it("a snapshot after the resume that carries no model keeps it cleared", () => {
+    spawnCompletedRunOnOpus();
+    spawn();
+
+    getState().seedFromHistory([
+      historyEntry({ acpSessionId: "acp-1", status: "running" }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toBeUndefined();
+  });
+
+  it("a snapshot from before the resume cannot restore the old model", () => {
+    spawnCompletedRunOnOpus();
+    const modelRevisionsAtFetch = new Map([
+      [
+        "acp-1",
+        {
+          modelRevisionEpoch: MODEL_REVISION_EPOCH,
+          modelRevision: 1,
+        },
+      ],
+    ]);
+    spawn();
+
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+          modelRevision: 1,
+        }),
+      ],
+      modelRevisionsAtFetch,
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toBeUndefined();
   });
 });
 
@@ -701,10 +919,139 @@ describe("updateUsage", () => {
 });
 
 // ---------------------------------------------------------------------------
+// setModel
+// ---------------------------------------------------------------------------
+
+describe("setModel", () => {
+  it("records the selection and the adapter's options", () => {
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [
+        { value: "opus", label: "Opus" },
+        { value: "sonnet", label: "Sonnet" },
+      ],
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([
+      { value: "opus", label: "Opus" },
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+  });
+
+  it("replaces both fields wholesale so a cleared selection sticks", () => {
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    setModel({
+      acpSessionId: "acp-1",
+      availableModels: [],
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toEqual([]);
+  });
+
+  it("records the server revision with the live selection", () => {
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevision: 42,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    expect(getState().byId["acp-1"]!.modelRevision).toBe(42);
+  });
+
+  it("buffers an update for a session it has not seeded yet", () => {
+    const before = { ...getState().byId };
+    setModel({
+      acpSessionId: "acp-missing",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    expect(getState().byId).toEqual(before);
+    expect(getState().pendingModelUpdates.get("acp-missing")).toMatchObject({
+      modelRevision: 1,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+  });
+
+  it("drops the buffered update once a live update lands on the entry", () => {
+    setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
+  });
+
+  it("keeps a newer buffered update when an older event arrives later", () => {
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevision: 2,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevision: 1,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    expect(getState().pendingModelUpdates.get("acp-1")).toEqual({
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+      modelRevisionEpoch: MODEL_REVISION_EPOCH,
+      modelRevision: 2,
+    });
+  });
+
+  it("caps the buffer and drops the least recently updated session", () => {
+    const overflow = MAX_PENDING_MODEL_UPDATES * 2;
+    for (let i = 0; i < overflow; i += 1) {
+      setModel({
+        acpSessionId: `acp-pending-${i}`,
+        model: "opus",
+        availableModels: [],
+      });
+    }
+
+    const pending = getState().pendingModelUpdates;
+    expect(pending.size).toBe(MAX_PENDING_MODEL_UPDATES);
+    expect(pending.has("acp-pending-0")).toBe(false);
+    expect(pending.has(`acp-pending-${overflow - 1}`)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // seedFromHistory
 // ---------------------------------------------------------------------------
 
 function historyEntry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
+  const revisionEpoch =
+    overrides.modelRevision !== undefined &&
+    overrides.modelRevisionEpoch === undefined
+      ? { modelRevisionEpoch: MODEL_REVISION_EPOCH }
+      : {};
   return {
     acpSessionId: "acp-1",
     agent: "claude",
@@ -714,6 +1061,7 @@ function historyEntry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
     usedTokens: 0,
     contextSize: 0,
     events: [],
+    ...revisionEpoch,
     ...overrides,
   };
 }
@@ -732,6 +1080,242 @@ describe("seedFromHistory", () => {
     expect(getState().byId["acp-h1"]!.status).toBe("completed");
     expect(getState().byToolUseId.get("tool-h1")).toBe("acp-h1");
     expect(getState().highWaterMark.get("acp-h1")).toBe(7);
+  });
+
+  it("keeps a live model and options when the history row omits them", () => {
+    spawn({ acpSessionId: "acp-1" });
+    setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    getState().seedFromHistory([historyEntry({ acpSessionId: "acp-1" })]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
+  });
+
+  it("takes the history row's model when it carries one", () => {
+    spawn({ acpSessionId: "acp-1" });
+
+    getState().seedFromHistory([
+      historyEntry({ acpSessionId: "acp-1", model: "haiku" }),
+    ]);
+
+    expect(getState().byId["acp-1"]!.model).toBe("haiku");
+  });
+
+  it("clears a stale model when the row carries an empty option set", () => {
+    spawn({ acpSessionId: "acp-1" });
+    setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        availableModels: [],
+        modelRevision: 2,
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toEqual([]);
+  });
+
+  it("replaces both fields when the row carries a model and options", () => {
+    spawn({ acpSessionId: "acp-1" });
+    setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "haiku",
+        availableModels: [{ value: "haiku", label: "Haiku" }],
+        modelRevision: 2,
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("haiku");
+    expect(entry.availableModels).toEqual([{ value: "haiku", label: "Haiku" }]);
+  });
+
+  it("keeps a live update ahead of an older snapshot", () => {
+    spawn({ acpSessionId: "acp-1" });
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevision: 2,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "opus",
+        availableModels: [{ value: "opus", label: "Opus" }],
+        modelRevision: 1,
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+  });
+
+  it("applies a snapshot with a newer revision than the live update", () => {
+    spawn({ acpSessionId: "acp-1" });
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevision: 1,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "opus",
+        availableModels: [{ value: "opus", label: "Opus" }],
+        modelRevision: 2,
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
+  });
+
+  it("ignores a superseded snapshot answered after a newer one", () => {
+    // Two overlapping fetches: the newer request (opus) returns first, then
+    // the older request (haiku) returns. The older answer must not win.
+    spawn({ acpSessionId: "acp-1" });
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "opus",
+        availableModels: [{ value: "opus", label: "Opus" }],
+        modelRevision: 2,
+      }),
+    ]);
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "haiku",
+        availableModels: [{ value: "haiku", label: "Haiku" }],
+        modelRevision: 1,
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
+  });
+
+  it("keeps a freshly inserted snapshot ahead of an older response", () => {
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "opus",
+        availableModels: [{ value: "opus", label: "Opus" }],
+        modelRevision: 2,
+      }),
+    ]);
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "haiku",
+        availableModels: [{ value: "haiku", label: "Haiku" }],
+        modelRevision: 1,
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.modelRevision).toBe(2);
+  });
+
+  it("applies an update buffered before the session was seeded", () => {
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevision: 2,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "opus",
+        availableModels: [{ value: "opus", label: "Opus" }],
+        modelRevision: 1,
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
+  });
+
+  it("lets a newer snapshot win over the buffered update", () => {
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevision: 1,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "opus",
+        availableModels: [{ value: "opus", label: "Opus" }],
+        modelRevision: 2,
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
+  });
+
+  it("ignores a delayed older event after a newer snapshot", () => {
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "opus",
+        availableModels: [{ value: "opus", label: "Opus" }],
+        modelRevision: 2,
+      }),
+    ]);
+
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevision: 1,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
+    expect(entry.modelRevision).toBe(2);
   });
 
   it("is idempotent — re-seeding the same entry does not duplicate ordered ids", () => {
@@ -968,5 +1552,18 @@ describe("reset", () => {
     expect(getState().orderedIds).toEqual([]);
     expect(getState().byToolUseId.size).toBe(0);
     expect(getState().highWaterMark.size).toBe(0);
+  });
+
+  it("clears buffered model updates", () => {
+    setModel({
+      acpSessionId: "acp-unseeded",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    expect(getState().pendingModelUpdates.size).toBe(1);
+
+    getState().reset();
+
+    expect(getState().pendingModelUpdates.size).toBe(0);
   });
 });

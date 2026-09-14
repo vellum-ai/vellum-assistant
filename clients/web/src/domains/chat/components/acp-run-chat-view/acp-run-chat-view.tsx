@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, cn, Typography } from "@vellumai/design-library";
 
 import { DetailShellHeader } from "@/components/detail-shell";
 import {
@@ -48,6 +48,7 @@ import {
   type AcpFileChange,
 } from "@/domains/chat/components/acp-run-chat-view/acp-chat-tool-card";
 import { AcpChatUserTurn } from "@/domains/chat/components/acp-run-chat-view/acp-chat-user-turn";
+import { AcpModelStatCard } from "@/domains/chat/components/acp-run-chat-view/acp-model-stat-card";
 import { CommandOutputView } from "@/domains/chat/components/acp-run-chat-view/command-output-view";
 import { FileDiffView } from "@/domains/chat/components/file-diff-view";
 import { useStickToBottom } from "@/domains/chat/components/acp-run-chat-view/use-stick-to-bottom";
@@ -112,6 +113,14 @@ export function AcpRunChatView({
 }: AcpRunChatViewProps) {
   const { t } = useTranslation("chat");
   const isRunning = isActiveAcpStatus(entry.status);
+
+  // The tile renders only for a run the daemon reported a model for. Old
+  // assistants report none, so nothing has to gate on their version.
+  const { model } = entry;
+  // A run reports its token counts from its first usage event, so a fresh run
+  // has no usage to show yet and its tiles would read a made-up zero.
+  const showsUsage =
+    entry.inputTokens !== undefined || entry.outputTokens !== undefined;
 
   const events = useAcpRunStore(
     (s) => s.byId[entry.acpSessionId]?.events ?? EMPTY_EVENTS,
@@ -258,34 +267,55 @@ export function AcpRunChatView({
             data-testid="acp-chat-conversation"
             className="flex h-full flex-col gap-4 overflow-y-auto px-5 py-5"
           >
-            {(entry.inputTokens !== undefined ||
-              entry.outputTokens !== undefined) && (
+            {(showsUsage || model !== undefined) && (
               <div
-                className="grid grid-cols-2 gap-3"
+                className={cn(
+                  "grid gap-3",
+                  // The token tiles are the only pair, so they alone ask for a
+                  // second column. No viewport breakpoint: the panel is a
+                  // 400px drawer at its default and minimum width, so `sm:`
+                  // would report the window rather than the space the tile
+                  // lives in.
+                  showsUsage ? "grid-cols-2" : "grid-cols-1",
+                )}
                 data-testid="acp-run-metrics"
               >
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowDownToLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
+                {showsUsage && (
+                  <>
+                    <AnimatedMetricCard
+                      icon={
+                        <ArrowDownToLine
+                          className="h-4 w-4 shrink-0"
+                          style={{ color: "var(--content-secondary)" }}
+                        />
+                      }
+                      target={entry.inputTokens ?? 0}
+                      format={(n) => formatNumber(Math.round(n))}
+                      label={t("acpRunChatView.inputLabel")}
                     />
-                  }
-                  target={entry.inputTokens ?? 0}
-                  format={(n) => formatNumber(Math.round(n))}
-                  label={t("acpRunChatView.inputLabel")}
-                />
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowUpFromLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
+                    <AnimatedMetricCard
+                      icon={
+                        <ArrowUpFromLine
+                          className="h-4 w-4 shrink-0"
+                          style={{ color: "var(--content-secondary)" }}
+                        />
+                      }
+                      target={entry.outputTokens ?? 0}
+                      format={(n) => formatNumber(Math.round(n))}
+                      label={t("acpRunChatView.outputLabel")}
                     />
-                  }
-                  target={entry.outputTokens ?? 0}
-                  format={(n) => formatNumber(Math.round(n))}
-                  label={t("acpRunChatView.outputLabel")}
-                />
+                  </>
+                )}
+                {model !== undefined && (
+                  // Beside the token tiles the model takes a row of its own: a
+                  // model id in half of a 400px panel has nowhere to render.
+                  <div className={showsUsage ? "col-span-2" : undefined}>
+                    <AcpModelStatCard
+                      model={model}
+                      options={entry.availableModels}
+                    />
+                  </div>
+                )}
               </div>
             )}
 

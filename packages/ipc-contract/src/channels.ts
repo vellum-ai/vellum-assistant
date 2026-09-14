@@ -152,6 +152,12 @@ export const CONNECTIVITY_RETRY = "vellum:connectivity:retry";
 // Notifications
 export const NOTIFICATIONS_SHOW = "vellum:notifications:show";
 export const NOTIFICATIONS_ACTION = "vellum:notifications:action";
+export const NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER =
+  "vellum:notifications:registerIdentityPublisher";
+export const NOTIFICATIONS_PREPARE_IDENTITY =
+  "vellum:notifications:prepareIdentity";
+export const NOTIFICATIONS_RESET_IDENTITIES =
+  "vellum:notifications:resetIdentities";
 
 // Window attention
 export const WINDOW_ATTENTION = "vellum:window:attention";
@@ -195,6 +201,7 @@ export const COMPANION_GET_STATE = "vellum:companion:getState";
 export const COMPANION_STATE_EVENT = "vellum:companion:state";
 export const COMPANION_SET_INTERACTIVE = "vellum:companion:setInteractive";
 export const COMPANION_MOVE_BY = "vellum:companion:moveBy";
+export const COMPANION_RELEASE = "vellum:companion:release";
 export const COMPANION_START_VOICE = "vellum:companion:startVoice";
 export const COMPANION_TOGGLE_WATCH = "vellum:companion:toggleWatch";
 export const COMPANION_LIST_CAPTURE_SOURCES =

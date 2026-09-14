@@ -5,6 +5,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+import { MESSAGE_KEYS } from "../../i18n/index.js";
 import type { AttentionState } from "../../persistence/conversation-attention-store.js";
 import type {
   ConversationRow,
@@ -587,6 +588,60 @@ describe("emitAssistantReplyNotification", () => {
     expect(emitCalls[0].contextPayload).toEqual({
       requestedMessage: "Sure, here is the plan.",
     });
+  });
+
+  // A conversation whose title is still being written stores the message key
+  // itself, which is a non-empty string the sanitizer has no reason to reject.
+  // Sending it would put a raw key on the lock screen, so it counts as absent.
+  test("omits requestedTitle while the title is still generating", async () => {
+    conversationRow = makeConversation({
+      title: MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING,
+    });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].contextPayload).toEqual({
+      requestedMessage: "Sure, here is the plan.",
+    });
+  });
+
+  test("omits requestedTitle for the legacy generating placeholder", async () => {
+    conversationRow = makeConversation({ title: "Generating title..." });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].contextPayload).toEqual({
+      requestedMessage: "Sure, here is the plan.",
+    });
+  });
+
+  test("omits requestedTitle for the untitled placeholder key", async () => {
+    conversationRow = makeConversation({
+      title: MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
+    });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].contextPayload).toEqual({
+      requestedMessage: "Sure, here is the plan.",
+    });
+  });
+
+  // Only an exact key is a system constant. A title the user or the model
+  // wrote that happens to contain one is their copy and travels as written.
+  test("keeps a title that merely contains a message key", async () => {
+    conversationRow = makeConversation({
+      title: `notes on ${MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING}`,
+    });
+
+    await run();
+
+    expect(emitCalls[0].contextPayload.requestedTitle).toBe(
+      "notes on conversation.title.generating",
+    );
   });
 
   test("caps the preview at 200 chars", async () => {

@@ -11,14 +11,14 @@ export const whatsappTransport: ChannelTransport = {
   channel: "whatsapp",
 
   /**
-   * A chat and a person are the same address on WhatsApp: the phone number.
-   * There are no threads, so a chat target's thread is not carried and the
-   * post lands in the chat itself.
+   * A chat is the phone number, which is also how a person is named, so
+   * reaching one needs no resolution of its own. There are no threads, so a
+   * target's thread is not carried and the post lands in the chat itself.
    */
   addressFor(target) {
     return {
       ctx: directDeliveryContext("whatsapp"),
-      chatId: target.kind === "person" ? target.userId : target.chatId,
+      chatId: target.chatId,
     };
   },
 

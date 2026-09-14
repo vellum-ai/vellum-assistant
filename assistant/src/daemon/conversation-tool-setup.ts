@@ -28,7 +28,6 @@ import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
-import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import { supportsClientOsForSkillTool } from "../tools/client-os.js";
 import type { ToolExecutor } from "../tools/executor.js";
@@ -260,6 +259,24 @@ export function createToolExecutor(
   // see {@link SubagentToolGateMode}): rejects non-allowlisted calls BEFORE
   // any executor dispatch, so a non-allowlisted tool's executor never runs.
   // The error tool_result lets the model continue or finish.
+  const rejectUnattendedHostTool = (
+    toolName: string,
+  ): ToolExecutionResult | null => {
+    const { transportInterface } = resolveTurnClientOs(ctx);
+    const isUnattended = ctx.currentTurnIsNonInteractive ?? ctx.hasNoClient;
+    if (
+      HOST_TOOL_NAMES.has(toolName) &&
+      isUnattended &&
+      transportInterface !== "chrome-extension"
+    ) {
+      return {
+        content: `The "${toolName}" tool requires an interactive user turn and cannot run in the background.`,
+        isError: true,
+      };
+    }
+    return null;
+  };
+
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
@@ -386,6 +403,10 @@ export function createToolExecutor(
       const rejection = rejectNonAllowlistedTool(executionName);
       if (rejection) {
         return rejection;
+      }
+      const unattendedRejection = rejectUnattendedHostTool(executionName);
+      if (unattendedRejection) {
+        return unattendedRejection;
       }
     }
 
@@ -550,6 +571,10 @@ export function createToolExecutor(
       if (innerRejection) {
         return innerRejection;
       }
+      const unattendedRejection = rejectUnattendedHostTool(toolName);
+      if (unattendedRejection) {
+        return unattendedRejection;
+      }
 
       // Per-chat plugin scope: reject the resolved inner tool when it belongs
       // to a plugin outside the conversation's effective set.
@@ -628,7 +653,6 @@ export const DEFAULT_PREACTIVATED_SKILL_IDS = ["notifications", "subagent"];
 // ── Conditional tool sets ────────────────────────────────────────────
 
 const UI_SURFACE_TOOL_NAMES = new Set(["ui_show", "ui_update", "ui_dismiss"]);
-const SLACK_TASK_PROGRESS_UI_TOOL_NAMES = new Set(["ui_show", "ui_update"]);
 /**
  * Single source of truth for which tools are host tools and the capability
  * each one requires from the connected client interface. Adding a tool here
@@ -856,56 +880,26 @@ export function isToolActiveForContext(
     return supportsChannelReaction(turnChannel);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
-    if (
-      channelCapabilities?.channel === "slack" &&
-      SLACK_TASK_PROGRESS_UI_TOOL_NAMES.has(name)
-    ) {
-      return !hasNoClient;
-    }
-    return channelCapabilities?.supportsDynamicUi ?? !hasNoClient;
+    // Surface calls write conversation content. Background turns persist that
+    // content for the next client that opens the conversation, so presence
+    // cannot change whether the model receives these definitions.
+    return true;
   }
   if (HOST_TOOL_NAMES.has(name)) {
     const capability = HOST_TOOL_TO_CAPABILITY.get(name);
     const transport = transportInterface;
 
-    // Per-capability check is authoritative for structural support: if the
-    // transport cannot service this capability, the tool is filtered out.
+    // A transport that does not implement a capability can invoke it through
+    // an eligible same-user client. Client selection happens when the call
+    // runs, so the wire schema stays stable across live and background turns.
     if (transport && capability && !supportsHostProxy(transport, capability)) {
-      // Cross-client exception: allow host tools whose capabilities have
-      // cross-client routing infrastructure (Phases 1–3 plus host_browser
-      // via PR #27489) to be exposed for non-host-proxy transports (e.g.
-      // "web", "ios") when at least one capable client is connected via
-      // the event hub. Members of CROSS_CLIENT_EXPOSED_CAPABILITIES
-      // (host_bash, host_file, host_browser) qualify.
-      // chrome-extension transport is excluded as a security boundary
-      // (extension only gets host_browser via its own executor path);
-      // hasNoClient turns are excluded (no interactive approval UI
-      // available).
-      if (
-        capability &&
+      return (
         CROSS_CLIENT_EXPOSED_CAPABILITIES.has(capability) &&
-        transport !== "chrome-extension" &&
-        !hasNoClient &&
-        assistantEventHub.listClientsByCapability(capability).length > 0
-      ) {
-        return true;
-      }
-      return false;
+        transport !== "chrome-extension"
+      );
     }
 
-    // chrome-extension is its own executor — the extension's popup gates
-    // commands via its own UI, and the transport does not use an SSE-level
-    // interactive approval channel. hasNoClient is intentionally `true` for
-    // chrome-extension turns (chrome-extension is not in INTERACTIVE_INTERFACES)
-    // and must not gate host_browser. Trust the per-capability check.
-    if (transport === "chrome-extension") {
-      return true;
-    }
-
-    // For transports that surface approvals over SSE (macos, backwards-compat
-    // fallback), deny when no client is present so the guardian auto-approve
-    // path cannot execute host commands unattended.
-    return !hasNoClient;
+    return true;
   }
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     if (name === "ask_question" && channelCapabilities?.clientOS === "macos") {

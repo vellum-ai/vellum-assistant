@@ -58,11 +58,13 @@ import type {
   LockfileWriteResult,
   LocalAssistantStatusResult,
   NotificationActionEvent,
+  PrepareNotificationIdentityPayload,
   PowerEvent,
   VoiceModeChord,
   VoiceModeChordRegistrationResult,
   ResolvedHotkey,
   ShowNotificationPayload,
+  ResetNotificationIdentitiesPayload,
   SystemPermissionKind,
   SystemPermissionStateItem,
   SystemPermissionsState,
@@ -172,8 +174,7 @@ export type LocalListDevicesResult =
   | { ok: false; error: string };
 
 export type LocalRevokeDeviceResult =
-  | { ok: true }
-  | { ok: false; error: string };
+  { ok: true } | { ok: false; error: string };
 
 /**
  * A local assistant's avatar as read off its workspace by the host. `null`
@@ -331,7 +332,13 @@ export interface VellumBridge {
   };
   permissions: {
     getState(): Promise<SystemPermissionsState>;
-    request(kind: SystemPermissionKind): Promise<SystemPermissionStateItem>;
+    request(
+      kind: SystemPermissionKind,
+      presentation?: Pick<
+        ShowNotificationPayload,
+        "presentation" | "identity" | "sender"
+      >,
+    ): Promise<SystemPermissionStateItem>;
     openSettings(
       kind: SystemPermissionKind,
     ): Promise<SystemPermissionStateItem>;
@@ -535,6 +542,16 @@ export interface VellumBridge {
     show(
       payload: ShowNotificationPayload,
     ): Promise<{ success: boolean; errorMessage?: string }>;
+    /** Registers this preload's renderer lifetime before identity publication. */
+    registerIdentityPublisher?(publisherSessionId?: string): Promise<boolean>;
+    /** Optional until every installed desktop preload supports preparation. */
+    prepareIdentity?(
+      payload: PrepareNotificationIdentityPayload,
+    ): Promise<void>;
+    /** Optional until every installed desktop preload supports scoped reset. */
+    resetIdentities?(
+      payload: ResetNotificationIdentitiesPayload,
+    ): Promise<void>;
     onAction(callback: (event: NotificationActionEvent) => void): () => void;
     /**
      * Authoritative state of the window this renderer belongs to, pushed from
@@ -604,6 +621,14 @@ export interface VellumBridge {
     setInteractive(interactive: boolean): void;
     /** Nudge the window, for dragging the surface around the desktop. */
     moveBy(dx: number, dy: number): void;
+    /**
+     * The hand has let go of the surface.
+     *
+     * Sent after every press ends, whether or not it moved anything: main
+     * knows whether a drag was in flight and what, if anything, the release
+     * settles. Mid-call, it is the drop that docks the bar to an edge.
+     */
+    release(): void;
     /**
      * Ask for a live-voice session, which is what Talk does.
      *

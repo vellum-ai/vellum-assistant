@@ -6,11 +6,31 @@
  * helper to the active assistant, for the surfaces that do not name one.
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { useLocation, useNavigate, useParams } from "react-router";
+import { toast } from "@vellumai/design-library/components/toast";
 
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useTranslation } from "@/i18n";
+import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
+import {
+  documentEntryState,
+  documentEntryUrl,
+} from "@/utils/document-navigation";
+
+import {
+  documentRequestScope,
+  loadDocumentConversation,
+} from "../document-conversation";
+import {
+  documentReturnPath,
+  getDocumentConversationRoute,
+  navigateToDocumentConversation,
+  setDocumentConversationPresentation,
+} from "../document-conversation-navigation";
 
 /** Opens `appId` under `assistantId` in the viewer panel. */
 export async function openAppFromChat(
@@ -28,6 +48,99 @@ export async function openDocumentFromChat(
 ): Promise<void> {
   haptic.light();
   await useViewerStore.getState().loadDocument(assistantId, surfaceId);
+}
+
+/**
+ * Mobile document entry keeps the linked conversation's ordinary chat session.
+ * `beforeOpen` dismisses the originating UI only once entry is ready.
+ */
+export function useOpenDocumentFromChat(
+  ownerAssistantId?: string,
+  beforeOpen?: () => void,
+): (surfaceId: string) => Promise<void> {
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const assistantId = ownerAssistantId ?? activeAssistantId;
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { conversationId } = useParams<{ conversationId: string }>();
+  const { t } = useTranslation("chat");
+  const requestRef = useRef<ReturnType<typeof documentRequestScope> | null>(
+    null,
+  );
+
+  useEffect(
+    () => () => requestRef.current?.dispose(),
+    [assistantId, location.key],
+  );
+
+  return useCallback(
+    async (surfaceId) => {
+      if (!assistantId) {
+        return;
+      }
+      const route = getDocumentConversationRoute(location.search);
+      if (!isMobile && (!conversationId || route.surfaceId !== surfaceId)) {
+        beforeOpen?.();
+        await openDocumentFromChat(assistantId, surfaceId);
+        return;
+      }
+      requestRef.current?.dispose();
+      const scope = documentRequestScope(assistantId);
+      requestRef.current = scope;
+      if (!scope.isCurrent()) {
+        scope.dispose();
+        return;
+      }
+      haptic.light();
+      try {
+        // The route owns this document, including any pending load or edits.
+        if (conversationId && route.surfaceId === surfaceId) {
+          beforeOpen?.();
+          setDocumentConversationPresentation(navigate, {
+            assistantId,
+            conversationId,
+            surfaceId,
+            returnTo: route.returnTo,
+            state: location.state,
+            view: "document",
+          });
+          return;
+        }
+        await loadDocumentConversation({
+          assistantId,
+          surfaceId,
+          isCurrent: scope.isCurrent,
+          onReady: (data, linkedId) => {
+            const returnTo = documentReturnPath(location.pathname);
+            const state = documentEntryState(location, surfaceId);
+            beforeOpen?.();
+            if (linkedId) {
+              navigateToDocumentConversation(
+                navigate,
+                data,
+                linkedId,
+                assistantId,
+                returnTo,
+                false,
+                state,
+              );
+            } else {
+              void navigate(documentEntryUrl(surfaceId, returnTo), { state });
+            }
+          },
+        });
+      } catch (error) {
+        if (scope.isCurrent()) {
+          captureError(error, { context: "open_document_from_chat" });
+          toast.error(t("documentConversation.unavailable"));
+        }
+      } finally {
+        scope.dispose();
+      }
+    },
+    [assistantId, conversationId, isMobile, navigate, location, t, beforeOpen],
+  );
 }
 
 /**

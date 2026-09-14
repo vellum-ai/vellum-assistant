@@ -15,8 +15,13 @@
  *
  * The row list is the one real exception: every section caps and scrolls
  * within itself, except Pinned (grows to fit its own rows instead, see
- * `unbounded` on `ConversationRowList`) and the bottom-most section (claims
- * whatever space the sidebar has left instead of a fixed cap, see `isLast`).
+ * `unbounded` on `ConversationRowList`) and the bottom-most section (may
+ * take whatever space the sidebar has left instead of a fixed cap, see
+ * `isLast`). Chats and the channel sections, the two that accumulate
+ * without bound, rest at a mid height when they are that bottom-most
+ * section and grow to the full height on request (see `expandable`); the
+ * choice is kept per section in the sidebar layout store so it survives a
+ * reload like the section's open state does.
  */
 
 import type { ReactNode } from "react";
@@ -24,6 +29,10 @@ import type { ReactNode } from "react";
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
+import {
+  saveExpandedSections,
+  useExpandedSections,
+} from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import {
   GroupActionsMenu,
@@ -89,6 +98,19 @@ export function SidebarSectionItem({
     useSectionConversations(assistantId, section);
   const isAssistantSection = section.type === "assistant";
   const { overlayCards } = useConversationListContext();
+
+  /* Read from storage on render (see `useExpandedSections`), so a section
+     the user expanded is at its full height on the first paint rather than
+     growing there after a hydration effect. */
+  const expandedSections = useExpandedSections(assistantId);
+  const expanded = expandedSections.includes(section.key);
+  const onExpandedChange = (next: boolean) => {
+    if (assistantId === null) {
+      return;
+    }
+    const rest = expandedSections.filter((key) => key !== section.key);
+    saveExpandedSections(assistantId, next ? [...rest, section.key] : rest);
+  };
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:
@@ -171,13 +193,29 @@ export function SidebarSectionItem({
         isAssistantSection
           ? cn(
               "mt-auto [--sidebar-card-surface:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]",
-              /* A row hovered on this card raises to the same wash the New
-                 Chat pill raises to (`PANEL_ITEM_WASH.raised`, 24% of the
-                 accent into the lift), rather than the neutral gray every
-                 other card's rows hover in, so the card reads as one tinted
-                 object under the pointer as well as at rest. Every row is a
-                 `PanelItem`, and this is the property its hover reads. */
-              "[--panel-item-hover:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
+              /* A row hovered or selected on this card raises to the same
+                 wash the New Chat pill raises to (`PANEL_ITEM_WASH.raised`,
+                 24% of the accent into the lift), rather than the neutral
+                 gray every other card's rows hover in, so the card reads as
+                 one tinted object under the pointer and around the open
+                 thread as well as at rest. Every row is a `PanelItem`, and
+                 these are the properties its hover and current-page states
+                 read; active is stated alongside hover, as
+                 `panelItemWashStyle` does, because without it the current
+                 row falls back to `--surface-active` and sits as a white
+                 cell on the tint.
+
+                 The raised wash is derived from `--avatar-accent` with NO
+                 fallback, on purpose: when the accent is absent (custom
+                 image, still loading) the derived property is invalid at
+                 computed-value time and so counts as unset, and each
+                 consumer's own fallback stands - the neutral hover and
+                 active surfaces every other card's rows use. Mixing a
+                 fallback surface into itself would instead paint both
+                 states in the card's own colour and hide them. */
+              "[--assistant-row-raised:color-mix(in_srgb,var(--avatar-accent)_24%,var(--surface-lift))]",
+              "[--panel-item-hover:var(--assistant-row-raised,var(--surface-hover))]",
+              "[--panel-item-active:var(--assistant-row-raised,var(--surface-active))]",
             )
           : undefined
       }
@@ -196,6 +234,9 @@ export function SidebarSectionItem({
       unbounded={section.type === "pinned"}
       isLast={isLast}
       maxHeight={isAssistantSection ? ASSISTANT_SECTION_MAX_HEIGHT : undefined}
+      expandable={section.type === "recents" || section.type === "channel"}
+      expanded={expanded}
+      onExpandedChange={onExpandedChange}
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
       /* The only section that renders at zero, so the only one with anything

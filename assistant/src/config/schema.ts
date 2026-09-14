@@ -41,7 +41,6 @@ import {
   AuditLogConfigSchema,
   LogFileConfigSchema,
 } from "./schemas/logging.js";
-import { McpConfigSchema } from "./schemas/mcp.js";
 import { MemoryConfigSchema } from "./schemas/memory.js";
 import { MigrationsConfigSchema } from "./schemas/migrations.js";
 import { MonitoringConfigSchema } from "./schemas/monitoring.js";
@@ -62,6 +61,7 @@ import {
 } from "./schemas/timeouts.js";
 import { ToolsConfigSchema } from "./schemas/tools.js";
 import { UserRoutesConfigSchema } from "./schemas/user-routes.js";
+import { VoiceConfigSchema } from "./schemas/voice.js";
 import { WorkflowsConfigSchema } from "./schemas/workflows.js";
 import { WorkspaceGitConfigSchema } from "./schemas/workspace-git.js";
 
@@ -108,7 +108,6 @@ export const AssistantConfigSchema = z.object({
   ),
   journal: JournalConfigSchema.default(JournalConfigSchema.parse({})),
   backup: BackupConfigSchema.default(BackupConfigSchema.parse({})),
-  mcp: McpConfigSchema.default(McpConfigSchema.parse({})),
   acp: AcpConfigSchema.default(AcpConfigSchema.parse({})),
   skills: SkillsConfigSchema.default(SkillsConfigSchema.parse({})),
   workspaceGit: WorkspaceGitConfigSchema.default(
@@ -119,6 +118,7 @@ export const AssistantConfigSchema = z.object({
   twilio: TwilioConfigSchema.default(TwilioConfigSchema.parse({})),
   calls: CallsConfigSchema.default(CallsConfigSchema.parse({})),
   liveVoice: LiveVoiceConfigSchema.default(LiveVoiceConfigSchema.parse({})),
+  voice: VoiceConfigSchema.default(VoiceConfigSchema.parse({})),
   sight: SightConfigSchema.default(SightConfigSchema.parse({})),
   whatsapp: WhatsAppConfigSchema.default(WhatsAppConfigSchema.parse({})),
   telegram: TelegramConfigSchema.default(TelegramConfigSchema.parse({})),

@@ -83,13 +83,8 @@ let cancelSubscriptionResolves = true;
 // When non-null the cancel call rejects with this, driving the error path
 // (the hook toasts and resolves null, so the confirm dialog stays open).
 let cancelSubscriptionError: unknown = null;
-let machineTierCall: Captured | null = null;
-let storageTierCall: Captured | null = null;
-let creditTierCall: Captured | null = null;
 let openedUrl: string | null = null;
 let nativeAndroid = false;
-// When non-null, the change-machine-tier call rejects — drives the failure path.
-let machineTierError: unknown = null;
 // Success/info-toast messages captured from the mocked toast module, so a path
 // can assert exactly which confirmations fired without rendering the Toaster.
 const toastSuccessCalls: string[] = [];
@@ -162,21 +157,6 @@ mock.module("@/generated/api/sdk.gen", () => ({
       data: { status: "ok", cancel_at: "2026-09-24T00:00:00Z" },
       response: { ok: true },
     });
-  },
-  organizationsBillingSubscriptionChangeMachineTierCreate: (opts: Captured) => {
-    machineTierCall = opts;
-    if (machineTierError !== null) {
-      return Promise.reject(machineTierError);
-    }
-    return Promise.resolve({ data: {}, response: { ok: true } });
-  },
-  organizationsBillingSubscriptionChangeStorageTierCreate: (opts: Captured) => {
-    storageTierCall = opts;
-    return Promise.resolve({ data: {}, response: { ok: true } });
-  },
-  organizationsBillingSubscriptionChangeCreditTierCreate: (opts: Captured) => {
-    creditTierCall = opts;
-    return Promise.resolve({ data: {}, response: { ok: true } });
   },
   organizationsBillingSubscriptionRetrieve: () =>
     Promise.resolve({ data: subscriptionFixture, response: { ok: true } }),
@@ -631,12 +611,8 @@ beforeEach(() => {
   cancelSubscriptionCall = null;
   cancelSubscriptionResolves = true;
   cancelSubscriptionError = null;
-  machineTierCall = null;
-  storageTierCall = null;
-  creditTierCall = null;
   openedUrl = null;
   nativeAndroid = false;
-  machineTierError = null;
   changePackageAutoResolve = true;
   changePackageData = {
     status: "ok",
@@ -1508,7 +1484,7 @@ function continueButton(): HTMLButtonElement {
   return button;
 }
 
-describe("PlansPage — Pro custom plan (change-tier)", () => {
+describe("PlansPage: Pro custom plan (change-package with explicit tiers)", () => {
   test("an eligible Pro sub's Configure opens the white modal, not adjust_plan", async () => {
     const { findByRole, getByTestId, getByText } = renderInteractive(
       proMightySubscription(),
@@ -1522,7 +1498,7 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     expect(upgradeCall).toBeNull();
   });
 
-  test("Continue dispatches change-tier for the changed dims and opens the resize takeover", async () => {
+  test("Continue posts the whole selection to change-package and opens the resize takeover", async () => {
     // Current config is medium machine / 10 GB (xs) storage / no credits.
     const { findByRole, findByTestId } = renderInteractive(
       proMightySubscription(),
@@ -1536,11 +1512,14 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Usage bundle", "50 credits");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
-    expect(machineTierCall!.body).toEqual({ machine_tier: "large" });
-    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
-    // Storage is unchanged, so no storage-tier request fires.
-    expect(storageTierCall).toBeNull();
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    // Every dimension travels as explicit tiers, the unchanged storage included:
+    // the server diffs the target and applies it as one change.
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "large",
+      storage_tier: "xs",
+      credit_tier: "credits_50",
+    });
 
     // A machine change resizes the assistant, so the takeover opens; checkout
     // (which no-ops for active Pro) is never touched.
@@ -1577,11 +1556,12 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Usage bundle", "50 credits");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(creditTierCall).not.toBeNull());
-    expect(creditTierCall!.body).toEqual({ credit_tier: "credits_50" });
-    // Machine and storage are unchanged, so no resource-tier request fires.
-    expect(machineTierCall).toBeNull();
-    expect(storageTierCall).toBeNull();
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "medium",
+      storage_tier: "xs",
+      credit_tier: "credits_50",
+    });
 
     // A credit-only change owes no provisioning but still opens the takeover for
     // a readable confirmation moment.
@@ -1612,10 +1592,12 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Storage", "30 GB");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(storageTierCall).not.toBeNull());
-    expect(storageTierCall!.body).toEqual({ storage_tier: "s" });
-    expect(machineTierCall).toBeNull();
-    expect(creditTierCall).toBeNull();
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "medium",
+      storage_tier: "s",
+      credit_tier: null,
+    });
 
     await findByTestId("resize-takeover");
     expect(takeoverResizeContext?.canLowerResources).toBe(false);
@@ -1640,8 +1622,12 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Usage bundle", "50 credits");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
-    expect(machineTierCall!.body).toEqual({ machine_tier: "medium" });
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "medium",
+      storage_tier: "xs",
+      credit_tier: "credits_50",
+    });
 
     await findByTestId("resize-takeover");
     // The copy stays neutral; only the ceiling question flips.
@@ -1660,9 +1646,8 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
     selectOption("Machine size", "Large machine (4 vCPU, 8 GiB)");
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(machineTierCall).not.toBeNull());
+    await waitFor(() => expect(changePackageCall).not.toBeNull());
     await findByTestId("resize-takeover");
-    expect(creditTierCall).toBeNull();
     expect(takeoverResizeContext?.credits).toBeNull();
   });
 
@@ -1681,7 +1666,7 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
 
     getByText("Create a custom plan");
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
-    expect(machineTierCall).toBeNull();
+    expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
 
@@ -1709,7 +1694,7 @@ describe("PlansPage — Pro custom plan (change-tier)", () => {
 
     getByText("Create a custom plan");
     expect(getByTestId("loc").textContent).toBe("/assistant/plans");
-    expect(machineTierCall).toBeNull();
+    expect(changePackageCall).toBeNull();
     expect(upgradeCall).toBeNull();
   });
 });

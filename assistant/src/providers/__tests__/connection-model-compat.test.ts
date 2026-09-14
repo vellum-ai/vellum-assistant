@@ -50,6 +50,8 @@ describe("isConnectionCompatibleWithModel", () => {
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.4-nano")).toBe(false);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.5-pro")).toBe(false);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.3-codex")).toBe(false);
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.4")).toBe(false);
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.4-mini")).toBe(false);
   });
 
   test("oauth_subscription connection is compatible with a Codex model", () => {
@@ -59,8 +61,6 @@ describe("isConnectionCompatibleWithModel", () => {
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.6-terra")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.6-luna")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.5")).toBe(true);
-    expect(isConnectionCompatibleWithModel(conn, "gpt-5.4")).toBe(true);
-    expect(isConnectionCompatibleWithModel(conn, "gpt-5.4-mini")).toBe(true);
   });
 
   test("undefined model applies no gating (compatible)", () => {
@@ -165,7 +165,7 @@ describe("auto-resolution skips oauth_subscription connections for non-Codex mod
 
   test("Codex model can select the oauth_subscription connection", async () => {
     registerConnections([OPENAI_CODEX, OPENAI_KEY]);
-    setOpenAiProfile("gpt-5.4");
+    setOpenAiProfile("gpt-5.5");
 
     const result = await getConfiguredProvider("mainAgent", {
       overrideProfile: "openai-any",

@@ -36,9 +36,14 @@ assistant's own bot on that channel (${BOT_CHANNELS}), resolving the bot
 credential from the channel id so no token is handled. Acting as a person
 through their OAuth integration is 'assistant oauth request'.
 
+To say something in a chat, use 'send' rather than 'request': it goes
+through the channel's transport, so the post is threaded and rendered like
+every other message the assistant sends there, and it is recorded.
+
 Examples:
   $ assistant channels list
   $ assistant channels get slack
+  $ assistant channels send slack C0123456789 --text 'deploy is green'
   $ assistant channels request slack /auth.test --json
   $ assistant channels request slack -X POST \\
       -d '{"channel":"D0123456789","limit":20}' /conversations.history --json`,
@@ -65,8 +70,9 @@ This command can do anything the bot's API allows, including sending,
 editing, deleting, uploading, and reacting, so it is classified high risk
 and asks for approval like any action with irreversible effects. Reads are
 not distinguished from writes: the effect is the endpoint's. To send a
-message, use the messaging tool, which records what it sent; do not post
-through this command.
+message, use 'assistant channels send', which posts through the channel's
+transport and records what it sent; a message posted through this command
+reaches the platform directly and leaves no record of what was said.
 
 Arguments:
   <channel>  One of: ${BOT_CHANNELS}. A channel with no bot credential of
@@ -86,6 +92,68 @@ Examples:
   $ assistant channels request slack -X POST \\
       -d '{"channel":"D0123456789","limit":100}' /conversations.history --json
   $ assistant channels request discord /users/@me --json`,
+    },
+    {
+      name: "send",
+      description:
+        "Post text to a chat on the channel, as the assistant's bot, recorded",
+      arguments: [
+        {
+          name: "<channel>",
+          description: `Channel to post on. One with a transport that can be addressed from a named chat; anything else is refused before the send.`,
+        },
+        {
+          name: "<chat-id>",
+          description:
+            "The chat in the channel's own id space (a Slack channel or DM id, a Telegram chat id, a Discord channel id, a WhatsApp number).",
+        },
+      ],
+      options: [
+        {
+          flags: "--text <text>",
+          description: "The message text. Required.",
+        },
+        {
+          flags: "--thread <id>",
+          description:
+            "Post inside this thread or topic, in the channel's own id space. Omit to post to the chat itself.",
+        },
+        {
+          flags: "--plain",
+          description:
+            "Send the text verbatim instead of the channel's rich rendering.",
+        },
+        {
+          flags: "--json",
+          description: "Machine-readable compact JSON output",
+        },
+      ],
+      helpText: `
+Posts one message through the channel's own transport, the same path a
+reply takes. Once the channel acknowledges it, the daemon records it in
+the chat's conversation, which is what lets the assistant see later what
+it said here and lets a reaction or an edit naming that post resolve back
+to it. Recording is best effort and never fails a send that already went
+out, so the result names the conversation only when the record was
+written.
+
+This sends a message people will read, so it is classified high risk and
+asks for approval like any other action with effects nobody can take back.
+
+The send fails, and records nothing, when the channel does not acknowledge
+it or names no message id for it. A channel the assistant cannot address
+from a named chat is refused before anything is sent. If the daemon does
+not answer in time, the message may still go out: that is reported as an
+unknown outcome rather than a failure, so check the chat before sending
+again.
+
+Attachments are not sent from here.
+
+Examples:
+  $ assistant channels send slack C0123456789 --text 'deploy is green'
+  $ assistant channels send slack C0123456789 --thread 1700000000.000100 \
+      --text 'and the smoke tests passed'
+  $ assistant channels send telegram 123456789 --text 'morning' --json`,
     },
     {
       name: "list",

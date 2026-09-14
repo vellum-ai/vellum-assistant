@@ -24,7 +24,6 @@
     "machineDowngradeFeature": "Меньше CPU и памяти у ассистента: он перейдёт на меньший вычислительный профиль.",
     "pickTiersError": "Нужен выбор уровня машины и хранилища, чтобы продолжить.",
     "planUpdated": "План обновлён.",
-    "updateFailed": "Не удалось обновить план. Повторите попытку.",
     "upgradeFailed": "Не удалось начать повышение. Повторите попытку.",
     "upgradePlanTitle": "Повысить план"
   },
@@ -583,6 +582,7 @@
   },
   "customPlanModal": {
     "cancel": "Отмена",
+    "changeFailed": "Не удалось изменить план. Повторите попытку.",
     "comparedToPrevious": "{delta} относительно предыдущего ({previous})",
     "continue": "Продолжить",
     "learnMore": "Подробнее",
@@ -1833,11 +1833,6 @@
     "recordingHint": "Запись… нажатие сочетания или Esc отменяет",
     "removeBindingAriaLabel": "Удалить привязку {label}",
     "resetShortcutAriaLabel": "Сбросить {label} к значению по умолчанию"
-  },
-  "showTipsRow": {
-    "ariaLabel": "Показывать подсказки",
-    "description": "Редкие подсказки в боковой панели про функции, которые ещё не использовались.",
-    "label": "Показывать подсказки"
   },
   "soundsSections": {
     "addSound": "Добавить звук",

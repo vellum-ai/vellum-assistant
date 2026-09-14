@@ -362,3 +362,174 @@ export function unionBBox(boxes: BBox[]): BBox {
   const maxY = Math.max(...boxes.map((b) => b.y + b.h));
   return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
+
+/** How many straight pieces a curve is cut into when it is flattened. */
+const FLATTEN_STEPS = 16;
+
+/**
+ * The horizontal extent of a path where the line `y` crosses it: the leftmost
+ * and rightmost points of its outline at that height, or null where the line
+ * misses it. Curves are flattened into short straight pieces, so the answer
+ * is close rather than exact; `A` (arc) is treated as a straight line to its
+ * endpoint, as elsewhere in this module.
+ *
+ * The sleep stage draws each eye's lid line across the eye at the height the
+ * lid rests, and needs the eye's width there rather than its widest.
+ */
+export function pathSpanAt(
+  d: string,
+  y: number,
+): { x0: number; x1: number } | null {
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let cx = 0;
+  let cy = 0;
+  let startX = 0;
+  let startY = 0;
+  let cubicControl: Point | null = null;
+  let quadControl: Point | null = null;
+
+  const cross = (ax: number, ay: number, bx: number, by: number) => {
+    if (ay === by || (ay - y) * (by - y) > 0) {
+      return;
+    }
+    const x = ax + ((y - ay) * (bx - ax)) / (by - ay);
+    if (x < x0) {
+      x0 = x;
+    }
+    if (x > x1) {
+      x1 = x;
+    }
+  };
+  const lineTo = (x: number, yy: number) => {
+    cross(cx, cy, x, yy);
+    cx = x;
+    cy = yy;
+  };
+  const cubicTo = (c1: Point, c2: Point, end: Point) => {
+    const p0: Point = { x: cx, y: cy };
+    for (let i = 1; i <= FLATTEN_STEPS; i++) {
+      const t = i / FLATTEN_STEPS;
+      const u = 1 - t;
+      lineTo(
+        u * u * u * p0.x +
+          3 * u * u * t * c1.x +
+          3 * u * t * t * c2.x +
+          t * t * t * end.x,
+        u * u * u * p0.y +
+          3 * u * u * t * c1.y +
+          3 * u * t * t * c2.y +
+          t * t * t * end.y,
+      );
+    }
+  };
+  const quadraticTo = (c1: Point, end: Point) => {
+    const p0: Point = { x: cx, y: cy };
+    for (let i = 1; i <= FLATTEN_STEPS; i++) {
+      const t = i / FLATTEN_STEPS;
+      const u = 1 - t;
+      lineTo(
+        u * u * p0.x + 2 * u * t * c1.x + t * t * end.x,
+        u * u * p0.y + 2 * u * t * c1.y + t * t * end.y,
+      );
+    }
+  };
+
+  const segments = d.match(SEGMENTS) ?? [];
+  for (const seg of segments) {
+    const code = seg[0]!;
+    const upper = code.toUpperCase();
+    const relative = code !== upper;
+    const nums = (seg.slice(1).match(NUM) ?? []).map(Number);
+    const absX = (value: number) => (relative ? cx + value : value);
+    const absY = (value: number) => (relative ? cy + value : value);
+
+    if (upper === "Z") {
+      lineTo(startX, startY);
+      cubicControl = null;
+      quadControl = null;
+      continue;
+    }
+
+    if (upper === "M") {
+      for (let i = 0; i + 2 <= nums.length; i += 2) {
+        if (i === 0) {
+          cx = absX(nums[i]!);
+          cy = absY(nums[i + 1]!);
+          startX = cx;
+          startY = cy;
+        } else {
+          lineTo(absX(nums[i]!), absY(nums[i + 1]!));
+        }
+      }
+      cubicControl = null;
+      quadControl = null;
+    } else if (upper === "L") {
+      for (let i = 0; i + 2 <= nums.length; i += 2) {
+        lineTo(absX(nums[i]!), absY(nums[i + 1]!));
+      }
+      cubicControl = null;
+      quadControl = null;
+    } else if (upper === "H") {
+      for (const n of nums) {
+        lineTo(relative ? cx + n : n, cy);
+      }
+      cubicControl = null;
+      quadControl = null;
+    } else if (upper === "V") {
+      for (const n of nums) {
+        lineTo(cx, relative ? cy + n : n);
+      }
+      cubicControl = null;
+      quadControl = null;
+    } else if (upper === "C") {
+      for (let i = 0; i + 6 <= nums.length; i += 6) {
+        const c1: Point = { x: absX(nums[i]!), y: absY(nums[i + 1]!) };
+        const c2: Point = { x: absX(nums[i + 2]!), y: absY(nums[i + 3]!) };
+        const end: Point = { x: absX(nums[i + 4]!), y: absY(nums[i + 5]!) };
+        cubicTo(c1, c2, end);
+        cubicControl = c2;
+      }
+      quadControl = null;
+    } else if (upper === "S") {
+      for (let i = 0; i + 4 <= nums.length; i += 4) {
+        const c1: Point = {
+          x: 2 * cx - (cubicControl?.x ?? cx),
+          y: 2 * cy - (cubicControl?.y ?? cy),
+        };
+        const c2: Point = { x: absX(nums[i]!), y: absY(nums[i + 1]!) };
+        const end: Point = { x: absX(nums[i + 2]!), y: absY(nums[i + 3]!) };
+        cubicTo(c1, c2, end);
+        cubicControl = c2;
+      }
+      quadControl = null;
+    } else if (upper === "Q") {
+      for (let i = 0; i + 4 <= nums.length; i += 4) {
+        const c1: Point = { x: absX(nums[i]!), y: absY(nums[i + 1]!) };
+        const end: Point = { x: absX(nums[i + 2]!), y: absY(nums[i + 3]!) };
+        quadraticTo(c1, end);
+        quadControl = c1;
+      }
+      cubicControl = null;
+    } else if (upper === "T") {
+      for (let i = 0; i + 2 <= nums.length; i += 2) {
+        const c1: Point = {
+          x: 2 * cx - (quadControl?.x ?? cx),
+          y: 2 * cy - (quadControl?.y ?? cy),
+        };
+        const end: Point = { x: absX(nums[i]!), y: absY(nums[i + 1]!) };
+        quadraticTo(c1, end);
+        quadControl = c1;
+      }
+      cubicControl = null;
+    } else if (upper === "A") {
+      for (let i = 0; i + 7 <= nums.length; i += 7) {
+        lineTo(absX(nums[i + 5]!), absY(nums[i + 6]!));
+      }
+      cubicControl = null;
+      quadControl = null;
+    }
+  }
+
+  return x0 === Infinity ? null : { x0, x1 };
+}

@@ -194,7 +194,10 @@ describe("AcpAgentProcess.createSession auth_required handling", () => {
       },
     });
 
-    await expect(proc.createSession("/tmp")).resolves.toBe("session-1");
+    await expect(proc.createSession("/tmp")).resolves.toEqual({
+      sessionId: "session-1",
+      configOptions: [],
+    });
     expect(authenticateCalls()).toBe(1);
   });
 

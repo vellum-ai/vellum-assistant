@@ -21,7 +21,6 @@ import {
   useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
-import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BottomSheet, PanelItem } from "@vellumai/design-library";
@@ -44,6 +43,7 @@ type MessageLongPressActionsProps = MessageHoverActionsProps & {
  */
 export function MessageLongPressActions({
   message,
+  showTextActions = true,
   conversationId,
   openInSlackUrl,
   onFork,
@@ -54,7 +54,6 @@ export function MessageLongPressActions({
 }: MessageLongPressActionsProps) {
   const { t } = useTranslation("chat");
   const canBookmark = useCanBookmark(message, conversationId);
-  const canReadAloud = useCanUseInternalThreadActions();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const readAloudMessageId = useMessageReadAloudStore.use.messageId();
   const readAloudStatus = useMessageReadAloudStore.use.status();
@@ -66,7 +65,7 @@ export function MessageLongPressActions({
   const content = useMemo(() => messageCopyText(message), [message]);
 
   const [showCopied, setShowCopied] = useState(false);
-  const hasCopyableText = content.trim().length > 0;
+  const hasCopyableText = showTextActions && content.trim().length > 0;
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
@@ -138,7 +137,7 @@ export function MessageLongPressActions({
     );
   }
 
-  if (hasCopyableText && message.id && canReadAloud) {
+  if (hasCopyableText && message.id) {
     items.push(
       buildItem({
         key: "read-aloud",

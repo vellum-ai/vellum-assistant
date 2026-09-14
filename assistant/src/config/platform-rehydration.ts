@@ -1,6 +1,5 @@
 /**
- * Rehydrate the in-memory platform identity/URL overrides from the credential
- * store at process startup.
+ * Rehydrate the in-memory platform identity/URL overrides at process startup.
  *
  * These overrides (`setPlatformBaseUrl` and the platform ID setters in
  * `config/env.ts`) are normally only populated at runtime by the secret-routes
@@ -10,18 +9,17 @@
  * environment default (e.g. dev-platform) while the credential store holds the
  * real production values, and requests are sent to the wrong environment.
  *
+ * Bound platform ids come from `POST /v1/internal/assistants/validate/`,
+ * which trades the assistant API key for assistant/organization/user ids.
+ *
  * Each field is best-effort: a credential-store read failure is logged and
  * skipped so a single missing value never blocks startup.
  */
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import {
-  setPlatformAssistantId,
-  setPlatformBaseUrl,
-  setPlatformOrganizationId,
-  setPlatformUserId,
-} from "./env.js";
+import { setPlatformBaseUrl } from "./env.js";
+import { ensurePlatformIdentityIds } from "./platform-identity.js";
 
 const log = getLogger("platform-rehydration");
 
@@ -47,30 +45,16 @@ async function rehydrateField(
 
 /**
  * Rehydrate the platform base URL and the related platform IDs (assistant,
- * organization, user) from the credential store into their in-memory
- * overrides. Safe to call more than once.
+ * organization, user). Safe to call more than once.
  */
 export async function rehydratePlatformCredentials(): Promise<void> {
-  // Base URL first so managed proxy activation resolves the correct
-  // environment for the ID lookups and every request that follows.
+  // Base URL first so managed proxy activation and identity validate resolve
+  // the correct environment for every request that follows.
   await rehydrateField(
     "platform_base_url",
     setPlatformBaseUrl,
     "platform base URL",
   );
-  await rehydrateField(
-    "platform_assistant_id",
-    setPlatformAssistantId,
-    "platform assistant ID",
-  );
-  await rehydrateField(
-    "platform_organization_id",
-    setPlatformOrganizationId,
-    "platform organization ID",
-  );
-  await rehydrateField(
-    "platform_user_id",
-    setPlatformUserId,
-    "platform user ID",
-  );
+
+  await ensurePlatformIdentityIds();
 }

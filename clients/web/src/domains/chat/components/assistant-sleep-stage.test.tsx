@@ -145,11 +145,24 @@ describe("AssistantSleepStage", () => {
     const view = renderAt("/assistant/conversations/c1");
     const svg = view.container.querySelector("[data-slot=sleep-stage-eyes]");
     expect(svg).not.toBeNull();
-    // The lid is the avatar's own color, clipped to the eyes' silhouette.
+    // The lid is the avatar's own color, clipped to the eyes' silhouette,
+    // with an edge line per eye.
     expect(svg!.querySelector("clipPath")).not.toBeNull();
-    expect(svg!.querySelector("rect")?.getAttribute("fill")).toBe(
-      catalog.colors[1]!.hex,
-    );
+    expect(
+      svg!.querySelector("[data-slot=sleep-stage-lid]")?.getAttribute("fill"),
+    ).toBe(catalog.colors[1]!.hex);
+    expect(
+      svg!.querySelectorAll("[data-slot=sleep-stage-lid-edge]").length,
+    ).toBe(2);
+  });
+
+  test("is a dark surface whatever the app's theme", () => {
+    const { container } = renderAt("/assistant/conversations/c1");
+    // The eyes' whites are a near-white, as is the light surface: the stage
+    // re-declares the tokens dark so they never share a color.
+    expect(
+      container.querySelector("[data-scene]")?.getAttribute("data-theme"),
+    ).toBe("dark");
   });
 
   test("falls back to unnamed copy before the identity resolves", () => {

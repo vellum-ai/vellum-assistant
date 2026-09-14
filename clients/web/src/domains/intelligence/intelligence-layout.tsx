@@ -1,8 +1,8 @@
 import { useEffect } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ArrowLeft, ChevronLeft } from "lucide-react";
 import { Link, Outlet, useLocation } from "react-router";
 
-import { Typography } from "@vellumai/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { PageShell } from "@/components/page-shell";
@@ -58,20 +58,54 @@ export function IntelligenceLayout() {
   const { pathname } = useLocation();
   const isMobile = useIsMobile();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
+  const setMobileTopBar = useChatLayoutSlotsStore.use.setMobileTopBar();
   const headerTrailing = useIntelligenceLayoutSlotsStore.use.headerTrailing();
 
   const section = aboutAssistantSectionForPath(pathname);
   const sectionTitle = section
     ? t(SECTION_LABEL_KEY[section.key as AboutAssistantSectionKey])
     : null;
+  const usesLibraryMobileTopBar = isMobile && section?.key === "library";
+  const fallbackAssistantName =
+    assistantName || t("identityOverview.defaultAssistantName");
+  const backAriaLabel = t("intelligenceLayout.backToAriaLabel", {
+    name: fallbackAssistantName,
+  });
+  const backTitle = t("intelligenceLayout.backToTitle", {
+    name: fallbackAssistantName,
+  });
 
-  // On mobile the section title moves out of the page body and into the
-  // shared top bar — centered between the hamburger menu and the search
-  // icon. The bare pages (overview, personality) set no title: the
-  // greeting on the stage already names the assistant. Desktop keeps the
-  // in-body <h1> (section pages only) and leaves the top-bar center empty.
+  // Library owns the complete mobile top bar so its back, title, and import
+  // affordances form one centered navigation row. Other mobile sections keep
+  // the shared menu and search chrome and register only their title.
   useEffect(() => {
-    if (isMobile && sectionTitle) {
+    if (usesLibraryMobileTopBar && sectionTitle) {
+      setTopBarCenter(null);
+      setMobileTopBar({
+        leading: (
+          <Button
+            asChild
+            variant="ghost"
+            iconOnly={<ArrowLeft aria-hidden />}
+            aria-label={backAriaLabel}
+            tooltip={backTitle}
+            className="rounded-full max-md:bg-[var(--surface-active)]"
+          >
+            <Link to={routes.identity} />
+          </Button>
+        ),
+        center: (
+          <Typography
+            variant="body-medium-default"
+            className="max-w-[50vw] truncate text-[var(--content-secondary)]"
+          >
+            {sectionTitle}
+          </Typography>
+        ),
+        trailing: headerTrailing,
+      });
+    } else if (isMobile && sectionTitle) {
+      setMobileTopBar(null);
       setTopBarCenter(
         <Typography
           variant="body-medium-default"
@@ -81,12 +115,23 @@ export function IntelligenceLayout() {
         </Typography>,
       );
     } else {
+      setMobileTopBar(null);
       setTopBarCenter(null);
     }
     return () => {
+      setMobileTopBar(null);
       setTopBarCenter(null);
     };
-  }, [isMobile, sectionTitle, setTopBarCenter]);
+  }, [
+    backAriaLabel,
+    backTitle,
+    headerTrailing,
+    isMobile,
+    sectionTitle,
+    setMobileTopBar,
+    setTopBarCenter,
+    usesLibraryMobileTopBar,
+  ]);
 
   // The overview and personality pages paint their own full-bleed stage —
   // no shell, heading, or back chrome.
@@ -100,34 +145,29 @@ export function IntelligenceLayout() {
 
   return (
     <PageShell>
-      {/* The heading row: back chevron and title on the left, and on the
-          right whatever the section page has registered as its header
-          action (the Library's Import button), so a page-level command sits
-          on the title line rather than taking a row of its own above the
-          page body. On mobile the title has moved to the top bar, so the row
-          is the chevron and that action alone. */}
-      <div className="mb-4 flex shrink-0 items-center gap-1.5">
-        <Link
-          to={routes.identity}
-          className="-ml-2 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors outline-none hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)] focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
-          aria-label={t("intelligenceLayout.backToAriaLabel", {
-            name: assistantName || t("identityOverview.defaultAssistantName"),
-          })}
-          title={t("intelligenceLayout.backToTitle", {
-            name: assistantName || t("identityOverview.defaultAssistantName"),
-          })}
-        >
-          <ChevronLeft className="h-5 w-5" aria-hidden />
-        </Link>
-        <h1 className="text-title-large text-[var(--content-default)] max-md:hidden">
-          {sectionTitle}
-        </h1>
-        {headerTrailing ? (
-          <div className="ml-auto flex shrink-0 items-center">
-            {headerTrailing}
-          </div>
-        ) : null}
-      </div>
+      {/* Desktop section chrome and the existing mobile chrome for sections
+          that still use the shared app bar. Library's mobile header is fully
+          registered above, so it does not render a second body row. */}
+      {!usesLibraryMobileTopBar ? (
+        <div className="mb-4 flex shrink-0 items-center gap-1.5">
+          <Link
+            to={routes.identity}
+            className="-ml-2 flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-[var(--content-secondary)] transition-colors outline-none hover:bg-[var(--surface-hover)] hover:text-[var(--content-default)] focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+            aria-label={backAriaLabel}
+            title={backTitle}
+          >
+            <ChevronLeft className="h-5 w-5" aria-hidden />
+          </Link>
+          <h1 className="text-title-large text-[var(--content-default)] max-md:hidden">
+            {sectionTitle}
+          </h1>
+          {headerTrailing ? (
+            <div className="ml-auto flex shrink-0 items-center">
+              {headerTrailing}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <Outlet />

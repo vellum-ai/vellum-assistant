@@ -8,7 +8,7 @@ This is a declaration, not a TypeScript surface: there is no `mcp/` directory an
 
 Use `mcp.json` when the capability already exists as an MCP server and you want it to come up with the plugin. Prefer a native [plugin tool](tools.md) when you are writing the action yourself: a plugin tool has an explicit risk level, a typed `execute` context, and no extra process.
 
-A user can also add MCP servers in settings without a plugin. A plugin is what lets you version, install, and distribute those servers with the rest of the capability.
+A user can also add MCP servers in settings, or by editing `/workspace/mcp.json`, without a plugin. A plugin is what lets you version, install, and distribute those servers with the rest of the capability.
 
 ## The manifest
 

@@ -18,6 +18,12 @@ import type { AppSummary } from "@/types/app-types";
 
 let apps: AppSummary[] = [];
 let pointerIsCoarse = false;
+const isMobileRef = { value: false };
+
+mock.module("@/hooks/use-is-mobile", () => ({
+  useIsMobile: () => isMobileRef.value,
+  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
 
 mock.module("@/utils/pointer", () => ({
   isPointerCoarse: () => pointerIsCoarse,
@@ -106,6 +112,7 @@ function renderView() {
 beforeEach(() => {
   apps = [];
   pointerIsCoarse = false;
+  isMobileRef.value = false;
 });
 
 afterEach(() => {
@@ -129,6 +136,37 @@ describe("LibraryView import affordance", () => {
     expect(screen.queryByText("Your library is empty")).toBeNull();
     expect(screen.getByRole("button", { name: /Import/ })).not.toBeNull();
     expect(container.querySelectorAll('input[type="file"]')).toHaveLength(1);
+  });
+
+  test("hides app dates at mobile widths", () => {
+    apps = [APP];
+    renderView();
+
+    const appName = screen.getByText("Example App");
+    expect(appName.nextElementSibling?.className).toContain("max-md:hidden");
+  });
+
+  test("uses compact secondary app-name typography at mobile widths", () => {
+    apps = [APP];
+    renderView();
+
+    const appName = screen.getByText("Example App");
+    expect(appName.className).toContain("max-md:text-body-medium-lighter");
+    expect(appName.className).toContain(
+      "max-md:text-[color:var(--content-secondary)]",
+    );
+  });
+
+  test("uses an icon-only import action in the mobile top bar", () => {
+    isMobileRef.value = true;
+    renderView();
+
+    const importButton = screen.getByRole("button", { name: "Import" });
+    expect(importButton.textContent).toBe("");
+    expect(importButton.className).toContain(
+      "max-md:bg-[var(--surface-active)]",
+    );
+    expect(importButton.className).toContain("rounded-full");
   });
 
   test("constrains the picker to .vellum on a fine-pointer device", () => {

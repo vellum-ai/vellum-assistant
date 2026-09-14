@@ -32,7 +32,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
+import {
+  ConversationListProvider,
+  type ConversationListContextValue,
+} from "@/domains/chat/components/conversation-list-context";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
@@ -176,9 +179,10 @@ function openGate(name: string | null): void {
   });
 }
 
-const LIST_CONTEXT: React.ComponentProps<
-  typeof ConversationListProvider
->["value"] = {
+/* Typed as the value itself rather than the provider's `value` prop, which
+   admits `null`: spreading that union would make every property optional and
+   lose `onSelect`. */
+const LIST_CONTEXT: ConversationListContextValue = {
   overlayCards: false,
   processingConversationIds: new Set<string>(),
   attentionConversationIds: new Set<string>(),
@@ -190,6 +194,7 @@ function Scene({
   assistantName,
   withNeighbour = true,
   withCharacterAvatar = true,
+  activeConversationId,
 }: {
   threads: Conversation[];
   assistantName: string | null;
@@ -199,11 +204,15 @@ function Scene({
    * and no published accent var, exactly as `useAvatarAccentVar` leaves it.
    */
   withCharacterAvatar?: boolean;
+  /** The open thread, painted in the card's raised wash like a hovered row. */
+  activeConversationId?: string;
 }) {
   openGate(assistantName);
   return (
     <QueryClientProvider client={seededClient(threads, withCharacterAvatar)}>
-      <ConversationListProvider value={LIST_CONTEXT}>
+      <ConversationListProvider
+        value={{ ...LIST_CONTEXT, activeConversationId }}
+      >
         {/* The rail's real width, so title truncation reads truthfully. */}
         <div
           style={{
@@ -258,6 +267,34 @@ export const InContext: Story = {
 /** Named assistant, alone, for a closer look at the tint and header. */
 export const Alone: Story = {
   args: { threads: THREADS, assistantName: "Ada", withNeighbour: false },
+};
+
+/**
+ * One of her threads open. The current row wears the same raised wash a
+ * hovered row does, not the neutral active surface, so it stays part of the
+ * tinted card rather than punching a white cell through it.
+ */
+export const WithOpenThread: Story = {
+  args: {
+    threads: THREADS,
+    assistantName: "Ada",
+    activeConversationId: THREADS[1]!.conversationId,
+  },
+};
+
+/**
+ * The open thread under a custom-image avatar, where no accent is published.
+ * The raised wash is unset there, so the current row keeps the neutral
+ * `--surface-active` every other card's rows open in rather than dissolving
+ * into the card.
+ */
+export const WithOpenThreadCustomImageAvatar: Story = {
+  args: {
+    threads: THREADS,
+    assistantName: "Ada",
+    withCharacterAvatar: false,
+    activeConversationId: THREADS[1]!.conversationId,
+  },
 };
 
 /**

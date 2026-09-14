@@ -20,6 +20,7 @@
 
 import type { AssistantEvent } from "../../api/index.js";
 import type { InterfaceId } from "../../channels/types.js";
+import { getAssistantName } from "../../daemon/identity-helpers.js";
 import { updateMessageContent } from "../../persistence/conversation-crud.js";
 import { publishConversationMessagesChanged } from "../../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../../util/logger.js";
@@ -101,12 +102,14 @@ export class VellumAdapter implements ChannelAdapter {
 
       const silent =
         payload.urgency !== "high" && payload.urgency !== "critical";
+      const assistantName = getAssistantName()?.trim() || undefined;
 
       this.broadcast({
         type: "notification_intent",
         deliveryId: payload.deliveryId,
         correlationId: payload.correlationId,
         sourceEventName: payload.sourceEventName,
+        ...(assistantName ? { assistantName } : {}),
         title: payload.copy.title,
         body: payload.copy.body,
         deepLinkMetadata: payload.deepLinkTarget,

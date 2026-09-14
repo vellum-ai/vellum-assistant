@@ -104,6 +104,7 @@ export function ownsHorizontalTextDrag(target: EventTarget | null): boolean {
  */
 const VALUE_DRAG_SURFACE_SELECTOR =
   'input[type="range"], [role="slider"], [data-owns-horizontal-drag]';
+const SCROLL_SURFACE_SELECTOR = "[data-owns-horizontal-scroll]";
 
 /**
  * How the touched surface relates to horizontal drags:
@@ -114,9 +115,28 @@ const VALUE_DRAG_SURFACE_SELECTOR =
  * - `"text"`: a text-interaction surface ({@link ownsHorizontalTextDrag}).
  *   A bare drag only places the caret or extends a selection, so deliberate
  *   edge swipes stay worth preserving over it; only the widened band yields.
+ * - `"scroll"`: a marked horizontal scroll container owns drags across its whole
+ *   hit area, including the screen edge and its scroll boundaries.
  * - `"none"`: everything else; the widened band arms freely.
  */
-export type HorizontalDragSurface = "none" | "text" | "value";
+export type HorizontalDragSurface = "none" | "text" | "value" | "scroll";
+
+/** Whether a marked scroll container owns the touch's horizontal drag. */
+function ownsHorizontalScroll(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  for (
+    let element = target.closest(SCROLL_SURFACE_SELECTOR);
+    element;
+    element = element.parentElement?.closest(SCROLL_SURFACE_SELECTOR) ?? null
+  ) {
+    if (element.scrollWidth > element.clientWidth + 1) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Classify the touched element per {@link HorizontalDragSurface}. */
 export function classifyHorizontalDragSurface(
@@ -128,6 +148,9 @@ export function classifyHorizontalDragSurface(
   ) {
     return "value";
   }
+  if (ownsHorizontalScroll(target)) {
+    return "scroll";
+  }
   if (ownsHorizontalTextDrag(target)) {
     return "text";
   }
@@ -136,10 +159,10 @@ export function classifyHorizontalDragSurface(
 
 /**
  * Whether a touch at `clientX` may arm the gesture, given the viewport width
- * and the kind of drag-owning surface it began on. Drag-to-set controls
- * never arm. Edge touches (within `EDGE_SWIPE_HIT_ZONE_PX`) otherwise always
- * arm, preserving deliberate edge swipe-back; the widened band beyond the
- * edge arms only off text-drag surfaces.
+ * and the kind of drag-owning surface it began on. Horizontal scroll
+ * containers and drag-to-set controls never arm. Text-drag surfaces allow
+ * deliberate edge swipes within `EDGE_SWIPE_HIT_ZONE_PX`; other surfaces
+ * allow the widened activation band.
  */
 export function shouldArmAt(
   clientX: number,
@@ -149,7 +172,7 @@ export function shouldArmAt(
   if (clientX > activationZonePx(viewportWidth)) {
     return false;
   }
-  if (surface === "value") {
+  if (surface === "value" || surface === "scroll") {
     return false;
   }
   if (surface === "text" && clientX > EDGE_SWIPE_HIT_ZONE_PX) {
@@ -278,10 +301,9 @@ function findTouch(list: TouchList, id: number): Touch | null {
  * `enabledRef`, and the latest callbacks are read from a ref so their
  * closures never go stale.
  *
- * Passive listeners never call `preventDefault()`, so native scrolling stays
- * smooth; `isVerticalEscape` is the mitigation, abandoning the gesture as soon
- * as vertical travel dominates. (In the iOS WKWebView shell there is no
- * browser back-gesture to conflict with.)
+ * Passive listeners leave native scrolling available. Marked horizontal scroll
+ * containers own the touch from its start; elsewhere, `isVerticalEscape`
+ * abandons the gesture when vertical travel dominates.
  */
 export function useEdgeSwipe({
   enabled,
@@ -329,10 +351,15 @@ export function useEdgeSwipe({
       if (!touch) {
         return;
       }
+      const viewportWidth = window.innerWidth;
+      // Reject out-of-band starts before measuring the touched ancestors.
+      if (!shouldArmAt(touch.clientX, viewportWidth, "none")) {
+        return;
+      }
       if (
         !shouldArmAt(
           touch.clientX,
-          window.innerWidth,
+          viewportWidth,
           classifyHorizontalDragSurface(event.target),
         )
       ) {

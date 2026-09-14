@@ -12,9 +12,8 @@ import type { Scope, TokenClaims } from "../../auth/types.js";
 import { AuthFallbackCountTracker } from "../../auth-fallback-count-tracker.js";
 import { AuthFallbackLogThrottle } from "../../auth-fallback-log-throttle.js";
 import type { AuthRateLimiter } from "../../auth-rate-limiter.js";
-import { credentialKey } from "../../credential-key.js";
-import { readCredential } from "../../credential-reader.js";
 import { getLogger } from "../../logger.js";
+import { readStoredPlatformUserId } from "../../platform-user-id.js";
 import { isLoopbackPeer } from "../../util/is-loopback-address.js";
 import { requestArrivedViaEdgeProxy } from "../edge-forwarded-header.js";
 
@@ -132,14 +131,22 @@ export function createAuthMiddleware(
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     let storedUserId: string | undefined;
+    let unreachable = false;
     try {
-      storedUserId = await readCredential(
-        credentialKey("vellum", "platform_user_id"),
-      );
+      const result = await readStoredPlatformUserId();
+      storedUserId = result.userId;
+      unreachable = result.unreachable;
     } catch (err) {
       log.error(
         { path: new URL(req.url).pathname, err },
         "Edge auth: platform_user_id credential lookup failed",
+      );
+      return Response.json({ error: "Service Unavailable" }, { status: 503 });
+    }
+    if (unreachable) {
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Edge auth: platform_user_id credential store unreachable",
       );
       return Response.json({ error: "Service Unavailable" }, { status: 503 });
     }

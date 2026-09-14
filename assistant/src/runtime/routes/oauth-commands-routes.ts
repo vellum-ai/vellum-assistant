@@ -41,9 +41,11 @@ import {
   listConnections,
   type OAuthProviderRow,
 } from "../../oauth/oauth-store.js";
+import { missingScopesForStoredToken } from "../../oauth/scope-utils.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { withValidToken } from "../../security/token-manager.js";
 import { matchHostPattern } from "../../tools/credentials/host-pattern-match.js";
+import { parseJsonSafe } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
 import {
   findContentTypeHeader,
@@ -228,6 +230,31 @@ function assertOAuthRequestUrlAllowed(
       `OAuth request URL host "${parsedUrl.hostname}" is not allowed for "${providerRow.provider}". Allowed hosts: ${allowedHostPatterns.join(", ")}.`,
     );
   }
+}
+
+/**
+ * Required scopes the resolved connection's stored grant lacks. Credential
+ * health measures the same thing on the heartbeat; measuring it on the
+ * request names the gap at the moment a call may depend on it, since a
+ * connection made before a scope was required keeps working for every call
+ * that does not need it. A managed connection has no local row and reports
+ * nothing.
+ */
+function missingScopesForConnection(
+  providerRow: OAuthProviderRow,
+  connectionId: string,
+): string[] {
+  const row = getConnection(connectionId);
+  if (!row) {
+    return [];
+  }
+  return missingScopesForStoredToken(
+    parseJsonSafe<string[]>(providerRow.defaultScopes ?? "[]") ?? [],
+    parseJsonSafe<Record<string, string>>(providerRow.authorizeParams ?? "") ??
+      undefined,
+    providerRow.scopeSeparator,
+    parseJsonSafe<string[]>(row.grantedScopes ?? "[]") ?? [],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,6 +1027,15 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
       `This request used base URL "${resolvedBaseUrl}" (relative paths are joined onto it). ` +
       `If you meant a different service on this provider, pass an absolute URL ` +
       `(e.g. https://host/full/path) so the host and full path are set explicitly.`;
+  }
+
+  const missingScopes = missingScopesForConnection(providerRow, connection.id);
+  if (missingScopes.length > 0) {
+    const scopeHint =
+      `The ${b.provider} connection is missing required scopes: ${missingScopes.join(", ")}. ` +
+      `It was connected before they were required, so calls that need them fail. ` +
+      `Reconnect it from Integrations, or run 'assistant oauth connect ${b.provider}', to grant them.`;
+    result.hint = result.hint ? `${scopeHint}\n\n${result.hint}` : scopeHint;
   }
 
   return result;

@@ -928,6 +928,20 @@ describe("assistant subcommand classification", () => {
     }
   });
 
+  // The send door produces one effect, and it is the one nobody can take
+  // back: a message people read. Same effect as the messaging tool's send,
+  // same rating, whichever door it came through.
+  test("assistant channels send → high", async () => {
+    for (const command of [
+      "assistant channels send slack C0123456789 --text hello",
+      "assistant channels send telegram 123456789 --text hello --plain",
+      "assistant channels send discord C1 --thread T1 --text hello",
+    ]) {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe("high");
+    }
+  });
+
   // The OAuth request door reaches the same bot when --provider names a bot
   // credential, so that form is high too; a person's integration stays at
   // the door's own rating.

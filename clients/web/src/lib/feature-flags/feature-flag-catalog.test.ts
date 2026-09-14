@@ -72,10 +72,11 @@ describe("feature flag catalog", () => {
     );
   });
 
-  test("exposes proactive tips as a client string flag defaulted off", () => {
-    expect(CLIENT_STRING_FLAG_DEFAULTS.proactiveTips).toBe("off");
+  test("does not expose retired proactive tips as a feature flag", () => {
+    expect("proactiveTips" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
     expect("proactiveTips" in CLIENT_FLAG_DEFAULTS).toBe(false);
     expect("proactiveTips" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("proactiveTips" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
   });
 
   test("does not expose GA empty-state greetings as a feature flag", () => {
@@ -201,52 +202,46 @@ describe("getEnvFlagOverridesForScope", () => {
 
   test("keeps booleanish Vite env values as strings for string-valued flags", () => {
     (globalThis as Record<string, unknown>).window = undefined;
-    process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "on";
+    process.env.VITE_VELLUM_FLAG_VISION_MODE = "on";
     try {
       resetEnvOverridesCache();
       const result = getEnvFlagOverridesForScope("client");
-      expect(result.str.proactiveTips).toBe("on");
-      expect(result.bool).not.toHaveProperty("proactiveTips");
+      expect(result.str.visionMode).toBe("on");
+      expect(result.bool).not.toHaveProperty("visionMode");
 
-      process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "off";
+      process.env.VITE_VELLUM_FLAG_VISION_MODE = "off";
       resetEnvOverridesCache();
-      expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe(
-        "off",
-      );
+      expect(getEnvFlagOverridesForScope("client").str.visionMode).toBe("off");
     } finally {
-      delete process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS;
+      delete process.env.VITE_VELLUM_FLAG_VISION_MODE;
     }
   });
 
   test("matches string-flag env arms case-insensitively and stores the canonical arm", () => {
     (globalThis as Record<string, unknown>).window = undefined;
-    process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "ON";
+    process.env.VITE_VELLUM_FLAG_VISION_MODE = "ON";
     try {
       resetEnvOverridesCache();
-      expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe(
-        "on",
-      );
+      expect(getEnvFlagOverridesForScope("client").str.visionMode).toBe("on");
 
-      process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "On";
+      process.env.VITE_VELLUM_FLAG_VISION_MODE = "On";
       resetEnvOverridesCache();
-      expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe(
-        "on",
-      );
+      expect(getEnvFlagOverridesForScope("client").str.visionMode).toBe("on");
     } finally {
-      delete process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS;
+      delete process.env.VITE_VELLUM_FLAG_VISION_MODE;
     }
   });
 
   test("drops string-flag env values that match no declared arm", () => {
     (globalThis as Record<string, unknown>).window = undefined;
-    process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS = "bogus";
+    process.env.VITE_VELLUM_FLAG_VISION_MODE = "bogus";
     try {
       resetEnvOverridesCache();
       const result = getEnvFlagOverridesForScope("client");
-      expect(result.str).not.toHaveProperty("proactiveTips");
-      expect(result.bool).not.toHaveProperty("proactiveTips");
+      expect(result.str).not.toHaveProperty("visionMode");
+      expect(result.bool).not.toHaveProperty("visionMode");
     } finally {
-      delete process.env.VITE_VELLUM_FLAG_PROACTIVE_TIPS;
+      delete process.env.VITE_VELLUM_FLAG_VISION_MODE;
     }
   });
 
@@ -267,16 +262,16 @@ describe("getEnvFlagOverridesForScope", () => {
 
   test("maps boolean-coerced window overrides back onto on/off string flags", () => {
     (globalThis as Record<string, unknown>).window = {
-      __VELLUM_FLAG_OVERRIDES__: { "proactive-tips": true },
+      __VELLUM_FLAG_OVERRIDES__: { "vision-mode": true },
     };
     resetEnvOverridesCache();
-    expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe("on");
+    expect(getEnvFlagOverridesForScope("client").str.visionMode).toBe("on");
 
     (globalThis as Record<string, unknown>).window = {
-      __VELLUM_FLAG_OVERRIDES__: { "proactive-tips": false },
+      __VELLUM_FLAG_OVERRIDES__: { "vision-mode": false },
     };
     resetEnvOverridesCache();
-    expect(getEnvFlagOverridesForScope("client").str.proactiveTips).toBe("off");
+    expect(getEnvFlagOverridesForScope("client").str.visionMode).toBe("off");
   });
 
   test("drops boolean-coerced window overrides for string flags without on/off arms", () => {

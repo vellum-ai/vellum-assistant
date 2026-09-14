@@ -40,6 +40,7 @@ import {
   useScheduledConversationListQuery,
   useSectionConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { useConversationStore } from "@/stores/conversation-store";
 import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
 import { SYSTEM_ASSISTANT_GROUP_ID } from "@/utils/conversation-list-fetchers";
 
@@ -108,6 +109,9 @@ export function useActiveConversation(
       return;
     }
     if (activeConversation) {
+      return;
+    }
+    if (useConversationStore.getState().draftConversationIds.has(conversationId)) {
       return;
     }
     if (fetchedConversationIdRef.current === conversationId) {

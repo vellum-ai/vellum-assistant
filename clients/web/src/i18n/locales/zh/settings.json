@@ -24,7 +24,6 @@
     "machineDowngradeFeature": "您的助手将减少 CPU 和内存 - 它将调整为更小的计算配置文件。",
     "pickTiersError": "请选择机器和存储层级以继续。",
     "planUpdated": "套餐已更新。",
-    "updateFailed": "未能更新套餐。请重试。",
     "upgradeFailed": "未能开始升级。请重试。",
     "upgradePlanTitle": "升级套餐"
   },
@@ -597,6 +596,7 @@
   },
   "customPlanModal": {
     "cancel": "取消",
+    "changeFailed": "未能更改套餐。请重试。",
     "comparedToPrevious": "与之前相比 {delta} ({previous})",
     "continue": "继续",
     "learnMore": "了解更多",
@@ -1829,11 +1829,6 @@
     "removeBindingAriaLabel": "移除 {label} 绑定",
     "resetShortcutAriaLabel": "将 {label} 重置为默认值"
   },
-  "showTipsRow": {
-    "ariaLabel": "显示提示",
-    "description": "侧边栏中偶尔出现的提示，突出显示您尚未尝试过的功能。",
-    "label": "显示提示"
-  },
   "soundsSections": {
     "addSound": "添加声音",
     "allSoundsAdded": "所有声音已添加",
@@ -2403,5 +2398,15 @@
     "setUpTag": "设置",
     "signInTag": "登录",
     "soleProviderHint": "仅 {name} 提供此模型。"
+  },
+  "previewUiChannel": {
+    "description": "在当前浏览器中加载本应用的预览版本。你的助理不会受到影响。",
+    "offAriaLabel": "预览版界面已关闭",
+    "onAriaLabel": "预览版界面已开启",
+    "runningPreview": "当前运行：预览版本 {version}",
+    "runningStable": "当前运行：稳定版本 {version}",
+    "title": "预览版界面",
+    "unavailableHint": "当前未提供预览版本，因此本浏览器仍在使用稳定版本。可在开发者工具中删除 vellum_preview Cookie 以重置。",
+    "versionUnknown": "未知"
   }
 }

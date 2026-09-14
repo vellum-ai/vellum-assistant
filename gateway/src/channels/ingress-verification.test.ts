@@ -28,6 +28,11 @@ const STANDARD_WEBHOOKS: IngressVerification = {
   secret: { field: "linq_webhook_secret" },
 };
 
+const BEARER: IngressVerification = {
+  kind: "bearer",
+  secret: { field: "shortcut_ingress_token" },
+};
+
 const TIMESTAMPED: IngressVerification = {
   kind: "hmac",
   algorithm: "sha256",
@@ -123,7 +128,10 @@ describe("the descriptor schema", () => {
     expect(IngressVerificationSchema.safeParse(STANDARD_WEBHOOKS).success).toBe(
       true,
     );
-    expect(IngressVerificationSchema.safeParse(URL_AND_FORM_HMAC).success).toBe(true);
+    expect(IngressVerificationSchema.safeParse(BEARER).success).toBe(true);
+    expect(IngressVerificationSchema.safeParse(URL_AND_FORM_HMAC).success).toBe(
+      true,
+    );
   });
 
   it("rejects an unknown kind rather than falling back to a default", () => {
@@ -207,6 +215,58 @@ describe("the descriptor schema", () => {
       },
     };
     expect(IngressVerificationSchema.safeParse(overWindow).success).toBe(false);
+  });
+});
+
+describe("bearer verification", () => {
+  it("accepts a static token in the Authorization header", () => {
+    expect(verify(BEARER, { Authorization: `Bearer ${SECRET}` }, "{}")).toEqual(
+      { ok: true },
+    );
+  });
+
+  it("rejects a missing or malformed bearer header", () => {
+    expect(verify(BEARER, {}, "{}")).toEqual({
+      ok: false,
+      reason: "missing_signature",
+    });
+    for (const authorization of [
+      "Bearer",
+      "Basic token",
+      `Bearer ${SECRET} extra`,
+    ]) {
+      expect(verify(BEARER, { Authorization: authorization }, "{}")).toEqual({
+        ok: false,
+        reason: "malformed_signature",
+      });
+    }
+  });
+
+  it("does not accept a static token outside the Authorization header", () => {
+    expect(verify(BEARER, { "X-Shortcut-Token": SECRET }, "{}")).toEqual({
+      ok: false,
+      reason: "missing_signature",
+    });
+  });
+
+  it("rejects a different or unavailable stored token", () => {
+    expect(
+      verify(BEARER, { Authorization: "Bearer another-token" }, "{}"),
+    ).toEqual({ ok: false, reason: "bad_signature" });
+    expect(
+      verify(BEARER, { Authorization: `Bearer ${SECRET}` }, "{}", {
+        secret: "",
+      }),
+    ).toEqual({ ok: false, reason: "missing_signature" });
+  });
+
+  it("changes the approval descriptor when the token field changes", () => {
+    expect(
+      canonicalVerification({
+        ...BEARER,
+        secret: { field: "another_shortcut_token" },
+      }),
+    ).not.toBe(canonicalVerification(BEARER));
   });
 });
 

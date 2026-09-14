@@ -26,13 +26,14 @@ const USER_MESSAGE: Message[] = [
  */
 function stubChatProvider(
   options?: ConstructorParameters<typeof OpenAIChatCompletionsProvider>[2],
+  model = "test-model",
 ): {
   provider: OpenAIChatCompletionsProvider;
   requests: Array<Record<string, unknown>>;
 } {
   const provider = new OpenAIChatCompletionsProvider(
     "test-key",
-    "test-model",
+    model,
     options,
   );
   const requests: Array<Record<string, unknown>> = [];
@@ -223,6 +224,87 @@ describe("OpenAIChatCompletionsProvider tool_choice wiring", () => {
 
   test("forwards a forced tool_choice with thinking when omitToolChoiceWhenReasoning is off", async () => {
     const { provider, requests } = stubChatProvider();
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "tool", name: "bash" }, effort: "high" },
+    });
+
+    expect(requests[0].tool_choice).toEqual({
+      type: "function",
+      function: { name: "bash" },
+    });
+  });
+
+  test("omits a forced tool choice for OpenRouter Kimi K2.6 with thinking", async () => {
+    const { provider, requests } = stubChatProvider(
+      { providerName: "openrouter" },
+      "moonshotai/kimi-k2.6-20260420",
+    );
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "tool", name: "bash" }, effort: "high" },
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].reasoning_effort).toBe("high");
+    expect(requests[0].tool_choice).toBeUndefined();
+  });
+
+  test("omits required for OpenRouter Kimi K2.6 with thinking", async () => {
+    const { provider, requests } = stubChatProvider(
+      { providerName: "openrouter" },
+      "moonshotai/kimi-k2.6-20260420",
+    );
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "any" }, effort: "high" },
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].reasoning_effort).toBe("high");
+    expect(requests[0].tool_choice).toBeUndefined();
+  });
+
+  test("keeps tool_choice none for OpenRouter Kimi K2.6 with thinking", async () => {
+    const { provider, requests } = stubChatProvider(
+      { providerName: "openrouter" },
+      "moonshotai/kimi-k2.6-20260420",
+    );
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "none" }, effort: "high" },
+    });
+
+    expect(requests[0].reasoning_effort).toBe("high");
+    expect(requests[0].tool_choice).toBe("none");
+  });
+
+  test("keeps a forced tool choice for OpenRouter Kimi K2.6 when thinking is off", async () => {
+    const { provider, requests } = stubChatProvider(
+      { providerName: "openrouter" },
+      "moonshotai/kimi-k2.6-20260420",
+    );
+
+    await provider.sendMessage(USER_MESSAGE, {
+      tools: TOOLS,
+      config: { tool_choice: { type: "tool", name: "bash" } },
+    });
+
+    expect(requests[0].tool_choice).toEqual({
+      type: "function",
+      function: { name: "bash" },
+    });
+  });
+
+  test("keeps a forced tool choice for Vercel Kimi K2.6 with thinking", async () => {
+    const { provider, requests } = stubChatProvider(
+      { providerName: "vercel-ai-gateway" },
+      "moonshotai/kimi-k2.6",
+    );
 
     await provider.sendMessage(USER_MESSAGE, {
       tools: TOOLS,

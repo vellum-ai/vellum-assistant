@@ -305,6 +305,26 @@ the left half of a mobile viewport opens the navigation drawer. A row there keep
 on the **trailing** edge, or the two gestures resolve to the drawer and the row's leading action is
 unreachable in practice.
 
+The shared drawer/back-swipe detector yields touches inside `data-owns-horizontal-scroll` when
+the marked element's `scrollWidth` exceeds its `clientWidth` by more than 1px. Put the marker on
+the element that actually scrolls: the message Markdown table wrapper, Markdown code block's
+`pre`, structured table wrapper, and composer attachment strip. The detector checks marked
+ancestors, so a fitting inner scroller cannot hide an overflowing outer one. Ownership is decided
+at touchstart, ahead of the text-selection rule, and lasts for the full gesture, including at the
+screen edge and either scroll boundary. Fitting content keeps its existing navigation behavior.
+Use the navigation button or start outside the scroller to open the menu or go back. Drag-to-set
+controls use `data-owns-horizontal-drag` and always own their horizontal drags.
+
+Do not infer gesture ownership from computed overflow styles: `overflow-y: auto` also makes the
+default `overflow-x` compute to `auto`, so incidental horizontal overflow in a vertical page
+scroller could disable navigation across its contents. Give vertical-only scrollers explicit
+`overflow-x-hidden` when horizontal overflow should be clipped.
+
+Run the real-layout gesture regressions with `bun run test:edge-swipe:browser` from `clients/web/`
+after `bunx playwright install chromium webkit`. PR CI runs the same Chromium and WebKit checks.
+These checks use synthetic touch events, plus trusted Chromium touch input; physical iPhone and
+iPad checks remain necessary for native scrolling and navigation arbitration.
+
 Inside the open drawer the contested edge flips: a leftward drag closes it
 ([`useSwipeCloseDrawer`](../src/hooks/use-swipe-close-drawer.ts)). Rows keep both edges there,
 because that gesture stands down over anything marked `data-swipe-action-row`, which

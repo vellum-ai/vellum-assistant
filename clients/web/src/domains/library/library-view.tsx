@@ -29,6 +29,7 @@ import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { usePinnedApps } from "@/hooks/use-pinned-apps";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { importBundle } from "@/utils/import-bundle";
@@ -53,6 +54,7 @@ export function LibraryView({
   onOpenApp,
 }: LibraryViewProps) {
   const { t } = useTranslation("library");
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { togglePin, pinnedAppIds } = usePinnedApps(assistantId);
   const isDeploying = useDeployStore.use.isDeploying();
@@ -163,25 +165,38 @@ export function LibraryView({
       setHeaderTrailing(null);
       return;
     }
+    const importIcon = isImporting ? (
+      <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+    ) : (
+      <Download aria-hidden />
+    );
     setHeaderTrailing(
-      <Button
-        variant="outlined"
-        size="regular"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={isImporting}
-      >
-        {isImporting ? (
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        ) : (
-          <Download size={14} />
-        )}
-        <span className="ml-1.5">{t("libraryView.import")}</span>
-      </Button>,
+      isMobile ? (
+        <Button
+          variant="ghost"
+          iconOnly={importIcon}
+          aria-label={t("libraryView.import")}
+          tooltip={t("libraryView.import")}
+          className="rounded-full max-md:bg-[var(--surface-active)]"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isImporting}
+        />
+      ) : (
+        <Button
+          variant="outlined"
+          size="regular"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isImporting}
+        >
+          {importIcon}
+          <span className="ml-1.5">{t("libraryView.import")}</span>
+        </Button>
+      ),
     );
     return () => {
       setHeaderTrailing(null);
     };
-  }, [showsImport, isImporting, setHeaderTrailing, t]);
+  }, [isMobile, showsImport, isImporting, setHeaderTrailing, t]);
 
   // --- Render: loading ---
   if (loading) {

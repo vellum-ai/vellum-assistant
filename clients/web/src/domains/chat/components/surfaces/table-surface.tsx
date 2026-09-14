@@ -128,7 +128,7 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
 
   return (
     <SurfaceContainer surface={surface} onAction={handleAction}>
-      <div className="overflow-x-auto">
+      <div data-owns-horizontal-scroll="" className="overflow-x-auto">
         <div className="mb-1 flex justify-end">
           <button
             type="button"

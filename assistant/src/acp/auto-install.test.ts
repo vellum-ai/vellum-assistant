@@ -78,7 +78,7 @@ describe("ensureAdapterInstalled", () => {
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     ]);
   });
 
@@ -198,8 +198,8 @@ describe("ensureAdapterInstalled", () => {
       (call) => (call[1] as string[])[2],
     );
     expect(installedPackages.sort()).toEqual([
-      "@agentclientprotocol/claude-agent-acp",
-      "@agentclientprotocol/codex-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
+      "@agentclientprotocol/codex-acp@1.10.0",
     ]);
   });
 });
@@ -232,7 +232,7 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
     // The resolved command is the REAL binary, not a `bun x` wrapper.
     expect(result.resolved.agent.command).toBe("claude-agent-acp");
     expect(result.autoInstalledPackage).toBe(
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     );
     expect(result.failureMessage).toBeUndefined();
     expect(execFileMock).toHaveBeenCalledTimes(1);
@@ -264,12 +264,14 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
       return;
     }
     expect(result.resolved.agent.command).toBe("codex-acp");
-    expect(result.autoInstalledPackage).toBe("@agentclientprotocol/codex-acp");
+    expect(result.autoInstalledPackage).toBe(
+      "@agentclientprotocol/codex-acp@1.10.0",
+    );
     expect(execFileMock).toHaveBeenCalledTimes(1);
     expect(execFileMock.mock.calls[0][1]).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/codex-acp",
+      "@agentclientprotocol/codex-acp@1.10.0",
     ]);
   });
 
@@ -295,7 +297,7 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
     expect(result.resolved.ok).toBe(false);
     expect(result.failureMessage).toContain("claude-agent-acp is not on PATH");
     expect(result.failureMessage).toContain(
-      "bun add -g @agentclientprotocol/claude-agent-acp",
+      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
     );
     expect(result.failureMessage).toContain("network is down");
     for (const call of execFileMock.mock.calls) {

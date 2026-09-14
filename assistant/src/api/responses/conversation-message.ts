@@ -615,6 +615,11 @@ export const ConversationMessageSchema = z.object({
    *  sentinel text, and treat the row as the turn's reply so nothing keeps
    *  waiting for one. */
   noResponse: z.boolean().optional(),
+  /** Set only on standalone ambient camera-frame rows, derived from
+   *  `messageMetadataIsAmbientSightKeep`. Clients may fold consecutive frames
+   *  into the following user message. Absent on shutter photos, spoken turns
+   *  carrying parked frames, and every other row. */
+  cameraFrame: z.literal(true).optional(),
   /** How this assistant row's plain text reached the user, set only on a turn
    *  that routed its reply through the `send_user_message` tool. `"private"`
    *  means the row's text blocks are the model's working notes and the text

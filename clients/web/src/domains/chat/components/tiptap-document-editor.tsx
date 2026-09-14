@@ -322,6 +322,10 @@ export function TiptapDocumentEditor({
     },
   });
 
+  useLayoutEffect(() => {
+    editor?.setEditable(editable, false);
+  }, [editable, editor]);
+
   // -------------------------------------------------------------------------
   // Sync content prop → editor (only when externally changed)
   // -------------------------------------------------------------------------
@@ -342,7 +346,7 @@ export function TiptapDocumentEditor({
       return;
     } // avoid cursor-reset loops
 
-    editor.commands.setContent(content);
+    editor.commands.setContent(content, { emitUpdate: false });
   }, [content, editor]);
 
   // -------------------------------------------------------------------------
@@ -405,7 +409,7 @@ export function TiptapDocumentEditor({
     <div className={cn("flex flex-col", className)}>
       <style>{editorStyles}</style>
       <EditorContent editor={editor} className="flex-1 overflow-y-auto" />
-      {editor ? (
+      {editor && editable ? (
         <BubbleMenu editor={editor} updateDelay={100}>
           <BubbleToolbar
             key={`${editor.state.selection.from}-${editor.state.selection.to}`}

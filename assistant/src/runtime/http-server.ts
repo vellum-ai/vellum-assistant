@@ -460,7 +460,9 @@ export class RuntimeHttpServer {
               );
               return;
             }
-            const bridge = new DesktopStreamBridge(ws);
+            const bridge = new DesktopStreamBridge(ws, {
+              isEnabled: assistantDesktopEnabled,
+            });
             data.bridge = bridge;
             void bridge.start();
             return;

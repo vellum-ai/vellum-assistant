@@ -75,6 +75,7 @@ import {
   resolveEffectiveBaseUrl,
   resolveOAuthConnection,
   resolveOAuthConnectionWithMeta,
+  resolveTokenHeader,
 } from "./connection-resolver.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
@@ -751,5 +752,77 @@ describe("resolveEffectiveBaseUrl", () => {
         metadata,
       ),
     ).toBe("https://gmail.googleapis.com/gmail/v1/users/me");
+  });
+});
+
+describe("resolveTokenHeader", () => {
+  const shopify = JSON.stringify([
+    {
+      hostPattern: "*.myshopify.com",
+      injectionType: "header",
+      headerName: "X-Shopify-Access-Token",
+      valuePrefix: "",
+    },
+  ]);
+
+  test("returns null when the provider declares no templates", () => {
+    expect(resolveTokenHeader(undefined, "https://api.example.com")).toBeNull();
+    expect(resolveTokenHeader(null, "https://api.example.com")).toBeNull();
+    expect(resolveTokenHeader("[]", "https://api.example.com")).toBeNull();
+  });
+
+  test("returns null for malformed JSON", () => {
+    expect(
+      resolveTokenHeader("{not json", "https://api.example.com"),
+    ).toBeNull();
+  });
+
+  test("ignores non-header injection templates", () => {
+    const query = JSON.stringify([
+      {
+        hostPattern: "api.example.com",
+        injectionType: "query",
+        headerName: "",
+      },
+    ]);
+    expect(resolveTokenHeader(query, "https://api.example.com")).toBeNull();
+  });
+
+  test("picks the template whose wildcard host pattern matches the base URL", () => {
+    const templates = JSON.stringify([
+      {
+        hostPattern: "api.other.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      ...JSON.parse(shopify),
+    ]);
+    expect(
+      resolveTokenHeader(templates, "https://example-store.myshopify.com"),
+    ).toEqual({ name: "X-Shopify-Access-Token", valuePrefix: "" });
+  });
+
+  test("falls back to the first header template when the host cannot be matched", () => {
+    // A still-templated base URL is not a parseable URL.
+    expect(resolveTokenHeader(shopify, "https://{tenant_host}")).toEqual({
+      name: "X-Shopify-Access-Token",
+      valuePrefix: "",
+    });
+  });
+
+  test("preserves the Bot prefix for discord_channel", () => {
+    const discord = JSON.stringify([
+      {
+        hostPattern: "discord.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bot ",
+      },
+    ]);
+    expect(resolveTokenHeader(discord, "https://discord.com/api")).toEqual({
+      name: "Authorization",
+      valuePrefix: "Bot ",
+    });
   });
 });

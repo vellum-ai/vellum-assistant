@@ -54,18 +54,12 @@ export const discordTransport: ChannelTransport = {
 
   /**
    * A chat is a channel id, with `threadId` naming the thread, which is its
-   * own channel. A person is reached in their DM, which is opened here so
-   * the address names the DM channel the post lands in: that is the id
-   * Discord's later events carry for it, so the record and the chat's home
-   * are found again by it.
+   * own channel. Reaching a person who has not been named as a chat would
+   * mean opening their DM first, a platform call this resolution does not
+   * make; the inbound `dm` param below is how an event-carried callback says
+   * its `chatId` is a recipient rather than a room.
    */
-  async addressFor(target) {
-    if (target.kind === "person") {
-      return {
-        ctx: directDeliveryContext("discord"),
-        chatId: await openDiscordDmChannel(target.userId),
-      };
-    }
+  addressFor(target) {
     const threadId = target.threadId?.trim();
     return {
       ctx: directDeliveryContext("discord", threadId ? { threadId } : {}),

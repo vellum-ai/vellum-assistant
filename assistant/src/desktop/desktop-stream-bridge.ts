@@ -29,6 +29,7 @@ interface DesktopStreamClientSocket {
 }
 
 interface DesktopStreamBridgeOptions {
+  readonly isEnabled: () => boolean;
   readonly manager?: DesktopSessionManager;
   readonly ensureInstalled?: () => Promise<void>;
   readonly connect?: (
@@ -39,6 +40,7 @@ interface DesktopStreamBridgeOptions {
 
 export class DesktopStreamBridge {
   private readonly ws: DesktopStreamClientSocket;
+  private readonly isEnabled: () => boolean;
   private readonly manager: DesktopSessionManager;
   private readonly ensureInstalled: () => Promise<void>;
   private readonly connect: NonNullable<DesktopStreamBridgeOptions["connect"]>;
@@ -53,9 +55,10 @@ export class DesktopStreamBridge {
 
   constructor(
     ws: DesktopStreamClientSocket,
-    options: DesktopStreamBridgeOptions = {},
+    options: DesktopStreamBridgeOptions,
   ) {
     this.ws = ws;
+    this.isEnabled = options.isEnabled;
     this.manager = options.manager ?? getDesktopSessionManager();
     this.ensureInstalled =
       options.ensureInstalled ??
@@ -66,7 +69,7 @@ export class DesktopStreamBridge {
 
   /** Claim the viewer slot, start the desktop, and dial its VNC port. */
   async start(): Promise<void> {
-    if (this.closed) {
+    if (!this.checkEnabled()) {
       return;
     }
     const slot = this.manager.acquireViewerSlot(this.viewer);
@@ -79,7 +82,7 @@ export class DesktopStreamBridge {
     try {
       // Direct viewers share setup with the modal, including across reconnects.
       await this.ensureInstalled();
-      if (this.closed) {
+      if (!this.checkEnabled()) {
         return;
       }
       await this.manager.ensureDesktopRunning();
@@ -91,7 +94,7 @@ export class DesktopStreamBridge {
       );
       return;
     }
-    if (this.closed) {
+    if (!this.checkEnabled()) {
       return;
     }
 
@@ -99,6 +102,9 @@ export class DesktopStreamBridge {
     try {
       tcp = await this.connect(DESKTOP_VNC_PORT, {
         onData: (data) => {
+          if (!this.checkEnabled()) {
+            return;
+          }
           if (this.ws.send(data) === 0) {
             this.fail(DESKTOP_CLOSE.failed, "Viewer too slow");
           }
@@ -113,7 +119,7 @@ export class DesktopStreamBridge {
       this.fail(DESKTOP_CLOSE.failed, "Desktop connection failed");
       return;
     }
-    if (this.closed) {
+    if (!this.checkEnabled()) {
       tcp.end();
       return;
     }
@@ -122,7 +128,7 @@ export class DesktopStreamBridge {
   }
 
   handleClientFrame(message: string | Uint8Array | ArrayBuffer): void {
-    if (this.closed || typeof message === "string") {
+    if (!this.checkEnabled() || typeof message === "string") {
       return;
     }
     const bytes =
@@ -142,6 +148,9 @@ export class DesktopStreamBridge {
   }
 
   private flush(): void {
+    if (!this.checkEnabled()) {
+      return;
+    }
     const tcp = this.tcp;
     if (!tcp) {
       return;
@@ -160,6 +169,20 @@ export class DesktopStreamBridge {
       }
       this.pending.shift();
     }
+  }
+
+  private checkEnabled(): boolean {
+    if (this.closed) {
+      return false;
+    }
+    if (!this.isEnabled()) {
+      this.fail(
+        DESKTOP_CLOSE.unavailable,
+        "Desktop is not available on this assistant",
+      );
+      return false;
+    }
+    return true;
   }
 
   private lose({ code, reason }: DesktopLoss): void {

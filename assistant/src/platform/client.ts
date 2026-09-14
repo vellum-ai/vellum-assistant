@@ -7,7 +7,7 @@
 
 import type { PlatformCredentialVerificationStatus } from "@vellumai/service-contracts/platform-credential";
 
-import { getPlatformAssistantId } from "../config/env.js";
+import { resolvePlatformAssistantId } from "../config/platform-identity.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
@@ -63,7 +63,7 @@ async function resolvePlatformClientConfig(): Promise<PlatformClientConfig | nul
 
   let baseUrl = ctx.enabled ? ctx.platformBaseUrl : "";
   let apiKey = ctx.enabled ? ctx.assistantApiKey : "";
-  let assistantId = getPlatformAssistantId();
+  const assistantId = await resolvePlatformAssistantId();
 
   // Fall back to credential store for values not yet rehydrated (standalone CLI).
   if (!baseUrl) {
@@ -75,14 +75,6 @@ async function resolvePlatformClientConfig(): Promise<PlatformClientConfig | nul
     apiKey =
       (await getSecureKeyAsync(credentialKey("vellum", "assistant_api_key"))) ??
       "";
-  }
-  if (!assistantId) {
-    assistantId =
-      (
-        await getSecureKeyAsync(
-          credentialKey("vellum", "platform_assistant_id"),
-        )
-      )?.trim() ?? "";
   }
 
   if (!baseUrl || !apiKey) {

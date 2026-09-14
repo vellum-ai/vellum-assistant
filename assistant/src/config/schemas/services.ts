@@ -140,6 +140,11 @@ const MondayOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
+export const ShopifyOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type ShopifyOAuthService = z.infer<typeof ShopifyOAuthServiceSchema>;
+
 export const StripeLinkOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
@@ -213,6 +218,9 @@ export const ServicesSchema = z.object({
   ),
   "monday-oauth": MondayOAuthServiceSchema.default(
     MondayOAuthServiceSchema.parse({}),
+  ),
+  "shopify-oauth": ShopifyOAuthServiceSchema.default(
+    ShopifyOAuthServiceSchema.parse({}),
   ),
   "stripe-link-oauth": StripeLinkOAuthServiceSchema.default(
     StripeLinkOAuthServiceSchema.parse({}),

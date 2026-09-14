@@ -6,6 +6,7 @@ import {
   getCatalogProviderForModel,
   isModelInCatalog,
   PROVIDER_CATALOG,
+  supportsForcedToolChoiceWithThinking,
 } from "../providers/model-catalog.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { resolvePricing, resolvePricingForUsage } from "../util/pricing.js";
@@ -549,6 +550,30 @@ describe("LLM catalog parity: daemon vs client", () => {
 
   test("getCatalogProviderForModel returns undefined for unknown IDs", () => {
     expect(getCatalogProviderForModel("unknown/model")).toBeUndefined();
+  });
+
+  test("forced tool choice with thinking is scoped to OpenRouter Kimi K2.6", () => {
+    expect(
+      supportsForcedToolChoiceWithThinking("openrouter", "moonshotai/kimi-k2.6"),
+    ).toBe(false);
+    expect(
+      supportsForcedToolChoiceWithThinking(
+        "openrouter",
+        "moonshotai/kimi-k2.6-20260420",
+      ),
+    ).toBe(false);
+    expect(
+      supportsForcedToolChoiceWithThinking(
+        "vercel-ai-gateway",
+        "moonshotai/kimi-k2.6",
+      ),
+    ).toBe(true);
+    expect(
+      supportsForcedToolChoiceWithThinking("openrouter", "unknown/model"),
+    ).toBe(true);
+    expect(
+      supportsForcedToolChoiceWithThinking("unknown-provider", "unknown/model"),
+    ).toBe(true);
   });
 
   test("Gemini 2.5 Pro catalog context matches provider limits", () => {

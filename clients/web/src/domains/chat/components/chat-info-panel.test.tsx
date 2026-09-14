@@ -27,6 +27,7 @@ import {
   test,
 } from "bun:test";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
 import {
   act,
   cleanup,
@@ -74,15 +75,19 @@ mock.module("@/utils/app-html-cache", chatInfoAppHtmlCacheMock);
 
 const calls: string[] = [];
 
-const { ChatInfoPanel } =
-  await import("@/domains/chat/components/chat-info-panel");
+const { ChatInfoPanel } = await import(
+  "@/domains/chat/components/chat-info-panel"
+);
 const { useViewerStore } = await import("@/stores/viewer-store");
-const { useUnseenDocumentChangesStore } =
-  await import("@/domains/chat/unseen-document-changes-store");
-const { appsGetQueryKey, documentsGetQueryKey } =
-  await import("@/generated/daemon/@tanstack/react-query.gen");
-const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
-  await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
+const { useUnseenDocumentChangesStore } = await import(
+  "@/domains/chat/unseen-document-changes-store"
+);
+const { appsGetQueryKey, documentsGetQueryKey } = await import(
+  "@/generated/daemon/@tanstack/react-query.gen"
+);
+const { makeDisplayAttachment, SAMPLE_PREVIEWS } = await import(
+  "@/domains/chat/components/chat-attachments/attachment-fixtures"
+);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -219,17 +224,19 @@ async function renderChatInfo(
   const client = seedPanel(seed);
   await act(async () => {
     render(
-      <QueryClientProvider client={client}>
-        <ChatInfoPanel
-          payload={{
-            assistantId: ASSISTANT_ID,
-            conversationId: CONVERSATION_ID,
-            category,
-          }}
-          onClose={onClose}
-          onSelectCategory={onSelectCategory}
-        />
-      </QueryClientProvider>,
+      <MemoryRouter initialEntries={["/assistant/conversations/conv-1"]}>
+        <QueryClientProvider client={client}>
+          <ChatInfoPanel
+            payload={{
+              assistantId: ASSISTANT_ID,
+              conversationId: CONVERSATION_ID,
+              category,
+            }}
+            onClose={onClose}
+            onSelectCategory={onSelectCategory}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>,
     );
   });
 }

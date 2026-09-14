@@ -21,7 +21,9 @@ import {
 const testDataDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 import {
+  describeQdrantStartFailure,
   QdrantManager,
+  QdrantStartError,
   resolveQdrantReleaseAsset,
 } from "../persistence/embeddings/qdrant-manager.js";
 
@@ -395,6 +397,136 @@ describe("QdrantManager", () => {
       // THEN the error carries the stdout explanation, not just the noise
       await expect(mgr.start()).rejects.toThrow("Failed to load local shard");
     }, 10_000);
+
+    test("classifies a crash as an exit with its code and captured output", async () => {
+      // The reporter must not have to parse the message: the step, the exit
+      // code and the raw streams travel as fields.
+      placeFakeBinary(
+        '#!/bin/sh\necho "Panic occurred: no such shard"\nexit 101',
+      );
+
+      const mgr = new QdrantManager({
+        url: `http://127.0.0.1:${getTestPort()}`,
+        ...FAST_TIMEOUTS,
+      });
+
+      let caught: unknown;
+      await mgr.start().catch((err) => {
+        caught = err;
+      });
+
+      expect(caught).toBeInstanceOf(QdrantStartError);
+      const err = caught as QdrantStartError;
+      expect(err.kind).toBe("exited");
+      expect(err.exitCode).toBe(101);
+      expect(err.stdout).toContain("no such shard");
+    }, 10_000);
+
+    test("classifies a readiness timeout as not_ready with no exit code", async () => {
+      placeFakeBinary("#!/bin/sh\nexec sleep 300");
+
+      const mgr = new QdrantManager({
+        url: `http://127.0.0.1:${getTestPort()}`,
+        ...FAST_TIMEOUTS,
+      });
+
+      let caught: unknown;
+      await mgr.start().catch((err) => {
+        caught = err;
+      });
+
+      expect(caught).toBeInstanceOf(QdrantStartError);
+      expect((caught as QdrantStartError).kind).toBe("not_ready");
+      expect((caught as QdrantStartError).exitCode).toBeNull();
+    }, 10_000);
+  });
+
+  describe("describeQdrantStartFailure", () => {
+    const dataDir = "/home/example/workspace-data";
+    const failure = (stdout: string, kind: "exited" | "not_ready" = "exited") =>
+      new QdrantStartError(
+        "boom",
+        kind,
+        kind === "exited" ? 101 : null,
+        stdout,
+        "",
+      );
+
+    test("takes the reason from the last panic marker, after the backtrace", () => {
+      const stdout =
+        "   0: backtrace frame\n   1: another frame\n" +
+        "ERROR qdrant::startup: Panic occurred in file mod.rs at line 301: " +
+        "Failed to load local shard";
+
+      expect(describeQdrantStartFailure(failure(stdout), dataDir)).toEqual({
+        kind: "exited",
+        exit_code: 101,
+        panic:
+          "Panic occurred in file mod.rs at line 301: Failed to load local shard",
+      });
+    });
+
+    test("replaces the data directory wherever it appears", () => {
+      const stdout = `Panic occurred: cannot open ${dataDir}/qdrant/collections/x and ${dataDir}/qdrant/wal`;
+
+      expect(describeQdrantStartFailure(failure(stdout), dataDir).panic).toBe(
+        "Panic occurred: cannot open <data>/qdrant/collections/x and <data>/qdrant/wal",
+      );
+    });
+
+    test("falls back to the last stdout line when Qdrant died without panicking", () => {
+      const stdout =
+        "INFO starting\nERROR Address already in use (os error 48)\n";
+
+      expect(describeQdrantStartFailure(failure(stdout), dataDir).panic).toBe(
+        "ERROR Address already in use (os error 48)",
+      );
+    });
+
+    test("reports no reason for a silent timeout", () => {
+      expect(
+        describeQdrantStartFailure(failure("", "not_ready"), dataDir),
+      ).toEqual({ kind: "not_ready", exit_code: null, panic: null });
+    });
+
+    /**
+     * The telemetry server's measure: JSON with every code unit above 0x7E
+     * escaped to six ASCII bytes (`jsonByteLength` in
+     * `telemetry-wire.generated.ts`), minus the enclosing quotes.
+     */
+    const serverBytes = (s: string) =>
+      JSON.stringify(s).replace(/[^\x00-\x7e]/g, "\\uxxxx").length - 2;
+
+    test("caps an ASCII reason at the byte budget", () => {
+      const { panic } = describeQdrantStartFailure(
+        failure("Panic occurred: " + "x".repeat(5_000)),
+        dataDir,
+      );
+
+      expect(panic?.length).toBe(1_024);
+      expect(serverBytes(panic!)).toBe(1_024);
+    });
+
+    test("caps a non-ASCII reason by the server's escaped size, not by characters", () => {
+      // Each CJK character serializes to six bytes on the server, so a
+      // character cap would overshoot the budget six-fold and the event would
+      // be dropped at ingest.
+      const { panic } = describeQdrantStartFailure(
+        failure("Panic occurred: " + "測".repeat(2_000)),
+        dataDir,
+      );
+
+      expect(serverBytes(panic!)).toBeLessThanOrEqual(1_024);
+      expect(serverBytes(panic! + "測")).toBeGreaterThan(1_024);
+    });
+
+    test("never drops an unclassified failure", () => {
+      expect(describeQdrantStartFailure(new Error("nope"), dataDir)).toEqual({
+        kind: "unknown",
+        exit_code: null,
+        panic: null,
+      });
+    });
   });
 
   // ── Binary Detection ─────────────────────────────────────────

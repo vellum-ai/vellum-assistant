@@ -249,14 +249,23 @@ describe("createResolveToolsCallback — toolContextPin", () => {
     });
   }
 
-  test("control: without a pin, a clientless fork drops every client-gated tool from the wire", () => {
+  test("control: without a pin, a clientless fork drops client-gated tools but keeps host and UI tools", () => {
     projectedSkillToolNames = [];
     const resolve = createResolveToolsCallback(
       CLIENT_GATED_DEFS,
       clientlessExecutionCtx(),
     )!;
 
-    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual(["remember"]);
+    // Host tool definitions stay on the wire for background turns, and
+    // ui_show stays because background UI surfaces persist and return. The
+    // executor rejects host tools on explicitly non-interactive turns before
+    // dispatch; ask_question and request_system_permission remain
+    // client-gated at resolution.
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual([
+      "remember",
+      "host_bash",
+      "ui_show",
+    ]);
   });
 
   test("a desktop-source pin restores the host/UI/client tool defs on the wire", () => {
@@ -291,7 +300,14 @@ describe("createResolveToolsCallback — toolContextPin", () => {
       }),
     )!;
 
-    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual(["remember"]);
+    // Host tool definitions stay on the wire for background turns, and
+    // ui_show survives the clientless pin: it persists and returns. The
+    // executor rejects host tools on explicitly non-interactive turns.
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual([
+      "remember",
+      "host_bash",
+      "ui_show",
+    ]);
   });
 
   test("invariant: a pinned-in tool is on the wire but can never execute", async () => {

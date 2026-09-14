@@ -102,7 +102,7 @@ export type McpServerConfig = z.infer<typeof McpServerConfigSchema>;
 export type McpConfig = z.infer<typeof McpConfigSchema>;
 
 /**
- * Who declared a server: the workspace `config.json`, which the user owns,
+ * Who declared a server: the workspace `mcp.json`, which the user owns,
  * or a plugin's `mcp.json`, which its author owns.
  *
  * Deliberately not a schema field. It is resolved from where the entry was

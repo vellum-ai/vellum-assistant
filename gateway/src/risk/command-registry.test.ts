@@ -431,6 +431,14 @@ describe("command-registry", () => {
         expect(oauthSpec.subcommands!.request.baseRisk).toBe("medium");
       });
 
+      // Both channel doors carry the bot's effects, so both are high: the
+      // request door because the endpoint decides what it does, the send
+      // door because it always posts a message somebody reads.
+      test("both assistant channels doors are high risk", () => {
+        expect(getAssistantPath("channels request").baseRisk).toBe("high");
+        expect(getAssistantPath("channels send").baseRisk).toBe("high");
+      });
+
       test("assistant oauth request as a channel bot escalates to high, keyed on the contract's map", () => {
         const requestSpec = oauthSpec.subcommands!.request;
         const botRule = requestSpec.argRules!.find(

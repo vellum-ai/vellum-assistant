@@ -23,8 +23,11 @@ mock.module("../auth/guardian-bootstrap.js", () => ({
 let mockReadCredential = mock(
   async (_key: string): Promise<string | undefined> => VELAY_USER_ID,
 );
-mock.module("../credential-reader.js", () => ({
-  readCredential: (key: string) => mockReadCredential(key),
+mock.module("../platform-user-id.js", () => ({
+  readStoredPlatformUserId: async () => ({
+    userId: await mockReadCredential("vellum:platform_user_id"),
+    unreachable: false,
+  }),
 }));
 
 const { authorizeGuardianStream } =
@@ -143,6 +146,7 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     token,
     managed = true,
     upgrade = true,
+    velayBaseUrl,
   }: {
     userId?: string;
     actor?: string;
@@ -151,6 +155,7 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     token?: string;
     managed?: boolean;
     upgrade?: boolean;
+    velayBaseUrl?: string;
   }) => {
     if (managed) {
       process.env.IS_PLATFORM = "true";
@@ -173,7 +178,7 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     const query = token ? `?token=${token}` : "";
     return authorizeGuardianStream(
       new Request(`${STREAM_URL}${query}`, { headers }),
-      makeConfig(),
+      makeConfig({ velayBaseUrl }),
       log,
     );
   };
@@ -241,9 +246,36 @@ describe("authorizeGuardianStream: the velay-attested managed path", () => {
     expect(res!.status).toBe(403);
   });
 
-  test("does not trust velay headers outside managed mode", async () => {
+  test("does not trust velay headers on a gateway with no velay tunnel", async () => {
     const res = await managedAuthorize({ managed: false });
 
+    expect(res!.status).toBe(401);
+  });
+
+  test("admits the attested guardian through a locally hosted velay tunnel", async () => {
+    expect(
+      await managedAuthorize({
+        managed: false,
+        velayBaseUrl: "https://velay.example.test",
+      }),
+    ).toBeNull();
+  });
+
+  test("refuses a different owner through a locally hosted velay tunnel", async () => {
+    const res = await managedAuthorize({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+      userId: "99999999-9999-9999-9999-999999999999",
+    });
+    expect(res!.status).toBe(403);
+  });
+
+  test("requires bridge proof through a locally hosted velay tunnel", async () => {
+    const res = await managedAuthorize({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+      bridgeProof: false,
+    });
     expect(res!.status).toBe(401);
   });
 

@@ -1,11 +1,11 @@
 /**
  * Shared MCP reload business logic.
  *
- * Called by the ConfigWatcher when config.json changes or a reload signal
+ * Called by the ConfigWatcher when mcp.json changes or a reload signal
  * file is detected, so the daemon automatically reconnects MCP servers.
  */
 
-import { getConfig, invalidateConfigCache } from "../config/loader.js";
+import { invalidateConfigCache } from "../config/loader.js";
 import {
   buildEffectiveMcpConfig,
   pluginMcpServersChangedSinceLastBuild,
@@ -13,6 +13,7 @@ import {
 import { getMcpServerManager } from "../mcp/manager.js";
 import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
 import { signalMcpReloaded } from "../mcp/reload-signal.js";
+import { loadWorkspaceMcpConfig } from "../mcp/workspace-mcp-config.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -95,16 +96,15 @@ async function doReload(): Promise<McpReloadResult> {
     //    If the config is broken we abort early, preserving the current
     //    working MCP setup instead of leaving zero servers.
     invalidateConfigCache();
-    const config = getConfig();
 
     // 2. Stop existing MCP servers + unregister their tools
     await manager.stop();
     unregisterAllMcpTools();
 
     // Plugins are re-read here too: installing or removing one changes the
-    // server set exactly like editing config.json does, and both arrive
+    // server set exactly like editing mcp.json does, and both arrive
     // through this same reload.
-    const mcpConfig = buildEffectiveMcpConfig(config.mcp);
+    const mcpConfig = buildEffectiveMcpConfig(loadWorkspaceMcpConfig());
     const serverIds = Object.keys(mcpConfig.servers);
 
     // 3. Restart MCP servers

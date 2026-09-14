@@ -1,8 +1,8 @@
 /**
  * Header-slot state for `ChatLayout`'s shared `ChatLayoutHeader`.
  *
- * Routes under `ChatLayout` populate the header's center and right
- * section. The setters are actions on this
+ * Routes under `ChatLayout` populate the header's center and right section,
+ * or replace the complete mobile top bar. The setters are actions on this
  * store; consumers register their content from a `useEffect` and
  * clear it on unmount.
  *
@@ -23,6 +23,12 @@ import type { ReactNode } from "react";
 
 import { createSelectors } from "@/utils/create-selectors";
 import type { Conversation } from "@/types/conversation-types";
+
+export interface MobileTopBarSlot {
+  leading: ReactNode;
+  center: ReactNode;
+  trailing: ReactNode;
+}
 
 // ---------------------------------------------------------------------------
 // Header supplements — data-only values that ChatPage contributes to the
@@ -59,25 +65,43 @@ export interface ChatHeaderSupplements {
 interface ChatLayoutSlotsState {
   topBarCenter: ReactNode;
   topBarRightSlot: ReactNode;
+  mobileTopBar: MobileTopBarSlot | null;
   headerSupplements: ChatHeaderSupplements | null;
+  documentHeader: { surfaceId: string } | null;
 }
 
 interface ChatLayoutSlotsActions {
+  registerDocumentHeader: (surfaceId: string) => () => void;
   setTopBarCenter: (node: ReactNode) => void;
   setTopBarRightSlot: (node: ReactNode) => void;
+  setMobileTopBar: (slot: MobileTopBarSlot | null) => void;
   setHeaderSupplements: (supplements: ChatHeaderSupplements | null) => void;
 }
 
 type ChatLayoutSlotsStore = ChatLayoutSlotsState & ChatLayoutSlotsActions;
 
-const useChatLayoutSlotsStoreBase = create<ChatLayoutSlotsStore>((set) => ({
-  topBarCenter: null,
-  topBarRightSlot: null,
-  headerSupplements: null,
-  setTopBarCenter: (topBarCenter) => set({ topBarCenter }),
-  setTopBarRightSlot: (topBarRightSlot) => set({ topBarRightSlot }),
-  setHeaderSupplements: (headerSupplements) => set({ headerSupplements }),
-}));
+const useChatLayoutSlotsStoreBase = create<ChatLayoutSlotsStore>(
+  (set, get) => ({
+    topBarCenter: null,
+    topBarRightSlot: null,
+    mobileTopBar: null,
+    headerSupplements: null,
+    documentHeader: null,
+    registerDocumentHeader: (surfaceId) => {
+      const documentHeader = { surfaceId };
+      set({ documentHeader });
+      return () => {
+        if (get().documentHeader === documentHeader) {
+          set({ documentHeader: null });
+        }
+      };
+    },
+    setTopBarCenter: (topBarCenter) => set({ topBarCenter }),
+    setTopBarRightSlot: (topBarRightSlot) => set({ topBarRightSlot }),
+    setMobileTopBar: (mobileTopBar) => set({ mobileTopBar }),
+    setHeaderSupplements: (headerSupplements) => set({ headerSupplements }),
+  }),
+);
 
 export const useChatLayoutSlotsStore = createSelectors(
   useChatLayoutSlotsStoreBase,

@@ -16,6 +16,7 @@ export const HOST_PROXY_CAPABILITIES = [
   "host_file",
   "host_cu",
   "host_cu_window_capture",
+  "host_cu_sequence",
   "host_cu_annotate",
   "host_browser",
   "host_app_control",
@@ -24,11 +25,12 @@ export const HOST_PROXY_CAPABILITIES = [
 
 export type HostProxyCapability = (typeof HOST_PROXY_CAPABILITIES)[number];
 
-/** Every host capability except the three macOS-only ones. */
+/** Every host capability except the macOS-only ones. */
 const DESKTOP_SHARED_CAPABILITIES = HOST_PROXY_CAPABILITIES.filter(
   (capability) =>
     capability !== "host_app_control" &&
     capability !== "host_cu_window_capture" &&
+    capability !== "host_cu_sequence" &&
     capability !== "host_cu_annotate",
 );
 
@@ -47,8 +49,8 @@ export type HostProxyInterfaceId = "macos" | "windows" | "linux";
  * (web, ios, android, and every messaging transport) provide none.
  *
  * Windows and Linux run the same host proxy as macOS minus app control. The
- * two window-scoped CU capabilities ride the host_cu transport and are
- * negotiated per connection; only the macOS native helper answers them, so a
+ * negotiated CU capabilities ride the host_cu transport and are claimed per
+ * connection; only the macOS native helper answers them, so a
  * request elsewhere would reach that helper as an unknown action.
  *
  * macOS additionally provisions its `host_browser` proxy via the assistant
