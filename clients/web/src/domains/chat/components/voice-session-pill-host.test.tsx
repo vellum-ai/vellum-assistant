@@ -73,6 +73,14 @@ const navigateToConversationSpy = mock(
 );
 mock.module("@/utils/conversation-navigation", () => ({
   navigateToConversation: navigateToConversationSpy,
+  // The rest of the module's surface, unused here: a factory that omits an
+  // export hides it from every importer in the process.
+  keepOpenAppBesideConversation: () => false,
+  revealConversationView: () => {},
+  keptAppId: () => null,
+  prepareFreshConversation: () => "draft-conversation",
+  navigateToNewConversation: () => "draft-conversation",
+  navigateFromApp: () => {},
 }));
 
 // Avatar data feeding the pill's wave accent. Mocked so the host renders

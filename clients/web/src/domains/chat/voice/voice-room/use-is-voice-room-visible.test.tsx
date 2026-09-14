@@ -75,6 +75,12 @@ mock.module("@/utils/conversation-navigation", () => ({
     useConversationStore.getState().setActiveConversationId(draftId);
     return draftId;
   },
+  // The rest of the module's surface, unused here: a factory that omits an
+  // export hides it from every importer in the process.
+  keepOpenAppBesideConversation: () => false,
+  keptAppId: () => null,
+  navigateToNewConversation: () => "voice-draft",
+  navigateFromApp: () => {},
 }));
 
 mock.module("@/hooks/use-assistant-avatar", () => ({

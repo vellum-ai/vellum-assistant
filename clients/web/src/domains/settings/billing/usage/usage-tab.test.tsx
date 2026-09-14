@@ -225,6 +225,13 @@ mock.module("@/utils/conversation-navigation", () => ({
     },
   ),
   navigateToNewConversation: mock(() => {}),
+  // The rest of the module's surface, unused here: a factory that omits an
+  // export hides it from every importer in the process.
+  keepOpenAppBesideConversation: () => false,
+  revealConversationView: () => {},
+  keptAppId: () => null,
+  prepareFreshConversation: () => "draft-conversation",
+  navigateFromApp: () => {},
 }));
 mock.module("@/utils/schedules", () => ({
   fetchSchedules: fetchSchedulesMock,

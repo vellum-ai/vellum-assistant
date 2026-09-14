@@ -138,6 +138,13 @@ const navigateToNewConversationMock = mock((..._args: unknown[]) => "draft-1");
 mock.module("@/utils/conversation-navigation", () => ({
   navigateToConversation: navigateToConversationMock,
   navigateToNewConversation: navigateToNewConversationMock,
+  // The rest of the module's surface, unused here: a factory that omits an
+  // export hides it from every importer in the process.
+  keepOpenAppBesideConversation: () => false,
+  revealConversationView: () => {},
+  keptAppId: () => null,
+  prepareFreshConversation: () => "draft-1",
+  navigateFromApp: () => {},
 }));
 
 /**
