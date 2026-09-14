@@ -77,10 +77,13 @@ final class ActionExecutor {
     /// True when the person at the machine is typing, moving the mouse, or
     /// holding a button or modifier right now, which is when we should stand
     /// down rather than fight them for it. Our own posts pair every button
-    /// down with an up and never post a modifier key, so nothing we sent is
-    /// still held by the time the next step asks.
+    /// down with an up, so a held button is always the person's. Modifier
+    /// flags are judged by `UserActivityGate.modifierHeldByUser`, because a
+    /// synthetic shortcut's flags may still read as held after it returns.
     static func userIsCurrentlyActive() -> Bool {
         let state = CGEventSourceStateID.combinedSessionState
+        let now = Date()
+        let lastPost = lastSyntheticPostAt.withLock { $0 }
         let secondsSinceLastInput = CGEventSource.secondsSinceLastEventType(
             state,
             eventType: anyInputEventType
@@ -88,10 +91,15 @@ final class ActionExecutor {
         let buttonHeld = [CGMouseButton.left, .right, .center].contains {
             CGEventSource.buttonState(state, button: $0)
         }
-        let modifierHeld = !CGEventSource.flagsState(state).intersection(heldModifierMask).isEmpty
+        let modifierHeld = UserActivityGate.modifierHeldByUser(
+            now: now,
+            modifierFlagsDown: !CGEventSource.flagsState(state).intersection(heldModifierMask).isEmpty,
+            secondsSinceFlagsChanged: CGEventSource.secondsSinceLastEventType(state, eventType: .flagsChanged),
+            lastSyntheticPostAt: lastPost
+        )
         return UserActivityGate.userIsActive(
-            now: Date(),
-            lastSyntheticPostAt: lastSyntheticPostAt.withLock { $0 },
+            now: now,
+            lastSyntheticPostAt: lastPost,
             secondsSinceLastInput: secondsSinceLastInput,
             buttonHeld: buttonHeld,
             modifierHeld: modifierHeld

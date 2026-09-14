@@ -30,4 +30,24 @@ public enum UserActivityGate {
         }
         return true
     }
+
+    /// Whether a modifier that reads as held is the person's rather than a
+    /// flag left behind by a synthetic shortcut. Our key events carry modifier
+    /// flags but we never post a modifier key itself, so a real press or
+    /// release is the only thing that produces a flags-changed event. A held
+    /// modifier counts only when its last change came after our last post.
+    /// A modifier the person was already holding before that post is missed,
+    /// which errs toward acting rather than refusing every step after a
+    /// shortcut we sent.
+    public static func modifierHeldByUser(
+        now: Date,
+        modifierFlagsDown: Bool,
+        secondsSinceFlagsChanged: Double,
+        lastSyntheticPostAt: Date?
+    ) -> Bool {
+        guard modifierFlagsDown else { return false }
+        guard let ours = lastSyntheticPostAt else { return true }
+        let flagsChangedAt = now.addingTimeInterval(-secondsSinceFlagsChanged)
+        return flagsChangedAt > ours
+    }
 }
