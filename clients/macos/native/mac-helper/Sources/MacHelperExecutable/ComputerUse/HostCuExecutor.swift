@@ -1,33 +1,9 @@
 import Foundation
 import CoreGraphics
 import AppKit
-import MacHelperCore
 import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "HostCu")
-
-/// Separator between the parts of a settle signature. A control character so
-/// no window title or field value can forge a part boundary.
-private let settleSignatureSeparator = "\u{1F}"
-
-/// Read one AX attribute that is itself an element, nil if it is missing or is
-/// not an element after all.
-private func axElementAttribute(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
-    var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
-          let value,
-          CFGetTypeID(value) == AXUIElementGetTypeID()
-    else { return nil }
-    return (value as! AXUIElement)
-}
-
-/// Read one AX attribute as a string, nil if it is missing or is not a string.
-private func axStringAttribute(_ element: AXUIElement, _ attribute: String) -> String? {
-    var value: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success
-    else { return nil }
-    return value as? String
-}
 
 // MARK: - Phase Timing
 
@@ -250,20 +226,10 @@ enum HostCuActionRunner {
                 return finish(obs)
             }
 
-            // Read the settle signature before acting, for the one kind of
-            // action whose effect it can observe. This read awaits, so it sits
-            // ahead of the final activity check below rather than after it.
-            let settleBaselineStart = DispatchTime.now()
-            var settleBaseline: String?
-            if settleCanEndEarly(resolvedAction.type) {
-                settleBaseline = await focusedWindowSignature(budgetMs: SettlePolicy.baselineBudgetMs)
-            }
-            let settleBaselineMs = millisSince(settleBaselineStart)
-
-            // Check again. Resolution and the baseline read above both await,
-            // and the machine is not ours during either, so a person who
-            // started typing midway through would otherwise be interrupted by
-            // an action cleared before they touched anything.
+            // Check again. Resolution above awaits an accessibility walk that
+            // can run for seconds, and the machine is not ours during it, so a
+            // person who started typing midway through would otherwise be
+            // interrupted by an action cleared before they touched anything.
             if takesOver, ActionExecutor.userIsCurrentlyActive() {
                 return await standDown()
             }
@@ -314,14 +280,14 @@ enum HostCuActionRunner {
             }
             timer.record(.execute, since: executeStart)
 
-            // WAIT: let the UI settle after the action, for as long as it
-            // actually needs rather than a flat worst case.
-            await waitForSettle(
-                baseline: settleBaseline,
-                baselineMs: settleBaselineMs,
-                stepNumber: stepNumber,
-                timer: timer
-            )
+            // WAIT — brief delay to let the UI settle after action
+            do {
+                try await timer.measure(.settle) {
+                    try await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                }
+            } catch {
+                log.warning("Post-action delay interrupted: \(error)")
+            }
         } else {
             // Observe-only skips the action-path gate, but AX enumeration silently
             // returns an empty tree without Accessibility. Surface the same hint the
@@ -344,132 +310,6 @@ enum HostCuActionRunner {
         )
 
         return finish(obs)
-    }
-
-    /// Take the observation screenshot and report how long the capture itself
-    /// took, so a caller running it beside other work can record it honestly.
-    nonisolated private static func timedCapture(
-        _ screenCapture: any ScreenCaptureProviding,
-        target: CaptureTarget?
-    ) async -> (Result<ScreenCaptureResult, any Error>, Int) {
-        let start = DispatchTime.now()
-        do {
-            let result = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: target)
-            return (.success(result), millisSince(start))
-        } catch {
-            return (.failure(error), millisSince(start))
-        }
-    }
-
-    // MARK: - Settle
-
-    /// Wait for the UI to come to rest after an action, and record what the
-    /// wait cost, including the pre-action baseline read, under `settle`.
-    ///
-    /// Sleeps the floor first, then samples the focused-window signature until
-    /// `SettlePolicy.hasSettled` says the action's effect landed and held
-    /// still, or the ceiling is reached. Each sample is bounded by the time
-    /// left before the ceiling. A sample that cannot be read is not evidence
-    /// of anything, so the wait sleeps out the ceiling instead.
-    private static func waitForSettle(
-        baseline: String?,
-        baselineMs: Int,
-        stepNumber: Int,
-        timer: PhaseTimer
-    ) async {
-        let startedAt = DispatchTime.now()
-        defer { timer.record(.settle, millis: baselineMs + millisSince(startedAt)) }
-
-        func sleep(millis: Int) async throws {
-            guard millis > 0 else { return }
-            try await Task.sleep(nanoseconds: UInt64(millis) * 1_000_000)
-        }
-
-        do {
-            guard baseline != nil else {
-                try await sleep(millis: SettlePolicy.ceilingMs)
-                return
-            }
-            try await sleep(millis: SettlePolicy.floorMs)
-
-            var previous: String?
-            while millisSince(startedAt) < SettlePolicy.ceilingMs {
-                let remainingMs = SettlePolicy.ceilingMs - millisSince(startedAt)
-                guard let sample = await focusedWindowSignature(budgetMs: remainingMs) else {
-                    log.debug("[\(stepNumber)] Settle sample unavailable, waiting out the ceiling")
-                    try await sleep(millis: SettlePolicy.ceilingMs - millisSince(startedAt))
-                    return
-                }
-                if SettlePolicy.hasSettled(baseline: baseline, previous: previous, current: sample) { return }
-                previous = sample
-                try await sleep(millis: min(SettlePolicy.sampleIntervalMs, SettlePolicy.ceilingMs - millisSince(startedAt)))
-            }
-        } catch {
-            log.warning("Post-action delay interrupted: \(error)")
-        }
-    }
-
-    /// Whether an action's settle wait may end before the ceiling. Only when
-    /// the signature observes the action's own effect: typing lands in the
-    /// focused element's value. A click, key or scroll can move focus as a
-    /// side effect while the page it triggered keeps rendering, and nothing
-    /// in the signature can tell that apart from completion, so those wait
-    /// out the ceiling.
-    private static func settleCanEndEarly(_ type: ActionType) -> Bool {
-        switch type {
-        case .type:
-            return true
-        case .click, .doubleClick, .rightClick, .key, .scroll, .drag, .openApp, .runAppleScript, .wait, .done, .respond:
-            return false
-        }
-    }
-
-    nonisolated private static func millisSince(_ start: DispatchTime) -> Int {
-        Int((DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000)
-    }
-
-    /// The AX reads one signature makes. Kept in step with the body below so
-    /// the per-read timeout divides the budget by the real count.
-    private static let settleSignatureReadCount = 5
-
-    /// A cheap reading of the focused window: its app, its title, and the
-    /// focused element's role and value. Nil when `budgetMs` is too small to
-    /// read it or any required read fails. Every read is bounded so the whole
-    /// signature stays inside the budget.
-    private static func focusedWindowSignature(budgetMs: Int) async -> String? {
-        guard let perRead = SettlePolicy.perReadTimeoutSeconds(
-            budgetMs: budgetMs,
-            readCount: settleSignatureReadCount
-        ) else { return nil }
-
-        // AX calls are synchronous Mach IPC into the target app, so they run
-        // off the main thread here for the same reason tree enumeration does.
-        return await Task.detached { () -> String? in
-            guard let pid = AccessibilityTreeEnumerator.topmostNonHostWindowPID() else { return nil }
-            let appElement = AXUIElementCreateApplication(pid)
-            // A messaging timeout belongs to the element it is set on, so each
-            // element read from is bounded in turn.
-            AXUIElementSetMessagingTimeout(appElement, perRead)
-
-            guard let window = axElementAttribute(appElement, kAXFocusedWindowAttribute) else {
-                return nil
-            }
-            AXUIElementSetMessagingTimeout(window, perRead)
-            let title = axStringAttribute(window, kAXTitleAttribute) ?? ""
-
-            // No focused element, or one with no value, is a normal state for a
-            // window nobody is typing into, so it is an empty part rather than
-            // a failed sample.
-            var role = ""
-            var value = ""
-            if let focused = axElementAttribute(appElement, kAXFocusedUIElementAttribute) {
-                AXUIElementSetMessagingTimeout(focused, perRead)
-                role = axStringAttribute(focused, kAXRoleAttribute) ?? ""
-                value = axStringAttribute(focused, kAXValueAttribute) ?? ""
-            }
-
-            return [String(pid), title, role, value].joined(separator: settleSignatureSeparator)
-        }.value
     }
 
     // MARK: - Capture Target
@@ -639,6 +479,24 @@ enum HostCuActionRunner {
     /// One window's AX read: its elements plus the identity of the window they came from.
     private typealias WindowRead = (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)
 
+    /// Take the observation screenshot and report how long the capture itself
+    /// took, so a caller running it beside other work can record it honestly.
+    nonisolated private static func timedCapture(
+        _ screenCapture: any ScreenCaptureProviding,
+        target: CaptureTarget?
+    ) async -> (Result<ScreenCaptureResult, any Error>, Int) {
+        let start = DispatchTime.now()
+        func elapsedMs() -> Int {
+            Int((DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000)
+        }
+        do {
+            let result = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: target)
+            return (.success(result), elapsedMs())
+        } catch {
+            return (.failure(error), elapsedMs())
+        }
+    }
+
     /// Capture the current screen state as an observation.
     private static func buildObservation(
         enumerator: AccessibilityTreeProviding,
@@ -668,18 +526,18 @@ enum HostCuActionRunner {
             previousAXElements.removeValue(forKey: conversationId)
         }
 
-        // Start the screenshot before the AX walk so the two overlap: they read
-        // the same moment of the same screen through different subsystems, and
-        // neither needs the other's answer. The request is identical whether or
-        // not the walk finds a tree, so one call serves both outcomes.
-        async let timedShot = timedCapture(screenCapture, target: captureTarget)
-
         // The tree stays inside what the screenshot shows. A window target
         // reads that window's tree, focused or not; a display target reads
         // the frontmost window on that display. Neither falls back to the
         // focused window: it may be on another display or another app, and
         // its text would then be filed against a frame that never showed it.
         // A targeted read with no matching tree is a screenshot alone.
+        // Start the screenshot before the AX walk so the two overlap: they read
+        // the same moment of the same screen through different subsystems, and
+        // neither needs the other's answer. The request is identical whether or
+        // not the walk finds a tree, so one call serves both outcomes.
+        async let timedShot = timedCapture(screenCapture, target: captureTarget)
+
         let windowResult = await timer.measure(.axWalk) { () -> WindowRead? in
             switch captureTarget {
             case .window(let windowId):
@@ -690,28 +548,6 @@ enum HostCuActionRunner {
             case nil:
                 return await enumerator.enumerateCurrentWindow()
             }
-        }
-
-        // Collect the capture that ran alongside the walk. A failure still
-        // leaves the screenshot nil and the tree, if there is one, intact.
-        // Its duration was measured inside its own task, so it reports the
-        // capture alone rather than however long the walk beside it took.
-        let (captureOutcome, captureMs) = await timedShot
-        timer.record(.capture, millis: captureMs)
-        switch captureOutcome {
-        case .success(let screenshotResult):
-            screenshotBase64 = await timer.measure(.encode) {
-                screenshotResult.jpegData.base64EncodedString()
-            }
-            if let meta = screenshotResult.metadata {
-                screenshotWidthPx = meta.screenshotWidthPx
-                screenshotHeightPx = meta.screenshotHeightPx
-            }
-            let screenSize = screenCapture.screenSize()
-            screenWidthPt = Int(screenSize.width)
-            screenHeightPt = Int(screenSize.height)
-        case .failure(let error):
-            log.error("[\(stepNumber)] Screenshot capture failed: \(error)")
         }
 
         if let result = windowResult {
@@ -741,9 +577,31 @@ enum HostCuActionRunner {
                 }
                 secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
             }
+
         } else {
-            // No focused window: the screenshot taken above is all we have.
-            log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
+            log.warning("[\(stepNumber)] No AX tree available, using the screenshot alone")
+        }
+
+        // Collect the capture that ran alongside the walk. A failure still
+        // leaves the screenshot nil and the tree, if there is one, intact. Its
+        // duration was measured inside its own task, so it reports the capture
+        // alone rather than however long the walk beside it took.
+        let (captureOutcome, captureMs) = await timedShot
+        timer.record(.capture, millis: captureMs)
+        switch captureOutcome {
+        case .success(let screenshotResult):
+            screenshotBase64 = await timer.measure(.encode) {
+                screenshotResult.jpegData.base64EncodedString()
+            }
+            if let meta = screenshotResult.metadata {
+                screenshotWidthPx = meta.screenshotWidthPx
+                screenshotHeightPx = meta.screenshotHeightPx
+            }
+            let screenSize = screenCapture.screenSize()
+            screenWidthPt = Int(screenSize.width)
+            screenHeightPt = Int(screenSize.height)
+        case .failure(let error):
+            log.error("[\(stepNumber)] Screenshot capture failed: \(error)")
         }
 
         return ObservationData(
