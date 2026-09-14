@@ -16,7 +16,6 @@ private enum CuPhase: String {
     case axWalk
     case capture
     case encode
-    case secondaryWindows
     /// Turning an element ID into coordinates, when the action named one.
     case resolve
     /// Counters about the tree walk rather than durations: the depth it used,
@@ -519,7 +518,6 @@ enum HostCuActionRunner {
         let screenHeightPt: Int?
         let executionResult: String?
         let executionError: String?
-        let secondaryWindows: String?
         /// One-line description of the tree that was read, for the step log.
         /// Nil when no tree was available.
         let treeSummary: String?
@@ -566,7 +564,6 @@ enum HostCuActionRunner {
         var screenshotHeightPx: Int?
         var screenWidthPt: Int?
         var screenHeightPt: Int?
-        var secondaryWindowsText: String?
         var treeSummary: String?
 
         // Targeted reads are standalone snapshots, never a desktop diff baseline.
@@ -650,18 +647,6 @@ enum HostCuActionRunner {
                 axDiffText = AXTreeDiff.diff(previousFlat: previousFlat, currentFlat: flat)
             }
 
-            // Enumerate secondary windows on first step. Never for a targeted
-            // read: those windows are outside what the user agreed to show.
-            if stepNumber <= 1 && captureTarget == nil {
-                let secondaryWindows = await timer.measure(.secondaryWindows) {
-                    await enumerator.enumerateSecondaryWindows(
-                        excludingPID: result.pid,
-                        maxWindows: 2
-                    )
-                }
-                secondaryWindowsText = AccessibilityTreeEnumerator.formatSecondaryWindows(secondaryWindows)
-            }
-
         } else {
             log.warning("[\(stepNumber)] No AX tree available, using the screenshot alone")
         }
@@ -711,7 +696,6 @@ enum HostCuActionRunner {
             screenHeightPt: screenHeightPt,
             executionResult: executionResult,
             executionError: executionError,
-            secondaryWindows: secondaryWindowsText,
             treeSummary: treeSummary
         )
     }
@@ -739,7 +723,6 @@ enum HostCuActionRunner {
             screenHeightPt: observation.screenHeightPt,
             executionResult: observation.executionResult,
             executionError: observation.executionError,
-            secondaryWindows: observation.secondaryWindows,
             timings: timings
         )
     }
