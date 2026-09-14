@@ -54,7 +54,7 @@ describe("safe-env CES child forwarding", () => {
   test("forwards CES HTTP credentials so sanitized children can resolve managed connections", () => {
     expect(SAFE_ENV_VARS).toContain("CES_SERVICE_TOKEN");
     expect(SAFE_ENV_VARS).toContain("CES_CREDENTIAL_URL");
-    expect(SAFE_ENV_VARS).toContain("CES_LOCAL_SOCKET");
+    expect(SAFE_ENV_VARS).not.toContain("CES_LOCAL_SOCKET");
 
     const env = buildSanitizedEnv("linux", {
       CES_SERVICE_TOKEN: "vault-bearer",
@@ -63,7 +63,7 @@ describe("safe-env CES child forwarding", () => {
     });
     expect(env.CES_SERVICE_TOKEN).toBe("vault-bearer");
     expect(env.CES_CREDENTIAL_URL).toBe("http://127.0.0.1:8090");
-    expect(env.CES_LOCAL_SOCKET).toBe("/tmp/ces.sock");
+    expect(env.CES_LOCAL_SOCKET).toBeUndefined();
   });
 });
 

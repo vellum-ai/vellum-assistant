@@ -9,6 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
+
 import { resolveCesSocketPath, startCes } from "../local.js";
 
 // ---------------------------------------------------------------------------
@@ -112,7 +114,17 @@ describe("startCes", () => {
     }, 50);
 
     lastSpawnCall = null;
-    await startCes(false, resources);
+    const priorSocket = process.env.CES_LOCAL_SOCKET;
+    process.env.CES_LOCAL_SOCKET = "/tmp/stale-ces.sock";
+    try {
+      await startCes(false, resources);
+    } finally {
+      if (priorSocket == null) {
+        delete process.env.CES_LOCAL_SOCKET;
+      } else {
+        process.env.CES_LOCAL_SOCKET = priorSocket;
+      }
+    }
 
     // Verify spawn was called
     expect(lastSpawnCall).not.toBeNull();
@@ -126,7 +138,7 @@ describe("startCes", () => {
 
     // Verify env vars
     const env = lastSpawnCall!.options.env!;
-    expect(env["CES_LOCAL_SOCKET"]).toBeDefined();
+    expect(env["CES_LOCAL_SOCKET"]).toBeUndefined();
     expect(env["CREDENTIAL_SECURITY_DIR"]).toBeDefined();
     expect(env["VELLUM_WORKSPACE_DIR"]).toBeDefined();
 
@@ -142,5 +154,19 @@ describe("startCes", () => {
     const socketPath = resolveCesSocketPath(resources, "win32");
     expect(socketPath.startsWith("\\\\.\\pipe\\vellum-ces-")).toBe(true);
     expect(socketPath).not.toContain("Example");
+  });
+
+  test("POSIX local CES seam matches resolveIpcEndpoint", () => {
+    const resources = {
+      instanceDir: "/tmp/assistant-123",
+    } as Parameters<typeof resolveCesSocketPath>[0];
+
+    const socketPath = resolveCesSocketPath(resources, "linux");
+    expect(socketPath).toBe(
+      resolveIpcEndpoint("ces", {
+        workspaceDir: join("/tmp/assistant-123", ".vellum", "workspace"),
+        platform: "linux",
+      }).path,
+    );
   });
 });

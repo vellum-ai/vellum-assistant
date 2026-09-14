@@ -22,6 +22,8 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
 
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
+
 // ---------------------------------------------------------------------------
 // Mode detection
 // ---------------------------------------------------------------------------
@@ -129,26 +131,26 @@ export function getBootstrapSocketPath(): string {
 // Local-mode CES socket
 // ---------------------------------------------------------------------------
 
-/** Default local-mode CES socket filename (under the local data root). */
-const LOCAL_SOCKET_NAME = "ces.sock";
+function getLocalWorkspaceDir(): string {
+  const override = process.env["VELLUM_WORKSPACE_DIR"]?.trim();
+  if (override) {
+    return override;
+  }
+  return join(homedir(), ".vellum", "workspace");
+}
 
 /**
- * Return the path to the local-mode CES Unix socket.
+ * Return the path to the local-mode CES IPC endpoint.
  *
- * Used when local CES runs as a CLI-launched sibling process. The socket
- * lives under the CES-private local data root, whose directory permissions
- * are the access boundary.
- *
- * Priority:
- * 1. `CES_LOCAL_SOCKET` env var (full file path override; the CLI sets this
- *    when launching the sibling).
- * 2. Default: `<localDataRoot>/ces.sock`.
+ * CES, the CLI, and the assistant all resolve this from
+ * `VELLUM_WORKSPACE_DIR` through `resolveIpcEndpoint("ces")` so they agree
+ * without a dedicated socket env var. Windows uses a named pipe; POSIX uses
+ * a Unix socket, including the shared macOS AF_UNIX fallback.
  */
 export function getLocalSocketPath(): string {
-  return (
-    process.env["CES_LOCAL_SOCKET"] ??
-    join(getCesDataRoot("local"), LOCAL_SOCKET_NAME)
-  );
+  return resolveIpcEndpoint("ces", {
+    workspaceDir: getLocalWorkspaceDir(),
+  }).path;
 }
 
 // ---------------------------------------------------------------------------

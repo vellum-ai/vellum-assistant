@@ -6,14 +6,15 @@
  *   1. CES RPC (primary) — injected via `setCesClient()`: delegates credential
  *      operations to the CES process over Unix socket RPC. This is the default
  *      path for the daemon (which calls startCes() at boot) and for non-daemon
- *      processes that lazily connect via the CES_LOCAL_SOCKET path (see below).
+ *      processes that lazily connect to the CES socket (see below).
  *   2. CES HTTP — containerized mode (IS_CONTAINERIZED + CES_CREDENTIAL_URL):
  *      delegates to the CES sidecar over HTTP. Used in Docker/managed mode,
  *      including failover when the bootstrap RPC transport dies later.
  *   3. Lazy CES RPC connect — non-daemon processes (workers, CLI subprocesses)
- *      that inherit CES_LOCAL_SOCKET but never call startCes(). On first
- *      credential resolution, a direct CES connection is established and
- *      cached. On failure, falls through to the encrypted file store.
+ *      that never call startCes(). On first credential resolution they
+ *      discover the CES socket (managed bootstrap path, or the local
+ *      workspace `ces` IPC endpoint) and cache the connection. On failure,
+ *      falls through to the encrypted file store.
  *   4. Encrypted file store (fallback) — used when CES is unavailable.
  *
  * All operations (reads, writes, lists, deletes) go to exactly one backend.
@@ -36,6 +37,7 @@ import {
   type CesClient,
   createCesClient,
 } from "../credential-execution/client.js";
+import { discoverCes } from "../credential-execution/executable-discovery.js";
 import {
   CesUnavailableError,
   createCesProcessManager,
@@ -84,11 +86,11 @@ let _resolvePromise: Promise<CredentialBackend> | undefined;
 /**
  * In-flight lazy CES connection promise for non-daemon processes.
  *
- * Workers and CLI subprocesses inherit CES_LOCAL_SOCKET but never call
- * startCes(). When they hit resolveBackendAsync() with no _cesClient and
- * no _cesReconnect (daemon-only), this promise memoizes a direct CES
- * connection attempt so concurrent credential reads in the same process
- * share a single connect+handshake rather than racing.
+ * Workers and CLI subprocesses never call startCes(). When they hit
+ * resolveBackendAsync() with no _cesClient and no _cesReconnect
+ * (daemon-only), this promise memoizes a direct CES connection attempt so
+ * concurrent credential reads in the same process share a single
+ * connect+handshake rather than racing.
  */
 let _lazyConnectPromise: Promise<CesClient | undefined> | undefined;
 
@@ -413,10 +415,12 @@ export async function attemptCesReconnection(
 /**
  * Lazily connect to a CES sibling socket from a non-daemon process.
  *
- * Workers and CLI subprocesses inherit CES_LOCAL_SOCKET from the daemon's
- * environment but never call startCes(). This function establishes a direct
- * CES connection on first credential resolution, memoizing the in-flight
- * promise so concurrent callers share a single connect+handshake.
+ * Workers and CLI subprocesses never call startCes(). This function
+ * establishes a direct CES connection on first credential resolution,
+ * memoizing the in-flight promise so concurrent callers share a single
+ * connect+handshake. Discovery uses the managed bootstrap socket or the
+ * local workspace `ces` IPC endpoint; a missing socket fails immediately
+ * so callers can fall through without polling.
  *
  * On success, the client is injected via setCesClient() so subsequent
  * resolveBackendAsync() calls take the fast CES RPC path (step 1). A
@@ -433,6 +437,14 @@ async function tryLazyCesConnect(): Promise<CesClient | undefined> {
 
   _lazyConnectPromise = (async () => {
     try {
+      const discovery = discoverCes();
+      if (discovery.mode === "unavailable") {
+        log.info(
+          { reason: discovery.reason },
+          "CES socket not reachable for lazy connect, falling back to encrypted file store",
+        );
+        return undefined;
+      }
       const pm = createCesProcessManager({});
       const transport = await pm.start();
       const client = createCesClient(transport);
@@ -526,12 +538,12 @@ async function doResolveBackend(): Promise<CredentialBackend> {
   }
 
   // 2.5. Lazy CES RPC connect — non-daemon processes (workers, CLI
-  //      subprocesses) inherit CES_LOCAL_SOCKET but never call startCes().
-  //      When the daemon's setCesReconnect() is NOT registered, attempt a
-  //      direct connection to the CES sibling socket. On success, inject
-  //      the client via setCesClient() and re-resolve through the CES RPC
-  //      path. On failure, fall through to the encrypted file store.
-  if (!_cesClient && !_cesReconnect && process.env.CES_LOCAL_SOCKET) {
+  //      subprocesses) never call startCes(). When the daemon's
+  //      setCesReconnect() is NOT registered, attempt a direct connection
+  //      to the CES socket. On success, inject the client via setCesClient()
+  //      and re-resolve through the CES RPC path. On failure, fall through
+  //      to the encrypted file store.
+  if (!_cesClient && !_cesReconnect) {
     const lazyClient = await tryLazyCesConnect();
     if (lazyClient) {
       const cesRpc = new CesRpcCredentialBackend(lazyClient);

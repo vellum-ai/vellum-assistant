@@ -644,11 +644,10 @@ function applyDaemonEnvOverrides(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
-  // Pin the daemon to the exact socket the sibling binds so the two agree
-  // regardless of any stale CES_LOCAL_SOCKET inherited from the parent
-  // environment. The assistant connects to the sibling instead of spawning
-  // its own CES.
-  env.CES_LOCAL_SOCKET = resolveCesSocketPath(resources);
+  // CES and the assistant resolve the sibling endpoint from
+  // VELLUM_WORKSPACE_DIR. A parent-environment CES_LOCAL_SOCKET must not
+  // leak into the daemon.
+  delete env.CES_LOCAL_SOCKET;
   applyIpcSocketDirOverride(env);
 }
 
@@ -1022,8 +1021,9 @@ function resolveCesDir(resources?: LocalInstanceResources): string {
 
 /**
  * Resolve the local IPC endpoint shared by the CLI-launched CES sibling and
- * assistant. Windows uses a named pipe. POSIX uses a Unix socket, including
- * the existing short macOS fallback.
+ * assistant. CES binds this path from `VELLUM_WORKSPACE_DIR` via the same
+ * `resolveIpcEndpoint("ces")` helper. Windows uses a named pipe. POSIX uses
+ * a Unix socket, including the shared macOS AF_UNIX fallback.
  */
 export function resolveCesSocketPath(
   resources?: LocalInstanceResources,
@@ -1032,16 +1032,10 @@ export function resolveCesSocketPath(
   const workspaceDir = resources
     ? join(resources.instanceDir, ".vellum", "workspace")
     : join(homedir(), ".vellum", "workspace");
-  if (hostPlatform === "win32") {
-    return resolveIpcEndpoint("ces", {
-      workspaceDir,
-      platform: hostPlatform,
-    }).path;
-  }
-  const override = computeIpcSocketDirOverride(workspaceDir);
-  const socketDir = override ?? workspaceDir;
-  mkdirSync(socketDir, { recursive: true });
-  return join(socketDir, "ces.sock");
+  return resolveIpcEndpoint("ces", {
+    workspaceDir,
+    platform: hostPlatform,
+  }).path;
 }
 
 async function isIpcEndpointReady(endpointPath: string): Promise<boolean> {
@@ -1105,10 +1099,10 @@ export async function startCes(
 
   const cesEnv: Record<string, string | undefined> = {
     ...process.env,
-    CES_LOCAL_SOCKET: socketPath,
     CREDENTIAL_SECURITY_DIR: securityDir,
     VELLUM_WORKSPACE_DIR: workspaceDir,
   };
+  delete cesEnv.CES_LOCAL_SOCKET;
 
   let ces;
   const runtimeCesDir = !watch ? localRuntimeCesDir(resources) : undefined;

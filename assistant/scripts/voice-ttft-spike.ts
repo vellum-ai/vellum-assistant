@@ -15,7 +15,7 @@
  *   full-quality  quality-optimized, full prompt + tools (pre-flag brain)
  *
  * Run with the daemon's environment so the managed connection resolves:
- *   VELLUM_WORKSPACE_DIR=<daemon workspace> CES_LOCAL_SOCKET=<socket> \
+ *   VELLUM_WORKSPACE_DIR=<daemon workspace> \
  *     bun run scripts/voice-ttft-spike.ts [--trials 3] [--variants a,b]
  *
  * Outside the daemon env, credentials fall back to the encrypted file
@@ -217,7 +217,7 @@ async function main(): Promise<void> {
     if (!provider) {
       console.error(
         `${spec.name}: no provider resolved (managed credentials missing? ` +
-          `run with the daemon's VELLUM_WORKSPACE_DIR + CES_LOCAL_SOCKET)`,
+          `run with the daemon's VELLUM_WORKSPACE_DIR)`,
       );
       continue;
     }

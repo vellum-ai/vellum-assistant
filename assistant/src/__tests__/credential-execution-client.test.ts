@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
 import { CES_PROTOCOL_VERSION } from "@vellumai/service-contracts/credential-rpc";
 
 import {
@@ -31,6 +32,7 @@ import {
 } from "../credential-execution/client.js";
 import {
   discoverCesWithRetry,
+  discoverLocalSiblingCes,
   discoverManagedCes,
 } from "../credential-execution/executable-discovery.js";
 
@@ -118,6 +120,23 @@ describe("managed CES discovery", () => {
         delete process.env["CES_BOOTSTRAP_SOCKET"];
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sibling discovery — local workspace IPC path, no CES_LOCAL_SOCKET
+// ---------------------------------------------------------------------------
+
+describe("local sibling CES discovery", () => {
+  test("looks for the sibling socket at the workspace IPC path", () => {
+    const workspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    expect(workspaceDir).toBeDefined();
+    const socketPath = resolveIpcEndpoint("ces", {
+      workspaceDir: workspaceDir!,
+    }).path;
+    const result = discoverLocalSiblingCes();
+    expect(result.mode).toBe("unavailable");
+    expect((result as { reason: string }).reason).toContain(socketPath);
   });
 });
 

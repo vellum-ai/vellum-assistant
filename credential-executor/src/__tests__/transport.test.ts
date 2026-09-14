@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PassThrough } from "node:stream";
 
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
 import {
   CES_PROTOCOL_VERSION,
   type HandshakeAck,
@@ -27,6 +28,7 @@ import {
   getCesDataRoot,
   getBootstrapSocketPath,
   getHealthPort,
+  getLocalSocketPath,
 } from "../paths.js";
 import { CesRpcServer, type RpcHandlerRegistry } from "../server.js";
 
@@ -428,6 +430,22 @@ describe("CES data paths", () => {
         process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
       } else {
         delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+      }
+    }
+  });
+
+  test("getLocalSocketPath uses the workspace IPC endpoint", () => {
+    const saved = process.env["VELLUM_WORKSPACE_DIR"];
+    process.env["VELLUM_WORKSPACE_DIR"] = "/tmp/ces-ws";
+    try {
+      expect(getLocalSocketPath()).toBe(
+        resolveIpcEndpoint("ces", { workspaceDir: "/tmp/ces-ws" }).path,
+      );
+    } finally {
+      if (saved !== undefined) {
+        process.env["VELLUM_WORKSPACE_DIR"] = saved;
+      } else {
+        delete process.env["VELLUM_WORKSPACE_DIR"];
       }
     }
   });

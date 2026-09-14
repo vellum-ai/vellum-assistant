@@ -3,8 +3,9 @@
  *
  * Provides two discovery strategies:
  *
- * 1. **Sibling mode** — Locates the CLI-launched CES sibling process via its
- *    Unix socket (`CES_LOCAL_SOCKET`). Used by bare-metal/local instances.
+ * 1. **Sibling mode** — Locates the CLI-launched CES sibling process via the
+ *    shared `ces` IPC endpoint under the workspace directory. Used by
+ *    bare-metal/local instances.
  *
  * 2. **Managed mode** — Locates the bootstrap Unix socket exposed by the CES
  *    sidecar container through a shared emptyDir volume, and returns a
@@ -18,8 +19,14 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  isNamedPipePath,
+  resolveIpcEndpoint,
+} from "@vellumai/ipc-server-utils";
+
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("ces-discovery");
 
@@ -120,21 +127,18 @@ export function discoverManagedCes():
 // ---------------------------------------------------------------------------
 
 /**
- * Discover a CLI-launched local CES sibling via its Unix socket. The CLI sets
- * `CES_LOCAL_SOCKET` on both the sibling and the daemon so they agree on the
- * path. Does not open a connection — that happens in `CesProcessManager.start()`.
+ * Discover a CLI-launched local CES sibling via the shared `ces` IPC
+ * endpoint. CES, the CLI, and the assistant all resolve this path from
+ * `VELLUM_WORKSPACE_DIR` through `resolveIpcEndpoint("ces")`. Does not open
+ * a connection; that happens in `CesProcessManager.start()`.
  */
 export function discoverLocalSiblingCes():
   | SiblingDiscoverySuccess
   | DiscoveryFailure {
-  const socketPath = process.env["CES_LOCAL_SOCKET"];
-  if (!socketPath) {
-    const reason =
-      "CES_LOCAL_SOCKET is not set — cannot locate the CES sibling socket. The CLI should set this during wake/hatch.";
-    log.warn(reason);
-    return { mode: "unavailable", reason };
-  }
-  if (!existsSync(socketPath)) {
+  const socketPath = resolveIpcEndpoint("ces", {
+    workspaceDir: getWorkspaceDir(),
+  }).path;
+  if (!isNamedPipePath(socketPath) && !existsSync(socketPath)) {
     return {
       mode: "unavailable",
       reason: `CES sibling socket not found at ${socketPath}`,
