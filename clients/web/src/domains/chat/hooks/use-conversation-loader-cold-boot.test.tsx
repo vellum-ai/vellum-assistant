@@ -10,6 +10,10 @@
  * The tests under "an assistant that predates foregroundOnly" flip the stub
  * to ignore the parameter, which is what an older assistant does, and cover
  * the paged search the loader falls back to when the answer proves that.
+ *
+ * The last block covers what the loader does to the URL once it holds a key:
+ * a URL that already names the resolved key is left alone, segments and all,
+ * so the app viewer sub-route survives a reload.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -29,6 +33,7 @@ import {
   rawConversation,
 } from "@/utils/conversation-list.test-helper";
 import { saveLastViewedConversationId } from "@/utils/last-viewed-conversation-storage";
+import { routes } from "@/utils/routes";
 import type { Conversation } from "@/types/conversation-types";
 
 const ASSISTANT_ID = "asst-1";
@@ -191,14 +196,17 @@ function stubDaemon() {
 
 const originalGet = daemonClient.get;
 
-function renderColdBoot(queryClient: QueryClient) {
+function renderColdBoot(
+  queryClient: QueryClient,
+  urlConversationId: string | null = null,
+) {
   return renderHook(
     () =>
       useConversationLoader({
         assistantId: ASSISTANT_ID,
         assistantStateKind: "active",
         activeConversationId: null,
-        urlConversationId: null,
+        urlConversationId,
         searchParams: new URLSearchParams(),
         activeConversation: undefined,
         refreshEpoch: 0,
@@ -560,5 +568,41 @@ describe("useConversationLoader cold-boot landing", () => {
     renderColdBoot(new QueryClient());
 
     expect(await landedOn()).toContain(ASSISTANT_ID);
+  });
+});
+
+describe("URL path is kept when it already names the key", () => {
+  test("leaves an app viewer URL that already names the resolved key alone", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      routes.conversation("c1") + "/app/app-1",
+    );
+
+    renderColdBoot(new QueryClient(), "c1");
+
+    await waitFor(() => {
+      expect(useConversationStore.getState().activeConversationId).toBe("c1");
+    });
+    /* A rewrite here would drop the app segment on every reload. */
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("rewrites an index landing to the conversation it resolved", async () => {
+    window.history.replaceState({}, "", routes.assistant);
+    saveLastViewedConversationId(ASSISTANT_ID, "stored-chat");
+    byIdRow = { id: "stored-chat" };
+
+    renderColdBoot(new QueryClient());
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        routes.conversation("stored-chat"),
+        { replace: true },
+      );
+    });
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "stored-chat",
+    );
   });
 });
