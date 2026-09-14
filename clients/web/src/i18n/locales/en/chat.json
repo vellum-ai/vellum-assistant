@@ -1619,8 +1619,6 @@
     "titleFallback": "Skill"
   },
   "skillExecuteDetail": {
-    "parameters": "Parameters",
-    "rawInput": "Raw input",
     "runningSuffix": " · running"
   },
   "skillLoadCard": {
@@ -1751,10 +1749,13 @@
     "command": "Command",
     "denied": "This tool call was not approved, so it did not run.",
     "emptyOutput": "The tool returned no output.",
-    "input": "Input",
     "output": "Output",
     "requestedChanges": "Requested changes",
     "running": "Running…"
+  },
+  "toolInputParameters": {
+    "parameters": "Parameters",
+    "rawInput": "Raw input"
   },
   "toolStepPill": {
     "openAria": "Open {label}",

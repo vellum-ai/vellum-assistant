@@ -111,8 +111,8 @@ afterEach(() => {
 });
 
 describe("ToolDetailPanel", () => {
-  test("renders the activity title, friendly tool name, input JSON and output", () => {
-    const { getAllByText, container } = render(
+  test("renders the activity title, friendly tool name, parameters and output", () => {
+    const { getAllByText, getByText, container } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
@@ -122,10 +122,57 @@ describe("ToolDetailPanel", () => {
     ).toHaveLength(1);
     // The tool is named once, in the header beneath the activity.
     expect(getAllByText("Subagent Spawn")).toHaveLength(1);
-    // Input JSON + output appear inside <pre> blocks.
+    // Each parameter is a row of its key and its value, not a JSON literal.
+    expect(getByText("label")).toBeDefined();
+    expect(getByText("toronto-location")).toBeDefined();
     const text = container.textContent ?? "";
-    expect(text).toContain('"toronto-location"');
+    expect(text).not.toContain('"toronto-location"');
     expect(text).toContain("Toronto is in Ontario, Canada.");
+  });
+
+  test("keeps the raw input, activity included, one disclosure away", () => {
+    const detail = makeDetail({
+      input: {
+        activity: "Spawning subagent to research Toronto's location",
+        label: "toronto-location",
+      },
+    });
+    const { getByText, queryByText, container } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    // The header already shows the activity sentence, so it is not a row.
+    expect(queryByText("activity")).toBeNull();
+    expect(container.textContent).not.toContain('"activity"');
+
+    act(() => {
+      fireEvent.click(getByText("Raw input"));
+    });
+
+    expect(container.textContent).toContain('"activity"');
+    expect(container.textContent).toContain('"toronto-location"');
+  });
+
+  test("shows only the raw input when the call has no parameters", () => {
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={makeDetail({ input: {} })} onClose={noop} />,
+    );
+
+    expect(queryByText("Parameters")).toBeNull();
+    expect(getByText("Raw input")).toBeDefined();
+  });
+
+  test("renders a structured parameter as JSON under its key", () => {
+    const detail = makeDetail({
+      toolName: "acme_crm_upsert_contact",
+      input: { record: { stage: "qualified", tags: ["inbound"] } },
+    });
+    const { getByText, container } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(getByText("record")).toBeDefined();
+    expect(container.textContent).toContain('"stage": "qualified"');
   });
 
   test("omits the Technical details label", () => {
