@@ -27,6 +27,14 @@ const PLANS_PATH = r("/assistant/plans");
 export const SCROLL_TO_MESSAGE_PARAM = "message";
 
 /**
+ * Path segment introducing the app a conversation URL keeps on screen
+ * (`/assistant/conversations/:conversationId/app/:appId`). Shared by the URL
+ * producers ({@link routes.conversation} and friends) and the parser
+ * ({@link appIdForPath}) so the spelling can't drift from `routes.tsx`.
+ */
+export const CONVERSATION_APP_SEGMENT = "app";
+
+/**
  * Search param naming a Pro package. Carried by the checkout deep link
  * (`/assistant/checkout?package=<slug>`) that the marketing pricing CTAs
  * target, and by the plans takeover's one-shot switch deep link
@@ -68,11 +76,21 @@ export const routes = {
   credentialEntry: r("/assistant/credentials/enter"),
   quickInput: r("/assistant/quick-input"),
   conversations: r("/assistant/conversations"),
-  conversation: (key: string) => dyn(r("/assistant/conversations"), key),
+  /** Conversation URL, optionally naming the app the viewer keeps on screen.
+   *  `appId` is passed through unencoded, like {@link routes.library.app};
+   *  `useParams` decodes the segment on the way back. */
+  conversation: (key: string, appId?: string | null) => {
+    const base = dyn(r("/assistant/conversations"), key);
+    return appId ? `${base}/${CONVERSATION_APP_SEGMENT}/${appId}` : base;
+  },
   /** Conversation URL that asks the transcript to scroll to + highlight a
    *  specific message on load. */
-  conversationAtMessage: (conversationId: string, messageId: string) =>
-    `${dyn(r("/assistant/conversations"), conversationId)}?${SCROLL_TO_MESSAGE_PARAM}=${encodeURIComponent(messageId)}`,
+  conversationAtMessage: (
+    conversationId: string,
+    messageId: string,
+    appId?: string | null,
+  ) =>
+    `${routes.conversation(conversationId, appId)}?${SCROLL_TO_MESSAGE_PARAM}=${encodeURIComponent(messageId)}`,
   /** Conversation URL that auto-sends `prompt` on load via the `?prompt=`
    *  pathway (see `use-auto-send-effects.ts`). Lets another surface (app
    *  viewer, document feedback) relay a message into a conversation. An
@@ -82,8 +100,9 @@ export const routes = {
     conversationId: string,
     prompt: string,
     relayToken?: string,
+    appId?: string | null,
   ) => {
-    const base = `${dyn(r("/assistant/conversations"), conversationId)}?prompt=${encodeURIComponent(prompt)}`;
+    const base = `${routes.conversation(conversationId, appId)}?prompt=${encodeURIComponent(prompt)}`;
     return relayToken
       ? `${base}&relay=${encodeURIComponent(relayToken)}`
       : base;
@@ -389,28 +408,59 @@ export function isConversationPath(pathname: string): boolean {
 }
 
 /**
- * The conversation id `pathname` names, or `null` when it names none. Matches
- * exactly `/assistant/conversations/:id` (a trailing slash is tolerated), so
- * both the `/assistant` index, which mounts a chat surface without naming a
- * conversation, and conversation subroutes such as the inspector
- * (`/assistant/conversations/:id/inspect`) yield `null`.
- *
- * Sole owner of the conversation URL shape: {@link isConversationChatPath}
- * derives from it, and callers wanting the id itself rather than a yes/no read
- * it here, so the two cannot drift apart.
+ * Sole owner of the conversation URL shape: `/assistant/conversations/:id`,
+ * optionally followed by the app viewer segment (`/app/:appId`), tolerating a
+ * trailing slash. Anything else (the conversations list, a subroute such as
+ * the inspector, a deeper path) is `null`.
  */
-export function conversationIdForPath(pathname: string): string | null {
+function parseConversationPath(
+  pathname: string,
+): { conversationId: string; appId: string | null } | null {
   const prefix = `${routes.conversations}/`;
   if (!pathname.startsWith(prefix)) {
     return null;
   }
-  // Exactly one path segment after the prefix (a bare conversation id,
-  // tolerating a trailing slash); deeper segments are other pages.
-  const id = pathname.slice(prefix.length).replace(/\/+$/, "");
-  if (id.length === 0 || id.includes("/")) {
+  const rest = pathname.slice(prefix.length).replace(/\/+$/, "");
+  if (rest.length === 0) {
     return null;
   }
-  return id;
+  const segments = rest.split("/");
+  const conversationId = segments[0];
+  // An empty id means a doubled slash (`/conversations//app/a1`), never a route.
+  if (conversationId.length === 0) {
+    return null;
+  }
+  if (segments.length === 1) {
+    return { conversationId, appId: null };
+  }
+  if (segments.length === 3 && segments[1] === CONVERSATION_APP_SEGMENT) {
+    const appId = segments[2];
+    return appId.length > 0 ? { conversationId, appId } : null;
+  }
+  return null;
+}
+
+/**
+ * The conversation id `pathname` names, or `null` when it names none. The
+ * `/assistant` index, which mounts a chat surface without naming a
+ * conversation, yields `null`, and so does a subroute such as the inspector
+ * (`/assistant/conversations/:id/inspect`). The app viewer sub-route
+ * (`/app/:appId`) is accepted because it keeps `ChatPage` mounted, unlike
+ * `InspectPage`, which replaces it.
+ *
+ * {@link isConversationChatPath} and {@link appIdForPath} read the same parse,
+ * so the three cannot drift apart.
+ */
+export function conversationIdForPath(pathname: string): string | null {
+  return parseConversationPath(pathname)?.conversationId ?? null;
+}
+
+/**
+ * The app id `pathname` keeps on screen, or `null` when it names none. The URL
+ * is the source of truth for which app the viewer shows.
+ */
+export function appIdForPath(pathname: string): string | null {
+  return parseConversationPath(pathname)?.appId ?? null;
 }
 
 /**
