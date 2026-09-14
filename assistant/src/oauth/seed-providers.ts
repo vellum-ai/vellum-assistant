@@ -1498,6 +1498,11 @@ export const PROVIDER_SEED_DATA: Record<
     // myshopify domain is the stable, human-recognisable handle.
     identityUrl: "https://{tenant_host}/admin/api/2025-07/shop.json",
     identityResponsePaths: ["shop.myshopify_domain", "shop.name"],
+    // Gated like monday/figma/stripe-link: the platform side and the
+    // shop-domain input in the clients land separately, and until both are
+    // in place a visible Shopify tile would offer a connect flow that
+    // cannot complete.
+    featureFlag: "shopify-oauth",
   },
 };
 
