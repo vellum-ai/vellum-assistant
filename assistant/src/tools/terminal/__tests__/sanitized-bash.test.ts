@@ -27,12 +27,12 @@ describe("runSanitizedBash", () => {
     expect(result.stdout.trim()).toBe("hello");
   });
 
-  test("forwards CES_SERVICE_TOKEN to the child", async () => {
+  test("does not forward CES_SERVICE_TOKEN to the child", async () => {
     process.env.CES_SERVICE_TOKEN = "vault-bearer";
     const result = await runSanitizedBash("printenv CES_SERVICE_TOKEN", 5_000);
     expect(result.error).toBeUndefined();
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe("vault-bearer");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout.trim()).toBe("");
   });
 
   test("does not forward CES_LOCAL_SOCKET to the child", async () => {

@@ -16,7 +16,7 @@ When you introduce a new env var that the assistant process needs to read at run
 
 **Default to including it.** If the var doesn't contain secrets (e.g. a URL, a feature flag, a path, a mode string), add it. Only omit it if it carries credential material (tokens, passwords, private keys) — those must stay isolated to CES.
 
-`CES_SERVICE_TOKEN` and `CES_CREDENTIAL_URL` are forwarded: managed children still resolve connections through CES HTTP. Local children discover the CES sibling socket from `VELLUM_WORKSPACE_DIR` (already forwarded) via the shared IPC endpoint resolver; managed children use `CES_BOOTSTRAP_SOCKET_DIR`. Credential protection is rules-based access control inside CES, not socket-path secrecy (see root `AGENTS.md`). See the comment on the CES HTTP keys in `src/tools/terminal/safe-env.ts` before attempting to strip them.
+`CES_BOOTSTRAP_SOCKET_DIR` and `VELLUM_WORKSPACE_DIR` are forwarded so children can reach CES over IPC. `CES_SERVICE_TOKEN` and `CES_CREDENTIAL_URL` stay on the assistant process for RPC-to-HTTP failover and are not forwarded to children. Credential protection is rules-based access control inside CES, not socket-path secrecy (see root `AGENTS.md`).
 
 ## Daemon startup philosophy
 

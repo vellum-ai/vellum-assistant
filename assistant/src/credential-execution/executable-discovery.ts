@@ -99,10 +99,10 @@ export type DiscoveryResult =
 /**
  * Discover the managed CES sidecar via its bootstrap Unix socket.
  *
- * Checks that the well-known socket file exists on disk. Does NOT open a
- * connection — the CES sidecar accepts exactly one connection and then
- * unlinks the socket, so a probe would consume the only slot. The actual
- * connection is made later by `CesProcessManager.start()`.
+ * Checks that the well-known socket file exists on disk. Does not open a
+ * connection. CES serves a multi-connection listener, so the assistant and
+ * its child processes can each connect. The actual connection is made later
+ * by `CesProcessManager.start()`.
  *
  * The socket path is derived from `CES_BOOTSTRAP_SOCKET_DIR` (matching the
  * pod template), with `CES_BOOTSTRAP_SOCKET` as a full-path fallback.

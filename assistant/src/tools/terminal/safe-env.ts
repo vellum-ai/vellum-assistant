@@ -55,18 +55,15 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS",
   "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
   "CES_MANAGED_MODE",
-  // Child processes (bash, skill sandbox, scheduled scripts) run
-  // `assistant oauth request` in-process and resolve managed connections
-  // through CES HTTP (`getSecureKeyAsync` / platform client). They need
-  // both the credential URL and the service token. Local children discover
-  // the CES sibling socket from `VELLUM_WORKSPACE_DIR`; managed children
-  // discover the bootstrap socket from `CES_BOOTSTRAP_SOCKET_DIR`.
-  "CES_CREDENTIAL_URL",
-  "CES_SERVICE_TOKEN",
+  // Child processes (bash, skill sandbox, scheduled scripts) reach CES
+  // over IPC. Local children discover the sibling socket from
+  // `VELLUM_WORKSPACE_DIR`; managed children use `CES_BOOTSTRAP_SOCKET_DIR`.
+  // CES HTTP credentials stay on the assistant process for RPC-to-HTTP
+  // failover and are not forwarded.
   // Per-instance port of the assistant-managed Qdrant sidecar, so skill and
   // bash-tool subprocesses that use the vector helpers (e.g. embed/search over
   // `@vellumai/plugin-api`) resolve the same local sidecar as the daemon
-  // (127.0.0.1:<port>). `QDRANT_URL` is intentionally excluded — it flips
+  // (127.0.0.1:<port>). `QDRANT_URL` is intentionally excluded: it flips
   // QdrantManager into external mode and bypasses the local managed lifecycle.
   "QDRANT_HTTP_PORT",
   "IS_CONTAINERIZED",

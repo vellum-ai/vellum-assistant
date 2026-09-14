@@ -51,18 +51,21 @@ describe("safe-env Qdrant forwarding", () => {
 });
 
 describe("safe-env CES child forwarding", () => {
-  test("forwards CES HTTP credentials so sanitized children can resolve managed connections", () => {
-    expect(SAFE_ENV_VARS).toContain("CES_SERVICE_TOKEN");
-    expect(SAFE_ENV_VARS).toContain("CES_CREDENTIAL_URL");
+  test("forwards CES IPC discovery env and strips CES HTTP credentials", () => {
+    expect(SAFE_ENV_VARS).toContain("CES_BOOTSTRAP_SOCKET_DIR");
+    expect(SAFE_ENV_VARS).not.toContain("CES_SERVICE_TOKEN");
+    expect(SAFE_ENV_VARS).not.toContain("CES_CREDENTIAL_URL");
     expect(SAFE_ENV_VARS).not.toContain("CES_LOCAL_SOCKET");
 
     const env = buildSanitizedEnv("linux", {
+      CES_BOOTSTRAP_SOCKET_DIR: "/run/ces-bootstrap",
       CES_SERVICE_TOKEN: "vault-bearer",
       CES_CREDENTIAL_URL: "http://127.0.0.1:8090",
       CES_LOCAL_SOCKET: "/tmp/ces.sock",
     });
-    expect(env.CES_SERVICE_TOKEN).toBe("vault-bearer");
-    expect(env.CES_CREDENTIAL_URL).toBe("http://127.0.0.1:8090");
+    expect(env.CES_BOOTSTRAP_SOCKET_DIR).toBe("/run/ces-bootstrap");
+    expect(env.CES_SERVICE_TOKEN).toBeUndefined();
+    expect(env.CES_CREDENTIAL_URL).toBeUndefined();
     expect(env.CES_LOCAL_SOCKET).toBeUndefined();
   });
 });
