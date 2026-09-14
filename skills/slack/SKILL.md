@@ -16,7 +16,7 @@ You help users interact with their Slack workspace.
 
 **Everything else is the Slack Web API via `assistant oauth request`**: reading, searching, reactions, opening a DM, uploading a file, and any method with no first-class command. Use relative Slack API method paths such as `/conversations.history`; the provider supplies the Slack host.
 
-A message posted with `/chat.postMessage` reaches Slack but leaves no record, so you will not find it afterwards and nothing can resolve a reaction to it. Use the send command for text, and reach for `chat.postMessage` only for a shape the send command does not carry, such as Block Kit.
+A message posted with `/chat.postMessage` reaches Slack but is not recorded in the chat's conversation, so `recall` will not find it (reading Slack back will) and nothing can resolve a reaction to it. Use the send command for text, and reach for `chat.postMessage` only for a shape the send command does not carry, such as Block Kit.
 
 **In a Slack turn, the reply is the door.** When you are already answering in a chat, just reply; that reply is delivered and recorded for you. The send command is for posting somewhere you are not, or at a time nobody asked.
 

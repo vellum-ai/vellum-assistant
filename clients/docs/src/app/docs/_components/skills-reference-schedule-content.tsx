@@ -150,8 +150,8 @@ export function SkillsReferenceScheduleContent() {
             </li>
             <li>
               <strong>Persistent across conversations.</strong> Schedules
-              persist across conversations &mdash; set it once and it runs until
-              you cancel it.
+              persist across conversations: set it once and it runs until you
+              cancel it.
             </li>
             <li>
               <strong>Simple reminders.</strong> For simple reminders, just say
@@ -163,7 +163,7 @@ export function SkillsReferenceScheduleContent() {
             </li>
             <li>
               <strong>Same permission rules.</strong> Scheduled actions run with
-              the same permission rules as interactive actions &mdash; your
+              the same permission rules as interactive actions, so your
               assistant won&apos;t do anything it couldn&apos;t do in a normal
               conversation.
             </li>
@@ -176,14 +176,15 @@ export function SkillsReferenceScheduleContent() {
               kept alongside them so it can tell you later what it sent. Email
               arrives as a draft in your mailbox for you to review, not as
               something sent on your behalf. The exception is a message built
-              around interactive buttons, which Slack takes by a different route
-              that your assistant can neither read back afterwards nor confirm
-              landed, so a scheduled run that posts one also sends you its final
-              reply as a notification. If a run finishes with output and nothing
-              delivered it, whether it never tried or the send failed, the
-              assistant sends you its final reply as a notification, so a
-              scheduled run never finishes silently in a conversation you
-              don&apos;t have open.
+              around interactive buttons, which Slack takes by a different
+              route. Your assistant can still find that message by reading the
+              Slack channel, but it isn&apos;t kept alongside its other replies,
+              and your assistant can&apos;t confirm it landed, so a scheduled
+              run that posts one also sends you its final reply as a
+              notification. If a run finishes with output and nothing delivered
+              it, whether it never tried or the send failed, the assistant sends
+              you its final reply as a notification, so a scheduled run never
+              finishes silently in a conversation you don&apos;t have open.
             </li>
             <li>
               <strong>In-app links in Vellum chat.</strong> In Vellum chat,
