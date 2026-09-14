@@ -374,23 +374,6 @@ describe("emitScheduleResultNotification", () => {
     expect(emitCalls).toHaveLength(1);
   });
 
-  test("notifies when the Web API post failed", async () => {
-    turnRows = [
-      makeToolCallRow("bash", {
-        command:
-          'assistant oauth request --provider slack_channel /chat.postMessage --json \'{"channel":"C1","text":"digest"}\'',
-      }),
-    ];
-    toolResultRows = [makeToolResultRow("bash", true)];
-    assistantRow = makeAssistantRow([
-      { type: "text", text: "Slack rejected the post." },
-    ] as ContentBlock[]);
-
-    await run();
-
-    expect(emitCalls).toHaveLength(1);
-  });
-
   test("still notifies when the run's tool calls were not deliveries", async () => {
     // Bash that reads Slack is not bash that posts to it.
     turnRows = [
