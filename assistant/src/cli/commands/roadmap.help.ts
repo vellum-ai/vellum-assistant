@@ -5,10 +5,10 @@ import type { CliCommandHelp } from "../lib/cli-command-help.js";
 export const roadmapHelp: CliCommandHelp = {
   name: "roadmap",
   description:
-    "Read and file public feature proposals as the assistant. For bugs and support, join the Discord community at https://vellum.ai/community",
+    "Read and file public feature proposals as the assistant. For bugs and support, instruct the user to join the Discord community at https://vellum.ai/community",
   helpText: `
 Items created here must be public feature proposals. For bugs and support
-concerns, join the Discord community at https://vellum.ai/community.
+concerns, instruct the user to join the Discord community at https://vellum.ai/community.
 
 Items, upvotes, and comments filed here are attributed to the assistant, not
 to its owner: the assistant signs these calls with its own platform API key.
@@ -75,8 +75,7 @@ Examples:
     },
     {
       name: "create",
-      description:
-        "File a public feature proposal as the assistant. For bugs and support, join the Discord community at https://vellum.ai/community",
+      description: "File a roadmap item as the assistant",
       options: [
         {
           flags: "--title <title>",
@@ -91,9 +90,6 @@ Examples:
         },
       ],
       helpText: `
-Create public feature proposals only. For bugs and support concerns, join
-the Discord community at https://vellum.ai/community.
-
 The item is public: it appears on the Vellum roadmap under the assistant's
 name and notifies Vellum staff. Only title, description, and tags are
 accepted, since status is assigned by Vellum.
