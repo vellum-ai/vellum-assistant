@@ -1,13 +1,13 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidate-match.js";
-import { parseFrontmatterFields } from "../../skills/frontmatter.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
-import { getManagedSkillDir } from "../../skills/managed-store.js";
+import {
+  getManagedSkillDir,
+  readStoredManagedSkill,
+  type StoredManagedSkill,
+} from "../../skills/managed-store.js";
 import {
   filterSkillsByPlatform,
   type SkillPlatform,
@@ -27,16 +27,13 @@ import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
  * sources and for managed skills with no recorded author, so the caller can
  * distinguish its OWN managed skills from a user's without re-reading meta.
  *
- * `current` is the skill as it is on disk, present only on a hit the caller
- * may refine (a managed, assistant-authored skill) and only for the
- * retrospective. A refinement is a whole-file overwrite, and the pass has no
- * other read path to the skill: its `skill_load` grant covers skill-management
- * alone, and loading would stamp `lastUsedAt` and count as usage anyway. The
- * fields are spelled as `scaffold_managed_skill`'s own arguments so the pass
- * can carry forward what it is not changing without translating names. The
- * body is the stored text, not the loaded one: loading substitutes `{baseDir}`
- * and `{workspaceDir}` and strips feature-gated sections, and a rewrite that
- * restated that would bake absolute paths into the skill.
+ * `current` is the skill as stored, present only on a hit the caller may
+ * refine (managed, assistant-authored) and only for the retrospective. A
+ * refinement is a whole-file overwrite and the pass has no other read path:
+ * its `skill_load` grant covers skill-management alone, and loading would
+ * stamp `lastUsedAt` and count as usage. Fields are spelled as
+ * `scaffold_managed_skill`'s own arguments so the pass carries forward what
+ * it is not changing without translating names.
  */
 interface EnrichedHit {
   skill_id: string;
@@ -66,7 +63,7 @@ interface CurrentSkill {
  * each joined to its catalog name/description. Exported so bundled-skill
  * executors and tests can call it directly.
  *
- * `deps` injects the shortlist, catalog, and skill-body seams so tests run
+ * `deps` injects the shortlist, catalog, and stored-skill seams so tests run
  * without Qdrant or a skills directory.
  */
 export async function executeFindSimilarSkills(
@@ -81,13 +78,8 @@ export async function executeFindSimilarSkills(
       source: SkillSource;
       owner?: OwnerInfo;
       platforms?: SkillPlatform[];
-      emoji?: string;
-      category?: string;
-      includes?: string[];
-      activationHints?: string[];
-      avoidWhen?: string[];
     }[];
-    readManagedSkillBody?: (skillId: string) => string | undefined;
+    readStoredManagedSkill?: (skillId: string) => StoredManagedSkill | null;
   } = {},
 ): Promise<ToolExecutionResult> {
   const goal = input.goal;
@@ -115,7 +107,7 @@ export async function executeFindSimilarSkills(
 
   const findNearest = deps.nearestExistingSkills ?? nearestExistingSkills;
   const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
-  const readBody = deps.readManagedSkillBody ?? readManagedSkillBody;
+  const readStored = deps.readStoredManagedSkill ?? readStoredManagedSkill;
 
   const catalog = loadCatalog();
   const byId = new Map(catalog.map((s) => [s.id, s]));
@@ -173,13 +165,14 @@ export async function executeFindSimilarSkills(
       skill.source === "managed"
         ? readManagedSkillAuthor(hit.skillId)
         : undefined;
-    // Only a refinable hit pays for the body read, and a failed read drops
+    // Only a refinable hit pays for the disk read, and a failed read drops
     // `current` rather than the hit: the pass can still skip a skill it
-    // cannot see, it just cannot rewrite it well.
-    const body =
+    // cannot see, it just cannot rewrite it well. Absent fields serialize
+    // away with the result.
+    const stored =
       fromRetrospective && author === "assistant"
-        ? readBody(hit.skillId)
-        : undefined;
+        ? readStored(hit.skillId)
+        : null;
     enriched.push({
       skill_id: hit.skillId,
       name: skill.name,
@@ -187,22 +180,18 @@ export async function executeFindSimilarSkills(
       source: skill.source,
       author,
       score: hit.score,
-      ...(body !== undefined
+      current: stored
         ? {
-            current: {
-              name: skill.name,
-              description: skill.description,
-              ...(skill.emoji ? { emoji: skill.emoji } : {}),
-              ...(skill.category ? { category: skill.category } : {}),
-              ...(skill.includes ? { includes: skill.includes } : {}),
-              ...(skill.activationHints
-                ? { activation_hints: skill.activationHints }
-                : {}),
-              ...(skill.avoidWhen ? { avoid_when: skill.avoidWhen } : {}),
-              body_markdown: body,
-            },
+            name: stored.name,
+            description: stored.description,
+            emoji: stored.emoji,
+            category: stored.category,
+            includes: stored.includes,
+            activation_hints: stored.activationHints,
+            avoid_when: stored.avoidWhen,
+            body_markdown: stored.body,
           }
-        : {}),
+        : undefined,
     });
   }
 
@@ -210,30 +199,6 @@ export async function executeFindSimilarSkills(
     content: JSON.stringify({ skills: enriched }),
     isError: false,
   };
-}
-
-/**
- * Read a managed skill's stored body: the SKILL.md text after its frontmatter,
- * placeholders intact. Only the blank line the store writes between the
- * frontmatter and the body, and the trailing newline it guarantees, are
- * removed; leading spaces on the first line stay, since an indented opening
- * line is Markdown (a code block) and a rewrite that copied it de-indented
- * would turn it into prose. Best-effort like the author read: a missing file
- * or unparseable frontmatter resolves to undefined so one bad hit never
- * throws.
- */
-function readManagedSkillBody(skillId: string): string | undefined {
-  try {
-    const content = readFileSync(
-      join(getManagedSkillDir(skillId), "SKILL.md"),
-      "utf-8",
-    );
-    return parseFrontmatterFields(content)
-      ?.body.replace(/^(?:\r?\n)+/, "")
-      .replace(/(?:\r?\n)+$/, "");
-  } catch {
-    return undefined;
-  }
 }
 
 /**

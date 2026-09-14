@@ -19,6 +19,7 @@ import { basename, join } from "node:path";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillSource } from "../../config/skills.js";
+import type { StoredManagedSkill } from "../../skills/managed-store.js";
 import type { OwnerInfo } from "../types.js";
 
 // Map managed skill id → recorded author, consulted by the mocked
@@ -57,11 +58,6 @@ const catalog = (
     description: string;
     source: SkillSource;
     owner?: OwnerInfo;
-    emoji?: string;
-    category?: string;
-    includes?: string[];
-    activationHints?: string[];
-    avoidWhen?: string[];
   }[]
 ) => skills;
 
@@ -243,11 +239,6 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
         name: "Weekly Report Export",
         description: "Export the weekly usage report",
         source: "managed",
-        emoji: "📊",
-        category: "productivity",
-        includes: ["csv-basics"],
-        activationHints: ["user asks for the weekly report"],
-        avoidWhen: ["the report is monthly"],
       },
       {
         id: "user-skill",
@@ -262,15 +253,32 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
         source: "bundled",
       },
     );
-  const bodies: Record<string, string> = {
-    "weekly-export": "1. Open the dashboard.\n2. Export.",
-    "user-skill": "Do the user's thing.",
-    "clean-disk": "Delete caches.",
+  const stored: Record<string, StoredManagedSkill> = {
+    "weekly-export": {
+      name: "Weekly Report Export",
+      description: "Export the weekly usage report",
+      emoji: "📊",
+      category: "productivity",
+      includes: ["csv-basics"],
+      activationHints: ["user asks for the weekly report"],
+      avoidWhen: ["the report is monthly"],
+      body: "1. Open the dashboard.\n2. Export.",
+    },
+    "user-skill": {
+      name: "User Skill",
+      description: "A person wrote this",
+      body: "Do the user's thing.",
+    },
+    "clean-disk": {
+      name: "Clean Disk",
+      description: "Free up disk space",
+      body: "Delete caches.",
+    },
   };
-  const readBodies: string[] = [];
-  const readManagedSkillBody = (skillId: string) => {
-    readBodies.push(skillId);
-    return bodies[skillId];
+  const reads: string[] = [];
+  const readStoredManagedSkill = (skillId: string) => {
+    reads.push(skillId);
+    return stored[skillId] ?? null;
   };
   const hits = async () => [
     { skillId: "weekly-export", score: 0.9 },
@@ -288,7 +296,7 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
       {
         nearestExistingSkills: hits,
         loadCatalog: refinableCatalog,
-        readManagedSkillBody,
+        readStoredManagedSkill,
       },
     );
 
@@ -320,7 +328,7 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
           { skillId: "user-skill", score: 1 },
         ],
         loadCatalog: refinableCatalog,
-        readManagedSkillBody,
+        readStoredManagedSkill,
       },
     );
 
@@ -334,7 +342,7 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
 
   test("an interactive caller never receives skill bodies, and no body is read", async () => {
     installMetaAuthors["weekly-export"] = "assistant";
-    readBodies.length = 0;
+    reads.length = 0;
 
     const result = await executeFindSimilarSkills(
       { goal: "export the weekly report" },
@@ -342,7 +350,7 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
       {
         nearestExistingSkills: hits,
         loadCatalog: refinableCatalog,
-        readManagedSkillBody,
+        readStoredManagedSkill,
       },
     );
 
@@ -350,7 +358,7 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
     for (const skill of skills) {
       expect(skill).not.toHaveProperty("current");
     }
-    expect(readBodies).toEqual([]);
+    expect(reads).toEqual([]);
   });
 
   test("the stored body keeps its leading indentation and drops only the store's separator newlines", async () => {
@@ -396,7 +404,7 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
     );
   });
 
-  test("a body that cannot be read drops current, not the hit", async () => {
+  test("a skill that cannot be read drops current, not the hit", async () => {
     installMetaAuthors["weekly-export"] = "assistant";
 
     const result = await executeFindSimilarSkills(
@@ -407,7 +415,7 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
           { skillId: "weekly-export", score: 0.9 },
         ],
         loadCatalog: refinableCatalog,
-        readManagedSkillBody: () => undefined,
+        readStoredManagedSkill: () => null,
       },
     );
 
