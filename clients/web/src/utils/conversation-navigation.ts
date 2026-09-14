@@ -167,6 +167,12 @@ export function prepareFreshConversation(): string {
 
 export interface NavigateToNewConversationOptions {
   silent?: boolean;
+  /**
+   * Play the new-chat sound. Defaults to true. The in-chat entry (the
+   * conversation loader's `startNewConversation`) opts out: it swaps the
+   * transcript the user already looks at, so it stays quiet.
+   */
+  sound?: boolean;
   /** When provided, auto-sends this message in the new conversation. */
   prompt?: string;
 }
@@ -177,8 +183,8 @@ export interface NavigateToNewConversationOptions {
  * The draft and the state it opens into come from
  * {@link prepareFreshConversation}, shared with every other fresh-conversation
  * entry; all this adds is the navigation. When `silent` is true
- * (e.g. fallback after archiving the active conversation), the haptic tap
- * is suppressed.
+ * (e.g. fallback after archiving the active conversation), the haptic tap and
+ * the sound are suppressed; `sound: false` drops the sound alone.
  *
  * When `prompt` is provided, the URL includes a `?prompt=` search param that
  * `useAutoSendEffects` picks up to fire the message once the conversation is
@@ -196,7 +202,9 @@ export function navigateToNewConversation(
 ): string {
   if (!options?.silent) {
     haptic.light();
-    void getSoundManager().play("new_conversation");
+    if (options?.sound !== false) {
+      void getSoundManager().play("new_conversation");
+    }
   }
   const draftId = prepareFreshConversation();
 
