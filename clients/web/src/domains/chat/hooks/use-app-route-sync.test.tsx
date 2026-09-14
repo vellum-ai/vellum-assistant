@@ -253,6 +253,47 @@ describe("useAppRouteSync", () => {
     expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
   });
 
+  test("closes the app when the route stops naming it", async () => {
+    // GIVEN the app the URL names is on screen
+    const { rerender } = renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: APP_ID,
+    });
+    await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the route drops the app segment, as every close affordance does
+    rerender({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: null,
+    });
+
+    // THEN the viewer lets the app go, and the split it was bound to with it
+    expect(closeAppMock).toHaveBeenCalledTimes(1);
+    expect(setEditingConversationIdMock).toHaveBeenCalledWith(null);
+  });
+
+  test("closes an app the viewer still holds when mounting without the segment", () => {
+    // GIVEN a viewer holding an app, landed on a plain conversation route
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: APP_ID,
+      openedAppState: APP,
+    });
+
+    // WHEN the hook mounts there
+    renderSync({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONV_ID,
+      routeAppId: null,
+    });
+
+    // THEN the URL wins: no segment means no app
+    expect(closeAppMock).toHaveBeenCalledTimes(1);
+    expect(setEditingConversationIdMock).toHaveBeenCalledWith(null);
+  });
+
   test("does not touch the viewer when no app is open and none is routed", () => {
     // GIVEN the plain conversation route and a viewer showing the chat
     renderSync({

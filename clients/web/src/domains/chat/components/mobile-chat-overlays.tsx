@@ -21,6 +21,8 @@ import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { type ChatInfoCategory, useViewerStore } from "@/stores/viewer-store";
+import { prepareFreshConversation } from "@/utils/conversation-navigation";
+import { routes } from "@/utils/routes";
 
 import { MobileChannelTranscriptOverlay } from "@/domains/chat/channel-sidecar/mobile-channel-transcript-overlay";
 import { MobileAcpRunDetailOverlay } from "@/domains/chat/components/mobile-acp-run-detail-overlay";
@@ -63,16 +65,17 @@ export function MobileChatOverlays() {
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
   const handleCloseApp = useCallback(() => {
-    useViewerStore.getState().closeApp();
-    useConversationStore.getState().setEditingConversationId(null);
-  }, []);
+    const conversationId =
+      useConversationStore.getState().activeConversationId ??
+      prepareFreshConversation();
+    void navigate(routes.conversation(conversationId));
+  }, [navigate]);
 
   const handleNavigateAppRoute = useCallback(
     (href: string) => {
-      handleCloseApp();
-      navigate(href);
+      void navigate(href);
     },
-    [handleCloseApp, navigate],
+    [navigate],
   );
 
   const handleShareApp = useCallback(() => {

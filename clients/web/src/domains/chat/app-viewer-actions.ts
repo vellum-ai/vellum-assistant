@@ -18,9 +18,9 @@
  *   user view the conversation from within the app UI.
  *
  * - `set_view` ({ view }) — moves the app panel: `"split"` (side by side with
- *   chat), `"full"` (full-width), or `"chat"` (close the app and land on the
- *   conversation URL, which carries no app segment). Side-by-side has
- *   no mobile layout, so `"split"` is ignored on mobile (the app keeps its
+ *   chat), `"full"` (full-width), or `"chat"` (land on the conversation URL,
+ *   which names no app, so the viewer closes the one it holds). Side-by-side
+ *   has no mobile layout, so `"split"` is ignored on mobile (the app keeps its
  *   full-screen overlay). On a wide viewport it uses the open conversation,
  *   and starts one when none is open.
  *
@@ -107,7 +107,6 @@ function setView(
   const viewer = useViewerStore.getState();
   switch (data?.view) {
     case "chat": {
-      viewer.closeApp();
       const conversationId =
         useConversationStore.getState().activeConversationId ??
         prepareFreshConversation();
