@@ -2,6 +2,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 import { useViewerStore } from "@/stores/viewer-store";
+import { appIdForPath } from "@/utils/routes";
 
 const OPEN_LAYER_SELECTOR = [
   '[data-slot="modal-content"][data-state="open"]',
@@ -96,6 +97,11 @@ async function dismissEscapeLayer(): Promise<boolean> {
   return true;
 }
 
+/**
+ * The viewer layer owns layout only: minimizing an expanded app, and leaving
+ * the split. Which app is open is the URL's business, so leaving a minimized
+ * app is a history pop rather than a viewer call.
+ */
 function dismissViewerLayer(): boolean {
   if (!document.querySelector(ACTIVE_CHAT_SELECTOR)) {
     return false;
@@ -104,10 +110,9 @@ function dismissViewerLayer(): boolean {
   switch (viewer.mainView) {
     case "app":
       if (viewer.isAppMinimized) {
-        viewer.closeApp();
-      } else {
-        viewer.minimizeApp();
+        return false;
       }
+      viewer.minimizeApp();
       return true;
     case "app-editing":
       viewer.exitAppEditing();
@@ -118,9 +123,33 @@ function dismissViewerLayer(): boolean {
 }
 
 /**
- * Route Android system Back through the active web UI before leaving the app.
+ * Whether the URL still names an app the viewer holds minimized on the active
+ * chat route. Leaving that app is a history pop, so it needs a route-level
+ * close only where there is no entry to pop.
  */
-export function subscribeAndroidBackButtonSource(): () => void {
+function isMinimizedAppRoute(): boolean {
+  if (!document.querySelector(ACTIVE_CHAT_SELECTOR)) {
+    return false;
+  }
+  const viewer = useViewerStore.getState();
+  return (
+    viewer.mainView === "app" &&
+    viewer.isAppMinimized &&
+    appIdForPath(window.location.pathname) !== null
+  );
+}
+
+/**
+ * Route Android system Back through the active web UI before leaving the app:
+ * an open Escape layer takes it first, then viewer layout, then WebView
+ * history, then the app segment of a minimized app the history root cannot
+ * pop.
+ */
+export function subscribeAndroidBackButtonSource({
+  closeAppRoute,
+}: {
+  closeAppRoute: () => void;
+}): () => void {
   if (!isNativeAndroid()) {
     return () => undefined;
   }
@@ -134,6 +163,10 @@ export function subscribeAndroidBackButtonSource(): () => void {
       }
       if (canGoBack) {
         window.history.back();
+        return;
+      }
+      if (isMinimizedAppRoute()) {
+        closeAppRoute();
         return;
       }
       await App.minimizeApp().catch((error) => {
