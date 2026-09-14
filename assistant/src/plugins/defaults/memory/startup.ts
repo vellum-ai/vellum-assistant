@@ -41,11 +41,15 @@ import {
   clearRebuildSentinel,
   initQdrantClient,
 } from "../../../persistence/embeddings/qdrant-client.js";
-import { createQdrantManager } from "../../../persistence/embeddings/qdrant-manager.js";
+import {
+  createQdrantManager,
+  describeQdrantStartFailure,
+} from "../../../persistence/embeddings/qdrant-manager.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
+import { recordWatchdogEvent } from "../../../telemetry/watchdog-events-store.js";
 import { resolveQdrantUrl } from "./embeddings.js";
 import { startMemoryJobsWorker } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
@@ -92,6 +96,15 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
           { err },
           "Qdrant failed to start after all attempts — memory features will be unavailable",
         );
+        // The warn above is the only record of this failure and it lands in
+        // the local log alone, so no reported instance has ever had its
+        // reason read. Report the step, the exit code and Qdrant's own reason
+        // fleet-wide; the metadata rules are in `describeQdrantStartFailure`.
+        recordWatchdogEvent({
+          checkName: "qdrant_start_failed",
+          value: attempt,
+          detail: { attempts: attempt, ...describeQdrantStartFailure(err) },
+        });
       }
     }
   }
