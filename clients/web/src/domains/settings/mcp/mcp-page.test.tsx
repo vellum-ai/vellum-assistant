@@ -11,21 +11,17 @@ import {
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
+
 let assistantFlags: Record<string, boolean> = {};
 let flagsHydrated = true;
 
-const navigateToNewConversation = mock((..._args: unknown[]) => {});
-mock.module("@/utils/conversation-navigation", () => ({
-  navigateToNewConversation,
-  // The rest of the module's surface, unused here: a factory that omits an
-  // export hides it from every importer in the process.
-  keepOpenAppBesideConversation: () => false,
-  revealConversationView: () => {},
-  keptAppId: () => null,
-  prepareFreshConversation: () => "draft-conversation",
-  navigateToConversation: () => {},
-  navigateFromApp: () => {},
-}));
+const navigateToNewConversation = mock(
+  (..._args: unknown[]) => "draft-conversation",
+);
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({ navigateToNewConversation }),
+);
 
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "assistant-123",

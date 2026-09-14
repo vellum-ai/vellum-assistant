@@ -10,6 +10,7 @@ import { createElement } from "react";
 import type { NavigateFunction } from "react-router";
 
 import * as schedulesApi from "@/domains/settings/api/schedules";
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 
 import type {
@@ -50,23 +51,17 @@ mock.module("@/domains/settings/api/schedules", () => ({
   createSchedule: createScheduleMock,
   fetchScheduleUsageSummary: fetchScheduleUsageSummaryMock,
 }));
-mock.module("@/utils/conversation-navigation", () => ({
-  // Behavioral stub: performs the route change the navigation test asserts,
-  // without the real module's store resets and haptics.
-  navigateToConversation: mock(
-    (navigate: NavigateFunction, conversationId: string) => {
-      void navigate(routes.conversation(conversationId));
-    },
-  ),
-  // The rest of the module's surface, unused here: a factory that omits an
-  // export hides it from every importer in the process.
-  keepOpenAppBesideConversation: () => false,
-  revealConversationView: () => {},
-  keptAppId: () => null,
-  prepareFreshConversation: () => "draft-conversation",
-  navigateToNewConversation: () => "draft-conversation",
-  navigateFromApp: () => {},
-}));
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({
+    // Behavioral stub: performs the route change the navigation test asserts,
+    // without the real module's store resets and haptics.
+    navigateToConversation: mock(
+      (navigate: NavigateFunction, conversationId: string) => {
+        void navigate(routes.conversation(conversationId));
+      },
+    ),
+  }),
+);
 
 const {
   scheduleUsageSummaryQueryOptions,

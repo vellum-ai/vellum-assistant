@@ -21,6 +21,7 @@ import type {
   UsageSeriesResponse,
   UsageTotals,
 } from "@/domains/settings/billing/usage/usage-types";
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 import type { AssistantSchedule } from "@/utils/schedules";
 
@@ -216,23 +217,17 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
 mock.module("@/generated/daemon/sdk.gen", () => ({
   usageBreakdownGet: usageBreakdownGetMock,
 }));
-mock.module("@/utils/conversation-navigation", () => ({
-  // Behavioral stub: performs the route change (the contract the navigation
-  // tests assert) without the real module's store resets and haptics.
-  navigateToConversation: mock(
-    (navigate: NavigateFunction, conversationId: string) => {
-      void navigate(routes.conversation(conversationId));
-    },
-  ),
-  navigateToNewConversation: mock(() => {}),
-  // The rest of the module's surface, unused here: a factory that omits an
-  // export hides it from every importer in the process.
-  keepOpenAppBesideConversation: () => false,
-  revealConversationView: () => {},
-  keptAppId: () => null,
-  prepareFreshConversation: () => "draft-conversation",
-  navigateFromApp: () => {},
-}));
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({
+    // Behavioral stub: performs the route change (the contract the navigation
+    // tests assert) without the real module's store resets and haptics.
+    navigateToConversation: mock(
+      (navigate: NavigateFunction, conversationId: string) => {
+        void navigate(routes.conversation(conversationId));
+      },
+    ),
+  }),
+);
 mock.module("@/utils/schedules", () => ({
   fetchSchedules: fetchSchedulesMock,
 }));
