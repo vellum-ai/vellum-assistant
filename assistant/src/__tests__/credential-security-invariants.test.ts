@@ -211,6 +211,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "persistence/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
       "persistence/llm-request-log-sink-clickhouse.ts", // ClickHouse write sink — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped log writes
       "persistence/compaction-log-store-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
+      "config/platform-identity.ts", // assistant API key lookup for platform identity validate
       "config/platform-rehydration.ts", // startup rehydration of platform base URL from the credential store and ids from platform validate
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "workspace/migrations/018-rekey-compound-credential-keys.ts", // re-key compound credential storage keys

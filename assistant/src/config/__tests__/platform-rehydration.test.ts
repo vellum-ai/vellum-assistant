@@ -27,6 +27,8 @@ const {
   setPlatformOrganizationId,
   setPlatformUserId,
 } = await import("../env.js");
+const { _resetPlatformIdentityEnsureForTests } =
+  await import("../platform-identity.js");
 const { rehydratePlatformCredentials } =
   await import("../platform-rehydration.js");
 
@@ -72,6 +74,7 @@ describe("rehydratePlatformCredentials", () => {
     setPlatformAssistantId(undefined);
     setPlatformOrganizationId(undefined);
     setPlatformUserId(undefined);
+    _resetPlatformIdentityEnsureForTests();
   });
 
   afterEach(() => {

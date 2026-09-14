@@ -18,11 +18,8 @@
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
-import { getPlatformBaseUrl, setPlatformBaseUrl } from "./env.js";
-import {
-  applyPlatformIdentityIds,
-  fetchPlatformIdentityIds,
-} from "./platform-identity.js";
+import { setPlatformBaseUrl } from "./env.js";
+import { ensurePlatformIdentityIds } from "./platform-identity.js";
 
 const log = getLogger("platform-rehydration");
 
@@ -46,40 +43,6 @@ async function rehydrateField(
   }
 }
 
-async function readAssistantApiKey(): Promise<string> {
-  try {
-    const stored = (
-      await getSecureKeyAsync(credentialKey("vellum", "assistant_api_key"))
-    )?.trim();
-    if (stored) {
-      return stored;
-    }
-  } catch (err) {
-    log.warn(
-      { error: err instanceof Error ? err.message : String(err) },
-      "Failed to read assistant API key from credential store (non-fatal)",
-    );
-  }
-  return process.env.ASSISTANT_API_KEY?.trim() ?? "";
-}
-
-async function rehydrateIdentityFromValidate(): Promise<void> {
-  const apiKey = await readAssistantApiKey();
-  if (!apiKey) {
-    return;
-  }
-  const baseUrl = getPlatformBaseUrl();
-  if (!baseUrl) {
-    return;
-  }
-  const ids = await fetchPlatformIdentityIds(baseUrl, apiKey);
-  if (!ids) {
-    return;
-  }
-  applyPlatformIdentityIds(ids);
-  log.info("Rehydrated platform identity from platform validate");
-}
-
 /**
  * Rehydrate the platform base URL and the related platform IDs (assistant,
  * organization, user). Safe to call more than once.
@@ -93,5 +56,5 @@ export async function rehydratePlatformCredentials(): Promise<void> {
     "platform base URL",
   );
 
-  await rehydrateIdentityFromValidate();
+  await ensurePlatformIdentityIds();
 }

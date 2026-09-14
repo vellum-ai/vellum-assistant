@@ -5,11 +5,16 @@
  * `POST /v1/internal/assistants/validate/`. Process startup rehydrates from
  * that endpoint into the in-memory overrides. Resolution reads those
  * overrides (and `PLATFORM_ORGANIZATION_ID` / `PLATFORM_USER_ID` when set).
+ * When the in-memory assistant id is empty, the next resolve retries
+ * validate (single-flight, with a cooldown after a failed attempt).
  */
 
+import { credentialKey } from "../security/credential-key.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import {
   getPlatformAssistantId,
+  getPlatformBaseUrl,
   getPlatformOrganizationId,
   getPlatformUserId,
   setPlatformAssistantId,
@@ -23,6 +28,7 @@ export const PLATFORM_IDENTITY_VALIDATE_PATH =
   "/v1/internal/assistants/validate/";
 
 const VALIDATE_TIMEOUT_MS = 5_000;
+const ENSURE_COOLDOWN_MS = 10_000;
 
 export type PlatformIdentityIds = {
   assistantId: string;
@@ -100,7 +106,72 @@ export async function fetchPlatformIdentityIds(
   }
 }
 
+async function readAssistantApiKey(): Promise<string> {
+  try {
+    const stored = (
+      await getSecureKeyAsync(credentialKey("vellum", "assistant_api_key"))
+    )?.trim();
+    if (stored) {
+      return stored;
+    }
+  } catch (err) {
+    log.warn({ err }, "failed to read assistant API key from credential store");
+  }
+  return process.env.ASSISTANT_API_KEY?.trim() ?? "";
+}
+
+let ensureInFlight: Promise<void> | null = null;
+let nextEnsureAttemptAt = 0;
+
+export function _resetPlatformIdentityEnsureForTests(): void {
+  ensureInFlight = null;
+  nextEnsureAttemptAt = 0;
+}
+
+/**
+ * Load in-memory platform ids from validate when they are missing.
+ *
+ * No-ops when the assistant id is already set, when auth prerequisites are
+ * missing, or when a failed attempt is still inside the cooldown window.
+ * Concurrent callers share one in-flight request.
+ */
+export async function ensurePlatformIdentityIds(): Promise<void> {
+  if (getPlatformAssistantId().trim()) {
+    return;
+  }
+  if (Date.now() < nextEnsureAttemptAt) {
+    return;
+  }
+  if (!ensureInFlight) {
+    ensureInFlight = (async () => {
+      try {
+        const apiKey = await readAssistantApiKey();
+        const baseUrl = getPlatformBaseUrl();
+        if (!apiKey || !baseUrl) {
+          return;
+        }
+        const ids = await fetchPlatformIdentityIds(baseUrl, apiKey);
+        if (!ids) {
+          nextEnsureAttemptAt = Date.now() + ENSURE_COOLDOWN_MS;
+          return;
+        }
+        applyPlatformIdentityIds(ids);
+        nextEnsureAttemptAt = 0;
+        log.info("Loaded platform identity from platform validate");
+      } finally {
+        ensureInFlight = null;
+      }
+    })();
+  }
+  await ensureInFlight;
+}
+
 export async function resolvePlatformAssistantId(): Promise<string> {
+  const existing = getPlatformAssistantId().trim();
+  if (existing) {
+    return existing;
+  }
+  await ensurePlatformIdentityIds();
   return getPlatformAssistantId().trim();
 }
 
@@ -112,9 +183,19 @@ export async function resolvePlatformAssistantIdOrNull(): Promise<
 }
 
 export async function resolvePlatformOrganizationId(): Promise<string> {
+  const existing = getPlatformOrganizationId().trim();
+  if (existing) {
+    return existing;
+  }
+  await ensurePlatformIdentityIds();
   return getPlatformOrganizationId().trim();
 }
 
 export async function resolvePlatformUserId(): Promise<string> {
+  const existing = getPlatformUserId().trim();
+  if (existing) {
+    return existing;
+  }
+  await ensurePlatformIdentityIds();
   return getPlatformUserId().trim();
 }
