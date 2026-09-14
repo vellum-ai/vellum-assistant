@@ -1545,7 +1545,7 @@ describe("channel-retry-sweep", () => {
     expect(row?.deliveryStatus).toBe("delivered");
   });
 
-  test("delivery retry fails a reply stream Slack will not settle and keeps its breadcrumb", async () => {
+  test("delivery retry keeps a reply stream that could not be settled for the next retry", async () => {
     const inbound = deliveryCrud.recordInbound(
       "slack",
       "D-UNSETTLED-REPLY",
@@ -1565,10 +1565,11 @@ describe("channel-retry-sweep", () => {
       role: "reply",
     });
     // Slack would refuse to edit a message it still considers streaming, so an
-    // unsettled reply stream is not delivered into: the attempt fails, and a
-    // later sweep settles it and finishes the message.
+    // unsettled reply stream is not delivered into. A transient failure, the
+    // kind the delivery classifier retries, leaves the attempt failed with its
+    // breadcrumb intact, so a later sweep settles the stream and finishes it.
     settleChannelStreamImpl = async () => {
-      throw new Error("Slack is unavailable");
+      throw new Error("fetch failed");
     };
 
     const db = getDb();

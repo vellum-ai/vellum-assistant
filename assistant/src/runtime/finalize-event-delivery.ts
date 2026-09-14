@@ -22,8 +22,9 @@ const log = getLogger("finalize-event-delivery");
  * repeat it.
  *
  * A stream recorded as holding reply text is finished in place, and one that
- * cannot be settled throws, so the attempt fails and the retry sweep tries again
- * rather than editing a message the channel would refuse. A stream that only
+ * cannot be settled throws rather than editing a message the channel would
+ * refuse. The attempt then fails like any other delivery error: a transient
+ * failure is retried by the sweep, and an outright refusal is dead-lettered. A stream that only
  * held a plan is settled on a best-effort basis and never returned: the plan
  * card stays as it was and the reply is posted beneath it, even when the card
  * could not be settled, because the reply is owed either way.
