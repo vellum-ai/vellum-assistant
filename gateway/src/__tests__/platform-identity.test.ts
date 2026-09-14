@@ -290,6 +290,106 @@ describe("readStoredPlatformUserId", () => {
     });
   });
 
+  test("reports unreachable when the API key is present but the base URL vault is down", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    credentialResults.set(BASE_URL_ACCOUNT, {
+      value: undefined,
+      unreachable: true,
+    });
+    await expect(readStoredPlatformUserId()).resolves.toEqual({
+      userId: undefined,
+      unreachable: true,
+    });
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("reports a miss when the API key is present and the base URL is unset", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    credentialResults.set(BASE_URL_ACCOUNT, {
+      value: undefined,
+      unreachable: false,
+    });
+    await expect(readStoredPlatformUserId()).resolves.toEqual({
+      userId: undefined,
+      unreachable: false,
+    });
+    expect(fetchCalls).toHaveLength(0);
+  });
+
+  test("revalidates when the assistant API key changes", async () => {
+    const nextAssistantId = "44444444-5555-4666-8777-888888888888";
+    const nextUserId = "55555555-6666-4777-8888-999999999999";
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    process.env.VELLUM_PLATFORM_URL = BASE_URL;
+    fetchImplFn = async () => validateResponse();
+
+    await expect(readStoredPlatformUserId()).resolves.toEqual({
+      userId: USER_ID,
+      unreachable: false,
+    });
+
+    process.env.ASSISTANT_API_KEY = "next-assistant-key";
+    fetchImplFn = async () =>
+      validateResponse({
+        assistantId: nextAssistantId,
+        organizationId: ORG_ID,
+        userId: nextUserId,
+      });
+
+    await expect(readStoredPlatformUserId()).resolves.toEqual({
+      userId: nextUserId,
+      unreachable: false,
+    });
+    await expect(resolvePlatformAssistantId()).resolves.toBe(nextAssistantId);
+    expect(fetchCalls).toHaveLength(2);
+    const headers = new Headers(fetchCalls[1]?.init?.headers);
+    expect(headers.get("Authorization")).toBe("Api-Key next-assistant-key");
+  });
+
+  test("drops bound identity when credentials change and validate fails", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    process.env.VELLUM_PLATFORM_URL = BASE_URL;
+    fetchImplFn = async () => validateResponse();
+
+    await expect(readStoredPlatformUserId()).resolves.toEqual({
+      userId: USER_ID,
+      unreachable: false,
+    });
+
+    process.env.ASSISTANT_API_KEY = "next-assistant-key";
+    fetchImplFn = async () => new Response("no", { status: 401 });
+
+    await expect(readStoredPlatformUserId()).resolves.toEqual({
+      userId: undefined,
+      unreachable: false,
+    });
+    expect(fetchCalls).toHaveLength(2);
+  });
+
+  test("keeps bound identity when the vault is down and the new API key cannot be read", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    process.env.VELLUM_PLATFORM_URL = BASE_URL;
+    fetchImplFn = async () => validateResponse();
+
+    await expect(readStoredPlatformUserId()).resolves.toEqual({
+      userId: USER_ID,
+      unreachable: false,
+    });
+
+    delete process.env.ASSISTANT_API_KEY;
+    credentialResults.set(API_KEY_ACCOUNT, {
+      value: undefined,
+      unreachable: true,
+    });
+    fetchImplFn = async () => new Response("down", { status: 503 });
+
+    await expect(readStoredPlatformUserId()).resolves.toEqual({
+      userId: USER_ID,
+      unreachable: false,
+    });
+    expect(fetchCalls).toHaveLength(1);
+  });
+
   test("does not read platform identity ids from the credential store", async () => {
     process.env.ASSISTANT_API_KEY = "assistant-key";
     process.env.VELLUM_PLATFORM_URL = BASE_URL;

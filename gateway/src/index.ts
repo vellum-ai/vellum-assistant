@@ -2864,6 +2864,8 @@ async function main() {
       vellumCreds?.platform_base_url && vellumCreds?.assistant_api_key
     );
     if (vellumReady) {
+      // Re-run validate when the API key / base URL change so a warm-pool
+      // claim does not keep the previous assistant's bound owner ids.
       void ensurePlatformIdentityIds();
     }
     const twilioCreds = event.credentials.get("twilio");

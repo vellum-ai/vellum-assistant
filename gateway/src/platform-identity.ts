@@ -4,12 +4,15 @@
  * Django maps an assistant API key to these ids via
  * `POST /v1/internal/assistants/validate/`. Resolution reads in-memory
  * overrides (and `PLATFORM_ASSISTANT_ID` / `PLATFORM_ORGANIZATION_ID` /
- * `PLATFORM_USER_ID` when set). When the bound ids are empty, the next
+ * `PLATFORM_USER_ID` when set). When the bound ids are empty, or the
+ * API key / platform base URL that produced them has changed, the next
  * resolve retries validate (single-flight, with a cooldown after a failed
- * validate attempt).
+ * validate attempt for the same credentials).
  *
  * A credential-store outage is not treated as a missing identity when a
- * prior successful resolve is cached in this process.
+ * prior successful resolve is cached in this process. A credential change
+ * that can be read drops the previous ids so the new key is not paired
+ * with the old owner.
  */
 
 import type { CredentialCache } from "./credential-cache.js";
@@ -43,6 +46,8 @@ export type StoredPlatformUserId = {
 let platformAssistantIdOverride: string | undefined;
 let platformOrganizationIdOverride: string | undefined;
 let platformUserIdOverride: string | undefined;
+let identityBoundToFingerprint: string | undefined;
+let lastAttemptFingerprint: string | undefined;
 let credentialCache: CredentialCache | undefined;
 let ensureInFlight: Promise<void> | null = null;
 let nextEnsureAttemptAt = 0;
@@ -80,6 +85,16 @@ function hasBoundIdentity(): boolean {
   return Boolean(getPlatformAssistantId() && getPlatformUserId());
 }
 
+function identityFingerprint(apiKey: string, baseUrl: string): string {
+  return `${baseUrl}\0${apiKey}`;
+}
+
+function clearPlatformIdentityOverrides(): void {
+  platformAssistantIdOverride = undefined;
+  platformOrganizationIdOverride = undefined;
+  platformUserIdOverride = undefined;
+}
+
 export function applyPlatformIdentityIds(ids: PlatformIdentityIds): void {
   if (ids.assistantId) {
     platformAssistantIdOverride = ids.assistantId;
@@ -107,6 +122,8 @@ export function _resetPlatformIdentityForTests(): void {
   platformAssistantIdOverride = undefined;
   platformOrganizationIdOverride = undefined;
   platformUserIdOverride = undefined;
+  identityBoundToFingerprint = undefined;
+  lastAttemptFingerprint = undefined;
   credentialCache = undefined;
   ensureInFlight = null;
   nextEnsureAttemptAt = 0;
@@ -203,26 +220,23 @@ async function readAuthPrerequisites(): Promise<{
 
   const apiKey = apiKeyRead.value;
   const baseUrl = baseUrlRead.value.replace(/\/+$/, "");
-  const unreachable = !apiKey && apiKeyRead.unreachable;
+  const unreachable =
+    (!apiKey && apiKeyRead.unreachable) ||
+    (!baseUrl && baseUrlRead.unreachable);
 
   return { apiKey, baseUrl, unreachable };
 }
 
 /**
- * Load in-memory platform ids from validate when they are missing.
+ * Load in-memory platform ids from validate when they are missing or the
+ * API key / base URL that produced them has changed.
  *
- * No-ops when assistant id and user id are already set, when auth
- * prerequisites are missing, or when a failed validate is still inside the
- * cooldown window. Concurrent callers share one in-flight request.
+ * No-ops when assistant id and user id are already bound to the current
+ * credentials, when auth prerequisites are missing, or when a failed
+ * validate for the same credentials is still inside the cooldown window.
+ * Concurrent callers share one in-flight request.
  */
 export async function ensurePlatformIdentityIds(): Promise<void> {
-  if (hasBoundIdentity()) {
-    lastEnsureUnreachable = false;
-    return;
-  }
-  if (Date.now() < nextEnsureAttemptAt) {
-    return;
-  }
   if (!ensureInFlight) {
     ensureInFlight = (async () => {
       try {
@@ -232,12 +246,35 @@ export async function ensurePlatformIdentityIds(): Promise<void> {
           return;
         }
         lastEnsureUnreachable = false;
+        const fingerprint = identityFingerprint(apiKey, baseUrl);
+        if (hasBoundIdentity() && identityBoundToFingerprint === fingerprint) {
+          return;
+        }
+        if (hasBoundIdentity() && identityBoundToFingerprint === undefined) {
+          identityBoundToFingerprint = fingerprint;
+          return;
+        }
+        if (
+          identityBoundToFingerprint !== undefined &&
+          identityBoundToFingerprint !== fingerprint
+        ) {
+          clearPlatformIdentityOverrides();
+          identityBoundToFingerprint = undefined;
+        }
+        if (
+          Date.now() < nextEnsureAttemptAt &&
+          lastAttemptFingerprint === fingerprint
+        ) {
+          return;
+        }
+        lastAttemptFingerprint = fingerprint;
         const ids = await fetchPlatformIdentityIds(baseUrl, apiKey);
         if (!ids) {
           nextEnsureAttemptAt = Date.now() + ENSURE_COOLDOWN_MS;
           return;
         }
         applyPlatformIdentityIds(ids);
+        identityBoundToFingerprint = fingerprint;
         nextEnsureAttemptAt = 0;
         log.info(
           {
@@ -256,10 +293,6 @@ export async function ensurePlatformIdentityIds(): Promise<void> {
 }
 
 export async function resolvePlatformAssistantId(): Promise<string> {
-  const existing = getPlatformAssistantId();
-  if (existing) {
-    return existing;
-  }
   await ensurePlatformIdentityIds();
   return getPlatformAssistantId();
 }
@@ -277,10 +310,6 @@ export async function resolvePlatformAssistantIdOrUndefined(): Promise<
 }
 
 export async function resolvePlatformUserId(): Promise<string> {
-  const existing = getPlatformUserId();
-  if (existing) {
-    return existing;
-  }
   await ensurePlatformIdentityIds();
   return getPlatformUserId();
 }
@@ -288,10 +317,10 @@ export async function resolvePlatformUserId(): Promise<string> {
 /**
  * Resolve the bound platform owner id for managed-mode edge auth.
  *
- * `unreachable: true` only when the credential store is down, no API key or
- * base URL is available from env/last-good cache, and no prior successful
- * resolve is cached. A cached owner is returned with `unreachable: false`
- * so callers keep treating the assistant as reachable.
+ * `unreachable: true` only when the credential store is down, no API key
+ * and/or platform base URL is available from env/last-good cache, and no
+ * prior successful resolve is cached. A cached owner is returned with
+ * `unreachable: false` so callers keep treating the assistant as reachable.
  */
 export async function readStoredPlatformUserId(): Promise<StoredPlatformUserId> {
   const userId = await resolvePlatformUserId();
