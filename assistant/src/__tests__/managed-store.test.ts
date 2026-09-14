@@ -366,6 +366,57 @@ describe("createManagedSkill", () => {
     expect(readFileSync(result.path, "utf-8")).not.toContain("Old body.");
   });
 
+  test("an overwrite carries through frontmatter the tool does not own", () => {
+    const dir = join(TEST_DIR, "skills", "hand-edited");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      [
+        "---",
+        'name: "Hand Edited"',
+        'description: "Has fields the tool never writes"',
+        "metadata:",
+        "  custom: kept",
+        "  vellum:",
+        '    display-name: "Hand Edited Skill"',
+        "    platforms:",
+        "      - macos",
+        "    always-candidate: true",
+        '    emoji: "📊"',
+        "---",
+        "",
+        "Old body.",
+        "",
+      ].join("\n"),
+    );
+
+    const result = createManagedSkill({
+      id: "hand-edited",
+      name: "Hand Edited",
+      description: "V2",
+      bodyMarkdown: "New body.",
+      overwrite: true,
+      category: "productivity",
+    });
+    expect(result.created).toBe(true);
+
+    const fm = parseYaml(
+      readFileSync(result.path, "utf-8").match(/^---\n([\s\S]*?)\n---/)![1],
+    );
+    expect(fm.metadata.custom).toBe("kept");
+    expect(fm.metadata.vellum["display-name"]).toBe("Hand Edited Skill");
+    expect(fm.metadata.vellum.platforms).toEqual(["macos"]);
+    expect(fm.metadata.vellum["always-candidate"]).toBe(true);
+    expect(fm.metadata.vellum.emoji).toBe("📊");
+    expect(fm.metadata.vellum.category).toBe("productivity");
+    const skill = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]).find(
+      (s) => s.id === "hand-edited",
+    )!;
+    expect(skill.displayName).toBe("Hand Edited Skill");
+    expect(skill.platforms).toEqual(["macos"]);
+    expect(skill.alwaysCandidate).toBe(true);
+  });
+
   test("an overwrite replaces a field it passes and clears one passed empty", () => {
     createManagedSkill({
       id: "patched",
