@@ -1797,4 +1797,303 @@ describe("HostCuProxy", () => {
       expect(proxy.previousAXTree).toBeUndefined();
     });
   });
+
+  describe("screenshot on request", () => {
+    const TREE = 'Window: "Inbox" (Mail)\n  [1] button "Reply" at (10, 10)';
+    const OMITTED = "Screenshot omitted";
+
+    function connect() {
+      mockClients = [
+        {
+          clientId: "mac-1",
+          actorPrincipalId: "user-1",
+          capabilities: [
+            "host_cu",
+            "host_cu_window_capture",
+            "host_cu_annotate",
+          ],
+        },
+      ];
+    }
+
+    /** Dispatch one request and return what was sent, without answering it. */
+    function dispatch(
+      input: Record<string, unknown> = { element_id: 1 },
+      toolName = "computer_use_click",
+    ) {
+      const pending = proxy.request(
+        toolName,
+        input,
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        "mac-1",
+        "user-1",
+      );
+      const sent = sentMessages.at(-1) as {
+        requestId: string;
+        input: Record<string, unknown>;
+      };
+      return { pending, sent };
+    }
+
+    /** Dispatch one request, answer it with `observation`, and return both ends. */
+    async function step(
+      observation: Record<string, unknown>,
+      input?: Record<string, unknown>,
+      toolName?: string,
+    ) {
+      const { pending, sent } = dispatch(input, toolName);
+      proxy.processObservation(sent.requestId, observation);
+      return { sent, result: await pending };
+    }
+
+    function asksForScreenshot(sent: { input: Record<string, unknown> }) {
+      return !Object.hasOwn(sent.input, "includeScreenshot");
+    }
+
+    test("the first observed step attaches and the next unscoped step does not", async () => {
+      setup();
+      connect();
+      const first = await step({ axTree: TREE, screenshot: "img" });
+      expect(first.sent.input).toEqual({ element_id: 1 });
+      expect(first.result.content).not.toContain(OMITTED);
+
+      const second = await step({ axTree: TREE });
+      expect(second.sent.input).toEqual({
+        element_id: 1,
+        includeScreenshot: false,
+      });
+      expect(second.result.content).toContain(OMITTED);
+      expect(second.result.isError).toBe(false);
+    });
+
+    test("the first look is per desktop, so a newly targeted one attaches", async () => {
+      setup();
+      mockClients = [
+        {
+          clientId: "mac-1",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_cu"],
+        },
+        {
+          clientId: "mac-2",
+          actorPrincipalId: "user-1",
+          capabilities: ["host_cu"],
+        },
+      ];
+      const on = (clientId: string) => {
+        const pending = proxy.request(
+          "computer_use_click",
+          { element_id: 1 },
+          "session-1",
+          1,
+          undefined,
+          undefined,
+          clientId,
+          "user-1",
+        );
+        const sent = sentMessages.at(-1) as {
+          requestId: string;
+          input: Record<string, unknown>;
+        };
+        return { pending, sent };
+      };
+
+      const firstA = on("mac-1");
+      proxy.processObservation(firstA.sent.requestId, {
+        axTree: TREE,
+        screenshot: "img",
+      });
+      await firstA.pending;
+      const secondA = on("mac-1");
+      expect(asksForScreenshot(secondA.sent)).toBe(false);
+      proxy.processObservation(secondA.sent.requestId, { axTree: TREE });
+      await secondA.pending;
+
+      // A different machine the assistant has never seen gets its own look.
+      const firstB = on("mac-2");
+      expect(asksForScreenshot(firstB.sent)).toBe(true);
+      proxy.processObservation(firstB.sent.requestId, {
+        axTree: TREE,
+        screenshot: "img",
+      });
+      await firstB.pending;
+      const secondB = on("mac-2");
+      expect(asksForScreenshot(secondB.sent)).toBe(false);
+      proxy.processObservation(secondB.sent.requestId, { axTree: TREE });
+      await secondB.pending;
+    });
+
+    test("include_screenshot: true attaches and is not forwarded", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const input = { include_screenshot: true };
+      const { sent, result } = await step(
+        { axTree: TREE, screenshot: "img" },
+        input,
+        "computer_use_observe",
+      );
+      expect(sent.input).toEqual({});
+      expect(input).toEqual({ include_screenshot: true });
+      expect(result.content).not.toContain(OMITTED);
+    });
+
+    test("include_screenshot: false is stripped and the step still skips", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const { sent } = await step(
+        { axTree: TREE },
+        { include_screenshot: false },
+        "computer_use_observe",
+      );
+      expect(sent.input).toEqual({ includeScreenshot: false });
+    });
+
+    test("a scoped observe always attaches", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      for (const input of [
+        { capture_window_id: 12 },
+        { captureWindowId: 12 },
+        { captureDisplayId: 1 },
+      ]) {
+        const scoped = await step(
+          { axTree: TREE, screenshot: "img" },
+          input,
+          "computer_use_observe",
+        );
+        expect(scoped.sent.input).toEqual(input);
+      }
+    });
+
+    test("a scoped observation does not count as the first look", async () => {
+      setup();
+      connect();
+      await step(
+        { axTree: TREE, screenshot: "img" },
+        { capture_window_id: 12 },
+        "computer_use_observe",
+      );
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(true);
+    });
+
+    test("reset() makes the next step attach again", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(
+        false,
+      );
+      proxy.reset();
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(true);
+    });
+
+    test("the omitted line is absent when a requested capture failed", async () => {
+      setup();
+      connect();
+      const failed = await step({ axTree: TREE });
+      expect(asksForScreenshot(failed.sent)).toBe(true);
+      expect(failed.result.content).not.toContain(OMITTED);
+    });
+
+    test("a first look whose capture failed is asked for again", async () => {
+      setup();
+      connect();
+      const failed = await step({ axTree: TREE });
+      expect(asksForScreenshot(failed.sent)).toBe(true);
+      const retry = await step({ axTree: TREE, screenshot: "img" });
+      expect(asksForScreenshot(retry.sent)).toBe(true);
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(
+        false,
+      );
+    });
+
+    test("an observation that lands after a reset leaves the new run's state alone", async () => {
+      setup();
+      connect();
+      const stale = dispatch();
+      proxy.reset();
+      proxy.processObservation(stale.sent.requestId, {
+        axTree: "stale tree from the finished run",
+        screenshot: "img",
+      });
+      await stale.pending;
+      expect(proxy.previousAXTree).toBeUndefined();
+      expect(proxy.consecutiveUnchangedSteps).toBe(0);
+    });
+
+    test("an observation that lands after a reset does not restore the first look", async () => {
+      setup();
+      connect();
+      const stale = dispatch();
+      proxy.reset();
+      proxy.processObservation(stale.sent.requestId, {
+        axTree: TREE,
+        screenshot: "img",
+      });
+      await stale.pending;
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(true);
+    });
+
+    test("the omitted line is absent when a skipped step reports an execution error", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const failed = await step({
+        axTree: TREE,
+        executionError: "Element not found",
+      });
+      expect(asksForScreenshot(failed.sent)).toBe(false);
+      expect(failed.result.isError).toBe(true);
+      expect(failed.result.content).not.toContain(OMITTED);
+    });
+
+    test("a helper that ignores the flag keeps its screenshot and gets no omitted line", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      const legacy = await step({ axTree: TREE, screenshot: "img" });
+      expect(asksForScreenshot(legacy.sent)).toBe(false);
+      expect(legacy.result.content).not.toContain(OMITTED);
+      expect(legacy.result.contentBlocks).toHaveLength(1);
+    });
+
+    test("a point_at response leaves the first-look state untouched", async () => {
+      setup();
+      connect();
+      const input = { marks: [], include_screenshot: true };
+      const { pending, sent } = dispatch(input, "computer_use_point_at");
+      expect(sent.input).toBe(input);
+      proxy.processObservation(sent.requestId, { axTree: TREE });
+      expect((await pending).content).not.toContain(OMITTED);
+      expect(asksForScreenshot((await step({ axTree: TREE })).sent)).toBe(true);
+    });
+
+    test("concurrent requests each keep their own dispatch decision", async () => {
+      setup();
+      connect();
+      // Both are dispatched before any observation, so both ask for pixels,
+      // even though the first one's observation lands before the second's.
+      const first = dispatch();
+      const second = dispatch();
+      expect(asksForScreenshot(first.sent)).toBe(true);
+      expect(asksForScreenshot(second.sent)).toBe(true);
+      proxy.processObservation(first.sent.requestId, {
+        axTree: TREE,
+        screenshot: "img",
+      });
+      const third = dispatch();
+      expect(asksForScreenshot(third.sent)).toBe(false);
+      proxy.processObservation(third.sent.requestId, { axTree: TREE });
+      proxy.processObservation(second.sent.requestId, { axTree: TREE });
+      await first.pending;
+      expect((await second.pending).content).not.toContain(OMITTED);
+      expect((await third.pending).content).toContain(OMITTED);
+    });
+  });
 });
