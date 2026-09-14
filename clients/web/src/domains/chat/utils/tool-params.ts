@@ -89,7 +89,7 @@ export function toToolParams(bag: Record<string, unknown>): ToolParamEntry[] {
  *
  * The daemon adds `activity` to every tool's input schema as a status line for
  * the user (`assistant/src/tools/schema-transforms.ts`), and the detail panel's
- * header already shows it, so a row for it would say the same thing twice. The
+ * header already shows it, so a field for it would say the same thing twice. The
  * raw input still carries it.
  */
 export function toolCallParams(

@@ -45,7 +45,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * `ToolDetailBody` looks the tool name up in `tool-activity-renderers.ts`.
  * Shell, file edits, the two skill tools and the two web tools have bodies of
  * their own; everything else, native or third-party, falls back to its
- * parameters as labelled rows, the raw JSON input behind a disclosure, and a
+ * parameters as labelled fields, the raw JSON input behind a disclosure, and a
  * clamped result.
  *
  * ## What the header owns
@@ -55,7 +55,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * its risk pill. Nothing in the body repeats any of that. The activity does
  * appear once more inside the raw JSON, because `activity` is a real input key
  * the tools send alongside `command` / `path`, and that block is the raw input.
- * The parameter rows leave it out, since the header already shows it.
+ * The parameter fields leave it out, since the header already shows it.
  *
  * The sentence wraps to two lines rather than truncating on one: most activity
  * sentences are longer than a single line at the drawer's 400px default, and

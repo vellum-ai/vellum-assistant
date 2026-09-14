@@ -1,10 +1,11 @@
 /**
  * What a tool call was given, in a detail panel: its parameters as labelled
- * rows, and the raw input one disclosure away for anything the rows leave out.
+ * fields, and the raw input one disclosure away for anything the fields leave
+ * out.
  *
  * Renders the two as siblings rather than inside a wrapper, so the caller's
  * column spaces them like the rest of its sections. With no parameters there
- * are no rows, and the raw input stands alone.
+ * are no fields, and the raw input stands alone.
  */
 
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
@@ -15,7 +16,7 @@ import type { ToolParamEntry } from "@/domains/chat/utils/tool-params";
 import { useTranslation } from "@/i18n";
 
 interface ToolInputParametersProps {
-  /** Rows to show, in order. */
+  /** Parameters to show, in order. */
   params: ToolParamEntry[];
   /** The input exactly as the call carried it, shown as JSON on request. */
   rawInput: Record<string, unknown>;
