@@ -224,6 +224,16 @@ export const PROVIDER_SEED_DATA: Record<
         headerName: "Authorization",
         valuePrefix: "Bearer ",
       },
+      // The file object's `url_private`, `url_private_download`, and `thumb_*`
+      // fields live on this host and take the same Bearer token as the Web
+      // API, so a file shared in a message is read with the same credential
+      // that read the message. Slack documents this one host by name.
+      {
+        hostPattern: "files.slack.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
     ],
     appType: "Slack App",
     identityUrl: "https://slack.com/api/auth.test",
@@ -1197,6 +1207,16 @@ export const PROVIDER_SEED_DATA: Record<
     injectionTemplates: [
       {
         hostPattern: "slack.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      // The file object's `url_private`, `url_private_download`, and `thumb_*`
+      // fields live on this host and take the same Bearer token as the Web
+      // API, so a file shared in a message is read with the same credential
+      // that read the message. Slack documents this one host by name.
+      {
+        hostPattern: "files.slack.com",
         injectionType: "header",
         headerName: "Authorization",
         valuePrefix: "Bearer ",

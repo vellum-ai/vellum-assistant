@@ -109,6 +109,10 @@ mock.module("../oauth/oauth-store.js", () => ({
   listActiveConnectionsByProvider: (provider: string) =>
     mockActiveConnectionsByProvider[provider] ?? [],
   listConnections: (provider: string) => mockAllConnections[provider] ?? [],
+  // Imported by seed-providers.js at module load; the seed data is read here,
+  // never written.
+  migrateProviderBaseUrl: () => {},
+  seedProviders: () => {},
 }));
 
 mock.module("../oauth/connection-resolver.js", () => {
@@ -155,6 +159,7 @@ mock.module("../security/token-manager.js", () => ({
 }));
 
 import { loadRawConfig } from "../config/loader.js";
+import { PROVIDER_SEED_DATA } from "../oauth/seed-providers.js";
 import {
   BadRequestError,
   InternalError,
@@ -897,6 +902,67 @@ describe("POST oauth/request", () => {
         baseUrl: "https://slack.com",
       },
     ]);
+  });
+
+  test("admits a Slack file URL on both seeded Slack providers", async () => {
+    // The seed rows are the data under test: each Slack credential reads
+    // messages, and a file shared in a message is fetched from the file
+    // object's `url_private_download` on files.slack.com with the same token.
+    for (const provider of ["slack", "slack_channel"] as const) {
+      const seed = PROVIDER_SEED_DATA[provider];
+      mockProviders[provider] = {
+        ...baseProvider,
+        provider,
+        managedServiceConfigKey: null,
+        baseUrl: seed.baseUrl ?? null,
+        injectionTemplates: JSON.stringify(seed.injectionTemplates),
+      };
+      mockResolveRequests = [];
+
+      await getRoute("POST", "oauth/request").handler(
+        makeArgs({
+          body: {
+            provider,
+            url: "https://files.slack.com/files-pri/T0123-F0456/download/shot.png",
+          },
+        }),
+      );
+
+      expect(mockResolveRequests).toEqual([
+        {
+          method: "GET",
+          path: "/files-pri/T0123-F0456/download/shot.png",
+          baseUrl: "https://files.slack.com",
+        },
+      ]);
+    }
+  });
+
+  test("the seeded Slack host policy admits nothing beyond the documented hosts", async () => {
+    const seed = PROVIDER_SEED_DATA.slack_channel;
+    mockProviders.slack_channel = {
+      ...baseProvider,
+      provider: "slack_channel",
+      managedServiceConfigKey: null,
+      baseUrl: seed.baseUrl ?? null,
+      injectionTemplates: JSON.stringify(seed.injectionTemplates),
+    };
+
+    // A lookalike, an unrelated host, and the CDN host Slack redirects file
+    // downloads to: the guard sees only the URL the caller names, and that
+    // URL is the documented file host or nothing.
+    for (const url of [
+      "https://files.slack.com.attacker.example/files-pri/T0123-F0456/x.png",
+      "https://attacker.example/files-pri/T0123-F0456/x.png",
+      "https://files-origin.slack.com/files-pri/T0123-F0456/x.png",
+    ]) {
+      await expect(
+        getRoute("POST", "oauth/request").handler(
+          makeArgs({ body: { provider: "slack_channel", url } }),
+        ),
+      ).rejects.toBeInstanceOf(BadRequestError);
+    }
+    expect(mockResolveRequests).toHaveLength(0);
   });
 
   test("allows cross-host absolute URLs declared by provider injection templates", async () => {

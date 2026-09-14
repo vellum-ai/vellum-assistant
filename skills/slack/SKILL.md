@@ -187,6 +187,18 @@ assistant oauth request --provider slack_channel \
   /files.completeUploadExternal --json
 ```
 
+### Download a file
+
+A file shared in a message arrives on the message's `files` entries. Each carries `url_private_download` (or `url_private`) on `files.slack.com`, which takes the same token as the Web API, so the same command reads it. Pass the absolute URL as given and write the bytes with `-o`; the response is the file itself, not a JSON envelope.
+
+```bash
+assistant oauth request --provider slack_channel \
+  -o /tmp/shot.png \
+  "https://files.slack.com/files-pri/T0123456789-F0123456789/download/shot.png"
+```
+
+The bot needs `files:read` for this; a token without it is answered with a sign-in page instead of the file. Do not fetch the URL with `curl` or paste a token into a shell: the command is the only place the token is allowed to be.
+
 ### Search messages
 
 Takes `slack`, not `slack_channel`: `search.messages` is a user-token method, and the bot token cannot call it. A workspace with no `slack` connection cannot search this way; say so instead of reporting an empty result.

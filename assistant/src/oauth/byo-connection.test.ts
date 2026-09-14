@@ -308,6 +308,66 @@ describe("BYOOAuthConnection", () => {
       expect((init as RequestInit).method).toBe("GET");
     });
 
+    test("follows a cross-origin redirect without the credential and returns the target's bytes", async () => {
+      // Real fetch against two loopback origins: the credential goes to the
+      // host the caller named, the redirect target sees no Authorization,
+      // and the target's bytes come back as the response body. This is the
+      // path a Slack file download takes when files.slack.com answers with a
+      // 302 to its CDN.
+      globalThis.fetch = originalFetch;
+      await setupCredential("google");
+      const bytes = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      ]);
+      const seen: { origin?: string | null; target?: string | null } = {};
+
+      const target = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: (req) => {
+          seen.target = req.headers.get("authorization");
+          return new Response(bytes, {
+            status: 200,
+            headers: { "content-type": "image/png" },
+          });
+        },
+      });
+      const origin = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: (req) => {
+          seen.origin = req.headers.get("authorization");
+          return new Response(null, {
+            status: 302,
+            headers: { Location: `http://127.0.0.1:${target.port}/signed` },
+          });
+        },
+      });
+
+      try {
+        const conn = new BYOOAuthConnection({
+          id: "conn-google",
+          provider: "google",
+          baseUrl: `http://127.0.0.1:${origin.port}`,
+          accountInfo: null,
+        });
+
+        const result = await conn.request({
+          method: "GET",
+          path: "/files-pri/T0123-F0456/download/shot.png",
+        });
+
+        expect(seen.origin).toBe("Bearer test-access-token");
+        expect(seen.target).toBeNull();
+        expect(result.status).toBe(200);
+        expect(Buffer.isBuffer(result.body)).toBe(true);
+        expect(Buffer.from(result.body as Buffer).equals(bytes)).toBe(true);
+      } finally {
+        origin.stop(true);
+        target.stop(true);
+      }
+    });
+
     test("appends query parameters", async () => {
       await setupCredential("google");
       const conn = createConnection();
