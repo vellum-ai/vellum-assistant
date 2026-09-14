@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
@@ -47,7 +47,7 @@ import { useVellumCommands } from "@/runtime/vellum-commands";
 import { handleToggleWatchCommand } from "@/runtime/watch-command";
 
 import { navigateToConversation } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
+import { conversationIdForPath, routes } from "@/utils/routes";
 import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
@@ -339,7 +339,26 @@ export function RootLayout() {
   // at the root because downloads start from every domain (chat attachments,
   // workspace files, invoices, inspector exports).
   useDownloadFeedback();
-  useEffect(() => subscribeAndroidBackButtonSource(), []);
+  // Android Back closes a minimized app the WebView history root cannot pop.
+  // The source lives outside React, so it reaches the router through a ref and
+  // its subscription keeps a stable identity.
+  const closeAppRouteRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    closeAppRouteRef.current = () => {
+      const conversationId = conversationIdForPath(window.location.pathname);
+      if (!conversationId) {
+        return;
+      }
+      void navigate(routes.conversation(conversationId), { replace: true });
+    };
+  }, [navigate]);
+  useEffect(
+    () =>
+      subscribeAndroidBackButtonSource({
+        closeAppRoute: () => closeAppRouteRef.current(),
+      }),
+    [],
+  );
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while
   // the user is on `/assistant/settings`, `/logs`, etc. still
