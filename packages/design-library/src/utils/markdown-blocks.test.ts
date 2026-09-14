@@ -77,6 +77,30 @@ describe("splitMarkdownBlocks", () => {
     expect(blocksOf("$$x$$\n\nafter")).toEqual(["$$x$$\n\n", "after"]);
   });
 
+  test("a math fence opened with more dollars is not closed by fewer", () => {
+    // remark-math accepts any run of two or more dollars as the opener and
+    // requires the closer to be at least as long, like a code fence.
+    expect(blocksOf("$$$\na\n\n$$\n\nb\n$$$\n\nafter")).toEqual([
+      "$$$\na\n\n$$\n\nb\n$$$\n\n",
+      "after",
+    ]);
+    expect(blocksOf("$$$$\na\n\nb\n$$$$\n\nafter")).toEqual([
+      "$$$$\na\n\nb\n$$$$\n\n",
+      "after",
+    ]);
+  });
+
+  test("a math fence opener may carry meta, but not another dollar", () => {
+    expect(blocksOf("$$ asciimath\na\n\nb\n$$\n\nafter")).toEqual([
+      "$$ asciimath\na\n\nb\n$$\n\n",
+      "after",
+    ]);
+    expect(blocksOf("$$ costs $5\n\nafter")).toEqual([
+      "$$ costs $5\n\n",
+      "after",
+    ]);
+  });
+
   test("an indented line after a blank stays with its block", () => {
     // A list item's continuation paragraph, and an indented code block.
     expect(blocksOf("- item\n\n  continued\n\nnext")).toEqual([

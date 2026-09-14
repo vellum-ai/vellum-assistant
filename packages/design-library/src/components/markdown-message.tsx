@@ -1088,11 +1088,11 @@ interface MarkdownBlockProps {
 
 /**
  * One parse-and-render unit: the source rewrites and the react-markdown
- * pipeline for a single string. Memoized so that, in incremental mode, a block
- * whose text and pipeline are unchanged is skipped entirely, its parsed tree
- * and React subtree both intact.
+ * pipeline for a single string. Rendered through {@link MemoizedMarkdownBlock}
+ * so that, in incremental mode, a block whose text and pipeline are unchanged
+ * is skipped entirely, its parsed tree and React subtree both intact.
  */
-const MarkdownBlock = memo(function MarkdownBlock({
+function MarkdownBlock({
   content,
   hardLineBreaks,
   components,
@@ -1116,7 +1116,9 @@ const MarkdownBlock = memo(function MarkdownBlock({
       {processed}
     </ReactMarkdown>
   );
-});
+}
+
+const MemoizedMarkdownBlock = memo(MarkdownBlock);
 
 /**
  * The blocks of `content` for incremental rendering, rescanning only the open
@@ -1186,7 +1188,7 @@ export function MarkdownMessage({
         // cuts the tail, the part that settles keeps its key while only the
         // new tail mounts.
         blocks.map((block, index) => (
-          <MarkdownBlock
+          <MemoizedMarkdownBlock
             key={index}
             content={block}
             hardLineBreaks={hardLineBreaks}
@@ -1196,7 +1198,7 @@ export function MarkdownMessage({
           />
         ))
       ) : (
-        <MarkdownBlock
+        <MemoizedMarkdownBlock
           content={content}
           hardLineBreaks={hardLineBreaks}
           components={components}

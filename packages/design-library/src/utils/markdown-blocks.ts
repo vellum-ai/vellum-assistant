@@ -31,22 +31,25 @@ export interface MarkdownBlockSplit {
 }
 
 const CODE_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
-const MATH_FENCE_OPEN = /^ {0,3}\$\$(?!.*\$\$)/;
-const MATH_FENCE_CLOSE = /^ {0,3}\$\$\s*$/;
+// remark-math's flow construct: a run of two or more dollars, optional meta
+// that may not contain another dollar, and a closing run at least as long.
+const MATH_FENCE_OPEN = /^ {0,3}(\${2,})[^$]*$/;
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,}|\${2,})\s*$/;
 const BLANK_LINE = /^\s*$/;
 const INDENTED_LINE = /^[ \t]/;
 const LIST_MARKER = /^(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
 
-/** The fence a scanner is inside, if any. */
-type Fence =
-  | { readonly kind: "code"; readonly marker: string }
-  | { readonly kind: "math" };
+/**
+ * The fence a scanner is inside, if any: the run of characters that opened
+ * it. A closing run must use the same character and be at least as long, for
+ * code and math fences alike.
+ */
+interface Fence {
+  readonly marker: string;
+}
 
 function closesFence(line: string, fence: Fence): boolean {
-  if (fence.kind === "math") {
-    return MATH_FENCE_CLOSE.test(line);
-  }
-  const match = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
+  const match = FENCE_CLOSE.exec(line);
   if (match === null) {
     return false;
   }
@@ -55,14 +58,8 @@ function closesFence(line: string, fence: Fence): boolean {
 }
 
 function opensFence(line: string): Fence | null {
-  const code = CODE_FENCE_OPEN.exec(line);
-  if (code !== null) {
-    return { kind: "code", marker: code[1]! };
-  }
-  if (MATH_FENCE_OPEN.test(line)) {
-    return { kind: "math" };
-  }
-  return null;
+  const match = CODE_FENCE_OPEN.exec(line) ?? MATH_FENCE_OPEN.exec(line);
+  return match === null ? null : { marker: match[1]! };
 }
 
 /** One pass over `text` from a block boundary; see the module docs for the cut rule. */
