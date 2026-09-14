@@ -126,8 +126,8 @@ function pendingGuardianItem(requestId: string): FeedItem {
 }
 
 /**
- * A receipt as it was persisted before the receipt writer cleared unread:
- * terminal projection, urgency already dropped, still `new`.
+ * A terminal receipt that never passed the pending-to-terminal edge:
+ * terminal projection, urgency `medium`, still `new`.
  */
 function legacyGuardianReceiptItem(requestId: string): FeedItem {
   const item = pendingGuardianItem(requestId);
@@ -140,7 +140,7 @@ function legacyGuardianReceiptItem(requestId: string): FeedItem {
 }
 
 describe("healLegacyGuardianReceiptUnread", () => {
-  test("clears unread on a receipt that predates the edge transition", async () => {
+  test("clears unread on a terminal receipt that never passed the edge", async () => {
     await appendFeedItem(legacyGuardianReceiptItem("legacy-1"));
 
     await healLegacyGuardianReceiptUnread();

@@ -293,27 +293,24 @@ const LEGACY_UNREAD_HEAL_LIMIT = 50;
 /**
  * Completion sentinel for the one-time heal below, in the daemon's
  * checkpoint ledger (the same shape as the lexical backfill's
- * `lexical:messages:backfill_complete`). Its presence is the whole
- * discriminator, and it has to be recorded because it cannot be
- * inferred: a receipt written before the receipt cleared unread and a
- * receipt the user deliberately marked unread afterwards are
- * byte-identical on the row. Both are a terminal projection at
- * `status: "new"`, and both already had urgency dropped, because the
- * pre-fix receipt writer dropped urgency too.
+ * `lexical:messages:backfill_complete`). It is the only thing that
+ * separates the two kinds of terminal receipt stored at `status: "new"`:
+ * one that never passed the pending-to-terminal edge, and one the user
+ * marked unread after it did. The rows are byte-identical (terminal
+ * projection, urgency `medium`), so the boundary is recorded rather
+ * than inferred.
  */
 const LEGACY_UNREAD_HEAL_COMPLETE_KEY =
   "guardian_feed:receipt_unread_heal_complete";
 
 /**
- * Clear unread on guardian receipts that went terminal before the
- * receipt writer learned to do it.
+ * Clear unread on terminal guardian receipts that never passed the
+ * pending-to-terminal edge in `writeGuardianFeedReceipt`.
  *
- * The edge transition in `writeGuardianFeedReceipt` only runs when a
- * request resolves, and a receipt persisted before this feature shipped
- * never gets another one: reconciliation skips items whose projection is
- * already terminal, and guardian items carry no `expiresAt`, so the row
- * would sit unread forever. That is the population the bug report is
- * about, so the invariant is not met without this pass.
+ * Nothing else reaches those rows: the edge runs only while a
+ * projection still reads pending, reconciliation skips items whose
+ * projection is already terminal, and guardian items carry no
+ * `expiresAt`. Without this pass they read unread indefinitely.
  *
  * Runs once per assistant, not once per boot. A recurring pass would
  * take back a deliberate "mark unread" every minute, and a per-boot pass
@@ -369,7 +366,7 @@ export async function healLegacyGuardianReceiptUnread(): Promise<void> {
         failed,
         remaining: stale.length - batch.length,
       },
-      "Cleared unread on guardian receipts that predate the receipt's unread clear",
+      "Cleared unread on terminal guardian receipts that never passed the edge",
     );
   }
 
