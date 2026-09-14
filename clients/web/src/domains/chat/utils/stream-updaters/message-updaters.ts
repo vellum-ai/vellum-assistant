@@ -539,10 +539,9 @@ export function applyUserMessageEcho(
     {
       id: serverId ?? crypto.randomUUID(),
       ...(serverId === undefined ? { isOptimistic: true } : {}),
-      // Carry the nonce so the folded row shares the persisted server row's
-      // identity keys — the transcript overlay and the reseed prune both
-      // correlate on it (see `messageMatchKeys`).
-      ...(event.clientMessageId
+      // Only ordinary sends share the optimistic row's identity. Camera
+      // frames remain distinct in the transcript overlay and reseed prune.
+      ...(!event.cameraFrame && event.clientMessageId
         ? { clientMessageId: event.clientMessageId }
         : {}),
       role: "user",
