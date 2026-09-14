@@ -1,54 +1,86 @@
 /**
- * A tool call's input as the rows a detail panel shows: one per parameter,
- * scalars as display strings, objects and arrays as pretty-printed JSON.
+ * A tool call's input as a tree a detail panel can lay out: each parameter a
+ * key with a typed value, objects as entries and arrays as items, so nothing
+ * but a value nested too deep to lay out has to be shown as JSON.
  */
 
-/** One parameter of a tool call. */
-export interface ToolParam {
+/** Nesting depth at which an object or array is shown as JSON instead. */
+const MAX_DEPTH = 4;
+
+/**
+ * A value in a tool call's input, typed by how it is shown: `text` for a
+ * string, `literal` for a number, boolean, null or empty collection written
+ * as-is, `list` and `object` for structure, and `json` for a subtree nested
+ * past {@link MAX_DEPTH}.
+ */
+export type ToolParamValue =
+  | { kind: "text"; text: string }
+  | { kind: "literal"; text: string }
+  | { kind: "list"; items: ToolParamValue[] }
+  | { kind: "object"; entries: ToolParamEntry[] }
+  | { kind: "json"; json: string };
+
+/** One keyed value: a parameter, or a field of an object parameter. */
+export interface ToolParamEntry {
   key: string;
-  /**
-   * Display string for a scalar value (string / number / boolean / null).
-   * `null` when the value is an object or array; read `json` instead.
-   */
-  scalar: string | null;
-  /** Pretty-printed JSON for object/array values; `null` for scalars. */
-  json: string | null;
+  value: ToolParamValue;
 }
 
 /**
- * Format a single parameter value for display. Scalars render inline; objects
- * and arrays are pretty-printed as JSON so nested structure stays legible. A
- * value that can't be serialised (a cycle) degrades to its `String()` form
- * rather than throwing.
+ * Pretty-printed JSON for a subtree past the depth limit. A value that can't
+ * be serialised (a cycle) degrades to its `String()` form rather than throwing.
  */
-function formatParamValue(value: unknown): Pick<ToolParam, "scalar" | "json"> {
-  if (value === null) {
-    return { scalar: "null", json: null };
-  }
-  if (typeof value === "string") {
-    return { scalar: value, json: null };
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return { scalar: String(value), json: null };
-  }
-  if (typeof value === "undefined") {
-    return { scalar: "undefined", json: null };
-  }
+function toJsonValue(value: unknown): ToolParamValue {
   try {
     return {
-      scalar: null,
+      kind: "json",
       json: JSON.stringify(value, null, 2) ?? String(value),
     };
   } catch {
-    return { scalar: String(value), json: null };
+    return { kind: "literal", text: String(value) };
   }
 }
 
+function toParamValue(value: unknown, depth: number): ToolParamValue {
+  if (typeof value === "string") {
+    return { kind: "text", text: value };
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return { kind: "literal", text: "[]" };
+    }
+    if (depth >= MAX_DEPTH) {
+      return toJsonValue(value);
+    }
+    return {
+      kind: "list",
+      items: value.map((item) => toParamValue(item, depth + 1)),
+    };
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0) {
+      return { kind: "literal", text: "{}" };
+    }
+    if (depth >= MAX_DEPTH) {
+      return toJsonValue(value);
+    }
+    return {
+      kind: "object",
+      entries: entries.map(([key, entryValue]) => ({
+        key,
+        value: toParamValue(entryValue, depth + 1),
+      })),
+    };
+  }
+  return { kind: "literal", text: String(value) };
+}
+
 /** The entries of `bag` as parameters, in insertion order. */
-export function toToolParams(bag: Record<string, unknown>): ToolParam[] {
+export function toToolParams(bag: Record<string, unknown>): ToolParamEntry[] {
   return Object.entries(bag).map(([key, value]) => ({
     key,
-    ...formatParamValue(value),
+    value: toParamValue(value, 0),
   }));
 }
 
@@ -60,7 +92,9 @@ export function toToolParams(bag: Record<string, unknown>): ToolParam[] {
  * header already shows it, so a row for it would say the same thing twice. The
  * raw input still carries it.
  */
-export function toolCallParams(input: Record<string, unknown>): ToolParam[] {
+export function toolCallParams(
+  input: Record<string, unknown>,
+): ToolParamEntry[] {
   return toToolParams(
     Object.fromEntries(
       Object.entries(input).filter(([key]) => key !== "activity"),

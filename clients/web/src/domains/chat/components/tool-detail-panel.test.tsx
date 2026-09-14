@@ -162,17 +162,61 @@ describe("ToolDetailPanel", () => {
     expect(getByText("Raw input")).toBeDefined();
   });
 
-  test("renders a structured parameter as JSON under its key", () => {
+  test("renders a structured parameter as labelled fields, not JSON", () => {
     const detail = makeDetail({
       toolName: "acme_crm_upsert_contact",
-      input: { record: { stage: "qualified", tags: ["inbound"] } },
+      input: {
+        record: {
+          stage: "qualified",
+          owner: { team: "growth" },
+          tags: ["inbound", "trial"],
+        },
+      },
     });
     const { getByText, container } = render(
       <ToolDetailPanel detail={detail} onClose={noop} />,
     );
 
     expect(getByText("record")).toBeDefined();
-    expect(container.textContent).toContain('"stage": "qualified"');
+    expect(getByText("stage")).toBeDefined();
+    expect(getByText("qualified")).toBeDefined();
+    // A small object reads as key and value pairs on one line.
+    expect(getByText("owner")).toBeDefined();
+    expect(getByText("team")).toBeDefined();
+    // A short list reads as one line.
+    expect(getByText("inbound, trial")).toBeDefined();
+    expect(container.textContent).not.toContain('"stage"');
+  });
+
+  test("sets long text as a copyable code block", () => {
+    const query =
+      "SELECT week, count(DISTINCT person_id) AS users FROM events GROUP BY week ORDER BY week";
+    const detail = makeDetail({
+      toolName: "mcp__analytics__exec",
+      input: { query },
+    });
+    const { getByText, getAllByLabelText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(getByText(query).tagName).toBe("PRE");
+    // One copy button for the query, one for the output.
+    expect(getAllByLabelText("Copy")).toHaveLength(2);
+  });
+
+  test("counts the items past the first twenty instead of listing them", () => {
+    const ids = Array.from({ length: 23 }, (_, index) => `id-${index + 1}`);
+    const detail = makeDetail({
+      toolName: "acme_bulk_archive",
+      input: { ids },
+    });
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+
+    expect(getByText("id-20")).toBeDefined();
+    expect(queryByText("id-21")).toBeNull();
+    expect(getByText("3 more in Raw input")).toBeDefined();
   });
 
   test("omits the Technical details label", () => {
@@ -566,16 +610,28 @@ describe("ToolDetailPanel", () => {
   });
 
   test("copy button writes the content to the clipboard", () => {
-    const { getAllByLabelText } = render(
+    const { getAllByLabelText, getByText } = render(
       <ToolDetailPanel detail={makeDetail()} onClose={noop} />,
     );
 
-    // Two copy buttons: one for input, one for output.
+    // Short parameters are rows with nothing to copy, so at rest only the
+    // output has a copy button. Opening the raw input adds its own.
+    expect(getAllByLabelText("Copy")).toHaveLength(1);
+    act(() => {
+      fireEvent.click(getByText("Raw input"));
+    });
     const copyButtons = getAllByLabelText("Copy");
     expect(copyButtons.length).toBe(2);
 
     fireEvent.click(copyButtons[0]!);
     expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(
+      JSON.stringify(
+        { label: "toronto-location", role: "researcher" },
+        null,
+        2,
+      ),
+    );
   });
 
   test("thinking variant renders the reasoning markdown without input/output sections", () => {

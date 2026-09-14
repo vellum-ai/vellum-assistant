@@ -1746,6 +1746,9 @@
     "parameters": "参数",
     "rawInput": "原始输入"
   },
+  "toolParamFields": {
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}"
+  },
   "toolStepPill": {
     "openAria": "打开 {label}",
     "viewDetailsAria": "查看详情：{label}"

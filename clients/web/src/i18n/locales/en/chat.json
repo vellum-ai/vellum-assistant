@@ -1757,6 +1757,9 @@
     "parameters": "Parameters",
     "rawInput": "Raw input"
   },
+  "toolParamFields": {
+    "moreCount": "{count, plural, one {# more in Raw input} other {# more in Raw input}}"
+  },
   "toolStepPill": {
     "openAria": "Open {label}",
     "viewDetailsAria": "View details: {label}"

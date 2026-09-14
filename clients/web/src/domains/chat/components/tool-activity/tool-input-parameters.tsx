@@ -9,13 +9,14 @@
 
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { DetailDisclosure } from "@/domains/chat/components/tool-activity/detail-disclosure";
-import { ToolParamRow } from "@/domains/chat/components/tool-activity/tool-param-row";
-import type { ToolParam } from "@/domains/chat/utils/tool-params";
+import { ToolParamFields } from "@/domains/chat/components/tool-activity/tool-param-fields";
+import { layoutToolParams } from "@/domains/chat/utils/tool-param-layout";
+import type { ToolParamEntry } from "@/domains/chat/utils/tool-params";
 import { useTranslation } from "@/i18n";
 
 interface ToolInputParametersProps {
   /** Rows to show, in order. */
-  params: ToolParam[];
+  params: ToolParamEntry[];
   /** The input exactly as the call carried it, shown as JSON on request. */
   rawInput: Record<string, unknown>;
 }
@@ -31,10 +32,8 @@ export function ToolInputParameters({
       {params.length > 0 && (
         <div>
           <SectionLabel>{t("toolInputParameters.parameters")}</SectionLabel>
-          <div className="flex flex-col gap-4 rounded-lg border border-[var(--border-base)] p-4">
-            {params.map((param) => (
-              <ToolParamRow key={param.key} param={param} />
-            ))}
+          <div className="rounded-lg border border-[var(--border-base)] p-4">
+            <ToolParamFields list={layoutToolParams(params)} />
           </div>
         </div>
       )}

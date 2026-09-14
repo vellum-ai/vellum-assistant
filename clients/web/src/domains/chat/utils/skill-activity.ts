@@ -22,7 +22,10 @@
 // (`assistant/src/tools/skills/execute.ts`), so there is no other spelling to
 // tolerate here.
 import { readToolInputString } from "@/domains/chat/utils/tool-input";
-import { toToolParams, type ToolParam } from "@/domains/chat/utils/tool-params";
+import {
+  toToolParams,
+  type ToolParamEntry,
+} from "@/domains/chat/utils/tool-params";
 
 /** A single parameter row under a skill tool's `Parameters:` list. */
 export interface SkillToolParam {
@@ -78,7 +81,7 @@ export interface SkillExecuteActivity {
   /** Operator-facing sentence from `input.activity`. Empty when absent. */
   activity: string;
   /** Inner tool parameters, in insertion order. */
-  params: ToolParam[];
+  params: ToolParamEntry[];
 }
 
 /** Heading that opens the daemon's machine-facing tool manifest section. */
@@ -388,7 +391,7 @@ export function parseSkillExecuteActivity(input: unknown): SkillExecuteActivity 
       return {
         innerToolName,
         activity,
-        params: [{ key: "input", scalar: raw, json: null }],
+        params: [{ key: "input", value: { kind: "text", text: raw } }],
       };
     }
   }
