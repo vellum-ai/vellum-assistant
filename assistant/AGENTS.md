@@ -16,7 +16,7 @@ When you introduce a new env var that the assistant process needs to read at run
 
 **Default to including it.** If the var doesn't contain secrets (e.g. a URL, a feature flag, a path, a mode string), add it. Only omit it if it carries credential material (tokens, passwords, private keys) — those must stay isolated to CES.
 
-`CES_LOCAL_SOCKET` is intentionally included despite the socket exposing credential RPCs: assistant subprocesses are expected to reach CES. Credential protection is rules-based access control inside CES, not socket-path secrecy (see root `AGENTS.md`). Do not forward `CES_SERVICE_TOKEN` or `CES_CREDENTIAL_URL`: the HTTP bearer is a vault secret and must stay in the assistant process.
+`CES_LOCAL_SOCKET` is intentionally included despite the socket exposing credential RPCs: assistant subprocesses are expected to reach CES. Credential protection is rules-based access control inside CES, not socket-path secrecy (see root `AGENTS.md`). `CES_SERVICE_TOKEN` and `CES_CREDENTIAL_URL` are also forwarded: managed children still resolve connections through CES HTTP, and the socket path is not a sufficient substitute yet. See the comment on those keys in `src/tools/terminal/safe-env.ts` before attempting to strip them.
 
 ## Daemon startup philosophy
 
