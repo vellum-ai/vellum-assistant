@@ -5,6 +5,7 @@ import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
+import { sanitizeMultilineMessagePreview } from "../../notifications/notification-utils.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
@@ -90,6 +91,12 @@ function normalizeOptionalStringArray(
  * scheduled jobs, heartbeat), where a user already looks to see what the
  * assistant did on its own.
  *
+ * `changeSummary` is the pass's own account of what it changed, and is the
+ * notice's body when present: the feed item is the only place the change
+ * surfaces, and a reader triaging it there has no diff to look at, so a notice
+ * that only names the skill sends them into the skill to find out what
+ * happened. Without one the body says that the skill changed and nothing more.
+ *
  * `sourceContextId` is a conversation id so the feed item's "Go to Convo"
  * target resolves (see `home-feed-side-effect.ts`, which looks it up via
  * `getConversation`): the source conversation when lineage resolved, else the
@@ -102,7 +109,11 @@ function notifyBackgroundSkillUpdate(args: {
   skillId: string;
   name: string;
   conversationId: string;
+  changeSummary: string | undefined;
 }): void {
+  const body =
+    args.changeSummary ??
+    `Updated the skill "${args.name}" from something learned in an earlier conversation.`;
   const day = new Date().toISOString().slice(0, 10);
   void emitNotificationSignal({
     // This emit is a tool executor's, not the scheduler's. The channel is
@@ -121,13 +132,13 @@ function notifyBackgroundSkillUpdate(args: {
       // background, no interruption) leaves the feed writer with no summary
       // and it skips the item entirely, so the quiet case would surface
       // nothing at all.
-      summary: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
+      summary: body,
       // Named, not just "Skill updated": the feed sits several rows deep and
       // a generic title is unscannable next to entries that name their
       // subject (`Background job failed: memory.v2.sweep`). The word "Skill"
       // stays because a bare skill name does not always read as one.
       title: `Skill updated: ${args.name}`,
-      body: `Updated the skill "${args.name}" from something learned in an earlier conversation.`,
+      body,
       skillId: args.skillId,
     },
     attentionHints: {
@@ -313,6 +324,24 @@ export async function executeScaffoldManagedSkill(
     }
   }
 
+  // The update notice's body. Model-authored text bound for a notification
+  // surface, so it gets the same control-character strip and preview clamp as
+  // any other producer-supplied body; blank collapses to absent so the notice
+  // falls back to its generic sentence rather than an empty one.
+  let changeSummary: string | undefined;
+  if (input.change_summary !== undefined) {
+    if (typeof input.change_summary !== "string") {
+      return {
+        content: "Error: change_summary must be a string",
+        isError: true,
+      };
+    }
+    const sanitized = sanitizeMultilineMessagePreview(input.change_summary);
+    if (sanitized) {
+      changeSummary = sanitized;
+    }
+  }
+
   const id = skillId.trim();
   const fromRetrospective =
     context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
@@ -455,6 +484,7 @@ export async function executeScaffoldManagedSkill(
       skillId: id,
       name: normalizedName,
       conversationId: notifyConversationId,
+      changeSummary,
     });
   }
 

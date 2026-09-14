@@ -1734,6 +1734,136 @@ describe("background skill update notification", () => {
     );
   });
 
+  test("the notice body is the pass's change_summary, so the feed says what changed", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+        overwrite: true,
+        change_summary:
+          "Added the retry after an expired session and the export endpoint that held steady.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(emittedSignals).toHaveLength(1);
+    const payload = emittedSignals[0]!.contextPayload;
+    // The title still names the skill; the body is the change itself.
+    expect(payload?.title).toBe("Skill updated: Weekly Report Export");
+    expect(payload?.body).toBe(
+      "Added the retry after an expired session and the export endpoint that held steady.",
+    );
+    expect(payload?.summary).toBe(payload?.body);
+  });
+
+  test("without a change_summary the notice says only that the skill changed", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+        overwrite: true,
+        // Whitespace-only reads as absent, not as an empty body.
+        change_summary: "   \n ",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.contextPayload?.body).toBe(
+      'Updated the skill "Weekly Report Export" from something learned in an earlier conversation.',
+    );
+  });
+
+  test("change_summary is sanitized like any other notification body", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+        overwrite: true,
+        change_summary: `Added\u0007 the   retry.\r\n\n\n\nDropped the login step. ${"x".repeat(300)}`,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    const body = String(emittedSignals[0]!.contextPayload?.body);
+    // Control characters go, horizontal whitespace collapses, blank-line runs
+    // collapse to one paragraph break, and the whole thing is clamped to the
+    // shared notification preview budget.
+    expect(
+      body.startsWith("Added the retry.\n\nDropped the login step. xxx"),
+    ).toBe(true);
+    expect(body).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/);
+    expect(body.length).toBe(200);
+    expect(body.endsWith("\u2026")).toBe(true);
+  });
+
+  test("a non-string change_summary is a self-correcting error", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+        overwrite: true,
+        change_summary: ["not", "a", "string"],
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("Error: change_summary must be a string");
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("the registered tool's schema declares change_summary as an optional string", () => {
+    // A call through the registered tool is validated against TOOLS.json
+    // first, and the validator rejects undeclared keys, so the field has to
+    // be in the schema for the executor to ever see it.
+    const scaffoldTool = readScaffoldToolEntry();
+    expect(scaffoldTool.input_schema.properties.change_summary).toMatchObject({
+      type: "string",
+    });
+    expect(scaffoldTool.input_schema.required).not.toContain("change_summary");
+
+    const result = validateInputAgainstSchema(
+      "scaffold_managed_skill",
+      {
+        skill_id: "s",
+        name: "N",
+        description: "D",
+        body_markdown: "B",
+        activation_hints: HINTS,
+        overwrite: true,
+        change_summary: "Added the retry step.",
+      },
+      scaffoldTool.input_schema,
+    );
+    expect(result.ok).toBe(true);
+  });
+
   test("it falls back to the run conversation when fork lineage does not resolve", async () => {
     await seedAssistantSkill("weekly-export", "Old body.");
 
