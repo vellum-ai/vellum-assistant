@@ -339,6 +339,37 @@ describe("handleOpenConversation", () => {
       expect(useConversationStore.getState().activeConversationId).toBe(
         "conv-target",
       );
+      expect(push).toHaveBeenCalledWith(
+        "/assistant/conversations/conv-target/app/app-1",
+      );
+    } finally {
+      restoreViewport();
+      useViewerStore.getState().reset();
+    }
+  });
+
+  it("drops the app from the URL on a narrow viewport, which has no split", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: true,
+      coarsePointer: true,
+    });
+    useConversationStore.getState().setActiveConversationId("conv-origin");
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
+    });
+    const push = mock((_url: string) => {});
+    const ctx = { router: { push } } as unknown as StreamHandlerContext;
+
+    try {
+      handleOpenConversation(
+        { type: "open_conversation", conversationId: "conv-target" },
+        ctx,
+      );
+
+      expect(useViewerStore.getState().mainView).toBe("chat");
+      expect(push).toHaveBeenCalledWith("/assistant/conversations/conv-target");
     } finally {
       restoreViewport();
       useViewerStore.getState().reset();

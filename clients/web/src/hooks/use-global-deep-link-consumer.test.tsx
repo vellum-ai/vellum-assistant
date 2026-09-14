@@ -165,6 +165,15 @@ const resetStores = () => {
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
 };
 
+/** An app loaded in the viewer, the shape a wide viewport keeps beside the chat. */
+const seedOpenApp = () => {
+  useViewerStore.setState({
+    mainView: "app",
+    activeAppId: "app-1",
+    openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
+  });
+};
+
 /**
  * Make the live-voice eligibility gate pass: an assistant new enough to serve
  * live voice, with the identity version scoped to that same assistant.
@@ -244,11 +253,7 @@ describe("deeplink.openThread", () => {
       narrow: false,
       coarsePointer: false,
     });
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: "app-1",
-      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
-    });
+    seedOpenApp();
     renderConsumer();
 
     try {
@@ -260,6 +265,51 @@ describe("deeplink.openThread", () => {
       expect(useConversationStore.getState().editingConversationId).toBe(
         "abc-123",
       );
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/assistant/conversations/abc-123/app/app-1",
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  test("a same-thread tap beside an open app keeps the app in the URL", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: false,
+      coarsePointer: false,
+    });
+    useConversationStore.setState({ activeConversationId: "abc-123" });
+    seedOpenApp();
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openThread", { threadId: "abc-123" });
+      });
+
+      expect(useViewerStore.getState().mainView).toBe("app-editing");
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/assistant/conversations/abc-123/app/app-1",
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  test("drops the app from the URL on a narrow viewport, which has no split", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: true,
+      coarsePointer: true,
+    });
+    seedOpenApp();
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openThread", { threadId: "abc-123" });
+      });
+
+      expect(useViewerStore.getState().mainView).toBe("chat");
       expect(navigateMock).toHaveBeenCalledWith(
         "/assistant/conversations/abc-123",
       );
@@ -1291,11 +1341,8 @@ describe("deeplink.openCamera", () => {
       coarsePointer: false,
     });
     mockPathname = routes.conversation("conv-1");
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: "app-1",
-      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
-    });
+    mockSearch = "?prompt=hello";
+    seedOpenApp();
     renderConsumer();
 
     try {
@@ -1311,7 +1358,11 @@ describe("deeplink.openCamera", () => {
         usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
       ).toBe("conv-1");
       expect(navigateMock).toHaveBeenCalledWith(
-        { pathname: routes.conversation("conv-1"), search: "", hash: "" },
+        {
+          pathname: routes.conversation("conv-1", "app-1"),
+          search: "?prompt=hello",
+          hash: "",
+        },
         { replace: true },
       );
     } finally {

@@ -19,6 +19,7 @@ import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import {
+  keptAppId,
   navigateToConversation,
   navigateToNewConversation,
   revealConversationView,
@@ -177,7 +178,7 @@ export function useGlobalDeepLinkConsumer(): void {
     // Same thread: skip store resets — the id doesn't change, so re-seed effects wouldn't re-run and live cards would vanish.
     if (threadId === useConversationStore.getState().activeConversationId) {
       revealConversationView(threadId);
-      navigateRef.current(routes.conversation(threadId));
+      navigateRef.current(routes.conversation(threadId, keptAppId()));
       return;
     }
     navigateToConversation(navigateRef.current, threadId);
@@ -344,7 +345,7 @@ export function useGlobalDeepLinkConsumer(): void {
       // would otherwise unmount the composer this park is addressed to. The
       // search and hash ride along so pending query-driven effects survive.
       navigateRef.current(
-        { pathname: routes.conversation(settledId), search, hash },
+        { pathname: routes.conversation(settledId, keptAppId()), search, hash },
         { replace: true },
       );
       targetId = settledId;
