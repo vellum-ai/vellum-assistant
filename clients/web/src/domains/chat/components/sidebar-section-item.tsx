@@ -15,8 +15,13 @@
  *
  * The row list is the one real exception: every section caps and scrolls
  * within itself, except Pinned (grows to fit its own rows instead, see
- * `unbounded` on `ConversationRowList`) and the bottom-most section (claims
- * whatever space the sidebar has left instead of a fixed cap, see `isLast`).
+ * `unbounded` on `ConversationRowList`) and the bottom-most section (may
+ * take whatever space the sidebar has left instead of a fixed cap, see
+ * `isLast`). Chats and the channel sections, the two that accumulate
+ * without bound, rest at a mid height when they are that bottom-most
+ * section and grow to the full height on request (see `expandable`); the
+ * choice is kept per section in the sidebar layout store so it survives a
+ * reload like the section's open state does.
  */
 
 import type { ReactNode } from "react";
@@ -24,6 +29,10 @@ import type { ReactNode } from "react";
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
+import {
+  saveExpandedSections,
+  useExpandedSections,
+} from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import {
   GroupActionsMenu,
@@ -89,6 +98,19 @@ export function SidebarSectionItem({
     useSectionConversations(assistantId, section);
   const isAssistantSection = section.type === "assistant";
   const { overlayCards } = useConversationListContext();
+
+  /* Read from storage on render (see `useExpandedSections`), so a section
+     the user expanded is at its full height on the first paint rather than
+     growing there after a hydration effect. */
+  const expandedSections = useExpandedSections(assistantId);
+  const expanded = expandedSections.includes(section.key);
+  const onExpandedChange = (next: boolean) => {
+    if (assistantId === null) {
+      return;
+    }
+    const rest = expandedSections.filter((key) => key !== section.key);
+    saveExpandedSections(assistantId, next ? [...rest, section.key] : rest);
+  };
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:
@@ -212,6 +234,9 @@ export function SidebarSectionItem({
       unbounded={section.type === "pinned"}
       isLast={isLast}
       maxHeight={isAssistantSection ? ASSISTANT_SECTION_MAX_HEIGHT : undefined}
+      expandable={section.type === "recents" || section.type === "channel"}
+      expanded={expanded}
+      onExpandedChange={onExpandedChange}
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
       /* The only section that renders at zero, so the only one with anything

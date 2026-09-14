@@ -82,8 +82,8 @@ import {
   createDownloadsBridge,
   createHotkeysBridge,
   createLaunchAtLoginBridge,
+  createNotificationsBridge,
   createUpdateBridge,
-  createWindowAttentionSubscriber,
 } from "@vellumai/electron-desktop/preload";
 
 export type {
@@ -284,11 +284,20 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:permissions:getState",
       ) as Promise<SystemPermissionsState>,
-    request: (kind: SystemPermissionKind): Promise<SystemPermissionStateItem> =>
-      ipcRenderer.invoke(
-        "vellum:permissions:request",
-        kind,
-      ) as Promise<SystemPermissionStateItem>,
+    request: (
+      kind: SystemPermissionKind,
+      presentation?: Parameters<VellumBridge["permissions"]["request"]>[1],
+    ): Promise<SystemPermissionStateItem> =>
+      (presentation
+        ? ipcRenderer.invoke(
+            "vellum:permissions:request",
+            kind,
+            presentation,
+          )
+        : ipcRenderer.invoke(
+            "vellum:permissions:request",
+            kind,
+          )) as Promise<SystemPermissionStateItem>,
     openSettings: (
       kind: SystemPermissionKind,
     ): Promise<SystemPermissionStateItem> =>
@@ -421,28 +430,7 @@ const bridge: VellumBridge = {
         "vellum:connectivity:retry",
       ) as Promise<ConnectivityState>,
   },
-  notifications: {
-    show: (
-      payload: ShowNotificationPayload,
-    ): Promise<{ success: boolean; errorMessage?: string }> =>
-      ipcRenderer.invoke("vellum:notifications:show", payload) as Promise<{
-        success: boolean;
-        errorMessage?: string;
-      }>,
-    onAction: (callback) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        event: NotificationActionEvent,
-      ) => {
-        callback(event);
-      };
-      ipcRenderer.on("vellum:notifications:action", handler);
-      return () => {
-        ipcRenderer.off("vellum:notifications:action", handler);
-      };
-    },
-    onWindowAttention: createWindowAttentionSubscriber(ipcRenderer),
-  },
+  notifications: createNotificationsBridge(ipcRenderer),
   bundleConfirm: createBundleConfirmBridge(ipcRenderer),
   quickInput: {
     submit: (message: string): Promise<void> =>

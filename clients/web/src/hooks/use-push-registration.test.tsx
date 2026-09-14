@@ -6,6 +6,11 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router";
+
+import { useConversationStore } from "@/stores/conversation-store";
+import { routes } from "@/utils/routes";
 
 const realPushRegistration = await import("@/runtime/push-registration");
 
@@ -25,9 +30,11 @@ mock.module("@/runtime/push-registration", () => ({
   setForegroundPushHandler: setForegroundPushHandlerMock,
 }));
 
-const foregroundPushHandler = () => {};
+const foregroundPushHandler = mock((_push: unknown, _context: unknown) => {});
 mock.module("@/runtime/notifications", () => ({
   postForegroundRemotePush: foregroundPushHandler,
+  isFocusedNotificationConversation: (conversationId: string) =>
+    conversationId === useConversationStore.getState().activeConversationId,
 }));
 
 const { usePushRegistration } = await import("@/hooks/use-push-registration");
@@ -37,6 +44,8 @@ beforeEach(() => {
   registerCalls.length = 0;
   setForegroundPushHandlerMock.mockClear();
   registerForRemotePushMock.mockClear();
+  foregroundPushHandler.mockClear();
+  useConversationStore.getState().reset();
 });
 
 afterEach(() => {
@@ -44,18 +53,27 @@ afterEach(() => {
 });
 
 describe("usePushRegistration", () => {
-  test("installs the handler and registers while an assistant is active", () => {
-    renderHook(() => usePushRegistration("assistant-1"));
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <MemoryRouter initialEntries={[routes.assistant]}>{children}</MemoryRouter>
+  );
 
-    expect(handlerCalls).toEqual([foregroundPushHandler]);
+  test("installs the handler and registers while an assistant is active", () => {
+    renderHook(() => usePushRegistration("assistant-1"), { wrapper });
+
+    expect(handlerCalls).toHaveLength(1);
+    expect(typeof handlerCalls[0]).toBe("function");
     expect(registerCalls).toEqual(["assistant-1"]);
   });
 
   test("clears the handler on unmount so the shell takes the push back", () => {
-    const { unmount } = renderHook(() => usePushRegistration("assistant-1"));
+    const { unmount } = renderHook(() => usePushRegistration("assistant-1"), {
+      wrapper,
+    });
     unmount();
 
-    expect(handlerCalls).toEqual([foregroundPushHandler, null]);
+    expect(handlerCalls).toHaveLength(2);
+    expect(typeof handlerCalls[0]).toBe("function");
+    expect(handlerCalls[1]).toBeNull();
   });
 
   /**
@@ -66,12 +84,30 @@ describe("usePushRegistration", () => {
     const { rerender } = renderHook(
       ({ assistantId }: { assistantId: string | null }) =>
         usePushRegistration(assistantId),
-      { initialProps: { assistantId: "assistant-1" as string | null } },
+      {
+        wrapper,
+        initialProps: { assistantId: "assistant-1" as string | null },
+      },
     );
 
     rerender({ assistantId: null });
 
-    expect(handlerCalls).toEqual([foregroundPushHandler, null]);
+    expect(handlerCalls).toHaveLength(2);
+    expect(typeof handlerCalls[0]).toBe("function");
+    expect(handlerCalls[1]).toBeNull();
     expect(registerCalls).toEqual(["assistant-1"]);
+  });
+
+  test("passes the live chat visibility policy to foreground FCM", () => {
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    renderHook(() => usePushRegistration("assistant-1"), { wrapper });
+
+    handlerCalls[0]?.({ data: { conversationId: "conv-1" } });
+
+    const context = foregroundPushHandler.mock.calls[0]?.[1] as {
+      shouldSuppressConversation: (conversationId: string) => boolean;
+    };
+    expect(context.shouldSuppressConversation("conv-1")).toBe(true);
+    expect(context.shouldSuppressConversation("conv-2")).toBe(false);
   });
 });

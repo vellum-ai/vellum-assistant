@@ -987,5 +987,9 @@
   },
   "cardSurface": {
     "viewDetails": "Подробности"
+  },
+  "sidebarExpandRow": {
+    "expand": "Развернуть",
+    "collapse": "Свернуть"
   }
 }

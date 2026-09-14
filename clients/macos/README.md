@@ -215,6 +215,27 @@ renders that Electron cannot, and the renderer attaches a sender only under the
 `push-avatar-sender` flag, so turning that flag off restores Electron as the
 delivery path for every notification without shipping a new build.
 
+The sender is process-local prepared state, not a value reconstructed in the
+preload or main process. The renderer supplies it only when the prepared scope,
+assistant, and native sender id exactly match the selected notification
+identity. A name or conversation title is presentation data and never becomes
+sender identity. The optional preload field preserves compatibility with older
+packaged shells;
+missing support and native unavailability take the existing plain Electron
+path. `local-notification-avatar` does not select the Electron sender route.
+
+**Permission confirmation.** Under `push-avatar-sender`, the notifications
+permission flow captures the exact selected identity before prompting. After a
+grant, it revalidates that identity and the prepared in-memory avatar, then asks
+the native notifier for one confirmation. Stale or missing identity, missing
+avatar resolution, or unavailable native support posts the confirmation
+plainly. Denied or unknown permission posts no confirmation. A confirmation
+failure does not change a granted permission result. Windows does not receive
+a sender through this permission-confirmation path.
+
+Packaged sender, fallback, and permission evidence is tracked in the canonical
+[notification avatar and local delivery QA ledger](../../docs/notification-avatar-local-qa.md).
+
 Notification categories carry the action buttons, and
 `setNotificationCategories:` applies asynchronously, so a category first
 registered in the runloop turn its notification is posted can miss it and the

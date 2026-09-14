@@ -18,6 +18,7 @@ let androidCapabilities: unknown = {
 };
 const androidGetCapabilitiesMock = mock(async () => androidCapabilities);
 let androidSetForegroundHandlerError: Error | null = null;
+let foregroundAnnouncementGate: Promise<void> | null = null;
 const foregroundHandlerStates: boolean[] = [];
 /** Whether the web layer held a handler at the moment the shell was told. */
 const handlerHeldWhenTold: boolean[] = [];
@@ -26,6 +27,9 @@ const androidSetForegroundHandlerMock = mock(
     handlerHeldWhenTold.push(hasForegroundPushHandlerForTests());
     if (androidSetForegroundHandlerError) {
       throw androidSetForegroundHandlerError;
+    }
+    if (foregroundAnnouncementGate) {
+      await foregroundAnnouncementGate;
     }
     foregroundHandlerStates.push(active);
   },
@@ -50,8 +54,37 @@ mock.module("@capacitor/core", () => ({
       unregister: androidUnregisterMock,
       getCapabilities: androidGetCapabilitiesMock,
       setForegroundHandler: androidSetForegroundHandlerMock,
+      getNotificationOwnershipGeneration: async () => ({
+        version: 1,
+        generation: 7,
+      }),
+      setNotificationOwnership: async ({ active }: { active: boolean }) => ({
+        version: 1,
+        generation: 7,
+        active,
+        accepted: true,
+      }),
     };
   },
+}));
+
+let enableOwnershipResult = true;
+let disableOwnershipResult = true;
+const installAndroidIdentityAdapterMock = mock(() => {});
+const beginAndroidOwnershipMock = mock(() => {});
+const enableAndroidOwnershipMock = mock(async () => enableOwnershipResult);
+const disableAndroidOwnershipMock = mock(async () => disableOwnershipResult);
+mock.module("@/runtime/android-sender-notification", () => ({
+  installAndroidSenderNotificationIdentityAdapter:
+    installAndroidIdentityAdapterMock,
+  beginAndroidNotificationOwnershipEnable: beginAndroidOwnershipMock,
+  enableAndroidNotificationOwnership: enableAndroidOwnershipMock,
+  disableAndroidNotificationOwnership: disableAndroidOwnershipMock,
+}));
+
+const dispatchNotificationTapMock = mock((_payload: unknown) => {});
+mock.module("@/runtime/notification-taps", () => ({
+  dispatchNotificationTap: dispatchNotificationTapMock,
 }));
 
 // ── APNs environment resolver ────────────────────────────────────────────────
@@ -199,6 +232,7 @@ mock.module("@/lib/sentry/capture-error", () => ({
 
 const {
   extractPushConversationId,
+  extractScopedPushTapPayload,
   hasSessionConfirmedRemotePushRegistration,
   isRemotePushSupported,
   registerForRemotePush,
@@ -260,8 +294,16 @@ beforeEach(() => {
   androidGetCapabilitiesMock.mockClear();
   androidSetForegroundHandlerMock.mockClear();
   androidSetForegroundHandlerError = null;
+  foregroundAnnouncementGate = null;
   foregroundHandlerStates.length = 0;
   handlerHeldWhenTold.length = 0;
+  enableOwnershipResult = true;
+  disableOwnershipResult = true;
+  installAndroidIdentityAdapterMock.mockClear();
+  beginAndroidOwnershipMock.mockClear();
+  enableAndroidOwnershipMock.mockClear();
+  disableAndroidOwnershipMock.mockClear();
+  dispatchNotificationTapMock.mockClear();
   ensureAndroidAlertsChannelMock.mockClear();
   callOrder.length = 0;
   getInfoMock.mockClear();
@@ -503,6 +545,50 @@ describe("pushNotificationActionPerformed tap routing", () => {
     expect(published).toEqual([{ threadId: "conv-view" }]);
   });
 
+  test("routes additive scoped local metadata through the shared dispatcher", async () => {
+    platform = "android";
+    await registerForRemotePush("assistant-1");
+    tap({
+      conversationId: "conv-local",
+      sourceEventName: "reminder.fired",
+      deliveryId: "delivery-local",
+      presentation: "assistant",
+      nameProvenance: "identity-store",
+      suppressGroupTitle: true,
+      identity: JSON.stringify({
+        scopeId: `scope:v1:${"a".repeat(64)}`,
+        assistantId: "assistant-1",
+        nativeSenderId: "native-1",
+      }),
+    });
+
+    expect(dispatchNotificationTapMock).toHaveBeenCalledWith({
+      conversationId: "conv-local",
+      sourceEventName: "reminder.fired",
+      deliveryId: "delivery-local",
+      presentation: "assistant",
+      nameProvenance: "identity-store",
+      suppressGroupTitle: true,
+      identity: {
+        scopeId: `scope:v1:${"a".repeat(64)}`,
+        assistantId: "assistant-1",
+        nativeSenderId: "native-1",
+      },
+    });
+    expect(published).toEqual([]);
+  });
+
+  test("does not reopen legacy routing when additive identity is malformed", async () => {
+    await registerForRemotePush("assistant-1");
+    tap({
+      conversationId: "conv-legacy",
+      identity: { scopeId: "scope-1", assistantId: "assistant-1" },
+    });
+
+    expect(dispatchNotificationTapMock).not.toHaveBeenCalled();
+    expect(published).toEqual([]);
+  });
+
   test("publishes nothing for absent or malformed data", async () => {
     await registerForRemotePush("11111111-1111-4111-8111-111111111111");
     tap(undefined);
@@ -549,6 +635,15 @@ describe("extractPushConversationId", () => {
     ).toBe("conv-top");
   });
 
+  test("falls back to a trimmed top-level id when deep_link is blank", () => {
+    expect(
+      extractPushConversationId({
+        deep_link: { conversationId: "  " },
+        conversationId: " conv-top ",
+      }),
+    ).toBe("conv-top");
+  });
+
   test("returns undefined for non-object, absent, and malformed shapes", () => {
     expect(extractPushConversationId(undefined)).toBeUndefined();
     expect(extractPushConversationId(null)).toBeUndefined();
@@ -559,6 +654,30 @@ describe("extractPushConversationId", () => {
     expect(extractPushConversationId({ deep_link: null })).toBeUndefined();
     expect(extractPushConversationId({ deep_link: {} })).toBeUndefined();
     expect(extractPushConversationId({ conversationId: 42 })).toBeUndefined();
+  });
+});
+
+describe("extractScopedPushTapPayload", () => {
+  test("trims the complete identity and delivery key", () => {
+    expect(
+      extractScopedPushTapPayload({
+        identity: {
+          scopeId: ` scope:v1:${"b".repeat(64)} `,
+          assistantId: " assistant-1 ",
+          nativeSenderId: " native-1 ",
+        },
+        delivery_id: " delivery-1 ",
+        source_event_name: " reminder.fired ",
+      }),
+    ).toMatchObject({
+      deliveryId: "delivery-1",
+      sourceEventName: "reminder.fired",
+      identity: {
+        scopeId: `scope:v1:${"b".repeat(64)}`,
+        assistantId: "assistant-1",
+        nativeSenderId: "native-1",
+      },
+    });
   });
 });
 
@@ -755,6 +874,26 @@ describe("setForegroundPushHandler", () => {
     await flushMicrotasks(2);
 
     expect(foregroundHandlerStates).toEqual([true, false]);
+    expect(enableAndroidOwnershipMock).toHaveBeenCalledTimes(1);
+    expect(disableAndroidOwnershipMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("installs the identity route and transition barrier synchronously", async () => {
+    platform = "android";
+    let releaseAnnouncement!: () => void;
+    foregroundAnnouncementGate = new Promise((resolve) => {
+      releaseAnnouncement = resolve;
+    });
+
+    setForegroundPushHandler(() => {});
+
+    expect(installAndroidIdentityAdapterMock).toHaveBeenCalledTimes(1);
+    expect(beginAndroidOwnershipMock).toHaveBeenCalledTimes(1);
+    expect(enableAndroidOwnershipMock).not.toHaveBeenCalled();
+
+    releaseAnnouncement();
+    await flushMicrotasks(2);
+    expect(enableAndroidOwnershipMock).toHaveBeenCalledTimes(1);
   });
 
   /**
@@ -772,6 +911,18 @@ describe("setForegroundPushHandler", () => {
 
     expect(handlerHeldWhenTold).toEqual([true, true]);
     expect(hasForegroundPushHandlerForTests()).toBe(false);
+  });
+
+  test("keeps the handler and coordinator when native disable is ambiguous", async () => {
+    platform = "android";
+    disableOwnershipResult = false;
+
+    setForegroundPushHandler(() => {});
+    setForegroundPushHandler(null);
+    await flushMicrotasks(2);
+
+    expect(foregroundHandlerStates).toEqual([true, false]);
+    expect(hasForegroundPushHandlerForTests()).toBe(true);
   });
 
   test("says nothing on iOS, which has no native renderer to hand back to", async () => {
@@ -806,5 +957,37 @@ describe("setForegroundPushHandler", () => {
     // A shell still believing the web renders must not be paired with a web
     // layer that no longer does.
     expect(hasForegroundPushHandlerForTests()).toBe(true);
+  });
+
+  test("recovers the transition queue after an ownership rejection", async () => {
+    platform = "android";
+    enableAndroidOwnershipMock.mockRejectedValueOnce(new Error("bridge failed"));
+
+    setForegroundPushHandler(() => {});
+    await flushMicrotasks(2);
+    setForegroundPushHandler(null);
+    await flushMicrotasks(2);
+    setForegroundPushHandler(() => {});
+    await flushMicrotasks(2);
+
+    expect(disableAndroidOwnershipMock).toHaveBeenCalledTimes(1);
+    expect(enableAndroidOwnershipMock).toHaveBeenCalledTimes(2);
+    expect(foregroundHandlerStates).toEqual([true, false, true]);
+  });
+
+  test("a stale clear cannot remove a synchronously captured replacement", async () => {
+    platform = "android";
+    setForegroundPushHandler(() => {});
+    await flushMicrotasks(2);
+    foregroundHandlerStates.length = 0;
+    disableAndroidOwnershipMock.mockClear();
+
+    setForegroundPushHandler(null);
+    setForegroundPushHandler(() => {});
+    await flushMicrotasks(3);
+
+    expect(hasForegroundPushHandlerForTests()).toBe(true);
+    expect(foregroundHandlerStates).toEqual([true]);
+    expect(disableAndroidOwnershipMock).not.toHaveBeenCalled();
   });
 });

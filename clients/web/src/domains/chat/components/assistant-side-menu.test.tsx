@@ -167,6 +167,7 @@ import type { ConversationListFilter } from "@/utils/conversation-list-keys";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { CONVERSATION_LIST_VIRTUALIZE_THRESHOLD } from "@/domains/chat/components/conversation-nav-section";
 import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
+import { saveExpandedSections } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import type * as UsePinnedApps from "@/hooks/use-pinned-apps";
 import { makeAppSummary } from "@/types/app-summary.test-helper";
 import type { AppSummary } from "@/types/app-types";
@@ -1661,23 +1662,28 @@ describe("AssistantSideMenu · equal section treatment", () => {
 
   /*
    * The test above asks only whether a section scrolls, and every sized
-   * section does - so it passes whether the bottom-most one fills the rail or
-   * caps at 300px like the rest. That is the difference users see: capping the
-   * bottom-most section is what left the rail's lower half empty in 0.11.3,
-   * since Chats sits there and holds everything whenever channel grouping is
-   * off. These two pin the difference itself.
+   * section does - so it passes whether the bottom-most one rests at the mid
+   * height or fills the rail. That is the difference users see: a
+   * bottom-most section that fills runs a hundred threads down the rail's
+   * whole height, so it rests at the same cap the sections above it take
+   * and grows to the rail's leftover height only on request (the Expand
+   * control writes `vellum:sidebar-expanded-sections`, which the section
+   * reads on render). These pin the rest height and the growth themselves.
    */
-  test("the bottom-most section fills the rail; the ones above it cap", () => {
+  test("the bottom-most section rests at the mid height; the ones above it cap", () => {
     // Grouped: Pinned, Alpha, Chats, Slack. Slack is bottom-most.
     const scroller = renderRail(["Slack"]);
     try {
       expect(scroller("Chats").style.maxHeight).toBe(
         `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
       );
-      // Fills what the flex column has left rather than committing to a
-      // height of its own, so it reaches the footer on a tall rail.
-      expect(scroller("Slack").classList.contains("flex-1")).toBe(true);
-      expect(scroller("Slack").style.maxHeight).toBe("");
+      // The same cap, but as the last section it hugs its rows and shrinks
+      // under the rail's space rather than committing to a fill.
+      expect(scroller("Slack").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
+      expect(scroller("Slack").classList.contains("flex-1")).toBe(false);
+      expect(scroller("Slack").classList.contains("min-h-0")).toBe(true);
     } finally {
       cleanup();
     }
@@ -1756,16 +1762,31 @@ describe("AssistantSideMenu · equal section treatment", () => {
     }
   });
 
-  test("ungrouped, Chats is bottom-most and fills instead of capping", () => {
-    // The reported 0.11.3 case: no channel sections, so Chats sits last and
-    // holds every conversation the curated sections didn't claim.
+  test("ungrouped, Chats is bottom-most: rests at the mid height and grows on request", () => {
+    // No channel sections, so Chats sits last and holds every conversation
+    // the curated sections didn't claim.
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
     const scroller = renderRail(["Alpha"]);
     try {
-      expect(scroller("Chats").classList.contains("flex-1")).toBe(true);
+      expect(scroller("Chats").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
+      expect(scroller("Chats").classList.contains("flex-1")).toBe(false);
+      // Still capped, since Chats sits under it - the mid height is
+      // positional, not "every section may grow now".
+      expect(scroller("Alpha").style.maxHeight).toBe(
+        `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
+      );
+
+      // Expanded, the cap goes and the scroller takes the rail's leftover
+      // height, still hugging its rows rather than filling. Alpha is
+      // untouched: the choice is the last section's alone.
+      act(() => {
+        saveExpandedSections("asst-1", ["recents"]);
+      });
       expect(scroller("Chats").style.maxHeight).toBe("");
-      // Still capped, since Chats sits under it - the fill is positional, not
-      // "every section grows now".
+      expect(scroller("Chats").classList.contains("flex-1")).toBe(false);
+      expect(scroller("Chats").classList.contains("min-h-0")).toBe(true);
       expect(scroller("Alpha").style.maxHeight).toBe(
         `${SIDEBAR_SECTION_MAX_HEIGHT}px`,
       );
@@ -1778,13 +1799,14 @@ describe("AssistantSideMenu · equal section treatment", () => {
    * Past CONVERSATION_LIST_VIRTUALIZE_THRESHOLD the bottom-most section
    * windows its rows through virtuoso, and a windowed list renders only what
    * fits its viewport: unlike mounted rows, it has no natural height of its
-   * own. Its box therefore needs two things, and losing either blanks the
-   * whole list while the caches stay fully populated: the accordion root must
-   * forward the sidebar body's height down to the card's flex-fill, and the
-   * box itself must floor at the section cap so a squeezed (or broken) chain
-   * still yields a scrollable section rather than a zero-height one.
+   * own. At the mid height that is simply the cap as a fixed height. Expanded,
+   * its box needs two things, and losing either blanks the whole list while
+   * the caches stay fully populated: the accordion root must forward the
+   * sidebar body's height down to the card's flex-fill, and the box itself
+   * must floor at the section cap so a squeezed (or broken) chain still
+   * yields a scrollable section rather than a zero-height one.
    */
-  test("past the virtualize threshold, Chats windows into a bounded, filling box", () => {
+  function renderWindowedChats() {
     localStorage.setItem("vellum:sidebar-view-mode:asst-1", "all");
     const container = parse(
       renderMenu({
@@ -1814,8 +1836,24 @@ describe("AssistantSideMenu · equal section treatment", () => {
     if (!windowed?.parentElement) {
       throw new Error("expected the windowed row list and its sizing box");
     }
+    return { container, box: windowed.parentElement };
+  }
 
-    const box = windowed.parentElement;
+  test("past the virtualize threshold, Chats windows into a fixed box at the mid height", () => {
+    const { box } = renderWindowedChats();
+
+    expect(box.style.height).toBe(`${SIDEBAR_SECTION_MAX_HEIGHT}px`);
+    expect(box.classList.contains("flex-1")).toBe(false);
+  });
+
+  test("expanded past the virtualize threshold, Chats windows into a bounded, filling box", () => {
+    // What the Expand control writes.
+    localStorage.setItem(
+      "vellum:sidebar-expanded-sections:asst-1",
+      JSON.stringify(["recents"]),
+    );
+    const { container, box } = renderWindowedChats();
+
     expect(box.classList.contains("flex-1")).toBe(true);
     expect(box.style.minHeight).toBe(`${SIDEBAR_SECTION_MAX_HEIGHT}px`);
 
