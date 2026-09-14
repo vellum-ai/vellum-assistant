@@ -610,7 +610,12 @@ export interface ViewerActions {
 
   // --- App viewer ---
   openApp: (appId: string) => void;
-  loadApp: (assistantId: string, appId: string) => Promise<void>;
+  /**
+   * Resolves to whether this app ended up on screen: false when the load
+   * failed, or when the viewer left the app view while the request was in
+   * flight.
+   */
+  loadApp: (assistantId: string, appId: string) => Promise<boolean>;
   setLoadedApp: (app: OpenedAppState) => void;
   handleAppLoadFailed: () => void;
   closeApp: () => void;
@@ -887,7 +892,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         throwOnError: true,
       });
       if (get().activeAppId !== appId) {
-        return;
+        return false;
       }
       const app = {
         appId: result.appId,
@@ -897,9 +902,12 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       };
       set({ openedAppState: app });
       primeAppHtmlCache(assistantId, result.appId, result.html);
+      // The viewer can leave the app view without dropping activeAppId, so the
+      // id match alone does not mean the app is what the reader sees.
+      return isAppMainView(get().mainView);
     } catch (err) {
       if (get().activeAppId !== appId) {
-        return;
+        return false;
       }
       // 404s here are an expected condition (app was deleted on the
       // server but the client still has a reference). Skip the Sentry
@@ -910,6 +918,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         captureError(err, { context: "openApp" });
       }
       set({ mainView: "chat", activeAppId: null, openedAppState: null });
+      return false;
     }
   },
 

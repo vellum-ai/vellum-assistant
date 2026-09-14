@@ -6,7 +6,10 @@ import type {
   MessageFilesPayload,
   ToolDetailPayload,
 } from "@/stores/viewer-store";
-import type { DocumentsByIdGetResponse } from "@/generated/daemon/types.gen";
+import type {
+  AppsByIdOpenPostResponse,
+  DocumentsByIdGetResponse,
+} from "@/generated/daemon/types.gen";
 import { ApiError } from "@/utils/api-errors";
 import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
@@ -20,12 +23,20 @@ type DocumentResult = {
   data: DocumentsByIdGetResponse | null;
 };
 
+type AppResult = {
+  data: AppsByIdOpenPostResponse;
+};
+
 let documentResult: () => Promise<DocumentResult> = () =>
+  Promise.reject(new Error("not stubbed"));
+
+let appResult: () => Promise<AppResult> = () =>
   Promise.reject(new Error("not stubbed"));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   documentsByIdGet: () => documentResult(),
+  appsByIdOpenPost: () => appResult(),
 }));
 
 const { isAppNotFoundError, sameChatInfoTarget, useViewerStore } =
@@ -131,6 +142,77 @@ describe("openApp", () => {
     expect(state.activeAppId).toBe("app-2");
     expect(state.openedAppState).toBeNull();
     expect(state.isAppMinimized).toBe(false);
+  });
+});
+
+describe("loadApp", () => {
+  const OPENED_APP: AppsByIdOpenPostResponse = {
+    ...SAMPLE_APP,
+    origin: "https://app-1.example",
+  };
+
+  it("resolves true and stores the app it opened", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    const loaded = await getState().loadApp("asst-1", "app-1");
+
+    expect(loaded).toBe(true);
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAppId).toBe("app-1");
+    expect(state.openedAppState).toEqual(SAMPLE_APP);
+  });
+
+  it("resolves false and falls back to chat when the app is gone", async () => {
+    appResult = () =>
+      Promise.reject({
+        error: { code: "NOT_FOUND", message: "App not found: app-1" },
+      });
+
+    const loaded = await getState().loadApp("asst-1", "app-1");
+
+    expect(loaded).toBe(false);
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+  });
+
+  it("resolves false and leaves a newer app alone when it lands late", async () => {
+    let finish!: (value: AppResult) => void;
+    appResult = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+
+    const stale = getState().loadApp("asst-1", "app-1");
+    await waitFor(() => expect(finish).toBeFunction());
+    getState().openApp("app-2");
+    finish({ data: OPENED_APP });
+
+    expect(await stale).toBe(false);
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAppId).toBe("app-2");
+    expect(state.openedAppState).toBeNull();
+  });
+
+  it("resolves false but still stores the app when the viewer left the app view", async () => {
+    let finish!: (value: AppResult) => void;
+    appResult = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+
+    const pending = getState().loadApp("asst-1", "app-1");
+    await waitFor(() => expect(finish).toBeFunction());
+    useViewerStore.setState({ mainView: "chat" });
+    finish({ data: OPENED_APP });
+
+    expect(await pending).toBe(false);
+    const state = getState();
+    expect(state.activeAppId).toBe("app-1");
+    expect(state.openedAppState).toEqual(SAMPLE_APP);
   });
 });
 
