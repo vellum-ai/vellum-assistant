@@ -506,7 +506,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
             nextId = 1
             totalElementsEnumerated = 0
-            let elements = enumerateElementSafely(element: visibleWindow, depth: 0, maxDepth: 15) // shallower for secondary
+            let elements = enumerateElementSafely(element: visibleWindow, depth: 0, maxDepth: AXDepthPolicy.secondaryWindowDepth)
             guard !elements.isEmpty else { continue }
 
             results.append(WindowInfo(elements: elements, windowTitle: windowTitle, appName: appName))

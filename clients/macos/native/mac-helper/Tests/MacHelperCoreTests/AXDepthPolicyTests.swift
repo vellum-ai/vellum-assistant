@@ -10,6 +10,7 @@ struct AXDepthPolicyTests {
         #expect(AXDepthPolicy.startingDepth(fullTreeRequested: false) == AXDepthPolicy.initialDepth)
         #expect(AXDepthPolicy.startingDepth(fullTreeRequested: true) == AXDepthPolicy.fullDepth)
         #expect(AXDepthPolicy.initialDepth < AXDepthPolicy.fullDepth)
+        #expect(AXDepthPolicy.secondaryWindowDepth < AXDepthPolicy.initialDepth)
     }
 
     @Test("a cut-off walk with nothing to act on goes to full depth")

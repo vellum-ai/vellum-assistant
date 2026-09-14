@@ -42,12 +42,10 @@ final class ActionVerifier {
             }
         }
 
-        // 5. Form submission (Enter after typing)
-        if action.type == .key, let key = action.key?.lowercased(),
-           (key == "enter" || key == "return"),
-           let lastAction = actionHistory.last, lastAction.type == .type {
-            return .needsConfirmation("Pressing Enter may submit a form")
-        }
+        // Pressing Enter after typing is not checked. Whether submitting is what
+        // the user wanted is the assistant's call, and proxy mode has no
+        // confirmation path, so a check here could only block the most common
+        // sequence there is: type into a field, then press Enter.
 
         // 6. Forbidden screen region (system menu bar)
         if let y = action.y, y < 25, action.type == .click || action.type == .doubleClick || action.type == .rightClick {

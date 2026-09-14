@@ -9,6 +9,10 @@ import Foundation
 public enum AXDepthPolicy {
     public static let initialDepth = 12
     public static let fullDepth = 25
+    /// Depth for the other windows listed beside the focused one on a first
+    /// look. They are context the model cannot act on, and only a handful of
+    /// lines from each reaches it, so they never walk deep.
+    public static let secondaryWindowDepth = 8
 
     public static func startingDepth(fullTreeRequested: Bool) -> Int {
         fullTreeRequested ? fullDepth : initialDepth
