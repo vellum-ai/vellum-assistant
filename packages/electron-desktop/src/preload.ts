@@ -4,6 +4,7 @@ import type {
   BundleScanData,
   DeepLink,
   DownloadDoneEvent,
+  NotificationActionEvent,
   ResolvedHotkey,
   UpdateState,
   VellumBridge,
@@ -12,6 +13,11 @@ import type {
 import {
   DOWNLOADS_DONE_EVENT,
   DOWNLOADS_REVEAL,
+  NOTIFICATIONS_ACTION,
+  NOTIFICATIONS_PREPARE_IDENTITY,
+  NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER,
+  NOTIFICATIONS_RESET_IDENTITIES,
+  NOTIFICATIONS_SHOW,
   WINDOW_ATTENTION,
 } from "@vellumai/ipc-contract";
 
@@ -137,8 +143,48 @@ export const createUpdateBridge = (
   onState: subscribe<UpdateState>(ipc, "vellum:update:state"),
 });
 
-/** Renderer side of `installWindowAttention`. */
-export const createWindowAttentionSubscriber = (
+/** Renderer side of the notification presenter and identity-memory IPC. */
+export const createNotificationsBridge = (
   ipc: RendererIpc,
-): VellumBridge["notifications"]["onWindowAttention"] =>
-  subscribeWithReplay<WindowAttentionPayload>(ipc, WINDOW_ATTENTION);
+): VellumBridge["notifications"] => {
+  const publisherSessionId = globalThis.crypto.randomUUID();
+  const publisherRegistration = Promise.resolve(
+    ipc.invoke(NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER, {
+      publisherSessionId,
+    }),
+  ).then(
+    (registered) => registered === true,
+    () => false,
+  );
+  return {
+    show: (payload) =>
+      ipc.invoke(NOTIFICATIONS_SHOW, payload) as Promise<{
+        success: boolean;
+        errorMessage?: string;
+      }>,
+    registerIdentityPublisher: () => publisherRegistration,
+    prepareIdentity: async (payload) => {
+      await publisherRegistration;
+      await ipc.invoke(NOTIFICATIONS_PREPARE_IDENTITY, {
+        ...payload,
+        publisherSessionId,
+      });
+    },
+    resetIdentities: async (payload) => {
+      await publisherRegistration;
+      await ipc.invoke(NOTIFICATIONS_RESET_IDENTITIES, {
+        ...payload,
+        publisherSessionId,
+      });
+    },
+    onAction: subscribe<NotificationActionEvent>(ipc, NOTIFICATIONS_ACTION),
+    onWindowAttention: createWindowAttentionSubscriber(ipc),
+  };
+};
+
+/** Renderer side of `installWindowAttention`. */
+export function createWindowAttentionSubscriber(
+  ipc: RendererIpc,
+): VellumBridge["notifications"]["onWindowAttention"] {
+  return subscribeWithReplay<WindowAttentionPayload>(ipc, WINDOW_ATTENTION);
+}

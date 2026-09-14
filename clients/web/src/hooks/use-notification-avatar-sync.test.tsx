@@ -1,15 +1,11 @@
 /**
- * The gate this hook exists to hold: the notification avatar is composited and
- * held only in the main Electron window with `push-avatar-sender` on. Every
- * other host, a pop-out thread window, and the flag off must leave the holder
- * empty so the IPC payload carries no `sender` field, and a flag that turns
- * off, or a hook that goes away, has to take back what an earlier run stored.
- * What is held is stamped with the assistant it was drawn for, a replacement
- * render empties the holder before it starts drawing, and a re-run for the
- * picture already held leaves it alone.
+ * Scoped preparation runs across browser, Capacitor, Electron, and popouts
+ * when either sender flag needs it. The legacy singleton remains exclusive to
+ * the main Electron window with `push-avatar-sender` enabled.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 
 import { NOTIFICATION_AVATAR_MAX_LOCAL_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
 import { NOTIFICATION_AVATAR_BASE64_MAX_CHARS } from "@vellumai/ipc-contract";
@@ -19,6 +15,7 @@ import type {
   CharacterComponents,
   CharacterTraits,
 } from "@/types/avatar";
+import type { NotificationAvatarScope } from "@/hooks/use-notification-avatar-sync";
 
 const AVATAR_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 
@@ -32,6 +29,11 @@ let popoutWindow = false;
 mock.module("@/runtime/popout-window", () => ({
   ...realPopoutWindow,
   isPopoutWindowLifetime: () => popoutWindow,
+}));
+
+const installSenderNotificationIdentityAdapter = mock(() => {});
+mock.module("@/runtime/sender-notification", () => ({
+  installSenderNotificationIdentityAdapter,
 }));
 
 let rasterized: Uint8Array | null = AVATAR_PNG;
@@ -51,11 +53,19 @@ const rasterizeNotificationAvatar = mock(
 );
 mock.module("@/utils/avatar-raster", () => ({ rasterizeNotificationAvatar }));
 
-const { clearNotificationAvatar, getNotificationAvatar, sha256Hex } =
-  await import("@/runtime/notification-avatar");
+const {
+  __clearNotificationIdentitySnapshotsForTests,
+  createNotificationIdentity,
+  getNotificationAvatar,
+  getNotificationIdentitySnapshot,
+  reconcilePreparedNotificationIdentityOwners,
+  resetNotificationIdentitySession,
+  setNotificationIdentityNativeAdapter,
+  sha256Hex,
+} = await import("@/runtime/notification-avatar");
 const { useClientFeatureFlagStore } =
   await import("@/stores/client-feature-flag-store");
-const { useNotificationAvatarSync } =
+const { resolveNotificationAvatarScope, useNotificationAvatarSync } =
   await import("@/hooks/use-notification-avatar-sync");
 
 const ASSISTANT_ID = "assistant-1";
@@ -65,6 +75,37 @@ const ACCENT = "#E9642F";
 const IMAGE_META: AvatarImageMeta = {
   updatedAt: "2026-01-01T00:00:00.000Z",
   etag: "etag-a",
+};
+const CONNECTION_SCOPE = {
+  kind: "connection" as const,
+  url: "https://assistant.example.com/v1",
+};
+
+function preparedIdentity(
+  assistantId = ASSISTANT_ID,
+  scope: NotificationAvatarScope = CONNECTION_SCOPE,
+  platformAssistantId?: string,
+) {
+  const scopeId = resolveNotificationAvatarScope(scope)!;
+  return createNotificationIdentity(scopeId, assistantId, platformAssistantId)!;
+}
+
+const preparedOptions = (
+  assistantName = "Assistant One",
+  avatarReady = true,
+  scope: NotificationAvatarScope = CONNECTION_SCOPE,
+  platformAssistantId?: string,
+  ownerAssistantId = ASSISTANT_ID,
+) => {
+  const scopeId = resolveNotificationAvatarScope(scope)!;
+  return {
+    scopeId,
+    platformAssistantId,
+    assistantName,
+    assistantNameOwner: { scopeId, assistantId: ownerAssistantId },
+    avatarOwner: { scopeId, assistantId: ownerAssistantId },
+    avatarReady,
+  };
 };
 
 /**
@@ -103,17 +144,38 @@ beforeEach(() => {
   rasterizeGate = null;
   rasterizeThrows = false;
   rasterizeNotificationAvatar.mockClear();
-  clearNotificationAvatar();
-  useClientFeatureFlagStore.setState({ pushAvatarSender: true });
+  installSenderNotificationIdentityAdapter.mockClear();
+  __clearNotificationIdentitySnapshotsForTests();
+  useClientFeatureFlagStore.setState({
+    pushAvatarSender: true,
+    localNotificationAvatar: false,
+  });
 });
 
 afterEach(() => {
   cleanup();
-  clearNotificationAvatar();
-  useClientFeatureFlagStore.setState({ pushAvatarSender: false });
+  __clearNotificationIdentitySnapshotsForTests();
+  useClientFeatureFlagStore.setState({
+    pushAvatarSender: false,
+    localNotificationAvatar: false,
+  });
 });
 
 describe("useNotificationAvatarSync", () => {
+  test("connects the iOS identity adapter only while local avatars are enabled", async () => {
+    electronHost = false;
+    useClientFeatureFlagStore.setState({
+      pushAvatarSender: false,
+      localNotificationAvatar: true,
+    });
+
+    render();
+
+    await waitFor(() => {
+      expect(installSenderNotificationIdentityAdapter).toHaveBeenCalledTimes(1);
+    });
+  });
+
   test("holds the composited avatar, its hash and its assistant on Electron with the flag on", async () => {
     render();
 
@@ -128,24 +190,24 @@ describe("useNotificationAvatarSync", () => {
     });
   });
 
-  test("does no canvas work and holds nothing off Electron", async () => {
+  test("prepares off Electron without touching the legacy holder", async () => {
     electronHost = false;
 
     render();
 
     await waitFor(() => {
-      expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
     });
     expect(getNotificationAvatar()).toBeNull();
   });
 
-  test("does no canvas work and holds nothing in a pop-out thread window", async () => {
+  test("prepares in a pop-out without touching the legacy holder", async () => {
     popoutWindow = true;
 
     render();
 
     await waitFor(() => {
-      expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
     });
     expect(getNotificationAvatar()).toBeNull();
   });
@@ -158,6 +220,7 @@ describe("useNotificationAvatarSync", () => {
     await waitFor(() => {
       expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
     });
+    expect(installSenderNotificationIdentityAdapter).not.toHaveBeenCalled();
     expect(getNotificationAvatar()).toBeNull();
   });
 
@@ -502,6 +565,628 @@ describe("useNotificationAvatarSync", () => {
     await waitFor(() => {
       expect(getNotificationAvatar()?.assistantId).toBe("assistant-3");
     });
+  });
+});
+
+describe("scoped notification identity preparation", () => {
+  test("prepares for every enabled flag combination and stays cold when both are off", async () => {
+    electronHost = false;
+    const cases = [
+      { pushAvatarSender: false, localNotificationAvatar: false, runs: false },
+      { pushAvatarSender: true, localNotificationAvatar: false, runs: true },
+      { pushAvatarSender: false, localNotificationAvatar: true, runs: true },
+      { pushAvatarSender: true, localNotificationAvatar: true, runs: true },
+    ];
+
+    for (const flags of cases) {
+      __clearNotificationIdentitySnapshotsForTests();
+      rasterizeNotificationAvatar.mockClear();
+      useClientFeatureFlagStore.setState(flags);
+      const view = renderHook(() =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          IMAGE_URL,
+          IMAGE_META,
+          null,
+          null,
+          ACCENT,
+          preparedOptions(),
+        ),
+      );
+
+      if (flags.runs) {
+        await waitFor(() => {
+          expect(
+            getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+          ).toBeDefined();
+        });
+      } else {
+        await act(async () => {});
+        expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
+        expect(getNotificationIdentitySnapshot(preparedIdentity())).toBeNull();
+      }
+      view.unmount();
+    }
+  });
+
+  test("local-only preparation does not populate the Electron singleton", async () => {
+    useClientFeatureFlagStore.setState({
+      pushAvatarSender: false,
+      localNotificationAvatar: true,
+    });
+    renderHook(() =>
+      useNotificationAvatarSync(
+        ASSISTANT_ID,
+        IMAGE_URL,
+        IMAGE_META,
+        null,
+        null,
+        ACCENT,
+        preparedOptions(),
+      ),
+    );
+
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+      ).toBeDefined();
+    });
+    expect(getNotificationAvatar()).toBeNull();
+  });
+
+  test("publishes the exact name during startup before avatar data is ready", async () => {
+    electronHost = false;
+    useClientFeatureFlagStore.setState({
+      pushAvatarSender: false,
+      localNotificationAvatar: true,
+    });
+    const { rerender } = renderHook(
+      ({ url, ready }: { url: string | null; ready: boolean }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          url,
+          url ? IMAGE_META : null,
+          null,
+          null,
+          ACCENT,
+          preparedOptions("Exact Name", ready),
+        ),
+      { initialProps: { url: null as string | null, ready: false } },
+    );
+
+    expect(getNotificationIdentitySnapshot(preparedIdentity())).toMatchObject({
+      name: "Exact Name",
+      nameProvenance: "identity-store",
+    });
+    expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
+
+    rerender({ url: IMAGE_URL, ready: true });
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+      ).toBeDefined();
+    });
+  });
+
+  test("waits for an explicit owner scope during session startup", async () => {
+    renderHook(() =>
+      useNotificationAvatarSync(
+        ASSISTANT_ID,
+        IMAGE_URL,
+        IMAGE_META,
+        null,
+        null,
+        ACCENT,
+        { ...preparedOptions(), scopeId: null },
+      ),
+    );
+
+    await act(async () => {});
+    expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
+    expect(getNotificationIdentitySnapshot(preparedIdentity())).toBeNull();
+  });
+
+  test("does not publish avatar or name data owned by another scope", async () => {
+    const scopeId = resolveNotificationAvatarScope(CONNECTION_SCOPE)!;
+    const wrongScopeId = resolveNotificationAvatarScope({
+      kind: "connection",
+      url: "https://other.example.com",
+    })!;
+    const { rerender } = renderHook(
+      ({ ownerScopeId }: { ownerScopeId: string }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          IMAGE_URL,
+          IMAGE_META,
+          null,
+          null,
+          ACCENT,
+          {
+            scopeId,
+            assistantName: "Exact Name",
+            assistantNameOwner: {
+              scopeId: ownerScopeId,
+              assistantId: ASSISTANT_ID,
+            },
+            avatarOwner: {
+              scopeId: ownerScopeId,
+              assistantId: ASSISTANT_ID,
+            },
+            avatarReady: true,
+          },
+        ),
+      { initialProps: { ownerScopeId: wrongScopeId } },
+    );
+
+    await act(async () => {});
+    expect(rasterizeNotificationAvatar).not.toHaveBeenCalled();
+    expect(getNotificationIdentitySnapshot(preparedIdentity())).toBeNull();
+
+    rerender({ ownerScopeId: scopeId });
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+      ).toBeDefined();
+    });
+    expect(getNotificationIdentitySnapshot(preparedIdentity())?.name).toBe(
+      "Exact Name",
+    );
+  });
+
+  test("updates a verified name independently without redrawing a warm avatar", async () => {
+    const { rerender } = renderHook(
+      ({ name }: { name: string }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          IMAGE_URL,
+          IMAGE_META,
+          null,
+          null,
+          ACCENT,
+          preparedOptions(name),
+        ),
+      { initialProps: { name: "First Name" } },
+    );
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+      ).toBeDefined();
+    });
+
+    rerender({ name: "Renamed Assistant" });
+
+    await waitFor(() => {
+      expect(getNotificationIdentitySnapshot(preparedIdentity())?.name).toBe(
+        "Renamed Assistant",
+      );
+    });
+    expect(
+      getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+    ).toBeDefined();
+    expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
+  });
+
+  test("restarts an in-flight avatar under a newer name revision", async () => {
+    let releaseRasterize = () => {};
+    rasterizeGate = new Promise<void>((resolve) => {
+      releaseRasterize = resolve;
+    });
+    const { rerender } = renderHook(
+      ({ name }: { name: string }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          IMAGE_URL,
+          IMAGE_META,
+          null,
+          null,
+          ACCENT,
+          preparedOptions(name),
+        ),
+      { initialProps: { name: "First Name" } },
+    );
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
+    });
+
+    rasterizeGate = null;
+    rerender({ name: "Renamed Assistant" });
+    releaseRasterize();
+
+    await waitFor(() => {
+      expect(getNotificationIdentitySnapshot(preparedIdentity())).toMatchObject(
+        {
+          name: "Renamed Assistant",
+          avatar: { avatarBase64: "iVBORw==" },
+        },
+      );
+    });
+    expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(2);
+  });
+
+  test("retains a verified old assistant while publishing a switched assistant", async () => {
+    const { rerender } = renderHook(
+      ({ id, url }: { id: string; url: string }) =>
+        useNotificationAvatarSync(
+          id,
+          url,
+          null,
+          null,
+          null,
+          ACCENT,
+          preparedOptions(id, true, CONNECTION_SCOPE, undefined, id),
+        ),
+      { initialProps: { id: ASSISTANT_ID, url: IMAGE_URL } },
+    );
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity()),
+      ).not.toBeNull();
+    });
+
+    rerender({ id: "assistant-2", url: "blob:avatar-2" });
+
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity("assistant-2"))
+          ?.avatar,
+      ).toBeDefined();
+    });
+    expect(
+      getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+    ).toBeDefined();
+  });
+
+  test("clears a prepared identity when the active assistant is removed", async () => {
+    const { rerender } = renderHook(
+      ({ id }: { id: string | null }) =>
+        useNotificationAvatarSync(
+          id,
+          IMAGE_URL,
+          IMAGE_META,
+          null,
+          null,
+          ACCENT,
+          preparedOptions(),
+        ),
+      { initialProps: { id: ASSISTANT_ID as string | null } },
+    );
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+      ).toBeDefined();
+    });
+
+    rerender({ id: null });
+
+    await waitFor(() => {
+      expect(getNotificationIdentitySnapshot(preparedIdentity())).toBeNull();
+    });
+  });
+
+  test("a stale popout render cannot publish over the switched identity", async () => {
+    popoutWindow = true;
+    let releaseRasterize = () => {};
+    rasterizeGate = new Promise<void>((resolve) => {
+      releaseRasterize = resolve;
+    });
+    const { rerender } = renderHook(
+      ({ id, url }: { id: string; url: string }) =>
+        useNotificationAvatarSync(
+          id,
+          url,
+          null,
+          null,
+          null,
+          ACCENT,
+          preparedOptions(id, true, CONNECTION_SCOPE, undefined, id),
+        ),
+      { initialProps: { id: ASSISTANT_ID, url: IMAGE_URL } },
+    );
+
+    rasterizeGate = null;
+    rerender({ id: "assistant-2", url: "blob:avatar-2" });
+    releaseRasterize();
+
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity("assistant-2"))
+          ?.avatar,
+      ).toBeDefined();
+    });
+    expect(getNotificationIdentitySnapshot(preparedIdentity())).toMatchObject({
+      name: ASSISTANT_ID,
+    });
+    expect(
+      getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+    ).toBeUndefined();
+    expect(getNotificationAvatar()).toBeNull();
+  });
+
+  test("logout during preparation resets native memory and rejects late bytes", async () => {
+    electronHost = false;
+    useClientFeatureFlagStore.setState({
+      pushAvatarSender: false,
+      localNotificationAvatar: true,
+    });
+    let releaseRasterize = () => {};
+    rasterizeGate = new Promise<void>((resolve) => {
+      releaseRasterize = resolve;
+    });
+    const prepares: Array<{ scopeEpoch: number; avatar?: unknown }> = [];
+    const resets: Array<{ scopeEpoch: number }> = [];
+    setNotificationIdentityNativeAdapter({
+      prepareIdentity: async (payload) => {
+        prepares.push(payload);
+      },
+      resetIdentities: async (payload) => {
+        resets.push(payload);
+      },
+    });
+    renderHook(() =>
+      useNotificationAvatarSync(
+        ASSISTANT_ID,
+        IMAGE_URL,
+        IMAGE_META,
+        null,
+        null,
+        ACCENT,
+        preparedOptions(),
+      ),
+    );
+    await waitFor(() => {
+      expect(prepares.length).toBe(1);
+    });
+
+    resetNotificationIdentitySession();
+    releaseRasterize();
+    await act(async () => {});
+
+    expect(getNotificationIdentitySnapshot(preparedIdentity())).toBeNull();
+    expect(prepares.filter((payload) => payload.avatar).length).toBe(0);
+    expect(resets.length).toBe(1);
+    expect(resets[0]!.scopeEpoch).toBeGreaterThan(prepares[0]!.scopeEpoch);
+  });
+
+  test("a same-owner reactivation publishes above the session reset epoch", async () => {
+    const prepares: Array<{ scopeEpoch: number }> = [];
+    const resets: Array<{ scopeEpoch: number }> = [];
+    setNotificationIdentityNativeAdapter({
+      prepareIdentity: async (payload) => {
+        prepares.push(payload);
+      },
+      resetIdentities: async (payload) => {
+        resets.push(payload);
+      },
+    });
+    const { rerender } = renderHook(
+      ({ renderCount }: { renderCount: number }) => {
+        void renderCount;
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          IMAGE_URL,
+          IMAGE_META,
+          null,
+          null,
+          ACCENT,
+          preparedOptions(),
+        );
+      },
+      { initialProps: { renderCount: 0 } },
+    );
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+      ).toBeDefined();
+    });
+
+    resetNotificationIdentitySession();
+    resetNotificationIdentitySession();
+    rerender({ renderCount: 1 });
+
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+      ).toBeDefined();
+    });
+    expect(resets.length).toBe(1);
+    expect(prepares.at(-1)!.scopeEpoch).toBeGreaterThan(
+      resets[0]!.scopeEpoch,
+    );
+  });
+
+  test("a self-hosted origin change retires the old scope", async () => {
+    const firstScope = {
+      kind: "connection" as const,
+      url: "https://first.example.com/path",
+    };
+    const secondScope = {
+      kind: "connection" as const,
+      url: "https://second.example.com/other",
+    };
+    const nativeResets: Array<{ scopeId: string; assistantId?: string }> = [];
+    setNotificationIdentityNativeAdapter({
+      resetIdentities: (payload) => {
+        nativeResets.push(payload);
+      },
+    });
+    const { rerender } = renderHook(
+      ({
+        scope,
+        ownerScope,
+      }: {
+        scope: NotificationAvatarScope;
+        ownerScope: NotificationAvatarScope;
+      }) => {
+        const options = preparedOptions("Assistant One", true, scope);
+        const ownerScopeId = resolveNotificationAvatarScope(ownerScope)!;
+        useEffect(() => {
+          reconcilePreparedNotificationIdentityOwners([
+            { scopeId: options.scopeId, assistantId: ASSISTANT_ID },
+          ]);
+        }, [options.scopeId]);
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          IMAGE_URL,
+          IMAGE_META,
+          null,
+          null,
+          ACCENT,
+          {
+            ...options,
+            assistantNameOwner: {
+              scopeId: ownerScopeId,
+              assistantId: ASSISTANT_ID,
+            },
+            avatarOwner: { scopeId: ownerScopeId, assistantId: ASSISTANT_ID },
+          },
+        );
+      },
+      { initialProps: { scope: firstScope, ownerScope: firstScope } },
+    );
+    const firstIdentity = preparedIdentity(ASSISTANT_ID, firstScope);
+    await waitFor(() => {
+      expect(getNotificationIdentitySnapshot(firstIdentity)?.avatar).toBeDefined();
+    });
+
+    const secondScopeId = resolveNotificationAvatarScope(secondScope)!;
+    const firstScopeId = resolveNotificationAvatarScope(firstScope)!;
+    rerender({ scope: secondScope, ownerScope: firstScope });
+    const secondIdentity = preparedIdentity(ASSISTANT_ID, secondScope);
+    await act(async () => {});
+    expect(getNotificationIdentitySnapshot(secondIdentity)).toBeNull();
+
+    rerender({ scope: secondScope, ownerScope: secondScope });
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(secondIdentity)?.avatar,
+      ).toBeDefined();
+    });
+    expect(secondScopeId).not.toBe(firstScopeId);
+
+    expect(getNotificationIdentitySnapshot(firstIdentity)).toBeNull();
+    expect(firstIdentity.nativeSenderId).not.toBe(secondIdentity.nativeSenderId);
+    expect(nativeResets).toHaveLength(1);
+    expect(nativeResets[0]).toMatchObject({ scopeId: firstScopeId });
+    expect(nativeResets[0]).not.toHaveProperty("assistantId");
+  });
+
+  test("keeps a same-owner avatar during loading but clears it on conclusive removal", async () => {
+    const { rerender } = renderHook(
+      ({ url, ready }: { url: string | null; ready: boolean }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          url,
+          url ? IMAGE_META : null,
+          null,
+          null,
+          ACCENT,
+          preparedOptions("Assistant One", ready),
+        ),
+      {
+        initialProps: { url: IMAGE_URL as string | null, ready: true },
+      },
+    );
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+      ).toBeDefined();
+    });
+
+    rerender({ url: null, ready: false });
+    expect(
+      getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+    ).toBeDefined();
+
+    rerender({ url: null, ready: true });
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity())?.avatar,
+      ).toBeUndefined();
+    });
+    expect(getNotificationIdentitySnapshot(preparedIdentity())?.name).toBe(
+      "Assistant One",
+    );
+  });
+
+  test("disabling both flags clears a prepared identity", async () => {
+    const { rerender } = renderHook(() => {
+      useNotificationAvatarSync(
+        ASSISTANT_ID,
+        IMAGE_URL,
+        IMAGE_META,
+        null,
+        null,
+        ACCENT,
+        preparedOptions(),
+      );
+    });
+    await waitFor(() => {
+      expect(
+        getNotificationIdentitySnapshot(preparedIdentity()),
+      ).not.toBeNull();
+    });
+
+    act(() => {
+      useClientFeatureFlagStore.setState({
+        pushAvatarSender: false,
+        localNotificationAvatar: false,
+      });
+    });
+    rerender();
+
+    await waitFor(() => {
+      expect(getNotificationIdentitySnapshot(preparedIdentity())).toBeNull();
+    });
+  });
+
+  test("uses account/org isolation and preserves an explicit platform sender id", async () => {
+    const accountScope: NotificationAvatarScope = {
+      kind: "account",
+      accountId: "user-123",
+      organizationId: "org-abc",
+    };
+    const nativeId = "00000000-0000-4000-8000-000000000001";
+    const nativeScopes: string[] = [];
+    setNotificationIdentityNativeAdapter({
+      prepareIdentity: (payload) => {
+        nativeScopes.push(payload.identity.scopeId);
+      },
+    });
+    renderHook(() =>
+      useNotificationAvatarSync(
+        ASSISTANT_ID,
+        IMAGE_URL,
+        IMAGE_META,
+        null,
+        null,
+        ACCENT,
+        preparedOptions("Assistant One", true, accountScope, nativeId),
+      ),
+    );
+    const identity = preparedIdentity(ASSISTANT_ID, accountScope, nativeId);
+
+    await waitFor(() => {
+      expect(getNotificationIdentitySnapshot(identity)?.avatar).toBeDefined();
+    });
+    expect(identity.nativeSenderId).toBe(nativeId);
+    expect(nativeScopes).not.toContain(
+      JSON.stringify(["account", "user-123", "org-abc"]),
+    );
+    expect(nativeScopes.every((scopeId) => /^scope:v1:[a-f0-9]{64}$/.test(scopeId))).toBe(
+      true,
+    );
+    expect(resolveNotificationAvatarScope(accountScope)).not.toBe(
+      resolveNotificationAvatarScope({
+        ...accountScope,
+        organizationId: "org-other",
+      }),
+    );
+    expect(
+      resolveNotificationAvatarScope({
+        kind: "connection",
+        url: "https://assistant.example.com/another/path",
+      }),
+    ).toBe(resolveNotificationAvatarScope(CONNECTION_SCOPE));
   });
 });
 
