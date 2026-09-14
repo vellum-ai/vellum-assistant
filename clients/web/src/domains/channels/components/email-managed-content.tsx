@@ -11,7 +11,6 @@ import {
   assistantsDomainsDestroyMutation,
   assistantsDomainsListOptions,
   assistantsDomainsListQueryKey,
-  assistantsDomainsProvisionCreateMutation,
   assistantsDomainsVerificationStatusRetrieveOptions,
   assistantsDomainsVerificationStatusRetrieveQueryKey,
   assistantsDomainsVerificationStatusRetrieveSetQueryData,
@@ -23,6 +22,7 @@ import {
   assistantsEmailAddressesStatusRetrieveQueryKey,
   assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
+  useAssistantsDomainsProvisionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { DomainVerificationStatusStatusEnum } from "@/generated/api/types.gen";
 import {
@@ -178,7 +178,7 @@ export function EmailManagedContent({
   // -- Mutations -------------------------------------------------------------
   const registerDomain = useMutation(assistantsDomainsCreateMutation());
   const deleteDomain = useMutation(assistantsDomainsDestroyMutation());
-  const provisionDomain = useMutation(assistantsDomainsProvisionCreateMutation());
+  const provisionDomain = useAssistantsDomainsProvisionCreateMutation();
   const registerAddress = useMutation(assistantsEmailAddressesCreateMutation());
   const deleteAddress = useMutation(assistantsEmailAddressesDestroyMutation());
   const refreshReadiness = useMutation(channelsReadinessRefreshPostMutation());
