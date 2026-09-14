@@ -66,7 +66,12 @@ function opensFence(line: string): Fence | null {
 function scanBlocks(text: string): string[] {
   const blocks: string[] = [];
   let blockStart = 0;
-  let blockFirstLine: string | null = null;
+  let blockHasContent = false;
+  // Whether the block's current top-level construct is a list. A column-0
+  // list marker starts one whether it opens the block or interrupts a
+  // paragraph, and only a cut ends it: every line until then is an item,
+  // an indented continuation, or a lazy continuation of an item.
+  let inList = false;
   let fence: Fence | null = null;
   let afterBlank = false;
 
@@ -84,19 +89,21 @@ function scanBlocks(text: string): string[] {
     } else if (BLANK_LINE.test(line)) {
       afterBlank = true;
     } else {
+      const isListItem = LIST_MARKER.test(line);
       const startsNewBlock =
         afterBlank &&
-        blockFirstLine !== null &&
+        blockHasContent &&
         !INDENTED_LINE.test(line) &&
-        !(LIST_MARKER.test(blockFirstLine) && LIST_MARKER.test(line));
+        !(inList && isListItem);
       if (startsNewBlock) {
         blocks.push(text.slice(blockStart, lineStart));
         blockStart = lineStart;
-        blockFirstLine = null;
+        inList = false;
       }
       afterBlank = false;
-      if (blockFirstLine === null) {
-        blockFirstLine = line;
+      blockHasContent = true;
+      if (isListItem) {
+        inList = true;
       }
       fence = opensFence(line);
     }
@@ -118,6 +125,15 @@ function scanBlocks(text: string): string[] {
  * block is carried over as the same string, so a renderer keyed on block text
  * can skip all of them. Content that is not an extension (a rewrite, a reset)
  * is scanned in full.
+ *
+ * Establishing that `content` extends the previous content is a prefix
+ * compare over the settled text, which is linear in the document but a plain
+ * memcmp: a few microseconds per hundred kilobytes, against the millisecond
+ * or more that parsing a block costs. It stays a full compare on purpose. A
+ * check on length or on a sample of characters would let a rewritten
+ * document of the same shape keep stale settled blocks, and the caller has
+ * already paid a linear copy to build the string, so there is no sub-linear
+ * floor to reach here.
  */
 export function splitMarkdownBlocks(
   content: string,

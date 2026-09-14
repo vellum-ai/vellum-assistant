@@ -120,6 +120,22 @@ describe("splitMarkdownBlocks", () => {
     ]);
   });
 
+  test("a loose list that interrupts a paragraph stays one block", () => {
+    // No blank line between the lead-in and the first item: the list is the
+    // block's current construct even though its first line is prose.
+    expect(blocksOf("Steps:\n- one\n\n- two\n\nafter")).toEqual([
+      "Steps:\n- one\n\n- two\n\n",
+      "after",
+    ]);
+  });
+
+  test("a lazy continuation keeps the list open", () => {
+    expect(blocksOf("- one\nstill one\n\n- two\n\nafter")).toEqual([
+      "- one\nstill one\n\n- two\n\n",
+      "after",
+    ]);
+  });
+
   test("a list after a paragraph starts its own block", () => {
     expect(blocksOf("intro\n\n- a\n- b\n\nafter")).toEqual([
       "intro\n\n",
