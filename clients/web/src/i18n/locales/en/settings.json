@@ -1939,6 +1939,7 @@
     "dockerDescriptionWindows": "Run your assistant in a Docker container on this PC.",
     "localDescriptionMacos": "Run your assistant locally on this Mac.",
     "localDescriptionWindows": "Run your assistant locally on this PC.",
+    "loginNotice": "Log in to the Vellum platform to teleport this assistant.",
     "platformDescription": "Run your assistant in the cloud, managed by the Vellum platform.",
     "progressAriaLabel": "Teleport progress",
     "subtitle": "Move your assistant to a different hosting environment.",

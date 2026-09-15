@@ -1899,6 +1899,7 @@
     "dockerDescriptionWindows": "在此電腦上的 Docker 容器中執行您的助理。",
     "localDescriptionMacos": "在此 Mac 上本機執行您的助理。",
     "localDescriptionWindows": "在此電腦上本機執行您的助理。",
+    "loginNotice": "登入 Vellum 平台以傳送此助理。",
     "platformDescription": "在由 Vellum 平台管理的雲端執行您的助理。",
     "progressAriaLabel": "傳送進度",
     "subtitle": "將您的助理移至不同的託管環境。",

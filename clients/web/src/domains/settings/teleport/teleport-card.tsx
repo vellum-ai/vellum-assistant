@@ -12,6 +12,8 @@
 import { CheckCircle2, Loader2 } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
 import { resolveDesktopHostOS } from "@/runtime/platform-detection";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
@@ -28,10 +30,13 @@ export function TeleportCard() {
   const teleport = useTeleport();
   const { destination, phase } = teleport;
   const teleportEnabled = useClientFeatureFlagStore.use.teleport();
+  // Both directions go through the platform API (export/import signed URLs,
+  // managed hatch), so the card needs a platform session either way.
+  const platformGate = usePlatformGate();
 
   // No eligible destination for this assistant — leave teleport hidden, matching
   // the Swift picker which renders nothing for out-of-scope assistants.
-  if (!destination) {
+  if (!destination || platformGate === "gated") {
     return null;
   }
   // Only gate the idle offer. Mid-transfer the selected assistant can flip to
@@ -50,7 +55,11 @@ export function TeleportCard() {
       title={t("teleportCard.title")}
       subtitle={t("teleportCard.subtitle")}
     >
-      {phase.kind === "idle" && (
+      {phase.kind === "idle" && platformGate === "disabled" && (
+        <PlatformLoginNotice>{t("teleportCard.loginNotice")}</PlatformLoginNotice>
+      )}
+
+      {phase.kind === "idle" && platformGate === "full" && (
         <div className="flex flex-col gap-2">
           <p className="text-body-medium-default text-[var(--content-tertiary)]">
             {t(destinationDescriptionKey(destination, resolveDesktopHostOS()))}

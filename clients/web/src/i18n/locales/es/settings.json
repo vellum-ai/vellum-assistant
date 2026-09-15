@@ -1921,6 +1921,7 @@
     "dockerDescriptionWindows": "Ejecuta tu asistente en un contenedor Docker en este PC.",
     "localDescriptionMacos": "Ejecuta tu asistente localmente en este Mac.",
     "localDescriptionWindows": "Ejecuta tu asistente localmente en este PC.",
+    "loginNotice": "Inicia sesión en la plataforma Vellum para teleportar este asistente.",
     "platformDescription": "Ejecuta tu asistente en la nube, gestionado por la plataforma Vellum.",
     "progressAriaLabel": "Progreso de teleportación",
     "subtitle": "Mueve tu asistente a un entorno de alojamiento diferente.",
