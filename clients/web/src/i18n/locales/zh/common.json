@@ -157,11 +157,18 @@
   },
   "companionPopover": {
     "allow": "允许",
-    "allowAndOpenSettings": "允许并打开设置",
-    "approvalHeading": "需要你的同意",
+    "confirm": "确认",
+    "credentialLabel": "凭据",
     "deny": "拒绝",
     "dismiss": "关闭",
+    "enter": "输入",
+    "needsCredentials": "需要凭据",
+    "needsCredentialsFor": "需要 {service} 的凭据",
+    "needsOkCount": "{count, plural, other {有 # 项需要你的同意}}",
+    "notNow": "暂不",
     "openApp": "打开 Vellum",
+    "pendingBadge": "{count, plural, other {有 # 项需要你的同意}}",
+    "review": "查看",
     "surfaceFallback": "有内容要给你看"
   },
   "companionSurface": {

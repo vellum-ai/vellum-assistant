@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import type {
   CompanionPopover as CompanionPopoverContent,
   CompanionPopoverAnswer,
+  CompanionPopoverView,
 } from "@vellumai/ipc-contract";
 
 import {
@@ -11,11 +12,36 @@ import {
   drawsImageSource,
 } from "@/components/companion-popover";
 
-const APPROVAL: CompanionPopoverContent = {
-  kind: "approval",
+const ONE: CompanionPopoverContent = {
+  kind: "approvals",
   id: "req-1",
-  title: "Listing your files",
-  detail: "Reads your home folder",
+  items: [
+    {
+      id: "req-1",
+      title: "Need your permission accessing the Downloads folder",
+      detail: "Reads your Downloads folder",
+    },
+  ],
+};
+
+const THREE: CompanionPopoverContent = {
+  kind: "approvals",
+  id: "req-1,req-2,req-3",
+  items: [
+    { id: "req-1", title: "Read the Downloads folder", detail: "" },
+    { id: "req-2", title: "Open Safari", detail: "" },
+    { id: "req-3", title: "Send an email", detail: "" },
+  ],
+};
+
+const SECRET: CompanionPopoverContent = {
+  kind: "secret",
+  id: "sec-1",
+  service: "Booking.com",
+  providerKey: "booking_com",
+  detail: "To sign in and check your reservation.",
+  label: "Password",
+  placeholder: "Type your booking password",
 };
 
 const CARD: CompanionPopoverContent = {
@@ -27,70 +53,136 @@ const CARD: CompanionPopoverContent = {
   actions: [{ id: "book", label: "Book", style: "primary" }],
 };
 
-const buttonOf = (container: HTMLElement, name: string) =>
-  Array.from(container.querySelectorAll("button")).find(
+const buttonsNamed = (container: HTMLElement, name: string) =>
+  Array.from(container.querySelectorAll("button")).filter(
     (button) =>
       button.textContent === name || button.getAttribute("aria-label") === name,
-  ) ?? null;
+  );
 
-const renderWith = (popover: CompanionPopoverContent) => {
+const buttonOf = (container: HTMLElement, name: string) =>
+  buttonsNamed(container, name)[0] ?? null;
+
+const renderWith = (
+  popover: CompanionPopoverContent,
+  view: CompanionPopoverView = "row",
+) => {
   const answers: CompanionPopoverAnswer[] = [];
+  const views: CompanionPopoverView[] = [];
   const links: string[] = [];
-  const view = render(
+  const result = render(
     <CompanionPopover
       popover={popover}
+      view={view}
       assistantName="Ziggy"
       onAnswer={(answer) => {
         answers.push(answer);
+      }}
+      onView={(next) => {
+        views.push(next);
       }}
       onOpenLink={(url) => {
         links.push(url);
       }}
     />,
   );
-  return { ...view, answers, links };
+  return { ...result, answers, views, links };
 };
 
 afterEach(() => {
   cleanup();
 });
 
-describe("the popover beside the companion", () => {
-  test("puts an approval to the user with every answer", () => {
-    const { container, answers } = renderWith(APPROVAL);
+describe("the popover's approvals", () => {
+  test("asks a single approval in a row with its own answers", () => {
+    const { container, answers } = renderWith(ONE);
 
-    expect(container.textContent).toContain("Listing your files");
-    expect(container.textContent).toContain("Reads your home folder");
+    expect(container.textContent).toContain(
+      "Need your permission accessing the Downloads folder",
+    );
     fireEvent.click(buttonOf(container, "Allow")!);
     fireEvent.click(buttonOf(container, "Deny")!);
-    fireEvent.click(buttonOf(container, "Open Vellum")!);
 
     expect(answers).toEqual([
-      { kind: "allow" },
-      { kind: "deny" },
-      { kind: "open" },
+      { kind: "allow", itemId: "req-1" },
+      { kind: "deny", itemId: "req-1" },
     ]);
   });
 
-  /** The turn is waiting on it, so there is no way to wave it off. */
-  test("offers no dismissal on an approval", () => {
-    const { container } = renderWith(APPROVAL);
-
-    expect(buttonOf(container, "Dismiss")).toBeNull();
-  });
-
-  test("allows a permission request by opening its pane", () => {
+  test("a permission request's allow opens its pane too", () => {
     const { container, answers } = renderWith({
-      ...APPROVAL,
-      permission: "screen",
-    });
+      ...ONE,
+      items: [{ ...ONE.items[0], permission: "screen" }],
+    } as CompanionPopoverContent);
 
-    fireEvent.click(buttonOf(container, "Allow and open Settings")!);
+    fireEvent.click(buttonOf(container, "Allow")!);
 
-    expect(answers).toEqual([{ kind: "settings" }]);
+    expect(answers).toEqual([{ kind: "settings", itemId: "req-1" }]);
   });
 
-  test("draws a card's images from the web and nothing it cannot fetch", () => {
+  test("sums several up with a way to review them or put them off", () => {
+    const { container, views, answers } = renderWith(THREE);
+
+    expect(container.textContent).toContain("Need your OK on 3 things");
+    expect(buttonOf(container, "Allow")).toBeNull();
+    fireEvent.click(buttonOf(container, "Review")!);
+    fireEvent.click(buttonOf(container, "Not Now")!);
+
+    expect(views).toEqual(["expanded", "deferred"]);
+    expect(answers).toEqual([]);
+  });
+
+  test("lists them numbered once reviewed, each answered on its own row", () => {
+    const { container, answers } = renderWith(THREE, "expanded");
+
+    const rows = Array.from(container.querySelectorAll("li"));
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "1Read the Downloads folderAllowDeny",
+      "2Open SafariAllowDeny",
+      "3Send an emailAllowDeny",
+    ]);
+    fireEvent.click(buttonsNamed(container, "Deny")[1]);
+    fireEvent.click(buttonsNamed(container, "Allow")[2]);
+
+    expect(answers).toEqual([
+      { kind: "deny", itemId: "req-2" },
+      { kind: "allow", itemId: "req-3" },
+    ]);
+  });
+});
+
+describe("the popover's credential", () => {
+  test("names the service with a way to enter it or put it off", () => {
+    const { container, views } = renderWith(SECRET);
+
+    expect(container.textContent).toContain("Need credentials for Booking.com");
+    fireEvent.click(buttonOf(container, "Enter")!);
+    fireEvent.click(buttonOf(container, "Not Now")!);
+
+    expect(views).toEqual(["expanded", "deferred"]);
+  });
+
+  test("takes the credential in a form and sends it on Confirm", () => {
+    const { container, answers } = renderWith(SECRET, "expanded");
+
+    expect(container.textContent).toContain(
+      "To sign in and check your reservation.",
+    );
+    const input = container.querySelector("input")!;
+    expect(input.getAttribute("type")).toBe("password");
+    expect(input.getAttribute("placeholder")).toBe(
+      "Type your booking password",
+    );
+    expect(buttonOf(container, "Confirm")?.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.change(input, { target: { value: "hunter2" } });
+    fireEvent.click(buttonOf(container, "Confirm")!);
+
+    expect(answers).toEqual([{ kind: "secret", value: "hunter2" }]);
+  });
+});
+
+describe("the popover's cards", () => {
+  test("draws a card's images from the web and inline, and none it cannot fetch", () => {
     const { container } = renderWith(CARD);
 
     const sources = Array.from(container.querySelectorAll("img")).map((img) =>

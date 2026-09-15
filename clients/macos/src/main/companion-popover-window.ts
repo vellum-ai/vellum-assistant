@@ -3,7 +3,7 @@ import type { BrowserWindow, Rectangle } from "electron";
 import {
   COMPANION_POPOVER_INSET,
   COMPANION_POPOVER_MAX_HEIGHT,
-  COMPANION_POPOVER_WIDTH,
+  COMPANION_POPOVER_MAX_WIDTH,
   type CompanionPopover,
 } from "@vellumai/ipc-contract";
 import {
@@ -22,13 +22,15 @@ import {
  * the card is clickable everywhere it is drawn, so it needs none of the
  * canvas's hit-testing either.
  *
- * **Shown only once measured.** The window is sized from the height its page
+ * **Shown only once measured.** The window is sized from the size its page
  * reports for the popover it is drawing, so a new popover is not shown until
- * its own height has arrived. Otherwise it would open at the size of the one
+ * its own size has arrived. Otherwise it would open at the size of the one
  * before it.
  *
  * Unfocusable like the surface, so a press on it never takes the keyboard
- * from the app the user is working in.
+ * from the app the user is working in. The one exception is a credential form
+ * on screen: it is lent key status for as long as the form is up, with
+ * `setFocusable` both ways and never `blur()`.
  */
 
 export const POPOVER_KIND = "companion-popover";
@@ -77,9 +79,9 @@ const clamp = (value: number, min: number, max: number): number =>
  */
 export const popoverBoundsFor = (
   anchor: CompanionPopoverAnchor,
-  height: number,
+  size: { width: number; height: number },
 ): Rectangle => {
-  const width = COMPANION_POPOVER_WIDTH;
+  const { width, height } = size;
   const { centre, clearance, workArea } = anchor;
   const reach = clearance + POPOVER_GAP - COMPANION_POPOVER_INSET;
   const fits = (side: PopoverSide): boolean => {
@@ -146,40 +148,64 @@ export const popoverBoundsFor = (
 };
 
 /**
- * The height a page reported, bounded: at least a row of buttons, at most the
- * popover's ceiling, whole points.
+ * The size a page reported, bounded: at least a row of buttons, at most the
+ * popover's ceilings, whole points.
  */
-export const popoverHeightFor = (reported: number): number =>
-  Math.round(clamp(reported, 48, COMPANION_POPOVER_MAX_HEIGHT));
+export const popoverSizeFor = (reported: {
+  width: number;
+  height: number;
+}): { width: number; height: number } => ({
+  width: Math.round(clamp(reported.width, 120, COMPANION_POPOVER_MAX_WIDTH)),
+  height: Math.round(clamp(reported.height, 48, COMPANION_POPOVER_MAX_HEIGHT)),
+});
 
-/** The height the page last reported, and for which popover. */
-let measured: { id: string; height: number } | null = null;
+/** The size the page last reported, and for which popover. */
+let measured: {
+  id: string;
+  kind: CompanionPopover["kind"];
+  width: number;
+  height: number;
+} | null = null;
+
+/** Whether the window has been lent key status for a form. */
+let keyLent = false;
 
 /**
  * Put the popover where it belongs for what is being shown and where the
  * surface is, or take it off the screen.
  *
- * Idempotent, and run whenever either can have changed: every state push, the
- * surface moving, and the page reporting a height. `anchor` is null when there
- * is no surface on screen to draw beside, which takes the popover away with it.
+ * Idempotent, and run whenever any of it can have changed: every state push,
+ * the surface moving, and the page reporting a size. `anchor` is null when
+ * there is no surface on screen to draw beside, and `show` is false when the
+ * popover is put off or carried on the call's bar instead; either takes the
+ * window away. `keyboard` asks for key status, for a form that takes typing.
  */
 export const syncCompanionPopover = (
   popover: CompanionPopover | undefined,
   anchor: CompanionPopoverAnchor | null,
+  options: { show: boolean; keyboard: boolean },
 ): void => {
   const existing = getFloatingWindow(POPOVER_KIND);
-  if (popover === undefined || anchor === null) {
-    existing?.hide();
+  if (popover === undefined || anchor === null || !options.show) {
+    if (existing !== null) {
+      releaseKey(existing);
+      existing.hide();
+    }
     return;
   }
   const win = existing ?? openPopoverWindow();
   if (measured?.id !== popover.id) {
-    // The page has not drawn this popover yet. Kept hidden rather than shown
-    // at the last one's height.
-    win.hide();
+    // The page has not drawn this popover yet. A popover of the same kind
+    // already on screen (the list after one of its approvals is answered)
+    // stays where it is until the new size lands; anything else is kept
+    // hidden rather than shown at the last one's size.
+    if (!(win.isVisible() && measured?.kind === popover.kind)) {
+      releaseKey(win);
+      win.hide();
+    }
     return;
   }
-  const bounds = popoverBoundsFor(anchor, measured.height);
+  const bounds = popoverBoundsFor(anchor, measured);
   const current = win.getBounds();
   if (
     current.x !== bounds.x ||
@@ -192,26 +218,50 @@ export const syncCompanionPopover = (
   if (!win.isVisible()) {
     win.showInactive();
   }
+  if (options.keyboard && !keyLent) {
+    keyLent = true;
+    win.setFocusable(true);
+    win.focus();
+  } else if (!options.keyboard) {
+    releaseKey(win);
+  }
 };
 
 /**
- * Record the height the page measured for a popover. Answers whether it moved,
+ * Give key status back. `setFocusable(false)` alone: on macOS `blur()` is
+ * `orderOut` then `orderBack`, which flashes a panel and drops its mouse.
+ */
+const releaseKey = (win: BrowserWindow): void => {
+  if (!keyLent) {
+    return;
+  }
+  keyLent = false;
+  win.setFocusable(false);
+};
+
+/**
+ * Record the size the page measured for a popover. Answers whether it moved,
  * so the caller knows a sync is due.
  */
-export const setCompanionPopoverHeight = (
-  id: string,
-  height: number,
+export const setCompanionPopoverSize = (
+  popover: CompanionPopover,
+  size: { width: number; height: number },
 ): boolean => {
-  const next = popoverHeightFor(height);
-  if (measured?.id === id && measured.height === next) {
+  const next = popoverSizeFor(size);
+  if (
+    measured?.id === popover.id &&
+    measured.width === next.width &&
+    measured.height === next.height
+  ) {
     return false;
   }
-  measured = { id, height: next };
+  measured = { id: popover.id, kind: popover.kind, ...next };
   return true;
 };
 
 export const closeCompanionPopover = (): void => {
   measured = null;
+  keyLent = false;
   getFloatingWindow(POPOVER_KIND)?.close();
 };
 
@@ -223,7 +273,9 @@ const openPopoverWindow = (): BrowserWindow => {
   const win = createFloatingWindow({
     kind: POPOVER_KIND,
     route: POPOVER_ROUTE,
-    width: COMPANION_POPOVER_WIDTH,
+    // At the ceilings, so the page first lays its card out at its own size
+    // rather than squeezed into a window sized for nothing yet.
+    width: COMPANION_POPOVER_MAX_WIDTH,
     height: COMPANION_POPOVER_MAX_HEIGHT,
     browserWindow: {
       // The card draws its own shadow inside the window's inset.
@@ -238,6 +290,7 @@ const openPopoverWindow = (): BrowserWindow => {
   win.hide();
   win.on("closed", () => {
     measured = null;
+    keyLent = false;
   });
   return win;
 };

@@ -4,7 +4,7 @@
  *
  * Opened, placed and shown by the macOS shell
  * (`clients/macos/src/main/companion-popover-window.ts`). The window is sized
- * from the height this page reports for the popover it is drawing, and main
+ * from the size this page reports for the popover it is drawing, and main
  * shows it only once that report has arrived for the popover on screen.
  */
 
@@ -16,12 +16,14 @@ import {
   type CompanionSurfaceState,
 } from "@vellumai/ipc-contract";
 
+import { companionAccentHexFor } from "@/components/companion-accent";
 import { CompanionPopover } from "@/components/companion-popover";
 import {
   answerCompanionPopover,
   getCompanionState,
   openCompanionLink,
-  setCompanionPopoverHeight,
+  setCompanionPopoverSize,
+  setCompanionPopoverView,
   subscribeCompanionState,
 } from "@/runtime/companion-surface";
 
@@ -43,20 +45,24 @@ export function CompanionPopoverPage() {
 
   const popover = state?.popover;
   const popoverId = popover?.id;
+  const view = state?.popoverView ?? "row";
 
   // Reported for every size the card takes, since an image landing or a line
-  // wrapping moves it after the first paint. Named for the popover, so a
-  // report racing a replacement cannot size the next one.
+  // wrapping moves it after the first paint, and again on a change of view,
+  // which swaps the row for a card of another size under the same popover.
+  // Named for the popover, so a report racing a replacement cannot size the
+  // next one.
   useLayoutEffect(() => {
     const card = cardRef.current;
     if (popoverId === undefined || card === null) {
       return;
     }
     const report = (): void => {
-      setCompanionPopoverHeight(
+      const { width, height } = card.getBoundingClientRect();
+      setCompanionPopoverSize(
         popoverId,
-        Math.ceil(card.getBoundingClientRect().height) +
-          COMPANION_POPOVER_INSET * 2,
+        Math.ceil(width) + COMPANION_POPOVER_INSET * 2,
+        Math.ceil(height) + COMPANION_POPOVER_INSET * 2,
       );
     };
     report();
@@ -65,7 +71,7 @@ export function CompanionPopoverPage() {
     return () => {
       observer.disconnect();
     };
-  }, [popoverId]);
+  }, [popoverId, view]);
 
   if (popover === undefined) {
     return null;
@@ -83,14 +89,26 @@ export function CompanionPopoverPage() {
         // Remounted per popover, so nothing drawn for one carries to the next.
         key={popover.id}
         popover={popover}
+        view={view}
         assistantName={state?.assistantName ?? ""}
+        // The colour the call's ring and the creature burn, so the panel reads
+        // as the same assistant's.
+        accentHex={
+          companionAccentHexFor(
+            state?.call ?? null,
+            state?.accentHex,
+            state?.character,
+          ) ?? undefined
+        }
         cardRef={cardRef}
-        className="overflow-hidden"
         style={{
           maxHeight: COMPANION_POPOVER_MAX_HEIGHT - COMPANION_POPOVER_INSET * 2,
         }}
         onAnswer={(answer) => {
           answerCompanionPopover(answer, popover.id);
+        }}
+        onView={(next) => {
+          setCompanionPopoverView(popover.id, next);
         }}
         onOpenLink={(url) => {
           openCompanionLink(url);

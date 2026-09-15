@@ -157,11 +157,18 @@
   },
   "companionPopover": {
     "allow": "Permitir",
-    "allowAndOpenSettings": "Permitir y abrir Ajustes",
-    "approvalHeading": "Necesita tu aprobación",
+    "confirm": "Confirmar",
+    "credentialLabel": "Credencial",
     "deny": "Denegar",
     "dismiss": "Descartar",
+    "enter": "Introducir",
+    "needsCredentials": "Necesito una credencial",
+    "needsCredentialsFor": "Necesito credenciales para {service}",
+    "needsOkCount": "{count, plural, one {Necesito tu aprobación para # cosa} other {Necesito tu aprobación para # cosas}}",
+    "notNow": "Ahora no",
     "openApp": "Abrir Vellum",
+    "pendingBadge": "{count, plural, one {# cosa necesita tu aprobación} other {# cosas necesitan tu aprobación}}",
+    "review": "Revisar",
     "surfaceFallback": "Algo para ver"
   },
   "companionSurface": {

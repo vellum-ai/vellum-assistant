@@ -146,11 +146,57 @@ describe("what the companion's popover shows", () => {
     });
 
     expect(currentCompanionPopover()).toEqual({
-      kind: "approval",
+      kind: "approvals",
       id: "req-1",
-      title: "Listing your files",
-      detail: "Reads your home folder",
+      items: [
+        {
+          id: "req-1",
+          title: "Listing your files",
+          detail: "Reads your home folder",
+        },
+      ],
     });
+  });
+
+  /** Tools run in parallel, and the store keeps only the latest request. */
+  test("every approval pending on the transcript's tool calls, in order", () => {
+    useChatSessionStore.setState({
+      snapshot: {
+        messages: [
+          {
+            id: "msg-1",
+            role: "assistant",
+            toolCalls: [
+              {
+                id: "tc-1",
+                name: "bash",
+                input: { activity: "Listing your files" },
+                pendingConfirmation: { requestId: "req-1" },
+              },
+              { id: "tc-2", name: "bash", input: {} },
+              {
+                id: "tc-3",
+                name: "bash",
+                input: { activity: "Opening Safari" },
+                pendingConfirmation: { requestId: "req-3", toolName: "bash" },
+              },
+            ],
+          },
+        ],
+      },
+    } as never);
+    // The latest again, as the store holds it: listed once, not twice.
+    useInteractionStore
+      .getState()
+      .showConfirmation({ requestId: "req-3", toolName: "bash" });
+
+    const popover = currentCompanionPopover();
+    expect(popover?.id).toBe("req-1,req-3");
+    expect(
+      popover?.kind === "approvals"
+        ? popover.items.map((item) => item.title)
+        : null,
+    ).toEqual(["Listing your files", "Opening Safari"]);
   });
 
   test("the privacy pane a permission request is about", () => {
@@ -161,9 +207,9 @@ describe("what the companion's popover shows", () => {
     });
 
     const popover = currentCompanionPopover();
-    expect(popover?.kind === "approval" ? popover.permission : null).toBe(
-      "screen",
-    );
+    expect(
+      popover?.kind === "approvals" ? popover.items[0].permission : null,
+    ).toBe("screen");
   });
 
   test("no pane for a name that only the object prototype carries", () => {
@@ -173,7 +219,10 @@ describe("what the companion's popover shows", () => {
       input: { permission_type: "constructor" },
     });
 
-    expect(currentCompanionPopover()).not.toHaveProperty("permission");
+    const popover = currentCompanionPopover();
+    expect(
+      popover?.kind === "approvals" ? popover.items[0] : null,
+    ).not.toHaveProperty("permission");
   });
 
   test("no pane for a permission the app cannot open", () => {
@@ -184,7 +233,40 @@ describe("what the companion's popover shows", () => {
     });
 
     const popover = currentCompanionPopover();
-    expect(popover?.kind).toBe("approval");
-    expect(popover).not.toHaveProperty("permission");
+    expect(popover?.kind).toBe("approvals");
+    expect(
+      popover?.kind === "approvals" ? popover.items[0] : null,
+    ).not.toHaveProperty("permission");
+  });
+
+  test("a credential the turn asked for, with the service's logo key", () => {
+    seed([CARD]);
+    offerSurfaceToCompanion("surf-1");
+    useInteractionStore.getState().showSecret({
+      requestId: "sec-1",
+      service: "Booking.com",
+      label: "Password",
+      placeholder: "Type your booking password",
+      purpose: "To check your reservation",
+    });
+
+    expect(currentCompanionPopover()).toEqual({
+      kind: "secret",
+      id: "sec-1",
+      service: "Booking.com",
+      providerKey: "booking_com",
+      detail: "To check your reservation",
+      label: "Password",
+      placeholder: "Type your booking password",
+    });
+  });
+
+  test("approvals ahead of a credential", () => {
+    useInteractionStore.getState().showSecret({ requestId: "sec-1" });
+    useInteractionStore
+      .getState()
+      .showConfirmation({ requestId: "req-1", toolName: "bash" });
+
+    expect(currentCompanionPopover()?.kind).toBe("approvals");
   });
 });

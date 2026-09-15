@@ -1,28 +1,25 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { CompanionPopover } from "@/components/companion-popover";
-import {
-  COMPANION_POPOVER_INSET,
-  COMPANION_POPOVER_WIDTH,
-} from "@vellumai/ipc-contract";
+import { COMPANION_POPOVER_INSET } from "@vellumai/ipc-contract";
 
 /**
- * The popover beside the companion, at the width its window gives it, over a
- * desktop it floats above.
+ * The popover beside the companion, over a desktop it floats above: the short
+ * form of a prompt, and the panel it opens into.
  */
 const meta: Meta<typeof CompanionPopover> = {
   title: "Companion/Popover",
   component: CompanionPopover,
-  args: { assistantName: "Ziggy" },
+  args: { assistantName: "Ziggy", view: "row", accentHex: "#5eead4" },
   decorators: [
     (Story) => (
       <div
         data-theme="dark"
         style={{
-          width: COMPANION_POPOVER_WIDTH,
-          padding: COMPANION_POPOVER_INSET,
+          display: "inline-block",
+          padding: COMPANION_POPOVER_INSET * 3,
           background:
-            "linear-gradient(140deg, #cbd5e1 0%, #64748b 55%, #334155 100%)",
+            "radial-gradient(120% 90% at 20% 10%, #b3391d 0%, transparent 60%), linear-gradient(140deg, #8e2a14 0%, #6d1f10 55%, #4a150b 100%)",
         }}
       >
         <Story />
@@ -32,38 +29,62 @@ const meta: Meta<typeof CompanionPopover> = {
 };
 
 export default meta;
+type Story = StoryObj<typeof CompanionPopover>;
 
 /** An inline picture, so the story draws without reaching the network. */
 const BRIDGE_IMAGE = `data:image/svg+xml;base64,${btoa(
   '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#9ec5e8"/><rect y="250" width="640" height="110" fill="#2f6f9f"/><rect x="150" y="60" width="18" height="220" fill="#c0362c"/><rect x="470" y="60" width="18" height="220" fill="#c0362c"/><rect y="228" width="640" height="14" fill="#c0362c"/><path d="M0 230 Q159 40 159 60 Q320 250 479 60 Q479 40 640 230" stroke="#c0362c" stroke-width="5" fill="none"/></svg>',
 )}`;
-type Story = StoryObj<typeof CompanionPopover>;
 
-export const Approval: Story = {
-  args: {
-    popover: {
-      kind: "approval",
+const THREE = {
+  kind: "approvals" as const,
+  id: "req-1,req-2,req-3",
+  items: [
+    {
       id: "req-1",
-      title: "Listing the files in your Downloads folder",
-      detail: "Runs a command on your Mac that reads your Downloads folder.",
+      title: "Need your permission accessing the Downloads folder",
+      detail: "",
     },
+    { id: "req-2", title: "Open Safari to check the booking", detail: "" },
+    { id: "req-3", title: "Send the confirmation email", detail: "" },
+  ],
+};
+
+const SECRET = {
+  kind: "secret" as const,
+  id: "sec-1",
+  service: "Booking.com",
+  providerKey: "booking_com",
+  detail: "To sign in and check the reservation you asked about.",
+  label: "Password",
+  placeholder: "Type your booking password",
+};
+
+export const SingleApproval: Story = {
+  args: {
+    popover: { ...THREE, id: "req-1", items: [THREE.items[0]] },
   },
 };
 
-export const PermissionRequest: Story = {
-  args: {
-    popover: {
-      kind: "approval",
-      id: "req-2",
-      title: "Asking for Screen Recording",
-      detail: "So I can see the window you want help with.",
-      permission: "screen",
-    },
-  },
+export const ApprovalsSummary: Story = {
+  args: { popover: THREE },
+};
+
+export const ApprovalsReviewed: Story = {
+  args: { popover: THREE, view: "expanded" },
+};
+
+export const CredentialRow: Story = {
+  args: { popover: SECRET },
+};
+
+export const CredentialForm: Story = {
+  args: { popover: SECRET, view: "expanded" },
 };
 
 export const CardWithImageAndLink: Story = {
   args: {
+    view: "expanded",
     popover: {
       kind: "card",
       id: "surf-1",
@@ -80,6 +101,7 @@ export const CardWithImageAndLink: Story = {
 
 export const SurfaceToOpen: Story = {
   args: {
+    view: "expanded",
     popover: {
       kind: "surface",
       id: "form-1",

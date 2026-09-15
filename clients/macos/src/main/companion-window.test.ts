@@ -3032,30 +3032,79 @@ describe("the offer of Vellum's dictation on the surface", () => {
 });
 
 /**
- * The popover beside the surface: an approval, a card, or a surface to open,
- * published by the app's window and drawn in a window of its own.
+ * The popover beside the surface: approvals, a credential, a card or a surface
+ * to open, published by the app's window and drawn in a window of its own, or
+ * as a row of a call's bar.
  */
 describe("the popover beside the surface", () => {
-  const APPROVAL = {
-    kind: "approval" as const,
+  const ONE = {
+    kind: "approvals" as const,
     id: "req-1",
-    title: "Run a command",
-    detail: "Lists the files in your home folder.",
+    items: [
+      {
+        id: "req-1",
+        title: "Run a command",
+        detail: "Lists the files in your home folder.",
+      },
+    ],
+  };
+  const THREE = {
+    kind: "approvals" as const,
+    id: "req-1,req-2,req-3",
+    items: [
+      ONE.items[0],
+      { id: "req-2", title: "Open Safari", detail: "" },
+      { id: "req-3", title: "Send an email", detail: "" },
+    ],
+  };
+  const SECRET = {
+    kind: "secret" as const,
+    id: "sec-1",
+    service: "Booking.com",
+    detail: "",
+    label: "Password",
+    placeholder: "",
+  };
+  const CARD = {
+    kind: "card" as const,
+    id: "surf-1",
+    title: "A picture",
+    subtitle: "",
+    body: "![a](https://example.com/a.png)",
+    actions: [],
   };
 
   const popoverWindow = (): GlowWindow | null =>
     others.get("companion-popover") ?? null;
 
+  const show = (popover: object, width = 300, height = 60): void => {
+    send("vellum:companion:setContext", context({ popover }));
+    send(
+      "vellum:companion:setPopoverSize",
+      (popover as { id: string }).id,
+      width,
+      height,
+    );
+  };
+
   beforeEach(() => {
+    send("vellum:voiceActivity:end");
     send("vellum:companion:setContext", context());
     dispatched.length = 0;
     windowsRaised = 0;
   });
 
-  test("passes the popover through on the state", () => {
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+  test("passes the popover through on the state, in its short form", () => {
+    send("vellum:companion:setContext", context({ popover: THREE }));
 
-    expect(state().popover).toEqual(APPROVAL);
+    expect(state().popover).toEqual(THREE);
+    expect(state().popoverView).toBe("row");
+  });
+
+  test("a card has no short form and is always drawn whole", () => {
+    send("vellum:companion:setContext", context({ popover: CARD }));
+
+    expect(state().popoverView).toBe("expanded");
   });
 
   test("drops a popover that fails its bounds and keeps the rest", () => {
@@ -3063,7 +3112,10 @@ describe("the popover beside the surface", () => {
       "vellum:companion:setContext",
       context({
         watching: true,
-        popover: { ...APPROVAL, title: "x".repeat(10_000) },
+        popover: {
+          ...ONE,
+          items: [{ ...ONE.items[0], title: "x".repeat(10_000) }],
+        },
       }),
     );
 
@@ -3072,37 +3124,71 @@ describe("the popover beside the surface", () => {
   });
 
   /** Otherwise it would open at the size of whatever it showed last. */
-  test("is not shown until its page reports a height for it", () => {
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+  test("is not shown until its page reports a size for it", () => {
+    send("vellum:companion:setContext", context({ popover: ONE }));
     expect(popoverWindow()?.visible).toBe(false);
 
-    send("vellum:companion:setPopoverHeight", "req-1", 180);
+    send("vellum:companion:setPopoverSize", "req-1", 320, 68);
 
     expect(popoverWindow()?.visible).toBe(true);
-    expect(popoverWindow()?.bounds.height).toBe(180);
+    expect(popoverWindow()?.bounds.width).toBe(320);
+    expect(popoverWindow()?.bounds.height).toBe(68);
   });
 
-  test("a height reported for another popover shows nothing", () => {
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+  test("a size reported for another popover shows nothing", () => {
+    const fresh = {
+      ...ONE,
+      id: "req-9",
+      items: [{ ...ONE.items[0], id: "req-9" }],
+    };
+    send("vellum:companion:setContext", context({ popover: fresh }));
 
-    send("vellum:companion:setPopoverHeight", "req-0", 180);
+    send("vellum:companion:setPopoverSize", "req-0", 320, 68);
 
     expect(popoverWindow()?.visible).toBe(false);
+  });
+
+  /** Answering one approval in the list must not blink the list away. */
+  test("stays on screen while the same kind of popover is measured again", () => {
+    show(THREE);
+
+    send("vellum:companion:setContext", context({ popover: ONE }));
+
+    expect(popoverWindow()?.visible).toBe(true);
   });
 
   test("goes away when there is nothing to show", () => {
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
-    send("vellum:companion:setPopoverHeight", "req-1", 180);
+    show(ONE);
 
     send("vellum:companion:setContext", context());
 
     expect(popoverWindow()?.visible).toBe(false);
   });
 
-  test("stands above a call docked to the bottom, centred on the bar", () => {
+  test("stands above the idle creature, centred on it", () => {
+    show(CARD, 380, 200);
+
+    const bounds = popoverWindow()?.bounds;
+    expect(bounds).toBeDefined();
+    expect(bounds?.height).toBe(200);
+  });
+
+  /** A call's bar docked to an edge carries the short form as a row itself. */
+  test("keeps its window away while a bottom-docked call's bar carries it", () => {
     send("vellum:voiceActivity:start", START);
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
-    send("vellum:companion:setPopoverHeight", "req-1", 180);
+    resetCompanionSurfacePosition();
+    show(THREE);
+
+    expect(popoverWindow()?.visible === true).toBe(false);
+    expect(state().popoverView).toBe("row");
+  });
+
+  test("stands above a call's bar once reviewed, centred on it", () => {
+    send("vellum:voiceActivity:start", START);
+    resetCompanionSurfacePosition();
+    show(THREE, 400, 180);
+
+    send("vellum:companion:setPopoverView", "req-1,req-2,req-3", "expanded");
 
     const bounds = popoverWindow()?.bounds;
     const centre =
@@ -3111,17 +3197,68 @@ describe("the popover beside the surface", () => {
         companionBoxFor("avatar", "small"),
         companionBoxFor("options", "small"),
       );
-    expect(bounds).toBeDefined();
+    expect(popoverWindow()?.visible).toBe(true);
     expect(
       Math.abs((bounds?.x ?? 0) + (bounds?.width ?? 0) / 2 - 720),
     ).toBeLessThanOrEqual(1);
     expect((bounds?.y ?? 0) + (bounds?.height ?? 0)).toBeLessThan(centre);
-    send("vellum:voiceActivity:end");
+  });
+
+  test("put off, shows nothing, and a new popover shows itself again", () => {
+    show(ONE);
+
+    send("vellum:companion:setPopoverView", "req-1", "deferred");
+    expect(state().popoverView).toBe("deferred");
+    expect(popoverWindow()?.visible).toBe(false);
+
+    show(THREE);
+    expect(state().popoverView).toBe("row");
+    expect(popoverWindow()?.visible).toBe(true);
+  });
+
+  /** Answering one approval in the list leaves the list open on the rest. */
+  test("stays reviewed while approvals are answered", () => {
+    show(THREE);
+    send("vellum:companion:setPopoverView", "req-1,req-2,req-3", "expanded");
+
+    send("vellum:companion:setContext", context({ popover: ONE }));
+
+    expect(state().popoverView).toBe("expanded");
+  });
+
+  test("forgets how it was shown once nothing is left", () => {
+    show(THREE);
+    send("vellum:companion:setPopoverView", "req-1,req-2,req-3", "expanded");
+    send("vellum:companion:setContext", context());
+
+    send("vellum:companion:setContext", context({ popover: THREE }));
+
+    expect(state().popoverView).toBe("row");
+  });
+
+  test("a view for a popover no longer standing is dropped", () => {
+    show(ONE);
+
+    send("vellum:companion:setPopoverView", "req-0", "deferred");
+
+    expect(state().popoverView).toBe("row");
+  });
+
+  /** The credential form takes typing, and nothing else on the popover does. */
+  test("lends the keyboard to the credential form and takes it back", () => {
+    show(SECRET);
+    expect(popoverWindow()?.key).toBe(false);
+
+    send("vellum:companion:setPopoverView", "sec-1", "expanded");
+    expect(popoverWindow()?.focusable).toBe(true);
+    expect(popoverWindow()?.key).toBe(true);
+
+    send("vellum:companion:setPopoverView", "sec-1", "deferred");
+    expect(popoverWindow()?.focusable).toBe(false);
   });
 
   test("steps off with the surface while the app is in front", () => {
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
-    send("vellum:companion:setPopoverHeight", "req-1", 180);
+    show(ONE);
 
     fireAppEvent("did-become-active");
     expect(popoverWindow()?.visible).toBe(false);
@@ -3144,41 +3281,66 @@ describe("the popover beside the surface", () => {
     expect(takesPrompts()).toBe(false);
   });
 
-  test("an answer for the popover on screen travels without raising the app", () => {
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+  test("an answer travels without raising the app", () => {
+    send("vellum:companion:setContext", context({ popover: ONE }));
 
-    send("vellum:companion:answerPopover", { kind: "allow" }, "req-1");
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "allow", itemId: "req-1" },
+      "req-1",
+    );
 
     expect(dispatched).toEqual([
       {
         kind: "answerCompanionPopover",
         popoverId: "req-1",
-        answer: { kind: "allow" },
+        answer: { kind: "allow", itemId: "req-1" },
       },
     ]);
     expect(windowsRaised).toBe(0);
   });
 
-  /** The approval was answered in the app, or replaced, before the press. */
-  test("an answer naming a popover no longer standing is dropped", () => {
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+  /** Another request joining the list renames it, but not the row pressed. */
+  test("an approval's answer lands after the list around it changed", () => {
+    send("vellum:companion:setContext", context({ popover: THREE }));
 
-    send("vellum:companion:answerPopover", { kind: "allow" }, "req-0");
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "deny", itemId: "req-2" },
+      "req-2,req-3",
+    );
+
+    expect(dispatched).toHaveLength(1);
+  });
+
+  test("an answer naming what no longer stands is dropped", () => {
+    send("vellum:companion:setContext", context({ popover: ONE }));
+
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "allow", itemId: "req-7" },
+      "req-1",
+    );
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "secret", value: "hunter2" },
+      "sec-1",
+    );
 
     expect(dispatched).toEqual([]);
   });
 
   test("open brings the app forward on the conversation", async () => {
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+    send("vellum:companion:setContext", context({ popover: CARD }));
 
-    send("vellum:companion:answerPopover", { kind: "open" }, "req-1");
+    send("vellum:companion:answerPopover", { kind: "open" }, "surf-1");
     await Promise.resolve();
 
     expect(windowsRaised).toBe(1);
     expect(dispatched).toEqual([
       {
         kind: "answerCompanionPopover",
-        popoverId: "req-1",
+        popoverId: "surf-1",
         answer: { kind: "open" },
       },
       { kind: "currentConversation" },
@@ -3186,7 +3348,7 @@ describe("the popover beside the surface", () => {
   });
 
   test("is given up when the app's window is destroyed", () => {
-    send("vellum:companion:setContext", context({ popover: APPROVAL }));
+    send("vellum:companion:setContext", context({ popover: ONE }));
 
     mainWindowOpen = false;
     fireVisibilityChange();
@@ -3221,7 +3383,7 @@ describe("popoverBoundsFor", () => {
   test("hangs above the anchor, centred on it", () => {
     const bounds = popoverBoundsFor(
       { centre: { x: 720, y: 860 }, side: "above", clearance: 20, workArea },
-      200,
+      { width: 344, height: 200 },
     );
 
     expect(bounds.x + bounds.width / 2).toBe(720);
@@ -3234,7 +3396,7 @@ describe("popoverBoundsFor", () => {
   test("hangs beside a column docked to the left", () => {
     const bounds = popoverBoundsFor(
       { centre: { x: 40, y: 450 }, side: "right", clearance: 20, workArea },
-      200,
+      { width: 344, height: 200 },
     );
 
     expect(bounds.x + COMPANION_POPOVER_INSET).toBe(40 + 20 + POPOVER_GAP);
@@ -3245,7 +3407,7 @@ describe("popoverBoundsFor", () => {
   test("goes to the opposite side when its own has no room", () => {
     const bounds = popoverBoundsFor(
       { centre: { x: 720, y: 60 }, side: "above", clearance: 20, workArea },
-      200,
+      { width: 344, height: 200 },
     );
 
     expect(bounds.y).toBeGreaterThan(60);
@@ -3254,7 +3416,7 @@ describe("popoverBoundsFor", () => {
   test("stays inside the work area at the display's edge", () => {
     const bounds = popoverBoundsFor(
       { centre: { x: 10, y: 860 }, side: "above", clearance: 20, workArea },
-      200,
+      { width: 344, height: 200 },
     );
 
     expect(bounds.x).toBeGreaterThanOrEqual(0);

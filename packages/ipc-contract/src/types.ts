@@ -1571,29 +1571,37 @@ export type DictationOfferAnswer = "use" | "quit" | "copy" | "dismiss";
 
 /**
  * Something the assistant needs the user to see or answer while they are away
- * from the app's window: a tool approval the turn is blocked on, or a surface
- * the assistant put up. The companion draws it in a popover beside the
- * creature, since a voice call has no other way to show a picture, a link or a
- * pair of buttons.
+ * from the app's window: the tool approvals the turn is blocked on, a
+ * credential it asked for, or a surface it put up. The companion draws it in a
+ * popover beside the creature, and a call's bar carries the short forms as a
+ * row of its own, since a voice call has no other way to show a picture, a
+ * link or a pair of buttons.
  *
  * Published by the app's window, which holds the conversation, already worded
  * and bounded, so the popover renders text and never interprets a tool call.
- * `id` is the approval's request id or the surface's id, carried back on every
- * answer so a press on a popover that has since been replaced is dropped.
+ * `id` names what is shown, carried back on every answer so a press on a
+ * popover that has since been replaced is dropped. For approvals it is every
+ * pending request id joined, so a new request arriving is a new popover.
  */
 export type CompanionPopover =
   | {
-      kind: "approval";
+      kind: "approvals";
       id: string;
-      /** What the assistant wants to do, in words. */
-      title: string;
-      /** Why, when the request says. Empty otherwise. */
+      /** Every approval the turn is waiting on, oldest first. Never empty. */
+      items: readonly CompanionApproval[];
+    }
+  | {
+      kind: "secret";
+      id: string;
+      /** The service the credential is for, in words, or empty. */
+      service: string;
+      /** The integration the service matches, for its logo, when known. */
+      providerKey?: string;
+      /** What the request says it is for. Empty otherwise. */
       detail: string;
-      /**
-       * The macOS privacy pane the request is about, when it asks for one the
-       * app can open. The popover then offers to open it with the approval.
-       */
-      permission?: CompanionPopoverPermission;
+      /** The field's label ("Password", "API key"). */
+      label: string;
+      placeholder: string;
     }
   | {
       kind: "card";
@@ -1611,6 +1619,32 @@ export type CompanionPopover =
       title: string;
     };
 
+/** One tool approval, as the popover puts it to the user. */
+export interface CompanionApproval {
+  /** The confirmation's request id. */
+  id: string;
+  /** What the assistant wants to do, in words. */
+  title: string;
+  /** Why, when the request says. Empty otherwise. */
+  detail: string;
+  /**
+   * The macOS privacy pane the request is about, when it asks for one the app
+   * can open. The popover then offers to open it with the approval.
+   */
+  permission?: CompanionPopoverPermission;
+}
+
+/** The most approvals one popover lists. */
+export const COMPANION_POPOVER_APPROVALS_MAX = 20;
+
+/**
+ * Whether a popover has a short form: a single row a call's bar can carry, or
+ * a pill beside the idle creature. Approvals and a credential do; a card and a
+ * surface are only ever drawn whole.
+ */
+export const companionPopoverHasRow = (popover: CompanionPopover): boolean =>
+  popover.kind === "approvals" || popover.kind === "secret";
+
 /** The privacy panes an approval can open from the popover. */
 export const COMPANION_POPOVER_PERMISSIONS = [
   "accessibility",
@@ -1626,11 +1660,10 @@ export interface CompanionPopoverAction {
   style: "primary" | "secondary" | "destructive";
 }
 
-/**
- * The popover window's width, in points. The page fills it, so both sides of
- * the window read the one number.
- */
-export const COMPANION_POPOVER_WIDTH = 344;
+/** How wide a popover card is drawn, in points. A row is as wide as its words. */
+export const COMPANION_POPOVER_CARD_WIDTH = 360;
+/** The widest the popover's window is drawn, in points. */
+export const COMPANION_POPOVER_MAX_WIDTH = 520;
 /**
  * The transparent room between the popover's window and its card, in points,
  * which holds the card's shadow.
@@ -1643,21 +1676,42 @@ export const COMPANION_POPOVER_MAX_HEIGHT = 560;
 export const COMPANION_POPOVER_BODY_MAX = 8000;
 /** The most actions a popover card carries. */
 export const COMPANION_POPOVER_ACTIONS_MAX = 6;
+/** The longest credential the popover sends, in characters. */
+export const COMPANION_POPOVER_SECRET_MAX = 10_000;
 
 /**
- * What the user pressed on the popover.
+ * What the user pressed on the popover, for the window that holds what it
+ * shows.
  *
- * `settings` is an approval's allow that also opens the privacy pane it asked
- * for. `open` brings the app forward on the conversation; on a surface it also
- * stops the popover offering it, since the user has gone to answer it there.
+ * Approvals are answered one at a time, named by `itemId`. `settings` is an
+ * approval's allow that also opens the privacy pane it asked for. `secret`
+ * carries the credential typed into the form. `open` brings the app forward on
+ * the conversation; on a surface it also stops the popover offering it, since
+ * the user has gone to answer it there.
+ *
+ * Not Now, Review and Enter are not here: they change only what the companion
+ * shows, which main holds (see {@link CompanionPopoverView}).
  */
 export type CompanionPopoverAnswer =
-  | { kind: "allow" }
-  | { kind: "deny" }
-  | { kind: "settings" }
+  | { kind: "allow"; itemId: string }
+  | { kind: "deny"; itemId: string }
+  | { kind: "settings"; itemId: string }
+  | { kind: "secret"; value: string }
   | { kind: "action"; actionId: string }
   | { kind: "open" }
   | { kind: "dismiss" };
+
+/**
+ * How the companion is showing the popover, which is main's to hold because
+ * the call's bar and the popover's own window both draw from it.
+ *
+ * - `row`: the short form, a pill beside the creature or a row on the bar.
+ * - `expanded`: drawn whole after Review or Enter (the numbered approvals, the
+ *   credential form). A card and a surface are always drawn whole.
+ * - `deferred`: put off with Not Now. Nothing is drawn but a count on the
+ *   call's bar, and a new popover arriving shows itself again.
+ */
+export type CompanionPopoverView = "row" | "expanded" | "deferred";
 
 /**
  * What a watch session reads, once the user has picked: one display or one
@@ -2325,6 +2379,8 @@ export interface CompanionSurfaceState {
    * while something is. See {@link CompanionPopover}.
    */
   popover?: CompanionPopover;
+  /** How the popover is being shown, while there is one. */
+  popoverView?: CompanionPopoverView;
 
   /**
    * How many screen reads the running session has taken, from the window that

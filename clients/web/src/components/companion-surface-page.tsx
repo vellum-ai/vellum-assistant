@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
+import { CompanionPromptRow } from "@/components/companion-popover";
 import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
 import {
   CompanionIntro,
@@ -26,6 +27,7 @@ import { companionAccentHexFor } from "@/components/companion-accent";
 import {
   activateCompanionApp,
   answerCompanionDictationOffer,
+  answerCompanionPopover,
   answerCompanionWatchRetro,
   advanceCompanionIntro,
   captureCompanionSourceThumbnail,
@@ -37,6 +39,7 @@ import {
   setCompanionAnnotating,
   setCompanionAnnotationTool,
   setCompanionInteractive,
+  setCompanionPopoverView,
   setCompanionScreenShare,
   showCompanionContextMenu,
   startCompanionVoice,
@@ -57,6 +60,8 @@ import type {
   CompanionCharacter,
   CompanionGrowth,
   CompanionIntroBeat,
+  CompanionPopover,
+  CompanionPopoverView,
   CompanionSurfaceState,
   CompanionWatchRetro,
   CompanionDictating,
@@ -144,6 +149,15 @@ export function CompanionSurfacePage() {
   const [dictationOffer, setDictationOffer] = useState<
     CompanionDictationOfferWords | undefined
   >(undefined);
+  // What the assistant is putting in front of the user, and how main has it
+  // shown. A call's bar carries the short form as a row of its own, and counts
+  // what was put off. The whole of it is the popover's own window.
+  const [popover, setPopover] = useState<CompanionPopover | undefined>(
+    undefined,
+  );
+  const [popoverView, setPopoverView] = useState<
+    CompanionPopoverView | undefined
+  >(undefined);
   // Whether Watch is offered at all, which is the flag as main last read it.
   const [watchEnabled, setWatchEnabled] = useState(false);
   // Whether a session started from the app's window can be told what to
@@ -218,6 +232,9 @@ export function CompanionSurfacePage() {
   const pickerRef = useRef<HTMLDivElement | null>(null);
   // The offer's card, for the reason the picker's is.
   const offerRef = useRef<HTMLDivElement | null>(null);
+  // The prompt row a call's bar carries above or below itself, for the reason
+  // the offer's card is.
+  const promptRef = useRef<HTMLDivElement | null>(null);
   // The strip of drawing tools, for the same reason: it stands off the pill,
   // and every button on it is a press.
   const drawToolsEl = useRef<HTMLDivElement | null>(null);
@@ -281,6 +298,8 @@ export function CompanionSurfacePage() {
       setDictationText(state.dictationText ?? "");
       setWatchRetro(state.watchRetro);
       setDictationOffer(state.dictationOffer);
+      setPopover(state.popover);
+      setPopoverView(state.popoverView);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
       // control this decides starts reading the user's screen, so a state of
@@ -455,6 +474,28 @@ export function CompanionSurfacePage() {
       setCompanionInteractive(false);
     }
   }, [dictationOffer]);
+
+  // Whether the last forwarded move put the pointer on the call's prompt row.
+  const overPromptRef = useRef(false);
+  // The short form of the popover on the call's bar: while the bar is a row
+  // (docked to the top or bottom) and main has the popover in its short form.
+  // Main keeps the popover's own window away in exactly this case.
+  const promptShown =
+    popoverView === "row" &&
+    (call !== null || dialing) &&
+    dock !== "left" &&
+    dock !== "right" &&
+    (popover?.kind === "approvals" || popover?.kind === "secret");
+  // The row goes when it is answered, reviewed or put off, under a pointer
+  // that has not moved. Give the desktop back the way the offer's card does,
+  // and only when the pointer was on the row.
+  useEffect(() => {
+    if (!promptShown && overPromptRef.current) {
+      overPromptRef.current = false;
+      interactiveRef.current = false;
+      setCompanionInteractive(false);
+    }
+  }, [promptShown]);
 
   const onPick = (pick: CompanionCapturePick) => {
     sourcesRequestRef.current += 1;
@@ -671,6 +712,15 @@ export function CompanionSurfacePage() {
         event.clientX,
         event.clientY,
       );
+    // The prompt row on the call's bar, for the same reason.
+    const promptRow = promptRef.current;
+    const onPrompt =
+      promptRow !== null &&
+      containsPoint(
+        promptRow.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
     // The drawing tools, for the same reason and for as long as they are drawn.
     const drawTools = drawToolsEl.current;
     const onDrawTools =
@@ -686,12 +736,23 @@ export function CompanionSurfacePage() {
     // thing.
     setHovered(onSurface);
     overDrawToolsRef.current = onDrawTools;
-    setInteractive(onSurface || onIntro || onPicker || onOffer || onDrawTools);
+    overPromptRef.current = onPrompt;
+    setInteractive(
+      onSurface || onIntro || onPicker || onOffer || onDrawTools || onPrompt,
+    );
   };
 
   // The avatar's own colour, shared with the display's edge glow so the two
   // lights cannot come apart. See `companionAccentHexFor`.
   const accentHex = companionAccentHexFor(call, publishedAccentHex, character);
+
+  // What was put off with Not Now, counted on the bar so it can be reviewed.
+  const deferredCount =
+    popover === undefined || popoverView !== "deferred"
+      ? 0
+      : popover.kind === "approvals"
+        ? popover.items.length
+        : 1;
 
   return (
     <div
@@ -972,6 +1033,27 @@ export function CompanionSurfacePage() {
             />
           ) : null
         }
+        prompt={
+          promptShown &&
+          (popover?.kind === "approvals" || popover?.kind === "secret") ? (
+            <CompanionPromptRow
+              popover={popover}
+              onAnswer={(answer) => {
+                answerCompanionPopover(answer, popover.id);
+              }}
+              onView={(view) => {
+                setCompanionPopoverView(popover.id, view);
+              }}
+            />
+          ) : null
+        }
+        promptRef={promptRef}
+        promptsDeferred={deferredCount}
+        onReviewPrompts={() => {
+          if (popover !== undefined) {
+            setCompanionPopoverView(popover.id, "expanded");
+          }
+        }}
         // Out through main and back down into whichever renderer holds the
         // session. This page has no session to act on: it draws one.
         onControl={(action, requestId) => {

@@ -39,6 +39,7 @@ import type {
   DictationPartialEvent,
   DictationOfferAnswer,
   CompanionPopoverAnswer,
+  CompanionPopoverView,
   ChordBinding,
   ChordRegistrationResult,
   DictationPartialsResult,
@@ -427,7 +428,8 @@ declare global {
           offerId: string,
         ): void;
         answerPopover?(answer: CompanionPopoverAnswer, popoverId: string): void;
-        setPopoverHeight?(popoverId: string, height: number): void;
+        setPopoverSize?(popoverId: string, width: number, height: number): void;
+        setPopoverView?(popoverId: string, view: CompanionPopoverView): void;
         openLink?(url: string): void;
         takesPrompts?(): Promise<boolean>;
         activate?(): void;

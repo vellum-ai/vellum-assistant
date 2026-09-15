@@ -221,7 +221,8 @@ export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";
 export const COMPANION_ANSWER_DICTATION_OFFER =
   "vellum:companion:answerDictationOffer";
 export const COMPANION_ANSWER_POPOVER = "vellum:companion:answerPopover";
-export const COMPANION_SET_POPOVER_HEIGHT = "vellum:companion:setPopoverHeight";
+export const COMPANION_SET_POPOVER_SIZE = "vellum:companion:setPopoverSize";
+export const COMPANION_SET_POPOVER_VIEW = "vellum:companion:setPopoverView";
 export const COMPANION_OPEN_LINK = "vellum:companion:openLink";
 export const COMPANION_TAKES_PROMPTS = "vellum:companion:takesPrompts";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";

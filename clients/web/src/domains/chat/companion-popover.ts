@@ -1,6 +1,7 @@
 /**
- * What the companion's popover shows: the approval the turn is blocked on, or
- * the surface the assistant last put up in this conversation.
+ * What the companion's popover shows: the approvals the turn is blocked on,
+ * the credential it asked for, or the surface the assistant last put up in
+ * this conversation.
  *
  * The companion is its own renderer with no conversation in it, so this window
  * works out what is worth showing, words it, and publishes it through the
@@ -13,11 +14,15 @@ import { create } from "zustand";
 
 import {
   COMPANION_POPOVER_ACTIONS_MAX,
+  COMPANION_POPOVER_APPROVALS_MAX,
   COMPANION_POPOVER_BODY_MAX,
+  type CompanionApproval,
   type CompanionPopover,
   type CompanionPopoverAction,
   type CompanionPopoverPermission,
 } from "@vellumai/ipc-contract";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { PendingConfirmationState } from "@/domains/chat/types";
 import { CardSurfaceDataSchema } from "@vellumai/assistant-api";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -137,34 +142,117 @@ function popoverForSurface(surface: Surface): CompanionPopover {
   };
 }
 
+/** A pending approval, and the tool call it is attached to when it has one. */
+export interface PendingApproval {
+  confirmation: PendingConfirmationState;
+  toolCall?: ChatMessageToolCall;
+}
+
+/**
+ * Every approval the turn is waiting on, oldest first.
+ *
+ * Tools run in parallel, so several can be pending at once. Each rides its
+ * own tool call in the transcript; the interaction store holds only the latest
+ * one, and is read as well for a request no tool call carries.
+ */
+export function pendingApprovals(): PendingApproval[] {
+  const approvals: PendingApproval[] = [];
+  const seen = new Set<string>();
+  for (const message of useChatSessionStore.getState().snapshot?.messages ??
+    []) {
+    for (const toolCall of message.toolCalls ?? []) {
+      const pending = toolCall.pendingConfirmation;
+      if (
+        pending === undefined ||
+        pending === null ||
+        seen.has(pending.requestId)
+      ) {
+        continue;
+      }
+      seen.add(pending.requestId);
+      approvals.push({
+        confirmation: {
+          ...pending,
+          toolName: pending.toolName ?? toolCall.name,
+          input: pending.input ?? toolCall.input,
+        },
+        toolCall,
+      });
+    }
+  }
+  const latest = useInteractionStore.getState().pendingConfirmation;
+  if (latest !== null && !seen.has(latest.requestId)) {
+    approvals.push({ confirmation: latest });
+  }
+  return approvals;
+}
+
+function popoverApproval({ confirmation }: PendingApproval): CompanionApproval {
+  const toolName = confirmation.toolName ?? "";
+  const { context, ask } = confirmationAsk(
+    toolName,
+    confirmation.input,
+    confirmation,
+  );
+  const requested = confirmation.input?.permission_type;
+  const permission =
+    toolName === "request_system_permission" &&
+    typeof requested === "string" &&
+    Object.hasOwn(PERMISSION_FOR_TOOL, requested)
+      ? PERMISSION_FOR_TOOL[requested]
+      : undefined;
+  return {
+    id: confirmation.requestId,
+    title: bounded(context, 300),
+    detail: bounded(ask ?? "", 1000),
+    ...(permission !== undefined ? { permission } : {}),
+  };
+}
+
+/**
+ * The integration a credential's service names, for its logo: the service
+ * lowercased with anything but letters and digits made an underscore, which
+ * is the shape provider keys take. An unknown key draws the service's
+ * initials.
+ */
+const providerKeyFor = (service: string): string =>
+  service
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
 /**
  * What the popover should show right now, or nothing.
  *
- * The approval outranks a surface: the turn is stopped until it is answered,
- * and the surface will still be there after.
+ * Approvals first: the turn is stopped until they are answered, and the rest
+ * will still be there after. Then a credential, which stops the turn the same
+ * way. Then the offered surface.
  */
 export function currentCompanionPopover(): CompanionPopover | undefined {
-  const confirmation = useInteractionStore.getState().pendingConfirmation;
-  if (confirmation !== null) {
-    const toolName = confirmation.toolName ?? "";
-    const { context, ask } = confirmationAsk(
-      toolName,
-      confirmation.input,
-      confirmation,
-    );
-    const requested = confirmation.input?.permission_type;
-    const permission =
-      toolName === "request_system_permission" &&
-      typeof requested === "string" &&
-      Object.hasOwn(PERMISSION_FOR_TOOL, requested)
-        ? PERMISSION_FOR_TOOL[requested]
-        : undefined;
+  const approvals = pendingApprovals().slice(
+    0,
+    COMPANION_POPOVER_APPROVALS_MAX,
+  );
+  if (approvals.length > 0) {
+    const items = approvals.map(popoverApproval);
     return {
-      kind: "approval",
-      id: confirmation.requestId,
-      title: bounded(context, 300),
-      detail: bounded(ask ?? "", 1000),
-      ...(permission !== undefined ? { permission } : {}),
+      kind: "approvals",
+      id: items.map((item) => item.id).join(","),
+      items,
+    };
+  }
+  const secret = useInteractionStore.getState().pendingSecret;
+  if (secret !== null) {
+    const service = bounded(secret.service ?? "", 120);
+    const providerKey = providerKeyFor(service);
+    return {
+      kind: "secret",
+      id: secret.requestId,
+      service,
+      ...(providerKey !== "" ? { providerKey: bounded(providerKey, 80) } : {}),
+      detail: bounded(secret.purpose ?? secret.description ?? "", 1000),
+      label: bounded(secret.label ?? secret.field ?? "", 120),
+      placeholder: bounded(secret.placeholder ?? "", 200),
     };
   }
   const surface = offeredSurface();

@@ -16,6 +16,7 @@ import {
   companionCapturePickSchema,
   companionContextSchema,
   companionPopoverAnswerSchema,
+  companionPopoverHasRow,
   watchCaptureTargetSchema,
   voiceActivityContentSchema,
   voiceActivityControlSchema,
@@ -52,6 +53,8 @@ import {
   type CompanionContext,
   type CompanionIntroAction,
   type CompanionIntroBeat,
+  type CompanionPopover,
+  type CompanionPopoverView,
   type CompanionSize,
   type CompanionSizeAxis,
   type CompanionSurfaceState,
@@ -106,7 +109,7 @@ import { setPointerOnCompanion } from "./companion-pointer";
 import {
   closeCompanionPopover,
   POPOVER_KIND,
-  setCompanionPopoverHeight,
+  setCompanionPopoverSize,
   syncCompanionPopover,
   type CompanionPopoverAnchor,
   type PopoverSide,
@@ -697,6 +700,8 @@ const currentState = (): CompanionSurfaceState => {
     dictationOffer: context.dictationOffer,
     // Passed through as it arrived, for the reason `dictationOffer` is.
     popover: context.popover,
+    // Main's own: the call's bar and the popover's window both draw it.
+    popoverView: currentPopoverView(),
     // Settled the same way, and to zero rather than to anything carried over:
     // a publisher that reports no count has taken no reads this surface can
     // vouch for.
@@ -1029,6 +1034,28 @@ const pushState = (): void => {
   syncPopover();
 };
 
+/**
+ * Whether an answer is for the popover standing. An approval is answered by
+ * its own request id, so a press on one row of a list still lands after
+ * another request joins it; everything else names the whole popover.
+ */
+export const answersThePopover = (
+  popover: CompanionPopover | undefined,
+  popoverId: string,
+  answer: { kind: string; itemId?: string },
+): boolean => {
+  if (popover === undefined) {
+    return false;
+  }
+  if (answer.itemId !== undefined) {
+    return (
+      popover.kind === "approvals" &&
+      popover.items.some((item) => item.id === answer.itemId)
+    );
+  }
+  return popover.id === popoverId;
+};
+
 /** The side of a docked call bar the popover hangs from: away from the edge. */
 const POPOVER_SIDE_FOR_DOCK: Record<CompanionDock, PopoverSide> = {
   bottom: "above",
@@ -1072,8 +1099,55 @@ const popoverAnchor = (): CompanionPopoverAnchor | null => {
   };
 };
 
+/**
+ * How the companion is showing the popover, as the user last left it: put
+ * off, drawn whole, or in its short form.
+ *
+ * Put off holds for the popover that was put off and no other, so a new
+ * approval or credential arriving shows itself again. Drawn whole holds for
+ * as long as the same kind of popover stands, so answering one approval in
+ * the list leaves the list open on the rest. A card or a surface has no short
+ * form, so it is always drawn whole.
+ */
+let popoverViewFor: {
+  id: string;
+  kind: CompanionPopover["kind"];
+  view: CompanionPopoverView;
+} | null = null;
+
+const currentPopoverView = (): CompanionPopoverView | undefined => {
+  const popover = context.popover;
+  if (popover === undefined) {
+    return undefined;
+  }
+  if (popoverViewFor?.view === "deferred") {
+    return popoverViewFor.id === popover.id ? "deferred" : "row";
+  }
+  if (
+    !companionPopoverHasRow(popover) ||
+    (popoverViewFor?.view === "expanded" && popoverViewFor.kind === popover.kind)
+  ) {
+    return "expanded";
+  }
+  return "row";
+};
+
+/**
+ * Whether a call's bar carries the popover's short form as a row of its own,
+ * which is when the bar is a row (docked to the top or bottom) and the
+ * popover is in its short form. The popover's window stays away then.
+ */
+const popoverRidesTheBar = (): boolean =>
+  callSurfaceFor(call, dialing) &&
+  !companionDockIsSide(dock) &&
+  currentPopoverView() === "row";
+
 const syncPopover = (): void => {
-  syncCompanionPopover(context.popover, popoverAnchor());
+  const view = currentPopoverView();
+  syncCompanionPopover(context.popover, popoverAnchor(), {
+    show: view !== "deferred" && !popoverRidesTheBar(),
+    keyboard: context.popover?.kind === "secret" && view === "expanded",
+  });
 };
 
 /**
@@ -2997,7 +3071,7 @@ export const installCompanionWindow = (): void => {
     "vellum:companion:answerPopover",
     z.tuple([companionPopoverAnswerSchema, z.string()]),
     ([answer, popoverId]) => {
-      if (context.popover?.id !== popoverId) {
+      if (!answersThePopover(context.popover, popoverId, answer)) {
         return;
       }
       const command: VellumCommand = {
@@ -3017,12 +3091,35 @@ export const installCompanionWindow = (): void => {
   );
 
   on(
-    "vellum:companion:setPopoverHeight",
-    z.tuple([z.string(), z.number().finite()]),
-    ([popoverId, height]) => {
-      if (setCompanionPopoverHeight(popoverId, height)) {
+    "vellum:companion:setPopoverSize",
+    z.tuple([z.string(), z.number().finite(), z.number().finite()]),
+    ([popoverId, width, height]) => {
+      const popover = context.popover;
+      if (popover?.id !== popoverId) {
+        return;
+      }
+      if (setCompanionPopoverSize(popover, { width, height })) {
         syncPopover();
       }
+    },
+  );
+
+  /**
+   * Review, Enter and Not Now. Held here rather than answered in the app's
+   * window, since they change only what the companion shows, and the call's
+   * bar and the popover's window both draw it. A press for a popover no
+   * longer standing is dropped.
+   */
+  on(
+    "vellum:companion:setPopoverView",
+    z.tuple([z.string(), z.enum(["row", "expanded", "deferred"])]),
+    ([popoverId, view]) => {
+      const popover = context.popover;
+      if (popover?.id !== popoverId) {
+        return;
+      }
+      popoverViewFor = { id: popover.id, kind: popover.kind, view };
+      pushState();
     },
   );
 
@@ -3074,6 +3171,10 @@ export const installCompanionWindow = (): void => {
     z.tuple([companionContextSchema]),
     ([next]) => {
       context = next;
+      // What the user last did with a popover goes with it.
+      if (context.popover === undefined) {
+        popoverViewFor = null;
+      }
       syncWatchFrame();
       pushState();
     },

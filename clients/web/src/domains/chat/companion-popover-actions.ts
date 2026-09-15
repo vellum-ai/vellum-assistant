@@ -3,59 +3,78 @@ import type { CompanionPopoverAnswer } from "@vellumai/ipc-contract";
 import {
   currentCompanionPopover,
   offeredSurface,
+  pendingApprovals,
   withdrawSurfaceFromCompanion,
 } from "@/domains/chat/companion-popover";
 import { handleConfirmationSubmit } from "@/domains/chat/confirmation-actions";
+import { handleSecretSubmit } from "@/domains/chat/secret-actions";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { captureError } from "@/lib/sentry/capture-error";
 import { openSystemPermissionSettings } from "@/runtime/system-permissions";
 
 /**
  * Act on a press on the companion's popover, in the window that holds the
- * approval or the surface it showed.
+ * approvals, the credential request or the surface it showed.
  *
- * Dropped when `popoverId` no longer names what the popover would show: the
- * approval may have been answered here first, or a newer surface put up,
- * between the push that drew the buttons and the press arriving.
+ * An approval is answered by its own request id, so a press on one row of the
+ * list lands as long as that approval is still pending, whatever else joined
+ * or left the list meanwhile. Every other answer is dropped when `popoverId`
+ * no longer names what the popover would show: the request may have been
+ * answered here first, or a newer surface put up, between the push that drew
+ * the buttons and the press arriving.
  */
 export async function answerCompanionPopover(
   popoverId: string,
   answer: CompanionPopoverAnswer,
 ): Promise<void> {
+  switch (answer.kind) {
+    case "allow":
+    case "deny":
+    case "settings": {
+      const approval = pendingApprovals().find(
+        (candidate) => candidate.confirmation.requestId === answer.itemId,
+      );
+      if (approval === undefined) {
+        return;
+      }
+      const popover = currentCompanionPopover();
+      const permission =
+        popover?.kind === "approvals"
+          ? popover.items.find((item) => item.id === answer.itemId)?.permission
+          : undefined;
+      await handleConfirmationSubmit(
+        answer.kind === "deny" ? "deny" : "allow",
+        approval.toolCall,
+      );
+      if (answer.kind !== "settings" || permission === undefined) {
+        return;
+      }
+      try {
+        await openSystemPermissionSettings(permission);
+      } catch (err) {
+        captureError(err, { context: "companion_popover_open_settings" });
+      }
+      return;
+    }
+    default:
+      break;
+  }
+
   const popover = currentCompanionPopover();
   if (popover === undefined || popover.id !== popoverId) {
     return;
   }
 
-  if (popover.kind === "approval") {
-    switch (answer.kind) {
-      case "allow":
-        await handleConfirmationSubmit("allow");
-        return;
-      case "deny":
-        await handleConfirmationSubmit("deny");
-        return;
-      case "settings":
-        await handleConfirmationSubmit("allow");
-        if (popover.permission === undefined) {
-          return;
-        }
-        try {
-          await openSystemPermissionSettings(popover.permission);
-        } catch (err) {
-          captureError(err, { context: "companion_popover_open_settings" });
-        }
-        return;
-      default:
-        // `open` has already brought the app forward on the card, which is
-        // where it is answered. An approval cannot be dismissed: the turn is
-        // waiting on it.
-        return;
-    }
-  }
-
   switch (answer.kind) {
+    case "secret":
+      if (popover.kind === "secret") {
+        await handleSecretSubmit(answer.value, "store");
+      }
+      return;
     case "action": {
+      if (popover.kind !== "card") {
+        return;
+      }
       const action = offeredSurface()?.actions?.find(
         (candidate) => candidate.id === answer.actionId,
       );
@@ -67,7 +86,12 @@ export async function answerCompanionPopover(
     }
     case "open":
     case "dismiss":
-      withdrawSurfaceFromCompanion(popoverId);
+      // `open` has already brought the app forward, which is where an approval
+      // or a credential is answered from then. A surface the user went to, or
+      // waved off, stops being offered.
+      if (popover.kind === "card" || popover.kind === "surface") {
+        withdrawSurfaceFromCompanion(popoverId);
+      }
       return;
     default:
       return;

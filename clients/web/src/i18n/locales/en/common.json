@@ -157,11 +157,18 @@
   },
   "companionPopover": {
     "allow": "Allow",
-    "allowAndOpenSettings": "Allow and open Settings",
-    "approvalHeading": "Needs your okay",
+    "confirm": "Confirm",
+    "credentialLabel": "Credential",
     "deny": "Deny",
     "dismiss": "Dismiss",
+    "enter": "Enter",
+    "needsCredentials": "Need a credential",
+    "needsCredentialsFor": "Need credentials for {service}",
+    "needsOkCount": "{count, plural, one {Need your OK on # thing} other {Need your OK on # things}}",
+    "notNow": "Not Now",
     "openApp": "Open Vellum",
+    "pendingBadge": "{count, plural, one {# thing needs your OK} other {# things need your OK}}",
+    "review": "Review",
     "surfaceFallback": "Something to look at"
   },
   "companionSurface": {

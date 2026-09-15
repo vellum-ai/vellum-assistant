@@ -19,6 +19,7 @@ import type {
   CompanionDictating,
   CompanionIntroAction,
   CompanionPopoverAnswer,
+  CompanionPopoverView,
   CompanionSurfaceState,
   DictationOfferAnswer,
   ScreenCaptureFrame,
@@ -325,15 +326,28 @@ export function answerCompanionPopover(
 }
 
 /**
- * Report how tall the popover's content is, for the popover it is drawing.
- * Main sizes the popover's window by it and shows the window once the popover
- * on screen has been measured, so it never opens at the last one's size.
+ * Report the size of the popover's card, for the popover it is drawing. Main
+ * sizes the popover's window by it and shows the window once the popover on
+ * screen has been measured, so it never opens at the last one's size.
  */
-export function setCompanionPopoverHeight(
+export function setCompanionPopoverSize(
   popoverId: string,
+  width: number,
   height: number,
 ): void {
-  bridge()?.setPopoverHeight?.(popoverId, height);
+  bridge()?.setPopoverSize?.(popoverId, width, height);
+}
+
+/**
+ * Show the popover whole, put it off, or back to its short form. Main holds
+ * the view, since the call's bar and the popover's window both draw it. See
+ * {@link CompanionPopoverView}.
+ */
+export function setCompanionPopoverView(
+  popoverId: string,
+  view: CompanionPopoverView,
+): void {
+  bridge()?.setPopoverView?.(popoverId, view);
 }
 
 /**

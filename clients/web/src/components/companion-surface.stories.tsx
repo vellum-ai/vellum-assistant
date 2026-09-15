@@ -14,6 +14,7 @@ import {
   introSpotlight,
 } from "@/components/companion-intro";
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
+import { CompanionPromptRow } from "@/components/companion-popover";
 import { onCompanionSurface } from "@/components/companion-layout";
 import {
   CompanionSurface,
@@ -721,6 +722,35 @@ export const Dialing: Story = {
 /** Expanded mid-call: the handlebar, at pill scale. */
 export const InCall: Story = {
   args: { phase: "call", call: DEMO_CALL },
+};
+
+/**
+ * Mid-call with approvals waiting: the prompt's short form joins the bar as a
+ * row of its own, and the two read as one shape.
+ */
+export const InCallWithPrompt: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    prompt: (
+      <CompanionPromptRow
+        popover={{
+          kind: "approvals",
+          id: "req-1,req-2,req-3",
+          items: [
+            { id: "req-1", title: "Read the Downloads folder", detail: "" },
+            { id: "req-2", title: "Open Safari", detail: "" },
+            { id: "req-3", title: "Send an email", detail: "" },
+          ],
+        }}
+      />
+    ),
+  },
+};
+
+/** The same approvals put off: counted on the bar, a press away. */
+export const InCallWithPromptsDeferred: Story = {
+  args: { phase: "call", call: DEMO_CALL, promptsDeferred: 3 },
 };
 
 /**

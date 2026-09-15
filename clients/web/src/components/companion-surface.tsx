@@ -884,6 +884,20 @@ export interface CompanionSurfaceProps {
    */
   picker?: ReactNode;
   /**
+   * The short form of what the assistant needs from the user, carried by a
+   * call's bar as a row of its own. Composed by the caller for the reason the
+   * offer's card is. Drawn only on a call whose bar is a row.
+   */
+  prompt?: ReactNode;
+  /** The prompt row's element, for the host to hit-test the pointer against. */
+  promptRef?: Ref<HTMLDivElement>;
+  /**
+   * How many prompts the user put off, counted on the call's row so they can
+   * be reviewed. Zero draws nothing.
+   */
+  promptsDeferred?: number;
+  onReviewPrompts?: () => void;
+  /**
    * What a keyboard dictation has got to, when one is running. See
    * {@link CompanionDictating}.
    */
@@ -943,6 +957,10 @@ export function CompanionSurface({
   onControl,
   intro,
   picker,
+  prompt,
+  promptRef,
+  promptsDeferred = 0,
+  onReviewPrompts,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
   /**
@@ -1102,6 +1120,36 @@ export function CompanionSurface({
     : (contentSize?.height ?? FALLBACK_COLUMN.height) + 2 * INNER_GAP;
 
   /**
+   * Whether the call's bar carries a prompt row, joined to it as one shape.
+   * Only a row can: a column has no edge to stand a line of words on.
+   */
+  const joined =
+    inCall && !vertical && prompt !== null && prompt !== undefined;
+  const promptMeasureRef = useRef<HTMLDivElement | null>(null);
+  const [promptWidth, setPromptWidth] = useState(0);
+  useLayoutEffect(() => {
+    const element = promptMeasureRef.current;
+    if (!joined || element === null) {
+      return;
+    }
+    const measure = () => {
+      setPromptWidth(element.scrollWidth);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [joined, prompt]);
+  /**
+   * The bar's width while it carries a prompt: as wide as the wider of the
+   * two, so the prompt's words are never cut to fit the call's controls and
+   * the two keep one edge.
+   */
+  const barWidth = joined ? Math.max(width, promptWidth) : width;
+
+  /**
    * The line the creature stands on, as the CSS edge the surface is drawn
    * from.
    *
@@ -1161,7 +1209,7 @@ export function CompanionSurface({
 
   const style: CSSProperties = inCall
     ? {
-        width,
+        width: barWidth,
         // A column has a length of its own; a row is one row tall.
         ...(vertical ? { height } : {}),
         // **Centred on the creature's own point.** The bar takes the point
@@ -1203,7 +1251,7 @@ export function CompanionSurface({
    */
   const creatureLeft =
     inCall && !vertical
-      ? `calc(50% - ${width / 2 + inUnits(avatarHalf + gap)}px)`
+      ? `calc(50% - ${barWidth / 2 + inUnits(avatarHalf + gap)}px)`
       : "50%";
   /**
    * The same step, read up the column: on a side dock the creature stands at
@@ -1232,6 +1280,30 @@ export function CompanionSurface({
         transform: `scale(${scale})`,
       }}
     >
+      {joined ? (
+        <PromptShelf
+          dock={dock}
+          top={avatarLine}
+          width={barWidth}
+          promptRef={promptRef}
+        >
+          {prompt}
+        </PromptShelf>
+      ) : null}
+      {joined ? (
+        // The prompt at its own width, out of sight, so the bar can be made
+        // wide enough for it. `inert` keeps its copies of the buttons out of
+        // the tab order and the accessibility tree.
+        <div
+          ref={promptMeasureRef}
+          inert
+          aria-hidden
+          data-theme="dark"
+          className="pointer-events-none invisible absolute top-0 left-0 w-max"
+        >
+          {prompt}
+        </div>
+      ) : null}
       {/* The pill is a drag handle, as the avatar is. Controls opt out by
         stopping the press, so everything on it that is not a button can be
         grabbed. */}
@@ -1257,7 +1329,14 @@ export function CompanionSurface({
           as the width grows is what makes the pill unfurl out of the gap
           rather than appear in it. */}
         <span
-          className="absolute inset-0 rounded-full border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200"
+          className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
+            // Joined to the prompt row it is one shape with it: opaque, so
+            // the row's own ground does not show through, and with no edge or
+            // shadow of its own across the join.
+            joined
+              ? "bg-[#17181b]"
+              : "border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40"
+          }`}
           style={{ opacity: expanded ? 1 : 0 }}
           aria-hidden
         />
@@ -1270,7 +1349,9 @@ export function CompanionSurface({
           <span
             className="companion-working-ring pointer-events-none absolute -inset-0.5 rounded-full transition-opacity duration-200"
             style={{
-              opacity: expanded ? 1 : 0,
+              // Out while a prompt is joined to the bar: it would run across
+              // the join, through the middle of the one shape.
+              opacity: expanded && !joined ? 1 : 0,
               ["--companion-ring-accent" as string]: accentHex,
             }}
             aria-hidden
@@ -1350,6 +1431,8 @@ export function CompanionSurface({
                   onAnnotate={onAnnotate}
                   onClearMarks={onClearMarks}
                   shortcuts={shortcuts}
+                  promptsDeferred={promptsDeferred}
+                  onReviewPrompts={onReviewPrompts}
                 />
               </CaptionSideContext.Provider>
             ) : phase === "dictating" && dictating !== undefined ? (
@@ -2085,6 +2168,65 @@ function SummaryBody({
  * moved to the mascot, which is the one element on the pill that is not a
  * control and cannot be mistaken for one.
  */
+/**
+ * The prompt row a call's bar carries, joined to the bar as one shape.
+ *
+ * Drawn behind the bar, from the bar's centre line out to the far side of the
+ * row, so the bar's round ends close the shape on the near side and the bar
+ * itself never moves: the creature and every control stay where the call put
+ * them. Above the bar on the bottom edge and below it on the top, the side
+ * the card room is on. A hairline marks the join.
+ */
+function PromptShelf({
+  dock,
+  top,
+  width,
+  promptRef,
+  children,
+}: {
+  dock: CompanionSurfaceDock;
+  top: string;
+  width: number;
+  promptRef?: Ref<HTMLDivElement>;
+  children: ReactNode;
+}) {
+  const below = dock === "top";
+  return (
+    <div
+      ref={promptRef}
+      // The surface paints its own dark ground in every host theme, so the
+      // design-library tokens the row is drawn with resolve against dark.
+      data-theme="dark"
+      className="absolute"
+      style={{
+        left: "50%",
+        top,
+        width,
+        transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+        // The half of the bar the shelf runs behind.
+        [below ? "paddingTop" : "paddingBottom"]: 22,
+      }}
+      onPointerDown={(event) => {
+        // A press here is an answer, not a grab of the surface.
+        event.stopPropagation();
+      }}
+    >
+      <span
+        aria-hidden
+        className={`absolute inset-0 border border-white/10 bg-[#17181b] shadow-lg shadow-black/40 ${
+          below ? "rounded-b-[22px] border-t-0" : "rounded-t-[22px] border-b-0"
+        }`}
+      />
+      <span
+        aria-hidden
+        className="absolute right-4 left-4 h-px bg-white/10"
+        style={below ? { top: 22 } : { bottom: 22 }}
+      />
+      <div className="relative">{children}</div>
+    </div>
+  );
+}
+
 function CallBody({
   call,
   assistantName,
@@ -2109,6 +2251,8 @@ function CallBody({
   onAnnotate,
   onClearMarks,
   shortcuts,
+  promptsDeferred = 0,
+  onReviewPrompts,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
@@ -2138,6 +2282,8 @@ function CallBody({
   onAnnotate?: (annotating: boolean) => void;
   onClearMarks?: () => void;
   shortcuts?: CompanionCallShortcuts;
+  promptsDeferred?: number;
+  onReviewPrompts?: () => void;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -2182,6 +2328,29 @@ function CallBody({
           would measure its own collapsed self: the width and the truncation
           would chase each other down. */}
       <CallLine vertical={vertical} text={line} />
+      {/* What was put off, beside what the session is doing: it is the
+          assistant waiting on the user, which is part of what the call is
+          doing. A press lists it again. */}
+      {promptsDeferred > 0 ? (
+        <button
+          type="button"
+          // Drawn with the design-library's negative tokens, which resolve
+          // against dark here as they do on the dark bar around them.
+          data-theme="dark"
+          aria-label={t("companionPopover.pendingBadge", {
+            count: promptsDeferred,
+          })}
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--system-negative-weak)] text-[13px] text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-hover)] hover:text-white"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          onClick={() => {
+            onReviewPrompts?.();
+          }}
+        >
+          {promptsDeferred}
+        </button>
+      ) : null}
       {/* Beside what the session is doing rather than beside the end control:
           two stops next to each other is a misclick that ends the wrong thing,
           and only one of the two is irreversible. Teach rides the call rather

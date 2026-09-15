@@ -34,6 +34,7 @@ import type {
   CompanionContext,
   CompanionIntroAction,
   CompanionPopoverAnswer,
+  CompanionPopoverView,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionSurfaceState,
@@ -808,10 +809,15 @@ export interface VellumBridge {
      */
     answerPopover(answer: CompanionPopoverAnswer, popoverId: string): void;
     /**
-     * Report how tall the popover's content is for the popover it is drawing,
-     * so main can size its window and show it once it has been measured.
+     * Report the size of the popover's card for the popover it is drawing, so
+     * main can size its window and show it once it has been measured.
      */
-    setPopoverHeight(popoverId: string, height: number): void;
+    setPopoverSize(popoverId: string, width: number, height: number): void;
+    /**
+     * Show the popover whole (Review, Enter), put it off (Not Now), or back to
+     * its short form. See `CompanionPopoverView`.
+     */
+    setPopoverView(popoverId: string, view: CompanionPopoverView): void;
     /**
      * Open a web link from the popover in the user's browser. Main refuses any
      * scheme but http and https.
