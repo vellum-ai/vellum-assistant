@@ -36,7 +36,6 @@ import {
 import {
   conversationIdForPath,
   isAboutAssistantPath,
-  isConversationChatPath,
   isConversationPath,
   routes,
 } from "@/utils/routes";
@@ -72,7 +71,6 @@ import {
   keptAppId,
   navigateToConversation,
   navigateToNewConversation,
-  prepareFreshConversation,
 } from "@/utils/conversation-navigation";
 import { haptic } from "@/utils/haptics";
 
@@ -975,27 +973,15 @@ export function ChatLayout({
     ? (activeConversationId ?? undefined)
     : undefined;
 
-  // Sidebar pinned-app open. The opener navigates to
-  // `routes.conversation(conversationId, appId)`, so off a chat route a fresh
-  // draft is minted first for the app to hang off, and the open is still the
-  // single navigation.
+  // Sidebar pinned-app open. The opener picks the conversation the app hangs
+  // off and navigates once.
   const openAppFromChat = useOpenAppFromChat();
   const activeAppId = useViewerStore.use.activeAppId();
   const handleOpenAppFromSidebar = useCallback(
-    async (appId: string) => {
-      // A draft rather than `/assistant`: the chat index auto-bootstraps to
-      // the last active / latest conversation (`use-conversation-loader`),
-      // which resurfaces a stale conversation behind the app and once it is
-      // closed (LUM-2691). `activeConversationId` persists across route
-      // changes for SSE / attention consumers, so it doesn't reflect the
-      // user's intent. A fresh draft hands the loader an explicit id it won't
-      // override and leaves a clean new-chat surface on close.
-      if (!isConversationChatPath(location.pathname)) {
-        prepareFreshConversation();
-      }
-      await openAppFromChat(appId);
+    (appId: string) => {
+      void openAppFromChat(appId);
     },
-    [location.pathname, openAppFromChat],
+    [openAppFromChat],
   );
 
   // Inspector affordance for the sidebar context menu. The topbar variant

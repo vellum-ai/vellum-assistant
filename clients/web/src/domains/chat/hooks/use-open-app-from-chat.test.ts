@@ -11,6 +11,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import {
   MemoryRouter,
+  type NavigateFunction,
   NavigationType,
   useLocation,
   useNavigate,
@@ -34,7 +35,6 @@ import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 
 import {
-  openAppFromChat,
   openDocumentFromChat,
   useOpenAppFromChat,
 } from "./use-open-app-from-chat";
@@ -73,10 +73,14 @@ const OTHER_CONV_OTHER_APP_PATH = routes.conversation(
   OTHER_CONV_ID,
   OTHER_APP_ID,
 );
+const NON_CHAT_PATH = routes.library.root;
 
 // Renders the hook beside the router's location, so a test reads where the
 // open landed from `result.current.pathname` instead of the router internals.
+// The hook reads the live route from `window.location`, which the probe router
+// does not drive, so the two start on the same path.
 function renderOpenApp(initialPath: string) {
+  window.history.replaceState(null, "", initialPath);
   function Wrapper({ children }: { children: ReactNode }) {
     return createElement(
       MemoryRouter,
@@ -93,6 +97,12 @@ function renderOpenApp(initialPath: string) {
     }),
     { wrapper: Wrapper },
   );
+}
+
+/** Moves both routes the hook straddles: the probe router's and the window's. */
+function goTo(navigate: NavigateFunction, path: string): void {
+  window.history.replaceState(null, "", path);
+  void navigate(path);
 }
 
 beforeEach(() => {
@@ -207,6 +217,29 @@ describe("useOpenAppFromChat", () => {
     ).toBe(true);
     expect(result.current.pathname).toBe(routes.conversation(draftId!, APP_ID));
     expect(loadAppMock).not.toHaveBeenCalled();
+  });
+
+  // LUM-2691: off a chat route the click came from Library, Home or the
+  // inspector, and `activeConversationId` names whatever the SSE and attention
+  // consumers keep it on rather than anything the user is looking at.
+  test("mints a draft for an open off a chat route", async () => {
+    // GIVEN a conversation selected behind a route that is not the chat
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    const { result } = renderOpenApp(NON_CHAT_PATH);
+
+    // WHEN the user opens an app from there
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the app hangs off a fresh draft, so the selected conversation is
+    // not resurfaced behind it
+    const draftId = useConversationStore.getState().activeConversationId;
+    expect(draftId).not.toBe(CONV_ID);
+    expect(
+      useConversationStore.getState().draftConversationIds.has(draftId!),
+    ).toBe(true);
+    expect(result.current.pathname).toBe(routes.conversation(draftId!, APP_ID));
   });
 
   // LUM-2553: opening an app is a view action, so the entry point must not
@@ -327,7 +360,7 @@ describe("useOpenAppFromChat", () => {
     let open: Promise<void> | undefined;
     await act(async () => {
       open = result.current.openApp(APP_ID);
-      void result.current.navigate(OTHER_APP_PATH);
+      goTo(result.current.navigate, OTHER_APP_PATH);
     });
     await act(async () => {
       releaseLoad?.();
@@ -363,7 +396,7 @@ describe("useOpenAppFromChat", () => {
     let open: Promise<void> | undefined;
     await act(async () => {
       open = result.current.openApp(APP_ID);
-      void result.current.navigate(OTHER_CONV_OTHER_APP_PATH);
+      goTo(result.current.navigate, OTHER_CONV_OTHER_APP_PATH);
     });
     await act(async () => {
       releaseLoad?.();
@@ -392,15 +425,6 @@ describe("useOpenAppFromChat", () => {
 
     // THEN the URL still names what the viewer holds
     expect(result.current.pathname).toBe(APP_PATH);
-  });
-});
-
-describe("openAppFromChat", () => {
-  test("buzzes and opens the app under the assistant it is given", async () => {
-    await openAppFromChat("asst-other", "app-42");
-
-    expect(lightSpy).toHaveBeenCalledTimes(1);
-    expect(loadAppMock).toHaveBeenCalledWith("asst-other", "app-42");
   });
 });
 

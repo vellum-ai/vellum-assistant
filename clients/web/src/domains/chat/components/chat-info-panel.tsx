@@ -38,14 +38,10 @@ import {
   type ConversationFileAsset,
   useConversationAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
-import {
-  openAppFromChat,
-  useOpenDocumentFromChat,
-} from "@/domains/chat/hooks/use-open-app-from-chat";
+import { useOpenDocumentFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useTranslation } from "@/i18n";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   type ChatInfoCategory,
   type ChatInfoPayload,
@@ -127,23 +123,15 @@ export function ChatInfoPanel({
   }, [clearConversation, conversationId, unseenDocuments]);
 
   // Closing first returns the viewer to whatever the panel was opened from,
-  // so the asset lands there rather than behind the panel. An app under the
-  // active assistant opens as a navigation, like every other app open. The
-  // panel's own assistant need not be the active one, and another assistant's
-  // app has no conversation URL to name it, so that one opens in the viewer.
+  // so the app lands there rather than behind the panel. The open is a
+  // navigation to the URL naming the app, like every other app open.
   const handleOpenApp = useCallback(
     (appId: string) => {
       useViewerStore.getState().closeChatInfo();
-      if (
-        assistantId === useResolvedAssistantsStore.getState().activeAssistantId
-      ) {
-        haptic.light();
-        void navigate(routes.conversation(conversationId, appId));
-        return;
-      }
-      void openAppFromChat(assistantId, appId);
+      haptic.light();
+      void navigate(routes.conversation(conversationId, appId));
     },
-    [assistantId, conversationId, navigate],
+    [conversationId, navigate],
   );
 
   const handleOpenFile = useCallback(

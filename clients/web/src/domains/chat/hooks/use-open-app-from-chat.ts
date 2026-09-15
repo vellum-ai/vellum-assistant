@@ -1,10 +1,9 @@
 /**
- * Opening one of a conversation's surfaces in the viewer panel: an app through
- * {@link openAppFromChat}, a document through {@link openDocumentFromChat}.
- * Both buzz and hand off to the viewer store, so every entry point into the
- * viewer from chat feels the same. {@link useOpenAppFromChat} opens an app for
- * the active assistant by navigating to the URL that names it, which is how
- * every surface that does not name an assistant of its own opens one.
+ * Opening one of a conversation's surfaces in the viewer panel.
+ * {@link openDocumentFromChat} buzzes and hands a document to the viewer
+ * store, so every entry point into the viewer from chat feels the same.
+ * {@link useOpenAppFromChat} opens an app for the active assistant by
+ * navigating to the URL that names it.
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -18,12 +17,16 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
-import { prepareFreshConversation } from "@/utils/conversation-navigation";
+import {
+  currentPathname,
+  dropFailedAppFromRoute,
+  prepareFreshConversation,
+} from "@/utils/conversation-navigation";
 import {
   documentEntryState,
   documentEntryUrl,
 } from "@/utils/document-navigation";
-import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
+import { appIdForPath, isConversationChatPath, routes } from "@/utils/routes";
 
 import {
   documentRequestScope,
@@ -35,21 +38,6 @@ import {
   navigateToDocumentConversation,
   setDocumentConversationPresentation,
 } from "../document-conversation-navigation";
-
-/**
- * Opens `appId` under `assistantId` in the viewer panel, leaving the URL
- * naming whatever it named. The one caller is the Chat Info panel opening an
- * app of an assistant other than the active one, which no conversation URL can
- * name. An app of the active assistant opens as a navigation instead, so
- * browser Back and every close affordance reach it.
- */
-export async function openAppFromChat(
-  assistantId: string,
-  appId: string,
-): Promise<void> {
-  haptic.light();
-  await useViewerStore.getState().loadApp(assistantId, appId);
-}
 
 /** Opens the document `surfaceId` under `assistantId` in the viewer panel. */
 export async function openDocumentFromChat(
@@ -153,12 +141,30 @@ export function useOpenDocumentFromChat(
   );
 }
 
-/** An explicit open is a view action, so the split drops on the way in. */
+/**
+ * An explicit open is a view action, so the split drops on the way in, and
+ * the chat pane bound beside the app goes with it.
+ */
 function dropSplitView(): void {
   const viewer = useViewerStore.getState();
-  if (viewer.mainView === "app-editing") {
-    viewer.exitAppEditing();
+  if (viewer.mainView !== "app-editing") {
+    return;
   }
+  viewer.exitAppEditing();
+  useConversationStore.getState().setEditingConversationId(null);
+}
+
+/**
+ * The conversation the app segment hangs off. Off a chat route the click came
+ * from Library, Home or the inspector, where `activeConversationId` names
+ * whatever the SSE and attention consumers keep it on rather than anything the
+ * user is looking at, so a fresh draft carries the app instead (LUM-2691).
+ */
+function conversationForApp(): string {
+  const selected = isConversationChatPath(currentPathname())
+    ? useConversationStore.getState().activeConversationId
+    : null;
+  return selected ?? prepareFreshConversation();
 }
 
 /**
@@ -166,37 +172,19 @@ function dropSplitView(): void {
  * pinned-app click, the transcript's "Open App" affordance, and the chat
  * header's assets pill.
  *
- * Opening an app is a navigation to the URL that names it, which
- * `useAppRouteSync` answers for; with no conversation on screen a fresh draft
- * carries the app segment. An explicit open lands the app full width from
- * every entry point and on every viewport (LUM-2553).
+ * The open is a navigation to the URL that names the app, which
+ * `useAppRouteSync` answers for. An explicit open lands the app full width
+ * from every entry point and on every viewport (LUM-2553), and off a chat
+ * route the app hangs off a fresh draft rather than whatever conversation the
+ * store still names (LUM-2691).
  *
  * Re-opening the app the URL already names has nowhere to navigate, so it
  * reloads in place, which is how an app the assistant rewrites picks up its
- * new HTML. A reload the viewer gives up on drops the app segment from
- * whichever conversation the route names.
- *
- * Split view (`app-editing`) is an explicit choice made elsewhere: the
- * viewer's "Edit" affordance (`use-edit-app.ts`), selecting a conversation
- * beside an open app (`keepOpenAppBesideConversation`), and `set_view` from
- * the app itself (`app-viewer-actions.ts`). Each binds `editingConversationId`
- * itself, so this hook leaves it alone.
- *
- * Single source of truth for the active assistant's apps, used by
- * `chat-layout.tsx` (sidebar) and `chat-route-content.tsx` (transcript).
- * Don't inline a copy. The chat-info panel navigates to the same URL for its
- * own conversation, and falls back to {@link openAppFromChat} only for an app
- * of another assistant.
+ * new HTML. A reload the viewer gives up on drops the app segment.
  */
 export function useOpenAppFromChat(): (appId: string) => Promise<void> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
-  // Assigned during render, not in an effect, so the callback reads the route
-  // the user is on rather than the one it closed over.
-  const latestPathnameRef = useRef(pathname);
-  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the async callback below reads the latest route
-  latestPathnameRef.current = pathname;
 
   return useCallback(
     async (appId: string) => {
@@ -204,33 +192,19 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
         return;
       }
       haptic.light();
-      if (appIdForPath(latestPathnameRef.current) === appId) {
-        dropSplitView();
+      // Ahead of the conversation choice: the reveal a fresh draft runs enters
+      // the split this open drops.
+      dropSplitView();
+      if (appIdForPath(currentPathname()) === appId) {
         const loaded = await useViewerStore
           .getState()
           .loadApp(assistantId, appId);
-        const current = latestPathnameRef.current;
-        const routeConversationId = conversationIdForPath(current);
-        if (
-          !loaded &&
-          useViewerStore.getState().activeAppId !== appId &&
-          appIdForPath(current) === appId &&
-          routeConversationId
-        ) {
-          // An app the viewer cannot load does not belong in the URL, where
-          // reload and a copied bookmark retry it forever. An `activeAppId`
-          // still on the app means an overlay holds it, so the URL stands.
-          await navigate(routes.conversation(routeConversationId), {
-            replace: true,
-          });
+        if (!loaded) {
+          dropFailedAppFromRoute(navigate, appId);
         }
         return;
       }
-      const conversationId =
-        useConversationStore.getState().activeConversationId ??
-        prepareFreshConversation();
-      dropSplitView();
-      await navigate(routes.conversation(conversationId, appId));
+      await navigate(routes.conversation(conversationForApp(), appId));
     },
     [assistantId, navigate],
   );
