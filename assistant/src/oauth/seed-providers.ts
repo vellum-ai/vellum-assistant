@@ -1403,6 +1403,12 @@ export const PROVIDER_SEED_DATA: Record<
       "read_discounts",
       "write_discounts",
       "read_price_rules",
+      // Theme scopes let the assistant list, duplicate, and publish themes.
+      // Editing theme files (settings, templates, Liquid) additionally needs
+      // Shopify's theme-code exemption on the app; the scope is harmless to
+      // hold before that lands, and the grant carries over once it does.
+      "read_themes",
+      "write_themes",
     ],
     availableScopes: [
       {
@@ -1454,6 +1460,11 @@ export const PROVIDER_SEED_DATA: Record<
       {
         scope: "write_price_rules",
         description: "Create and update price rules",
+      },
+      { scope: "read_themes", description: "Read themes and theme files" },
+      {
+        scope: "write_themes",
+        description: "Create, publish, and edit themes and theme files",
       },
       { scope: "read_files", description: "Read files uploaded to the store" },
       { scope: "write_files", description: "Upload and update files" },
