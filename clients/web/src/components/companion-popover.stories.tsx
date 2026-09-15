@@ -127,3 +127,46 @@ export const SurfaceToOpen: Story = {
     },
   },
 };
+
+export const MicrophonePicker: Story = {
+  args: {
+    view: "expanded",
+    popover: {
+      kind: "microphones",
+      id: "microphones",
+      options: [
+        { id: "builtin", label: "MacBook Pro Microphone" },
+        { id: "airpods", label: "AirPods Pro" },
+        { id: "usb", label: "Shure MV7" },
+      ],
+      selected: "airpods",
+      needsPermission: false,
+    },
+  },
+};
+
+export const VoicePicker: Story = {
+  args: {
+    view: "expanded",
+    popover: {
+      kind: "voices",
+      id: "voices",
+      groups: [
+        {
+          accent: "American",
+          voices: [
+            { id: "v1", label: "Warm, clear", sampleUrl: "", isDefault: true },
+            { id: "v2", label: "Bright, upbeat", sampleUrl: "", isDefault: false },
+          ],
+        },
+        {
+          accent: "British",
+          voices: [
+            { id: "v3", label: "Calm, measured", sampleUrl: "", isDefault: false },
+          ],
+        },
+      ],
+      selected: "v2",
+    },
+  },
+};

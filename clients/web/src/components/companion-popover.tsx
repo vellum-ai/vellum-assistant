@@ -9,6 +9,7 @@
  *   enter it.
  * - A card with an image or a link, or a surface the popover cannot draw,
  *   named with a way into the app.
+ * - A picker the call bar opened: the microphone, or the assistant's voice.
  *
  * {@link CompanionPromptRow} is the short form on its own, which a call's bar
  * also carries as a row of its own. Presentational: the pages own the windows,
@@ -46,6 +47,10 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow";
 
+import {
+  MicrophonePicker,
+  VoicePicker,
+} from "@/components/companion-popover-pickers";
 import {
   hasBundledIntegrationLogo,
   IntegrationIcon,
@@ -165,6 +170,9 @@ export function CompanionPopover({
         !attached &&
           "rounded-[20px] border border-white/10 shadow-2xl shadow-black/50",
         popover.kind === "approvals" ? "w-max max-w-[640px]" : "w-[360px]",
+        // A picker's rows run to the panel's edges rather than its padding.
+        (popover.kind === "microphones" || popover.kind === "voices") &&
+          "gap-2 px-4 pb-3",
         className,
       )}
       style={
@@ -183,6 +191,22 @@ export function CompanionPopover({
         </>
       ) : popover.kind === "secret" ? (
         <SecretForm popover={popover} onAnswer={onAnswer} onView={onView} />
+      ) : popover.kind === "microphones" ? (
+        <>
+          <PopoverHeader
+            title={t("companionPopover.microphoneTitle")}
+            onClose={() => onAnswer?.({ kind: "dismiss" })}
+          />
+          <MicrophonePicker popover={popover} onAnswer={onAnswer} />
+        </>
+      ) : popover.kind === "voices" ? (
+        <>
+          <PopoverHeader
+            title={t("companionPopover.voiceTitle")}
+            onClose={() => onAnswer?.({ kind: "dismiss" })}
+          />
+          <VoicePicker popover={popover} onAnswer={onAnswer} />
+        </>
       ) : (
         <SurfaceCard
           popover={popover}

@@ -35,6 +35,7 @@ import type {
   CompanionIntroAction,
   CompanionPopoverAnswer,
   CompanionPopoverView,
+  CompanionPicker,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionSurfaceState,
@@ -824,6 +825,11 @@ export interface VellumBridge {
      * canvas tall enough to hold it.
      */
     setAttachedPopoverHeight(popoverId: string, height: number): void;
+    /**
+     * Open a picker from the call bar in the popover, or close it. See the
+     * `toggleCompanionPicker` command.
+     */
+    togglePicker?(picker: CompanionPicker): void;
     /**
      * Open a web link from the popover in the user's browser. Main refuses any
      * scheme but http and https.

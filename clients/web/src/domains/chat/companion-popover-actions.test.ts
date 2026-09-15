@@ -42,6 +42,8 @@ const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
 const { offerSurfaceToCompanion, useCompanionPopoverStore } =
   await import("@/domains/chat/companion-popover");
+const { getPreferredInputDeviceId, setPreferredInputDeviceId } =
+  await import("@/utils/voice-input-device");
 const { useInteractionStore } =
   await import("@/domains/chat/interaction-store");
 
@@ -96,7 +98,13 @@ beforeEach(() => {
   surfaceActions.length = 0;
   settingsOpened.length = 0;
   useInteractionStore.getState().resetAll();
-  useCompanionPopoverStore.setState({ offeredSurfaceId: null });
+  useCompanionPopoverStore.setState({
+    offeredSurfaceId: null,
+    openPicker: null,
+    microphones: null,
+    voices: null,
+  });
+  setPreferredInputDeviceId("");
 });
 
 afterEach(() => {
@@ -229,5 +237,97 @@ describe("a press on the companion's popover", () => {
 
     expect(useCompanionPopoverStore.getState().offeredSurfaceId).toBeNull();
     expect(surfaceActions).toEqual([]);
+  });
+});
+
+describe("a pick from a picker on the popover", () => {
+  const openMicrophones = (): void => {
+    useCompanionPopoverStore.setState({
+      openPicker: "microphones",
+      microphones: {
+        options: [{ id: "usb-mic", label: "USB Mic" }],
+        selected: "",
+        needsPermission: false,
+      },
+    });
+  };
+
+  test("saves a listed microphone and closes the picker", async () => {
+    openMicrophones();
+
+    await answerCompanionPopover("microphones", {
+      kind: "pick",
+      optionId: "usb-mic",
+    });
+
+    expect(getPreferredInputDeviceId()).toBe("usb-mic");
+    expect(useCompanionPopoverStore.getState().openPicker).toBeNull();
+  });
+
+  test("goes back to System Default", async () => {
+    setPreferredInputDeviceId("usb-mic");
+    openMicrophones();
+
+    await answerCompanionPopover("microphones", { kind: "pick", optionId: "" });
+
+    expect(getPreferredInputDeviceId()).toBe("");
+  });
+
+  test("saves nothing for a microphone the picker did not list", async () => {
+    openMicrophones();
+
+    await answerCompanionPopover("microphones", {
+      kind: "pick",
+      optionId: "someone-elses-mic",
+    });
+
+    expect(getPreferredInputDeviceId()).toBe("");
+    expect(useCompanionPopoverStore.getState().openPicker).toBe("microphones");
+  });
+
+  test("an approval arriving over the picker takes its presses", async () => {
+    openMicrophones();
+    seedTwoApprovals();
+
+    await answerCompanionPopover("microphones", {
+      kind: "pick",
+      optionId: "usb-mic",
+    });
+
+    expect(getPreferredInputDeviceId()).toBe("");
+  });
+
+  test("chooses a voice and leaves the picker open to try another", async () => {
+    const chosen: string[] = [];
+    useCompanionPopoverStore.setState({
+      openPicker: "voices",
+      voices: {
+        groups: [
+          {
+            accent: "American",
+            voices: [
+              { id: "aura-1", label: "Warm", sampleUrl: "", isDefault: true },
+              { id: "aura-2", label: "Bright", sampleUrl: "", isDefault: false },
+            ],
+          },
+        ],
+        selected: "aura-1",
+        select: (model) => chosen.push(model),
+      },
+    });
+
+    await answerCompanionPopover("voices", { kind: "pick", optionId: "aura-2" });
+    await answerCompanionPopover("voices", { kind: "pick", optionId: "nope" });
+
+    expect(chosen).toEqual(["aura-2"]);
+    expect(useCompanionPopoverStore.getState().openPicker).toBe("voices");
+  });
+
+  test("a dismissal closes the picker", async () => {
+    openMicrophones();
+
+    await answerCompanionPopover("microphones", { kind: "dismiss" });
+
+    expect(useCompanionPopoverStore.getState().openPicker).toBeNull();
   });
 });

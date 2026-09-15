@@ -33,6 +33,7 @@ import type {
   DictationOfferAnswer,
   CompanionPopoverAnswer,
   CompanionPopoverView,
+  CompanionPicker,
   DictationPartialsResult,
   DictationTranscribeResult,
   HelperRestartResult,
@@ -642,6 +643,9 @@ const bridge: VellumBridge = {
         popoverId,
         height,
       );
+    },
+    togglePicker: (picker: CompanionPicker): void => {
+      ipcRenderer.send("vellum:companion:togglePicker", picker);
     },
     openLink: (url: string): void => {
       ipcRenderer.send("vellum:companion:openLink", url);

@@ -15,6 +15,7 @@ import { z } from "zod";
 import {
   companionCapturePickSchema,
   companionContextSchema,
+  companionPickerSchema,
   companionPopoverAnswerSchema,
   companionPopoverHasRow,
   watchCaptureTargetSchema,
@@ -3292,6 +3293,19 @@ export const installCompanionWindow = (): void => {
       }
       popoverViewFor = { id: popover.id, kind: popover.kind, view };
       pushState();
+    },
+  );
+
+  /**
+   * A chevron on the call bar, for the window holding the call to open its
+   * picker in the popover or close it. Never raises the app: choosing a mic
+   * or a voice is something the user does without leaving their work.
+   */
+  on(
+    "vellum:companion:togglePicker",
+    z.tuple([companionPickerSchema]),
+    ([picker]) => {
+      dispatchWithoutRaising({ kind: "toggleCompanionPicker", picker });
     },
   );
 

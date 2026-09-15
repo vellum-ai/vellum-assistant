@@ -159,17 +159,27 @@
     "allow": "Permitir",
     "confirm": "Confirmar",
     "credentialLabel": "Credencial",
+    "defaultSuffix": "(predeterminada)",
     "deny": "Denegar",
     "dismiss": "Descartar",
     "enter": "Introducir",
+    "microphoneFallback": "Micrófono {index}",
+    "microphonePermissionHint": "Permite el acceso al micrófono para ver cada micrófono por su nombre.",
+    "microphoneTitle": "Micrófono",
     "needsCredentials": "Necesito una credencial",
     "needsCredentialsFor": "Necesito credenciales para {service}",
     "needsOkCount": "{count, plural, one {Necesito tu aprobación para # cosa} other {Necesito tu aprobación para # cosas}}",
     "notNow": "Ahora no",
     "openApp": "Abrir Vellum",
     "pendingBadge": "{count, plural, one {# cosa necesita tu aprobación} other {# cosas necesitan tu aprobación}}",
+    "previewVoice": "Escuchar {voice}",
     "review": "Revisar",
-    "surfaceFallback": "Algo para ver"
+    "savedMicrophone": "Micrófono guardado",
+    "savedMicrophoneNotConnected": "Micrófono guardado (no conectado)",
+    "stopPreview": "Detener",
+    "surfaceFallback": "Algo para ver",
+    "systemDefault": "Predeterminado del sistema",
+    "voiceTitle": "Voz"
   },
   "companionSurface": {
     "calling": "Llamando…",
@@ -208,7 +218,9 @@
     "talk": "Hablar",
     "teach": "Enseñar",
     "unmuteAssistant": "Activar sonido del asistente",
-    "unmuteMicrophone": "Activar micrófono"
+    "unmuteMicrophone": "Activar micrófono",
+    "chooseMicrophone": "Elegir micrófono",
+    "chooseVoice": "Elegir voz"
   },
   "companionWatchFramePage": {
     "sharingScreen": "Compartiendo tu pantalla",

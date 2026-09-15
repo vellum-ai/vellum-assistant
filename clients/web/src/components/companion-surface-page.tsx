@@ -38,6 +38,8 @@ import {
   advanceCompanionIntro,
   captureCompanionSourceThumbnail,
   clearCompanionMarks,
+  companionHasPickers,
+  toggleCompanionPicker,
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
@@ -1035,6 +1037,21 @@ export function CompanionSurfacePage() {
         onClearMarks={() => {
           clearCompanionMarks();
         }}
+        // The chevrons beside the mic and the assistant's audio. The window
+        // holding the call fills the picker; what the popover shows is how
+        // the chevron knows it is open.
+        openPicker={
+          popover?.kind === "microphones" || popover?.kind === "voices"
+            ? popover.kind
+            : undefined
+        }
+        onPicker={
+          companionHasPickers()
+            ? (picker) => {
+                toggleCompanionPicker(picker);
+              }
+            : undefined
+        }
         // The tool, main's the same way: the press asks, and `annotationTool`
         // above is what main did with the ask.
         annotationTool={annotationTool}

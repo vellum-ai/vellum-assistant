@@ -394,3 +394,100 @@ describe("presses that must land once", () => {
     );
   });
 });
+
+describe("the pickers in the popover", () => {
+  const MICROPHONES: CompanionPopoverContent = {
+    kind: "microphones",
+    id: "microphones",
+    options: [
+      { id: "usb-mic", label: "USB Mic" },
+      { id: "airpods", label: "AirPods" },
+    ],
+    selected: "usb-mic",
+    needsPermission: false,
+  };
+
+  const VOICES: CompanionPopoverContent = {
+    kind: "voices",
+    id: "voices",
+    groups: [
+      {
+        accent: "American",
+        voices: [
+          { id: "aura-1", label: "Warm", sampleUrl: "", isDefault: true },
+          {
+            id: "aura-2",
+            label: "Bright",
+            sampleUrl: "https://example.com/bright.mp3",
+            isDefault: false,
+          },
+        ],
+      },
+    ],
+    selected: "aura-1",
+  };
+
+  const optionsOf = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll<HTMLElement>('[role="option"]'));
+
+  test("lists System Default first, marks the microphone in use, and picks", () => {
+    const answers: CompanionPopoverAnswer[] = [];
+    const { container } = render(
+      <CompanionPopover
+        popover={MICROPHONES}
+        view="expanded"
+        onAnswer={(answer) => answers.push(answer)}
+      />,
+    );
+
+    const options = optionsOf(container);
+    expect(options.map((option) => option.textContent)).toEqual([
+      "System Default",
+      "USB Mic",
+      "AirPods",
+    ]);
+    expect(options[1]!.getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.click(options[2]!);
+    fireEvent.click(options[0]!);
+    fireEvent.click(buttonsNamed(container, "Dismiss")[0]!);
+
+    expect(answers).toEqual([
+      { kind: "pick", optionId: "airpods" },
+      { kind: "pick", optionId: "" },
+      { kind: "dismiss" },
+    ]);
+  });
+
+  test("asks for mic access when the microphones cannot be named", () => {
+    const { container } = render(
+      <CompanionPopover
+        popover={{ ...MICROPHONES, options: [], needsPermission: true }}
+        view="expanded"
+      />,
+    );
+
+    expect(container.textContent).toContain("Allow microphone access");
+  });
+
+  test("groups voices under their accent, and a preview does not pick", () => {
+    const answers: CompanionPopoverAnswer[] = [];
+    const { container } = render(
+      <CompanionPopover
+        popover={VOICES}
+        view="expanded"
+        onAnswer={(answer) => answers.push(answer)}
+      />,
+    );
+
+    expect(container.querySelector('[role="group"][aria-label="American"]')).not.toBeNull();
+    expect(optionsOf(container)[0]!.textContent).toBe("Warm (default)");
+    // Only a voice with a sample offers a preview.
+    expect(buttonsNamed(container, "Preview Warm")).toHaveLength(0);
+    const preview = buttonsNamed(container, "Preview Bright")[0]!;
+    fireEvent.click(preview);
+    fireEvent.click(optionsOf(container)[1]!);
+
+    expect(answers).toEqual([{ kind: "pick", optionId: "aura-2" }]);
+  });
+});

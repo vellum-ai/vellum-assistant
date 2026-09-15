@@ -39,7 +39,10 @@ import {
   getAudioContextCtor,
 } from "@/domains/chat/voice/audio-context";
 import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/chat/voice/live-voice/protocol";
-import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
+import {
+  getVoiceInputMediaStream,
+  watchPreferredInputDevice,
+} from "@/utils/voice-input-device";
 
 // Re-exported for capture consumers (e.g. use-live-voice.ts) so they don't need
 // to reach into the protocol module. Canonical definition lives in protocol.ts.
@@ -144,6 +147,10 @@ export class LiveVoiceAudioCapture {
   // it was cancelled mid-await and fully tear down instead of wiring up a mic
   // that the caller has already asked to release.
   private cancelEpoch = 0;
+  // Incremented by every input switch, so a slow getUserMedia for an older
+  // pick cannot land after a newer one.
+  private switchEpoch = 0;
+  private unwatchInput: (() => void) | null = null;
 
   constructor(options: LiveVoiceAudioCaptureOptions) {
     this.onChunk = options.onChunk;
@@ -211,10 +218,59 @@ export class LiveVoiceAudioCapture {
 
       this.source = source;
       this.worklet = worklet;
+      // A microphone picked mid-session (the companion's popover, or
+      // Settings) moves the running capture onto it.
+      this.unwatchInput = watchPreferredInputDevice(() => {
+        void this.switchInput();
+      });
       return { ok: true };
     } catch (cause) {
       await this.teardown();
       return { ok: false, error: "unknown", cause };
+    }
+  }
+
+  /**
+   * Move the running capture onto the saved microphone.
+   *
+   * Opens the new stream before letting go of the old one, and keeps the
+   * audio context and worklet, so the session's chunks carry on with no more
+   * than the moment the swap takes. A failure to open the new device keeps
+   * the old stream running rather than leaving the call without a mic.
+   */
+  async switchInput(): Promise<void> {
+    if (this.context === null || this.worklet === null) {
+      return;
+    }
+    const epoch = this.cancelEpoch;
+    const attempt = ++this.switchEpoch;
+    let stream: MediaStream;
+    try {
+      stream = await getVoiceInputMediaStream();
+    } catch {
+      return;
+    }
+    const context = this.context;
+    const worklet = this.worklet;
+    if (
+      this.disposed ||
+      this.cancelEpoch !== epoch ||
+      this.switchEpoch !== attempt ||
+      context === null ||
+      worklet === null
+    ) {
+      stopTracks(stream);
+      return;
+    }
+    const previousSource = this.source;
+    const previousStream = this.stream;
+    const source = context.createMediaStreamSource(stream);
+    source.connect(worklet);
+    this.source = source;
+    this.stream = stream;
+    previousSource?.disconnect();
+    if (previousStream !== null) {
+      stopTracks(previousStream);
     }
   }
 
@@ -291,6 +347,8 @@ export class LiveVoiceAudioCapture {
     // Drop any sub-batch tail: a stopped graph has no forwarding consumer
     // left, and a stale tail must not leak into a later start().
     this.batchLength = 0;
+    this.unwatchInput?.();
+    this.unwatchInput = null;
     if (this.worklet) {
       this.worklet.port.onmessage = null;
       this.worklet.disconnect();
