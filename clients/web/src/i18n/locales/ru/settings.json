@@ -1281,7 +1281,7 @@
     "usageBalanceAddCredits": "Добавить",
     "usageBalanceExhausted": "Добавление кредитов, чтобы продолжить пользоваться ассистентом",
     "usageBalancePctUsed": "использовано {pct}%",
-    "usageBalanceTitle": "Баланс использования",
+    "usageBalanceTitle": "Текущее использование",
     "usageChip": "Использование {name}, сброс каждый месяц",
     "viewAllPlans": "Все планы"
   },
