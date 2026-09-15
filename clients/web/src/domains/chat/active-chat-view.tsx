@@ -80,9 +80,23 @@ import { useSubagentReconcile } from "@/domains/chat/hooks/use-subagent-reconcil
 import { useComposerKeyboard } from "@/domains/chat/hooks/use-composer-keyboard";
 import { useAutoSendEffects } from "@/domains/chat/hooks/use-auto-send-effects";
 import { useOnboardingAttribution } from "@/hooks/use-onboarding-attribution";
+import { requestComposerFocus } from "@/domains/chat/composer-focus";
+import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 
 import { ChatContentLayout } from "@/domains/chat/components/chat-content-layout";
 import type { ChatMainPanelProps } from "@/domains/chat/components/chat-route-content";
+
+/**
+ * Stage a `?prompt=` that arrived without in-app provenance (a clicked link)
+ * for the user to send. Goes through the deep-link inbox rather than straight
+ * into the composer store so `useDeepLinkConsumer` applies its rules: a
+ * cold-load restored draft yields to the link, live typing is never
+ * overwritten.
+ */
+function prefillComposerFromUrl(content: string): void {
+  usePendingDeepLinkStore.getState().setPendingComposerMessage(content);
+  requestComposerFocus();
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -335,6 +349,7 @@ export function ActiveChatView() {
     setSearchParams,
     navigationState: location.state,
     sendMessage,
+    prefillComposer: prefillComposerFromUrl,
     reachabilityPhase: reachability.state.phase,
     reachabilityProbe: reachability.probe,
     getPendingInitialMessage: () =>

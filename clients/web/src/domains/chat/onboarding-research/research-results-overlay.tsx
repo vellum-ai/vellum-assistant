@@ -25,6 +25,7 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
+import { autoSendPromptState } from "@/utils/auto-send-prompt";
 import { routes } from "@/utils/routes";
 import { OnboardingBackButton } from "@/components/onboarding-back-button";
 import { ResearchActivityFeed } from "@/domains/chat/onboarding-research/research-activity-feed";
@@ -190,9 +191,9 @@ export function ResearchResultsOverlay() {
   const handleSuggestionClick = (prompt: string) => {
     const draftId = createDraftConversationId();
     useConversationStore.getState().setActiveConversationId(draftId);
-    void navigate(
-      `${routes.conversation(draftId)}?prompt=${encodeURIComponent(prompt)}`,
-    );
+    void navigate(routes.conversationWithPrompt(draftId, prompt), {
+      state: autoSendPromptState(),
+    });
     exitFocus();
   };
 

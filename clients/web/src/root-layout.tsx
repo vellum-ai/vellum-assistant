@@ -46,6 +46,7 @@ import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { handleToggleWatchCommand } from "@/runtime/watch-command";
 
+import { autoSendPromptState } from "@/utils/auto-send-prompt";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
@@ -442,9 +443,9 @@ export function RootLayout() {
       const draftId = createDraftConversationId();
       useConversationStore.getState().setActiveConversationId(draftId);
       useViewerStore.getState().setMainView("chat");
-      void navigate(
-        `${routes.conversation(draftId)}?prompt=${encodeURIComponent(command.message)}`,
-      );
+      void navigate(routes.conversationWithPrompt(draftId, command.message), {
+        state: autoSendPromptState(),
+      });
     },
     startVoice: () => {
       // The companion surface's Talk, the one sender of this command. See
