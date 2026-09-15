@@ -22,7 +22,10 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 import { Notice } from "@vellumai/design-library/components/notice";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
-import { destinationDescriptionKey, destinationLabel } from "./teleport-types";
+import {
+  destinationDescriptionKey,
+  destinationLabelKey,
+} from "./teleport-types";
 import { useTeleport } from "./use-teleport";
 
 export function TeleportCard() {
@@ -42,11 +45,7 @@ export function TeleportCard() {
   // Only gate the idle offer. Mid-transfer the selected assistant can flip to
   // the freshly hatched local target (which reads as local-to-platform), and
   // hiding the card then would strand the progress, verify, and error controls.
-  if (
-    phase.kind === "idle" &&
-    destination === "platform" &&
-    !teleportEnabled
-  ) {
+  if (phase.kind === "idle" && destination === "platform" && !teleportEnabled) {
     return null;
   }
 
@@ -56,7 +55,9 @@ export function TeleportCard() {
       subtitle={t("teleportCard.subtitle")}
     >
       {phase.kind === "idle" && platformGate === "disabled" && (
-        <PlatformLoginNotice>{t("teleportCard.loginNotice")}</PlatformLoginNotice>
+        <PlatformLoginNotice>
+          {t("teleportCard.loginNotice")}
+        </PlatformLoginNotice>
       )}
 
       {phase.kind === "idle" && platformGate === "full" && (
@@ -69,7 +70,7 @@ export function TeleportCard() {
             className="self-start"
             onClick={teleport.requestTeleport}
           >
-            {destinationLabel(destination)}
+            {t(destinationLabelKey(destination))}
           </Button>
         </div>
       )}
@@ -126,7 +127,7 @@ export function TeleportCard() {
 
       <ConfirmDialog
         open={teleport.confirmOpen}
-        title={destinationLabel(destination)}
+        title={t(destinationLabelKey(destination))}
         message={t("teleportCard.confirmMessage")}
         confirmLabel={t("teleportCard.confirmLabel")}
         onConfirm={teleport.confirm}
