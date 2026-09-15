@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 
 import { ShortcutsSections } from "@/domains/settings/keyboard-shortcuts/shortcuts-sections";
-import { useTranslation } from "@/i18n";
+import { useTranslation, type ParseKeys } from "@/i18n";
 import { isElectron } from "@/runtime/is-electron";
 import { getLaunchAtLogin, setLaunchAtLogin } from "@/runtime/launch-at-login";
 import {
   isMacOSBrowser,
   resolveDesktopHostOS,
+  type ElectronHostOS,
 } from "@/runtime/platform-detection";
 import {
   cmdEnterToSend,
@@ -65,6 +66,15 @@ function ComposerSection() {
   );
 }
 
+/** Launch-at-login copy per desktop host, each naming that host by its own word. */
+const LAUNCH_AT_LOGIN_DESCRIPTION_KEYS: Readonly<
+  Record<ElectronHostOS, ParseKeys<"settings">>
+> = {
+  macos: "preferencesModal.launchAtLoginDescription",
+  windows: "preferencesModal.launchAtLoginDescriptionWindows",
+  linux: "preferencesModal.launchAtLoginDescriptionLinux",
+};
+
 /** Electron-only toggle for launching the app when the user logs in. */
 function LaunchAtLoginSection() {
   const { t } = useTranslation("settings");
@@ -89,11 +99,7 @@ function LaunchAtLoginSection() {
         {t("preferencesModal.launchAtLoginTitle")}
       </h3>
       <p className="text-body-medium-default text-[var(--content-tertiary)]">
-        {t(
-          resolveDesktopHostOS() === "windows"
-            ? "preferencesModal.launchAtLoginDescriptionWindows"
-            : "preferencesModal.launchAtLoginDescription",
-        )}
+        {t(LAUNCH_AT_LOGIN_DESCRIPTION_KEYS[resolveDesktopHostOS()])}
       </p>
       <div className="mt-2">
         <Toggle
