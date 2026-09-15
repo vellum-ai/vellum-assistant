@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, renderHook, screen } from "@testing-library/react";
-import { type ReactElement, type ReactNode } from "react";
-import { MemoryRouter, useLocation } from "react-router";
+import { act, cleanup, renderHook } from "@testing-library/react";
 
 // `mock.module` is safe for `use-is-mobile` because it's a pure
 // derived-value hook (no module-local state). The mobile case is
@@ -21,6 +19,7 @@ import {
   getEditChatConversationId,
   setEditChatConversationId,
 } from "@/utils/edit-chat-session";
+import { currentLocation, wrapperAt } from "@/hooks/router-probe.test-helper";
 
 import { useEditApp } from "./use-edit-app";
 
@@ -51,25 +50,6 @@ const REMEMBERED_ID = "conv-remembered";
 const LIBRARY_PATH = "/assistant/library/app-42";
 const APP_CONVERSATION_PATH = `/assistant/conversations/${CONV_ID}/app/${APP.appId}`;
 
-// Renders the router's current path into the DOM so tests can assert
-// navigation via `screen` without reaching into router internals.
-function LocationProbe(): ReactElement {
-  const { pathname } = useLocation();
-  return <span data-testid="pathname">{pathname}</span>;
-}
-function currentPath(): string | null {
-  return screen.getByTestId("pathname").textContent;
-}
-function wrapperAt(initialPath: string) {
-  return function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <MemoryRouter initialEntries={[initialPath]}>
-        {children}
-        <LocationProbe />
-      </MemoryRouter>
-    );
-  };
-}
 const wrapper = wrapperAt(LIBRARY_PATH);
 
 beforeEach(() => {
@@ -124,7 +104,7 @@ describe("useEditApp", () => {
     expect(openAppMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(currentPath()).toBe(LIBRARY_PATH);
+    expect(currentLocation().pathname).toBe(LIBRARY_PATH);
   });
 
   test("loads the app into the viewer and opens the split edit view on desktop", () => {
@@ -142,7 +122,9 @@ describe("useEditApp", () => {
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
     // Desktop uses the split view, not the mobile minimized strip.
     expect(minimizeAppMock).not.toHaveBeenCalled();
-    expect(currentPath()).toBe(routes.conversation(CONV_ID, APP.appId));
+    expect(currentLocation().pathname).toBe(
+      routes.conversation(CONV_ID, APP.appId),
+    );
   });
 
   test("starts a conversation, registered as a draft, when none is selected", () => {
@@ -201,7 +183,9 @@ describe("useEditApp", () => {
 
     // THEN the edit conversation is still bound and we navigate to it...
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
-    expect(currentPath()).toBe(routes.conversation(CONV_ID, APP.appId));
+    expect(currentLocation().pathname).toBe(
+      routes.conversation(CONV_ID, APP.appId),
+    );
     // ...the app is minimized so the chat is the primary surface (the strip
     // shows "Open app", not a duplicate "Edit" over a full-screen app)...
     expect(minimizeAppMock).toHaveBeenCalledTimes(1);
@@ -221,7 +205,9 @@ describe("useEditApp", () => {
     expect(openAppMock).not.toHaveBeenCalled();
     expect(setLoadedAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(currentPath()).toBe(routes.conversation(CONV_ID, APP.appId));
+    expect(currentLocation().pathname).toBe(
+      routes.conversation(CONV_ID, APP.appId),
+    );
   });
 
   test("navigates to the edit conversation from an off-chat route even when its id is already the active conversation", () => {
@@ -236,7 +222,7 @@ describe("useEditApp", () => {
 
     // THEN we still navigate to the conversation so the split view appears
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(currentPath()).toBe(APP_CONVERSATION_PATH);
+    expect(currentLocation().pathname).toBe(APP_CONVERSATION_PATH);
   });
 
   test("skips redundant navigation when already on the edit conversation route", () => {
@@ -251,6 +237,6 @@ describe("useEditApp", () => {
 
     // THEN the split view still opens but the path is unchanged
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(currentPath()).toBe(APP_CONVERSATION_PATH);
+    expect(currentLocation().pathname).toBe(APP_CONVERSATION_PATH);
   });
 });

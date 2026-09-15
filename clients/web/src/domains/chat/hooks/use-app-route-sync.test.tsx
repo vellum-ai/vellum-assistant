@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook, screen, waitFor } from "@testing-library/react";
-import { type ReactElement, type ReactNode } from "react";
-import { MemoryRouter, useLocation } from "react-router";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
+import { currentLocation, wrapperAt } from "@/hooks/router-probe.test-helper";
 
 import { useAppRouteSync } from "./use-app-route-sync";
 
@@ -33,23 +32,6 @@ const closeAppMock = mock(() => undefined);
 const setMainViewMock = mock((_view: string) => undefined);
 const setEditingConversationIdMock = mock((_id: string | null) => undefined);
 
-function LocationProbe(): ReactElement {
-  const { pathname } = useLocation();
-  return <span data-testid="pathname">{pathname}</span>;
-}
-function currentPath(): string | null {
-  return screen.getByTestId("pathname").textContent;
-}
-function wrapperAt(initialPath: string) {
-  return function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <MemoryRouter initialEntries={[initialPath]}>
-        {children}
-        <LocationProbe />
-      </MemoryRouter>
-    );
-  };
-}
 const wrapper = wrapperAt(APP_PATH);
 
 interface HookProps {
@@ -121,7 +103,7 @@ describe("useAppRouteSync", () => {
     // THEN the app is loaded exactly once, and the URL is left alone
     await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
     expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
-    expect(currentPath()).toBe(APP_PATH);
+    expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
   test("leaves the split alone when the app the URL names is already loaded", async () => {
@@ -185,7 +167,7 @@ describe("useAppRouteSync", () => {
 
     // THEN the URL stops naming an app that cannot be opened
     await waitFor(() =>
-      expect(currentPath()).toBe(routes.conversation(CONV_ID)),
+      expect(currentLocation().pathname).toBe(routes.conversation(CONV_ID)),
     );
   });
 
@@ -210,7 +192,7 @@ describe("useAppRouteSync", () => {
 
     // THEN the URL is left alone: the app is still what the viewer holds
     await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
-    expect(currentPath()).toBe(APP_PATH);
+    expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
   test("does not reload the app when the conversation beside it changes", async () => {

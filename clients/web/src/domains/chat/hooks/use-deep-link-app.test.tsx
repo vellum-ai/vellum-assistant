@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { act, cleanup, renderHook, screen } from "@testing-library/react";
-import { type ReactElement, type ReactNode } from "react";
-import { MemoryRouter, useLocation } from "react-router";
+import { act, cleanup, renderHook } from "@testing-library/react";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { routes } from "@/utils/routes";
+import { currentLocation, wrapperAt } from "@/hooks/router-probe.test-helper";
 
 import { useDeepLinkApp } from "./use-deep-link-app";
 
@@ -15,22 +14,10 @@ let conversationSnapshot: ReturnType<typeof useConversationStore.getState>;
 const CONV_ID = "c1";
 const APP_ID = "a1";
 
-function LocationProbe(): ReactElement {
-  const { pathname, search } = useLocation();
-  return <span data-testid="location">{`${pathname}${search}`}</span>;
-}
-function currentLocation(): string | null {
-  return screen.getByTestId("location").textContent;
-}
-function wrapperAt(initialPath: string) {
-  return function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <MemoryRouter initialEntries={[initialPath]}>
-        {children}
-        <LocationProbe />
-      </MemoryRouter>
-    );
-  };
+/** The URL the redirect landed on: a path plus whatever it kept of the query. */
+function currentUrl(): string {
+  const { pathname, search } = currentLocation();
+  return `${pathname}${search}`;
 }
 
 interface HookProps {
@@ -65,9 +52,7 @@ describe("useDeepLinkApp", () => {
     });
 
     // THEN the app moves into the path and the rest of the query survives
-    expect(currentLocation()).toBe(
-      `${routes.conversation(CONV_ID, APP_ID)}?foo=1`,
-    );
+    expect(currentUrl()).toBe(`${routes.conversation(CONV_ID, APP_ID)}?foo=1`);
   });
 
   test("leaves the URL alone when there is no app param", () => {
@@ -77,7 +62,7 @@ describe("useDeepLinkApp", () => {
       searchParams: new URLSearchParams("foo=1"),
     });
 
-    expect(currentLocation()).toBe(path);
+    expect(currentUrl()).toBe(path);
   });
 
   test("waits for the conversation id, then redirects exactly once", () => {
@@ -87,7 +72,7 @@ describe("useDeepLinkApp", () => {
       urlConversationId: null,
       searchParams,
     });
-    expect(currentLocation()).toBe(`/assistant?app=${APP_ID}`);
+    expect(currentUrl()).toBe(`/assistant?app=${APP_ID}`);
 
     // WHEN the loader settles on a conversation
     act(() => {
@@ -95,13 +80,13 @@ describe("useDeepLinkApp", () => {
     });
 
     // THEN the landing is rewritten onto that conversation's app route
-    expect(currentLocation()).toBe(routes.conversation(CONV_ID, APP_ID));
+    expect(currentUrl()).toBe(routes.conversation(CONV_ID, APP_ID));
 
     // AND a later conversation change does not re-consume the param
     act(() => {
       useConversationStore.setState({ activeConversationId: "c2" });
     });
     rerender({ urlConversationId: null, searchParams });
-    expect(currentLocation()).toBe(routes.conversation(CONV_ID, APP_ID));
+    expect(currentUrl()).toBe(routes.conversation(CONV_ID, APP_ID));
   });
 });
