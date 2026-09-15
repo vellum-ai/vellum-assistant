@@ -2335,15 +2335,24 @@ jobs:
       version: ${{ needs.compute-version.outputs.version }}
     secrets: inherit
 
-  release-windows:
-    needs: [compute-version, register-release, build-chrome-extension]
+  build-windows:
+    needs: [compute-version]
     permissions:
       contents: read
-      id-token: write
     uses: ./.github/workflows/release-windows.yaml
     with:
       environment: dev
       version: ${{ needs.compute-version.outputs.version }}
+    secrets: inherit
+
+  release-windows:
+    needs: [build-windows, compute-version, register-release, build-chrome-extension]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/publish-windows.yaml
+    with:
+      environment: dev
     secrets: inherit
 
   # ── Slack notification (first failure only) ──────────────────────────
