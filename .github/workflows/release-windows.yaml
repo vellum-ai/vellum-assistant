@@ -111,6 +111,7 @@ jobs:
           $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
           if (-not $msbuild) { throw "MSBuild not found" }
           "path=$msbuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "image-version=$env:ImageVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Integrate vcpkg with MSBuild
         run: vcpkg integrate install
@@ -131,6 +132,23 @@ jobs:
 
       - name: Build native helper
         run: bun scripts/build-native-helper.ts --arch ${{ matrix.arch }}
+
+      - name: Prepare vcpkg binary cache
+        shell: pwsh
+        run: |
+          $binaryCache = Join-Path $env:RUNNER_TEMP "vcpkg-binary-cache"
+          New-Item -ItemType Directory -Force -Path $binaryCache | Out-Null
+          "VCPKG_DEFAULT_BINARY_CACHE=$binaryCache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Cache vcpkg tools and binary archives
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            clients/windows/.build-tools/vcpkg
+            !clients/windows/.build-tools/vcpkg/*/buildtrees
+            !clients/windows/.build-tools/vcpkg/*/packages
+            ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: windows-vcpkg-v1-${{ runner.os }}-${{ matrix.runner }}-${{ runner.arch }}-${{ matrix.arch }}-${{ steps.msbuild.outputs.image-version }}-${{ hashFiles('clients/windows/native/Vellum.PreviewHandler/vcpkg.json', 'clients/windows/scripts/build-preview-handler.ts') }}
 
       - name: Build preview handler
         env:
