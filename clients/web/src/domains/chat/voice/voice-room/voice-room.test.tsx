@@ -91,10 +91,18 @@ mock.module("react-router", () => ({
 }));
 
 let mockMainView: MainView = "chat";
+// The app view covers the composer only while an app is there to draw, so the
+// id travels with the view.
+let mockActiveAppId: string | null = null;
 mock.module("@/stores/viewer-store", () => ({
   useViewerStore: {
     use: {
       mainView: () => mockMainView,
+      activeAppId: () => mockActiveAppId,
+      openedAppState: () =>
+        mockActiveAppId === null
+          ? null
+          : { appId: mockActiveAppId, name: "App", html: "" },
     },
   },
 }));
@@ -398,6 +406,7 @@ beforeEach(() => {
   mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
   mockSearch = "";
   mockMainView = "chat";
+  mockActiveAppId = null;
   mockIsMobile = false;
   mockAvatarData = { components: null, traits: null, customImageUrl: null };
   mockCustomFieldHex = null;
@@ -608,6 +617,7 @@ describe("VoiceRoom — visibility", () => {
   test("renders nothing over the desktop fullscreen app viewer (composer replaced)", () => {
     startOwnedSession("listening");
     mockMainView = "app";
+    mockActiveAppId = "app-1";
     render(<VoiceRoom />);
     expect(roomDialog()).toBeNull();
   });

@@ -10,7 +10,7 @@ import {
   getEditChatConversationId,
   setEditChatConversationId,
 } from "@/utils/edit-chat-session";
-import { routes } from "@/utils/routes";
+import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
 
 /**
  * Open an app in the split "edit" view — chat on the left, app on the right —
@@ -74,12 +74,16 @@ export function useEditApp(): (app: OpenedAppState) => void {
 
       // The split edit view only renders on the conversation route, and the
       // URL names the app it shows. Navigate whenever we aren't already
-      // there, comparing the path rather than the active conversation id,
-      // since off-chat routes (e.g. the Library app view) can still hold a
-      // stale matching id without mounting the viewer.
-      const target = routes.conversation(convId, app.appId);
-      if (pathname !== target) {
-        void navigate(target);
+      // there. What the path names, read through the parser, because the
+      // browser percent-encodes an id the builder writes raw; the path rather
+      // than the active conversation id, because off-chat routes (e.g. the
+      // Library app view) can hold a stale matching id without mounting the
+      // viewer.
+      if (
+        conversationIdForPath(pathname) !== convId ||
+        appIdForPath(pathname) !== app.appId
+      ) {
+        void navigate(routes.conversation(convId, app.appId));
       }
     },
     [assistantId, isMobile, navigate, pathname],

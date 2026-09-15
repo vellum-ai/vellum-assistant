@@ -254,22 +254,24 @@ describe("isConversationChatPath (composer-mounting routes only)", () => {
   });
 });
 
-describe("a malformed escape names no route of ours", () => {
-  // `decodeURIComponent` throws on a truncated sequence, and a throw during
-  // render is the full-page error boundary.
+describe("a malformed escape keeps its raw spelling, as the router does", () => {
+  // `decodeURIComponent` throws on a truncated sequence, and our producers
+  // write ids unencoded, so a literal `%` in an app id reaches the parser this
+  // way. React Router still matches the route, handing `useParams` the raw
+  // segment.
   const MALFORMED = "%E0%A4%A";
 
   test("in the conversation id", () => {
     const path = `/assistant/conversations/${MALFORMED}`;
-    expect(conversationIdForPath(path)).toBeNull();
+    expect(conversationIdForPath(path)).toBe(MALFORMED);
     expect(appIdForPath(path)).toBeNull();
-    expect(isConversationChatPath(path)).toBe(false);
+    expect(isConversationChatPath(path)).toBe(true);
   });
 
   test("in the app id", () => {
     const path = `/assistant/conversations/conv-1/app/${MALFORMED}`;
-    expect(conversationIdForPath(path)).toBeNull();
-    expect(appIdForPath(path)).toBeNull();
-    expect(isConversationChatPath(path)).toBe(false);
+    expect(conversationIdForPath(path)).toBe("conv-1");
+    expect(appIdForPath(path)).toBe(MALFORMED);
+    expect(isConversationChatPath(path)).toBe(true);
   });
 });
