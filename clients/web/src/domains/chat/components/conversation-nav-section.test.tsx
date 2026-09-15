@@ -103,14 +103,17 @@ const MANY_ROWS: Conversation[] = Array.from({ length: 25 }, (_, index) => ({
 
 afterEach(() => {
   mock.restore();
+  railHeight = Number.POSITIVE_INFINITY;
 });
 
 /* happy-dom lays nothing out, so a scroller never overflows on its own.
-   The Expand control reads `scrollHeight > clientHeight` off the scroller,
-   so the two are modelled here from what the real rail renders: rows of
-   `ROW_HEIGHT` stacked with no gap (the card zeroes the list's), inside
-   a box no taller than its own `max-height`. */
+   The Expand control reads `scrollHeight` and `clientHeight` off the
+   scroller, so the two are modelled here from what the real rail renders:
+   rows of `ROW_HEIGHT` stacked with no gap (the card zeroes the list's),
+   inside a box no taller than its own `max-height` nor than the height the
+   rail has left for it (`railHeight`, unbounded unless a test squeezes it). */
 const ROW_HEIGHT = 30;
+let railHeight = Number.POSITIVE_INFINITY;
 const heightDescriptors = {
   scrollHeight: Object.getOwnPropertyDescriptor(
     HTMLElement.prototype,
@@ -133,9 +136,11 @@ beforeAll(() => {
     configurable: true,
     get(this: HTMLElement) {
       const cap = Number.parseFloat(this.style.maxHeight);
-      return Number.isNaN(cap)
-        ? this.scrollHeight
-        : Math.min(this.scrollHeight, cap);
+      return Math.min(
+        this.scrollHeight,
+        Number.isNaN(cap) ? Number.POSITIVE_INFINITY : cap,
+        railHeight,
+      );
     },
   });
 });
@@ -269,6 +274,21 @@ describe("ConversationRowList expand", () => {
     });
 
     expect(expandButton(container)).not.toBeNull();
+  });
+
+  test("a section the rail has squeezed under its cap has nothing to expand", () => {
+    /* A short rail leaves the last section less than its cap. The rows
+       overflow that box, but the expanded layout has the same leftover
+       height, so a control here would reveal nothing. */
+    railHeight = 200;
+    const container = renderList(undefined, {
+      items: MANY_ROWS,
+      isLast: true,
+      expandable: true,
+    });
+
+    expect(scrollerOf(container)?.clientHeight).toBe(200);
+    expect(expandButton(container)).toBeNull();
   });
 
   test("a short section paging from the server still offers Expand", () => {
