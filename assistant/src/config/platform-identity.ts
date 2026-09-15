@@ -5,13 +5,8 @@
  * `POST /v1/internal/assistants/validate/`. Process startup rehydrates from
  * that endpoint into the in-memory overrides. Resolution reads those
  * overrides (and `PLATFORM_ORGANIZATION_ID` / `PLATFORM_USER_ID` when set).
- * When the in-memory assistant id is empty, or the API key / platform
- * base URL that produced it has changed, the next resolve retries
- * validate (single-flight, with a cooldown after a failed validate
- * attempt for the same credentials).
- *
- * A credential change that can be read drops the previous ids so the
- * new key is not paired with the old owner.
+ * When the in-memory assistant id is empty, the next resolve retries
+ * validate (single-flight, with a cooldown after a failed attempt).
  */
 
 import { credentialKey } from "../security/credential-key.js";
@@ -125,42 +120,28 @@ async function readAssistantApiKey(): Promise<string> {
   return process.env.ASSISTANT_API_KEY?.trim() ?? "";
 }
 
-let identityBoundToFingerprint: string | undefined;
-let lastAttemptFingerprint: string | undefined;
 let ensureInFlight: Promise<void> | null = null;
 let nextEnsureAttemptAt = 0;
-
-function identityFingerprint(apiKey: string, baseUrl: string): string {
-  return `${baseUrl}\0${apiKey}`;
-}
-
-function hasBoundAssistantId(): boolean {
-  return Boolean(getPlatformAssistantId()?.trim());
-}
-
-function clearPlatformIdentityOverrides(): void {
-  setPlatformAssistantId(undefined);
-  setPlatformOrganizationId(undefined);
-  setPlatformUserId(undefined);
-}
 
 export function _resetPlatformIdentityEnsureForTests(): void {
   ensureInFlight = null;
   nextEnsureAttemptAt = 0;
-  identityBoundToFingerprint = undefined;
-  lastAttemptFingerprint = undefined;
 }
 
 /**
- * Load in-memory platform ids from validate when they are missing or the
- * API key / base URL that produced them has changed.
+ * Load in-memory platform ids from validate when they are missing.
  *
- * No-ops when the assistant id is already bound to the current
- * credentials, when auth prerequisites are missing, or when a failed
- * validate for the same credentials is still inside the cooldown window.
+ * No-ops when the assistant id is already set, when auth prerequisites are
+ * missing, or when a failed attempt is still inside the cooldown window.
  * Concurrent callers share one in-flight request.
  */
 export async function ensurePlatformIdentityIds(): Promise<void> {
+  if (getPlatformAssistantId()?.trim()) {
+    return;
+  }
+  if (Date.now() < nextEnsureAttemptAt) {
+    return;
+  }
   if (!ensureInFlight) {
     ensureInFlight = (async () => {
       try {
@@ -169,41 +150,12 @@ export async function ensurePlatformIdentityIds(): Promise<void> {
         if (!apiKey || !baseUrl) {
           return;
         }
-        const fingerprint = identityFingerprint(apiKey, baseUrl);
-        if (
-          hasBoundAssistantId() &&
-          identityBoundToFingerprint === fingerprint
-        ) {
-          return;
-        }
-        if (
-          hasBoundAssistantId() &&
-          identityBoundToFingerprint === undefined
-        ) {
-          identityBoundToFingerprint = fingerprint;
-          return;
-        }
-        if (
-          identityBoundToFingerprint !== undefined &&
-          identityBoundToFingerprint !== fingerprint
-        ) {
-          clearPlatformIdentityOverrides();
-          identityBoundToFingerprint = undefined;
-        }
-        if (
-          Date.now() < nextEnsureAttemptAt &&
-          lastAttemptFingerprint === fingerprint
-        ) {
-          return;
-        }
-        lastAttemptFingerprint = fingerprint;
         const ids = await fetchPlatformIdentityIds(baseUrl, apiKey);
         if (!ids) {
           nextEnsureAttemptAt = Date.now() + ENSURE_COOLDOWN_MS;
           return;
         }
         applyPlatformIdentityIds(ids);
-        identityBoundToFingerprint = fingerprint;
         nextEnsureAttemptAt = 0;
         log.info("Loaded platform identity from platform validate");
       } finally {
@@ -215,6 +167,10 @@ export async function ensurePlatformIdentityIds(): Promise<void> {
 }
 
 export async function resolvePlatformAssistantId(): Promise<string> {
+  const existing = getPlatformAssistantId()?.trim() ?? "";
+  if (existing) {
+    return existing;
+  }
   await ensurePlatformIdentityIds();
   return getPlatformAssistantId()?.trim() ?? "";
 }
@@ -227,11 +183,19 @@ export async function resolvePlatformAssistantIdOrNull(): Promise<
 }
 
 export async function resolvePlatformOrganizationId(): Promise<string> {
+  const existing = getPlatformOrganizationId()?.trim() ?? "";
+  if (existing) {
+    return existing;
+  }
   await ensurePlatformIdentityIds();
   return getPlatformOrganizationId()?.trim() ?? "";
 }
 
 export async function resolvePlatformUserId(): Promise<string> {
+  const existing = getPlatformUserId()?.trim() ?? "";
+  if (existing) {
+    return existing;
+  }
   await ensurePlatformIdentityIds();
   return getPlatformUserId()?.trim() ?? "";
 }

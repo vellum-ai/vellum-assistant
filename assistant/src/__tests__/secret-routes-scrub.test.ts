@@ -223,21 +223,14 @@ describe("secrets_add credential transcript scrub", () => {
   });
 
   test("non-secret platform fields are not scrubbed", async () => {
-    for (const field of [
-      "platform_assistant_id",
-      "platform_organization_id",
-      "platform_user_id",
-      "platform_base_url",
-    ]) {
-      const result = await addRoute.handler({
-        body: {
-          type: "credential",
-          name: `vellum:${field}`,
-          value: "0198f4c2-1111-2222-3333-444455556666",
-        },
-      });
-      expect(result).toEqual(expect.objectContaining({ success: true }));
-    }
+    const result = await addRoute.handler({
+      body: {
+        type: "credential",
+        name: "vellum:platform_base_url",
+        value: "0198f4c2-1111-2222-3333-444455556666",
+      },
+    });
+    expect(result).toEqual(expect.objectContaining({ success: true }));
 
     expect(secureStore.size).toBe(1);
     expect(secureStore.get(credentialKey("vellum", "platform_base_url"))).toBe(
@@ -246,16 +239,17 @@ describe("secrets_add credential transcript scrub", () => {
     expect(scrubbedValues).toEqual([]);
   });
 
-  test("an identity-field delete stores nothing and never scrubs", async () => {
-    const result = await addRoute.handler({
-      body: {
-        type: "credential",
-        name: "vellum:platform_assistant_id",
-        value: "   ",
-      },
-    });
+  test("an unknown vellum credential is rejected and never triggers a scrub", async () => {
+    await expect(
+      addRoute.handler({
+        body: {
+          type: "credential",
+          name: "vellum:platform_assistant_id",
+          value: "   ",
+        },
+      }),
+    ).rejects.toBeInstanceOf(BadRequestError);
 
-    expect(result).toEqual(expect.objectContaining({ success: true }));
     expect(secureStore.size).toBe(0);
     expect(scrubbedValues).toEqual([]);
   });

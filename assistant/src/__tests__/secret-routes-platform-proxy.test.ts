@@ -354,7 +354,6 @@ describe("secret routes managed proxy registry sync", () => {
 
   test("unrelated credentials do not enqueue platform syncs", async () => {
     await addCredential("openrouter:api_key", "openrouter-key");
-    await addCredential("vellum:platform_user_id", "user-1");
 
     expect(identitySyncCalls).toBe(0);
     expect(avatarSyncCalls).toBe(0);
@@ -371,14 +370,20 @@ describe("secret routes managed proxy registry sync", () => {
     expect(avatarSyncCalls).toBe(0);
   });
 
-  test("platform identity credentials are accepted without persisting or binding in-memory identity", async () => {
+  test("unknown vellum credentials are rejected without persisting or binding identity", async () => {
     platformAssistantIdOverride = "existing-asst";
     platformOrganizationIdOverride = "existing-org";
     platformUserIdOverride = "existing-user";
 
-    await addCredential("vellum:platform_assistant_id", "asst-1");
-    await addCredential("vellum:platform_organization_id", "org-1");
-    await addCredential("vellum:platform_user_id", "user-1");
+    await expect(
+      addCredential("vellum:platform_assistant_id", "asst-1"),
+    ).rejects.toThrow("Unknown vellum credential: platform_assistant_id");
+    await expect(
+      addCredential("vellum:platform_organization_id", "org-1"),
+    ).rejects.toThrow("Unknown vellum credential: platform_organization_id");
+    await expect(
+      addCredential("vellum:platform_user_id", "user-1"),
+    ).rejects.toThrow("Unknown vellum credential: platform_user_id");
 
     expect(
       secureKeyStore[credentialKey("vellum", "platform_assistant_id")],
@@ -397,30 +402,20 @@ describe("secret routes managed proxy registry sync", () => {
     expect(avatarSyncCalls).toBe(0);
   });
 
-  test("an empty platform identity value does not persist, bind, or delete leftover vault copies", async () => {
+  test("an unknown vellum credential does not delete leftover vault copies", async () => {
     const key = credentialKey("vellum", "platform_assistant_id");
     secureKeyStore[key] = "leftover-asst";
     platformAssistantIdOverride = "asst-1";
 
-    await addCredential("vellum:platform_assistant_id", "   ");
+    await expect(
+      addCredential("vellum:platform_assistant_id", "   "),
+    ).rejects.toThrow("Unknown vellum credential: platform_assistant_id");
 
     expect(secureKeyStore[key]).toBe("leftover-asst");
     expect(platformAssistantIdOverride).toBe("asst-1");
     expect(metadataDeletes).toEqual([]);
     expect(identitySyncCalls).toBe(0);
     expect(avatarSyncCalls).toBe(0);
-  });
-
-  test("a failed vault write does not prevent a platform identity skip from succeeding", async () => {
-    failSecureKeyWrites = true;
-
-    await expect(
-      addCredential("vellum:platform_assistant_id", "asst-1"),
-    ).resolves.toEqual(expect.objectContaining({ success: true }));
-
-    expect(
-      secureKeyStore[credentialKey("vellum", "platform_assistant_id")],
-    ).toBeUndefined();
   });
 
   test("storing vellum:platform_base_url sets override and triggers initializeProviders", async () => {
