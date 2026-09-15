@@ -1,6 +1,5 @@
 import {
   AudioLines,
-  Check,
   Circle,
   Eraser,
   Eye,
@@ -465,7 +464,7 @@ export const FALLBACK_WIDTHS: Record<
   offer: OFFER_WIDTH + 32,
   // The line and the five controls of the handlebar, which is the widest a
   // call draws: Teach and Share are absent on a page that offers neither, and
-  // the dial and the approval both stand fewer controls in the same row. The
+  // the dial stands fewer controls in the same row. The
   // line has a stated width, so this is the state's actual width rather than a
   // guess at one.
   // The `4` is the line's own lead-in, which is a margin rather than one of
@@ -885,6 +884,20 @@ export interface CompanionSurfaceProps {
    */
   picker?: ReactNode;
   /**
+   * The short form of what the assistant needs from the user, carried by a
+   * call's bar as a row of its own. Composed by the caller for the reason the
+   * offer's card is. Drawn only on a call whose bar is a row.
+   */
+  prompt?: ReactNode;
+  /** The prompt row's element, for the host to hit-test the pointer against. */
+  promptRef?: Ref<HTMLDivElement>;
+  /**
+   * How many prompts the user put off, counted on the call's row so they can
+   * be reviewed. Zero draws nothing.
+   */
+  promptsDeferred?: number;
+  onReviewPrompts?: () => void;
+  /**
    * What a keyboard dictation has got to, when one is running. See
    * {@link CompanionDictating}.
    */
@@ -944,6 +957,10 @@ export function CompanionSurface({
   onControl,
   intro,
   picker,
+  prompt,
+  promptRef,
+  promptsDeferred = 0,
+  onReviewPrompts,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
   /**
@@ -1018,6 +1035,13 @@ export function CompanionSurface({
     width: number;
     height: number;
   } | null>(null);
+  /**
+   * The width the call's line was given past its own while the bar carries a
+   * wider prompt, as last drawn. Taken back out of every measurement, so the
+   * content is measured at its own width and the bar never grows to fit a
+   * line that was only stretched to fill it.
+   */
+  const lineExtraRef = useRef(0);
 
   // The body is measured while it is still clipped, so the pill knows how wide
   // to grow before it starts growing. `scrollWidth` reports the content's own
@@ -1030,7 +1054,7 @@ export function CompanionSurface({
     }
     const measure = () => {
       setContentSize({
-        width: element.scrollWidth,
+        width: element.scrollWidth - lineExtraRef.current,
         height: element.scrollHeight,
       });
     };
@@ -1103,6 +1127,47 @@ export function CompanionSurface({
     : (contentSize?.height ?? FALLBACK_COLUMN.height) + 2 * INNER_GAP;
 
   /**
+   * Whether the call's bar carries a prompt row, joined to it as one shape.
+   * Only a row can: a column has no edge to stand a line of words on.
+   */
+  const joined = inCall && !vertical && prompt !== null && prompt !== undefined;
+  const promptMeasureRef = useRef<HTMLDivElement | null>(null);
+  const [promptWidth, setPromptWidth] = useState(0);
+  useLayoutEffect(() => {
+    const element = promptMeasureRef.current;
+    if (!joined || element === null) {
+      return;
+    }
+    const measure = () => {
+      // Its fractional width, rounded up, in the surface's own units: a
+      // whole-point width rounded down leaves the row a fraction too narrow
+      // for its words, and they wrap onto a second line they do not need.
+      setPromptWidth(Math.ceil(element.getBoundingClientRect().width / scale));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [joined, prompt, scale]);
+  /**
+   * The bar's width while it carries a prompt: as wide as the wider of the
+   * two, so the prompt's words are never cut to fit the call's controls and
+   * the two keep one edge.
+   */
+  const barWidth = joined ? Math.max(width, promptWidth) : width;
+  /**
+   * What the prompt widened the bar by, given to the call's line: the line
+   * says more of what the session is doing, and the controls end at the
+   * bar's far edge under the prompt's answers rather than short of it.
+   */
+  const lineExtra = barWidth - width;
+  useLayoutEffect(() => {
+    lineExtraRef.current = lineExtra;
+  }, [lineExtra]);
+
+  /**
    * The line the creature stands on, as the CSS edge the surface is drawn
    * from.
    *
@@ -1162,7 +1227,7 @@ export function CompanionSurface({
 
   const style: CSSProperties = inCall
     ? {
-        width,
+        width: barWidth,
         // A column has a length of its own; a row is one row tall.
         ...(vertical ? { height } : {}),
         // **Centred on the creature's own point.** The bar takes the point
@@ -1204,7 +1269,7 @@ export function CompanionSurface({
    */
   const creatureLeft =
     inCall && !vertical
-      ? `calc(50% - ${width / 2 + inUnits(avatarHalf + gap)}px)`
+      ? `calc(50% - ${barWidth / 2 + inUnits(avatarHalf + gap)}px)`
       : "50%";
   /**
    * The same step, read up the column: on a side dock the creature stands at
@@ -1233,6 +1298,32 @@ export function CompanionSurface({
         transform: `scale(${scale})`,
       }}
     >
+      {joined ? (
+        <PromptShelf
+          dock={dock}
+          top={avatarLine}
+          width={barWidth}
+          accentHex={accentHex}
+          lit={expanded}
+          promptRef={promptRef}
+        >
+          {prompt}
+        </PromptShelf>
+      ) : null}
+      {joined ? (
+        // The prompt at its own width, out of sight, so the bar can be made
+        // wide enough for it. `inert` keeps its copies of the buttons out of
+        // the tab order and the accessibility tree.
+        <div
+          ref={promptMeasureRef}
+          inert
+          aria-hidden
+          data-theme="dark"
+          className="pointer-events-none invisible absolute top-0 left-0 w-max max-w-[640px]"
+        >
+          {prompt}
+        </div>
+      ) : null}
       {/* The pill is a drag handle, as the avatar is. Controls opt out by
         stopping the press, so everything on it that is not a button can be
         grabbed. */}
@@ -1258,7 +1349,14 @@ export function CompanionSurface({
           as the width grows is what makes the pill unfurl out of the gap
           rather than appear in it. */}
         <span
-          className="absolute inset-0 rounded-full border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40 transition-opacity duration-200"
+          className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
+            // Joined to the prompt row it is one shape with it: opaque, so
+            // the row's own ground does not show through, and with no edge or
+            // shadow of its own across the join.
+            joined
+              ? "bg-[#17181b]"
+              : "border border-white/10 bg-[#17181b]/95 shadow-lg shadow-black/40"
+          }`}
           style={{ opacity: expanded ? 1 : 0 }}
           aria-hidden
         />
@@ -1271,7 +1369,9 @@ export function CompanionSurface({
           <span
             className="companion-working-ring pointer-events-none absolute -inset-0.5 rounded-full transition-opacity duration-200"
             style={{
-              opacity: expanded ? 1 : 0,
+              // Out while a prompt is joined to the bar: it would run across
+              // the join, through the middle of the one shape.
+              opacity: expanded && !joined ? 1 : 0,
               ["--companion-ring-accent" as string]: accentHex,
             }}
             aria-hidden
@@ -1351,6 +1451,9 @@ export function CompanionSurface({
                   onAnnotate={onAnnotate}
                   onClearMarks={onClearMarks}
                   shortcuts={shortcuts}
+                  promptsDeferred={promptsDeferred}
+                  lineExtra={lineExtra}
+                  onReviewPrompts={onReviewPrompts}
                 />
               </CaptionSideContext.Provider>
             ) : phase === "dictating" && dictating !== undefined ? (
@@ -2086,6 +2189,86 @@ function SummaryBody({
  * moved to the mascot, which is the one element on the pill that is not a
  * control and cannot be mistaken for one.
  */
+/**
+ * The prompt row a call's bar carries, joined to the bar as one shape.
+ *
+ * Drawn behind the bar, from the bar's centre line out to the far side of the
+ * row, so the bar's round ends close the shape on the near side and the bar
+ * itself never moves: the creature and every control stay where the call put
+ * them. Above the bar on the bottom edge and below it on the top, the side
+ * the card room is on. A hairline marks the join.
+ */
+function PromptShelf({
+  dock,
+  top,
+  width,
+  accentHex,
+  lit,
+  promptRef,
+  children,
+}: {
+  dock: CompanionSurfaceDock;
+  top: string;
+  width: number;
+  accentHex: string;
+  /** Whether the call's light travels the shape's edge. */
+  lit: boolean;
+  promptRef?: Ref<HTMLDivElement>;
+  children: ReactNode;
+}) {
+  const below = dock === "top";
+  return (
+    <div
+      ref={promptRef}
+      // The surface paints its own dark ground in every host theme, so the
+      // design-library tokens the row is drawn with resolve against dark.
+      data-theme="dark"
+      className="absolute"
+      style={{
+        left: "50%",
+        top,
+        width,
+        transform: below ? "translate(-50%, 0)" : "translate(-50%, -100%)",
+        // The half of the bar the shelf runs behind.
+        [below ? "paddingTop" : "paddingBottom"]: 22,
+      }}
+      onPointerDown={(event) => {
+        // A press here is an answer, not a grab of the surface.
+        event.stopPropagation();
+      }}
+    >
+      <span
+        aria-hidden
+        className={`absolute inset-0 bg-[#17181b] shadow-lg shadow-black/40 ${
+          below ? "rounded-b-[22px]" : "rounded-t-[22px]"
+        }`}
+      />
+      <span
+        aria-hidden
+        className="absolute right-4 left-4 h-px bg-white/10"
+        style={below ? { top: 22 } : { bottom: 22 }}
+      />
+      {/* The call's light, travelling the edge of the whole shape: the shelf
+          and the half of the bar it does not run behind. The bar's own ring
+          is out while the shelf is up. */}
+      <span
+        aria-hidden
+        className="companion-working-ring pointer-events-none absolute transition-opacity duration-200"
+        style={{
+          left: -2,
+          right: -2,
+          top: below ? -24 : -2,
+          bottom: below ? -2 : -24,
+          borderRadius: 24,
+          opacity: lit ? 1 : 0,
+          ["--companion-ring-accent" as string]: accentHex,
+        }}
+      />
+      <div className="relative">{children}</div>
+    </div>
+  );
+}
+
 function CallBody({
   call,
   assistantName,
@@ -2110,6 +2293,9 @@ function CallBody({
   onAnnotate,
   onClearMarks,
   shortcuts,
+  promptsDeferred = 0,
+  onReviewPrompts,
+  lineExtra = 0,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
@@ -2139,6 +2325,10 @@ function CallBody({
   onAnnotate?: (annotating: boolean) => void;
   onClearMarks?: () => void;
   shortcuts?: CompanionCallShortcuts;
+  promptsDeferred?: number;
+  onReviewPrompts?: () => void;
+  /** Width past its own the line takes, to fill a bar a prompt widened. */
+  lineExtra?: number;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -2151,6 +2341,7 @@ function CallBody({
       <>
         <CallLine
           vertical={vertical}
+          extra={lineExtra}
           text={
             assistantName === ""
               ? t("companionSurface.calling")
@@ -2168,23 +2359,6 @@ function CallBody({
       </>
     );
   }
-  // The confirmation takes the row rather than crowding into it. The turn is
-  // stopped until it is answered, so it is the only thing here worth pressing,
-  // and a pill that tried to carry five controls would make each of them a
-  // smaller target than the decision deserves.
-  //
-  // Teach is among what it excludes. A blocked turn is reading nothing while
-  // it waits, and answering it lands back on the row that carries the toggle.
-  if (call.approvalRequestId !== "") {
-    return (
-      <ApprovalBody
-        detail={call.detail}
-        requestId={call.approvalRequestId}
-        onControl={onControl}
-      />
-    );
-  }
-
   // The activity line when the turn has one, the phase otherwise. `detail` is
   // the more specific of the two ("Reading a file" against "Thinking…") and is
   // empty for most of a call, so this reads as the surface saying more exactly
@@ -2199,7 +2373,30 @@ function CallBody({
           to decide how wide to be, and a box that collapsed under pressure
           would measure its own collapsed self: the width and the truncation
           would chase each other down. */}
-      <CallLine vertical={vertical} text={line} />
+      <CallLine vertical={vertical} extra={lineExtra} text={line} />
+      {/* What was put off, beside what the session is doing: it is the
+          assistant waiting on the user, which is part of what the call is
+          doing. A press lists it again. */}
+      {promptsDeferred > 0 ? (
+        <button
+          type="button"
+          // Drawn with the design-library's negative tokens, which resolve
+          // against dark here as they do on the dark bar around them.
+          data-theme="dark"
+          aria-label={t("companionPopover.pendingBadge", {
+            count: promptsDeferred,
+          })}
+          className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--system-negative-weak)] text-[13px] text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-hover)] hover:text-white"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          onClick={() => {
+            onReviewPrompts?.();
+          }}
+        >
+          {promptsDeferred}
+        </button>
+      ) : null}
       {/* Beside what the session is doing rather than beside the end control:
           two stops next to each other is a misclick that ends the wrong thing,
           and only one of the two is irreversible. Teach rides the call rather
@@ -2299,7 +2496,15 @@ function CallBody({
  * controls' names, revealed by the pointer, and a line that stood with them
  * would read as one more of those.
  */
-function CallLine({ vertical, text }: { vertical: boolean; text: string }) {
+function CallLine({
+  vertical,
+  text,
+  extra = 0,
+}: {
+  vertical: boolean;
+  text: string;
+  extra?: number;
+}) {
   if (vertical) {
     return (
       <span
@@ -2317,7 +2522,7 @@ function CallLine({ vertical, text }: { vertical: boolean; text: string }) {
   return (
     <span
       className="ml-1 shrink-0 truncate text-[12px] text-white/85"
-      style={{ width: CALL_LINE_WIDTH }}
+      style={{ width: CALL_LINE_WIDTH + extra }}
       data-label="line"
     >
       {text}
@@ -2589,54 +2794,6 @@ function EndCallButton({
         onControl?.("endSession");
       }}
     />
-  );
-}
-
-/**
- * Answer the confirmation the turn is blocked on.
- *
- * The request id travels with the press so the session answers the question the
- * user was actually shown: between the push that drew these buttons and the
- * press that answers them the request can be decided in the app, time out, or
- * be superseded, and the next one to arrive would be a different question
- * wearing the same buttons.
- */
-function ApprovalBody({
-  detail,
-  requestId,
-  onControl,
-}: {
-  detail: string;
-  requestId: string;
-  onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <>
-      {detail !== "" && (
-        <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
-          {detail}
-        </span>
-      )}
-      <PillButton
-        icon={<Check className="size-4" />}
-        label={t("companionSurface.allow")}
-        showLabel
-        tone="positive"
-        onClick={() => {
-          onControl?.("approveRequest", requestId);
-        }}
-      />
-      <PillButton
-        icon={<X className="size-4" />}
-        label={t("companionSurface.deny")}
-        showLabel
-        tone="negative"
-        onClick={() => {
-          onControl?.("denyRequest", requestId);
-        }}
-      />
-    </>
   );
 }
 

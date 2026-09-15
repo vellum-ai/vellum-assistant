@@ -379,6 +379,7 @@ function IntegrationsPanelInner() {
           description={selectedProvider.description}
           logoUrl={selectedProvider.logo_url}
           platformGate={platformGate}
+          tenantHost={selectedProvider.tenant_host}
           onClose={() => setSelectedProviderKey(null)}
         />
       )}
@@ -409,7 +410,9 @@ export function IntegrationsPage() {
           <Tabs.Trigger value="oauth">
             {t("integrationsPage.tabOAuth")}
           </Tabs.Trigger>
-          <Tabs.Trigger value="mcp">{t("integrationsPage.tabMcp")}</Tabs.Trigger>
+          <Tabs.Trigger value="mcp">
+            {t("integrationsPage.tabMcp")}
+          </Tabs.Trigger>
         </Tabs.List>
         <Tabs.Panel value="oauth" className="pt-4">
           <Suspense>

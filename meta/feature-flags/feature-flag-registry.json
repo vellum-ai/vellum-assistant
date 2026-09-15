@@ -175,7 +175,7 @@
       "scope": "client",
       "key": "teleport",
       "label": "Teleport",
-      "description": "Enable teleport UI in General settings for moving assistants between hosting environments",
+      "description": "Enable the local-to-platform teleport UI in General settings. Platform-to-local teleport is GA and not gated by this flag",
       "defaultEnabled": false
     },
     {
@@ -472,6 +472,14 @@
       "key": "figma-oauth",
       "label": "Figma Integration",
       "description": "Gates the seeded Figma OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup, and existing connections keep injecting credentials; only its visibility changes.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "quickbooks-oauth",
+      "scope": "assistant",
+      "key": "quickbooks-oauth",
+      "label": "QuickBooks Integration",
+      "description": "Gates the seeded QuickBooks OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup, and existing connections keep injecting credentials; only its visibility changes.",
       "defaultEnabled": false
     },
     {

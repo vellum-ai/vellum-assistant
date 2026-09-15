@@ -155,8 +155,23 @@
       "title": "交谈"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "允许",
+    "confirm": "确认",
+    "credentialLabel": "凭据",
+    "deny": "拒绝",
+    "dismiss": "关闭",
+    "enter": "输入",
+    "needsCredentials": "需要凭据",
+    "needsCredentialsFor": "需要 {service} 的凭据",
+    "needsOkCount": "{count, plural, other {有 # 项需要你的同意}}",
+    "notNow": "暂不",
+    "openApp": "打开 Vellum",
+    "pendingBadge": "{count, plural, other {有 # 项需要你的同意}}",
+    "review": "查看",
+    "surfaceFallback": "有内容要给你看"
+  },
+  "companionSurface": {
     "calling": "正在呼叫…",
     "callingNamed": "正在呼叫 {name}…",
     "captureKind": "来源类型",
@@ -166,7 +181,6 @@
     "captureScreens": "屏幕",
     "captureTabs": "Chrome 标签页",
     "captureWindows": "窗口",
-    "deny": "拒绝",
     "draw": "绘制",
     "clearMarks": "清除标记",
     "drawTools": "绘图工具",
@@ -681,6 +695,10 @@
     "copyError": "无法复制名称。请改为在 BotFather 中输入。",
     "stepConnect": "连接",
     "stepCreate": "创建机器人"
+  },
+  "tenantHost": {
+    "shopifyLabel": "店铺域名",
+    "shopifyPlaceholder": "your-store.myshopify.com"
   },
   "terminalPanel": {
     "recoveryModeBanner": "恢复模式已激活：此会话已连接到调试终端。"

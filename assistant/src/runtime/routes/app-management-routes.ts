@@ -181,7 +181,7 @@ function workspaceAppItem(a: AppDefinition): AppListItem {
     description: a.description,
     icon: a.icon,
     createdAt: a.createdAt,
-    updatedAt: a.updatedAt,
+    updatedAt: appContentUpdatedAt(getAppDirPath(a.id), a.updatedAt),
     version: a.version ?? "1.0.0",
     contentId: computeContentId(a.name),
     origin: "workspace",
@@ -203,11 +203,26 @@ function pluginAppItem(app: EnumeratedApp): AppListItem {
     id: app.id,
     name: app.name,
     createdAt: mtime,
-    updatedAt: mtime,
+    updatedAt: appContentUpdatedAt(app.sourcePath, mtime),
     version: "1.0.0",
     contentId: computeContentId(app.name),
     origin: `plugin:${pluginName}`,
   };
+}
+
+/** The newest persisted metadata or compiled-output revision for an app. */
+function appContentUpdatedAt(
+  sourcePath: string,
+  metadataUpdatedAt: number,
+): number {
+  try {
+    return Math.max(
+      metadataUpdatedAt,
+      statSync(join(sourcePath, "dist")).mtimeMs,
+    );
+  } catch {
+    return metadataUpdatedAt;
+  }
 }
 
 function getAppDataResult(

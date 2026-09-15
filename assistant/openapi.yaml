@@ -24481,6 +24481,22 @@ paths:
                             anyOf:
                               - type: string
                               - type: "null"
+                          tenant_host:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  pattern:
+                                    type: string
+                                  label:
+                                    type: string
+                                  placeholder:
+                                    type: string
+                                required:
+                                  - pattern
+                                  - label
+                                  - placeholder
+                                additionalProperties: false
+                              - type: "null"
                           acts_as:
                             type: string
                             enum:
@@ -24497,6 +24513,7 @@ paths:
                           - supports_managed_mode
                           - managed_service_is_paid
                           - feature_flag
+                          - tenant_host
                           - acts_as
                         additionalProperties: false
                       - type: "null"
@@ -25015,6 +25032,22 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        tenant_host:
+                          anyOf:
+                            - type: object
+                              properties:
+                                pattern:
+                                  type: string
+                                label:
+                                  type: string
+                                placeholder:
+                                  type: string
+                              required:
+                                - pattern
+                                - label
+                                - placeholder
+                              additionalProperties: false
+                            - type: "null"
                         acts_as:
                           type: string
                           enum:
@@ -25031,6 +25064,7 @@ paths:
                         - supports_managed_mode
                         - managed_service_is_paid
                         - feature_flag
+                        - tenant_host
                         - acts_as
                       additionalProperties: false
                 required:

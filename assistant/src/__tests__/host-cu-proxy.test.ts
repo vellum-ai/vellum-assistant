@@ -1232,6 +1232,38 @@ describe("HostCuProxy", () => {
     });
   });
 
+  describe("endTask", () => {
+    test("tells the desktop the task drove that it is over, once, then resets", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      const requestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.processObservation(requestId, { axTree: "Button [1]" });
+      await resultPromise;
+
+      proxy.endTask("session-1");
+      const cancels = sentMessages.filter(
+        (m) => (m as Record<string, unknown>).type === "host_cu_cancel",
+      ) as Array<Record<string, unknown>>;
+      expect(cancels).toHaveLength(1);
+      expect(cancels[0].conversationId).toBe("session-1");
+      expect(cancels[0].requestId).not.toBe(requestId);
+
+      proxy.endTask("session-1");
+      expect(
+        sentMessages.filter(
+          (m) => (m as Record<string, unknown>).type === "host_cu_cancel",
+        ),
+      ).toHaveLength(1);
+    });
+  });
+
   describe("late resolve after abort", () => {
     test("resolve is a no-op after abort (entry already deleted)", async () => {
       setup();
@@ -1868,7 +1900,7 @@ describe("HostCuProxy", () => {
     });
   });
 
-  describe("screenshot on request", () => {
+  describe("screenshot policy", () => {
     const TREE = 'Window: "Inbox" (Mail)\n  [1] button "Reply" at (10, 10)';
     const OMITTED = "Screenshot omitted";
 
@@ -1881,15 +1913,20 @@ describe("HostCuProxy", () => {
             "host_cu",
             "host_cu_window_capture",
             "host_cu_annotate",
+            "host_cu_sequence",
           ],
         },
       ];
     }
 
-    /** Dispatch one request and return what was sent, without answering it. */
+    /**
+     * Dispatch one request and return what was sent, without answering it. A
+     * plain observation is the only step whose pixels depend on policy, so it
+     * is the default.
+     */
     function dispatch(
-      input: Record<string, unknown> = { element_id: 1 },
-      toolName = "computer_use_click",
+      input: Record<string, unknown> = {},
+      toolName = "computer_use_observe",
     ) {
       const pending = proxy.request(
         toolName,
@@ -1923,20 +1960,40 @@ describe("HostCuProxy", () => {
       return !Object.hasOwn(sent.input, "includeScreenshot");
     }
 
-    test("the first observed step attaches and the next unscoped step does not", async () => {
+    test("the first observation attaches and the next plain one does not", async () => {
       setup();
       connect();
       const first = await step({ axTree: TREE, screenshot: "img" });
-      expect(first.sent.input).toEqual({ element_id: 1 });
+      expect(first.sent.input).toEqual({});
       expect(first.result.content).not.toContain(OMITTED);
 
       const second = await step({ axTree: TREE });
-      expect(second.sent.input).toEqual({
-        element_id: 1,
-        includeScreenshot: false,
-      });
+      expect(second.sent.input).toEqual({ includeScreenshot: false });
       expect(second.result.content).toContain(OMITTED);
       expect(second.result.isError).toBe(false);
+    });
+
+    test("every action attaches after the first look", async () => {
+      setup();
+      connect();
+      await step({ axTree: TREE, screenshot: "img" });
+      for (const [toolName, input] of [
+        ["computer_use_click", { element_id: 1 }],
+        ["computer_use_type_text", { text: "hi" }],
+        ["computer_use_key", { key: "enter" }],
+        ["computer_use_scroll", { direction: "down" }],
+        ["computer_use_wait", { duration: 1 }],
+        ["computer_use_sequence", { actions: [] }],
+      ] as const) {
+        const action = await step(
+          { axTree: TREE, screenshot: "img" },
+          { ...input, include_screenshot: false },
+          toolName,
+        );
+        expect(action.sent.input).toEqual(input);
+        expect(action.result.content).not.toContain(OMITTED);
+        expect(action.result.contentBlocks).toHaveLength(1);
+      }
     });
 
     test("the first look is per desktop, so a newly targeted one attaches", async () => {
@@ -1955,8 +2012,8 @@ describe("HostCuProxy", () => {
       ];
       const on = (clientId: string) => {
         const pending = proxy.request(
-          "computer_use_click",
-          { element_id: 1 },
+          "computer_use_observe",
+          {},
           "session-1",
           1,
           undefined,

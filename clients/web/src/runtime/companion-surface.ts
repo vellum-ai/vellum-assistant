@@ -18,6 +18,8 @@ import type {
   CompanionContext,
   CompanionDictating,
   CompanionIntroAction,
+  CompanionPopoverAnswer,
+  CompanionPopoverView,
   CompanionSurfaceState,
   DictationOfferAnswer,
   ScreenCaptureFrame,
@@ -311,6 +313,81 @@ export function answerCompanionDictationOffer(
 }
 
 /**
+ * Answer the popover beside the surface. Every answer leaves this renderer,
+ * named for the popover it was drawn for, since the window that holds the
+ * approval or the surface is the one that can act on it and may already have
+ * moved on. See {@link CompanionPopover}.
+ */
+export function answerCompanionPopover(
+  answer: CompanionPopoverAnswer,
+  popoverId: string,
+): void {
+  bridge()?.answerPopover?.(answer, popoverId);
+}
+
+/**
+ * Report the size of the popover's card, for the popover it is drawing. Main
+ * sizes the popover's window by it and shows the window once the popover on
+ * screen has been measured, so it never opens at the last one's size.
+ */
+export function setCompanionPopoverSize(
+  popoverId: string,
+  width: number,
+  height: number,
+): void {
+  bridge()?.setPopoverSize?.(popoverId, width, height);
+}
+
+/**
+ * Show the popover whole, put it off, or back to its short form. Main holds
+ * the view, since the call's bar and the popover's window both draw it. See
+ * {@link CompanionPopoverView}.
+ */
+export function setCompanionPopoverView(
+  popoverId: string,
+  view: CompanionPopoverView,
+): void {
+  bridge()?.setPopoverView?.(popoverId, view);
+}
+
+/**
+ * Report how tall the popover drawn on a call's bar stands above the bar's
+ * centre line, in points. Main grows the surface's canvas to hold it, since
+ * a list or a form is taller than the room the canvas keeps for a card.
+ */
+export function setCompanionAttachedPopoverHeight(
+  popoverId: string,
+  height: number,
+): void {
+  bridge()?.setAttachedPopoverHeight?.(popoverId, height);
+}
+
+/**
+ * Open a link from the popover in the user's browser.
+ *
+ * Through main rather than `window.open`: floating windows deny every
+ * navigation and every new window, so an anchor there does nothing.
+ */
+export function openCompanionLink(url: string): void {
+  bridge()?.openLink?.(url);
+}
+
+/**
+ * Whether the companion is on screen to show a prompt beside, which is when a
+ * caller that would bring the app forward for one can leave it where it is.
+ *
+ * False off Electron, on a shell that predates the popover, and whenever the
+ * question cannot be asked, so the caller falls back to raising the app.
+ */
+export function companionTakesPrompts(): Promise<boolean> {
+  const companion = bridge();
+  if (!companion?.takesPrompts) {
+    return Promise.resolve(false);
+  }
+  return companion.takesPrompts().catch(() => false);
+}
+
+/**
  * Bring Vellum forward on the conversation the user was last in, which is what
  * pressing the avatar asks for.
  *
@@ -387,6 +464,20 @@ export function setCompanionDictation(
     return;
   }
   setCompanionContext({ ...lastContext, dictating, dictationText });
+}
+
+/**
+ * Stop showing the popover.
+ *
+ * For the publisher going away, the way {@link clearCompanionWorking} is: the
+ * approval or surface it shows is answered in that publisher's window, so a
+ * popover left standing is one whose presses land nowhere.
+ */
+export function clearCompanionPopover(): void {
+  if (lastContext === null || lastContext.popover === undefined) {
+    return;
+  }
+  setCompanionContext({ ...lastContext, popover: undefined });
 }
 
 export function clearCompanionWorking(): void {

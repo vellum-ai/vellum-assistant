@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
@@ -60,8 +61,9 @@ async function getGuardianAccessToken(
 export async function createBackup(
   runtimeUrl: string,
   assistantId: string,
-  options?: { prefix?: string; description?: string },
+  options?: { prefix?: string; description?: string; timeoutMs?: number },
 ): Promise<string | null> {
+  const timeoutMs = options?.timeoutMs ?? 120_000;
   try {
     let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
     if (!accessToken) {
@@ -82,7 +84,7 @@ export async function createBackup(
         body: JSON.stringify({
           description: options?.description ?? "CLI backup",
         }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(timeoutMs),
       },
     );
 
@@ -106,7 +108,7 @@ export async function createBackup(
         body: JSON.stringify({
           description: options?.description ?? "CLI backup",
         }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     }
 
@@ -283,19 +285,84 @@ export async function restoreBackup(
   }
 }
 
+/** Filename kinds this CLI writes: `<assistantId>-<kind>-<timestamp>.vbundle`. */
+export const CLI_BACKUP_KINDS = ["pre-upgrade", "pre-teleport"] as const;
+export type CliBackupKind = (typeof CLI_BACKUP_KINDS)[number];
+
+/** `new Date().toISOString().replace(/[:.]/g, "-")`, as used in every CLI backup filename. */
+const BACKUP_TIMESTAMP_PATTERN =
+  "\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
- * Keep only the N most recent pre-upgrade backups for an assistant,
- * deleting older ones. Default: keep 3.
+ * Matches the backup filenames this CLI wrote for exactly `assistantId` and
+ * one of `kinds`. The kind and timestamp segments are matched in full, so an
+ * assistant whose id is a prefix of another's (`alpha` vs `alpha-prod`, or
+ * `alpha` vs `alpha-pre-teleport-prod`) never matches the other's files.
+ */
+export function assistantBackupFilenamePattern(
+  assistantId: string,
+  kinds: readonly CliBackupKind[] = CLI_BACKUP_KINDS,
+): RegExp {
+  return new RegExp(
+    `^${escapeRegExp(assistantId)}-(?:${kinds.join("|")})-${BACKUP_TIMESTAMP_PATTERN}\\.vbundle$`,
+  );
+}
+
+/**
+ * Modification times of the `.vbundle` backups this CLI has written for
+ * `assistantId` (every kind in `CLI_BACKUP_KINDS`), as ISO timestamps.
+ * Missing directory yields `[]`.
+ */
+export function listAssistantBackupTimes(assistantId: string): string[] {
+  const backupsDir = getBackupsDir();
+  let names: string[];
+  try {
+    names = readdirSync(backupsDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw err;
+  }
+  const pattern = assistantBackupFilenamePattern(assistantId);
+  const times: string[] = [];
+  for (const name of names) {
+    if (!pattern.test(name)) {
+      continue;
+    }
+    try {
+      times.push(statSync(join(backupsDir, name)).mtime.toISOString());
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw err;
+      }
+    }
+  }
+  return times;
+}
+
+/**
+ * Keep only the N most recent backups of one `kind` for an assistant,
+ * deleting older ones. Filenames are matched exactly (id, kind and
+ * timestamp), never by prefix. Default: keep 3 pre-upgrade backups.
  * Never throws — failures are silently ignored.
  */
-export function pruneOldBackups(assistantId: string, keep: number = 3): void {
+export function pruneOldBackups(
+  assistantId: string,
+  keep: number = 3,
+  kind: CliBackupKind = "pre-upgrade",
+): void {
   try {
     const backupsDir = getBackupsDir();
     if (!existsSync(backupsDir)) return;
 
-    const prefix = `${assistantId}-pre-upgrade-`;
+    const pattern = assistantBackupFilenamePattern(assistantId, [kind]);
     const entries = readdirSync(backupsDir)
-      .filter((f) => f.startsWith(prefix) && f.endsWith(".vbundle"))
+      .filter((f) => pattern.test(f))
       .sort();
 
     if (entries.length <= keep) return;

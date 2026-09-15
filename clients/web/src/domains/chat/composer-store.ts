@@ -218,6 +218,8 @@ export interface ComposerState {
   // --- Attachments ---
   attachments: ChatAttachment[];
   attachmentLastError: string | null;
+  /** Advances when authenticated ownership changes so late async work is ignored. */
+  sessionGeneration: number;
 }
 
 export interface ComposerActions {
@@ -257,7 +259,12 @@ export interface ComposerActions {
    * persisted entry, so the message waits where its own conversation will look
    * for it rather than being filed under a stranger.
    */
-  restoreFailedDraft: (assistantId: string, key: string, text: string) => void;
+  restoreFailedDraft: (
+    assistantId: string,
+    key: string,
+    text: string,
+    sessionGeneration: number,
+  ) => void;
 
   // --- Draft lifecycle (called by chat-session-store.switchToConversation) ---
   /**
@@ -302,6 +309,8 @@ export interface ComposerActions {
   resetAttachments: () => void;
   /** Clear all attachments AND revoke preview URLs (e.g. on assistant switch). */
   fullReset: () => void;
+  /** Clear all composer state owned by the authenticated user. */
+  resetForLogout: () => void;
   dismissAttachmentError: () => void;
 }
 
@@ -330,6 +339,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   restoredDraftConversationId: null,
   attachments: [],
   attachmentLastError: null,
+  sessionGeneration: 0,
 
   // --- Draft input actions ---
   setInput: (value) => {
@@ -356,7 +366,10 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     }
   },
 
-  restoreFailedDraft: (assistantId, key, text) => {
+  restoreFailedDraft: (assistantId, key, text, sessionGeneration) => {
+    if (sessionGeneration !== get().sessionGeneration) {
+      return;
+    }
     if (!text.trim()) {
       return;
     }
@@ -669,6 +682,27 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       }
       return { attachments: [], attachmentLastError: null };
     });
+    previewUrls.forEach((url) => URL.revokeObjectURL(url));
+    previewUrls.clear();
+  },
+
+  resetForLogout: () => {
+    set((s) => {
+      for (const att of s.attachments) {
+        if (att.kind === "uploading") {
+          cancelledUploads.add(att.localId);
+        }
+      }
+      return {
+        input: "",
+        restoredDraftConversationId: null,
+        attachments: [],
+        attachmentLastError: null,
+        sessionGeneration: s.sessionGeneration + 1,
+      };
+    });
+    draftsMap = new Map();
+    currentAssistantId = null;
     previewUrls.forEach((url) => URL.revokeObjectURL(url));
     previewUrls.clear();
   },

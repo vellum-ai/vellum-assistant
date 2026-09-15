@@ -24,7 +24,6 @@ import { useState } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import {
   DetailShell,
   DetailShellTitleWithCount,
@@ -41,6 +40,7 @@ import {
   PhaseGroupedStepList,
 } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { ToolStepPill } from "@/domains/chat/components/tool-progress-card/tool-step-pill";
+import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
 import {
   ToolDetailBody,
   ToolDetailHeaderTitle,
@@ -50,7 +50,6 @@ import {
   WebSearchStepRow,
 } from "@/domains/chat/components/web-search/web-search-step-row";
 import { useLiveActivityGroup } from "@/domains/chat/hooks/use-live-activity-group";
-import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useToolCallCardDataFromItems } from "@/domains/chat/hooks/use-tool-call-card-data";
 import {
   toolDetailPayloadFromToolCall,
@@ -272,8 +271,8 @@ function TimelineStep({
 /**
  * Level 2 — a single step's detail. The back affordance lives in the panel
  * header (the chevron next to the step title). Thinking details render the
- * live reasoning markdown; tool details reuse the shared `ToolDetailBody`
- * (technical details + streaming output).
+ * live reasoning markdown (`ThinkingDetailMarkdown`); tool details reuse the
+ * shared `ToolDetailBody` (technical details + streaming output).
  */
 function StepDetailLevel({
   detail,
@@ -282,23 +281,10 @@ function StepDetailLevel({
   detail: ToolDetailPayload;
   assistantId?: string | null;
 }) {
-  // Live reasoning for thinking details — streams while the panel is open,
-  // falling back to the click-time snapshot when the source can't be
-  // resolved. Called unconditionally (hook rules); no-ops for tool details.
-  const liveThinking = useLiveThinkingText(
-    detail.kind === "thinking" ? detail.messageId : undefined,
-    detail.thinkingGroupIndex,
-    detail.thinkingItemIndex,
-  );
-
   return (
     <div className="flex flex-col gap-4">
       {detail.kind === "thinking" ? (
-        <ChatMarkdownMessage
-          content={liveThinking ?? detail.thinkingText ?? ""}
-          hardLineBreaks
-          assistantId={assistantId}
-        />
+        <ThinkingDetailMarkdown detail={detail} assistantId={assistantId} />
       ) : (
         <ToolDetailBody detail={detail} assistantId={assistantId} />
       )}

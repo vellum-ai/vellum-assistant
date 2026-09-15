@@ -156,7 +156,14 @@ import {
   type LiveVoiceClientUpdateConfigFrame,
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFramePayload,
+  type LiveVoiceSessionControl,
 } from "./protocol.js";
+import {
+  type ClientSessionControlRequest,
+  progressConfigForCadence,
+  requestedSessionControl,
+  sessionControlTeaching,
+} from "./session-controls.js";
 
 const log = getLogger("live-voice-session");
 
@@ -610,6 +617,10 @@ interface ActiveAssistantTurn {
   // Never set from anything the model says: the reveal is a consequence of
   // showing a surface, not a token the model has to remember.
   minimizeRequested: boolean;
+  // The session control the completed reply ended with (see
+  // session-controls.ts); consumed at TTS drain like the minimize, where the
+  // session_control frame goes out once the acknowledgement has been spoken.
+  sessionControlRequested: ClientSessionControlRequest | null;
   // The activity label the client was last told about, so a run of tools that
   // map to the same line sends one frame rather than one per call. Empty means
   // the client believes nothing is running, which is also where a turn ends.
@@ -757,7 +768,7 @@ interface ActiveAssistantTurn {
 // message. When a turn starts from a barge-in, the interruption merge note is
 // appended to it (see buildInterruptionMergeNote) so the model reconciles the
 // interrupted request with the new utterance.
-const LIVE_VOICE_CONTROL_PROMPT_BASE = `You are speaking in a local live voice session. ${SPOKEN_REPLY_LENGTH_RULE} ${SPOKEN_REPLY_PLAIN_TEXT_RULE} Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. `;
+const LIVE_VOICE_CONTROL_PROMPT_BASE = `You are speaking in a local live voice session. ${SPOKEN_REPLY_LENGTH_RULE} ${SPOKEN_REPLY_PLAIN_TEXT_RULE} Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work, or a card with an image or a link instead of reading an address out); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. `;
 
 // Appended for the legs that can actually put something on screen: the main
 // leg and the escalated leg. The front-door (fast) leg never receives it, for
@@ -773,7 +784,7 @@ const LIVE_VOICE_CONTROL_PROMPT_BASE = `You are speaking in a local live voice s
 // model can get right, which is speaking as though the thing is already in
 // front of the user, because by the time it stops talking it is.
 const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
-  "When the complete answer would run past a few sentences, say the short version out loud and put the detail on screen instead of reading it out. The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. Never emit bracketed markers of any kind. ";
+  "When the complete answer would run past a few sentences, say the short version out loud and put the detail on screen instead of reading it out. The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. ";
 
 // The setup-flow case, spelled out because it is the one the model gets wrong
 // on its own: connecting an account reads as something a call cannot do, so it
@@ -854,12 +865,14 @@ function buildLiveDeliveryNote(request: string, answer: string): string {
 function buildVoiceControlPrompt(
   turn: ActiveAssistantTurn,
   leg: { frontDoor?: boolean },
+  sessionControls: readonly LiveVoiceSessionControl[],
 ): string {
   let prompt =
     LIVE_VOICE_CONTROL_PROMPT_BASE +
     (leg.frontDoor === true
       ? ""
-      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING);
+      : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING) +
+    sessionControlTeaching(sessionControls, leg);
   if (turn.language !== undefined) {
     prompt = `${prompt}\n\nThe caller has been speaking the language with code "${turn.language}" this turn. Reply in that language unless they clearly switch to another.`;
   }
@@ -1119,6 +1132,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // take a turn without the microphone. Governs one thing only: whether a
   // missing speech-to-text leg is fatal to startup (see start()).
   private readonly textInput: boolean;
+  // The session controls the client declared it can carry out; the only ones
+  // the model is taught and the only ones a reply's marker can trigger.
+  private readonly sessionControls: readonly LiveVoiceSessionControl[];
+  // How often progress updates are spoken, as the user last asked out loud.
+  // Session-scoped: it applies from the next turn to the end of the call.
+  private progressCadence: "fewer" | "normal" = "normal";
   // Whether this session's speech-to-text leg came up. False only when the
   // preflight found it missing and `textInput` let the session open anyway, in
   // which case nothing arms a transcriber and typed turns are the only input.
@@ -1393,6 +1412,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       2 *
       SERVER_VAD_PENDING_AUDIO_MAX_SECONDS;
     this.textInput = context.startFrame.textInput === true;
+    this.sessionControls = context.startFrame.sessionControls ?? [];
   }
 
   get finalTranscriptText(): string {
@@ -5004,7 +5024,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       handle: null,
       launchedAtMs: Date.now(),
       progress: createProgressCadence({
-        config: this.frontModelConfig.progress,
+        config: progressConfigForCadence(
+          this.frontModelConfig.progress,
+          this.progressCadence,
+        ),
         // Without TTS there is nothing to speak (the idle trigger's static
         // fallback still needs a generation attempt to fall back from).
         narrator: this.streamTtsAudio ? this.progressNarrator : null,
@@ -5039,6 +5062,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantCompleted: false,
       ttsDone: false,
       minimizeRequested: false,
+      sessionControlRequested: null,
       activityLabel: "",
       publishedApprovalRequestId: null,
       pendingApproval: null,
@@ -5307,9 +5331,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             ? { entry: this.context.startFrame.entry }
             : {}),
         },
-        voiceControlPrompt: buildVoiceControlPrompt(activeTurn, {
-          ...(leg.frontDoor !== undefined ? { frontDoor: leg.frontDoor } : {}),
-        }),
+        voiceControlPrompt: buildVoiceControlPrompt(
+          activeTurn,
+          {
+            ...(leg.frontDoor !== undefined
+              ? { frontDoor: leg.frontDoor }
+              : {}),
+          },
+          this.sessionControls,
+        ),
         onApprovalPending: (requestId) => {
           this.revealRoomForPendingApproval(activeTurn, requestId);
         },
@@ -5413,6 +5443,26 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // emitted rather than dropped.
             if (!leg.frontDoor && msg.type === "message_complete") {
               flushLegText(rawText, { force: true });
+            }
+            // Read off the leg that finished the reply: a front-door answer
+            // or the escalated leg. A handed-off front-door leg returned
+            // above, so its holding phrase can never end a call.
+            if (msg.type === "message_complete") {
+              const request = requestedSessionControl(
+                rawText,
+                this.sessionControls,
+              );
+              if (request?.action === "updates") {
+                // The session's own control: nothing to send, and nothing to
+                // wait for, since it shapes turns that have not started yet.
+                this.progressCadence = request.cadence;
+                log.info(
+                  { turnId, cadence: request.cadence },
+                  "Live voice progress cadence changed",
+                );
+              } else {
+                current.sessionControlRequested = request;
+              }
             }
             current.assistantCompleted = true;
             if (msg.type === "generation_cancelled") {
@@ -5825,6 +5875,34 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // for a turn that ends with an op still open, which would otherwise
         // leave the last tool it touched on screen through the next silence.
         this.publishActivity(currentTurn, "");
+
+        // Drain-scoped session control, under the same terms as the minimize
+        // below: after the acknowledgement has been spoken, never for a
+        // barged-in turn (talking over "okay, bye" means they are not
+        // leaving), at most once per turn. Ending the call makes revealing
+        // the screen moot, so an end takes the minimize's place.
+        const sessionControl = currentTurn.sessionControlRequested;
+        currentTurn.sessionControlRequested = null;
+        if (
+          sessionControl !== null &&
+          !currentTurn.abortController.signal.aborted
+        ) {
+          log.info(
+            { turnId: currentTurn.turnId, action: sessionControl.action },
+            "Live voice reply requested a session control",
+          );
+          if (sessionControl.action === "end") {
+            currentTurn.minimizeRequested = false;
+          }
+          await this.sendFrame(
+            {
+              type: "session_control",
+              turnId: currentTurn.turnId,
+              ...sessionControl,
+            },
+            () => !this.isClosed,
+          );
+        }
 
         // Drain-scoped minimize: the latched marker is consumed here, after
         // the turn's speech has fully drained — never mid-speech, never for

@@ -17,14 +17,13 @@ import { Bolt, Brain } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { DetailShell } from "@/components/detail-shell";
 import { RiskChip } from "@/domains/chat/components/risk-chip";
+import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detail-markdown";
 import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import { getToolActivityRenderer } from "@/domains/chat/components/tool-activity/tool-activity-renderers";
-import { useLiveThinkingText } from "@/domains/chat/hooks/use-live-thinking-text";
 import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
 import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
@@ -35,11 +34,8 @@ import {
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
 /**
- * Thinking variant body. Reuses the shared shell but renders the reasoning
- * markdown live: it re-derives the text from the chat-session store via the
- * payload's stable identity so an open drawer streams as deltas land, falling
- * back to the open-time `thinkingText` snapshot when the source can't be
- * resolved (e.g. message paged out, or an identity-less payload).
+ * Thinking variant body. Reuses the shared shell around the live reasoning
+ * markdown (see `ThinkingDetailMarkdown`).
  */
 function ThinkingDetailBody({
   detail,
@@ -51,11 +47,6 @@ function ThinkingDetailBody({
   assistantId?: string | null;
 }) {
   const { t } = useTranslation("chat");
-  const live = useLiveThinkingText(
-    detail.messageId,
-    detail.thinkingGroupIndex,
-    detail.thinkingItemIndex,
-  );
   return (
     <DetailShell
       Glyph={Brain}
@@ -64,11 +55,7 @@ function ThinkingDetailBody({
       closeVariant="outlined"
       onClose={onClose}
     >
-      <ChatMarkdownMessage
-        content={live ?? detail.thinkingText ?? ""}
-        hardLineBreaks
-        assistantId={assistantId}
-      />
+      <ThinkingDetailMarkdown detail={detail} assistantId={assistantId} />
     </DetailShell>
   );
 }

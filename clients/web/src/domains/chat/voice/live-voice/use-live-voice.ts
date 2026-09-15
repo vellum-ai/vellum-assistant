@@ -98,7 +98,11 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
-import type { LiveVoiceEntry } from "@/domains/chat/voice/live-voice/protocol";
+import type {
+  LiveVoiceEntry,
+  LiveVoiceSessionControlServerFrame,
+} from "@/domains/chat/voice/live-voice/protocol";
+import { applyLiveVoiceSessionControl } from "@/domains/chat/voice/live-voice/session-control";
 import { fixedT } from "@/i18n";
 import {
   isLiveVoiceSessionActive,
@@ -344,6 +348,13 @@ interface SessionContext {
    * frame, or hands-free stt-final); identifies which response owns the state.
    */
   responseEpoch: number;
+  /**
+   * A session control the user asked for out loud, waiting for its spoken
+   * acknowledgement to be heard. Dropped when the user talks over it for real
+   * (their utterance becomes a turn, or a turn is cancelled), so "wait" over a
+   * goodbye keeps the call. See `applySessionControlOnceHeard`.
+   */
+  pendingSessionControl: LiveVoiceSessionControlServerFrame | null;
   /** Whether an interrupt was already sent for the current response. */
   interruptSent: boolean;
   /**
@@ -901,6 +912,7 @@ export function useLiveVoice(
         forwardingAudio: false,
         responseAudioStarted: false,
         responseEpoch: 0,
+        pendingSessionControl: null,
         interruptSent: false,
         endAfterReply: false,
         releaseInFlight: false,
@@ -954,6 +966,38 @@ export function useLiveVoice(
       // open keeps the session for them, and an accepted one disarms the
       // end outright. Runs again after a discarded utterance, since room
       // noise that opened one and was retracted is not the user carrying on.
+      // Apply the pending session control once its acknowledgement has
+      // actually been heard. A drain also resolves when an onset flushes
+      // playback, so a flushed drain proves nothing: while the onset's
+      // utterance is open or its audio is held, the control waits. An
+      // utterance that becomes a turn (`thinking`) or a cancelled turn drops
+      // it, since the user talked over it for real; a discarded one re-arms
+      // this, since room noise that opened an utterance is not the user
+      // changing their mind.
+      const applySessionControlOnceHeard = (): void => {
+        const frame = session.pendingSessionControl;
+        if (frame === null) {
+          return;
+        }
+        // A resumed reply bumps the epoch and re-arms this with a waiter of
+        // its own; a waiter from before the resume must not settle onto audio
+        // that is playing again.
+        const responseEpoch = session.responseEpoch;
+        void session.player.waitUntilDrained().then(() => {
+          if (
+            !live() ||
+            session.pendingSessionControl !== frame ||
+            session.responseEpoch !== responseEpoch ||
+            session.utteranceOpen ||
+            session.player.hasHeldPlayback()
+          ) {
+            return;
+          }
+          session.pendingSessionControl = null;
+          applyLiveVoiceSessionControl(frame);
+        });
+      };
+
       const endAfterReplyWhenQuiet = (): void => {
         if (!live() || !session.endAfterReply) {
           return;
@@ -1122,7 +1166,12 @@ export function useLiveVoice(
           // The utterance the barge-in opened held no speech, so the barge-in
           // was wrong: put the flushed reply back rather than leaving silence
           // where the answer was. Resuming sets `speaking` itself.
-          if (resumeHeldPlayback(session, teardown)) {
+          const resumed = resumeHeldPlayback(session, teardown);
+          // Same for a spoken control the onset held off. Re-armed after the
+          // resume, so its drain waits on the reply playing again rather than
+          // resolving on the silence the flush left.
+          applySessionControlOnceHeard();
+          if (resumed) {
             return;
           }
           // The closed utterance had no usable speech (noise/cough); return
@@ -1202,8 +1251,10 @@ export function useLiveVoice(
           //
           // New response: reset the per-response transcript and barge-in flags.
           // A turn starting is the definitive answer that the barge-in before
-          // it was real, so the previous reply's held audio is spent.
+          // it was real, so the previous reply's held audio is spent, and so is
+          // a control that reply asked for: the user carried on instead.
           clearHeldPlayback(session);
+          session.pendingSessionControl = null;
           session.responseEpoch += 1;
           session.responseAudioStarted = false;
           session.interruptSent = false;
@@ -1317,10 +1368,22 @@ export function useLiveVoice(
             minimizeVoiceRoom();
           });
         }),
+        client.on("sessionControl", (frame) => {
+          if (!live()) {
+            return;
+          }
+          // The user asked out loud to end or mute. Same local drain as the
+          // minimize above: the goodbye or the "muting you" is heard in full
+          // before the call ends or the mic goes quiet.
+          session.pendingSessionControl = frame;
+          applySessionControlOnceHeard();
+        }),
         client.on("turnCancelled", () => {
           if (!live() || !session.handsFree) {
             return;
           }
+          // A cancelled turn's control goes with it.
+          session.pendingSessionControl = null;
           // Drop the cancelled turn's bound stamp so the next response's
           // audio can't pair against it. The unbound `speechEndedAtMs` is
           // left alone — it belongs to a newer overlapping utterance whose

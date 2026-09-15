@@ -59,6 +59,11 @@ export async function fetchManagedOAuthProvider(
  * Ask the platform for the provider's authorize URL. `requestId` comes back on
  * the completion page's payload, which is how a completion is matched to the
  * attempt that asked for it.
+ *
+ * `tenantHost` is the customer's own host for per-tenant providers (Shopify's
+ * `*.myshopify.com`), whose OAuth endpoints have no global address. The
+ * platform validates it against the provider's pattern; it is omitted from
+ * the request entirely for providers that have no use for it.
  */
 export async function startManagedOAuth(
   assistantId: string,
@@ -66,6 +71,7 @@ export async function startManagedOAuth(
   requestId: string,
   native: boolean,
   requestedScopes: string[] | undefined,
+  tenantHost?: string,
 ): Promise<string> {
   const redirectAfterConnect = `${routes.account.oauth.popupComplete}?requestId=${requestId}${native ? "&native=1" : ""}`;
   const { data, error, response } = await assistantsOauthStartCreate({
@@ -73,6 +79,7 @@ export async function startManagedOAuth(
     body: {
       requested_scopes: requestedScopes ?? [],
       redirect_after_connect: redirectAfterConnect,
+      ...(tenantHost ? { tenant_host: tenantHost } : {}),
     },
     throwOnError: false,
   });

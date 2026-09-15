@@ -40,6 +40,8 @@ interface ConnectionSummary {
   status: string;
   expiresAt?: string | null;
   hasRefreshToken?: boolean;
+  /** Values the provider scopes the connection by (QuickBooks' realm id). */
+  providerParams?: Record<string, string>;
 }
 
 interface OAuthStatusResponse {
@@ -91,6 +93,9 @@ function formatConnection(c: ConnectionSummary, mode: string): string {
     lines.push(`    Granted scopes: ${c.grantedScopes.join(", ")}`);
   } else {
     lines.push(`    Granted scopes: (none)`);
+  }
+  for (const [key, value] of Object.entries(c.providerParams ?? {})) {
+    lines.push(`    ${key}: ${value}`);
   }
   if (mode === "byo") {
     if (c.expiresAt) {

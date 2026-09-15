@@ -14,6 +14,7 @@ import {
   introSpotlight,
 } from "@/components/companion-intro";
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
+import { CompanionPromptRow } from "@/components/companion-popover";
 import { onCompanionSurface } from "@/components/companion-layout";
 import {
   CompanionSurface,
@@ -724,24 +725,37 @@ export const InCall: Story = {
 };
 
 /**
- * Mid-call with a turn stopped on a confirmation.
- *
- * The decision takes the control row rather than crowding in beside it, which
- * is the same trade the iOS Lock Screen card makes: the turn is going nowhere
- * until this is answered, so it is the only thing here worth pressing. The
- * activity line says what is being asked; the pill is not the place to render a
- * tool call's arguments, and the app is a click away for that.
+ * Mid-call with approvals waiting: the prompt's short form joins the bar as a
+ * row of its own, and the two read as one shape.
  */
-export const PendingApproval: Story = {
+export const InCallWithPrompt: Story = {
   args: {
     phase: "call",
-    call: {
-      ...DEMO_CALL,
-      phase: "thinking",
-      label: "Thinking…",
-      detail: "Read package.json",
-      approvalRequestId: "req-1",
-    },
+    call: DEMO_CALL,
+    watchEnabled: false,
+    prompt: (
+      <CompanionPromptRow
+        popover={{
+          kind: "approvals",
+          id: "req-1,req-2,req-3",
+          items: [
+            { id: "req-1", title: "Read the Downloads folder", detail: "" },
+            { id: "req-2", title: "Open Safari", detail: "" },
+            { id: "req-3", title: "Send an email", detail: "" },
+          ],
+        }}
+      />
+    ),
+  },
+};
+
+/** The same approvals put off: counted on the bar, a press away. */
+export const InCallWithPromptsDeferred: Story = {
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    watchEnabled: false,
+    promptsDeferred: 3,
   },
 };
 

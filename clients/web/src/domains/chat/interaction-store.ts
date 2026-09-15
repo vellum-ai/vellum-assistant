@@ -264,6 +264,8 @@ export interface InteractionActions {
    * different assistant would be posting to a gateway that never heard of it.
    */
   resetAll: (options?: { assistantChanged?: boolean }) => void;
+  /** Clear every prompt and submission owned by the authenticated user. */
+  resetForLogout: () => void;
 }
 
 export type InteractionStore = InteractionState & InteractionActions;
@@ -672,6 +674,16 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       // before it, comparing equal against a restarted counter, would retire a
       // prompt raised in the meantime and record its tool-use id as dismissed,
       // which stops any later snapshot from restoring the card at all.
+      questionRevision: state.questionRevision + 1,
+      acpConnectRevision: state.acpConnectRevision + 1,
+    })),
+
+  resetForLogout: () =>
+    set((state) => ({
+      ...INITIAL_STATE,
+      submittingByKind: { ...INITIAL_STATE.submittingByKind },
+      dismissedAcpConnectToolUseIds: new Set(),
+      unknownNudgeToolCallIds: new Set(),
       questionRevision: state.questionRevision + 1,
       acpConnectRevision: state.acpConnectRevision + 1,
     })),

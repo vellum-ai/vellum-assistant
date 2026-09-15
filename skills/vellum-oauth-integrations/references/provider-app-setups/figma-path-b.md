@@ -68,7 +68,6 @@ Tell the user:
 >    - `file_comments:write`
 >    - `file_dev_resources:read`
 >    - `file_dev_resources:write`
->    - `folders:read`
 >    - `folder_metadata:read`
 >    - `library_content:read`
 >    - `library_assets:read`
@@ -79,7 +78,7 @@ Tell the user:
 >
 > Let me know when it's saved.
 
-If the user does not want to enable all thirteen, have them enable only the
+If the user does not want to enable all twelve, have them enable only the
 scopes they are comfortable with and pass that exact set on connect, which
 replaces the defaults entirely (keep `current_user:read`, since the ping and
 identity checks both call `GET /v1/me`):
