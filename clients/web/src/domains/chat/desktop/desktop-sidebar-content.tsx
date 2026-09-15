@@ -1,4 +1,4 @@
-import { Modal, Typography } from "@vellumai/design-library";
+import { Modal } from "@vellumai/design-library";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -55,13 +55,6 @@ export function DesktopSidebarContent({
         ref={attachPreview}
         className="aspect-video w-full overflow-hidden rounded-lg border border-[var(--border-base)] bg-black"
       />
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="mt-3 text-center text-[var(--content-tertiary)]"
-      >
-        {t("assistantDesktop.title")}
-      </Typography>
       {createPortal(
         <DesktopPanel
           assistantId={assistantId}
