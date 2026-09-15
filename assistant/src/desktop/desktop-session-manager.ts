@@ -24,6 +24,7 @@ import {
 } from "./desktop-dependencies.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
+import { DESKTOP_WINDOW_DRAG_SCRIPT } from "./desktop-window-drag.js";
 import { writeDesktopWindowTheme } from "./desktop-window-theme.js";
 
 const log = getLogger("desktop-session");
@@ -358,7 +359,16 @@ export class DesktopSessionManager {
       } catch (err) {
         log.warn({ err }, "Desktop window theme could not be applied");
       }
-      this.launch("window-manager", windowManagerCommand, env);
+      this.launch(
+        "window-manager",
+        [
+          this.binaries.python,
+          "-c",
+          DESKTOP_WINDOW_DRAG_SCRIPT,
+          ...windowManagerCommand,
+        ],
+        env,
+      );
       // Before the dock, which only gets the ARGB visual its rounded corners
       // and translucency need if a compositor is already running.
       this.launchCosmetic("compositor", [this.binaries.compositor], env);

@@ -27,6 +27,7 @@ const CHROME_PACKAGES = {
 const DESKTOP_BINARIES = {
   xServer: ["Xtigervnc"],
   windowManager: ["openbox"],
+  python: ["python3"],
   compositor: ["xcompmgr"],
   panel: ["plank"],
   panelSession: ["dbus-run-session"],
@@ -40,6 +41,7 @@ const DESKTOP_PACKAGES = [
   "feh",
   "gnome-mines",
   "openbox",
+  "python3",
   "tigervnc-standalone-server",
   "tigervnc-common",
   "plank",
