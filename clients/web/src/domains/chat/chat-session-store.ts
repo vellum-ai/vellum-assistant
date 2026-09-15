@@ -470,6 +470,13 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       return;
     }
 
+    if (
+      state.previousAssistantId === assistantId &&
+      state.previousConversationId === activeConversationId
+    ) {
+      return;
+    }
+
     // Track outgoing conversation's attention state.
     const outgoingConversationId = state.previousConversationId;
     const isConversationSwitch = Boolean(

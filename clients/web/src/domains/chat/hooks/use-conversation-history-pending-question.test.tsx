@@ -17,6 +17,7 @@ import type { ReactNode } from "react";
 
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import type { QuestionEntry } from "@vellumai/assistant-api";
@@ -152,6 +153,23 @@ function renderHistory() {
   );
 }
 
+function renderHistoryAcrossLifecycle() {
+  return renderHook(
+    ({ assistantStateKind }: { assistantStateKind: "loading" | "active" }) =>
+      useConversationHistory({
+        assistantId: "asst-1",
+        assistantStateKind,
+        activeConversationId: "conv-A",
+      }),
+    {
+      wrapper: Wrapper,
+      initialProps: {
+        assistantStateKind: "loading" as "loading" | "active",
+      },
+    },
+  );
+}
+
 beforeEach(() => {
   currentMessages = messagesWithMarker();
   reportedInteractions = {};
@@ -160,6 +178,12 @@ beforeEach(() => {
   readFailure = null;
   deferredCalls = null;
   dataUpdatedAt = 1;
+  useChatSessionStore.setState({
+    previousAssistantId: null,
+    previousConversationId: null,
+    draftConversationIdResolution: false,
+    confirmationToolCallMap: new Map(),
+  });
   useInteractionStore.getState().resetAll();
   useConversationStore.setState({
     activeConversationId: "conv-A",
@@ -170,6 +194,247 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useInteractionStore.getState().resetAll();
+});
+
+describe("secret and confirmation recovery", () => {
+  test.each(["secret", "confirmation"] as const)(
+    "retires a stale %s after same-session loading recovery",
+    async (kind) => {
+      currentMessages = [];
+      reportedInteractions = {
+        pendingSecret: null,
+        pendingConfirmation: null,
+        pendingQuestion: null,
+      };
+      useChatSessionStore.setState({
+        previousAssistantId: "asst-1",
+        previousConversationId: "conv-A",
+      });
+      useConversationStore.getState().addAttentionConversationId("conv-A");
+      if (kind === "secret") {
+        useInteractionStore
+          .getState()
+          .showSecret({ requestId: "secret-stale" });
+      } else {
+        useInteractionStore
+          .getState()
+          .showConfirmation({ requestId: "confirmation-stale" });
+      }
+      const { rerender } = renderHistoryAcrossLifecycle();
+
+      rerender({ assistantStateKind: "active" });
+
+      await waitFor(() => {
+        expect(
+          kind === "secret"
+            ? useInteractionStore.getState().pendingSecret
+            : useInteractionStore.getState().pendingConfirmation,
+        ).toBeNull();
+      });
+    },
+  );
+
+  test.each(["secret", "confirmation"] as const)(
+    "does not retire a newer %s that arrives during the registry read",
+    async (kind) => {
+      currentMessages = [];
+      deferredCalls = [];
+      useChatSessionStore.setState({
+        previousAssistantId: "asst-1",
+        previousConversationId: "conv-A",
+      });
+      useConversationStore.getState().addAttentionConversationId("conv-A");
+      if (kind === "secret") {
+        useInteractionStore.getState().showSecret({ requestId: "secret-old" });
+      } else {
+        useInteractionStore
+          .getState()
+          .showConfirmation({ requestId: "confirmation-old" });
+      }
+      renderHistory();
+      await waitFor(() => {
+        expect(deferredCalls?.length).toBe(1);
+      });
+
+      if (kind === "secret") {
+        useInteractionStore.getState().showSecret({ requestId: "secret-new" });
+      } else {
+        useInteractionStore
+          .getState()
+          .showConfirmation({ requestId: "confirmation-new" });
+      }
+      deferredCalls?.[0]?.({
+        pendingSecret: null,
+        pendingConfirmation: null,
+        pendingQuestion: null,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(
+        kind === "secret"
+          ? useInteractionStore.getState().pendingSecret?.requestId
+          : useInteractionStore.getState().pendingConfirmation?.requestId,
+      ).toBe(`${kind}-new`);
+      expect(
+        useConversationStore.getState().attentionConversationIds.has("conv-A"),
+      ).toBe(true);
+    },
+  );
+
+  test("replaces a stale confirmation with the request reported by the registry", async () => {
+    currentMessages = [];
+    reportedInteractions = {
+      pendingSecret: null,
+      pendingConfirmation: {
+        requestId: "confirmation-new",
+        title: "New confirmation",
+      },
+      pendingQuestion: null,
+    };
+    useChatSessionStore.setState({
+      previousAssistantId: "asst-1",
+      previousConversationId: "conv-A",
+    });
+    useChatSessionStore
+      .getState()
+      .setConfirmationToolCall("confirmation-old", "tool-call-old");
+    useInteractionStore.getState().showConfirmation({
+      requestId: "confirmation-old",
+      title: "Old confirmation",
+      toolUseId: "tool-call-old",
+    });
+    useInteractionStore
+      .getState()
+      .setInlineConfirmationToolCallId("tool-call-old");
+
+    renderHistory();
+
+    await waitFor(() => {
+      expect(useInteractionStore.getState().pendingConfirmation).toMatchObject({
+        requestId: "confirmation-new",
+        title: "New confirmation",
+      });
+    });
+    expect(
+      useChatSessionStore
+        .getState()
+        .confirmationToolCallMap.has("confirmation-old"),
+    ).toBe(false);
+    expect(
+      useInteractionStore.getState().inlineConfirmationToolCallId,
+    ).toBeNull();
+  });
+
+  test("refreshes a confirmation payload without dropping its request mapping", async () => {
+    currentMessages = [];
+    reportedInteractions = {
+      pendingSecret: null,
+      pendingConfirmation: {
+        requestId: "confirmation-1",
+        title: "Updated confirmation",
+      },
+      pendingQuestion: null,
+    };
+    useChatSessionStore.setState({
+      previousAssistantId: "asst-1",
+      previousConversationId: "conv-A",
+    });
+    useChatSessionStore
+      .getState()
+      .setConfirmationToolCall("confirmation-1", "tool-call-1");
+    useInteractionStore.getState().showConfirmation({
+      requestId: "confirmation-1",
+      title: "Old confirmation",
+      toolUseId: "tool-call-1",
+    });
+
+    renderHistory();
+
+    await waitFor(() => {
+      expect(useInteractionStore.getState().pendingConfirmation).toMatchObject({
+        requestId: "confirmation-1",
+        title: "Updated confirmation",
+      });
+    });
+    expect(
+      useChatSessionStore
+        .getState()
+        .confirmationToolCallMap.get("confirmation-1"),
+    ).toBe("tool-call-1");
+  });
+
+  test.each(["secret", "confirmation"] as const)(
+    "does not retire a changed %s request after the registry read starts",
+    async (kind) => {
+      currentMessages = [];
+      deferredCalls = [];
+      useChatSessionStore.setState({
+        previousAssistantId: "asst-1",
+        previousConversationId: "conv-A",
+      });
+      if (kind === "secret") {
+        useInteractionStore.getState().showSecret({ requestId: "request-1" });
+      } else {
+        useInteractionStore
+          .getState()
+          .showConfirmation({ requestId: "request-1" });
+      }
+      renderHistory();
+      await waitFor(() => {
+        expect(deferredCalls?.length).toBe(1);
+      });
+
+      if (kind === "secret") {
+        useInteractionStore
+          .getState()
+          .updateSecret("request-1", { label: "Updated secret" });
+      } else {
+        useInteractionStore
+          .getState()
+          .updateConfirmation("request-1", { title: "Updated confirmation" });
+      }
+      deferredCalls?.[0]?.({
+        pendingSecret: null,
+        pendingConfirmation: null,
+        pendingQuestion: null,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(
+        kind === "secret"
+          ? useInteractionStore.getState().pendingSecret?.label
+          : useInteractionStore.getState().pendingConfirmation?.title,
+      ).toBe(kind === "secret" ? "Updated secret" : "Updated confirmation");
+    },
+  );
+
+  test.each(["secret", "confirmation"] as const)(
+    "keeps a %s when the registry read fails",
+    async (kind) => {
+      currentMessages = [];
+      readFailure = new Error("network unavailable");
+      useChatSessionStore.setState({
+        previousAssistantId: "asst-1",
+        previousConversationId: "conv-A",
+      });
+      if (kind === "secret") {
+        useInteractionStore.getState().showSecret({ requestId: "secret-live" });
+      } else {
+        useInteractionStore
+          .getState()
+          .showConfirmation({ requestId: "confirmation-live" });
+      }
+
+      renderHistory();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(
+        kind === "secret"
+          ? useInteractionStore.getState().pendingSecret?.requestId
+          : useInteractionStore.getState().pendingConfirmation?.requestId,
+      ).toBe(`${kind}-live`);
+    },
+  );
 });
 
 describe("ask_question restore on a committed snapshot", () => {

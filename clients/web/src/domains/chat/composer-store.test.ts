@@ -6,6 +6,9 @@
  * around empty/whitespace input.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
+
+import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 // Mock local-settings so we can observe localStorage reads/writes without
 // touching the real localStorage (happy-dom doesn't persist across tests).
@@ -57,6 +60,10 @@ mock.module(
 );
 
 const { useComposerStore } = await import("@/domains/chat/composer-store");
+const { useChatSessionStore } =
+  await import("@/domains/chat/chat-session-store");
+const { useComposerSubmit } =
+  await import("@/domains/chat/hooks/use-composer-submit");
 
 function getStore() {
   return useComposerStore.getState();
@@ -64,12 +71,18 @@ function getStore() {
 
 beforeEach(() => {
   getStore().fullReset();
+  useChatSessionStore.setState({
+    previousConversationId: null,
+    previousAssistantId: null,
+    draftConversationIdResolution: false,
+  });
   localSettingsStore.clear();
   uploadChatAttachmentMock.mockClear();
   fetchAttachmentContentBlobMock.mockClear();
 });
 
 afterEach(() => {
+  cleanup();
   getStore().fullReset();
   localSettingsStore.clear();
 });
@@ -466,6 +479,81 @@ describe("addPathReferences", () => {
 });
 
 describe("addFiles upload metadata", () => {
+  test("same-session re-entry lets an in-flight upload finish once", async () => {
+    let finishUpload!: (result: UploadAttachmentResult) => void;
+    uploadChatAttachmentMock.mockImplementationOnce(
+      () =>
+        new Promise<UploadAttachmentResult>((resolve) => {
+          finishUpload = resolve;
+        }),
+    );
+    useChatSessionStore.getState().switchToConversation({
+      assistantId: "assistant-1",
+      activeConversationId: "conversation-1",
+    });
+
+    getStore().addFiles(
+      [new File(["notes"], "notes.txt", { type: "text/plain" })],
+      "assistant-1",
+    );
+    for (let i = 0; i < 100 && !finishUpload; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(finishUpload).toBeFunction();
+    expect(getStore().attachments).toMatchObject([
+      { kind: "uploading", filename: "notes.txt" },
+    ]);
+    const localId = getStore().attachments[0]?.localId;
+
+    useChatSessionStore.getState().switchToConversation({
+      assistantId: "assistant-1",
+      activeConversationId: "conversation-1",
+    });
+    expect(getStore().attachments).toMatchObject([
+      { kind: "uploading", localId },
+    ]);
+    finishUpload({ ok: true, id: "attachment-1" });
+    await waitForUploadsSettled(1);
+
+    expect(uploadChatAttachmentMock).toHaveBeenCalledTimes(1);
+    expect(getStore().attachments).toMatchObject([
+      {
+        kind: "uploaded",
+        localId,
+        id: "attachment-1",
+        filename: "notes.txt",
+      },
+    ]);
+
+    getStore().setInput("Send these notes");
+    const sendMessage = mock(
+      async (_content: string, _attachments?: DisplayAttachment[]) => {},
+    );
+    const { result } = renderHook(() =>
+      useComposerSubmit({
+        sendMessage,
+        inputRef: { current: null },
+        scrollToLatest: () => {},
+        isEditing: false,
+        editingMessageId: null,
+        cancelEditing: () => {},
+        canUndoEdit: false,
+        sendDisabled: false,
+        typingDisabled: false,
+        assistantId: "assistant-1",
+        activeConversationId: "conversation-1",
+      }),
+    );
+    await result.current.submitMessage();
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[1]?.map(({ id }) => id)).toEqual([
+      "attachment-1",
+    ]);
+    expect(getStore().input).toBe("");
+    expect(getStore().attachments).toEqual([]);
+  });
+
   test("adopts stored metadata and previews the stored bytes when the assistant transcodes", async () => {
     uploadChatAttachmentMock.mockResolvedValueOnce({
       ok: true,
