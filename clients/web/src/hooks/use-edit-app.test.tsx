@@ -49,6 +49,13 @@ const ASSISTANT_ID = "asst-1";
 const REMEMBERED_ID = "conv-remembered";
 const LIBRARY_PATH = "/assistant/library/app-42";
 const APP_CONVERSATION_PATH = routes.conversation(CONV_ID, APP.appId);
+// A plugin app takes its id from the author's directory name, so the id can
+// carry a space the browser holds percent-encoded.
+const ENCODED_APP: OpenedAppState = { ...APP, appId: "plugins~p~My App" };
+const ENCODED_APP_PATH = routes.conversation(
+  CONV_ID,
+  encodeURIComponent(ENCODED_APP.appId),
+);
 
 const wrapper = wrapperAt(LIBRARY_PATH);
 
@@ -232,5 +239,22 @@ describe("useEditApp", () => {
     // THEN the split view still opens but the path is unchanged
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
     expect(currentLocation().pathname).toBe(APP_CONVERSATION_PATH);
+  });
+
+  test("skips navigation when the route names this app percent-encoded", () => {
+    // GIVEN a reload left the browser on this app's route in the spelling it
+    // encodes, which the builder writes raw
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    const { result } = renderHook(() => useEditApp(), {
+      wrapper: wrapperAt(ENCODED_APP_PATH),
+    });
+
+    // WHEN the user clicks Edit
+    act(() => result.current(ENCODED_APP));
+
+    // THEN the split view opens on the entry already there: a navigation
+    // would have pushed the builder's unencoded spelling over it
+    expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
+    expect(currentLocation().pathname).toBe(ENCODED_APP_PATH);
   });
 });

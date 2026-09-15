@@ -413,14 +413,14 @@ export function isConversationPath(pathname: string): boolean {
  * write unencoded, so a segment is decoded the way `useParams` decodes it and
  * compares equal to the id the store holds. An id carrying a space or a
  * non-ASCII character (a plugin app takes its id from the author's directory
- * name) is only equal after this. A malformed escape names no route of ours,
- * so it reads as the empty segment does: no id at all.
+ * name) is only equal after this. A malformed escape keeps its raw spelling,
+ * as `useParams` does, so an id holding a literal `%` still names its route.
  */
 function decodeSegment(segment: string): string {
   try {
     return decodeURIComponent(segment);
   } catch {
-    return "";
+    return segment;
   }
 }
 
@@ -428,8 +428,7 @@ function decodeSegment(segment: string): string {
  * Sole owner of the conversation URL shape: `/assistant/conversations/:id`,
  * optionally followed by the app viewer segment (`/app/:appId`), tolerating a
  * trailing slash. Ids come back decoded. Anything else (the conversations
- * list, a subroute such as the inspector, a deeper path, a malformed escape)
- * is `null`.
+ * list, a subroute such as the inspector, a deeper path) is `null`.
  */
 function parseConversationPath(
   pathname: string,
