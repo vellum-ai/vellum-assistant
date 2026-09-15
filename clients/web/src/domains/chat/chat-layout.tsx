@@ -1111,7 +1111,7 @@ export function ChatLayout({
   // the same flex parent it would without it.
   const chatContent = (
     <div
-      className="relative flex min-h-0 min-w-0 flex-1 gap-4"
+      className="relative flex min-h-0 min-w-0 flex-1"
       inert={voiceRoomVisible || sleepStageVisible}
     >
       <div

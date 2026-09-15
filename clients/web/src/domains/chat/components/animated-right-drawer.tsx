@@ -24,10 +24,11 @@
  */
 
 import { useState, type ReactNode } from "react";
-import { motion, useReducedMotion } from "motion/react";
 import { PaneResizeHandle, useResizablePane } from "@vellumai/design-library";
 
 import { cn } from "@/utils/misc";
+
+import { DrawerWidthReveal } from "./drawer-width-reveal";
 
 /** Width of the drag-handle column. Matches the `w-2` handle below (8px). */
 const HANDLE_WIDTH_PX = 8;
@@ -72,7 +73,6 @@ export function AnimatedRightDrawer({
   minLeftWidth = RIGHT_DRAWER_MIN_LEFT_WIDTH_PX,
   storageKey,
 }: AnimatedRightDrawerProps) {
-  const reduce = useReducedMotion();
   // No `paneRef`: motion owns the drawer element's width, so the live size has
   // to come through React state for `animate` to see it.
   const {
@@ -165,53 +165,20 @@ export function AnimatedRightDrawer({
         </PaneResizeHandle>
       )}
 
-      {/* Drawer — its width is the animated dimension, eased 0 ⇄ target by the
-          `open` prop. The content sits in an absolutely-positioned layer pinned
-          to the right edge at the final width, so changing the (overflow-hidden)
-          wrapper width reveals/hides it with a left-moving wipe rather than
-          reflowing the content mid-animation. Reduced motion: snap instead of
-          ease. Content unmounts only once a close animation reaches width 0. */}
-      <motion.div
+      <DrawerWidthReveal
         id={paneId}
-        className="relative h-full shrink-0 overflow-hidden"
-        // Hard ceiling for the frames between a container resize and the
-        // re-measure landing in state: flex honors max-width over the
-        // motion-driven inline width, so the drawer can never paint past its
-        // host even before `renderWidth` catches up.
+        width={renderWidth}
+        open={open}
         style={{ maxWidth: `calc(100% - ${HANDLE_WIDTH_PX}px)` }}
-        // Mount at the resting width for whatever `open` says, so the wipe is
-        // driven by `open` changing and not by the component appearing. A
-        // drawer mounted already-open belongs to a panel that is already
-        // there: remounts (the mobile/desktop crossing in `chat-route-content`
-        // swaps this whole subtree) would otherwise replay the entrance over
-        // a panel the user has been looking at.
-        initial={false}
-        animate={{ width: open ? renderWidth : 0 }}
-        // While capped, width changes track a live container resize, so ease
-        // would lag the window edge; snap instead, like a handle drag.
-        transition={
-          isResizing || isCapped || reduce
-            ? { duration: 0 }
-            : { duration: 0.34, ease: [0.16, 1, 0.3, 1] }
-        }
+        instant={isResizing || isCapped}
         onAnimationComplete={() => {
           if (!open) {
             setMounted(false);
           }
         }}
       >
-        {mounted && (
-          <div
-            className="absolute right-0 top-0 h-full"
-            style={{ width: renderWidth }}
-          >
-            {/* Render live `right` while present so a streaming panel isn't a
-                frame behind; fall back to the retained copy during the close
-                wipe once `right` has gone null. */}
-            {right ?? retainedRight}
-          </div>
-        )}
-      </motion.div>
+        {mounted ? (right ?? retainedRight) : null}
+      </DrawerWidthReveal>
     </div>
   );
 }

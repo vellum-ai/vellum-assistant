@@ -142,7 +142,10 @@ describe("AssistantDesktopAffordance", () => {
     });
     expect(collapse.getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(collapse);
-    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    expect(panelUnmounts).toBe(0);
+    await waitFor(() =>
+      expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+    );
     expect(panelUnmounts).toBe(1);
     expect(screen.getByRole("button", { name: "Open desktop" })).not.toBeNull();
   });

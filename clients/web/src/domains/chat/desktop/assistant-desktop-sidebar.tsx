@@ -1,3 +1,4 @@
+import { AnimatePresence } from "motion/react";
 import { lazy, useEffect } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -22,19 +23,22 @@ export function AssistantDesktopSidebar() {
     return () => useDesktopSidebarStore.getState().close();
   }, [assistantId, enabled]);
 
-  if (enabled !== true || !session || session.assistantId !== assistantId) {
+  if (enabled !== true || assistantId === null) {
     return null;
   }
 
   return (
-    <DesktopSidebarFrame>
-      <LazyBoundary>
-        <DesktopSidebarContent
-          key={assistantId}
-          assistantId={session.assistantId}
-          fullscreen={session.view === "fullscreen"}
-        />
-      </LazyBoundary>
-    </DesktopSidebarFrame>
+    <AnimatePresence initial={false} key={assistantId}>
+      {session?.assistantId === assistantId && (
+        <DesktopSidebarFrame key={assistantId}>
+          <LazyBoundary>
+            <DesktopSidebarContent
+              assistantId={session.assistantId}
+              fullscreen={session.view === "fullscreen"}
+            />
+          </LazyBoundary>
+        </DesktopSidebarFrame>
+      )}
+    </AnimatePresence>
   );
 }
