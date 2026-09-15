@@ -104,6 +104,54 @@ export function seedRelocatedMemoryRow(
         )
         .run(conversationId, now);
       return;
+    case "memory_retrospective_skill_searches":
+      raw
+        .query(
+          `INSERT INTO memory_retrospective_skill_searches
+             (id, conversation_id, run_conversation_id, goal, created_at)
+           VALUES (?, ?, ?, 'test goal', ?)`,
+        )
+        .run(
+          `${conversationId}-search`,
+          conversationId,
+          `${conversationId}-run`,
+          now,
+        );
+      return;
+    case "memory_retrospective_skill_candidates":
+      raw
+        .query(
+          `INSERT INTO memory_retrospective_skill_candidates
+             (id, search_id, conversation_id, run_conversation_id, skill_id,
+              skill_name, skill_description, skill_source, consideration_status,
+              rank, score, created_at)
+           VALUES (?, ?, ?, ?, 'test-skill', 'Test Skill', 'Test description',
+                   'managed', 'surfaced', 1, 0.9, ?)`,
+        )
+        .run(
+          `${conversationId}-candidate`,
+          `${conversationId}-search`,
+          conversationId,
+          `${conversationId}-run`,
+          now,
+        );
+      return;
+    case "memory_retrospective_skill_changes":
+      raw
+        .query(
+          `INSERT INTO memory_retrospective_skill_changes
+             (id, search_id, conversation_id, run_conversation_id, skill_id,
+              operation, delta, created_at)
+           VALUES (?, ?, ?, ?, 'test-skill', 'refined', 'diff', ?)`,
+        )
+        .run(
+          `${conversationId}-change`,
+          `${conversationId}-search`,
+          conversationId,
+          `${conversationId}-run`,
+          now,
+        );
+      return;
     case "memory_segments":
       raw
         .query(

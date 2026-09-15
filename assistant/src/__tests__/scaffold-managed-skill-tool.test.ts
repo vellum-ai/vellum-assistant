@@ -94,6 +94,7 @@ function catalogSeam(...entries: { id: string; source: SkillSource }[]) {
 }
 
 import { loadSkillCatalog } from "../config/skills.js";
+import type { MemoryRetrospectiveSkillChangeInput } from "../plugins/defaults/memory/memory-retrospective-skill-monitoring-store.js";
 import { readInstallMeta, writeInstallMeta } from "../skills/install-meta.js";
 import { validateInputAgainstSchema } from "../skills/validate-input.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
@@ -252,6 +253,7 @@ describe("scaffold_managed_skill tool", () => {
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
     expect(parsed.created).toBe(true);
+    expect(parsed.operation).toBe("created");
     expect(parsed).not.toHaveProperty("index_updated");
     expect(existsSync(join(TEST_DIR, "skills", "SKILLS.md"))).toBe(false);
     expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
@@ -294,6 +296,7 @@ describe("scaffold_managed_skill tool", () => {
       makeContext(),
     );
     expect(result3.isError).toBe(false);
+    expect(JSON.parse(result3.content).operation).toBe("refined");
 
     // Only the original create counts — the overwrite refined an existing
     // skill and must not emit a second authoring event.
@@ -1109,6 +1112,7 @@ describe("scaffold_managed_skill tool", () => {
     );
 
     expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content).operation).toBe("refined");
     const skillFile = join(TEST_DIR, "skills", "assistant-owned", "SKILL.md");
     expect(readFileSync(skillFile, "utf-8")).toContain("V2 procedure.");
     expect(installMetaFor("assistant-owned")?.author).toBe("assistant");
@@ -1124,11 +1128,113 @@ describe("scaffold_managed_skill tool", () => {
       ),
     ).toBe(true);
 
-    // Only the V1 create counts toward authoring — the V2 refinement of an
+    // Only the V1 create counts toward authoring. The V2 refinement of an
     // existing skill emits no second event.
     expect(
       watchdogEvents.filter((e) => e.checkName === "skill_authored"),
     ).toHaveLength(1);
+  });
+
+  test("monitored retrospective create records a new-file delta", async () => {
+    let recordedChange: MemoryRetrospectiveSkillChangeInput | undefined;
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "monitored-create",
+        name: "Monitored Create",
+        description: "Created from a reviewed procedure",
+        body_markdown: "1. Run the procedure.",
+        activation_hints: HINTS,
+        monitoring_search_id: "search-create",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-create" }),
+      {
+        resolveMonitoringContext: () => ({
+          conversationId: "source-create",
+          runConversationId: "retro-create",
+        }),
+        recordMonitoringChange: (args) => {
+          recordedChange = args;
+          return true;
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(recordedChange).toEqual(
+      expect.objectContaining({
+        searchId: "search-create",
+        conversationId: "source-create",
+        runConversationId: "retro-create",
+        skillId: "monitored-create",
+        operation: "created",
+      }),
+    );
+    expect(recordedChange!.delta).toContain("--- /dev/null");
+    expect(recordedChange!.delta).toContain(
+      "+++ b/skills/monitored-create/SKILL.md",
+    );
+    expect(recordedChange!.delta).toContain("+1. Run the procedure.");
+  });
+
+  test("monitored retrospective refinement records before and after files", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "monitored-refine",
+        name: "Monitored Refine",
+        description: "First version",
+        body_markdown: "1. Old step.",
+        activation_hints: HINTS,
+      },
+      makeRetrospectiveContext(),
+    );
+
+    let recordedChange: MemoryRetrospectiveSkillChangeInput | undefined;
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "monitored-refine",
+        name: "Monitored Refine",
+        description: "Refined version",
+        body_markdown: "1. New step.",
+        activation_hints: HINTS,
+        overwrite: true,
+        files: [
+          {
+            path: "references/failure-modes.md",
+            content: "Retry once after a timeout.",
+          },
+        ],
+        monitoring_search_id: "search-refine",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-refine" }),
+      {
+        resolveMonitoringContext: () => ({
+          conversationId: "source-refine",
+          runConversationId: "retro-refine",
+        }),
+        recordMonitoringChange: (args) => {
+          recordedChange = args;
+          return true;
+        },
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(recordedChange).toEqual(
+      expect.objectContaining({
+        searchId: "search-refine",
+        conversationId: "source-refine",
+        runConversationId: "retro-refine",
+        skillId: "monitored-refine",
+        operation: "refined",
+      }),
+    );
+    expect(recordedChange!.delta).toContain('-description: "First version"');
+    expect(recordedChange!.delta).toContain('+description: "Refined version"');
+    expect(recordedChange!.delta).toContain("-1. Old step.");
+    expect(recordedChange!.delta).toContain("+1. New step.");
+    expect(recordedChange!.delta).toContain(
+      "+++ b/skills/monitored-refine/references/failure-modes.md",
+    );
   });
 
   // ── Conversation lineage (retrospective-authored skills) ───────────────────

@@ -1,6 +1,8 @@
 import {
   blob,
+  index,
   integer,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -114,4 +116,85 @@ export const memoryRetrospectiveState = sqliteTable(
     // NULL for rows that predate migration 281 or have no saves yet.
     rememberedLog: text("remembered_log"),
   },
+);
+
+// Opt-in retrospective skill decision evidence for future Inspector views.
+// Lives in assistant-memory.db with the rest of the memory subsystem's
+// high-churn state. Runtime access goes through the memory connection.
+export const memoryRetrospectiveSkillSearches = sqliteTable(
+  "memory_retrospective_skill_searches",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id").notNull(),
+    runConversationId: text("run_conversation_id").notNull(),
+    goal: text("goal").notNull(),
+    outcome: text("outcome"),
+    reason: text("reason"),
+    decidedAt: integer("decided_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_memory_retro_skill_searches_conversation_created").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+    index("idx_memory_retro_skill_searches_run_created").on(
+      table.runConversationId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const memoryRetrospectiveSkillCandidates = sqliteTable(
+  "memory_retrospective_skill_candidates",
+  {
+    id: text("id").primaryKey(),
+    searchId: text("search_id").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    runConversationId: text("run_conversation_id").notNull(),
+    skillId: text("skill_id").notNull(),
+    skillName: text("skill_name").notNull(),
+    skillDescription: text("skill_description").notNull(),
+    skillSource: text("skill_source").notNull(),
+    skillAuthor: text("skill_author"),
+    considerationStatus: text("consideration_status").notNull(),
+    systemExclusionReason: text("system_exclusion_reason"),
+    rank: integer("rank"),
+    score: real("score"),
+    decision: text("decision"),
+    reason: text("reason"),
+    decidedAt: integer("decided_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_memory_retro_skill_candidates_search_skill").on(
+      table.searchId,
+      table.skillId,
+    ),
+    index("idx_memory_retro_skill_candidates_conversation_created").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const memoryRetrospectiveSkillChanges = sqliteTable(
+  "memory_retrospective_skill_changes",
+  {
+    id: text("id").primaryKey(),
+    searchId: text("search_id").notNull(),
+    conversationId: text("conversation_id").notNull(),
+    runConversationId: text("run_conversation_id").notNull(),
+    skillId: text("skill_id").notNull(),
+    operation: text("operation").notNull(),
+    delta: text("delta").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_memory_retro_skill_changes_search").on(table.searchId),
+    index("idx_memory_retro_skill_changes_conversation_created").on(
+      table.conversationId,
+      table.createdAt,
+    ),
+  ],
 );

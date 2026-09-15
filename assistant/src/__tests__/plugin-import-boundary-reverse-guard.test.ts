@@ -118,6 +118,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "src/skills/uninstall.ts",
     "src/tools/filesystem/write.ts",
     "src/tools/skills/find-similar-skills.ts",
+    "src/tools/skills/record-retrospective-skill-decision.ts",
     "src/tools/skills/scaffold-managed.ts",
     "src/tools/tool-manifest.ts",
     "src/workflows/leaf-runner.ts",

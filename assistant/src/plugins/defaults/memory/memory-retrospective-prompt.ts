@@ -56,7 +56,7 @@ const NO_FINDINGS_MANDATE =
  * Bundled fork-instruction template. Exported so tests (and any future
  * "Load default" affordance) can reference the canonical body verbatim.
  */
-export const RETROSPECTIVE_INSTRUCTION_TEMPLATE = `This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally; just perform the review described here. {{AVAILABLE_TOOLS_LINE}}
+export const RETROSPECTIVE_INSTRUCTION_TEMPLATE = `This is an automated background memory pass over the conversation above. It is not a message from the user. Do not reply conversationally; just perform the review described here. {{AVAILABLE_TOOLS_LINE}}
 
 {{WINDOW_ANCHOR}}
 
@@ -130,6 +130,8 @@ export interface ForkInstructionArgs {
    * gate so the directives never appear when the tools would be denied anyway.
    */
   procToSkillsActive: boolean;
+  /** Whether this run persists detailed skill search and decision evidence. */
+  skillImprovementMonitoring: boolean;
   /**
    * `memory.retrospective.promptPath` — optional file whose contents replace
    * the bundled template. `null` renders the bundled template.
@@ -160,6 +162,7 @@ export function buildForkInstruction({
   timeZone,
   isFirstPass,
   procToSkillsActive,
+  skillImprovementMonitoring,
   promptOverridePath,
 }: ForkInstructionArgs): string {
   const renderedPrior =
@@ -176,8 +179,10 @@ export function buildForkInstruction({
     : `Your review window starts at ${anchorDescription} and ends just before this instruction message. If you cannot locate that anchoring turn in your visible history (for example, it is behind the compaction summary), fail closed: review only the most recent visible messages after the summary, not the whole conversation.`;
 
   const availableToolsLine = procToSkillsActive
-    ? "Only `remember`, `find_similar_skills`, and `scaffold_managed_skill` are available for this pass — any other tool call will be rejected, so don't attempt one."
-    : "Only the `remember` tool is available for this pass — any other tool call will be rejected, so don't attempt one.";
+    ? skillImprovementMonitoring
+      ? "Only `remember`, `find_similar_skills`, `record_retrospective_skill_decision`, and `scaffold_managed_skill` are available for this pass. Any other tool call will be rejected, so don't attempt one."
+      : "Only `remember`, `find_similar_skills`, and `scaffold_managed_skill` are available for this pass. Any other tool call will be rejected, so don't attempt one."
+    : "Only the `remember` tool is available for this pass. Any other tool call will be rejected, so don't attempt one.";
 
   const override = loadPromptOverride({
     overridePath: promptOverridePath,
@@ -193,7 +198,7 @@ export function buildForkInstruction({
       WINDOW_ANCHOR: windowAnchor,
       ALREADY_REMEMBERED: renderedPrior,
       SKILL_AUTHORING_SECTION: procToSkillsActive
-        ? buildSkillAuthoringSection()
+        ? buildSkillAuthoringSection(skillImprovementMonitoring)
         : "",
     },
   );
@@ -215,7 +220,13 @@ export function buildForkInstruction({
  * overwrite or refine a skill it authored, never to overwrite or shadow a
  * skill of any other source.
  */
-function buildSkillAuthoringSection(): string {
+function buildSkillAuthoringSection(
+  skillImprovementMonitoring: boolean,
+): string {
+  const monitoringStep = skillImprovementMonitoring
+    ? `
+6. The \`find_similar_skills\` result includes \`monitoring_search_id\`. Record one verdict with \`record_retrospective_skill_decision\` for every monitored search. Include every returned candidate and a concrete reason for selecting or not selecting it. Use \`created\` when no returned skill covers the procedure and a new skill was successfully created, \`refined\` when one returned assistant-authored managed skill was successfully updated, \`covered\` when one returned skill already covers the procedure without changes, or \`skipped\` when the search should produce no skill. For a create or refinement, pass \`monitoring_search_id\` to \`scaffold_managed_skill\`, then record the verdict only after the scaffold succeeds so the decision and persisted file delta describe the same completed change.`
+    : "";
   return `
 ---
 
@@ -232,6 +243,7 @@ When you do capture a procedure:
 4. Set \`activation_hints\` to the concrete situations that should trigger this skill later — phrased as the intent you observed in the trace ("user asks to …", "needs to …", "when the goal is …"), NOT the mechanical steps. These become the skill's "Use when" retrieval signal, so a future turn with a matching intent surfaces the skill even when its name doesn't match the request. Give 1–4 short, distinct triggers. Optionally set \`avoid_when\` for situations where the skill should NOT be used.
 
 5. Set \`category\` to the single closest-fitting value from this published set (a value outside it gets no Skills-UI bucket, so always pick from the list, never invent one): browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice.
+${monitoringStep}
 
 Ordinary facts still go through \`remember\` (unlinked) exactly as above — skills are for executed, reusable procedures, not for facts.
 `;

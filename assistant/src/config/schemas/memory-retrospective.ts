@@ -11,12 +11,21 @@ export const MemoryRetrospectiveConfigSchema = z
 
     skillImprovement: z
       .boolean({
-        error:
-          "memory.retrospective.skillImprovement must be a boolean",
+        error: "memory.retrospective.skillImprovement must be a boolean",
       })
       .default(true)
       .describe(
         "Whether retrospectives may discover, refine, and create managed skills from observed procedures. When false, retrospectives still capture ordinary memories through `remember`, but cannot load skill management, search for similar skills, or scaffold managed skills.",
+      ),
+
+    skillImprovementMonitoring: z
+      .boolean({
+        error:
+          "memory.retrospective.skillImprovementMonitoring must be a boolean",
+      })
+      .default(false)
+      .describe(
+        "Whether to persist retrospective skill decision evidence in assistant-memory.db for future Inspector views. Disabled by default because searches, per-candidate reasons, and skill diffs increase disk usage. When enabled, monitored runs record each similarity query, every catalog skill and any system exclusion reason, the retrospective's selection reason for each surfaced skill, and the exact delta for a created or refined skill.",
       ),
 
     timeThresholdMs: z

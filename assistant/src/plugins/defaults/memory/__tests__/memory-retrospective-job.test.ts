@@ -369,6 +369,7 @@ function makeConfig(
     matchConversationProfile?: boolean;
     promptPath?: string;
     requireUserActivity?: boolean;
+    skillImprovementMonitoring?: boolean;
     enabled?: boolean;
   } = {},
 ): Parameters<typeof memoryRetrospectiveJob>[1] {
@@ -384,6 +385,8 @@ function makeConfig(
         // default `newMessages` rows carry no roles, so the gate's own tests
         // opt in explicitly with role-shaped slices.
         requireUserActivity: overrides.requireUserActivity ?? false,
+        skillImprovementMonitoring:
+          overrides.skillImprovementMonitoring ?? false,
         sweepIntervalMs: 8 * 60 * 60 * 1000,
         sweepLookbackMs: 7 * 24 * 60 * 60 * 1000,
       },
@@ -1340,6 +1343,25 @@ describe("memoryRetrospectiveJob", () => {
     expect(opts.hintRole).toBe("user");
   });
 
+  test("monitoring opt-in adds the candidate decision writer to the retrospective allowlist", async () => {
+    mockSkillImprovementActive = true;
+    await memoryRetrospectiveJob(
+      makeJob(),
+      makeConfig({ skillImprovementMonitoring: true }),
+    );
+
+    expect(wakeCalls[0]!.opts.allowedTools).toEqual([
+      "remember",
+      "scaffold_managed_skill",
+      "skill_load",
+      "find_similar_skills",
+      "record_retrospective_skill_decision",
+    ]);
+    expect(persistedInstructionText()).toContain(
+      "record_retrospective_skill_decision",
+    );
+  });
+
   test("wake is remember-only when skill improvement is disabled on a live v3 tier", async () => {
     mockV3TierActive = true;
     mockSkillImprovementActive = false;
@@ -2195,7 +2217,7 @@ describe("memoryRetrospectiveJob", () => {
 
     const instructionText = persistedInstructionText();
     expect(instructionText).toContain(
-      "automated background memory pass over the conversation above — not a message from the user",
+      "automated background memory pass over the conversation above. It is not a message from the user",
     );
     expect(instructionText).toContain("Do not reply conversationally");
     expect(instructionText).toContain(

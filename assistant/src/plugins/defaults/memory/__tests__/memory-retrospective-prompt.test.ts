@@ -28,6 +28,7 @@ function makeArgs(
     timeZone: "America/Chicago",
     isFirstPass: false,
     procToSkillsActive: false,
+    skillImprovementMonitoring: false,
     promptOverridePath: null,
     ...overrides,
   };
@@ -39,7 +40,7 @@ describe("bundled rendering", () => {
   // this expectation in the same PR; an accidental byte change fails here.
   test("subsequent pass, turn_context anchor, no priors, no skills — exact bytes", () => {
     expect(buildForkInstruction(makeArgs()))
-      .toBe(`This is an automated background memory pass over the conversation above — not a message from the user. Do not reply conversationally; just perform the review described here. Only the \`remember\` tool is available for this pass — any other tool call will be rejected, so don't attempt one.
+      .toBe(`This is an automated background memory pass over the conversation above. It is not a message from the user. Do not reply conversationally; just perform the review described here. Only the \`remember\` tool is available for this pass. Any other tool call will be rejected, so don't attempt one.
 
 Your review window starts at the user turn with \`current_time: Jul 14, 4:05 PM\` (timezone: America/Chicago) and ends just before this instruction message. If you cannot locate that anchoring turn in your visible history (for example, it is behind the compaction summary), fail closed: review only the most recent visible messages after the summary, not the whole conversation.
 
@@ -126,6 +127,19 @@ For everything else in your review window, use the \`remember\` tool on facts, p
       ),
     ).toBe(true);
     expect(out).not.toContain("{{");
+  });
+
+  test("skill monitoring active: records per-candidate reasons and links scaffold deltas", () => {
+    const out = buildForkInstruction(
+      makeArgs({
+        procToSkillsActive: true,
+        skillImprovementMonitoring: true,
+      }),
+    );
+    expect(out).toContain("record_retrospective_skill_decision");
+    expect(out).toContain("Include every returned candidate");
+    expect(out).toContain("pass `monitoring_search_id`");
+    expect(out).toContain("only after the scaffold succeeds");
   });
 
   test("proc-to-skills inactive: no authoring section, instruction ends at the remember guidance", () => {

@@ -457,6 +457,8 @@ export async function runForkBasedRetrospective(
     timeZone: timezoneContext.effectiveTimezone,
     isFirstPass: lastProcessedMessageId == null,
     procToSkillsActive,
+    skillImprovementMonitoring:
+      config.memory.retrospective.skillImprovementMonitoring,
     promptOverridePath: config.memory.retrospective.promptPath ?? null,
   });
   try {
@@ -540,6 +542,9 @@ export async function runForkBasedRetrospective(
             "scaffold_managed_skill",
             "skill_load",
             "find_similar_skills",
+            ...(config.memory.retrospective.skillImprovementMonitoring
+              ? ["record_retrospective_skill_decision"]
+              : []),
           ]
         : ["remember"],
       // Always keep the source's full tool surface on the wire and resolve it

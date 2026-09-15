@@ -9,6 +9,8 @@ import { sanitizeMultilineMessagePreview } from "../../notifications/notificatio
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { upsertSkillCardInsertJob } from "../../persistence/jobs-store.js";
 import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
+import { resolveRetrospectiveSkillMonitoringContext } from "../../plugins/defaults/memory/memory-retrospective-skill-monitoring.js";
+import { recordMemoryRetrospectiveSkillChange } from "../../plugins/defaults/memory/memory-retrospective-skill-monitoring-store.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
@@ -18,6 +20,10 @@ import { recordWatchdogEvent } from "../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../../util/logger.js";
 import { throwIfCancelled } from "../shared/abort.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import {
+  diffManagedSkillContent,
+  snapshotManagedSkillContent,
+} from "./managed-skill-delta.js";
 
 const log = getLogger("scaffold-managed-skill");
 
@@ -176,6 +182,8 @@ export async function executeScaffoldManagedSkill(
     getConversation?: (
       id: string,
     ) => { forkParentConversationId: string | null } | null;
+    resolveMonitoringContext?: typeof resolveRetrospectiveSkillMonitoringContext;
+    recordMonitoringChange?: typeof recordMemoryRetrospectiveSkillChange;
   } = {},
 ): Promise<ToolExecutionResult> {
   const skillId = input.skill_id;
@@ -448,6 +456,38 @@ export async function executeScaffoldManagedSkill(
 
   throwIfCancelled(context);
 
+  const monitoringSearchId =
+    typeof input.monitoring_search_id === "string" &&
+    input.monitoring_search_id.trim()
+      ? input.monitoring_search_id.trim()
+      : undefined;
+  let monitoringContext: ReturnType<
+    typeof resolveRetrospectiveSkillMonitoringContext
+  > = null;
+  let beforeContent: ReturnType<typeof snapshotManagedSkillContent> | null =
+    null;
+  if (fromRetrospective && monitoringSearchId) {
+    try {
+      const resolveMonitoringContext =
+        deps.resolveMonitoringContext ??
+        resolveRetrospectiveSkillMonitoringContext;
+      monitoringContext = resolveMonitoringContext(context, {
+        ...(deps.getConversation
+          ? { getConversation: deps.getConversation }
+          : {}),
+      });
+      if (monitoringContext) {
+        beforeContent = snapshotManagedSkillContent(
+          id,
+          (files ?? []).map((file) => file.path),
+        );
+      }
+    } catch {
+      monitoringContext = null;
+      beforeContent = null;
+    }
+  }
+
   const result = createManagedSkill({
     id,
     name: normalizedName,
@@ -470,6 +510,25 @@ export async function executeScaffoldManagedSkill(
   }
 
   refreshSkillCapabilityMemories();
+
+  if (monitoringSearchId && monitoringContext && beforeContent) {
+    try {
+      const delta = diffManagedSkillContent(id, beforeContent);
+      const recordMonitoringChange =
+        deps.recordMonitoringChange ?? recordMemoryRetrospectiveSkillChange;
+      recordMonitoringChange({
+        searchId: monitoringSearchId,
+        conversationId: monitoringContext.conversationId,
+        runConversationId: monitoringContext.runConversationId,
+        skillId: id,
+        operation: managedSkillExistedBefore ? "refined" : "created",
+        delta,
+      });
+    } catch {
+      // The skill write has committed. Monitoring must not turn that success
+      // into a tool error or retry the scaffold.
+    }
+  }
 
   // Central adoption counter for skill authoring (admin analytics groups on
   // the watchdog check_name). Genuine creates only — refinements of a
@@ -563,6 +622,7 @@ export async function executeScaffoldManagedSkill(
   return {
     content: JSON.stringify({
       created: true,
+      operation: managedSkillExistedBefore ? "refined" : "created",
       skill_id: id,
       path: result.path,
     }),

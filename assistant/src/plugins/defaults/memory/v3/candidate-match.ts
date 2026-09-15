@@ -68,6 +68,23 @@ export interface SkillShortlistHit {
   score: number;
 }
 
+/** Why a scored skill did not enter the returned shortlist. */
+export type SkillMatchDiscardReason =
+  | "below_shortlist_threshold"
+  | "below_shortlist_limit";
+
+export interface SkillMatchDiscard {
+  skillId: string;
+  score: number;
+  reason: SkillMatchDiscardReason;
+}
+
+export interface SkillMatchEvaluation {
+  hits: SkillShortlistHit[];
+  discarded: SkillMatchDiscard[];
+  scorerFailed: boolean;
+}
+
 /**
  * The injectable scoring seam. Given the goal text and a slug restriction,
  * return each restricted slug's fused dense+sparse similarity to the goal.
@@ -100,16 +117,16 @@ export interface NearestExistingSkillsOptions {
 }
 
 /**
- * Rank the existing skills whose capability pages are most similar to `goal`
- * and return the top-K at or above {@link SHORTLIST_THRESHOLD}, descending by
- * score. An empty catalog (or no hit clearing the floor) yields `[]`.
+ * Rank the existing skills whose capability pages are most similar to `goal`.
+ * Returns the surfaced shortlist, every scored skill excluded by the threshold
+ * or limit, and whether scoring failed. An empty catalog yields empty evidence.
  *
  * Pure and read-only: no writes, no LLM call.
  */
-export async function nearestExistingSkills(
+export async function evaluateNearestExistingSkills(
   goal: string,
   opts: NearestExistingSkillsOptions = {},
-): Promise<SkillShortlistHit[]> {
+): Promise<SkillMatchEvaluation> {
   const config = opts.config ?? getConfig();
   const scoreSlugs =
     opts.scoreSlugs ??
@@ -117,30 +134,67 @@ export async function nearestExistingSkills(
   const loadCatalog = opts.loadCatalog ?? (() => listInstalledSkills());
   const limit = opts.limit ?? DEFAULT_SHORTLIST_LIMIT;
 
-  // Map each skill id to its capability-page slug, score them, and resolve each
-  // hit back to its id.
   const slugToSkillId = new Map<string, string>();
   for (const skill of await loadCatalog()) {
     slugToSkillId.set(skillSlugFor(skill.id), skill.id);
   }
   const slugs = [...slugToSkillId.keys()];
   if (slugs.length === 0) {
-    return [];
+    return { hits: [], discarded: [], scorerFailed: false };
   }
 
-  const scored = await scoreSlugs(goal, slugs, opts.signal);
-  const hits: SkillShortlistHit[] = [];
+  let scored: ScoredSlug[];
+  try {
+    scored = await scoreSlugs(goal, slugs, opts.signal);
+  } catch (err) {
+    if (isAbortError(err)) {
+      throw err;
+    }
+    return { hits: [], discarded: [], scorerFailed: true };
+  }
+
+  const aboveFloor: SkillShortlistHit[] = [];
+  const discarded: SkillMatchDiscard[] = [];
   for (const { slug, score } of scored) {
-    if (score < SHORTLIST_THRESHOLD) {
+    const skillId = slugToSkillId.get(slug);
+    if (!skillId) {
       continue;
     }
-    const skillId = slugToSkillId.get(slug);
-    if (skillId) {
-      hits.push({ skillId, score });
+    if (score < SHORTLIST_THRESHOLD) {
+      discarded.push({
+        skillId,
+        score,
+        reason: "below_shortlist_threshold",
+      });
+      continue;
     }
+    aboveFloor.push({ skillId, score });
   }
-  hits.sort((a, b) => b.score - a.score);
-  return hits.slice(0, limit);
+  aboveFloor.sort((a, b) => b.score - a.score);
+  const hits = aboveFloor.slice(0, limit);
+  for (const extra of aboveFloor.slice(limit)) {
+    discarded.push({
+      skillId: extra.skillId,
+      score: extra.score,
+      reason: "below_shortlist_limit",
+    });
+  }
+  return { hits, discarded, scorerFailed: false };
+}
+
+/**
+ * Rank the existing skills whose capability pages are most similar to `goal`
+ * and return the top-K at or above {@link SHORTLIST_THRESHOLD}, descending by
+ * score. An empty catalog, a scorer failure, or no hit clearing the floor
+ * yields `[]`.
+ *
+ * Pure and read-only: no writes, no LLM call.
+ */
+export async function nearestExistingSkills(
+  goal: string,
+  opts: NearestExistingSkillsOptions = {},
+): Promise<SkillShortlistHit[]> {
+  return (await evaluateNearestExistingSkills(goal, opts)).hits;
 }
 
 /**
@@ -185,7 +239,7 @@ async function scoreSlugsWithSimBatch(
       { err },
       "nearest-existing-skills scorer failed after retries; degrading to empty shortlist",
     );
-    return [];
+    throw err;
   }
 }
 

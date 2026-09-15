@@ -60,6 +60,7 @@ mock.module("../../../../../util/retry.js", () => ({
 }));
 
 const {
+  evaluateNearestExistingSkills,
   nearestExistingSkills,
   EXISTING_SKILL_THRESHOLD,
   SHORTLIST_THRESHOLD,
@@ -314,5 +315,53 @@ describe("nearestExistingSkills — default scorer retries transient failures", 
     expect(result).toEqual([]);
     // No retry on a non-transient failure: exactly one attempt.
     expect(calls).toBe(1);
+  });
+});
+
+describe("evaluateNearestExistingSkills", () => {
+  test("separates below-threshold and below-limit skills from the shortlist", async () => {
+    const { fn } = fakeScorer({
+      "skills/selected": 0.95,
+      "skills/limited": 0.9,
+      "skills/below": SHORTLIST_THRESHOLD - 0.01,
+    });
+
+    const result = await evaluateNearestExistingSkills("goal", {
+      scoreSlugs: fn,
+      loadCatalog: catalog("selected", "limited", "below"),
+      limit: 1,
+    });
+
+    expect(result).toEqual({
+      hits: [{ skillId: "selected", score: 0.95 }],
+      discarded: [
+        {
+          skillId: "below",
+          score: SHORTLIST_THRESHOLD - 0.01,
+          reason: "below_shortlist_threshold",
+        },
+        {
+          skillId: "limited",
+          score: 0.9,
+          reason: "below_shortlist_limit",
+        },
+      ],
+      scorerFailed: false,
+    });
+  });
+
+  test("marks a non-abort scorer failure without throwing", async () => {
+    const result = await evaluateNearestExistingSkills("goal", {
+      scoreSlugs: async () => {
+        throw new Error("scorer unavailable");
+      },
+      loadCatalog: catalog("skill-1"),
+    });
+
+    expect(result).toEqual({
+      hits: [],
+      discarded: [],
+      scorerFailed: true,
+    });
   });
 });

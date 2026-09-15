@@ -621,7 +621,8 @@ export async function classifyRisk(
 
 // ── Background memory-retrospective skill-authoring auto-grant ────────────────
 // Skill scaffolding (`scaffold_managed_skill`, risk: high + allowlist-gated),
-// finding similar skills (`find_similar_skills`), and loading the
+// finding similar skills (`find_similar_skills`), recording monitored candidate
+// decisions (`record_retrospective_skill_decision`), and loading the
 // `skill-management` skill (`skill_load skill-management`, which exposes the
 // scaffold tool) require an interactive approval. The memory-retrospective
 // background job runs without any connected client, so it can never answer that
@@ -653,7 +654,10 @@ function isRetrospectiveSkillAuthoringGrant(
   if (toolName === "scaffold_managed_skill") {
     return true;
   }
-  if (toolName === "find_similar_skills") {
+  if (
+    toolName === "find_similar_skills" ||
+    toolName === "record_retrospective_skill_decision"
+  ) {
     return true;
   }
   if (toolName === "skill_load") {

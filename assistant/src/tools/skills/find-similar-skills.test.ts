@@ -18,11 +18,21 @@ import { basename } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 import type { SkillSource } from "../../config/skills.js";
+import type { MemoryRetrospectiveSkillCandidateInput } from "../../plugins/defaults/memory/memory-retrospective-skill-monitoring-store.js";
+import type { SkillPlatform } from "../../skills/platform-compatibility.js";
 import type { OwnerInfo } from "../types.js";
 
 // Map managed skill id → recorded author, consulted by the mocked
 // `readInstallMeta` below. Tests set entries to drive the author join.
 const installMetaAuthors: Record<string, "assistant" | "user" | undefined> = {};
+
+type RecordedMonitoringSearch = {
+  id: string;
+  conversationId: string;
+  runConversationId: string;
+  goal: string;
+  candidates: MemoryRetrospectiveSkillCandidateInput[];
+};
 
 mock.module("../../skills/install-meta.js", () => ({
   readInstallMeta: (skillDir: string) => {
@@ -51,6 +61,7 @@ const catalog = (
     description: string;
     source: SkillSource;
     owner?: OwnerInfo;
+    platforms?: SkillPlatform[];
   }[]
 ) => skills;
 
@@ -209,6 +220,258 @@ describe("find_similar_skills — enrichment", () => {
       {
         nearestExistingSkills: async () => [],
         loadCatalog: () => catalog(),
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(JSON.parse(result.content)).toEqual({ skills: [] });
+  });
+});
+
+describe("find_similar_skills monitoring", () => {
+  test("records the exact shortlist and returns its monitoring id", async () => {
+    let recorded: Record<string, unknown> | undefined;
+    const result = await executeFindSimilarSkills(
+      { goal: "deploy a preview" },
+      { ...makeContext(), toolUseId: "search-tool-use-1" },
+      {
+        nearestExistingSkills: async () => [
+          { skillId: "deploy-web", score: 0.91 },
+        ],
+        loadCatalog: () =>
+          catalog({
+            id: "deploy-web",
+            name: "Deploy Web",
+            description: "Ship the web application",
+            source: "managed",
+          }),
+        resolveMonitoringContext: () => ({
+          conversationId: "source-1",
+          runConversationId: "run-1",
+        }),
+        recordMonitoringSearch: (args) => {
+          recorded = args;
+          return true;
+        },
+      },
+    );
+
+    expect(JSON.parse(result.content)).toEqual({
+      skills: [
+        {
+          skill_id: "deploy-web",
+          name: "Deploy Web",
+          description: "Ship the web application",
+          source: "managed",
+          score: 0.91,
+        },
+      ],
+      monitoring_search_id: "search-tool-use-1",
+    });
+    expect(recorded).toEqual({
+      id: "search-tool-use-1",
+      conversationId: "source-1",
+      runConversationId: "run-1",
+      goal: "deploy a preview",
+      candidates: [
+        {
+          skillId: "deploy-web",
+          skillName: "Deploy Web",
+          skillDescription: "Ship the web application",
+          skillSource: "managed",
+          considerationStatus: "surfaced",
+          rank: 1,
+          score: 0.91,
+        },
+      ],
+    });
+  });
+
+  test("records every catalog skill with its system consideration reason", async () => {
+    const incompatiblePlatform: SkillPlatform =
+      process.platform === "win32" ? "macos" : "windows";
+    let recorded: RecordedMonitoringSearch | undefined;
+
+    const result = await executeFindSimilarSkills(
+      { goal: "deploy a preview", limit: 1 },
+      {
+        ...makeContext(new Set(["enabled-plugin"])),
+        toolUseId: "search-tool-use-2",
+      },
+      {
+        loadCatalog: () =>
+          catalog(
+            {
+              id: "surfaced",
+              name: "Surfaced",
+              description: "The returned match",
+              source: "managed",
+            },
+            {
+              id: "out-of-scope",
+              name: "Out of Scope",
+              description: "Disabled plugin skill",
+              source: "plugin",
+              owner: { kind: "plugin", id: "disabled-plugin" },
+            },
+            {
+              id: "wrong-platform",
+              name: "Wrong Platform",
+              description: "Unavailable on this platform",
+              source: "bundled",
+              platforms: [incompatiblePlatform],
+            },
+            {
+              id: "below-threshold",
+              name: "Below Threshold",
+              description: "Weak semantic match",
+              source: "bundled",
+            },
+            {
+              id: "below-limit",
+              name: "Below Limit",
+              description: "Strong match outside top K",
+              source: "bundled",
+            },
+            {
+              id: "no-score",
+              name: "No Score",
+              description: "Scorer returned no row",
+              source: "bundled",
+            },
+          ),
+        evaluateNearestExistingSkills: async () => ({
+          hits: [{ skillId: "surfaced", score: 0.95 }],
+          discarded: [
+            {
+              skillId: "below-threshold",
+              score: 0.2,
+              reason: "below_shortlist_threshold",
+            },
+            {
+              skillId: "below-limit",
+              score: 0.9,
+              reason: "below_shortlist_limit",
+            },
+          ],
+          scorerFailed: false,
+        }),
+        resolveMonitoringContext: () => ({
+          conversationId: "source-2",
+          runConversationId: "run-2",
+        }),
+        recordMonitoringSearch: (args) => {
+          recorded = args;
+          return true;
+        },
+      },
+    );
+
+    expect(JSON.parse(result.content).monitoring_search_id).toBe(
+      "search-tool-use-2",
+    );
+    const byId = Object.fromEntries(
+      recorded!.candidates.map((candidate) => [candidate.skillId, candidate]),
+    );
+    expect(byId["surfaced"]).toMatchObject({
+      considerationStatus: "surfaced",
+      rank: 1,
+      score: 0.95,
+    });
+    expect(byId["out-of-scope"]).toMatchObject({
+      considerationStatus: "excluded",
+      systemExclusionReason: "out_of_plugin_scope",
+    });
+    expect(byId["wrong-platform"]).toMatchObject({
+      considerationStatus: "excluded",
+      systemExclusionReason: "incompatible_platform",
+    });
+    expect(byId["below-threshold"]).toMatchObject({
+      considerationStatus: "excluded",
+      systemExclusionReason: "below_shortlist_threshold",
+      score: 0.2,
+    });
+    expect(byId["below-limit"]).toMatchObject({
+      considerationStatus: "excluded",
+      systemExclusionReason: "below_shortlist_limit",
+      score: 0.9,
+    });
+    expect(byId["no-score"]).toMatchObject({
+      considerationStatus: "excluded",
+      systemExclusionReason: "no_score_returned",
+    });
+  });
+
+  test("records scorer_failed for every eligible skill when scoring fails", async () => {
+    let recorded: RecordedMonitoringSearch | undefined;
+
+    const result = await executeFindSimilarSkills(
+      { goal: "deploy a preview" },
+      { ...makeContext(), toolUseId: "search-tool-use-3" },
+      {
+        loadCatalog: () =>
+          catalog(
+            {
+              id: "deploy-web",
+              name: "Deploy Web",
+              description: "Ship the web application",
+              source: "managed",
+            },
+            {
+              id: "clean-disk",
+              name: "Clean Disk",
+              description: "Free disk space",
+              source: "bundled",
+            },
+          ),
+        evaluateNearestExistingSkills: async () => ({
+          hits: [],
+          discarded: [],
+          scorerFailed: true,
+        }),
+        resolveMonitoringContext: () => ({
+          conversationId: "source-3",
+          runConversationId: "run-3",
+        }),
+        recordMonitoringSearch: (args) => {
+          recorded = args;
+          return true;
+        },
+      },
+    );
+
+    expect(JSON.parse(result.content)).toEqual({
+      skills: [],
+      monitoring_search_id: "search-tool-use-3",
+    });
+    expect(recorded!.candidates).toEqual([
+      expect.objectContaining({
+        skillId: "deploy-web",
+        considerationStatus: "excluded",
+        systemExclusionReason: "scorer_failed",
+      }),
+      expect.objectContaining({
+        skillId: "clean-disk",
+        considerationStatus: "excluded",
+        systemExclusionReason: "scorer_failed",
+      }),
+    ]);
+  });
+
+  test("keeps the search usable when monitoring persistence fails", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "deploy a preview" },
+      makeContext(),
+      {
+        nearestExistingSkills: async () => [],
+        loadCatalog: () => catalog(),
+        resolveMonitoringContext: () => ({
+          conversationId: "source-1",
+          runConversationId: "run-1",
+        }),
+        recordMonitoringSearch: () => {
+          throw new Error("memory db unavailable");
+        },
       },
     );
 

@@ -944,6 +944,16 @@ describe("Permission Checker (gateway IPC)", () => {
       expect(result.decision).toBe("allow");
     });
 
+    test("allows record_retrospective_skill_decision for the retrospective origin", async () => {
+      const result = await check(
+        "record_retrospective_skill_decision",
+        { monitoring_search_id: "search-1" },
+        "/home/user/project",
+        retrospectiveContext,
+      );
+      expect(result.decision).toBe("allow");
+    });
+
     test("allows skill_load skill-management for the retrospective origin without prompting", async () => {
       const result = await check(
         "skill_load",
