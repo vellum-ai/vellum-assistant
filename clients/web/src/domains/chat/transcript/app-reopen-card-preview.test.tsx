@@ -127,6 +127,18 @@ describe("new app thumbnails", () => {
     expect(post).toHaveBeenCalledTimes(2);
   });
 
+  test("removes a prior thumbnail when the next revision fails to load", async () => {
+    const { container, queryClient } = renderCard("<p>Loading...</p>");
+    await waitFor(() => {
+      expect(container.querySelector("iframe")?.srcdoc).toContain("Loading...");
+    });
+    post.mockResolvedValue({ data: { html: { html: FINISHED } } } as never);
+    act(() => seedApp(queryClient, 2));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(container.querySelector("iframe")).toBeNull());
+    expect(container.innerHTML).not.toContain("[object Object]");
+  });
+
   test("keeps the fallback for an object response and shows the next completed build", async () => {
     const { container, queryClient } = renderCard({ html: FINISHED });
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
