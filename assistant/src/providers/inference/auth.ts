@@ -15,9 +15,8 @@ import { VELLUM_MANAGED_PROVIDER } from "../vellum-model-routing.js";
  *   - platform: route via Vellum managed proxy; no client-side credential.
  *   - none: no auth (e.g. Ollama running locally).
  *   - oauth_subscription: OAuth-based subscription auth (e.g. ChatGPT Codex).
- *
- * Schema-accepted variants (runtime rejects with a clear "not yet shipped" error):
- *   - service_account: service-account credentials (Vertex AI, Bedrock).
+ *   - service_account: Google service-account JSON key (Vertex AI); signs a
+ *     JWT and exchanges it for a bearer token at the embedded token_uri.
  */
 export const AuthSchema = z
   .discriminatedUnion("type", [

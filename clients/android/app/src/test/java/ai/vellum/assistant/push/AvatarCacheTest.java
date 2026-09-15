@@ -14,7 +14,9 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -105,6 +107,100 @@ public class AvatarCacheTest {
         assertEquals(2, AvatarCache.sampleSize(1024, 512));
         assertEquals(4, AvatarCache.sampleSize(512, 2048));
         assertEquals("undecodable bounds", 1, AvatarCache.sampleSize(-1, -1));
+    }
+
+    @Test
+    public void validatesInlinePngBytesBeforeBitmapInspection() {
+        byte[] png = new byte[] {
+            (byte) 0x89,
+            0x50,
+            0x4e,
+            0x47,
+            0x0d,
+            0x0a,
+            0x1a,
+            0x0a,
+            0x01,
+        };
+        String encoded = Base64.getEncoder().encodeToString(png);
+        String hash = AvatarCache.sha256Hex(png);
+
+        assertArrayEquals(
+            png,
+            AvatarCache.validatedInlineBytes(
+                encoded,
+                hash,
+                value -> Base64.getDecoder().decode(value)
+            )
+        );
+        assertNull(
+            "hash mismatch",
+            AvatarCache.validatedInlineBytes(
+                encoded,
+                VELLUM_SHA256,
+                value -> Base64.getDecoder().decode(value)
+            )
+        );
+        assertNull(
+            "not a png",
+            AvatarCache.validatedInlineBytes(
+                Base64.getEncoder().encodeToString("not png".getBytes(StandardCharsets.UTF_8)),
+                AvatarCache.sha256Hex("not png".getBytes(StandardCharsets.UTF_8)),
+                value -> Base64.getDecoder().decode(value)
+            )
+        );
+    }
+
+    @Test
+    public void rejectsOversizedOrMalformedBase64BeforeCallingTheDecoder() {
+        AtomicInteger decodes = new AtomicInteger();
+        AvatarCache.Base64Decoder decoder = value -> {
+            decodes.incrementAndGet();
+            return new byte[0];
+        };
+
+        assertNull(
+            AvatarCache.validatedInlineBytes(
+                "A".repeat(AvatarCache.MAX_BASE64_CHARACTERS + 4),
+                VELLUM_SHA256,
+                decoder
+            )
+        );
+        assertNull(
+            AvatarCache.validatedInlineBytes("not base64", VELLUM_SHA256, decoder)
+        );
+        assertNull(
+            AvatarCache.validatedInlineBytes("AAAA", "invalid-hash", decoder)
+        );
+        assertEquals(0, decodes.get());
+    }
+
+    @Test
+    public void rejectsDecodedBytesThatExceedTheCap() {
+        AtomicInteger decodes = new AtomicInteger();
+
+        assertNull(
+            AvatarCache.validatedInlineBytes(
+                "AAAA",
+                VELLUM_SHA256,
+                value -> {
+                    decodes.incrementAndGet();
+                    return new byte[AvatarCache.MAX_BYTES + 1];
+                }
+            )
+        );
+        assertEquals(1, decodes.get());
+    }
+
+    @Test
+    public void acceptsOnlyBoundedPngMetadataForInlineDecode() {
+        assertTrue(AvatarCache.supportedInlineBounds(1, 1, "image/png"));
+        assertTrue(AvatarCache.supportedInlineBounds(512, 512, "image/png"));
+        assertFalse(AvatarCache.supportedInlineBounds(513, 1, "image/png"));
+        assertFalse(AvatarCache.supportedInlineBounds(1, 513, "image/png"));
+        assertFalse(AvatarCache.supportedInlineBounds(0, 1, "image/png"));
+        assertFalse(AvatarCache.supportedInlineBounds(1, 1, "image/jpeg"));
+        assertFalse(AvatarCache.supportedInlineBounds(1, 1, null));
     }
 
     @Test

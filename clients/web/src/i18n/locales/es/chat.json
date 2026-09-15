@@ -1,4 +1,9 @@
 {
+  "documentChat": {
+    "saveFailed": "No se pudo guardar el documento. Tu mensaje sigue aquí. Intenta enviarlo de nuevo.",
+    "viewConversation": "Ver conversación",
+    "reopenDocument": "Reabrir documento"
+  },
   "acpChatPlanBlock": {
     "plan": "Plan"
   },
@@ -89,6 +94,9 @@
     "earlierActivity": "Actividad anterior"
   },
   "assistantDesktop": {
+    "resizeAria": "Cambiar el ancho del panel del escritorio",
+    "collapseAria": "Contraer el panel del escritorio",
+    "expandAria": "Ampliar escritorio",
     "busy": "Otro usuario está usando el escritorio.",
     "connecting": "Conectando con el escritorio…",
     "failed": "No se pudo iniciar el escritorio.",
@@ -761,6 +769,16 @@
     "saved": "Guardado",
     "saving": "Guardando…",
     "wordCount": "{count, plural, one {# palabra} other {# palabras}}"
+  },
+  "documentConversation": {
+    "unavailable": "No se puede abrir la conversación del documento. Inténtalo de nuevo.",
+    "updateRequired": "Actualiza tu asistente para iniciar una conversación vinculada.",
+    "prepareFailed": "No se pudo preparar la conversación del documento. Tus cambios siguen disponibles.",
+    "feedbackPrompt": "Revisa y atiende mis comentarios sobre \"{title}\".",
+    "missing": "La conversación de este documento no está disponible. Puedes seguir editando o iniciar una nueva conversación vinculada.",
+    "start": "Iniciar una conversación vinculada",
+    "retry": "Intentar de nuevo",
+    "back": "Volver"
   },
   "documentViewerPage": {
     "exportFailed": "No se pudo exportar el PDF",
@@ -1896,5 +1914,16 @@
     "failedReplacementRejected": "Vellum rechazó la credencial de reemplazo. Inicia sesión en la plataforma Vellum y vuelve a intentarlo.",
     "failedUnconfirmed": "El reemplazo se guardó, pero no se pudo confirmar con Vellum. Puede que empiece a funcionar en breve.",
     "failedGeneric": "No se pudo restaurar el acceso. Inténtalo de nuevo en un momento."
+  },
+  "sidebarExpandRow": {
+    "expand": "Expandir",
+    "collapse": "Contraer"
+  },
+  "cameraFrameGrid": {
+    "count": "{count, plural, one {# fotograma de cámara} other {# fotogramas de cámara}}",
+    "timeRange": "Guardados de {first} a {last}",
+    "savedTime": "Guardado: {time}",
+    "pendingAria": "Fotograma de cámara, la imagen aún se está cargando. {time}",
+    "timeUnavailable": "Hora no disponible"
   }
 }

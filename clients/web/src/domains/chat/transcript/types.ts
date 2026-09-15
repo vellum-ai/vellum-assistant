@@ -31,6 +31,8 @@ export interface TranscriptItemBase {
 export interface MessageItem extends TranscriptItemBase {
   kind: "message";
   message: DisplayMessage;
+  /** Frames saved before the utterance, or a standalone run hosted by its first frame. */
+  cameraFrames?: DisplayMessage[];
 }
 
 export interface ThinkingItem extends TranscriptItemBase {

@@ -7,6 +7,10 @@ two APIs: the snapshot (GET /messages) and the stream (GET /events). Everywhere 
 
 ## The shape
 
+The [mobile document editor](./DOCUMENT_CHAT.md) shares this same active session,
+composer, send hook and event stream. Hiding the transcript to show a document
+does not transfer delivery ownership or mount a document-specific reply watcher.
+
 The rendered transcript is one derived value:
 
 ```

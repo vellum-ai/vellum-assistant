@@ -9,7 +9,8 @@
  *  3. `executionError` from the client surfaces as a structured failure.
  *  4. The pending interaction is unregistered on every path.
  *  5. No capable client connected: failure rather than a throw.
- *  6. `includeScreenshot: false` drops the screenshot from the result.
+ *  6. `includeScreenshot: false` drops the screenshot from the result, and
+ *     is sent to the helper only for an unscoped observation.
  *  7. Actor binding: another user's client is never selected by default, an
  *     explicit clientId owned by another user is rejected, a caller with no
  *     actor principal reaches nothing, and two same-user clients are
@@ -224,6 +225,44 @@ describe("observeHostScreen", () => {
     }
     expect(sentMessages).toHaveLength(0);
     expect(pendingInteractions.getAll()).toHaveLength(0);
+  });
+
+  test("tells the helper when no screenshot is wanted on an unscoped observation, and only then", async () => {
+    const skipped = observe({ includeScreenshot: false });
+    const skippedRequest = sentMessages.find(
+      (m) => m.type === "host_cu_request",
+    );
+    expect(skippedRequest?.input).toEqual({ includeScreenshot: false });
+    await postResult({ requestId: sentRequestId(), axTree: "Window [1]" });
+    await skipped;
+
+    sentMessages.length = 0;
+    const wanted = observe();
+    const wantedRequest = sentMessages.find(
+      (m) => m.type === "host_cu_request",
+    );
+    expect(wantedRequest?.input).toEqual({});
+    await postResult({ requestId: sentRequestId(), axTree: "Window [1]" });
+    await wanted;
+  });
+
+  test("a scoped observation sends no opt-out and still drops the screenshot", async () => {
+    const observation = observe({
+      includeScreenshot: false,
+      captureTarget: { kind: "window", windowId: 4211 },
+    });
+    const request = sentMessages.find((m) => m.type === "host_cu_request");
+    expect(request?.input).toEqual({ captureWindowId: 4211 });
+
+    await postResult({
+      requestId: sentRequestId(),
+      axTree: "Window [1]",
+      screenshot: "base64png",
+      screenshotWidthPx: 1200,
+      screenshotHeightPx: 800,
+    });
+
+    expect(await observation).toEqual({ ok: true, axTree: "Window [1]" });
   });
 
   test("drops the screenshot when includeScreenshot is false", async () => {

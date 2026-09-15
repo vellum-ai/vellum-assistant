@@ -863,6 +863,9 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.03,
         },
       },
+      // Limited to grandfathered accounts: other API keys get HTTP 404 "no
+      // longer available to new users", so this model is user-selectable
+      // only and no intent column may resolve to it.
       {
         id: "gemini-2.5-flash-lite",
         displayName: "Gemini 2.5 Flash Lite",
@@ -2655,8 +2658,7 @@ export function supportsForcedToolChoiceWithThinking(
   return !provider.models.some(
     (model) =>
       model.supportsForcedToolChoiceWithThinking === false &&
-      (model.id === modelId ||
-        stripDateSuffix(model.id) === normalizedModelId),
+      (model.id === modelId || stripDateSuffix(model.id) === normalizedModelId),
   );
 }
 

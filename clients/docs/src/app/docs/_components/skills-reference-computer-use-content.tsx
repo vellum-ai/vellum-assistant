@@ -139,8 +139,8 @@ export function SkillsReferenceComputerUseContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <strong>Accessibility tree + screenshots.</strong> The assistant reads the
-              accessibility tree (same API screen readers use) AND takes screenshots for a complete
-              picture.
+              accessibility tree (same API screen readers use) on every step and takes screenshots
+              when it needs to see the screen.
             </li>
             <li>
               <strong>Element-based clicking.</strong> It prefers clicking by element name rather
@@ -153,6 +153,22 @@ export function SkillsReferenceComputerUseContent() {
               <strong>Platform differences.</strong> Dragging, opening apps by name, and AppleScript
               are available on macOS. Windows exposes only actions its desktop helper supports, so
               unsupported tools are not offered to the assistant.
+            </li>
+            <li>
+              <strong>Typing is not sending.</strong> Asked to type or draft a message, the
+              assistant types it and stops before pressing Enter. It sends only when asked to.
+            </li>
+            <li>
+              <strong>Your pointer comes back on macOS.</strong> The pointer stays where the
+              assistant last clicked while it works, so controls that only show on hover keep
+              working. It returns to where you left it when the task ends, unless you have
+              already moved it.
+            </li>
+            <li>
+              <strong>Batched actions on macOS.</strong> When the assistant already knows several
+              steps, such as opening a window, typing a URL, and pressing Enter, it can run them
+              in one step and look at the screen once afterward. It stops at the first action
+              that fails. This needs a desktop app that supports batched actions.
             </li>
             <li>
               <strong>Single-window observations on macOS.</strong> The observe tool accepts

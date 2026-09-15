@@ -171,6 +171,19 @@ describe("stripOrphanedSurrogatesDeep", () => {
     expect(result.value.b[1]).toBe("also clean");
   });
 
+  test("skipKey leaves a property unscanned and uncopied", () => {
+    const payload = { type: "base64", data: `raw${HIGH}` };
+    const input = { text: `bad${HIGH}`, payload };
+    const result = stripOrphanedSurrogatesDeep(input, {
+      skipKey: (key, parent) => key === "data" && parent.type === "base64",
+    });
+    expect(result.changed).toBe(true);
+    expect(result.fixedStringCount).toBe(1);
+    expect(result.value.text).toBe(`bad${REPLACEMENT}`);
+    // The skipped subtree is carried over by reference, orphan and all.
+    expect(result.value.payload).toBe(payload);
+  });
+
   test("leaves non-plain objects untouched", () => {
     class Custom {
       value = `bad${HIGH}`;

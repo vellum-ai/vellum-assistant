@@ -281,7 +281,7 @@ export type VoiceRoomVariant = "fullscreen" | "content" | "sheet";
  * (`z-40` in `chat-layout.tsx`) and, above that, the search palette (`z-50` in
  * `command-palette.tsx`, which also has to clear the drawer it opens over).
  * `z-30` is the shared tier for mobile surfaces that sit under the header, the
- * same one `mobile-app-overlay.tsx` and `mobile-document-overlay.tsx` use.
+ * same one `mobile-app-overlay.tsx` and `mobile-workspace-file-preview-overlay.tsx` use.
  *
  * This only orders the sheet against the app's own chrome. Menus and sheets
  * opened FROM the header (the conversation actions menu, the notifications

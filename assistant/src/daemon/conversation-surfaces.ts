@@ -101,6 +101,7 @@ export {
   type SurfaceShowPair,
   type SurfaceStateEntry,
 } from "./conversation-surface-state.js";
+import { safeStringSlice } from "../util/unicode.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 
@@ -1487,7 +1488,10 @@ function handleDocumentContentChanged(
         updateApp(appId, {
           name: title || app.name,
           description: `Document with ${wordCount ?? 0} words`,
-          preview: content?.slice(0, 200),
+          preview:
+            content === undefined
+              ? undefined
+              : safeStringSlice(content, 0, 200),
           htmlDefinition: updatedHtml,
         });
 
@@ -3176,7 +3180,7 @@ export async function surfaceProxyResolver(
           : typeof input.answer === "string"
             ? input.answer
             : "Task complete";
-      hostCuProxy.reset();
+      hostCuProxy.endTask(ctx.conversationId);
       return { content: summary, isError: false };
     }
 

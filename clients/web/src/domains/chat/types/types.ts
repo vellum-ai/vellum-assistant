@@ -166,6 +166,10 @@ export interface DisplayMessage {
    *  Mirrors `ConversationMessage["noResponse"]`; renders as a quiet marker
    *  and counts as the turn's reply. */
   isNoResponse?: boolean;
+  /** Standalone ambient camera frame, identified by the wire `cameraFrame`
+   *  marker. The transcript folds frame runs into the following user row;
+   *  never inferred from text. */
+  isCameraFrame?: boolean;
   /** Whether this row's plain text is something the user reads. Mirrors
    *  `ConversationMessage["assistantTextVisibility"]` and the same field on
    *  `message_complete`; `"private"` marks a row whose prose is a scratchpad

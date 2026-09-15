@@ -16,6 +16,7 @@ import { estimateContentBlockTokens } from "../context/token-estimator.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
 import { mediaSourceDescriptor } from "../providers/media-resolve.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 export interface StripMediaOptions {
   /** Token budget available for media in the latest user message. Keeps as
@@ -238,7 +239,7 @@ function fileBlockToStub(
   const extracted = (block.extracted_text ?? "").trim();
   const preview =
     extracted.length > MAX_MEDIA_STUB_TEXT
-      ? `${extracted.slice(0, MAX_MEDIA_STUB_TEXT)}...`
+      ? `${safeStringSlice(extracted, 0, MAX_MEDIA_STUB_TEXT)}...`
       : extracted;
   return {
     type: "text",

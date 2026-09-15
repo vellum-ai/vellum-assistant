@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import {
   resolveCallSiteConfig,
   selectWinningProfile,
@@ -10,7 +8,6 @@ import {
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
 import { resolveSubagentAttribution } from "../usage/subagent-attribution.js";
-import { getExistingDeviceId } from "../util/device-id.js";
 import {
   type ProviderCredentialSource,
   ProviderError,
@@ -43,7 +40,8 @@ import {
   isAdaptiveThinkingOnlyModel,
   isAdaptiveThinkingUnsupportedModel,
 } from "./model-catalog.js";
-import { buildOpenCodeRequestHeaders } from "./opencode/client.js";
+import { resolveOpenCodeRequestHeaders } from "./opencode/client.js";
+import { sanitizeOutboundRequest } from "./outbound-request-sanitize.js";
 import { dispatchProviderResolvable } from "./provider-resolvability.js";
 import {
   isThinkingConfigAdaptive,
@@ -646,18 +644,11 @@ function normalizeSendMessageOptions(
       typeof config.conversationId === "string"
         ? config.conversationId
         : undefined;
-    const requestHeaders = buildOpenCodeRequestHeaders({
-      conversationId,
-      // Background call paths (memory/commit-message enrichment,
-      // proactivity, workflow runs) have no conversationId - reuse the
-      // existing stable per-device ID so those requests still carry a
-      // session header instead of persisting a new ID for this purpose.
-      fallbackSessionId: getExistingDeviceId() ?? undefined,
-      requestId: randomUUID(),
-    });
-    if (Object.keys(requestHeaders).length > 0) {
-      nextConfig.requestHeaders = requestHeaders;
-    }
+    // Profile probes and background call paths (memory/commit-message
+    // enrichment, proactivity, workflow runs) have no conversationId; the
+    // fallback keeps a session header on every request since zen/go rejects
+    // requests without one.
+    nextConfig.requestHeaders = resolveOpenCodeRequestHeaders(conversationId);
   }
 
   // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`,
@@ -1142,8 +1133,9 @@ export class RetryProvider implements Provider {
 
   // Forward the optional token-counting endpoint so the capability survives
   // the wrapper chain (callers gate on its presence). Bound straight to the
-  // inner provider — count_tokens is a cheap separate endpoint and its caller
-  // already falls back on error, so it needs no retry wrapping.
+  // inner provider behind the same surrogate sanitizer as `sendMessage` —
+  // count_tokens is a cheap separate endpoint and its caller already falls
+  // back on error, so it needs no retry wrapping.
   // Deliberately not re-bound when a credential refresh swaps `inner`: every
   // outer wrapper snapshots this the same way at construction, so a re-bind
   // here would never reach callers. count_tokens on the pre-refresh credential
@@ -1188,7 +1180,18 @@ export class RetryProvider implements Provider {
     this.inner = inner;
     this.name = inner.name;
     if (inner.countInputTokens) {
-      this.countInputTokens = inner.countInputTokens.bind(inner);
+      const countInputTokens = inner.countInputTokens.bind(inner);
+      this.countInputTokens = (messages, systemPrompt, tools) => {
+        const clean = sanitizeOutboundRequest(this.name, {
+          messages,
+          options: { systemPrompt, tools },
+        });
+        return countInputTokens(
+          clean.messages,
+          clean.options?.systemPrompt ?? systemPrompt,
+          clean.options?.tools,
+        );
+      };
     }
   }
 
@@ -1262,6 +1265,14 @@ export class RetryProvider implements Provider {
     let credentialRefreshAttempted = false;
     let correctiveResendAttempted = false;
     let fallbackAttempted = false;
+
+    // Every attempt below, the backup route included, sends what this
+    // wrapper was handed, so an orphaned UTF-16 surrogate is stripped here
+    // once rather than rejected by the upstream parser on every resend.
+    ({ messages, options } = sanitizeOutboundRequest(this.name, {
+      messages,
+      options,
+    }));
     let messagesForAttempt = messages;
 
     const normalizedOptions = normalizeSendMessageOptions(this.name, options, {

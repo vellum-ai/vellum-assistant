@@ -68,17 +68,15 @@ mock.module("../daemon/mcp-reload-service.js", () => ({
   reloadMcpServers: async () => {},
 }));
 
-import { setConfig } from "./helpers/set-config.js";
+import { setWorkspaceMcp } from "./helpers/set-workspace-mcp.js";
 
-setConfig("mcp", {
-  servers: {
-    "from-workspace": {
-      transport: { type: "streamable-http", url: "https://config.example/mcp" },
-    },
-    // Deliberately shares an id with the `shadowed` plugin below.
-    shadowed: {
-      transport: { type: "streamable-http", url: "https://wins.example/mcp" },
-    },
+setWorkspaceMcp({
+  "from-workspace": {
+    transport: { type: "streamable-http", url: "https://config.example/mcp" },
+  },
+  // Deliberately shares an id with the `shadowed` plugin below.
+  shadowed: {
+    transport: { type: "streamable-http", url: "https://wins.example/mcp" },
   },
 });
 

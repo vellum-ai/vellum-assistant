@@ -9,6 +9,20 @@ import {
 } from "@/domains/chat/utils/stream-handlers/error-handlers";
 
 describe("handleStreamError", () => {
+  it.todo("keeps a successful batch sibling active after tail persistence fails", () => {
+    const ctx = makeCtx();
+    handleStreamError(
+      {
+        type: "error",
+        conversationId: "conv-1",
+        message: "Failed to persist batched queued message",
+      },
+      ctx,
+    );
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
+  });
+
   it("ends the turn with reason=error, sets error, cancels stream", () => {
     const ctx = makeCtx();
     handleStreamError({ type: "error", message: "Something went wrong." }, ctx);

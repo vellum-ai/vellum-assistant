@@ -118,3 +118,39 @@ export function viewportAxesStub(): {
     },
   };
 }
+
+/** Drives media-query subscribers when a test changes viewport axes. */
+export function liveViewportAxesStub() {
+  const viewport = viewportAxesStub();
+  const targets = new Map<string, EventTarget>();
+  return {
+    set(axes: ViewportAxes) {
+      viewport.set(axes);
+      const matchMedia = window.matchMedia;
+      window.matchMedia = (query) => {
+        let target = targets.get(query);
+        if (!target) {
+          target = new EventTarget();
+          targets.set(query, target);
+        }
+        return Object.assign(matchMedia(query), {
+          addEventListener: target.addEventListener.bind(target),
+          removeEventListener: target.removeEventListener.bind(target),
+          dispatchEvent: target.dispatchEvent.bind(target),
+        });
+      };
+      for (const [query, target] of targets) {
+        target.dispatchEvent(
+          Object.assign(new Event("change"), {
+            matches: matchMedia(query).matches,
+            media: query,
+          }),
+        );
+      }
+    },
+    restore() {
+      viewport.restore();
+      targets.clear();
+    },
+  };
+}

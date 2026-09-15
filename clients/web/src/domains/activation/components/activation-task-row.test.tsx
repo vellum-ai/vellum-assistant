@@ -124,18 +124,25 @@ describe("ActivationTaskRow", () => {
   test("the send button stays disabled until something is typed", () => {
     const view = render(<ActivationTaskRow task={TASK} expanded />);
     openCustom(view);
-    const send = view.getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    const send = view.getByRole("button", {
+      name: "Send",
+    }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    fireEvent.change(view.getByLabelText("Custom:"), { target: { value: "x" } });
+    fireEvent.change(view.getByLabelText("Custom:"), {
+      target: { value: "x" },
+    });
     expect(send.disabled).toBe(false);
   });
 
   test("whitespace alone does not enable the send button", () => {
     const view = render(<ActivationTaskRow task={TASK} expanded />);
     openCustom(view);
-    fireEvent.change(view.getByLabelText("Custom:"), { target: { value: "   " } });
+    fireEvent.change(view.getByLabelText("Custom:"), {
+      target: { value: "   " },
+    });
     expect(
-      (view.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled,
+      (view.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
   });
 
@@ -197,6 +204,21 @@ describe("ActivationTaskRow", () => {
     expect(opened).toEqual(["conv-done-2"]);
   });
 
+  // The header opens the thread, but a pill does not look clickable. The
+  // finished row carries the same Open link a working row does.
+  test("a finished row offers an Open link into its conversation", () => {
+    const opened: string[] = [];
+    const { getByRole } = render(
+      <ActivationTaskRow
+        task={TASK}
+        progress={doneTaskProgress()}
+        onOpenConversation={(conversationId) => opened.push(conversationId)}
+      />,
+    );
+    fireEvent.click(getByRole("button", { name: "Open" }));
+    expect(opened).toEqual(["conv-done-2"]);
+  });
+
   // The daemon clears the link when the conversation a finished task ran in is
   // deleted. The row keeps what it earned and stops offering to open nothing.
   test("a finished row whose conversation is gone opens nothing", () => {
@@ -211,6 +233,7 @@ describe("ActivationTaskRow", () => {
     expect(getByText("Done")).not.toBeNull();
     expect(getByText("4 steps")).not.toBeNull();
     expect(queryByRole("button", { name: `Open ${TASK.title}` })).toBeNull();
+    expect(queryByRole("button", { name: "Open" })).toBeNull();
     expect(opened).toEqual([]);
   });
 

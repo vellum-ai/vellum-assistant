@@ -14,7 +14,7 @@
  * This module reads those files and projects each entry onto the
  * assistant's own `McpServerConfig` shape, so a plugin-declared server can
  * flow through the same surfaces as one configured in the workspace
- * `config.json`.
+ * `mcp.json`.
  *
  * Failure isolation follows the spec: an invalid top-level `mcp.json`
  * disables MCP for that plugin only, and an invalid individual server
@@ -39,17 +39,17 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { z } from "zod";
-
 import {
   type AllPluginInfo,
   listAllPlugins,
   type ListInstalledPluginsOptions,
 } from "../cli/lib/list-installed-plugins.js";
-import type {
-  McpTransport,
-  ResolvedMcpServerConfig,
-} from "../config/schemas/mcp.js";
+import type { ResolvedMcpServerConfig } from "../config/schemas/mcp.js";
+import {
+  projectSpecServerToTransport,
+  SpecMcpDocumentSchema,
+  SpecMcpServerSchema,
+} from "../mcp/spec-schema.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("plugin-mcp-servers");
@@ -76,45 +76,6 @@ export const PLUGIN_MCP_MANIFEST = "mcp.json";
  * plugin server wholesale (transport included) and uses the workspace
  * origin risk.
  */
-
-// ---------------------------------------------------------------------------
-// Wire schema (Agent Plugins 1.0.0)
-// ---------------------------------------------------------------------------
-
-const PluginStdioServerSchema = z.object({
-  type: z.literal("stdio"),
-  command: z.string().min(1),
-  args: z.array(z.string()).optional(),
-  env: z.record(z.string(), z.string()).optional(),
-  cwd: z.string().optional(),
-});
-
-/**
- * Remote MCP entry. Agent Plugins 1.0.0 requires `type` and names no
- * default. MCP's current remote transport is Streamable HTTP, so this
- * host fills omitted `type` and the Claude-style `http` alias as
- * `streamable-http`. `sse` stays explicit.
- */
-const PluginHttpServerSchema = z.object({
-  type: z
-    .union([
-      z.literal("streamable-http"),
-      z.literal("sse"),
-      z.literal("http").transform(() => "streamable-http" as const),
-    ])
-    .default("streamable-http"),
-  url: z.string().min(1),
-  headers: z.record(z.string(), z.string()).optional(),
-});
-
-const PluginMcpServerSchema = z.union([
-  PluginStdioServerSchema,
-  PluginHttpServerSchema,
-]);
-
-const PluginMcpManifestSchema = z.object({
-  mcpServers: z.record(z.string(), z.unknown()),
-});
 
 // ---------------------------------------------------------------------------
 // Public shape
@@ -251,7 +212,7 @@ export function readPluginMcpServers(
         continue;
       }
 
-      const entry = PluginMcpServerSchema.safeParse(raw);
+      const entry = SpecMcpServerSchema.safeParse(raw);
       if (!entry.success) {
         issues.push({
           pluginName: plugin.name,
@@ -325,7 +286,7 @@ function parseManifest(
     };
   }
 
-  const manifest = PluginMcpManifestSchema.safeParse(json);
+  const manifest = SpecMcpDocumentSchema.safeParse(json);
   if (!manifest.success) {
     return {
       error: `${PLUGIN_MCP_MANIFEST} is missing a valid "mcpServers" object`,
@@ -334,33 +295,12 @@ function parseManifest(
   return { mcpServers: manifest.data.mcpServers };
 }
 
-/**
- * Project one spec-shaped entry onto the assistant's transport union. The
- * two vocabularies already agree on type names and required fields, so this
- * is a field copy plus path interpolation for the stdio case.
- */
 function projectTransport(
-  entry: z.infer<typeof PluginMcpServerSchema>,
+  entry: Parameters<typeof projectSpecServerToTransport>[0],
   pluginRoot: string,
-): McpTransport {
-  if (entry.type === "stdio") {
-    const pluginData = join(pluginRoot, "data");
-    const expand = (v: string): string =>
-      interpolatePluginPaths(v, pluginRoot, pluginData);
-    return {
-      type: "stdio",
-      command: entry.command,
-      args: (entry.args ?? []).map(expand),
-      ...(entry.env && {
-        env: Object.fromEntries(
-          Object.entries(entry.env).map(([k, v]) => [k, expand(v)]),
-        ),
-      }),
-    };
-  }
-  return {
-    type: entry.type,
-    url: entry.url,
-    ...(entry.headers && { headers: entry.headers }),
-  };
+) {
+  const pluginData = join(pluginRoot, "data");
+  return projectSpecServerToTransport(entry, (value) =>
+    interpolatePluginPaths(value, pluginRoot, pluginData),
+  );
 }

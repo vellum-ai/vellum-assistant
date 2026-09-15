@@ -1,4 +1,9 @@
 {
+  "documentChat": {
+    "saveFailed": "Couldn't save the document. Your message is still here. Try sending again.",
+    "viewConversation": "View conversation",
+    "reopenDocument": "Reopen document"
+  },
   "acpChatPlanBlock": {
     "plan": "Plan"
   },
@@ -89,6 +94,9 @@
     "earlierActivity": "Earlier activity"
   },
   "assistantDesktop": {
+    "resizeAria": "Resize desktop sidebar",
+    "collapseAria": "Collapse desktop sidebar",
+    "expandAria": "Expand desktop",
     "busy": "The desktop is in use by another viewer.",
     "connecting": "Connecting to the desktop…",
     "failed": "The desktop couldn't start.",
@@ -769,6 +777,16 @@
     "saved": "Saved",
     "saving": "Saving…",
     "wordCount": "{count, plural, one {# word} other {# words}}"
+  },
+  "documentConversation": {
+    "unavailable": "Unable to open the document conversation. Please try again.",
+    "updateRequired": "Update your assistant to start a linked conversation.",
+    "prepareFailed": "Could not prepare the document conversation. Your edits are still available.",
+    "feedbackPrompt": "Please review and address my comments on \"{title}\".",
+    "missing": "This document's conversation is unavailable. You can keep editing or start a new linked conversation.",
+    "start": "Start a linked conversation",
+    "retry": "Try again",
+    "back": "Go back"
   },
   "documentViewerPage": {
     "exportFailed": "Failed to export PDF",
@@ -1962,5 +1980,16 @@
     "failedReplacementRejected": "Vellum rejected the replacement credential. Log in to the Vellum platform, then try again.",
     "failedUnconfirmed": "The replacement was saved but could not be confirmed with Vellum. It may start working shortly.",
     "failedGeneric": "Could not restore access. Try again in a moment."
+  },
+  "sidebarExpandRow": {
+    "expand": "Expand",
+    "collapse": "Collapse"
+  },
+  "cameraFrameGrid": {
+    "count": "{count, plural, one {# camera frame} other {# camera frames}}",
+    "timeRange": "Saved {first} to {last}",
+    "savedTime": "Saved {time}",
+    "pendingAria": "Camera frame, image still loading. {time}",
+    "timeUnavailable": "Time unavailable"
   }
 }

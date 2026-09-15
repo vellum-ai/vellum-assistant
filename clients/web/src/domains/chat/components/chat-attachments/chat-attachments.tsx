@@ -100,6 +100,7 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
   return (
     <>
       <div
+        data-owns-horizontal-scroll=""
         className={cn(
           "flex gap-2 overflow-x-auto px-3 pb-1.5 [&::-webkit-scrollbar]:hidden [scrollbar-width:none]",
           // The card insets its content 12px on mobile, against the 8px a

@@ -21,11 +21,29 @@ const log = getLogger("byo-oauth-connection");
 /** Default per-request timeout to prevent hung requests from blocking indefinitely. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * How the access token is attached to an outbound request. Almost every
+ * provider reads `Authorization: Bearer <token>`; a few use their own header
+ * (Shopify's Admin API reads `X-Shopify-Access-Token` and ignores
+ * Authorization entirely). Derived from the provider's header-type injection
+ * template so the seed is the single source of truth.
+ */
+export interface BYOTokenHeader {
+  name: string;
+  /** Text placed before the token, e.g. `"Bearer "`, `"Bot "`, or `""`. */
+  valuePrefix: string;
+}
+
 export interface BYOOAuthConnectionOptions {
   id: string;
   provider: string;
   baseUrl: string;
   accountInfo: string | null;
+  /**
+   * Token header override. When omitted the connection falls back to
+   * `Authorization: Bearer` (or `Bot` for discord_channel).
+   */
+  tokenHeader?: BYOTokenHeader | null;
 }
 
 export class BYOOAuthConnection implements OAuthConnection {
@@ -34,12 +52,14 @@ export class BYOOAuthConnection implements OAuthConnection {
   readonly accountInfo: string | null;
 
   private readonly baseUrl: string;
+  private readonly tokenHeader: BYOTokenHeader | null;
 
   constructor(opts: BYOOAuthConnectionOptions) {
     this.id = opts.id;
     this.provider = opts.provider;
     this.baseUrl = opts.baseUrl;
     this.accountInfo = opts.accountInfo;
+    this.tokenHeader = opts.tokenHeader ?? null;
   }
 
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
@@ -51,8 +71,12 @@ export class BYOOAuthConnection implements OAuthConnection {
         // Discord bot tokens authenticate with the `Bot ` scheme, not
         // `Bearer`. Sending Bearer here reaches Discord as an unusable
         // credential and comes back 401, which reads as a revoked token.
-        const authScheme =
-          this.provider === "discord_channel" ? "Bot" : "Bearer";
+        // Providers with their own token header (Shopify) override the
+        // whole thing via `tokenHeader`.
+        const tokenHeader: BYOTokenHeader = this.tokenHeader ?? {
+          name: "Authorization",
+          valuePrefix: this.provider === "discord_channel" ? "Bot " : "Bearer ",
+        };
         const requestPath = isTelegram
           ? buildTelegramBotApiPath(req.path, token)
           : req.path;
@@ -93,16 +117,22 @@ export class BYOOAuthConnection implements OAuthConnection {
           }
         }
         if (!isTelegram) {
-          headers.set("Authorization", `${authScheme} ${token}`);
+          // The credential always wins over a caller-supplied value, and a
+          // provider that reads its own header must not also receive a
+          // stray Authorization the caller happened to send.
+          if (tokenHeader.name.toLowerCase() !== "authorization") {
+            headers.delete("Authorization");
+          }
+          headers.set(tokenHeader.name, `${tokenHeader.valuePrefix}${token}`);
         }
 
         const resp = await fetch(fullUrl, {
           method: req.method,
           headers,
           body: hasBody
-            ? (binaryBody !== undefined
-                ? Buffer.from(binaryBody)
-                : (rawBody ?? JSON.stringify(req.body)))
+            ? binaryBody !== undefined
+              ? Buffer.from(binaryBody)
+              : (rawBody ?? JSON.stringify(req.body))
             : undefined,
           // Following a redirect would replay a POST as a GET against a URL
           // the caller never asked for, and hide the 3xx from them.

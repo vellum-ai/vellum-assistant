@@ -24,7 +24,9 @@ mock.module("../providers/platform-proxy/context.js", () => ({
   resolveManagedProxyContext: () => mockResolveManagedProxyContext(),
 }));
 
+const actualEnv = await import("../config/env.js");
 mock.module("../config/env.js", () => ({
+  ...actualEnv,
   getPlatformAssistantId: () => mockAssistantId,
 }));
 
@@ -113,11 +115,11 @@ describe("VellumPlatformClient", () => {
         platformBaseUrl: "",
         assistantApiKey: "",
       };
-      mockAssistantId = "";
+      mockAssistantId = "stored-assistant-id";
       mockSecureKeys = {
         "vellum:platform_base_url": "https://stored-platform.example.com/",
         "vellum:assistant_api_key": "stored-api-key",
-        "vellum:platform_assistant_id": " stored-assistant-id ",
+        "vellum:platform_assistant_id": " vault-assistant-id ",
       };
 
       const client = await VellumPlatformClient.create();

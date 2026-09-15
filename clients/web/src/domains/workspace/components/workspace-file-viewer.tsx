@@ -28,7 +28,7 @@ import {
   FileTextarea,
   SourcePre,
 } from "@/components/file-editor";
-import { useTranslation } from "@/i18n";
+import { formatLocale, useTranslation } from "@/i18n";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/utils/format-file-size";
@@ -404,7 +404,7 @@ function BinaryFileCard({
                 color: "var(--content-secondary, var(--content-tertiary))",
               }}
             >
-              {formatFileSize(size, "Unknown size")}
+              {formatFileSize(size, t("workspaceFileViewer.unknownSize"))}
             </p>
             {modifiedAt && (
               <p
@@ -414,7 +414,7 @@ function BinaryFileCard({
                 }}
               >
                 {t("workspaceFileViewer.modifiedLabel")}{" "}
-                {new Date(modifiedAt).toLocaleString()}
+                {new Date(modifiedAt).toLocaleString(formatLocale())}
               </p>
             )}
           </div>

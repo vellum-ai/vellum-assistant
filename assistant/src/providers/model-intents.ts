@@ -11,10 +11,15 @@ const PROVIDER_DEFAULT_MODELS: Record<string, string> = Object.fromEntries(
 );
 
 // `cost-optimized` is the cheapest model a provider serves, `latency-optimized`
-// the fastest to first token. On anthropic, ollama, fireworks and openai the
-// same model is both, so those columns repeat by construction rather than by
-// oversight (openai's balanced repeats it too: the default-profile templates
-// split those tiers by reasoning effort, not model).
+// the fastest to first token. On anthropic, ollama, fireworks, openai and
+// gemini the same model is both, so those columns repeat by construction
+// rather than by oversight (openai's balanced repeats it too: the
+// default-profile templates split those tiers by reasoning effort, not model).
+//
+// "Serves" means serves to every API key: Google's `gemini-2.5-flash-lite`
+// undercuts every 3.x Flash-Lite but is limited to grandfathered accounts
+// (other keys get HTTP 404 "no longer available to new users"), so the
+// gemini column skips it.
 const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   anthropic: {
     balanced: "claude-sonnet-4-6",
@@ -32,7 +37,7 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
   },
   gemini: {
     balanced: "gemini-3-flash-preview",
-    "cost-optimized": "gemini-2.5-flash-lite",
+    "cost-optimized": "gemini-3.1-flash-lite",
     "latency-optimized": "gemini-3.1-flash-lite",
     "quality-optimized": "gemini-3.1-pro-preview",
     "vision-optimized": "gemini-3-flash-preview",

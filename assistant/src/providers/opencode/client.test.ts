@@ -1,4 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+let mockDeviceId: string | null = null;
+mock.module("../../util/device-id.js", () => ({
+  getExistingDeviceId: () => mockDeviceId,
+}));
 
 import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
@@ -11,7 +16,9 @@ import {
   OPENCODE_SESSION_HEADER,
   OPENCODE_ZEN_BASE_URL,
   OpenCodeProvider,
+  resetOpenCodeFallbackSessionForTests,
   resolveOpenCodeBaseURL,
+  resolveOpenCodeRequestHeaders,
 } from "./client.js";
 
 describe("resolveOpenCodeBaseURL", () => {
@@ -72,12 +79,41 @@ describe("buildOpenCodeRequestHeaders", () => {
   });
 
   test("sets only the ids that are present", () => {
-    expect(
-      buildOpenCodeRequestHeaders({ conversationId: "conv-xyz" }),
-    ).toEqual({ [OPENCODE_SESSION_HEADER]: "conv-xyz" });
+    expect(buildOpenCodeRequestHeaders({ conversationId: "conv-xyz" })).toEqual(
+      { [OPENCODE_SESSION_HEADER]: "conv-xyz" },
+    );
     expect(buildOpenCodeRequestHeaders({ requestId: "req-123" })).toEqual({
       [OPENCODE_REQUEST_HEADER]: "req-123",
     });
+  });
+});
+
+describe("resolveOpenCodeRequestHeaders", () => {
+  beforeEach(() => {
+    mockDeviceId = null;
+    resetOpenCodeFallbackSessionForTests();
+  });
+
+  test("uses the conversation id over the device id", () => {
+    mockDeviceId = "dev-123";
+    const headers = resolveOpenCodeRequestHeaders("conv-xyz");
+    expect(headers[OPENCODE_SESSION_HEADER]).toBe("conv-xyz");
+    expect(headers[OPENCODE_REQUEST_HEADER]).toMatch(/\S/);
+    expect(resolveOpenCodeRequestHeaders()[OPENCODE_SESSION_HEADER]).toBe(
+      "dev-123",
+    );
+  });
+
+  test("mints one process-stable session when there is no device id", () => {
+    const first = resolveOpenCodeRequestHeaders();
+    expect(first[OPENCODE_SESSION_HEADER]).toMatch(/\S/);
+    expect(first).not.toHaveProperty("session_id");
+    // Pinned: a device.json created later in the process does not move
+    // background traffic onto a second session.
+    mockDeviceId = "dev-123";
+    expect(resolveOpenCodeRequestHeaders()[OPENCODE_SESSION_HEADER]).toBe(
+      first[OPENCODE_SESSION_HEADER]!,
+    );
   });
 });
 
@@ -134,6 +170,39 @@ describe("OpenCodeProvider", () => {
     const options = seen[0]!.options as { headers?: Record<string, string> };
     expect(options.headers?.[OPENCODE_SESSION_HEADER]).toBe("conv-xyz");
     expect(options.headers?.[OPENCODE_REQUEST_HEADER]).toBe("req-123");
+    expect(options.headers).not.toHaveProperty("session_id");
+  });
+
+  test("stamps session and request headers on a configless call", async () => {
+    const provider = new OpenCodeProvider("sk-test", "mimo-v2.5-free");
+    const seen: Array<{ options: unknown }> = [];
+    (provider as unknown as { client: unknown }).client = {
+      chat: {
+        completions: {
+          create: async (_params: unknown, options: unknown) => {
+            seen.push({ options });
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  choices: [
+                    { delta: { content: "ok" }, finish_reason: "stop" },
+                  ],
+                  usage: { prompt_tokens: 2, completion_tokens: 1 },
+                };
+              },
+            };
+          },
+        },
+      },
+    };
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "question" }] },
+    ]);
+
+    const options = seen[0]!.options as { headers?: Record<string, string> };
+    expect(options.headers?.[OPENCODE_SESSION_HEADER]).toMatch(/\S/);
+    expect(options.headers?.[OPENCODE_REQUEST_HEADER]).toMatch(/\S/);
     expect(options.headers).not.toHaveProperty("session_id");
   });
 

@@ -369,6 +369,9 @@ export function handleUserMessageEcho(
   event: UserMessageEchoEvent,
   ctx: StreamHandlerContext,
 ): void {
+  if (event.cameraFrame) {
+    return;
+  }
   if (event.clientMessageId) {
     // No snapshot yet → the paired fold can't materialize this row, so retiring
     // the overlay now would leave a render gap (the staging first-message

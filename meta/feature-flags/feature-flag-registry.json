@@ -443,6 +443,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "local-notification-avatar",
+      "scope": "client",
+      "key": "local-notification-avatar",
+      "label": "Local Notification Avatar",
+      "description": "Shows the assistant name and avatar in notifications posted locally by native clients and supported browsers. Independent of remote push avatar presentation.",
+      "defaultEnabled": false
+    },
+    {
       "id": "channel-conversation-sidecar",
       "scope": "client",
       "key": "channel-conversation-sidecar",
@@ -464,6 +472,14 @@
       "key": "figma-oauth",
       "label": "Figma Integration",
       "description": "Gates the seeded Figma OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup, and existing connections keep injecting credentials; only its visibility changes.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "shopify-oauth",
+      "scope": "assistant",
+      "key": "shopify-oauth",
+      "label": "Shopify Integration",
+      "description": "Gates the seeded Shopify OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup, and existing connections keep injecting credentials; only its visibility changes. Off by default because Shopify is the first per-tenant provider: connecting needs the merchant's myshopify.com domain, and the shop-domain input in the clients ships separately from the seed.",
       "defaultEnabled": false
     },
     {

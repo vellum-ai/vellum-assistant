@@ -21,3 +21,8 @@ test("window capture and coachmarks are advertised independently", () => {
   expect(headers).toHaveProperty("X-Vellum-Cu-Window-Capture", "1");
   expect(headers).not.toHaveProperty("X-Vellum-Cu-Annotate");
 });
+
+test("batched actions are explicitly advertised by clients that run them only", () => {
+  expect(createHostProxyClientHeaders(identity).sseClientHeaders()).not.toHaveProperty("X-Vellum-Cu-Sequence");
+  expect(createHostProxyClientHeaders({ ...identity, supportsSequence: true }).sseClientHeaders()).toHaveProperty("X-Vellum-Cu-Sequence", "1");
+});

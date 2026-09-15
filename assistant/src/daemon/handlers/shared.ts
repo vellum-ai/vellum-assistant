@@ -32,6 +32,7 @@ import { unwrapExternalContentForDisplay } from "../../security/untrusted-conten
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import { getLogger } from "../../util/logger.js";
 import { joinWithSpacing } from "../../util/text-spacing.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import { conversationSupportsDynamicUi } from "../channel-ui-capability.js";
 import { findConversation } from "../conversation-registry.js";
@@ -264,7 +265,7 @@ function clampAttachmentText(text: string): string {
   if (text.length <= HISTORY_ATTACHMENT_TEXT_LIMIT) {
     return text;
   }
-  return `${text.slice(0, HISTORY_ATTACHMENT_TEXT_LIMIT)}<truncated />`;
+  return `${safeStringSlice(text, 0, HISTORY_ATTACHMENT_TEXT_LIMIT)}<truncated />`;
 }
 
 interface FileBlockMetadata {

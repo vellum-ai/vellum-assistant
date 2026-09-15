@@ -1,4 +1,9 @@
 {
+  "documentChat": {
+    "saveFailed": "無法儲存文件。你的訊息仍在這裡。請重新傳送。",
+    "viewConversation": "查看對話",
+    "reopenDocument": "重新開啟文件"
+  },
   "acpChatPlanBlock": {
     "plan": "計畫"
   },
@@ -89,6 +94,9 @@
     "earlierActivity": "較早的活動"
   },
   "assistantDesktop": {
+    "resizeAria": "調整桌面側欄寬度",
+    "collapseAria": "收合桌面側欄",
+    "expandAria": "展開桌面",
     "busy": "桌面正由其他使用者使用中。",
     "connecting": "正在連線至桌面…",
     "failed": "桌面無法啟動。",
@@ -758,6 +766,16 @@
     "saved": "已儲存",
     "saving": "正在儲存…",
     "wordCount": "{count, plural, other {# 個字}}"
+  },
+  "documentConversation": {
+    "unavailable": "無法開啟文件對話。請再試一次。",
+    "updateRequired": "請更新助理以開始連結對話。",
+    "prepareFailed": "無法準備文件對話。你的編輯仍然保留。",
+    "feedbackPrompt": "請查看並處理我對「{title}」的評論。",
+    "missing": "此文件的對話無法使用。你可以繼續編輯或開始新的連結對話。",
+    "start": "開始連結對話",
+    "retry": "再試一次",
+    "back": "返回"
   },
   "documentViewerPage": {
     "exportFailed": "匯出 PDF 失敗",
@@ -1956,11 +1974,22 @@
     "emptyBody": "我隨時都在思考。當有值得您關注的事情時，我會在這裡發起對話。",
     "emptyTitle": "目前還沒有任何想法。"
   },
+  "sidebarExpandRow": {
+    "expand": "展開",
+    "collapse": "收合"
+  },
   "assistantSectionToggle": {
     "hide": "隱藏來自 {name} 的對話",
     "show": "顯示來自 {name} 的對話"
   },
   "coachmarkPress": {
     "turn": "我點擊了 {label}。接下來呢？"
+  },
+  "cameraFrameGrid": {
+    "count": "{count, plural, other {# 個攝影機畫面}}",
+    "timeRange": "儲存時間：{first} 至 {last}",
+    "savedTime": "儲存於 {time}",
+    "pendingAria": "攝影機畫面，影像仍在載入。{time}",
+    "timeUnavailable": "時間無法取得"
   }
 }

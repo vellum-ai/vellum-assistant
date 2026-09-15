@@ -87,6 +87,7 @@ import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
+import { safeStringSlice } from "../util/unicode.js";
 import { channelSupportsInlineOptions } from "./channel-ui-capability.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
 import {
@@ -575,7 +576,7 @@ function injectActiveSurfaceContext(
     if (schema && schema !== '"{}"' && schema !== "{}") {
       const truncatedSchema =
         schema.length > MAX_SCHEMA_LENGTH
-          ? schema.slice(0, MAX_SCHEMA_LENGTH) + "… (truncated)"
+          ? safeStringSlice(schema, 0, MAX_SCHEMA_LENGTH) + "… (truncated)"
           : schema;
       lines.push("", `Data schema: ${truncatedSchema}`);
     }

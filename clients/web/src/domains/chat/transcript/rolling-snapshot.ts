@@ -96,6 +96,7 @@ export function appendEventToMessages(
           text: event.text,
           messageId: event.messageId,
           clientMessageId: event.clientMessageId,
+          cameraFrame: event.cameraFrame,
         },
         at,
       );

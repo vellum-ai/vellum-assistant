@@ -25,7 +25,7 @@
  * References:
  * - https://tanstack.com/query/latest/docs/framework/react/guides/queries
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchAssistantIdentity } from "@/assistant/identity";
@@ -42,11 +42,13 @@ export function assistantIdentityQueryKey(assistantId: string | null) {
 interface UseAssistantIdentityInitParams {
   assistantId: string | null;
   assistantStateKind: AssistantState["kind"];
+  ownerScopeId?: string | null;
 }
 
 export function useAssistantIdentityInit({
   assistantId,
   assistantStateKind,
+  ownerScopeId,
 }: UseAssistantIdentityInitParams) {
   // Identity is fetchable whenever the daemon proxy can answer for the
   // assistant. That's true for "active" *and* "self_hosted" (which
@@ -55,10 +57,19 @@ export function useAssistantIdentityInit({
   // can't satisfy the identity endpoint.
   const canFetchIdentity =
     (assistantStateKind === "active" || assistantStateKind === "self_hosted") &&
-    Boolean(assistantId);
+    Boolean(assistantId) &&
+    (ownerScopeId === undefined || Boolean(ownerScopeId));
+  const ownerKey =
+    assistantId && (ownerScopeId === undefined || ownerScopeId)
+      ? JSON.stringify([ownerScopeId ?? "request-default", assistantId])
+      : null;
+  const queryKey = assistantIdentityQueryKey(assistantId);
 
   const identityQuery = useQuery({
-    queryKey: assistantIdentityQueryKey(assistantId),
+    queryKey:
+      ownerScopeId === undefined
+        ? queryKey
+        : [...queryKey, { notificationOwnerScopeId: ownerScopeId }],
     queryFn: () => fetchAssistantIdentity(assistantId as string),
     enabled: canFetchIdentity,
     staleTime: 30_000,
@@ -69,42 +80,56 @@ export function useAssistantIdentityInit({
   // assistant's name doesn't linger if the new assistant's identity
   // fetch returns null (runtime initializing/unreachable).
   const lastWrittenForRef = useRef<string | null>(null);
+  const [scopedNotificationName, setScopedNotificationName] = useState<{
+    name: string;
+    owner: { scopeId: string; assistantId: string };
+  } | null>(null);
   useEffect(() => {
     if (!canFetchIdentity) {
       if (lastWrittenForRef.current !== null) {
         useAssistantIdentityStore.getState().clearIdentity();
         lastWrittenForRef.current = null;
       }
+      setScopedNotificationName(null);
       return;
     }
-    if (lastWrittenForRef.current !== assistantId) {
+    if (lastWrittenForRef.current !== ownerKey) {
       useAssistantIdentityStore.getState().clearIdentity();
       lastWrittenForRef.current = null;
+      setScopedNotificationName(null);
     }
-  }, [canFetchIdentity, assistantId]);
+  }, [canFetchIdentity, ownerKey]);
 
   // Seed the store with the user-chosen name from onboarding before the
   // async identity fetch resolves. Declared after the clear effect so
   // React's effect execution order (declaration order) guarantees the
   // clear runs first and this seed survives.
-  const seededRef = useRef(false);
+  const seededForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (seededRef.current || !canFetchIdentity) {
+    if (!ownerKey || seededForRef.current === ownerKey || !canFetchIdentity) {
       return;
     }
-    seededRef.current = true;
+    seededForRef.current = ownerKey;
     const optimisticName = consumePendingAssistantName();
     if (!optimisticName) {
       return;
     }
     const { name: current } = useAssistantIdentityStore.getState();
     if (!current) {
+      lastWrittenForRef.current = ownerKey;
+      setScopedNotificationName(
+        ownerScopeId && assistantId
+          ? {
+              name: optimisticName,
+              owner: { scopeId: ownerScopeId, assistantId },
+            }
+          : null,
+      );
       useAssistantIdentityStore
         .getState()
         .setIdentity(optimisticName, null, assistantId);
-      lastWrittenForRef.current = assistantId;
     }
-  }, [canFetchIdentity, assistantId]);
+  }, [canFetchIdentity, assistantId, ownerKey, ownerScopeId]);
 
   useEffect(() => {
     const data = identityQuery.data;
@@ -115,11 +140,19 @@ export function useAssistantIdentityInit({
     if (!data) {
       return;
     }
+    lastWrittenForRef.current = ownerKey;
+    setScopedNotificationName(
+      data.name && ownerScopeId && assistantId
+        ? {
+            name: data.name,
+            owner: { scopeId: ownerScopeId, assistantId },
+          }
+        : null,
+    );
     useAssistantIdentityStore
       .getState()
       .setIdentity(data.name ?? null, data.version ?? null, assistantId);
-    lastWrittenForRef.current = assistantId;
-  }, [identityQuery.data, assistantId]);
+  }, [identityQuery.data, assistantId, ownerKey, ownerScopeId]);
 
   // The fetch has run and produced nothing: it errored, or it resolved to the
   // `null` `fetchAssistantIdentity` returns for an unreachable runtime. The
@@ -135,4 +168,14 @@ export function useAssistantIdentityInit({
     }
     useAssistantIdentityStore.getState().markIdentityUnavailable(assistantId);
   }, [identityUnavailable, assistantId]);
+
+  return {
+    notificationName:
+      assistantId &&
+      ownerScopeId &&
+      scopedNotificationName?.owner.scopeId === ownerScopeId &&
+      scopedNotificationName.owner.assistantId === assistantId
+        ? scopedNotificationName
+        : null,
+  };
 }

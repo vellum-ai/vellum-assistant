@@ -41,6 +41,7 @@ import type {
 
 import { OpenRouterProvider } from "../../../../../providers/openrouter/client.js";
 import { ProviderError } from "../../../../../util/errors.js";
+import { stripOrphanedSurrogates } from "../../../../../util/unicode.js";
 import { sectionHeadLine } from "../sections.js";
 import type { MemoryRoutingTurn, Section } from "../types.js";
 
@@ -843,6 +844,41 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
       true,
     );
   });
+  test("a window whose edges land inside an emoji keeps both pairs whole and the request well-formed", async () => {
+    providerStub = makeProvider(toolUseResponse({ ids: [] }));
+    // 200 emoji (400 code units) on each side of the term, offset so that a
+    // code-unit window centered on the term starts and ends mid-pair. A
+    // window cut there carries half a pair on each edge, which strict
+    // provider parsers reject once JSON.stringify escapes each orphan.
+    const emoji = "😀".repeat(200);
+    const body = `${emoji}y turnip  ${emoji}`;
+    const term = body.indexOf("turnip");
+    const naiveStart = term + 3 - 150;
+    const naive = body.slice(naiveStart, naiveStart + 300);
+    expect(stripOrphanedSurrogates(naive)).not.toBe(naive);
+    const section = sectionOf("page-a", "Rollout", body);
+    await selectPool(
+      finderOnly({
+        slug: "page-a",
+        descriptor: section.text,
+        section,
+        terms: ["turnip"],
+      }),
+      makeTurn("turnip?"),
+    );
+    const [block] = sentBlocks();
+    expect(stripOrphanedSurrogates(block.text)).toBe(block.text);
+    const line = block.text
+      .split("\n")
+      .find((l) => l.startsWith("[1] page-a "))!;
+    expect(line).toContain("§Rollout: … ");
+    expect(line).toContain("turnip");
+    expect(line.endsWith(" …")).toBe(true);
+    // The window stays bounded: at most one code unit shorter on each edge.
+    const windowStart = line.indexOf("… ") + "… ".length;
+    expect(line.length - windowStart).toBeLessThanOrEqual(300 + " …".length);
+    expect(line.length - windowStart).toBeGreaterThanOrEqual(298 + " …".length);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -923,9 +959,9 @@ describe("selectPool: cataloged thinking and forced-tool compatibility", () => {
       effort: "high",
       summary: "detailed",
     });
-    expect(
-      warnPayloads().filter((p) => p.reason === "provider_error"),
-    ).toEqual([]);
+    expect(warnPayloads().filter((p) => p.reason === "provider_error")).toEqual(
+      [],
+    );
 
     // Structured selection survived: ids [3] is the topic-x finder line.
     expect(selection.keptAll).toBe(false);

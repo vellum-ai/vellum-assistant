@@ -310,6 +310,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   content,
   className,
   hardLineBreaks,
+  incremental,
   onVellumLinkClick,
   attachments,
   assistantId,
@@ -521,6 +522,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
         content={content}
         className={className}
         hardLineBreaks={hardLineBreaks}
+        incremental={incremental}
         linkComponent={linkComponent}
         imageComponent={imageComponent}
         urlTransform={vellumUrlTransform}

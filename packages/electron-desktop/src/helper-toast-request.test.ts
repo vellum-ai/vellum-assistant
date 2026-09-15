@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { buildHelperToastRequest } from "./helper-toast-request";
+import type { NotificationCreateOptions } from "./notifications";
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const HASH = new Bun.CryptoHasher("sha256").update(PNG).digest("hex");
@@ -28,7 +29,7 @@ let warnings: unknown[][];
 const logger = { warn: (...args: unknown[]) => warnings.push(args) };
 
 const build = (
-  overrides: Partial<typeof options> & { sender?: typeof sender } = {},
+  overrides: Partial<NotificationCreateOptions> = {},
 ) =>
   buildHelperToastRequest(
     { ...options, ...overrides },
@@ -63,6 +64,25 @@ describe("buildHelperToastRequest", () => {
       title: "Weekly review",
       body: "Three items need you",
       actions: [{ text: "View" }],
+    });
+  });
+
+  test("omits a repeated subtitle for a title-fallback sender", () => {
+    expect(
+      build({
+        sender: { ...sender, name: "Weekly review" },
+        suppressGroupTitle: true,
+      }),
+    ).toEqual({
+      token: "toast-1",
+      title: "Weekly review",
+      body: "Three items need you",
+      actions: [{ text: "View" }],
+      avatarPath: path.join(
+        userDataDir,
+        "notification-avatars",
+        `${HASH}.png`,
+      ),
     });
   });
 

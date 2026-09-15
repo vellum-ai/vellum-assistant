@@ -43,6 +43,7 @@ type MessageLongPressActionsProps = MessageHoverActionsProps & {
  */
 export function MessageLongPressActions({
   message,
+  showTextActions = true,
   conversationId,
   openInSlackUrl,
   onFork,
@@ -64,7 +65,7 @@ export function MessageLongPressActions({
   const content = useMemo(() => messageCopyText(message), [message]);
 
   const [showCopied, setShowCopied] = useState(false);
-  const hasCopyableText = content.trim().length > 0;
+  const hasCopyableText = showTextActions && content.trim().length > 0;
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 

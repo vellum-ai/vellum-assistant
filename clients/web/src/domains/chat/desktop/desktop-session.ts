@@ -26,6 +26,7 @@ export type DesktopSessionState =
 
 export interface OpenDesktopSessionArgs {
   assistantId: string;
+  viewOnly?: boolean;
   /** The element noVNC renders its canvas into. */
   container: HTMLElement;
   onState: (state: DesktopSessionState) => void;
@@ -34,6 +35,7 @@ export interface OpenDesktopSessionArgs {
 export interface DesktopSession {
   /** End the session and release everything it holds. Idempotent. */
   close(): void;
+  setViewOnly(viewOnly: boolean): void;
 }
 
 /**
@@ -45,10 +47,18 @@ export function openDesktopSession({
   assistantId,
   container,
   onState,
+  viewOnly = false,
 }: OpenDesktopSessionArgs): DesktopSession {
   let done = false;
   let ws: WebSocket | null = null;
   let rfb: RFB | null = null;
+  let currentViewOnly = viewOnly;
+  const updateViewOnly = (): void => {
+    if (rfb) {
+      rfb.viewOnly = currentViewOnly;
+      rfb.focusOnClick = !currentViewOnly;
+    }
+  };
   const teardown: (() => void)[] = [];
 
   const release = (): void => {
@@ -91,8 +101,10 @@ export function openDesktopSession({
       return;
     }
     rfb = client;
+    client.background = "transparent";
     client.scaleViewport = true;
-    client.resizeSession = true;
+    client.resizeSession = false;
+    updateViewOnly();
     client.clipViewport = false;
 
     const connectTimer = setTimeout(() => end("lost"), CONNECT_TIMEOUT_MS);
@@ -111,6 +123,9 @@ export function openDesktopSession({
     // refused when the document is not focused; the copy is simply not
     // mirrored then, and there is nothing to report.
     client.addEventListener("clipboard", (event) => {
+      if (currentViewOnly) {
+        return;
+      }
       void navigator.clipboard?.writeText(event.detail.text).catch(() => {});
     });
 
@@ -120,7 +135,7 @@ export function openDesktopSession({
     // by the assistant once it lands there.
     const onCopy = (): void => {
       const text = document.getSelection()?.toString();
-      if (text) {
+      if (text && !currentViewOnly) {
         client.clipboardPasteFrom(text);
       }
     };
@@ -143,6 +158,10 @@ export function openDesktopSession({
   );
 
   return {
+    setViewOnly: (value) => {
+      currentViewOnly = value;
+      updateViewOnly();
+    },
     close: () => {
       if (done) {
         return;

@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
@@ -28,6 +28,7 @@
     "storybook": "storybook dev -p 6007",
     "build-storybook": "storybook build",
     "test": "bun test",
+    "test:edge-swipe:browser": "bun scripts/test-edge-swipe-browser.ts",
     "test:ci": "bun scripts/run-tests.ts"
   },
   "dependencies": {
@@ -142,6 +143,7 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "happy-dom": "20.10.2",
     "js-yaml": "4.1.1",
+    "playwright": "1.60.0",
     "storybook": "10.4.0",
     "tailwindcss": "4.1.8",
     "typescript": "5.9.3",

@@ -23,6 +23,7 @@ import { publishSchedulesChanged } from "../runtime/sync/resource-sync-events.js
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
+import { safeStringSlice } from "../util/unicode.js";
 import {
   hasOwnerDeferProvenance,
   isDeferSchedule,
@@ -1511,8 +1512,14 @@ async function finishScheduleRunRow(
           status: result.status,
           finishedAt: now,
           durationMs,
-          output: result.output?.slice(0, 10_000) ?? null,
-          error: result.error?.slice(0, 2000) ?? null,
+          output:
+            result.output === undefined
+              ? null
+              : safeStringSlice(result.output, 0, 10_000),
+          error:
+            result.error === undefined
+              ? null
+              : safeStringSlice(result.error, 0, 2000),
         })
         .where(eq(scheduleRuns.id, runId))
         .run(),

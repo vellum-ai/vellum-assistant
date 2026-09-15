@@ -44,7 +44,7 @@ import {
   timeLatencySubSpan,
 } from "../../../../daemon/turn-latency-sub-spans.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
-import { stripCommentLines } from "../host-utils.js";
+import { safeStringSlice, stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";
@@ -578,7 +578,10 @@ async function buildShadowTurn(
     }
     const text = stringifyMessageContent(rows[i]!.content);
     if (text.length > 0) {
-      previousAssistantMessage = text.slice(-REPLY_QUERY_TAIL_CHARS);
+      previousAssistantMessage = safeStringSlice(
+        text,
+        Math.max(0, text.length - REPLY_QUERY_TAIL_CHARS),
+      );
       break;
     }
   }

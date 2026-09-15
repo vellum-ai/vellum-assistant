@@ -68,9 +68,10 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * A background pass rewrote a skill the user already had. The notification
- * names the skill in its title but cannot show it, so the footer carries a
- * link to it next to the jump back to the conversation the change came from.
+ * A background pass rewrote a skill the user already had. The title names the
+ * skill and the body is the pass's own account of what changed, so the change
+ * can be triaged here; the footer carries a link to the skill next to the jump
+ * back to the conversation the change came from.
  */
 export const SkillUpdated: Story = {
   args: {
@@ -79,7 +80,7 @@ export const SkillUpdated: Story = {
       id: "feed-skill-updated",
       title: "Skill updated: Approved PR Merge Gate + Receipt",
       summary:
-        'Updated the skill "Approved PR Merge Gate + Receipt" from something learned in an earlier conversation.',
+        "Added the receipt step after the merge and the check that the approval is still current before merging.",
       category: "background",
       urgency: "low",
       metadata: { skillId: "approved-pr-merge-gate" },
@@ -100,7 +101,7 @@ export const SkillSinceRemoved: Story = {
       id: "feed-skill-removed",
       title: "Skill updated: Approved PR Merge Gate + Receipt",
       summary:
-        'Updated the skill "Approved PR Merge Gate + Receipt" from something learned in an earlier conversation.',
+        "Added the receipt step after the merge and the check that the approval is still current before merging.",
       category: "background",
       urgency: "low",
       metadata: { skillId: "approved-pr-merge-gate" },
@@ -164,7 +165,7 @@ export const LinksPending: Story = {
       id: "feed-skill-pending",
       title: "Skill updated: Approved PR Merge Gate + Receipt",
       summary:
-        'Updated the skill "Approved PR Merge Gate + Receipt" from something learned in an earlier conversation.',
+        "Added the receipt step after the merge and the check that the approval is still current before merging.",
       category: "background",
       urgency: "low",
       metadata: { skillId: "approved-pr-merge-gate" },

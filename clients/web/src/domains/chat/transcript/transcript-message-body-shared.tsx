@@ -38,6 +38,7 @@ export interface OpenRuleEditorContext {
  */
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;
+  cameraFrames?: DisplayMessage[];
   /** Conversation the message belongs to. Forwarded to the hover actions so
    *  the bookmark toggle can key on (messageId, conversationId). */
   conversationId?: string | null;

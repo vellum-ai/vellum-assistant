@@ -195,7 +195,7 @@ async function main(): Promise<void> {
   //
   // Bounded by MCP_STARTUP_GRACE_MS: unreachable servers must not hold the
   // schedules that do not use them. The connect runs on past the deadline.
-  const mcpStartup = startConfiguredMcpServers(getConfig().mcp);
+  const mcpStartup = startConfiguredMcpServers();
   await Promise.race([
     mcpStartup,
     // Unref'd so a connect that beats the deadline leaves nothing pending.

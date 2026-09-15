@@ -10,6 +10,7 @@ import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 const log = getLogger("dictation-profile-store");
 
@@ -130,7 +131,7 @@ function validateAndClampConfig(raw: unknown): DictationProfilesConfig {
         { profileId: profile.id },
         `stylePrompt exceeds ${MAX_STYLE_PROMPT_LENGTH} chars, truncating`,
       );
-      stylePrompt = stylePrompt.slice(0, MAX_STYLE_PROMPT_LENGTH);
+      stylePrompt = safeStringSlice(stylePrompt, 0, MAX_STYLE_PROMPT_LENGTH);
     }
 
     // Validate dictionary entries

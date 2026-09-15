@@ -101,6 +101,8 @@ import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/resea
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
+import { useDesktopSidebarStore } from "@/domains/chat/desktop/desktop-sidebar-store";
+import { AssistantDesktopSidebar } from "@/domains/chat/desktop/assistant-desktop-sidebar";
 import { AssistantDesktopAffordance } from "@/domains/chat/desktop/assistant-desktop-affordance";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
@@ -108,6 +110,7 @@ import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
+import { useDocumentHeaderVisible } from "./hooks/use-document-header-visible";
 import {
   ArchiveAllConfirmDialog,
   useArchiveAllConfirmation,
@@ -271,6 +274,7 @@ export function ChatLayout({
   // the route, the viewer and the viewport are all in hand. One owner, so
   // consumers cannot disagree about it.
   const isMobile = useIsMobile();
+  const desktopSession = useDesktopSidebarStore.use.session();
   const viewerMainView = useViewerStore.use.mainView();
   const viewerAppMinimized = useViewerStore.use.isAppMinimized();
   const transcriptOnScreen = isTranscriptOnScreen({
@@ -965,6 +969,7 @@ export function ChatLayout({
   // attention tracking, message reconciliation) rely on it persisting
   // across route changes.
   const isOnConversationRoute = isConversationPath(location.pathname);
+  const documentHeaderVisible = useDocumentHeaderVisible();
   const sidebarActiveConversationId = isOnConversationRoute
     ? (activeConversationId ?? undefined)
     : undefined;
@@ -1106,10 +1111,16 @@ export function ChatLayout({
   // the same flex parent it would without it.
   const chatContent = (
     <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col"
+      className="relative flex min-h-0 min-w-0 flex-1 gap-4"
       inert={voiceRoomVisible || sleepStageVisible}
     >
-      <Outlet />
+      <div
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
+        inert={isMobile && desktopSession?.assistantId === assistantId && !isPopout && !documentHeaderVisible}
+      >
+        <Outlet />
+      </div>
+      {!isPopout && !documentHeaderVisible ? <AssistantDesktopSidebar /> : null}
     </div>
   );
 
@@ -1121,7 +1132,7 @@ export function ChatLayout({
           host renders null when there is no session to show. */}
       {!isPopout && isMobile ? <VoiceSessionPillHost variant="row" /> : null}
 
-      {!isPopout && (
+      {!isPopout && !documentHeaderVisible && (
         <ChatLayoutHeader
           isMobile={isMobile}
           drawerOpen={drawerOpen}

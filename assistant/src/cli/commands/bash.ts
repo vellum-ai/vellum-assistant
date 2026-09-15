@@ -1,28 +1,19 @@
 /**
- * `assistant bash` — run a shell command in the assistant's process
- * environment (debug tool, requires VELLUM_DEBUG=1 on the daemon).
+ * `assistant bash` runs a shell command with the same sanitized environment
+ * the bash tool forwards to tool-call subprocesses.
  */
 
 import type { Command } from "commander";
 
-import { cliIpcCall } from "../../ipc/cli-client.js";
 import { applyCommandHelp, commandSpec } from "../lib/cli-command-help.js";
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { bashHelp } from "./bash.help.js";
 
-interface DebugBashResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number | null;
-  timedOut: boolean;
-  error?: string;
-}
-
 export function registerBashCommand(program: Command): void {
   registerCommand(program, {
     name: commandSpec(bashHelp),
-    transport: "ipc",
+    transport: "local",
     description: bashHelp.description,
     build: (cmd) => {
       applyCommandHelp(cmd, bashHelp);
@@ -34,19 +25,10 @@ export function registerBashCommand(program: Command): void {
           return;
         }
 
-        const result = await cliIpcCall<DebugBashResult>(
-          "debug_bash",
-          { body: { command, timeoutMs } },
-          { timeoutMs: timeoutMs + 10_000 },
+        const { runSanitizedBash } = await import(
+          "../../tools/terminal/sanitized-bash.js"
         );
-
-        if (!result.ok) {
-          log.error(result.error ?? "Failed to reach the assistant.");
-          process.exitCode = 1;
-          return;
-        }
-
-        const data = result.result!;
+        const data = await runSanitizedBash(command, timeoutMs);
 
         if (data.error) {
           log.error(data.error);
@@ -69,7 +51,7 @@ export function registerBashCommand(program: Command): void {
         }
 
         if (data.timedOut) {
-          log.info(`Command timed out in assistant.`);
+          log.info("Command timed out.");
         }
 
         if (data.exitCode != null && data.exitCode !== 0) {

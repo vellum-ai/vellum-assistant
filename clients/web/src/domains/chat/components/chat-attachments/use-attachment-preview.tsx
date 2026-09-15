@@ -22,6 +22,7 @@ interface OpenPreview {
   attachment: DisplayAttachment;
   /** The caller's position, when it gave one; the modal falls back to its id. */
   index?: number;
+  key?: string;
 }
 
 /**
@@ -36,37 +37,47 @@ interface OpenPreview {
  * @param assistantId Forwarded to {@link AttachmentPreviewModal} so it can
  *   lazily fetch attachment content when `previewUrl` is missing.
  * @param attachments The full list of sibling attachments for gallery nav.
+ * @param attachmentKeys Stable UI identities aligned with a changing list.
  */
 export function useAttachmentPreview(
   assistantId?: string | null,
   attachments?: DisplayAttachment[],
+  attachmentKeys?: readonly string[],
 ): UseAttachmentPreviewResult {
   const [preview, setPreview] = useState<OpenPreview | null>(null);
 
   const openPreview = useCallback(
     (attachment: DisplayAttachment, index?: number) =>
-      setPreview({ attachment, index }),
-    [],
+      setPreview({
+        attachment,
+        index,
+        key: index === undefined ? undefined : attachmentKeys?.[index],
+      }),
+    [attachmentKeys],
   );
   const handleClose = useCallback(() => setPreview(null), []);
 
-  const handleNavigate = useCallback(
-    (attachment: DisplayAttachment, index: number) =>
-      setPreview({ attachment, index }),
-    [],
-  );
+  const keyedIndex =
+    preview?.key === undefined
+      ? undefined
+      : attachmentKeys?.indexOf(preview.key);
+  const attachment =
+    keyedIndex === undefined
+      ? preview?.attachment
+      : (attachments?.[keyedIndex] ?? preview?.attachment);
 
-  const previewModal = preview ? (
-    <AttachmentPreviewModal
-      open
-      onClose={handleClose}
-      attachment={preview.attachment}
-      currentIndex={preview.index}
-      assistantId={assistantId}
-      siblingAttachments={attachments}
-      onNavigate={handleNavigate}
-    />
-  ) : null;
+  const previewModal =
+    preview && attachment ? (
+      <AttachmentPreviewModal
+        open
+        onClose={handleClose}
+        attachment={attachment}
+        currentIndex={keyedIndex ?? preview.index}
+        assistantId={assistantId}
+        siblingAttachments={keyedIndex === -1 ? undefined : attachments}
+        onNavigate={openPreview}
+      />
+    ) : null;
 
   return { openPreview, previewModal };
 }

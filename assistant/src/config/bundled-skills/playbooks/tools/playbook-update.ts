@@ -23,6 +23,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { safeStringSlice } from "../../../../util/unicode.js";
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
@@ -100,7 +101,7 @@ export async function executePlaybookUpdate(
 
     const statement = JSON.stringify(updated);
     const sanitizedTrigger = updated.trigger.replace(/[\r\n]+/g, " ");
-    const subject = `Playbook: ${sanitizedTrigger}`.slice(0, 80);
+    const subject = safeStringSlice(`Playbook: ${sanitizedTrigger}`, 0, 80);
     const content = `${subject}\n${statement}`;
 
     // Check for duplicate content among other playbook nodes

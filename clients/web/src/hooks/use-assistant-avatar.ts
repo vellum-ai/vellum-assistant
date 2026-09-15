@@ -1,5 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 
 import {
   fetchCharacterComponents,
@@ -11,7 +12,14 @@ import { useSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-st
 import { trackBlobUrl } from "@/lib/blob-url-tracker";
 import { createGenerationGuard } from "@/lib/generation-guard";
 import { persistLastSeenAvatar } from "@/lib/persist-last-seen-avatar";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
+import { resolveNotificationIdentityScope } from "@/runtime/notification-avatar";
+import { useAuthStore } from "@/stores/auth-store";
+import { useRequestOrganizationId } from "@/stores/organization-store";
+import {
+  useResolvedAssistantsStore,
+  type ResolvedAssistant,
+} from "@/stores/resolved-assistants-store";
 import type {
   AvatarRead,
   AvatarState,
@@ -19,6 +27,7 @@ import type {
   CharacterTraits,
 } from "@/types/avatar";
 import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
+import { isUuid } from "@/utils/uuid";
 
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
 
@@ -28,6 +37,7 @@ export function avatarQueryKey(assistantId: string) {
 
 /** The shape cached under {@link avatarQueryKey}; read directly by cache consumers. */
 export interface AvatarData {
+  owner?: { scopeId: string; assistantId: string };
   components: CharacterComponents | null;
   traits: CharacterTraits | null;
   customImageUrl: string | null;
@@ -44,7 +54,28 @@ export interface AvatarData {
   state?: AvatarState | null;
 }
 
+interface AvatarQueryIdentity {
+  assistantId: string | null;
+  scopeKey: string;
+}
+
+export function shouldRetainAvatarPlaceholder(
+  previousMeta: Record<string, unknown> | undefined,
+  current: AvatarQueryIdentity,
+): boolean {
+  return (
+    previousMeta?.assistantId === current.assistantId &&
+    previousMeta.scopeKey === current.scopeKey
+  );
+}
+
 const activeBlobUrls = new Map<string, string>();
+
+/** Scope and cache currently allowed to own each assistant's fetched avatar. */
+const activeOwners = new Map<
+  string,
+  { scopeId: string; queryClient: QueryClient }
+>();
 
 /** Latest fetch generation per assistant; a superseded fetch must not persist or track. */
 const fetchGenerations = createGenerationGuard();
@@ -56,9 +87,138 @@ const fetchGenerations = createGenerationGuard();
 export function releaseAssistantAvatarUrl(assistantId: string): void {
   fetchGenerations.invalidate(assistantId);
   trackBlobUrl(activeBlobUrls, assistantId, null);
+  activeOwners.delete(assistantId);
+}
+
+/**
+ * Resolve the complete connection/account owner shared by display and
+ * notification avatar consumers.
+ */
+export function resolveAssistantAvatarOwnerScopeId(
+  assistant: ResolvedAssistant | null | undefined,
+  platformAccountId: string | null,
+  organizationId: string | null,
+  connectionFallback: string | null,
+): string | null {
+  if (!assistant) {
+    return null;
+  }
+  return assistant.isPlatformHosted
+    ? resolveNotificationIdentityScope({
+        kind: "account",
+        accountId: platformAccountId,
+        organizationId,
+      })
+    : resolveNotificationIdentityScope({
+        kind: "connection",
+        url:
+          assistant.runtimeUrl ?? assistant.ingressUrl ?? connectionFallback,
+      });
+}
+
+/** Resolve the platform UUID shared by remote and local sender identities. */
+export function resolveAssistantNotificationPlatformId(
+  assistant: ResolvedAssistant | null | undefined,
+): string | null {
+  if (assistant?.platformAssistantId && isUuid(assistant.platformAssistantId)) {
+    return assistant.platformAssistantId;
+  }
+  return assistant?.isPlatformHosted && isUuid(assistant.id)
+    ? assistant.id
+    : null;
+}
+
+interface AvatarOwner {
+  assistantId: string;
+  scopeId: string;
+}
+
+function sameAvatarOwner(
+  left: AvatarOwner | null,
+  right: AvatarOwner | null,
+): boolean {
+  return (
+    left?.assistantId === right?.assistantId && left?.scopeId === right?.scopeId
+  );
+}
+
+function queryBelongsToOwner(
+  queryKey: readonly unknown[],
+  owner: AvatarOwner,
+): boolean {
+  return (
+    queryKey[0] === AVATAR_QUERY_KEY_PREFIX &&
+    queryKey[1] === owner.assistantId &&
+    queryKey.some(
+      (part) =>
+        typeof part === "object" &&
+        part !== null &&
+        "ownerScopeId" in part &&
+        (part as { ownerScopeId?: unknown }).ownerScopeId === owner.scopeId,
+    )
+  );
+}
+
+function removeAvatarOwnerQueries(
+  queryClient: QueryClient,
+  owner: AvatarOwner,
+): void {
+  queryClient.removeQueries({
+    queryKey: avatarQueryKey(owner.assistantId),
+    predicate: (query) => queryBelongsToOwner(query.queryKey, owner),
+  });
+}
+
+function transitionAvatarOwner(
+  queryClient: QueryClient,
+  previous: AvatarOwner | null,
+  next: AvatarOwner | null,
+  currentAssistantId: string | null,
+): void {
+  const previousRegistration = previous
+    ? activeOwners.get(previous.assistantId)
+    : undefined;
+  if (
+    previous &&
+    previous.assistantId === currentAssistantId &&
+    previousRegistration?.scopeId === previous.scopeId &&
+    !sameAvatarOwner(previous, next)
+  ) {
+    removeAvatarOwnerQueries(previousRegistration.queryClient, previous);
+    releaseAssistantAvatarUrl(previous.assistantId);
+  }
+
+  if (!next) {
+    return;
+  }
+  const installedRegistration = activeOwners.get(next.assistantId);
+  if (
+    installedRegistration &&
+    installedRegistration.scopeId !== next.scopeId
+  ) {
+    const installedOwner = {
+      assistantId: next.assistantId,
+      scopeId: installedRegistration.scopeId,
+    };
+    removeAvatarOwnerQueries(
+      installedRegistration.queryClient,
+      installedOwner,
+    );
+    releaseAssistantAvatarUrl(next.assistantId);
+  }
+  activeOwners.set(next.assistantId, { scopeId: next.scopeId, queryClient });
+}
+
+function withoutAvatarOwner(data: AvatarData): AvatarData {
+  const { owner: _owner, ...ownerless } = data;
+  return ownerless;
 }
 
 export interface AssistantAvatarOptions {
+  /** Exact request/connection owner used by notification publication. */
+  ownerScopeId?: string | null;
+  /** Resolved row already held by a caller before the global list catches up. */
+  ownerAssistant?: ResolvedAssistant | null;
   /**
    * Per-assistant manifest gate. The default reads the ACTIVE assistant's
    * version, which is wrong for a sibling on another runtime; list surfaces
@@ -242,9 +402,100 @@ export function useAssistantAvatar(
   const queryClient = useQueryClient();
   const activeSupportsManifest = useSupportsAvatarStateManifest();
   const supportsManifest = options?.supportsManifest ?? activeSupportsManifest;
+  const assistants = useResolvedAssistantsStore.use.assistants();
+  const authUser = useAuthStore.use.user();
+  const organizationId = useRequestOrganizationId();
+  const assistant =
+    options?.ownerAssistant === undefined
+      ? assistants.find((candidate) => candidate.id === assistantId)
+      : options.ownerAssistant?.id === assistantId
+        ? options.ownerAssistant
+        : null;
+  const platformAccountId =
+    authUser?.kind === "platform" ? authUser.id : null;
+  const connectionFallback =
+    getSelfHostedIngressUrl() ??
+    (typeof globalThis.location === "undefined"
+      ? null
+      : globalThis.location.href);
+  const canonicalScopeId = resolveAssistantAvatarOwnerScopeId(
+    assistant,
+    platformAccountId,
+    organizationId,
+    connectionFallback,
+  );
+  const scopeId =
+    options?.ownerScopeId === undefined
+      ? canonicalScopeId
+      : options.ownerScopeId === canonicalScopeId
+        ? canonicalScopeId
+        : null;
+  const requestedOwner =
+    assistantId && scopeId ? { scopeId, assistantId } : null;
+  const initialInstalledScope = assistantId
+    ? activeOwners.get(assistantId)?.scopeId
+    : undefined;
+  const [readyOwner, setReadyOwner] = useState<AvatarOwner | null>(() =>
+    initialInstalledScope && initialInstalledScope !== scopeId
+      ? null
+      : requestedOwner,
+  );
+  const previousOwnerRef = useRef<AvatarOwner | null>(
+    assistantId && initialInstalledScope
+      ? { assistantId, scopeId: initialInstalledScope }
+      : requestedOwner,
+  );
+  const ownerReady = sameAvatarOwner(readyOwner, requestedOwner);
+
+  useEffect(() => {
+    const previousOwner = previousOwnerRef.current;
+    const nextOwner =
+      assistantId && scopeId ? { assistantId, scopeId } : null;
+    transitionAvatarOwner(
+      queryClient,
+      previousOwner,
+      nextOwner,
+      assistantId,
+    );
+    previousOwnerRef.current = nextOwner;
+    setReadyOwner(nextOwner);
+  }, [assistantId, queryClient, scopeId]);
+
+  const owner = requestedOwner
+    ? { scopeId: requestedOwner.scopeId, assistantId: requestedOwner.assistantId }
+    : undefined;
+  const queryKey = [
+    ...avatarQueryKey(assistantId ?? ""),
+    supportsManifest,
+    { ownerScopeId: scopeId ?? "" },
+  ];
+  const legacyQueryKey = [
+    ...avatarQueryKey(assistantId ?? ""),
+    supportsManifest,
+  ];
 
   const { data, isLoading, isSuccess } = useQuery<AvatarData>({
-    queryKey: [...avatarQueryKey(assistantId ?? ""), supportsManifest],
+    queryKey,
+    meta: { assistantId, scopeKey: scopeId ?? "" },
+    placeholderData: (previousData, previousQuery) => {
+      if (
+        shouldRetainAvatarPlaceholder(previousQuery?.meta, {
+          assistantId,
+          scopeKey: scopeId ?? "",
+        })
+      ) {
+        return previousData;
+      }
+      if (previousQuery) {
+        return undefined;
+      }
+      const legacySeed =
+        queryClient.getQueryData<AvatarData>(legacyQueryKey) ??
+        queryClient.getQueryData<AvatarData>(
+          avatarQueryKey(assistantId ?? ""),
+        );
+      return legacySeed ? withoutAvatarOwner(legacySeed) : undefined;
+    },
     queryFn: async ({ client }) => {
       const id = assistantId!;
       // A re-key (manifest support flipping) starts a newer fetch while this
@@ -277,7 +528,7 @@ export function useAssistantAvatar(
         if (imageUrl) {
           URL.revokeObjectURL(imageUrl);
         }
-        return { components, traits, customImageUrl: null, state };
+        return { owner, components, traits, customImageUrl: null, state };
       }
 
       trackBlobUrl(activeBlobUrls, id, imageUrl);
@@ -289,9 +540,13 @@ export function useAssistantAvatar(
         void persistLastSeenAvatar(client, id, { traits, imageUrl });
       }
 
-      return { components, traits, customImageUrl: imageUrl, state };
+      return { owner, components, traits, customImageUrl: imageUrl, state };
     },
-    enabled: Boolean(assistantId) && (options?.enabled ?? true),
+    enabled:
+      Boolean(assistantId) &&
+      Boolean(scopeId) &&
+      ownerReady &&
+      (options?.enabled ?? true),
     staleTime: Infinity,
     structuralSharing: false,
     // Retry transient failures (character-components or avatar-state) once
@@ -315,6 +570,7 @@ export function useAssistantAvatar(
   const state = data?.state ?? null;
 
   return {
+    ...(data?.owner ? { owner: data.owner } : {}),
     components,
     traits,
     customImageUrl,
@@ -336,7 +592,7 @@ export function useAssistantAvatar(
      * signal that the accent route is not there to write to.
      */
     accent: state?.accent ?? null,
-    isLoading,
+    isLoading: isLoading || (!ownerReady && requestedOwner !== null),
     isSuccess,
     invalidate,
   };

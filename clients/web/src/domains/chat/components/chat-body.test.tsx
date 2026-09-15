@@ -13,7 +13,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { type ButtonHTMLAttributes, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -174,6 +174,65 @@ function withEmptyState(overrides: Partial<ChatBodyProps> = {}): ChatBodyProps {
     ...overrides,
   });
 }
+
+describe("shared document presentation", () => {
+  test("preserves the edited document and composer when only presentation changes", () => {
+    const props = baseProps({
+      scrollAreaProps: { ...baseProps().scrollAreaProps, messageCount: 1 },
+      composerSlot: <textarea aria-label="Message" defaultValue="Draft message" />,
+      documentSlot: <textarea aria-label="Document" defaultValue="Original text" />,
+    });
+    const view = render(<ChatBody {...props} />);
+    const editor = view.getByRole("textbox", { name: "Document" });
+    const composer = view.getByRole("textbox", { name: "Message" });
+    fireEvent.change(editor, { target: { value: "Locally edited text" } });
+    fireEvent.change(composer, { target: { value: "Unsaved message" } });
+    const transcript = view.getByTestId("transcript");
+    expect(transcript.closest("[hidden]")).not.toBeNull();
+
+    view.rerender(<ChatBody {...props} documentPresentation="conversation" />);
+    expect(view.queryByRole("textbox", { name: "Document" })).toBeNull();
+    expect(editor.closest("[inert]")).not.toBeNull();
+    expect(transcript.closest("[hidden]")).toBeNull();
+    expect(view.getByRole("textbox", { name: "Message" })).toBe(composer);
+
+    view.rerender(<ChatBody {...props} documentPresentation="document" />);
+    expect(view.getByRole("textbox", { name: "Document" })).toBe(editor);
+    expect(view.getByDisplayValue("Locally edited text")).toBe(editor);
+    expect(view.getByRole("textbox", { name: "Message" })).toBe(composer);
+    expect(view.getByDisplayValue("Unsaved message")).toBe(composer);
+    expect(editor.closest("[hidden]")).toBeNull();
+    expect(transcript.closest("[inert]")).not.toBeNull();
+  });
+
+  test("preserves the same focused composer and transcript across presentation switches", () => {
+    const props = baseProps({
+      scrollAreaProps: { ...baseProps().scrollAreaProps, messageCount: 1 },
+      composerSlot: (
+        <textarea aria-label="Message" defaultValue="Keep this draft" />
+      ),
+      queuedDrawerSlot: <div data-testid="queue">Queued message</div>,
+      genericChatError: { message: "Please retry" },
+    });
+    const view = render(<ChatBody {...props} />);
+    const input = view.getByRole("textbox");
+    input.focus();
+    const transcript = view.getByTestId("transcript");
+    view.rerender(
+      <ChatBody {...props} documentSlot={<div>Document editor</div>} />,
+    );
+    expect(view.getByRole("textbox")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(view.getByTestId("transcript")).toBe(transcript);
+    expect(transcript.closest("[hidden]")).not.toBeNull();
+    expect(view.getByTestId("queue")).not.toBeNull();
+    expect(view.getByText("Please retry")).not.toBeNull();
+    view.rerender(<ChatBody {...props} />);
+    expect(view.getByRole("textbox")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(transcript.closest("[hidden]")).toBeNull();
+  });
+});
 
 describe("ChatBody — empty-state centering (LUM-1566)", () => {
   test("applies safe_center and overflow-y-auto when empty state is visible", () => {

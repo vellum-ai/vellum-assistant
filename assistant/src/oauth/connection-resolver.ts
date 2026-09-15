@@ -6,7 +6,7 @@ import {
 } from "../config/schemas/services.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import { getLogger } from "../util/logger.js";
-import { BYOOAuthConnection } from "./byo-connection.js";
+import { BYOOAuthConnection, type BYOTokenHeader } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
 import { getConnectionAccessTokenResult } from "./credential-token-resolver.js";
 import { syncManualTokenConnection } from "./manual-token-connection.js";
@@ -215,13 +215,106 @@ export async function resolveOAuthConnectionWithMeta(
     );
   }
 
+  const effectiveBaseUrl = resolveEffectiveBaseUrl(
+    conn.provider,
+    baseUrl,
+    conn.metadata,
+  );
   const connection = new BYOOAuthConnection({
     id: conn.id,
     provider: conn.provider,
-    baseUrl: resolveEffectiveBaseUrl(conn.provider, baseUrl, conn.metadata),
+    baseUrl: effectiveBaseUrl,
     accountInfo: conn.accountInfo,
+    tokenHeader: resolveTokenHeader(
+      providerRow?.injectionTemplates,
+      effectiveBaseUrl,
+    ),
   });
   return { connection, ambiguous, allAccounts };
+}
+
+/**
+ * Pick the header a provider expects its access token in from the seed's
+ * header-type injection templates.
+ *
+ * Prefers the template whose `hostPattern` matches the base URL's host
+ * (`*.myshopify.com` style globs included), then falls back to the first
+ * header template. Returns `null` when the provider declares none, which
+ * leaves `BYOOAuthConnection` on its `Authorization: Bearer` default.
+ *
+ * Shopify is why this exists: its Admin API reads `X-Shopify-Access-Token`
+ * and ignores `Authorization`, so a Bearer header reaches the shop as an
+ * unauthenticated request and comes back 401.
+ */
+export function resolveTokenHeader(
+  rawTemplates: string | null | undefined,
+  baseUrl: string,
+): BYOTokenHeader | null {
+  if (!rawTemplates) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawTemplates);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) {
+    return null;
+  }
+
+  const headerTemplates = parsed.filter(
+    (
+      t,
+    ): t is {
+      hostPattern?: unknown;
+      headerName: string;
+      valuePrefix?: unknown;
+    } =>
+      typeof t === "object" &&
+      t !== null &&
+      (t as { injectionType?: unknown }).injectionType === "header" &&
+      typeof (t as { headerName?: unknown }).headerName === "string" &&
+      (t as { headerName: string }).headerName.trim() !== "",
+  );
+  if (headerTemplates.length === 0) {
+    return null;
+  }
+
+  let host = "";
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    // Templated or malformed base URLs (e.g. a still-unfilled
+    // `https://{tenant_host}`) cannot be matched by host; fall through to
+    // the first header template.
+  }
+  const matching =
+    host === ""
+      ? undefined
+      : headerTemplates.find(
+          (t) =>
+            typeof t.hostPattern === "string" &&
+            hostMatchesPattern(host, t.hostPattern),
+        );
+  const chosen = matching ?? headerTemplates[0];
+  return {
+    name: chosen.headerName.trim(),
+    valuePrefix:
+      typeof chosen.valuePrefix === "string" ? chosen.valuePrefix : "",
+  };
+}
+
+function hostMatchesPattern(host: string, pattern: string): boolean {
+  const p = pattern.trim().toLowerCase();
+  if (p === "") {
+    return false;
+  }
+  if (p.startsWith("*.")) {
+    const suffix = p.slice(1); // ".myshopify.com"
+    return host.endsWith(suffix) && host.length > suffix.length;
+  }
+  return host === p;
 }
 
 /**

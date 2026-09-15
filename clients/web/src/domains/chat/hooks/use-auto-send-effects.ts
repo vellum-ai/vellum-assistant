@@ -31,6 +31,7 @@ export interface UseAutoSendEffectsOptions {
   activeConversationId: string | null;
   searchParams: URLSearchParams;
   setSearchParams: SetURLSearchParams;
+  navigationState?: unknown;
   sendMessage: (
     content: string,
     attachments?: never[],
@@ -53,6 +54,7 @@ export function useAutoSendEffects({
   activeConversationId,
   searchParams,
   setSearchParams,
+  navigationState,
   sendMessage,
   reachabilityPhase,
   reachabilityProbe,
@@ -99,10 +101,19 @@ export function useAutoSendEffects({
           prev.delete("prompt");
           return prev;
         },
-        { replace: true },
+        {
+          replace: true,
+          ...(navigationState !== undefined ? { state: navigationState } : {}),
+        },
       );
     }
-  }, [searchParams, setSearchParams, activeConversationId, sendMessage]);
+  }, [
+    searchParams,
+    setSearchParams,
+    activeConversationId,
+    sendMessage,
+    navigationState,
+  ]);
 
   // 2. Pre-chat reachability probe — eagerly start the probe cycle.
   useEffect(() => {

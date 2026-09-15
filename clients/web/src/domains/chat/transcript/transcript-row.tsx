@@ -24,7 +24,7 @@ import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-mess
 import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
 import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
-import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
+import { getMessageRenderKind } from "@/domains/chat/transcript/message-render-kind";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -225,10 +225,11 @@ export const TranscriptRow = memo(function TranscriptRow({
   const hideThinkingUi = useHideThinkingUi();
   switch (item.kind) {
     case "message": {
+      const renderKind = getMessageRenderKind(item.message);
       // A row deleted on its channel renders as a tombstone whatever else it
       // is: the channel no longer shows it, so neither does the transcript.
       // The shell keeps the row addressable and its content behind Inspect.
-      if (isChannelDeleted(item.message)) {
+      if (renderKind === "deleted") {
         return (
           <SubstitutedMessageShell
             message={item.message}
@@ -241,7 +242,7 @@ export const TranscriptRow = memo(function TranscriptRow({
       }
       // Daemon-authored status cards render as standalone system notices,
       // outside the persona bubble/avatar/hover-action machinery.
-      if (item.message.isSystemCard) {
+      if (renderKind === "systemCard") {
         return (
           <SystemCardRow message={item.message} assistantId={assistantId} />
         );
@@ -252,7 +253,7 @@ export const TranscriptRow = memo(function TranscriptRow({
       // A reaction row renders as a quiet line from its projected fact,
       // never the stored sentinel text. Slack-shaped rows keep their richer
       // Slack transcript line inside the ordinary body path.
-      if (item.message.reaction && !item.message.slackMessage) {
+      if (renderKind === "reaction") {
         return (
           <SubstitutedMessageShell
             message={item.message}
@@ -263,7 +264,7 @@ export const TranscriptRow = memo(function TranscriptRow({
           </SubstitutedMessageShell>
         );
       }
-      if (item.message.isNoResponse) {
+      if (renderKind === "noResponse") {
         return (
           <SubstitutedMessageShell
             message={item.message}
@@ -277,6 +278,7 @@ export const TranscriptRow = memo(function TranscriptRow({
       return (
         <TranscriptMessageBody
           message={item.message}
+          cameraFrames={item.cameraFrames}
           conversationId={conversationId}
           acpConnectInlineToolUseId={acpConnectInlineToolUseId}
           assistantDisplayName={assistantDisplayName}
