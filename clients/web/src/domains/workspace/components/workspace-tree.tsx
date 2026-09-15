@@ -7,39 +7,43 @@
  * app's workspace panel.
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownAZ,
   ArrowDownWideNarrow,
-  ChevronDown,
-  ChevronRight,
   Eye,
   EyeOff,
   FilePlus,
-  FileText,
-  Folder,
   FolderPlus,
-  Image as ImageIcon,
-  Pencil,
   Plus,
   Search,
-  Trash2,
-  Video,
   X,
 } from "lucide-react";
-import { type FormEvent, useCallback, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Trans, useTranslation } from "@/i18n";
-import { formatFileSize } from "@/utils/format-file-size";
-import { isHiddenPath } from "@/domains/workspace/utils/is-hidden-path";
+import {
+  type EntryTarget,
+  WorkspaceTreeRow,
+} from "@/domains/workspace/components/workspace-tree-row";
+import { useWorkspaceTreeListings } from "@/domains/workspace/use-workspace-tree-listings";
+import {
+  buildWorkspaceTreeRows,
+  WORKSPACE_ROOT_PATH,
+} from "@/domains/workspace/utils/build-workspace-tree-rows";
+import { type WorkspaceSortMode } from "@/domains/workspace/utils/sort-entries";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import {
   WorkspaceNameTakenError,
   workspaceMutationErrorMessage,
 } from "@/domains/workspace/utils/workspace-mutation-error";
-import {
-  sortEntries,
-  type WorkspaceSortMode,
-} from "@/domains/workspace/utils/sort-entries";
 import {
   workspaceDeletePost,
   workspaceMkdirPost,
@@ -47,17 +51,16 @@ import {
   workspaceTreeGet,
   workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
-import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
-import {
-  WORKSPACE_TREE_QUERY_KEY,
-  workspaceTreeQueryOptions,
-} from "@/lib/workspace-tree-query";
+import { WORKSPACE_TREE_QUERY_KEY } from "@/lib/workspace-tree-query";
 import { toApiError } from "@/utils/api-errors";
+import {
+  workspaceBasenameOf,
+  workspaceDirOf,
+} from "@/utils/workspace-path-links";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { ContextMenu } from "@vellumai/design-library/components/context-menu";
 import { Input } from "@vellumai/design-library/components/input";
 import { Menu } from "@vellumai/design-library/components/menu";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -65,17 +68,13 @@ import { PanelItem } from "@vellumai/design-library/components/panel-item";
 
 export type { WorkspaceSortMode };
 
+// Filtering waits for typing to pause so each keystroke does not rebuild the
+// row list; search reads loaded listings and issues no requests either way.
+const SEARCH_DEBOUNCE_MS = 200;
+
 // ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
-
-type WorkspaceTreeEntry = WorkspaceTreeGetResponse["entries"][number];
-
-interface EntryTarget {
-  path: string;
-  name: string;
-  isDirectory: boolean;
-}
 
 type TreeDialog =
   | { type: "create"; kind: "file" | "folder"; parentPath: string }
@@ -108,249 +107,6 @@ async function assertNameAvailable(
   if (conflict) {
     throw new WorkspaceNameTakenError(name);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function FileIconForEntry({ entry }: { entry: WorkspaceTreeEntry }) {
-  if (entry.type === "directory") {
-    return (
-      <Folder
-        className="h-4 w-4 shrink-0"
-        style={{ color: "var(--content-tertiary)" }}
-      />
-    );
-  }
-  if (entry.mimeType?.startsWith("image/")) {
-    return (
-      <ImageIcon
-        className="h-4 w-4 shrink-0"
-        style={{ color: "var(--content-tertiary)" }}
-      />
-    );
-  }
-  if (entry.mimeType?.startsWith("video/")) {
-    return (
-      <Video
-        className="h-4 w-4 shrink-0"
-        style={{ color: "var(--content-tertiary)" }}
-      />
-    );
-  }
-  return (
-    <FileText
-      className="h-4 w-4 shrink-0"
-      style={{ color: "var(--content-tertiary)" }}
-    />
-  );
-}
-
-function TreeNode({
-  entry,
-  assistantId,
-  expandedPaths,
-  selectedPath,
-  showHidden,
-  sortMode,
-  searchLower,
-  onToggleExpand,
-  onSelectPath,
-  onRequestDelete,
-  onRequestRename,
-  onRequestCreate,
-  depth,
-}: {
-  entry: WorkspaceTreeEntry;
-  assistantId: string;
-  expandedPaths: Set<string>;
-  selectedPath: string | null;
-  showHidden: boolean;
-  sortMode: WorkspaceSortMode;
-  searchLower: string;
-  onToggleExpand: (path: string) => void;
-  onSelectPath: (path: string) => void;
-  onRequestDelete: (target: EntryTarget) => void;
-  onRequestRename: (target: EntryTarget) => void;
-  onRequestCreate: (input: {
-    kind: "file" | "folder";
-    parentPath: string;
-  }) => void;
-  depth: number;
-}) {
-  const { t } = useTranslation("workspace");
-  const entryPath = entry.path ?? "";
-  const entryName = entry.name ?? "";
-  const isDirectory = entry.type === "directory";
-  const isExpanded = expandedPaths.has(entryPath);
-  const isSelected = selectedPath === entryPath;
-  const isHidden = entryName.startsWith(".");
-  // The daemon rejects writes, renames, and deletes on paths with hidden
-  // segments, so don't offer the context menu for them.
-  const hasMenu = !isHiddenPath(entryPath);
-
-  // Expand directories whose names match during search so their children are visible.
-  const effectivelyExpanded =
-    isDirectory && (isExpanded || searchLower.length > 0);
-
-  const { data } = useQuery({
-    ...workspaceTreeQueryOptions({
-      assistantId,
-      path: entryPath,
-      showHidden,
-      includeDirSizes: sortMode === "size",
-    }),
-    enabled: isDirectory && effectivelyExpanded,
-  });
-
-  const children = useMemo(
-    () => sortEntries(data?.entries ?? [], sortMode),
-    [data?.entries, sortMode],
-  );
-  const nameMatches =
-    searchLower === "" || entryName.toLowerCase().includes(searchLower);
-
-  // Filter files by name match. Directories stay visible during search so
-  // their children can mount, fetch, and reveal deeply nested matches.
-  if (searchLower !== "" && !isDirectory && !nameMatches) {
-    return null;
-  }
-
-  const handleClick = () => {
-    if (isDirectory) {
-      onToggleExpand(entryPath);
-    } else {
-      onSelectPath(entryPath);
-    }
-  };
-
-  const row = (
-    <button
-      onClick={handleClick}
-      className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-body-medium-lighter transition-colors hover:bg-[var(--surface-hover)]"
-      style={{
-        paddingLeft: `${depth * 14 + 8}px`,
-        paddingRight: "8px",
-        color: isSelected
-          ? "var(--content-default)"
-          : isHidden
-            ? "var(--content-tertiary)"
-            : "var(--content-default)",
-        backgroundColor: isSelected
-          ? "color-mix(in oklab, var(--primary-base) 12%, transparent)"
-          : undefined,
-        opacity: isHidden && !isSelected ? 0.7 : 1,
-      }}
-    >
-      {isDirectory ? (
-        effectivelyExpanded ? (
-          <ChevronDown
-            className="h-3 w-3 shrink-0"
-            style={{ color: "var(--content-tertiary)" }}
-          />
-        ) : (
-          <ChevronRight
-            className="h-3 w-3 shrink-0"
-            style={{ color: "var(--content-tertiary)" }}
-          />
-        )
-      ) : (
-        <span className="h-3 w-3 shrink-0" />
-      )}
-      <FileIconForEntry entry={entry} />
-      <span className="min-w-0 flex-1 truncate">{entryName}</span>
-      {entry.size != null && (
-        <span
-          className="shrink-0 text-label-medium-default tabular-nums"
-          style={{ color: "var(--content-tertiary)" }}
-        >
-          {formatFileSize(entry.size)}
-        </span>
-      )}
-    </button>
-  );
-
-  return (
-    <div>
-      {hasMenu ? (
-        <ContextMenu.Root>
-          <ContextMenu.Trigger>{row}</ContextMenu.Trigger>
-          <ContextMenu.Content>
-            {isDirectory && (
-              <>
-                <ContextMenu.Item
-                  leftIcon={<FilePlus className="h-3.5 w-3.5" />}
-                  onSelect={() =>
-                    onRequestCreate({ kind: "file", parentPath: entryPath })
-                  }
-                >
-                  {t("workspaceTree.newFile")}
-                </ContextMenu.Item>
-                <ContextMenu.Item
-                  leftIcon={<FolderPlus className="h-3.5 w-3.5" />}
-                  onSelect={() =>
-                    onRequestCreate({ kind: "folder", parentPath: entryPath })
-                  }
-                >
-                  {t("workspaceTree.newFolder")}
-                </ContextMenu.Item>
-                <ContextMenu.Separator />
-              </>
-            )}
-            <ContextMenu.Item
-              leftIcon={<Trash2 className="h-3.5 w-3.5" />}
-              onSelect={() =>
-                onRequestDelete({
-                  path: entryPath,
-                  name: entryName,
-                  isDirectory,
-                })
-              }
-            >
-              {t("workspaceTree.delete")}
-            </ContextMenu.Item>
-            <ContextMenu.Item
-              leftIcon={<Pencil className="h-3.5 w-3.5" />}
-              onSelect={() =>
-                onRequestRename({
-                  path: entryPath,
-                  name: entryName,
-                  isDirectory,
-                })
-              }
-            >
-              {t("workspaceTree.rename")}
-            </ContextMenu.Item>
-          </ContextMenu.Content>
-        </ContextMenu.Root>
-      ) : (
-        row
-      )}
-      {isDirectory && effectivelyExpanded && children.length > 0 && (
-        <div>
-          {children.map((child) => (
-            <TreeNode
-              key={child.path}
-              entry={child}
-              assistantId={assistantId}
-              expandedPaths={expandedPaths}
-              selectedPath={selectedPath}
-              showHidden={showHidden}
-              sortMode={sortMode}
-              searchLower={searchLower}
-              onToggleExpand={onToggleExpand}
-              onSelectPath={onSelectPath}
-              onRequestDelete={onRequestDelete}
-              onRequestRename={onRequestRename}
-              onRequestCreate={onRequestCreate}
-              depth={depth + 1}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -515,7 +271,6 @@ export function WorkspaceTree({
 }) {
   const { t } = useTranslation("workspace");
   const queryClient = useQueryClient();
-  const searchLower = search.trim().toLowerCase();
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -527,17 +282,37 @@ export function WorkspaceTree({
     setDialogError(null);
   }, []);
 
-  const { data, isLoading } = useQuery(
-    workspaceTreeQueryOptions({
-      assistantId,
-      showHidden,
-      includeDirSizes: sortMode === "size",
-    }),
-  );
+  const debouncedSearch = useDebouncedValue(search, SEARCH_DEBOUNCE_MS);
+  // Messaging follows the same query the rows do, so a note never describes
+  // results that have not been filtered yet.
+  const isSearching = debouncedSearch.trim() !== "";
+  const searchScopeId = useId();
 
-  const rootEntries = useMemo(
-    () => sortEntries(data?.entries ?? [], sortMode),
-    [data?.entries, sortMode],
+  const { listings, isRootLoading, searchScope, isSearchIncomplete } =
+    useWorkspaceTreeListings({
+      assistantId,
+      expandedPaths,
+      showHidden,
+      sortMode,
+    });
+  const searchNote = !isSearching
+    ? null
+    : searchScope === "open-folders"
+      ? t("workspaceTree.searchScope")
+      : isSearchIncomplete
+        ? t("workspaceTree.searchIncomplete")
+        : null;
+  const hasRootEntries = (listings.get(WORKSPACE_ROOT_PATH)?.length ?? 0) > 0;
+
+  const rows = useMemo(
+    () =>
+      buildWorkspaceTreeRows({
+        listings,
+        expandedPaths,
+        sortMode,
+        query: debouncedSearch,
+      }),
+    [listings, expandedPaths, sortMode, debouncedSearch],
   );
 
   // Invalidate the file metadata/content caches too: deleting or renaming
@@ -599,9 +374,8 @@ export function WorkspaceTree({
 
   const renameMutation = useMutation({
     mutationFn: async (input: { oldPath: string; newName: string }) => {
-      const slash = input.oldPath.lastIndexOf("/");
-      const parentPath = slash === -1 ? "" : input.oldPath.slice(0, slash);
-      const oldName = input.oldPath.slice(slash + 1);
+      const parentPath = workspaceDirOf(input.oldPath);
+      const oldName = workspaceBasenameOf(input.oldPath);
       const newPath = parentPath
         ? `${parentPath}/${input.newName}`
         : input.newName;
@@ -748,6 +522,8 @@ export function WorkspaceTree({
       </div>
 
       <div className="px-3 py-2">
+        {/* The clear button centers on this wrapper, so the scope note sits
+            outside it rather than in the input's own helper slot. */}
         <div className="relative">
           <Input
             type="text"
@@ -755,6 +531,7 @@ export function WorkspaceTree({
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t("workspaceTree.searchPlaceholder")}
             leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
+            aria-describedby={searchNote ? searchScopeId : undefined}
             fullWidth
             spellCheck={false}
             autoComplete="off"
@@ -772,40 +549,48 @@ export function WorkspaceTree({
             />
           )}
         </div>
+        {searchNote && (
+          <span
+            id={searchScopeId}
+            className="mt-1 block text-body-small-default text-[var(--content-tertiary)]"
+          >
+            {searchNote}
+          </span>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
-        {isLoading ? (
+        {isRootLoading ? (
           <div className="flex items-center justify-center py-8">
             <div
               className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
               style={{ color: "var(--content-tertiary)" }}
             />
           </div>
-        ) : !rootEntries.length ? (
+        ) : !hasRootEntries || rows.length === 0 ? (
           <p
             className="px-3 py-4 text-center text-body-medium-lighter"
             style={{ color: "var(--content-tertiary)" }}
           >
-            {t("workspaceTree.noFilesFound")}
+            {!hasRootEntries
+              ? t("workspaceTree.noFilesFound")
+              : searchScope === "workspace"
+                ? t("workspaceTree.noMatches")
+                : t("workspaceTree.noSearchMatches")}
           </p>
         ) : (
-          rootEntries.map((entry) => (
-            <TreeNode
-              key={entry.path}
-              entry={entry}
-              assistantId={assistantId}
-              expandedPaths={expandedPaths}
-              selectedPath={selectedPath}
-              showHidden={showHidden}
-              sortMode={sortMode}
-              searchLower={searchLower}
+          rows.map((row) => (
+            <WorkspaceTreeRow
+              key={row.entry.path}
+              entry={row.entry}
+              depth={row.depth}
+              isExpanded={row.isExpanded}
+              isSelected={selectedPath === row.entry.path}
               onToggleExpand={onToggleExpand}
               onSelectPath={onSelectPath}
               onRequestDelete={handleRequestDelete}
               onRequestRename={handleRequestRename}
               onRequestCreate={handleRequestCreate}
-              depth={0}
             />
           ))
         )}
