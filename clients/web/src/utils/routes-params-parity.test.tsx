@@ -4,9 +4,9 @@
  * `conversationIdForPath` / `appIdForPath` stand in for the route params
  * wherever an imperative helper has no hook to call, so a URL the two read
  * differently drops the app out of every route built through
- * `conversation-navigation`. These cases are the ones percent-encoding pulls
- * apart: a malformed escape, which React Router leaves the whole path raw for,
- * and `%2F`, which it restores to `/` inside a param.
+ * `conversation-navigation`. The cases cover a baseline with no encoding, a
+ * well-formed escape, a malformed escape in either segment, `%2F` inside a
+ * param, and an escaped spelling of the route prefix.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -14,6 +14,15 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useParams } from "react-router";
 
 import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
+import {
+  ENCODED_APP_PATH,
+  ENCODED_SLASH_APP_PATH,
+  ESCAPED_PREFIX_APP_PATH,
+  MALFORMED_APP_PATH,
+  MALFORMED_CONVERSATION_PATH,
+  MALFORMED_CONVERSATION_WITH_APP_PATH,
+  RAW_ENCODED_SLASH_APP_PATH,
+} from "@/utils/routes.test-helper";
 
 const PARAMS_TEST_ID = "route-params";
 // The patterns `routes.tsx` mounts, spelled by the producer that writes them.
@@ -55,20 +64,18 @@ afterEach(cleanup);
 
 describe("the parser yields the ids useParams yields", () => {
   const CASES = [
-    "/assistant/conversations/conv-1/app/app-1",
-    "/assistant/conversations/conv-1",
-    // A plugin app takes its id from the author's directory name, so a space
-    // reaches the URL encoded.
-    "/assistant/conversations/c1/app/plugins~p~My%20App",
+    routes.conversation("conv-1", "app-1"),
+    routes.conversation("conv-1"),
+    ENCODED_APP_PATH,
     // One malformed escape leaves every segment of the path raw.
-    "/assistant/conversations/conv%1/app/My%20App",
-    "/assistant/conversations/conv%20x/app/a%1",
-    "/assistant/conversations/%E0%A4%A",
+    MALFORMED_CONVERSATION_WITH_APP_PATH,
+    MALFORMED_APP_PATH,
+    MALFORMED_CONVERSATION_PATH,
     // `%2F` is restored to `/` inside a param, decoded path or raw.
-    "/assistant/conversations/c1/app/a%2Fb",
-    "/assistant/conversations/conv%1/app/a%2Fb",
+    ENCODED_SLASH_APP_PATH,
+    RAW_ENCODED_SLASH_APP_PATH,
     // The router matches on the decoded path, so an escaped prefix matches.
-    "/assistant/%63onversations/c1/app/app-1",
+    ESCAPED_PREFIX_APP_PATH,
   ];
 
   for (const pathname of CASES) {
