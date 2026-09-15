@@ -2,7 +2,6 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 import { useViewerStore } from "@/stores/viewer-store";
-import { appIdForPath } from "@/utils/routes";
 
 const OPEN_LAYER_SELECTOR = [
   '[data-slot="modal-content"][data-state="open"]',
@@ -98,11 +97,12 @@ async function dismissEscapeLayer(): Promise<boolean> {
 }
 
 /**
- * The viewer layer owns layout only: minimizing an expanded app, and leaving
- * the split. Which app is open is the URL's business, so leaving a minimized
- * app is a history pop rather than a viewer call.
+ * The viewer layer owns layout: minimizing an expanded app, leaving a
+ * minimized one, and leaving the split. Which app is open is the URL's
+ * business, so a minimized app leaves through the route rather than a history
+ * pop, which lands wherever the entry behind it points.
  */
-function dismissViewerLayer(): boolean {
+function dismissViewerLayer(closeAppRoute: () => void): boolean {
   if (!document.querySelector(ACTIVE_CHAT_SELECTOR)) {
     return false;
   }
@@ -110,7 +110,8 @@ function dismissViewerLayer(): boolean {
   switch (viewer.mainView) {
     case "app":
       if (viewer.isAppMinimized) {
-        return false;
+        closeAppRoute();
+        return true;
       }
       viewer.minimizeApp();
       return true;
@@ -123,27 +124,9 @@ function dismissViewerLayer(): boolean {
 }
 
 /**
- * Whether the URL still names an app the viewer holds minimized on the active
- * chat route. Leaving that app is a history pop, so it needs a route-level
- * close only where there is no entry to pop.
- */
-function isMinimizedAppRoute(): boolean {
-  if (!document.querySelector(ACTIVE_CHAT_SELECTOR)) {
-    return false;
-  }
-  const viewer = useViewerStore.getState();
-  return (
-    viewer.mainView === "app" &&
-    viewer.isAppMinimized &&
-    appIdForPath(window.location.pathname) !== null
-  );
-}
-
-/**
  * Route Android system Back through the active web UI before leaving the app:
  * an open Escape layer takes it first, then viewer layout, then WebView
- * history, then the app segment of a minimized app the history root cannot
- * pop.
+ * history.
  */
 export function subscribeAndroidBackButtonSource({
   closeAppRoute,
@@ -158,15 +141,11 @@ export function subscribeAndroidBackButtonSource({
     const { App } = await import("@capacitor/app");
     let handlingBack = false;
     const handleBack = async (canGoBack: boolean): Promise<void> => {
-      if ((await dismissEscapeLayer()) || dismissViewerLayer()) {
+      if ((await dismissEscapeLayer()) || dismissViewerLayer(closeAppRoute)) {
         return;
       }
       if (canGoBack) {
         window.history.back();
-        return;
-      }
-      if (isMinimizedAppRoute()) {
-        closeAppRoute();
         return;
       }
       await App.minimizeApp().catch((error) => {

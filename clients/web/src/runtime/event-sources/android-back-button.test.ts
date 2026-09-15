@@ -414,7 +414,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     expect(closeAppMock).not.toHaveBeenCalled();
   });
 
-  test("pops history to close a minimized app viewer", async () => {
+  test("closes a minimized app viewer through the route", async () => {
     const historyBackSpy = spyOn(window.history, "back").mockImplementation(
       () => undefined,
     );
@@ -426,8 +426,9 @@ describe("subscribeAndroidBackButtonSource", () => {
     await flushAsyncWork();
     await pressBack(true);
 
+    expect(closeAppRouteMock).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
     expect(closeAppMock).not.toHaveBeenCalled();
-    expect(historyBackSpy).toHaveBeenCalledTimes(1);
     historyBackSpy.mockRestore();
   });
 
