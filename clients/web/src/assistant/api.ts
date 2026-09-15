@@ -366,6 +366,7 @@ function parseDaemonBackups(data: unknown): AssistantBackup[] {
 
   const body = raw as {
     local?: { snapshots?: DaemonSnapshot[] };
+    pinned?: Array<{ snapshots?: DaemonSnapshot[] }>;
     offsite?: Array<{ snapshots?: DaemonSnapshot[] }>;
   };
 
@@ -382,6 +383,23 @@ function parseDaemonBackups(data: unknown): AssistantBackup[] {
         backup_type: "scheduled",
         path: s.path,
       });
+    }
+  }
+
+  if (Array.isArray(body.pinned)) {
+    for (const pool of body.pinned) {
+      if (Array.isArray(pool.snapshots)) {
+        for (const s of pool.snapshots) {
+          snapshots.push({
+            snapshot_name: s.filename,
+            pvc: "",
+            created_at: s.created_at,
+            ready_to_use: true,
+            backup_type: "pinned",
+            path: s.path,
+          });
+        }
+      }
     }
   }
 
@@ -597,7 +615,8 @@ export async function restartAssistant(
 }
 
 export type RetireResult =
-  { ok: true } | { ok: false; status: number; error: Record<string, unknown> };
+  | { ok: true }
+  | { ok: false; status: number; error: Record<string, unknown> };
 
 export async function retireAssistant(): Promise<RetireResult> {
   const { error, response } = await assistantsRetireDestroy({

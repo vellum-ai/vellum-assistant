@@ -1922,6 +1922,15 @@
     "title": "System"
   },
   "teleportCard": {
+    "backupCreateFailed": "Cloud backup failed (HTTP {status}).",
+    "backupListFailed": "Could not list cloud backups (HTTP {status}).",
+    "backupLocalFailed": "Backup failed (HTTP {status}).",
+    "backupLocalNotPinned": "Backup was not kept in the pinned pool.",
+    "backupLocalReportedFailure": "Backup reported failure.",
+    "backupNoSnapshotName": "Cloud backup did not return a snapshot name.",
+    "backupNotReady": "Cloud backup {snapshot} was not ready after {seconds}s.",
+    "backupStep": "Backing up assistant...",
+    "backupUnsupported": "This assistant cannot be backed up before teleporting.",
     "cancel": "Cancel",
     "confirmAndSwitch": "Confirm & Switch",
     "confirmLabel": "Teleport",

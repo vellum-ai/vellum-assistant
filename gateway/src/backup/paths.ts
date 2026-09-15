@@ -55,6 +55,24 @@ export function getLocalBackupsDir(override?: string | null): string {
   return override ?? join(getBackupRootDir(), "local");
 }
 
+/** Root of the pinned pools: one subdirectory per pin label. */
+export function getPinnedBackupsRootDir(): string {
+  return join(getBackupRootDir(), "pinned");
+}
+
+/**
+ * Directory of one pinned pool. Pinned snapshots are copies of local
+ * snapshots that a caller asked to keep out of the shared local pool's
+ * retention (e.g. a pre-teleport restore point, labelled by assistant id).
+ * Each pool has its own small retention, applied only to that pool.
+ */
+export function getPinnedBackupsDir(label: string): string {
+  return join(getPinnedBackupsRootDir(), label);
+}
+
+/** Pin labels are a single safe path segment; anything else is rejected. */
+export const PIN_LABEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
 // ---------------------------------------------------------------------------
 // Backup filenames
 // ---------------------------------------------------------------------------

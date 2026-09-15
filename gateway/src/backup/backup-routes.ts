@@ -7,14 +7,24 @@
  * the encrypt/decrypt operations.
  *
  * Routes:
- *   GET  /v1/backups        — list local + offsite snapshots
- *   POST /v1/backups/create — manual snapshot trigger
+ *   GET  /v1/backups        — list local, pinned and offsite snapshots
+ *   POST /v1/backups/create — manual snapshot trigger; an optional JSON body
+ *                             `{ "pin": "<label>" }` also copies the snapshot
+ *                             into the pinned pool for that label, which the
+ *                             worker's local-pool retention never prunes
  */
+
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 
 import { readConfigFileOrEmpty } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
 import { listSnapshotsInDir, type SnapshotEntry } from "./list-snapshots.js";
-import { getLocalBackupsDir } from "./paths.js";
+import {
+  getLocalBackupsDir,
+  getPinnedBackupsRootDir,
+  PIN_LABEL_RE,
+} from "./paths.js";
 import { createSnapshotNow } from "./backup-worker.js";
 
 const log = getLogger("backup-routes");
@@ -61,6 +71,61 @@ function readBackupDestinations(): {
   return { localDir, offsiteDestinations };
 }
 
+/** Pinned pools on disk: one per label directory under the pinned root. */
+async function listPinnedPools(): Promise<
+  Array<{ label: string; directory: string; snapshots: SnapshotEntry[] }>
+> {
+  const root = getPinnedBackupsRootDir();
+  let labels: string[];
+  try {
+    labels = (await readdir(root, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && PIN_LABEL_RE.test(entry.name))
+      .map((entry) => entry.name);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw err;
+  }
+  const pools = [];
+  for (const label of labels.sort()) {
+    const directory = join(root, label);
+    pools.push({
+      label,
+      directory,
+      snapshots: await listSnapshotsInDir(directory),
+    });
+  }
+  return pools;
+}
+
+/**
+ * The optional pin label from a create request body. `undefined` when the
+ * body is absent or has no `pin`; throws on a label that is not a safe
+ * single path segment.
+ */
+async function readPinLabel(req: Request): Promise<string | undefined> {
+  const text = await req.text();
+  if (!text.trim()) {
+    return undefined;
+  }
+  const body = JSON.parse(text) as { pin?: unknown };
+  if (body.pin === undefined || body.pin === null) {
+    return undefined;
+  }
+  if (typeof body.pin !== "string" || !PIN_LABEL_RE.test(body.pin)) {
+    throw new PinLabelError();
+  }
+  return body.pin;
+}
+
+class PinLabelError extends Error {
+  constructor() {
+    super("pin must be a label of letters, digits, '.', '_' or '-'");
+    this.name = "PinLabelError";
+  }
+}
+
 function snapshotToJson(entry: SnapshotEntry): Record<string, unknown> {
   return {
     path: entry.path,
@@ -88,6 +153,7 @@ export function createListBackupsHandler(_deps: BackupRouteDeps) {
       const { localDir, offsiteDestinations } = readBackupDestinations();
 
       const localSnapshots = await listSnapshotsInDir(localDir);
+      const pinnedPools = await listPinnedPools();
       const offsitePools: Array<{
         destination: BackupDestination;
         snapshots: SnapshotEntry[];
@@ -103,6 +169,11 @@ export function createListBackupsHandler(_deps: BackupRouteDeps) {
           directory: localDir,
           snapshots: localSnapshots.map(snapshotToJson),
         },
+        pinned: pinnedPools.map((pool) => ({
+          label: pool.label,
+          directory: pool.directory,
+          snapshots: pool.snapshots.map(snapshotToJson),
+        })),
         offsite: offsitePools.map((pool) => ({
           directory: pool.destination.path,
           encrypted: pool.destination.encrypt,
@@ -124,13 +195,22 @@ export function createListBackupsHandler(_deps: BackupRouteDeps) {
  * POST /v1/backups/create — manual snapshot trigger.
  */
 export function createBackupSnapshotHandler(deps: BackupRouteDeps) {
-  return async function handleCreateBackup(_req: Request): Promise<Response> {
+  return async function handleCreateBackup(req: Request): Promise<Response> {
+    let pin: string | undefined;
     try {
-      const result = await createSnapshotNow(deps);
+      pin = await readPinLabel(req);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return Response.json({ error: "Bad Request", message }, { status: 400 });
+    }
+
+    try {
+      const result = await createSnapshotNow(deps, { pin });
 
       return Response.json({
         success: true,
         local: snapshotToJson(result.local),
+        pinned: result.pinned ? snapshotToJson(result.pinned) : null,
         offsite: result.offsite.map((r) => ({
           destination: r.destination.path,
           status: r.entry ? "ok" : r.skipped ? "skipped" : "error",
@@ -145,7 +225,10 @@ export function createBackupSnapshotHandler(deps: BackupRouteDeps) {
 
       if (message.includes("already in progress")) {
         return Response.json(
-          { error: "Conflict", message: "A backup snapshot is already in progress" },
+          {
+            error: "Conflict",
+            message: "A backup snapshot is already in progress",
+          },
           { status: 409 },
         );
       }

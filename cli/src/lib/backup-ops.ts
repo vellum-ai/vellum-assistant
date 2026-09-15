@@ -285,11 +285,33 @@ export async function restoreBackup(
   }
 }
 
+/** Filename kinds this CLI writes: `<assistantId>-<kind>-<timestamp>.vbundle`. */
+const CLI_BACKUP_KINDS = ["pre-upgrade", "pre-teleport"] as const;
+
+/** `new Date().toISOString().replace(/[:.]/g, "-")`, as used in every CLI backup filename. */
+const BACKUP_TIMESTAMP_PATTERN =
+  "\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Matches the backup filenames this CLI wrote for exactly `assistantId`. The
+ * kind and timestamp segments are matched in full, so an assistant whose id
+ * is a prefix of another's (`alpha` vs `alpha-prod`) never matches the
+ * other's files.
+ */
+export function assistantBackupFilenamePattern(assistantId: string): RegExp {
+  return new RegExp(
+    `^${escapeRegExp(assistantId)}-(?:${CLI_BACKUP_KINDS.join("|")})-${BACKUP_TIMESTAMP_PATTERN}\\.vbundle$`,
+  );
+}
+
 /**
  * Modification times of the `.vbundle` backups this CLI has written for
- * `assistantId` (every kind: pre-upgrade, pre-rollback, pre-teleport), as ISO
- * timestamps. Files are matched by the `<assistantId>-` filename prefix, so
- * another assistant's backups never count. Missing directory yields `[]`.
+ * `assistantId` (every kind in `CLI_BACKUP_KINDS`), as ISO timestamps.
+ * Missing directory yields `[]`.
  */
 export function listAssistantBackupTimes(assistantId: string): string[] {
   const backupsDir = getBackupsDir();
@@ -297,17 +319,23 @@ export function listAssistantBackupTimes(assistantId: string): string[] {
   try {
     names = readdirSync(backupsDir);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
     throw err;
   }
-  const prefix = `${assistantId}-`;
+  const pattern = assistantBackupFilenamePattern(assistantId);
   const times: string[] = [];
   for (const name of names) {
-    if (!name.startsWith(prefix) || !name.endsWith(".vbundle")) continue;
+    if (!pattern.test(name)) {
+      continue;
+    }
     try {
       times.push(statSync(join(backupsDir, name)).mtime.toISOString());
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw err;
+      }
     }
   }
   return times;

@@ -12,10 +12,11 @@
  *   `RECENT_BACKUP_MAX_AGE_MS` stands in for a new one; platform snapshots
  *   are scoped to the assistant's own volume, so reuse cannot pick up another
  *   assistant's backup.
- * - Local sources take a gateway vbundle snapshot. The gateway's snapshot
- *   pool is shared by every bare-metal assistant on the machine and carries
- *   no assistant identity, so an existing snapshot is never reused here: one
- *   is always taken.
+ * - Local sources take a gateway vbundle snapshot pinned under the source's
+ *   assistant id. The gateway's shared local pool is written by every
+ *   bare-metal assistant on the machine, carries no assistant identity, and
+ *   is pruned by every gateway's worker, so an existing snapshot is never
+ *   reused here and the fresh one is kept in a per-assistant pinned pool.
  *
  * Policy shared with the CLI teleport lives in
  * `@vellumai/local-mode/teleport-backup-policy`.
@@ -34,6 +35,7 @@ import {
   assistantsBackupsCreate,
   assistantsBackupsRetrieve,
 } from "@/generated/api/sdk.gen";
+import { t } from "@/i18n";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 
 import { createLocalBackup } from "./teleport-gateway-client";
@@ -64,7 +66,7 @@ export async function ensureSourceBackup(
   }
   throw new TeleportError(
     "backup_failed",
-    "This assistant cannot be backed up before teleporting.",
+    t("settings:teleportCard.backupUnsupported"),
   );
 }
 
@@ -78,7 +80,9 @@ async function listManagedBackups(
   if (!(list.response?.ok ?? false)) {
     throw new TeleportError(
       "backup_failed",
-      `Could not list cloud backups (HTTP ${list.response?.status ?? 0}).`,
+      t("settings:teleportCard.backupListFailed", {
+        status: list.response?.status ?? 0,
+      }),
     );
   }
   const backups = (list.data as { backups?: ManagedBackupEntry[] } | undefined)
@@ -105,7 +109,9 @@ async function ensureManagedBackup(
   if (!(created.response?.ok ?? false)) {
     throw new TeleportError(
       "backup_failed",
-      `Cloud backup failed (HTTP ${created.response?.status ?? 0}).`,
+      t("settings:teleportCard.backupCreateFailed", {
+        status: created.response?.status ?? 0,
+      }),
     );
   }
   const snapshot = created.data as ManagedBackupEntry | undefined;
@@ -113,7 +119,7 @@ async function ensureManagedBackup(
   if (!snapshotName) {
     throw new TeleportError(
       "backup_failed",
-      "Cloud backup did not return a snapshot name.",
+      t("settings:teleportCard.backupNoSnapshotName"),
     );
   }
   if (snapshot?.ready_to_use === true) {
@@ -134,6 +140,9 @@ async function ensureManagedBackup(
   }
   throw new TeleportError(
     "backup_failed",
-    `Cloud backup ${snapshotName} was not ready after ${Math.round(timeoutMs / 1000)}s.`,
+    t("settings:teleportCard.backupNotReady", {
+      snapshot: snapshotName,
+      seconds: Math.round(timeoutMs / 1000),
+    }),
   );
 }

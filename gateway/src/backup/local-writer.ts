@@ -76,6 +76,24 @@ export async function writeLocalSnapshot(
 }
 
 /**
+ * Copy a freshly-written local snapshot into a pinned pool and apply that
+ * pool's own retention. The copy keeps the snapshot's filename so it lists
+ * and parses like any other snapshot.
+ */
+export async function pinLocalSnapshot(
+  entry: SnapshotEntry,
+  pinnedDir: string,
+  retention: number,
+): Promise<SnapshotEntry> {
+  await mkdir(pinnedDir, { recursive: true, mode: 0o700 });
+  const destPath = join(pinnedDir, entry.filename);
+  await copyFile(entry.path, destPath);
+  await pruneDir(pinnedDir, retention);
+  const stats = await stat(destPath);
+  return { ...entry, path: destPath, sizeBytes: stats.size };
+}
+
+/**
  * Apply retention policy to the local backup directory.
  */
 export async function pruneLocalSnapshots(

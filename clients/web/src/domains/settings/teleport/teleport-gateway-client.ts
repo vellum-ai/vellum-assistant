@@ -15,6 +15,7 @@
  */
 
 import { client } from "@/generated/api/client.gen";
+import { t } from "@/i18n";
 import { getLocalGatewayUrl } from "@/lib/local-mode";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 import { fetchGuardianTokenHost } from "@/runtime/local-mode-host";
@@ -129,11 +130,12 @@ export async function importLocalBundle(
 
 /**
  * Take a gateway backup snapshot of a local assistant now:
- * `POST /v1/backups/create`. The gateway exports a fresh `.vbundle` and
- * writes it to `~/.vellum/backups/local` (outside the instance directory the
- * retire flow archives) plus any configured offsite destinations, so this
- * call blocks for the full export. Throws on a non-2xx status or a
- * `{success:false}` body.
+ * `POST /v1/backups/create` with `{ pin: <assistantId> }`. The gateway
+ * exports a fresh `.vbundle`, writes it to the shared local pool plus any
+ * configured offsite destinations, and copies it into the pinned pool for
+ * this assistant, which the worker's shared-pool retention never touches.
+ * Blocks for the full export. Throws on a non-2xx status, a
+ * `{success:false}` body, or a response without the pinned copy.
  */
 export async function createLocalBackup(
   assistant: LockfileAssistant,
@@ -142,17 +144,35 @@ export async function createLocalBackup(
   const token = await mintLocalGatewayToken(assistant, base);
   const response = await fetch(`${base}/v1/backups/create`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ pin: assistant.assistantId }),
   });
   if (!response.ok) {
     throw new TeleportError(
       "backup_failed",
-      `Backup failed (HTTP ${response.status}).`,
+      t("settings:teleportCard.backupLocalFailed", {
+        status: response.status,
+      }),
     );
   }
-  const json = (await safeJson(response)) as { success?: boolean } | null;
-  if (json && json.success === false) {
-    throw new TeleportError("backup_failed", "Backup reported failure.");
+  const json = (await safeJson(response)) as {
+    success?: boolean;
+    pinned?: { path?: string } | null;
+  } | null;
+  if (!json || json.success === false) {
+    throw new TeleportError(
+      "backup_failed",
+      t("settings:teleportCard.backupLocalReportedFailure"),
+    );
+  }
+  if (!json.pinned) {
+    throw new TeleportError(
+      "backup_failed",
+      t("settings:teleportCard.backupLocalNotPinned"),
+    );
   }
 }
 
