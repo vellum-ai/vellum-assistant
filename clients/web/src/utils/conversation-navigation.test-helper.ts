@@ -12,6 +12,10 @@
  * the conversation stores, haptics, and sound manager it pulls in out of
  * their process, so importing it for its values would put them back.
  *
+ * `activation-list-route.test.tsx` spreads the real module rather than this
+ * factory because it restores the real functions in `afterAll`, which means it
+ * holds the real module already.
+ *
  * ```ts
  * mock.module("@/utils/conversation-navigation", () =>
  *   conversationNavigationMock({ navigateToConversation: navigateSpy }),
