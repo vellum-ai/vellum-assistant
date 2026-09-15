@@ -18,8 +18,8 @@
  *   user view the conversation from within the app UI.
  *
  * - `set_view` ({ view }) — moves the app panel: `"split"` (side by side with
- *   chat), `"full"` (full-width), or `"chat"` (land on the conversation URL,
- *   which names no app, so the viewer closes the one it holds). Side-by-side
+ *   chat), `"full"` (full-width), or `"chat"` (`closeAppRoute`, which closes
+ *   the viewer and lands on the conversation URL, naming no app). Side-by-side
  *   has no mobile layout, so `"split"` is ignored on mobile (the app keeps its
  *   full-screen overlay). On a wide viewport it uses the open conversation,
  *   and starts one when none is open.
@@ -32,15 +32,16 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
+  closeAppRoute,
   keepOpenAppBesideConversation,
   keptAppId,
-  prepareFreshConversation,
+  type PathNavigate,
 } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 export interface AppViewerActionContext {
   /** Navigation from the route component, keeping this module framework-agnostic. */
-  navigate: (to: string) => void;
+  navigate: PathNavigate;
   /** Side-by-side has no mobile layout, so `set_view: "split"` is ignored when true. */
   isMobile: boolean;
 }
@@ -106,13 +107,9 @@ function setView(
 ): void {
   const viewer = useViewerStore.getState();
   switch (data?.view) {
-    case "chat": {
-      const conversationId =
-        useConversationStore.getState().activeConversationId ??
-        prepareFreshConversation();
-      ctx.navigate(routes.conversation(conversationId));
+    case "chat":
+      closeAppRoute(ctx.navigate);
       return;
-    }
     case "full":
       if (viewer.mainView === "app-editing") {
         viewer.exitAppEditing();

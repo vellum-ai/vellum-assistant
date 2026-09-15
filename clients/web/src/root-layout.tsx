@@ -46,8 +46,11 @@ import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { handleToggleWatchCommand } from "@/runtime/watch-command";
 
-import { navigateToConversation } from "@/utils/conversation-navigation";
-import { conversationIdForPath, routes } from "@/utils/routes";
+import {
+  closeAppRoute,
+  navigateToConversation,
+} from "@/utils/conversation-navigation";
+import { routes } from "@/utils/routes";
 import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
@@ -345,11 +348,7 @@ export function RootLayout() {
   const closeAppRouteRef = useRef<() => void>(() => undefined);
   useEffect(() => {
     closeAppRouteRef.current = () => {
-      const conversationId = conversationIdForPath(window.location.pathname);
-      if (!conversationId) {
-        return;
-      }
-      void navigate(routes.conversation(conversationId), { replace: true });
+      closeAppRoute(navigate, { replace: true });
     };
   }, [navigate]);
   useEffect(

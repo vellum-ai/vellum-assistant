@@ -163,15 +163,24 @@ const resetStores = () => {
   useLiveVoiceStore.getState().setStarter(null);
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  window.history.replaceState(null, "", routes.assistant);
 };
 
-/** An app loaded in the viewer, the shape a wide viewport keeps beside the chat. */
+/**
+ * An app loaded in the viewer, the shape a wide viewport keeps beside the
+ * chat: on screen, and named by the route that put it there.
+ */
 const seedOpenApp = () => {
   useViewerStore.setState({
     mainView: "app",
     activeAppId: "app-1",
     openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
   });
+  window.history.replaceState(
+    null,
+    "",
+    routes.conversation("conv-with-app", "app-1"),
+  );
 };
 
 /**

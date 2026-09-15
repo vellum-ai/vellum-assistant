@@ -15,6 +15,10 @@
  * `navigateFromApp` is the other direction: a link followed from inside an
  * app leaves a chat destination to the route sync and closes the viewer
  * itself for any destination that unmounts the chat page.
+ *
+ * `closeAppRoute` is how every close affordance leaves an app: it closes the
+ * viewer, drops the split binding, and lands on the conversation URL without
+ * the app segment.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -47,6 +51,7 @@ mock.module("@/domains/chat/composer-focus", () => ({
 }));
 
 const {
+  closeAppRoute,
   navigateToConversation,
   navigateToNewConversation,
   keepOpenAppBesideConversation,
@@ -56,6 +61,13 @@ const {
 } = await import("@/utils/conversation-navigation");
 
 const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
+/** The conversation whose route holds the app the viewer shows. */
+const OPEN_CONVERSATION = "conv-open";
+
+/** The route the conversation navigators read for the app already on screen. */
+function showPath(path: string): void {
+  window.history.replaceState(null, "", path);
+}
 
 function openAppViewer(view: "app" | "app-editing" = "app"): void {
   useViewerStore.setState({
@@ -63,6 +75,7 @@ function openAppViewer(view: "app" | "app-editing" = "app"): void {
     activeAppId: SAMPLE_APP.appId,
     openedAppState: SAMPLE_APP,
   });
+  showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
 }
 
 function openOverlayOverApp(): void {
@@ -87,6 +100,7 @@ beforeEach(() => {
     narrow: false,
     coarsePointer: false,
   });
+  showPath(routes.assistant);
 });
 
 afterEach(() => {
@@ -340,6 +354,128 @@ describe("keptAppId", () => {
   test("is null for an overlay view", () => {
     openOverlayOverApp();
     expect(keptAppId()).toBeNull();
+  });
+
+  test("is null when the URL names no app, whatever the store holds", () => {
+    openAppViewer();
+    showPath(routes.conversation(OPEN_CONVERSATION));
+
+    expect(keptAppId()).toBeNull();
+  });
+
+  test("is null when the URL names some other app", () => {
+    openAppViewer();
+    showPath(routes.conversation(OPEN_CONVERSATION, "app-2"));
+
+    expect(keptAppId()).toBeNull();
+  });
+
+  test("names the app the URL names", () => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
+    showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
+
+    expect(keptAppId()).toBe(SAMPLE_APP.appId);
+  });
+});
+
+describe("closeAppRoute", () => {
+  test("closes the viewer, drops the split binding, lands on the route's conversation", () => {
+    openAppViewer("app-editing");
+    useConversationStore.getState().setEditingConversationId(OPEN_CONVERSATION);
+    useConversationStore.getState().setActiveConversationId("conv-elsewhere");
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    closeAppRoute(navigate);
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useViewerStore.getState().activeAppId).toBeNull();
+    expect(useViewerStore.getState().openedAppState).toBeNull();
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(
+      routes.conversation(OPEN_CONVERSATION),
+      { replace: false },
+    );
+  });
+
+  test("closes a viewer the URL never named", () => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
+    showPath(routes.conversation("conv-7"));
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    closeAppRoute(navigate);
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useViewerStore.getState().activeAppId).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-7"), {
+      replace: false,
+    });
+  });
+
+  test("falls back to the selected conversation when the URL names none", () => {
+    openAppViewer();
+    showPath(routes.assistant);
+    useConversationStore.getState().setActiveConversationId("conv-5");
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    closeAppRoute(navigate);
+
+    expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-5"), {
+      replace: false,
+    });
+  });
+
+  test("mints a draft without entering the split when neither names one", () => {
+    openAppViewer();
+    showPath(routes.assistant);
+    const realEnterAppEditing = useViewerStore.getState().enterAppEditing;
+    const enterAppEditing = mock(() => {});
+    useViewerStore.setState({ enterAppEditing });
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    try {
+      closeAppRoute(navigate);
+    } finally {
+      useViewerStore.setState({ enterAppEditing: realEnterAppEditing });
+    }
+
+    const draftId = useConversationStore.getState().activeConversationId;
+    expect(draftId).toBeTruthy();
+    expect(
+      useConversationStore.getState().draftConversationIds.has(draftId!),
+    ).toBe(true);
+    expect(enterAppEditing).not.toHaveBeenCalled();
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(routes.conversation(draftId!), {
+      replace: false,
+    });
+  });
+
+  test("replace: true replaces the entry the app was open on", () => {
+    openAppViewer();
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    closeAppRoute(navigate, { replace: true });
+
+    expect(navigate.mock.calls[0][1]).toEqual({ replace: true });
   });
 });
 

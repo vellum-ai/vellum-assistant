@@ -1,7 +1,12 @@
 import type { NavigateFunction } from "react-router";
 
 import { haptic } from "@/utils/haptics";
-import { isConversationChatPath, routes } from "@/utils/routes";
+import {
+  appIdForPath,
+  conversationIdForPath,
+  isConversationChatPath,
+  routes,
+} from "@/utils/routes";
 
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -12,6 +17,17 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
+
+/**
+ * Navigation as the imperative helpers here call it: a path, optionally
+ * replacing the history entry. Narrower than react-router's `NavigateFunction`,
+ * which satisfies it, so a caller that only knows how to push a path
+ * (the app viewer's action context) satisfies it too.
+ */
+export type PathNavigate = (
+  to: string,
+  options?: { replace?: boolean },
+) => void | Promise<void>;
 
 export interface NavigateToConversationOptions {
   /** An explicit presentation URL for the same conversation. */
@@ -26,6 +42,14 @@ export interface NavigateToConversationOptions {
    * at action start (e.g. fork), so the navigation doesn't double-buzz.
    */
   silent?: boolean;
+}
+
+/**
+ * The route on screen, for the imperative callers here, which hold no hooks.
+ * Empty off the browser, where it names neither conversation nor app.
+ */
+function currentPathname(): string {
+  return typeof window === "undefined" ? "" : window.location.pathname;
 }
 
 function isNarrowViewport(): boolean {
@@ -74,8 +98,11 @@ export function revealConversationView(conversationId: string): void {
 }
 
 /**
- * The app the viewer keeps on screen, to carry in the next conversation URL.
- * `null` when the viewer shows the chat or an overlay.
+ * The app the viewer keeps on screen and the URL already names, to carry in
+ * the next conversation URL. `null` when the viewer shows the chat or an
+ * overlay, and `null` when the URL names no app: a route that unmounts the
+ * chat page leaves the viewer holding the app it had, and a store left that
+ * way must not put an app back on screen at the next conversation.
  *
  * Read it after `revealConversationView` / `prepareFreshConversation`, which
  * decide whether the app stays. Reads `activeAppId` rather than the loaded
@@ -83,7 +110,12 @@ export function revealConversationView(conversationId: string): void {
  */
 export function keptAppId(): string | null {
   const viewer = useViewerStore.getState();
-  return isAppMainView(viewer.mainView) ? viewer.activeAppId : null;
+  if (!isAppMainView(viewer.mainView) || viewer.activeAppId === null) {
+    return null;
+  }
+  return appIdForPath(currentPathname()) === viewer.activeAppId
+    ? viewer.activeAppId
+    : null;
 }
 
 /**
@@ -135,31 +167,41 @@ export function navigateToConversation(
 }
 
 /**
- * Mint a fresh draft conversation, select it, and put the surface in the state
- * a new chat expects. Returns the draft's id.
+ * Mint a draft conversation id, clearing the state the previous conversation
+ * leaves behind, which a draft has none of:
  *
- * Three things have to happen together, which is why they live here rather
- * than at each entry point:
+ * - **The per-conversation process stores.** Subagent rows and workflow runs
+ *   are keyed by run, not by conversation, and they repopulate only from live
+ *   SSE. Left behind, the previous conversation's active run renders on the
+ *   new chat and its controls (abort, journal) reach the run that is still
+ *   going.
+ * - **The transcript side-panel payloads.** A files or tool-detail panel is
+ *   about one message, and a draft has none of them.
  *
- * - **The per-conversation process stores are cleared.** Subagent rows and
- *   workflow runs are keyed by run, not by conversation, and they repopulate
- *   only from live SSE. Left behind, the previous conversation's active run
- *   renders on the new chat and its controls (abort, journal) reach the run
- *   that is still going.
- * - **The transcript side-panel payloads are cleared.** A files or tool-detail
- *   panel is about one message, and a draft has none of them.
- * - **The chat is brought on screen.** A draft minted behind the fullscreen
- *   app viewer has no composer to speak into; `revealConversationView` keeps
- *   an app open beside it on a wide viewport instead of dismissing it.
- *
- * Every entry that opens a fresh conversation goes through this, so none of
- * them can be missing one of the three.
+ * Selecting the draft is the caller's, since {@link prepareFreshConversation}
+ * brings the chat on screen in between and {@link closeAppRoute} must not.
  */
-export function prepareFreshConversation(): string {
+function mintDraftConversation(): string {
   useSubagentStore.getState().reset();
   useWorkflowStore.getState().reset();
   useViewerStore.getState().clearTranscriptPanelPayloads();
-  const draftId = createDraftConversationId();
+  return createDraftConversationId();
+}
+
+/**
+ * Mint a fresh draft conversation, select it, and put the surface in the state
+ * a new chat expects. Returns the draft's id.
+ *
+ * On top of what {@link mintDraftConversation} clears, **the chat is brought
+ * on screen**: a draft minted behind the fullscreen app viewer has no composer
+ * to speak into, and `revealConversationView` keeps an app open beside it on a
+ * wide viewport instead of dismissing it.
+ *
+ * Every entry that opens a fresh conversation for the user to speak into goes
+ * through this, so none of them can be missing a piece.
+ */
+export function prepareFreshConversation(): string {
+  const draftId = mintDraftConversation();
   revealConversationView(draftId);
   useConversationStore.getState().setActiveConversationId(draftId);
   return draftId;
@@ -216,6 +258,39 @@ export function navigateToNewConversation(
   void navigate(path);
   requestComposerFocus();
   return draftId;
+}
+
+/**
+ * Close the app viewer: a navigation to the conversation URL without the app
+ * segment. Every close affordance goes through here, so the app leaves the URL
+ * and browser Back cannot bring it straight back.
+ *
+ * The viewer is closed here as well, rather than left to the route sync, so a
+ * viewer the URL never named (the Chat Info panel's cross-assistant open)
+ * still closes, and the split binding goes with it whichever path closed
+ * first.
+ *
+ * The conversation to land on is the one the route names, then the selected
+ * one, and otherwise a fresh draft. The draft skips the reveal: that enters
+ * the split and binds the chat pane one frame before this navigation closes
+ * everything.
+ */
+export function closeAppRoute(
+  navigate: PathNavigate,
+  options?: { replace?: boolean },
+): void {
+  useViewerStore.getState().closeApp();
+  useConversationStore.getState().setEditingConversationId(null);
+  let conversationId =
+    conversationIdForPath(currentPathname()) ??
+    useConversationStore.getState().activeConversationId;
+  if (conversationId === null) {
+    conversationId = mintDraftConversation();
+    useConversationStore.getState().setActiveConversationId(conversationId);
+  }
+  void navigate(routes.conversation(conversationId), {
+    replace: options?.replace === true,
+  });
 }
 
 /**

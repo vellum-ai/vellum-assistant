@@ -3,8 +3,8 @@
  * {@link openAppFromChat}, a document through {@link openDocumentFromChat}.
  * Both buzz and hand off to the viewer store, so every entry point into the
  * viewer from chat feels the same. {@link useOpenAppFromChat} opens an app for
- * the active assistant by navigating to the URL that names it, for the
- * surfaces that do not name an assistant of their own.
+ * the active assistant by navigating to the URL that names it, which is how
+ * every surface that does not name an assistant of its own opens one.
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -36,7 +36,13 @@ import {
   setDocumentConversationPresentation,
 } from "../document-conversation-navigation";
 
-/** Opens `appId` under `assistantId` in the viewer panel. */
+/**
+ * Opens `appId` under `assistantId` in the viewer panel, leaving the URL
+ * naming whatever it named. The one caller is the Chat Info panel opening an
+ * app of an assistant other than the active one, which no conversation URL can
+ * name. An app of the active assistant opens as a navigation instead, so
+ * browser Back and every close affordance reach it.
+ */
 export async function openAppFromChat(
   assistantId: string,
   appId: string,
@@ -187,9 +193,9 @@ export function useOpenDocumentFromChat(
  *
  * Single source of truth for the active assistant's apps, used by
  * `chat-layout.tsx` (sidebar) and `chat-route-content.tsx` (transcript).
- * Don't inline a copy. A surface that opens an app for some other assistant
- * (the chat-info panel opens the one its payload names) calls
- * {@link openAppFromChat} with that assistant.
+ * Don't inline a copy. The chat-info panel navigates to the same URL for its
+ * own conversation, and falls back to {@link openAppFromChat} only for an app
+ * of another assistant.
  */
 export function useOpenAppFromChat(): (appId: string) => Promise<void> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();

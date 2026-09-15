@@ -102,6 +102,7 @@ beforeEach(() => {
 afterEach(() => {
   daemonClient.post = originalPost;
   useViewerStore.getState().reset();
+  window.history.replaceState(null, "", routes.assistant);
   cleanup();
 });
 
@@ -157,6 +158,12 @@ describe("useSendMessage: a draft resolving to its server id", () => {
       activeAppId: SAMPLE_APP.appId,
       openedAppState: SAMPLE_APP,
     });
+    // The app rides along only from a route that names it.
+    window.history.replaceState(
+      null,
+      "",
+      routes.conversation(DRAFT_ID, SAMPLE_APP.appId),
+    );
 
     expect(await sendFirstMessage()).toBe(
       routes.conversation(SERVER_ID, SAMPLE_APP.appId),

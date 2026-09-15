@@ -27,7 +27,7 @@ import {
   test,
 } from "bun:test";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import {
   act,
   cleanup,
@@ -79,6 +79,9 @@ const { ChatInfoPanel } = await import(
   "@/domains/chat/components/chat-info-panel"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
 const { useUnseenDocumentChangesStore } = await import(
   "@/domains/chat/unseen-document-changes-store"
 );
@@ -217,6 +220,15 @@ function seedPanel({
   return client;
 }
 
+/** The route the panel navigates to, for the opens that are navigations. */
+function RoutePath() {
+  return <span data-testid="route-path">{useLocation().pathname}</span>;
+}
+
+function currentPath(): string {
+  return screen.getByTestId("route-path").textContent ?? "";
+}
+
 /** Awaited so each app tile's preview html settles inside the test. */
 async function renderChatInfo(
   category: ChatInfoCategory | null = null,
@@ -226,6 +238,7 @@ async function renderChatInfo(
   await act(async () => {
     render(
       <MemoryRouter initialEntries={["/assistant/conversations/conv-1"]}>
+        <RoutePath />
         <QueryClientProvider client={client}>
           <ChatInfoPanel
             payload={{
@@ -258,6 +271,7 @@ beforeEach(() => {
   onClose.mockClear();
   onSelectCategory.mockClear();
   useViewerStore.setState({ closeChatInfo, loadApp, loadDocument });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 afterEach(() => {
@@ -330,13 +344,28 @@ describe("ChatInfoPanel top level", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  test("leaves the panel before opening an app, under the payload's assistant", async () => {
+  test("leaves the panel, then opens the active assistant's app as a navigation", async () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
+    await renderChatInfo();
+
+    fireEvent.click(screen.getByLabelText("Open App 1"));
+
+    expect(calls).toEqual(["closeChatInfo"]);
+    expect(loadApp).not.toHaveBeenCalled();
+    expect(currentPath()).toBe(
+      `/assistant/conversations/${CONVERSATION_ID}/app/app-1`,
+    );
+  });
+
+  test("opens another assistant's app in the viewer, which no URL can name", async () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-other" });
     await renderChatInfo();
 
     fireEvent.click(screen.getByLabelText("Open App 1"));
 
     expect(calls).toEqual(["closeChatInfo", "loadApp"]);
     expect(loadApp).toHaveBeenCalledWith(ASSISTANT_ID, "app-1");
+    expect(currentPath()).toBe(`/assistant/conversations/${CONVERSATION_ID}`);
   });
 
   test("reads the assets of the conversation its payload names", async () => {

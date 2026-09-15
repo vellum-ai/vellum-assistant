@@ -855,12 +855,18 @@ The app viewer is ported this way:
 `/assistant/conversations/:conversationId/app/:appId` names the app on
 screen, and `useAppRouteSync` bridges that segment into
 `useViewerStore`, loading the app, bringing it back in front, or closing
-it as the URL changes. A navigation that keeps an app beside the chat
-carries it through `keptAppId()` in `utils/conversation-navigation.ts`,
-which reads the app the viewer holds so the next conversation URL names
-it. A link followed from inside an app goes through `navigateFromApp`,
-which leaves a chat destination to the route sync and clears the viewer
-itself for any other destination, where the chat page unmounts.
+it as the URL changes. Every close affordance goes through
+`closeAppRoute` in `utils/conversation-navigation.ts`, which closes the
+viewer and lands on the conversation URL without the app segment. A
+navigation that keeps an app beside the chat carries it through
+`keptAppId()` in the same module, which names the app only while the URL
+already names it, so a store left on an app by a route that unmounted
+the chat page cannot reopen it. A link followed from inside an app goes
+through `navigateFromApp`, which leaves a chat destination to the route
+sync and clears the viewer itself for any other destination, where the
+chat page unmounts. The one open that skips the URL is the Chat Info
+panel opening an app of an assistant other than the active one, which no
+conversation URL can name; `closeAppRoute` closes that one too.
 
 References:
 - [React Router — Nested Routes](https://reactrouter.com/start/framework/routing#nested-routes)

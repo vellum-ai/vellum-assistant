@@ -24,7 +24,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { routes } from "@/utils/routes";
+import { closeAppRoute } from "@/utils/conversation-navigation";
 
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -144,13 +144,11 @@ export function ActiveChatView() {
         if (!useViewerStore.getState().handleAppUnpinned(appId)) {
           return;
         }
-        const conversationId = urlConversationId ?? activeConversationId;
-        if (!conversationId) {
-          return;
-        }
-        void navigate(routes.conversation(conversationId), { replace: true });
+        // The unpin already closed the viewer, so the route sync sees nothing
+        // left to close: the app segment leaves the URL from here.
+        closeAppRoute(navigate, { replace: true });
       },
-      [activeConversationId, navigate, urlConversationId],
+      [navigate],
     ),
   );
 

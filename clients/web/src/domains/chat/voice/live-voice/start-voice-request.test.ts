@@ -226,6 +226,7 @@ beforeEach(() => {
 
 afterEach(() => {
   viewport.restore();
+  window.history.replaceState(null, "", routes.assistant);
 });
 
 // ---------------------------------------------------------------------------
@@ -326,6 +327,12 @@ describe("starting a session", () => {
       activeAppId: SAMPLE_APP.appId,
       openedAppState: SAMPLE_APP,
     });
+    // An app rides along only from a route that names it.
+    window.history.replaceState(
+      null,
+      "",
+      routes.conversation(PRIOR_CONVERSATION_ID, SAMPLE_APP.appId),
+    );
 
     requestVoiceStart(navigate, { entry: "deep_link" });
     await flushDrain();

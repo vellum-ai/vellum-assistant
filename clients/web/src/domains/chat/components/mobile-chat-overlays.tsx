@@ -14,7 +14,6 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
@@ -22,10 +21,9 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { type ChatInfoCategory, useViewerStore } from "@/stores/viewer-store";
 import {
+  closeAppRoute,
   navigateFromApp,
-  prepareFreshConversation,
 } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
 
 import { MobileChannelTranscriptOverlay } from "@/domains/chat/channel-sidecar/mobile-channel-transcript-overlay";
 import { MobileAcpRunDetailOverlay } from "@/domains/chat/components/mobile-acp-run-detail-overlay";
@@ -68,10 +66,7 @@ export function MobileChatOverlays() {
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
   const handleCloseApp = useCallback(() => {
-    const conversationId =
-      useConversationStore.getState().activeConversationId ??
-      prepareFreshConversation();
-    void navigate(routes.conversation(conversationId));
+    closeAppRoute(navigate);
   }, [navigate]);
 
   const handleNavigateAppRoute = useCallback(
