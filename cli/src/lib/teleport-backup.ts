@@ -1,132 +1,39 @@
 /**
- * Pre-teleport safety backup of the source assistant.
+ * Platform (cloud="vellum") half of the pre-teleport safety backup.
  *
- * A teleport ends with the source being retired, so the source is snapshotted
- * before any data leaves it. Platform-managed (cloud="vellum") sources take a
- * PVC snapshot through Django's `POST /v1/assistants/<id>/backups/`; local and
- * docker sources take a gateway vbundle snapshot through the gateway's
- * `POST /v1/backups/create`. A snapshot younger than
- * {@link RECENT_BACKUP_MAX_AGE_MS} is reused instead of taking a fresh one,
- * since the gateway snapshot is a full export and would otherwise double the
- * cost of a local-to-platform teleport.
+ * A platform source is snapshotted through Django's user-facing backup
+ * endpoint, which cuts a PVC VolumeSnapshot via vembda. The POST returns as
+ * soon as the snapshot object exists; it becomes restorable asynchronously,
+ * so {@link createPlatformBackup} polls the listing until the new snapshot
+ * reports `ready_to_use` before returning. A snapshot that never becomes
+ * ready within the timeout is a backup failure, not a success.
+ *
+ * Local and docker sources are backed up host-side by `backup-ops` instead,
+ * so the restore point survives the source's retirement. Policy shared with
+ * the web teleport lives in `@vellumai/local-mode/teleport-backup-policy`.
  */
+
+import {
+  MANAGED_BACKUP_READY_POLL_INTERVAL_MS,
+  MANAGED_BACKUP_READY_TIMEOUT_MS,
+  managedBackupIsReady,
+  readyManagedBackupCreatedAts,
+  type ManagedBackupEntry,
+} from "@vellumai/local-mode/teleport-backup-policy";
 
 import type { AssistantEntry } from "./assistant-config.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 import { authHeaders, invalidateOrgIdCache } from "./platform-client.js";
 
-/** A backup at most this old satisfies the pre-teleport backup requirement. */
-export const RECENT_BACKUP_MAX_AGE_MS = 60 * 60 * 1000;
+type PlatformEntry = Pick<AssistantEntry, "runtimeUrl" | "assistantId">;
 
-/**
- * Whether any of `createdAts` (ISO-8601 timestamps; unparseable values are
- * ignored) falls within `maxAgeMs` of `now`.
- */
-export function hasRecentBackup(
-  createdAts: Iterable<string | null | undefined>,
-  now: number = Date.now(),
-  maxAgeMs: number = RECENT_BACKUP_MAX_AGE_MS,
-): boolean {
-  for (const createdAt of createdAts) {
-    if (!createdAt) {
-      continue;
-    }
-    const createdMs = Date.parse(createdAt);
-    if (Number.isNaN(createdMs)) {
-      continue;
-    }
-    const age = now - createdMs;
-    if (age >= 0 && age <= maxAgeMs) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// Gateway (local / docker) snapshots
-// ---------------------------------------------------------------------------
-
-type GatewayEntry = Pick<AssistantEntry, "runtimeUrl">;
-
-function gatewayHeaders(token: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/json",
-  };
+function platformBackupsUrl(entry: PlatformEntry): string {
+  return `${entry.runtimeUrl}/v1/assistants/${entry.assistantId}/backups/`;
 }
 
 async function errorSuffix(response: Response): Promise<string> {
   const body = await response.text().catch(() => "");
   return `(${response.status})${body ? `: ${body}` : ""}`;
-}
-
-/**
- * List the `created_at` timestamps of a local/docker assistant's gateway
- * backup snapshots (local pool only): `GET /v1/backups`.
- *
- * Errors carry the `Local runtime <op> failed (<status>)` shape so the
- * teleport command's 401 refresh-and-retry wrapper recognizes them.
- */
-export async function listGatewayBackups(
-  entry: GatewayEntry,
-  token: string,
-): Promise<string[]> {
-  const response = await loopbackSafeFetch(`${entry.runtimeUrl}/v1/backups`, {
-    method: "GET",
-    headers: gatewayHeaders(token),
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Local runtime backup list failed ${await errorSuffix(response)}`,
-    );
-  }
-  const body = (await response.json()) as {
-    local?: { snapshots?: Array<{ created_at?: string }> };
-  };
-  return (body.local?.snapshots ?? []).map(
-    (snapshot) => snapshot.created_at ?? "",
-  );
-}
-
-/**
- * Take a gateway backup snapshot of a local/docker assistant now:
- * `POST /v1/backups/create`. The gateway exports a fresh `.vbundle` and
- * writes it to the local pool plus any configured offsite destinations, so
- * this call blocks for the full export.
- */
-export async function createGatewayBackup(
-  entry: GatewayEntry,
-  token: string,
-): Promise<void> {
-  const response = await loopbackSafeFetch(
-    `${entry.runtimeUrl}/v1/backups/create`,
-    {
-      method: "POST",
-      headers: gatewayHeaders(token),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Local runtime backup create failed ${await errorSuffix(response)}`,
-    );
-  }
-  const body = (await response.json().catch(() => null)) as {
-    success?: boolean;
-  } | null;
-  if (body && body.success === false) {
-    throw new Error("Local runtime backup create reported failure");
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Platform (cloud="vellum") PVC snapshots
-// ---------------------------------------------------------------------------
-
-type PlatformEntry = Pick<AssistantEntry, "runtimeUrl" | "assistantId">;
-
-function platformBackupsUrl(entry: PlatformEntry): string {
-  return `${entry.runtimeUrl}/v1/assistants/${entry.assistantId}/backups/`;
 }
 
 /**
@@ -155,43 +62,78 @@ async function platformBackupRequest(
   return response;
 }
 
-/**
- * List the `created_at` timestamps of a platform assistant's ready PVC
- * snapshots: `GET /v1/assistants/<id>/backups/`. Snapshots still being cut
- * (`ready_to_use: false`) are excluded so a stuck snapshot never counts as
- * a usable restore point.
- */
-export async function listPlatformBackups(
+async function fetchPlatformBackups(
   entry: PlatformEntry,
   token: string,
-): Promise<string[]> {
+): Promise<ManagedBackupEntry[]> {
   const response = await platformBackupRequest(entry, token, "GET");
   if (!response.ok) {
     throw new Error(
       `Platform backup list failed ${await errorSuffix(response)}`,
     );
   }
-  const body = (await response.json()) as {
-    backups?: Array<{ created_at?: string; ready_to_use?: boolean }>;
-  };
-  return (body.backups ?? [])
-    .filter((backup) => backup.ready_to_use !== false)
-    .map((backup) => backup.created_at ?? "");
+  const body = (await response.json()) as { backups?: ManagedBackupEntry[] };
+  return body.backups ?? [];
 }
 
 /**
- * Take a PVC snapshot of a platform assistant now:
- * `POST /v1/assistants/<id>/backups/`. Returns once the snapshot object is
- * created; it becomes restorable asynchronously.
+ * `created_at` of every restorable PVC snapshot of a platform assistant:
+ * `GET /v1/assistants/<id>/backups/`.
+ */
+export async function listPlatformBackups(
+  entry: PlatformEntry,
+  token: string,
+): Promise<Array<string | undefined>> {
+  return readyManagedBackupCreatedAts(await fetchPlatformBackups(entry, token));
+}
+
+export interface CreatePlatformBackupOptions {
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}
+
+/**
+ * Take a PVC snapshot of a platform assistant and wait until it is
+ * restorable: `POST /v1/assistants/<id>/backups/`, then re-list until the
+ * returned `snapshot_name` reports `ready_to_use`. Throws if the POST fails
+ * or the snapshot is not ready within `timeoutMs`.
  */
 export async function createPlatformBackup(
   entry: PlatformEntry,
   token: string,
+  options: CreatePlatformBackupOptions = {},
 ): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? MANAGED_BACKUP_READY_TIMEOUT_MS;
+  const pollIntervalMs =
+    options.pollIntervalMs ?? MANAGED_BACKUP_READY_POLL_INTERVAL_MS;
+
   const response = await platformBackupRequest(entry, token, "POST");
   if (!response.ok) {
     throw new Error(
       `Platform backup create failed ${await errorSuffix(response)}`,
     );
   }
+  const created = (await response.json().catch(() => null)) as {
+    snapshot_name?: string;
+    ready_to_use?: boolean;
+  } | null;
+  const snapshotName = created?.snapshot_name;
+  if (!snapshotName) {
+    throw new Error("Platform backup create returned no snapshot name");
+  }
+  if (created?.ready_to_use === true) {
+    return;
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    const backups = await fetchPlatformBackups(entry, token);
+    if (managedBackupIsReady(backups, snapshotName)) {
+      return;
+    }
+  }
+  throw new Error(
+    `Platform backup ${snapshotName} was not ready after ${Math.round(timeoutMs / 1000)}s`,
+  );
 }

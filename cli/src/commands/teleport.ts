@@ -38,12 +38,13 @@ import {
 } from "../lib/local-runtime-client.js";
 import { pollJobUntilDone } from "../lib/job-polling.js";
 import {
-  createGatewayBackup,
+  createBackup,
+  listAssistantBackupTimes,
+  pruneOldBackups,
+} from "../lib/backup-ops.js";
+import {
   createPlatformBackup,
-  hasRecentBackup,
-  listGatewayBackups,
   listPlatformBackups,
-  RECENT_BACKUP_MAX_AGE_MS,
 } from "../lib/teleport-backup.js";
 import {
   hatchDocker,
@@ -64,6 +65,10 @@ import {
 } from "../lib/upgrade-lifecycle.js";
 import { compareVersions } from "../lib/version-compat.js";
 import { join } from "node:path";
+import {
+  hasRecentBackup,
+  RECENT_BACKUP_MAX_AGE_MS,
+} from "@vellumai/local-mode/teleport-backup-policy";
 
 function printHelp(): void {
   console.log(
@@ -97,15 +102,18 @@ function printHelp(): void {
   console.log("transfers (e.g. local to local) are not supported.");
   console.log("");
   console.log(
-    "Before exporting, the source assistant is backed up (a platform PVC",
+    "Before exporting, the source assistant is backed up. Platform sources",
   );
   console.log(
-    "snapshot for platform sources, a gateway .vbundle snapshot for local and",
+    "get a PVC snapshot (waited on until restorable); local and docker",
   );
   console.log(
-    `docker sources). A backup taken within the last ${RECENT_BACKUP_MAX_AGE_MS / 60_000} minutes is reused.`,
+    "sources get a .vbundle written to ~/.local/share/vellum/backups/ on this",
   );
-  console.log("If the backup fails, the teleport is aborted.");
+  console.log(
+    `machine. A backup of the source taken within the last ${RECENT_BACKUP_MAX_AGE_MS / 60_000} minutes is`,
+  );
+  console.log("reused. If the backup fails, the teleport is aborted.");
   console.log("");
   console.log(
     "For local-to-docker and docker-to-local transfers, the source assistant",
@@ -385,11 +393,21 @@ interface ImportResponse {
 // ---------------------------------------------------------------------------
 // Pre-export safety backup of the source
 //
-// Runs before any data leaves the source. Reuses a backup younger than
-// RECENT_BACKUP_MAX_AGE_MS; otherwise takes one and blocks until it exists.
-// Any failure aborts the teleport: the source is retired at the end of a
-// successful teleport, and that is only safe with a restore point behind it.
+// Runs before any data leaves the source. Reuses a backup of this assistant
+// younger than RECENT_BACKUP_MAX_AGE_MS; otherwise takes one and blocks until
+// it is usable. Any failure aborts the teleport: the source is retired at the
+// end of a successful teleport, and that is only safe with a restore point
+// behind it.
+//
+// Local and docker sources are exported to the host's CLI backup directory
+// rather than snapshotted by their own gateway: docker retirement removes
+// every source volume (including the gateway's backup pool), and bare-metal
+// gateways share one unlabelled pool across assistants, so neither would
+// give this assistant a restore point that outlives the teleport.
 // ---------------------------------------------------------------------------
+
+/** Export timeout for the host-side pre-teleport backup of a local/docker source. */
+const LOCAL_SOURCE_BACKUP_TIMEOUT_MS = 30 * 60 * 1000;
 
 async function backupSourceBeforeTeleport(
   entry: AssistantEntry,
@@ -410,19 +428,24 @@ async function backupSourceBeforeTeleport(
         return;
       }
       await createPlatformBackup(entry, platformToken);
-    } else {
-      const createdAts = await callRuntimeWithAuthRetry(entry, (token) =>
-        listGatewayBackups(entry, token),
-      );
-      if (hasRecentBackup(createdAts)) {
-        console.log("Recent backup found, reusing it.");
-        return;
-      }
-      await callRuntimeWithAuthRetry(entry, (token) =>
-        createGatewayBackup(entry, token),
-      );
+      console.log("Backup complete.");
+      return;
     }
-    console.log("Backup complete.");
+
+    if (hasRecentBackup(listAssistantBackupTimes(entry.assistantId))) {
+      console.log("Recent backup found, reusing it.");
+      return;
+    }
+    const backupPath = await createBackup(entry.runtimeUrl, entry.assistantId, {
+      prefix: `${entry.assistantId}-pre-teleport`,
+      description: `Pre-teleport snapshot of ${displayName} (${cloud})`,
+      timeoutMs: LOCAL_SOURCE_BACKUP_TIMEOUT_MS,
+    });
+    if (!backupPath) {
+      throw new Error("backup export failed (see warning above)");
+    }
+    pruneOldBackups(entry.assistantId, 3, "pre-teleport");
+    console.log(`Backup saved: ${backupPath}`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`Error: Could not back up '${displayName}': ${msg}`);

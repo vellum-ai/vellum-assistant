@@ -3,6 +3,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
@@ -60,8 +61,9 @@ async function getGuardianAccessToken(
 export async function createBackup(
   runtimeUrl: string,
   assistantId: string,
-  options?: { prefix?: string; description?: string },
+  options?: { prefix?: string; description?: string; timeoutMs?: number },
 ): Promise<string | null> {
+  const timeoutMs = options?.timeoutMs ?? 120_000;
   try {
     let accessToken = await getGuardianAccessToken(runtimeUrl, assistantId);
     if (!accessToken) {
@@ -82,7 +84,7 @@ export async function createBackup(
         body: JSON.stringify({
           description: options?.description ?? "CLI backup",
         }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(timeoutMs),
       },
     );
 
@@ -106,7 +108,7 @@ export async function createBackup(
         body: JSON.stringify({
           description: options?.description ?? "CLI backup",
         }),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     }
 
@@ -284,16 +286,49 @@ export async function restoreBackup(
 }
 
 /**
- * Keep only the N most recent pre-upgrade backups for an assistant,
- * deleting older ones. Default: keep 3.
+ * Modification times of the `.vbundle` backups this CLI has written for
+ * `assistantId` (every kind: pre-upgrade, pre-rollback, pre-teleport), as ISO
+ * timestamps. Files are matched by the `<assistantId>-` filename prefix, so
+ * another assistant's backups never count. Missing directory yields `[]`.
+ */
+export function listAssistantBackupTimes(assistantId: string): string[] {
+  const backupsDir = getBackupsDir();
+  let names: string[];
+  try {
+    names = readdirSync(backupsDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  const prefix = `${assistantId}-`;
+  const times: string[] = [];
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith(".vbundle")) continue;
+    try {
+      times.push(statSync(join(backupsDir, name)).mtime.toISOString());
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+  }
+  return times;
+}
+
+/**
+ * Keep only the N most recent backups of one `kind` (the filename segment
+ * after the assistant id, e.g. `pre-upgrade`) for an assistant, deleting
+ * older ones. Default: keep 3 pre-upgrade backups.
  * Never throws — failures are silently ignored.
  */
-export function pruneOldBackups(assistantId: string, keep: number = 3): void {
+export function pruneOldBackups(
+  assistantId: string,
+  keep: number = 3,
+  kind: string = "pre-upgrade",
+): void {
   try {
     const backupsDir = getBackupsDir();
     if (!existsSync(backupsDir)) return;
 
-    const prefix = `${assistantId}-pre-upgrade-`;
+    const prefix = `${assistantId}-${kind}-`;
     const entries = readdirSync(backupsDir)
       .filter((f) => f.startsWith(prefix) && f.endsWith(".vbundle"))
       .sort();
