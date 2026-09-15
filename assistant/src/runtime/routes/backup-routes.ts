@@ -12,8 +12,9 @@
  *
  * Restore and verify accept a `path` pointing at a concrete snapshot file. The
  * path must resolve (via `realpath`) to somewhere inside the configured local
- * or offsite backup directories — this prevents a caller from coaxing the
- * daemon into restoring an arbitrary file via a symlink escape.
+ * or offsite backup directories, or the gateway's pinned pools under the
+ * backup root. This prevents a caller from coaxing the daemon into restoring
+ * an arbitrary file via a symlink escape.
  *
  * The backup decryption key is only loaded when the target file is a
  * `.vbundle.enc` (encrypted) bundle. Plaintext `.vbundle` files never touch
@@ -32,6 +33,7 @@ import {
 } from "../../backup/list-snapshots.js";
 import {
   getLocalBackupsDir,
+  getPinnedBackupsRootDir,
   resolveOffsiteDestinations,
 } from "../../backup/paths.js";
 import { restoreFromSnapshot, verifySnapshot } from "../../backup/restore.js";
@@ -77,7 +79,10 @@ function isInside(candidate: string, root: string): boolean {
 
 function computeAllowedRoots(): string[] {
   const config = getConfig();
-  const roots: string[] = [getLocalBackupsDir(config.backup.localDirectory)];
+  const roots: string[] = [
+    getLocalBackupsDir(config.backup.localDirectory),
+    getPinnedBackupsRootDir(),
+  ];
   for (const dest of resolveOffsiteDestinations(
     config.backup.offsite.destinations,
   )) {

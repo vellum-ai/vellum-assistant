@@ -372,24 +372,16 @@ function parseDaemonBackups(data: unknown): AssistantBackup[] {
 
   const snapshots: AssistantBackup[] = [];
 
-  const localSnapshots = body.local?.snapshots;
-  if (Array.isArray(localSnapshots)) {
-    for (const s of localSnapshots) {
-      snapshots.push({
-        snapshot_name: s.filename,
-        pvc: "",
-        created_at: s.created_at,
-        ready_to_use: true,
-        backup_type: "scheduled",
-        path: s.path,
-      });
-    }
-  }
-
+  // A pinned snapshot is a copy of a local one under the same filename. The
+  // pinned copy outlives local-pool retention, so it is the row to show and
+  // restore from; the local twin is dropped rather than listed twice under
+  // one snapshot_name.
+  const pinnedNames = new Set<string>();
   if (Array.isArray(body.pinned)) {
     for (const pool of body.pinned) {
       if (Array.isArray(pool.snapshots)) {
         for (const s of pool.snapshots) {
+          pinnedNames.add(s.filename);
           snapshots.push({
             snapshot_name: s.filename,
             pvc: "",
@@ -400,6 +392,23 @@ function parseDaemonBackups(data: unknown): AssistantBackup[] {
           });
         }
       }
+    }
+  }
+
+  const localSnapshots = body.local?.snapshots;
+  if (Array.isArray(localSnapshots)) {
+    for (const s of localSnapshots) {
+      if (pinnedNames.has(s.filename)) {
+        continue;
+      }
+      snapshots.push({
+        snapshot_name: s.filename,
+        pvc: "",
+        created_at: s.created_at,
+        ready_to_use: true,
+        backup_type: "scheduled",
+        path: s.path,
+      });
     }
   }
 

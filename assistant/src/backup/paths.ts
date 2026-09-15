@@ -22,6 +22,16 @@ export function getLocalBackupsDir(override?: string | null): string {
   return override ?? join(getBackupRootDir(), "local");
 }
 
+/**
+ * Root of the gateway's pinned pools (`<backup root>/pinned/<label>/`): copies
+ * of local snapshots the gateway keeps outside the local pool's retention,
+ * such as a pre-teleport restore point. The daemon never writes here; it only
+ * needs the path to accept restores from it.
+ */
+export function getPinnedBackupsRootDir(): string {
+  return join(getBackupRootDir(), "pinned");
+}
+
 function safeUserInfoHomedir(): string {
   try {
     return userInfo().homedir;

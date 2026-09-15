@@ -109,6 +109,7 @@
     "restoreSuccessToast": "Backup restored successfully.",
     "restoreTitle": "Restore Backup",
     "typeDoctor": "Doctor",
+    "typePinned": "Pinned",
     "typePointInTime": "Point-in-time",
     "typePreview": "Preview",
     "typeScheduled": "Scheduled"

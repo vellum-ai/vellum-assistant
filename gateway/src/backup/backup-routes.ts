@@ -7,8 +7,8 @@
  * the encrypt/decrypt operations.
  *
  * Routes:
- *   GET  /v1/backups        — list local, pinned and offsite snapshots
- *   POST /v1/backups/create — manual snapshot trigger; an optional JSON body
+ *   GET  /v1/backups        - list local, pinned and offsite snapshots
+ *   POST /v1/backups/create - manual snapshot trigger; an optional JSON body
  *                             `{ "pin": "<label>" }` also copies the snapshot
  *                             into the pinned pool for that label, which the
  *                             worker's local-pool retention never prunes
