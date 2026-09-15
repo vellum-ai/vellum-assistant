@@ -23,10 +23,7 @@ import {
   SPOKEN_REPLY_PLAIN_TEXT_RULE,
 } from "../calls/spoken-reply-rules.js";
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
-import {
-  createControlMarkerHoldback,
-  type SessionControlRequest,
-} from "../calls/voice-control-protocol.js";
+import { createControlMarkerHoldback } from "../calls/voice-control-protocol.js";
 import {
   createFrontDoorLegCoordinator,
   type FrontDoorLegCoordinator,
@@ -162,6 +159,8 @@ import {
   type LiveVoiceSessionControl,
 } from "./protocol.js";
 import {
+  type ClientSessionControlRequest,
+  progressConfigForCadence,
   requestedSessionControl,
   sessionControlTeaching,
 } from "./session-controls.js";
@@ -621,7 +620,7 @@ interface ActiveAssistantTurn {
   // The session control the completed reply ended with (see
   // session-controls.ts); consumed at TTS drain like the minimize, where the
   // session_control frame goes out once the acknowledgement has been spoken.
-  sessionControlRequested: SessionControlRequest | null;
+  sessionControlRequested: ClientSessionControlRequest | null;
   // The activity label the client was last told about, so a run of tools that
   // map to the same line sends one frame rather than one per call. Empty means
   // the client believes nothing is running, which is also where a turn ends.
@@ -1136,6 +1135,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // The session controls the client declared it can carry out; the only ones
   // the model is taught and the only ones a reply's marker can trigger.
   private readonly sessionControls: readonly LiveVoiceSessionControl[];
+  // How often progress updates are spoken, as the user last asked out loud.
+  // Session-scoped: it applies from the next turn to the end of the call.
+  private progressCadence: "fewer" | "normal" = "normal";
   // Whether this session's speech-to-text leg came up. False only when the
   // preflight found it missing and `textInput` let the session open anyway, in
   // which case nothing arms a transcriber and typed turns are the only input.
@@ -5022,7 +5024,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       handle: null,
       launchedAtMs: Date.now(),
       progress: createProgressCadence({
-        config: this.frontModelConfig.progress,
+        config: progressConfigForCadence(
+          this.frontModelConfig.progress,
+          this.progressCadence,
+        ),
         // Without TTS there is nothing to speak (the idle trigger's static
         // fallback still needs a generation attempt to fall back from).
         narrator: this.streamTtsAudio ? this.progressNarrator : null,
@@ -5443,10 +5448,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // or the escalated leg. A handed-off front-door leg returned
             // above, so its holding phrase can never end a call.
             if (msg.type === "message_complete") {
-              current.sessionControlRequested = requestedSessionControl(
+              const request = requestedSessionControl(
                 rawText,
                 this.sessionControls,
               );
+              if (request?.action === "updates") {
+                // The session's own control: nothing to send, and nothing to
+                // wait for, since it shapes turns that have not started yet.
+                this.progressCadence = request.cadence;
+                log.info(
+                  { turnId, cadence: request.cadence },
+                  "Live voice progress cadence changed",
+                );
+              } else {
+                current.sessionControlRequested = request;
+              }
             }
             current.assistantCompleted = true;
             if (msg.type === "generation_cancelled") {

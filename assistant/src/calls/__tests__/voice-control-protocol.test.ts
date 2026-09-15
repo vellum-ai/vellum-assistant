@@ -152,11 +152,21 @@ describe("session control markers", () => {
     expect(isIncompleteControlMarkerTail("[MU")).toBe(true);
     expect(isIncompleteControlMarkerTail("[MUTE:3")).toBe(true);
     expect(isIncompleteControlMarkerTail("[MUTE:30]")).toBe(false);
+    expect(isIncompleteControlMarkerTail("[UPDATES:FEW")).toBe(true);
+    expect(isIncompleteControlMarkerTail("[UPDATES:FEWER]")).toBe(false);
   });
 
   test.each([
     ["Okay, talk soon. [END_CALL]", { action: "end" }],
     ["Muted. [MUTE]", { action: "mute" }],
+    [
+      "I'll check in less. [UPDATES:FEWER]",
+      { action: "updates", cadence: "fewer" },
+    ],
+    [
+      "Updates are back on. [UPDATES:NORMAL]",
+      { action: "updates", cadence: "normal" },
+    ],
     [
       "Muting for half a minute. [MUTE:30]  ",
       { action: "mute", durationMs: 30_000 },
@@ -184,6 +194,7 @@ describe("session control markers", () => {
     expect(terminalControlMarkerLength("Done [-1]")).toBe(4);
     expect(terminalControlMarkerLength("Bye [END_CALL] ")).toBe(10);
     expect(terminalControlMarkerLength("Muted [MUTE:30]")).toBe(9);
+    expect(terminalControlMarkerLength("Okay [UPDATES:FEWER]")).toBe(15);
     expect(terminalControlMarkerLength("The array [-1] sorts")).toBe(0);
   });
 });

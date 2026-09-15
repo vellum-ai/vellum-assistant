@@ -50,6 +50,16 @@ const MUTE_MARKER_PREFIX = "[MUTE:";
 /** Longest timed mute a marker can ask for; longer asks mute until unmuted. */
 export const MAX_TIMED_MUTE_SECONDS = 3600;
 
+/**
+ * Progress-update cadence for the rest of a live-voice session:
+ * {@link FEWER_UPDATES_MARKER} after "don't give me updates so often",
+ * {@link NORMAL_UPDATES_MARKER} to go back. Terminal like the other session
+ * controls, but carried out by the session itself: narration is the daemon's.
+ */
+export const FEWER_UPDATES_MARKER = "[UPDATES:FEWER]";
+export const NORMAL_UPDATES_MARKER = "[UPDATES:NORMAL]";
+const UPDATES_MARKER_PREFIX = "[UPDATES:";
+
 // ---------------------------------------------------------------------------
 // Regexes
 // ---------------------------------------------------------------------------
@@ -71,6 +81,7 @@ const HOLD_VERDICT_TOKEN_REGEX = /\[0\]/g;
 const ESCALATE_VERDICT_TOKEN_REGEX = /\[1\]/g;
 const MINIMIZE_ROOM_MARKER_REGEX = /\[-1\]/g;
 const MUTE_MARKER_REGEX = /\[MUTE(?::\s*[^\]]*)?\]/g;
+const UPDATES_MARKER_REGEX = /\[UPDATES:\s*[^\]]*\]/g;
 const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
 const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
 
@@ -197,6 +208,7 @@ export function stripInternalSpeechMarkers(text: string): string {
     .replace(ESCALATE_VERDICT_TOKEN_REGEX, "")
     .replace(MINIMIZE_ROOM_MARKER_REGEX, "")
     .replace(MUTE_MARKER_REGEX, "")
+    .replace(UPDATES_MARKER_REGEX, "")
     .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, "")
     .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, "");
   return result;
@@ -224,6 +236,7 @@ const CONTROL_MARKER_STRINGS = [
   "[-1]",
   MUTE_MARKER,
   MUTE_MARKER_PREFIX,
+  UPDATES_MARKER_PREFIX,
   "[GUARDIAN_TIMEOUT]",
   "[GUARDIAN_UNAVAILABLE]",
 ];
@@ -238,6 +251,7 @@ const FIRST_BRACKET_TERMINATED_PREFIXES = [
   "[USER_ANSWERED:",
   "[USER_INSTRUCTION:",
   MUTE_MARKER_PREFIX,
+  UPDATES_MARKER_PREFIX,
 ];
 
 const GUARDIAN_APPROVAL_PREFIX = "[ASK_GUARDIAN_APPROVAL:";
@@ -325,14 +339,15 @@ export function createControlMarkerHoldback(
 /**
  * A session control a live-voice reply asked for with a terminal marker:
  * `end` from {@link END_CALL_MARKER}, `mute` from {@link MUTE_MARKER} or its
- * timed form.
+ * timed form, `updates` from the progress-cadence markers.
  */
 export type SessionControlRequest =
   | { readonly action: "end" }
-  | { readonly action: "mute"; readonly durationMs?: number };
+  | { readonly action: "mute"; readonly durationMs?: number }
+  | { readonly action: "updates"; readonly cadence: "fewer" | "normal" };
 
 const TERMINAL_SESSION_CONTROL_REGEX =
-  /(\[END_CALL\]|\[MUTE\]|\[MUTE:\s*([^\]]*)\])\s*$/;
+  /(\[END_CALL\]|\[UPDATES:(FEWER|NORMAL)\]|\[MUTE\]|\[MUTE:\s*([^\]]*)\])\s*$/;
 
 /**
  * The session control a reply ends with, or null.
@@ -357,7 +372,13 @@ export function parseTerminalSessionControl(
   if (match[1] === END_CALL_MARKER) {
     return { action: "end" };
   }
-  const seconds = match[2] === undefined ? NaN : Number(match[2].trim());
+  if (match[2] !== undefined) {
+    return {
+      action: "updates",
+      cadence: match[2] === "FEWER" ? "fewer" : "normal",
+    };
+  }
+  const seconds = match[3] === undefined ? NaN : Number(match[3].trim());
   if (
     Number.isFinite(seconds) &&
     seconds > 0 &&
