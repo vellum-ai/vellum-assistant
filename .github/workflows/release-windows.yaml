@@ -218,6 +218,7 @@ jobs:
 
       - name: Package and sign NSIS installer
         env:
+          ELECTRON_BUILDER_COMPRESSION_LEVEL: "5"
           SENTRY_DSN_WINDOWS: ${{ secrets.SENTRY_DSN_WINDOWS }}
           WINDOWS_SIGNING_PROVIDER: azure-trusted-signing
           WINDOWS_SIGNING_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGNING_TIMESTAMP_URL }}
