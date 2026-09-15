@@ -74,7 +74,6 @@ const renderWith = (
     <CompanionPopover
       popover={popover}
       view={view}
-      assistantName="Ziggy"
       onAnswer={(answer) => {
         answers.push(answer);
       }}
@@ -267,7 +266,9 @@ describe("stepLines", () => {
     for (let index = 1; index < lines.length; index += 1) {
       expect(lines[index - 1].length).toBeLessThanOrEqual(lines[index].length);
     }
-    expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(60);
+    expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(
+      60,
+    );
   });
 
   /** Legal but wrong: a word stranded on top above two full lines. */

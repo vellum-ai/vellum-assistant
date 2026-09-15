@@ -90,7 +90,6 @@ export function CompanionPopoverPage() {
         key={popover.id}
         popover={popover}
         view={view}
-        assistantName={state?.assistantName ?? ""}
         // The colour the call's ring and the creature burn, so the panel reads
         // as the same assistant's.
         accentHex={

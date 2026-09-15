@@ -60,7 +60,6 @@ export interface CompanionPopoverProps {
   popover: CompanionPopoverContent;
   /** How the popover is shown. A card or a surface is always drawn whole. */
   view: CompanionPopoverView;
-  assistantName: string;
   /** The card's element, for the page to measure. */
   cardRef?: Ref<HTMLDivElement>;
   /** Absent leaves the presses inert, which is what Storybook wants. */
@@ -105,7 +104,6 @@ const panelBackground = (accentHex: string | undefined): string => {
 export function CompanionPopover({
   popover,
   view,
-  assistantName,
   cardRef,
   onAnswer,
   onView,
@@ -175,7 +173,6 @@ export function CompanionPopover({
       ) : (
         <SurfaceCard
           popover={popover}
-          assistantName={assistantName}
           onAnswer={onAnswer}
           onOpenLink={onOpenLink}
         />
@@ -509,16 +506,19 @@ function ApprovalAnswers({
 }
 
 /**
- * A panel's header: a quiet title, and the close at the far end. What closing
+ * A panel's header: its title, and the close at the far end. What closing
  * means is the caller's: putting a prompt off, or dismissing a card.
  */
 function PopoverHeader({
   title,
   icon,
+  emphasis = false,
   onClose,
 }: {
   title: string;
   icon?: ReactNode;
+  /** The title is the content's own (a card's), rather than a label for it. */
+  emphasis?: boolean;
   onClose?: () => void;
 }) {
   const { t } = useTranslation();
@@ -527,7 +527,12 @@ function PopoverHeader({
       {icon}
       <p
         dir="auto"
-        className="min-w-0 flex-1 text-body-small-default text-[var(--content-tertiary)] select-none"
+        className={cn(
+          "min-w-0 flex-1",
+          emphasis
+            ? "text-title-small leading-snug"
+            : "text-body-small-default text-[var(--content-tertiary)] select-none",
+        )}
       >
         {title}
       </p>
@@ -677,12 +682,10 @@ function SecretForm({
 /** A card in full, or a surface the popover can only name. */
 function SurfaceCard({
   popover,
-  assistantName,
   onAnswer,
   onOpenLink,
 }: {
   popover: Extract<CompanionPopoverContent, { kind: "card" | "surface" }>;
-  assistantName: string;
   onAnswer?: (answer: CompanionPopoverAnswer) => void;
   onOpenLink?: (url: string) => void;
 }) {
@@ -693,12 +696,31 @@ function SurfaceCard({
   const [pressed, setPressed] = useState(false);
   return (
     <>
+      {/* The card's own title heads it, beside the close. Whose card it is
+          needs no saying: the creature is right beside it. */}
       <PopoverHeader
-        title={assistantName}
+        emphasis
+        title={
+          popover.title !== ""
+            ? popover.title
+            : popover.kind === "surface"
+              ? t("companionPopover.surfaceFallback")
+              : ""
+        }
         onClose={() => onAnswer?.({ kind: "dismiss" })}
       />
       {popover.kind === "card" ? (
         <>
+          {/* Under the title and outside the scrolling content, so it stays
+              with the title it qualifies. */}
+          {popover.subtitle !== "" ? (
+            <p
+              dir="auto"
+              className="-mt-2.5 text-body-medium-lighter text-[var(--content-tertiary)]"
+            >
+              {popover.subtitle}
+            </p>
+          ) : null}
           <ScrollShadow
             className="min-h-0 flex-1"
             size={20}
@@ -706,23 +728,6 @@ function SurfaceCard({
             hideScrollBar
           >
             <div className="flex flex-col gap-3">
-              {popover.title !== "" || popover.subtitle !== "" ? (
-                <div className="flex flex-col gap-0.5">
-                  {popover.title !== "" ? (
-                    <p dir="auto" className="text-title-small leading-snug">
-                      {popover.title}
-                    </p>
-                  ) : null}
-                  {popover.subtitle !== "" ? (
-                    <p
-                      dir="auto"
-                      className="text-body-medium-lighter text-[var(--content-tertiary)]"
-                    >
-                      {popover.subtitle}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
               {popover.body !== "" ? (
                 <CardBody body={popover.body} onOpenLink={onOpenLink} />
               ) : null}
@@ -748,11 +753,6 @@ function SurfaceCard({
         </>
       ) : (
         <>
-          <p dir="auto" className="text-title-small leading-snug">
-            {popover.title !== ""
-              ? popover.title
-              : t("companionPopover.surfaceFallback")}
-          </p>
           <div className="flex items-center justify-end">
             <Button
               variant="primary"

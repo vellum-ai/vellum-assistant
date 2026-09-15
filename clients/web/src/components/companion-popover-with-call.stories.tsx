@@ -158,12 +158,7 @@ const whole = (
   popover: CompanionPopoverContent,
   view: CompanionPopoverView = "expanded",
 ) => (
-  <CompanionPopover
-    popover={popover}
-    view={view}
-    assistantName="Ziggy"
-    accentHex={CALL.accentHex}
-  />
+  <CompanionPopover popover={popover} view={view} accentHex={CALL.accentHex} />
 );
 
 /** The call alone, for comparison. */
@@ -219,7 +214,6 @@ export const ResearchCardAboveTheBar: Story = {
       popover={
         <CompanionPopover
           view="expanded"
-          assistantName="relish"
           accentHex="#E9642F"
           popover={{
             kind: "card",
