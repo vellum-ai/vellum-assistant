@@ -68,6 +68,35 @@ export function safeStringSlice(
 }
 
 /**
+ * A `[start, end)` character window of at most `maxChars` code units that
+ * never splits a surrogate pair, for paging through text by offset. A split
+ * leaves a lone half at each edge, and each encodes to U+FFFD, so the
+ * character is lost from both this window and the next one paged in after
+ * it. `charCodeAt` reads the underlying text so a caller need not hold it as
+ * one string.
+ */
+export function surrogateSafeWindow(
+  total: number,
+  charCodeAt: (index: number) => number,
+  requestedStart: number,
+  maxChars: number,
+): { start: number; end: number } {
+  let start = Math.max(0, Math.min(requestedStart, total));
+  if (start > 0 && start < total && isLowSurrogate(charCodeAt(start))) {
+    start -= 1;
+  }
+
+  let end = Math.min(total, start + maxChars);
+  if (end > start && end < total && isHighSurrogate(charCodeAt(end - 1))) {
+    // Backing off would empty a one-character window, which stalls paging on
+    // the same offset, so take the whole pair instead.
+    end = end - 1 > start ? end - 1 : Math.min(total, end + 1);
+  }
+
+  return { start, end };
+}
+
+/**
  * Replace every orphaned UTF-16 surrogate in `str` with U+FFFD
  * (REPLACEMENT CHARACTER).
  *
