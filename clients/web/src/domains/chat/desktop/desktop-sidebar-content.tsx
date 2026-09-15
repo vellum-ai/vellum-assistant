@@ -100,7 +100,7 @@ export function DesktopSidebarContent({
           />
           <div
             ref={attachFullscreen}
-            className="pointer-events-auto m-auto h-[min(80dvh,calc(100dvh-10rem))] w-[90vw] overflow-hidden rounded-lg bg-black"
+            className="pointer-events-auto m-auto h-[min(80dvh,calc(100dvh-10rem))] w-[90vw] overflow-hidden rounded-lg"
           />
         </Modal.Content>
       </Modal.Root>

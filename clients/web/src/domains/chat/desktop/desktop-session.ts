@@ -101,6 +101,7 @@ export function openDesktopSession({
       return;
     }
     rfb = client;
+    client.background = "transparent";
     client.scaleViewport = true;
     // Scale the whole desktop without changing its resolution or window layout.
     client.resizeSession = false;

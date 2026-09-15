@@ -16,6 +16,7 @@ declare module "@novnc/novnc" {
 
   export default class RFB {
     constructor(target: HTMLElement, urlOrChannel: string | WebSocket);
+    background: string;
     scaleViewport: boolean;
     viewOnly: boolean;
     focusOnClick: boolean;

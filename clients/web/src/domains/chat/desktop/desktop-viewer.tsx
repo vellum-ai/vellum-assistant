@@ -79,7 +79,7 @@ export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: Deskt
     <div className="relative h-full w-full" data-testid="desktop-panel">
       <div
         ref={containerRef}
-        className="h-full w-full overflow-hidden bg-black"
+        className="h-full w-full overflow-hidden [&_canvas]:rounded-lg"
         data-testid="desktop-panel-viewport"
       />
       {state.kind === "connected" && viewOnly && onExpand ? (
