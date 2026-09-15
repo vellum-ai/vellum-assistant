@@ -236,16 +236,16 @@ export function CompanionPromptRow({
       />
       <span className="ml-2 flex shrink-0 items-center gap-1">
         {single && first !== undefined ? (
-          <ApprovalAnswers item={first} onAnswer={onAnswer} />
+          <ApprovalAnswers item={first} pill onAnswer={onAnswer} />
         ) : (
           <>
+            <PillButton tone="secondary" onClick={() => onView?.("deferred")}>
+              {t("companionPopover.notNow")}
+            </PillButton>
             <PillButton tone="primary" onClick={() => onView?.("expanded")}>
               {popover.kind === "secret"
                 ? t("companionPopover.enter")
                 : t("companionPopover.review")}
-            </PillButton>
-            <PillButton tone="secondary" onClick={() => onView?.("deferred")}>
-              {t("companionPopover.notNow")}
             </PillButton>
           </>
         )}
@@ -461,33 +461,47 @@ function StepText({
   );
 }
 
+/**
+ * An approval's two answers, dismissive then primary so Allow is rightmost:
+ * as pills in a prompt's row, and as the design library's own buttons in a
+ * panel.
+ */
 function ApprovalAnswers({
   item,
+  pill,
   onAnswer,
 }: {
   item: CompanionApproval;
+  pill: boolean;
   onAnswer?: (answer: CompanionPopoverAnswer) => void;
 }) {
   const { t } = useTranslation();
+  const deny = (): void => onAnswer?.({ kind: "deny", itemId: item.id });
+  const allow = (): void =>
+    onAnswer?.({
+      // A permission request's allow opens the pane it asks for too.
+      kind: item.permission === undefined ? "allow" : "settings",
+      itemId: item.id,
+    });
+  if (!pill) {
+    return (
+      <>
+        <Button variant="dangerOutline" onClick={deny}>
+          {t("companionPopover.deny")}
+        </Button>
+        <Button variant="primary" onClick={allow}>
+          {t("companionPopover.allow")}
+        </Button>
+      </>
+    );
+  }
   return (
     <>
-      <PillButton
-        tone="primary"
-        onClick={() =>
-          onAnswer?.({
-            // A permission request's allow opens the pane it asks for too.
-            kind: item.permission === undefined ? "allow" : "settings",
-            itemId: item.id,
-          })
-        }
-      >
-        {t("companionPopover.allow")}
-      </PillButton>
-      <PillButton
-        tone="negative"
-        onClick={() => onAnswer?.({ kind: "deny", itemId: item.id })}
-      >
+      <PillButton tone="negative" onClick={deny}>
         {t("companionPopover.deny")}
+      </PillButton>
+      <PillButton tone="primary" onClick={allow}>
+        {t("companionPopover.allow")}
       </PillButton>
     </>
   );
@@ -557,8 +571,8 @@ function ApprovalList({
               title={item.detail !== "" ? item.detail : undefined}
               text={item.title}
             />
-            <span className="ml-2 flex shrink-0 items-center gap-1">
-              <ApprovalAnswers item={item} onAnswer={onAnswer} />
+            <span className="ml-2 flex shrink-0 items-center gap-2">
+              <ApprovalAnswers item={item} pill={false} onAnswer={onAnswer} />
             </span>
           </li>
         ))}
@@ -647,13 +661,13 @@ function SecretForm({
           />
         </div>
       </ScrollShadow>
-      <div className="flex shrink-0 items-center justify-center gap-1">
-        <PillButton tone="primary" type="submit" disabled={value === ""}>
-          {t("companionPopover.confirm")}
-        </PillButton>
-        <PillButton tone="secondary" onClick={() => onView?.("deferred")}>
+      <div className="flex shrink-0 items-center justify-end gap-2">
+        <Button variant="outlined" onClick={() => onView?.("deferred")}>
           {t("companionPopover.notNow")}
-        </PillButton>
+        </Button>
+        <Button variant="primary" type="submit" disabled={value === ""}>
+          {t("companionPopover.confirm")}
+        </Button>
       </div>
     </form>
   );
@@ -714,11 +728,11 @@ function SurfaceCard({
             </div>
           </ScrollShadow>
           {popover.actions.length > 0 ? (
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-              {popover.actions.map((action) => (
-                <PillButton
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              {actionsInOrder(popover.actions).map((action) => (
+                <Button
                   key={action.id}
-                  tone={toneForAction(action)}
+                  variant={variantForAction(action)}
                   disabled={pressed}
                   onClick={() => {
                     setPressed(true);
@@ -726,7 +740,7 @@ function SurfaceCard({
                   }}
                 >
                   {action.label}
-                </PillButton>
+                </Button>
               ))}
             </div>
           ) : null}
@@ -739,12 +753,12 @@ function SurfaceCard({
               : t("companionPopover.surfaceFallback")}
           </p>
           <div className="flex items-center justify-end">
-            <PillButton
-              tone="primary"
+            <Button
+              variant="primary"
               onClick={() => onAnswer?.({ kind: "open" })}
             >
               {t("companionPopover.openApp")}
-            </PillButton>
+            </Button>
           </div>
         </>
       )}
@@ -832,14 +846,29 @@ function ServiceIcon({
 
 type Tone = "primary" | "secondary" | "negative";
 
-const toneForAction = (action: CompanionPopoverAction): Tone => {
+/**
+ * A card's actions in footer order: the rest first and the primary last, so
+ * the primary is rightmost, the order every footer in the app keeps. Stable
+ * otherwise, so the assistant's own order among the rest stands.
+ */
+const actionsInOrder = (
+  actions: readonly CompanionPopoverAction[],
+): CompanionPopoverAction[] => [
+  ...actions.filter((action) => action.style !== "primary"),
+  ...actions.filter((action) => action.style === "primary"),
+];
+
+/** The design library's variant for a card action, as its footers use them. */
+const variantForAction = (
+  action: CompanionPopoverAction,
+): "primary" | "danger" | "outlined" => {
   switch (action.style) {
     case "primary":
       return "primary";
     case "destructive":
-      return "negative";
+      return "danger";
     case "secondary":
-      return "secondary";
+      return "outlined";
   }
 };
 

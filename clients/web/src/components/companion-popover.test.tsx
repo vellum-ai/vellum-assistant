@@ -137,9 +137,9 @@ describe("the popover's approvals", () => {
 
     const rows = Array.from(container.querySelectorAll("li"));
     expect(rows.map((row) => row.textContent)).toEqual([
-      "1Read the Downloads folderAllowDeny",
-      "2Open SafariAllowDeny",
-      "3Send an emailAllowDeny",
+      "1Read the Downloads folderDenyAllow",
+      "2Open SafariDenyAllow",
+      "3Send an emailDenyAllow",
     ]);
     fireEvent.click(buttonsNamed(container, "Deny")[1]);
     fireEvent.click(buttonsNamed(container, "Allow")[2]);
@@ -306,6 +306,44 @@ describe("stepLines", () => {
     expect(stepLines("a supercalifragilistic b", 10, measure).join(" ")).toBe(
       "a supercalifragilistic b",
     );
+  });
+});
+
+describe("the order of a popover's answers", () => {
+  /** Dismissive then primary: the primary is the rightmost answer. */
+  const labels = (container: HTMLElement): string[] =>
+    Array.from(container.querySelectorAll("button"))
+      .map((button) => button.textContent ?? "")
+      .filter((label) => label !== "");
+
+  test("puts the primary answer last in every form", () => {
+    expect(labels(renderWith(ONE).container)).toEqual(["Deny", "Allow"]);
+    cleanup();
+    expect(labels(renderWith(THREE).container)).toEqual(["Not Now", "Review"]);
+    cleanup();
+    expect(labels(renderWith(SECRET, "expanded").container)).toEqual([
+      "Not Now",
+      "Confirm",
+    ]);
+  });
+
+  test("puts a card's primary action last, whatever order it came in", () => {
+    const { container } = renderWith(
+      {
+        kind: "card",
+        id: "surf-3",
+        title: "",
+        subtitle: "",
+        body: "",
+        actions: [
+          { id: "save", label: "Save", style: "primary" },
+          { id: "later", label: "Later", style: "secondary" },
+        ],
+      },
+      "expanded",
+    );
+
+    expect(labels(container)).toEqual(["Later", "Save"]);
   });
 });
 
