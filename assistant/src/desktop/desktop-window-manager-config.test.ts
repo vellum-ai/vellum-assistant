@@ -207,3 +207,24 @@ test("adapts nested XIncludes while preserving window actions, lookup bases and 
     expect(readFileSync(join(sourceDir, name), "utf8")).toBe(contents);
   }
 });
+
+for (const entityLocation of ["config", "menu"] as const) {
+  test(`preserves valid ${entityLocation} DTD entities for Openbox when adaptation is unsupported`, () => {
+    const home = mkdtempSync(join(tmpdir(), "desktop-window-entities-"));
+    roots.push(home);
+    const sourceDir = join(home, ".config", "openbox");
+    mkdirSync(sourceDir, { recursive: true });
+    const configPath = join(sourceDir, "rc.xml");
+    const config =
+      entityLocation === "config"
+        ? `<!DOCTYPE openbox_config [<!ENTITY theme "Custom">]><openbox_config><theme><name>&theme;</name></theme></openbox_config>`
+        : `<openbox_config><menu><file>menu.xml</file></menu></openbox_config>`;
+    const menu = `<!DOCTYPE openbox_menu [<!ENTITY terminal "xterm">]><openbox_menu><menu id="root-menu"><item label="Terminal"><action name="Execute"><command>&terminal;</command></action></item></menu></openbox_menu>`;
+    writeFileSync(configPath, config);
+    writeFileSync(join(sourceDir, "menu.xml"), menu);
+    const path = writeDesktopWindowManagerConfig(join(home, "generated"), home);
+    expect(path).toBe(configPath);
+    expect(readFileSync(path, "utf8")).toBe(config);
+    expect(readFileSync(join(sourceDir, "menu.xml"), "utf8")).toBe(menu);
+  });
+}

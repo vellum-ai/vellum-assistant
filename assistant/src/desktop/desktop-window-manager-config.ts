@@ -10,6 +10,10 @@ import {
   XMLSerializer,
 } from "@xmldom/xmldom";
 
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("desktop-window-config");
+
 const XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace";
 const XINCLUDE_NAMESPACE = "http://www.w3.org/2001/XInclude";
 
@@ -30,6 +34,23 @@ export function writeDesktopWindowManagerConfig(
   if (!source) {
     throw new Error("Desktop window manager config is missing: rc.xml");
   }
+  try {
+    return writeManagedConfig(configDir, home, searchDirs, source);
+  } catch (err) {
+    log.warn(
+      { err },
+      "Desktop workspace config could not be adapted; preserving the existing Openbox config",
+    );
+    return source.path;
+  }
+}
+
+function writeManagedConfig(
+  configDir: string,
+  home: string,
+  searchDirs: string[],
+  source: { path: string; contents: string },
+): string {
   const config = parseXml(source.contents, source.path);
   const root = config.documentElement!;
   for (const section of ["desktops", "mouse", "menu", "applications"]) {
