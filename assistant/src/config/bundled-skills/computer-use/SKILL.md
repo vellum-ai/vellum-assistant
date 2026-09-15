@@ -37,6 +37,17 @@ The tree is walked to a limited depth to keep steps fast, and says when it was
 cut off. If the element you need is not in it, call `computer_use_observe` with
 `full_tree: true`.
 
+## Scripting apps (macOS)
+
+Reach for `computer_use_run_applescript` first when an app can be driven by
+script: a menu item (`click menu item "Split Clip" of menu "Modify" of menu bar
+1` inside `tell application "System Events" to tell process "iMovie"`), an
+app's own scripting dictionary, or window management. It does not take the
+cursor. A menu item that needs a selection or a playhead position does nothing
+when that context is missing, so set it up first, and read
+`enabled of menu item` when unsure. Click and type for everything a script
+cannot reach. `host_bash` is for shell commands, not for driving apps.
+
 ## Typing is not sending
 
 Pressing enter in a chat, email or form usually sends or submits it, and that

@@ -269,7 +269,7 @@
     },
     {
       "name": "computer_use_run_applescript",
-      "description": "Run an AppleScript command. Prefer this over click/type when possible - it doesn't move the cursor or interrupt foreground activity. Never use 'do shell script' inside AppleScript (blocked for security).",
+      "description": "Run an AppleScript on the Mac: menu items, an app's scripting dictionary, windows. Prefer this over click and type when the app supports it; it does not move the cursor. The result is the script's return value, and the accessibility tree may not change even when the script worked. Never use 'do shell script' inside AppleScript (blocked for security).",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -281,7 +281,7 @@
           },
           "reasoning": {
             "type": "string",
-            "description": "Explanation of what this script does and why AppleScript is better than UI interaction for this step"
+            "description": "What this script does"
           },
           "target_client_id": {
             "type": "string",

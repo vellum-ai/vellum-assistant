@@ -155,6 +155,12 @@ export function SkillsReferenceComputerUseContent() {
               unsupported tools are not offered to the assistant.
             </li>
             <li>
+              <strong>Scripting first on macOS.</strong> When an app can be driven by AppleScript,
+              such as a menu item or the app&apos;s own scripting commands, the assistant runs a
+              script instead of moving your pointer. It clicks and types only for what a script
+              cannot reach.
+            </li>
+            <li>
               <strong>Typing is not sending.</strong> Asked to type or draft a message, the
               assistant types it and stops before pressing Enter. It sends only when asked to.
             </li>

@@ -854,7 +854,7 @@ export function buildChannelCapabilityBlock(
   if (clientOs === "macos") {
     lines.push("");
     lines.push(
-      "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
+      "On macOS, drive apps through the computer-use skill: `computer_use_run_applescript` for anything an app's menus or scripting dictionary can do (it leaves the cursor alone), click and type for the rest. Use `host_bash` for shell commands, not to drive apps.",
     );
   }
 
