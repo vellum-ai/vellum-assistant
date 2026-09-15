@@ -1,11 +1,10 @@
 /**
  * Tests for PlanTile: the shared tile of the billing "Plan" section. Verifies
  * it renders the tag, the 48px avatar slot, the name (forwarding `nameTestId`),
- * the spec chips and the footer slot; splits the chips into the wrapping row
- * and the ones that asked for a row of their own; drops the chip stack for
- * null and empty `specs` and the footer wrapper when no footer is passed;
- * stamps a nested `data-theme` scope only when `theme` is set; and forwards
- * `testId` and `className` to the root.
+ * the spec chips and the footer slot; lays every chip out in one wrapping row;
+ * drops the chip stack for null and empty `specs` and the footer wrapper when
+ * no footer is passed; stamps a nested `data-theme` scope only when `theme` is
+ * set; and forwards `testId` and `className` to the root.
  *
  * The lazy `PlanTierAvatar` compositor bundle is mocked away so the avatar
  * renders its deterministic same-size placeholder (mirrors
@@ -33,12 +32,12 @@ const SPECS: PlanSpec[] = [
   { icon: Coins, label: "Pay as you go credits" },
 ];
 
-/** The production shape: two short chips, two own-row chips. */
-const OWN_ROW_SPECS: PlanSpec[] = [
+/** The production shape for a top package: two short chips, two phrases. */
+const PACKAGE_SPECS: PlanSpec[] = [
   { icon: Computer, label: "Small Machine" },
   { icon: HardDrive, label: "10 GB Storage" },
-  { icon: Coins, label: "Mighty usage, reset monthly", ownRow: true },
-  { icon: Mail, label: "Assistant email and subdomain", ownRow: true },
+  { icon: Coins, label: "Mighty usage, reset monthly" },
+  { icon: Mail, label: "Assistant email and subdomain" },
 ];
 
 const TILE_TEST_ID = "plan-tile";
@@ -144,7 +143,7 @@ describe("PlanTile", () => {
     expect(getByTestId(TILE_TEST_ID).childElementCount).toBe(1);
   });
 
-  test("lays the chips out as a wrapping row", () => {
+  test("lays the chips out as a single wrapping row", () => {
     const { getByTestId } = render(
       <PlanTile
         testId={TILE_TEST_ID}
@@ -155,62 +154,34 @@ describe("PlanTile", () => {
       />,
     );
 
-    // No spec asks for its own row, so the whole set flows in the one wrap
-    // row. Child 0 is the header row; child 1 is the chip container.
-    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
-    expect(container.className).toContain("flex-col");
-    expect(container.childElementCount).toBe(1);
-    const wrapRow = container.firstElementChild as HTMLElement;
+    // Child 0 is the header row; child 1 is the chip row, which holds every
+    // chip directly, with no nested per-spec row to force an early break.
+    const wrapRow = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
     expect(wrapRow.className).toContain("flex-row");
     expect(wrapRow.className).toContain("flex-wrap");
     expect(wrapRow.childElementCount).toBe(SPECS.length);
   });
 
-  test("gives an ownRow spec a full row below the wrapping group", () => {
-    const { getByTestId, getByText } = render(
-      <PlanTile
-        testId={TILE_TEST_ID}
-        tierKey="mighty"
-        name="Mighty"
-        tag={<span>Current</span>}
-        specs={OWN_ROW_SPECS}
-      />,
-    );
-
-    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
-    // The wrap row, then one block per own-row spec.
-    expect(container.childElementCount).toBe(3);
-    const wrapRow = container.firstElementChild as HTMLElement;
-    expect(wrapRow.className).toContain("flex-wrap");
-    expect(wrapRow.childElementCount).toBe(2);
-    expect(wrapRow.textContent).toContain("Small Machine");
-    expect(wrapRow.textContent).toContain("10 GB Storage");
-    expect(container.children[1]?.textContent).toBe(
-      "Mighty usage, reset monthly",
-    );
-    expect(container.children[2]?.textContent).toBe(
-      "Assistant email and subdomain",
-    );
-    // A full-width row can afford to wrap a long label inside the pill.
-    expect(getByText("Mighty usage, reset monthly").className).toContain(
-      "whitespace-normal",
-    );
-  });
-
-  test("renders no empty wrap group when every spec takes its own row", () => {
+  test("keeps the long package phrases in that same row", () => {
+    // Regression guard: the usage phrase and the email/subdomain extra used to
+    // be dropped onto full-width rows of their own, which broke the group onto
+    // three lines in a tile wide enough to hold them side by side.
     const { getByTestId } = render(
       <PlanTile
         testId={TILE_TEST_ID}
         tierKey="mighty"
         name="Mighty"
         tag={<span>Current</span>}
-        specs={OWN_ROW_SPECS.filter((spec) => spec.ownRow)}
+        specs={PACKAGE_SPECS}
       />,
     );
 
-    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
-    expect(container.childElementCount).toBe(2);
-    expect(container.firstElementChild?.className).not.toContain("flex-wrap");
+    const wrapRow = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
+    expect(wrapRow.className).toContain("flex-wrap");
+    expect(wrapRow.childElementCount).toBe(PACKAGE_SPECS.length);
+    for (const spec of PACKAGE_SPECS) {
+      expect(wrapRow.textContent).toContain(spec.label);
+    }
   });
 
   test("stamps a nested data-theme scope when theme is set", () => {

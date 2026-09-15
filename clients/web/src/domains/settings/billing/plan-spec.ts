@@ -29,13 +29,6 @@ import {
 export interface PlanSpec {
   icon: LucideIcon;
   label: string;
-  /** Render the chip as a wrap-capable pill for long summary labels. */
-  multiline?: boolean;
-  /**
-   * Give the chip a full-width row of its own instead of letting it flow in
-   * the wrapping row beside the short chips.
-   */
-  ownRow?: boolean;
 }
 
 /**
@@ -63,17 +56,17 @@ export function machineLabel(pkg: ProPackage | null): string {
  * package's own usage allowance (e.g. `planCard.usageChip`), supplied by the
  * caller because this pure module has no `t()`.
  *
- * The machine and storage chips are short enough to sit side by side; the
- * usage chip and the extras are sentences, so they take a row each wherever
- * the chips are laid out as a wrapping row.
+ * Order is the only layout hint here: the chips flow in a single wrapping row
+ * and break onto a new line only when the tile has no width left for the next
+ * one.
  */
 export function packageSpecs(pkg: ProPackage, usageLabel: string): PlanSpec[] {
   const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
-    { icon: Coins, label: usageLabel, ownRow: true },
-    ...extras.map((label) => ({ icon: Mail, label, ownRow: true })),
+    { icon: Coins, label: usageLabel },
+    ...extras.map((label) => ({ icon: Mail, label })),
   ];
 }
 
@@ -85,7 +78,7 @@ export function freePlanSpecs(): PlanSpec[] {
   return [
     { icon: Computer, label: `${STANDARD_MACHINE_LABEL} Machine` },
     { icon: HardDrive, label: `${FREE_STORAGE_GIB} GB Storage` },
-    { icon: Coins, label: "Pay as you go credits", ownRow: true },
+    { icon: Coins, label: "Pay as you go credits" },
   ];
 }
 

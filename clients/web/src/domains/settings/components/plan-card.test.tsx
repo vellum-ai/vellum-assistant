@@ -1162,7 +1162,7 @@ describe("PlanCard usage balance", () => {
     expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
   });
 
-  test("both tiles wrap their short chips into a row, usage below", () => {
+  test("both tiles flow every chip through one wrapping row", () => {
     const { container } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
@@ -1173,16 +1173,15 @@ describe("PlanCard usage balance", () => {
       [currentTile(container), "Mighty usage, reset monthly"],
       [nextTile(container), "Super usage, reset monthly"],
     ] as const) {
-      // Child 0 is the header row; child 1 is the chip container.
-      const chips = tile.children[1] as HTMLElement;
-      const wrapRow = chips.firstElementChild as HTMLElement;
+      // Child 0 is the header row; child 1 is the chip row itself. The usage
+      // phrase rides in that same row rather than being forced onto a
+      // full-width one of its own, so the group only breaks a line when the
+      // tile's width actually runs out.
+      const wrapRow = tile.children[1] as HTMLElement;
       expect(wrapRow.className).toContain("flex-wrap");
       expect(wrapRow.textContent).toContain("Machine");
       expect(wrapRow.textContent).toContain("Storage");
-      expect(wrapRow.textContent).not.toContain(usageLabel);
-      // The usage chip is the first full-width row underneath (Super's email
-      // extra takes another below it).
-      expect(chips.children[1]?.textContent).toBe(usageLabel);
+      expect(wrapRow.textContent).toContain(usageLabel);
     }
   });
 

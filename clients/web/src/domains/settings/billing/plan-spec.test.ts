@@ -30,14 +30,12 @@ describe("freePlanSpecs", () => {
     expect(specs.map((s) => s.icon)).toEqual([Computer, HardDrive, Coins]);
   });
 
-  test("gives the credits chip a row of its own", () => {
-    // The machine and storage chips are short enough to share a row; the
-    // credits chip is a phrase, so the wrapped layout drops it onto its own.
-    expect(freePlanSpecs().map((s) => s.ownRow)).toEqual([
-      undefined,
-      undefined,
-      true,
-    ]);
+  test("carries no per-chip layout hints", () => {
+    // Every chip flows in the tile's one wrapping row, so a spec is label and
+    // icon only; nothing here pre-empts a line break the width decides.
+    for (const spec of freePlanSpecs()) {
+      expect(Object.keys(spec).sort()).toEqual(["icon", "label"]);
+    }
   });
 });
 
@@ -97,7 +95,7 @@ describe("packageSpecs", () => {
     expect(specs[3].icon).toBe(Mail);
   });
 
-  test("gives the usage chip and every extra a row of its own", () => {
+  test("carries no per-chip layout hints", () => {
     const specs = packageSpecs(
       {
         key: "super",
@@ -107,14 +105,12 @@ describe("packageSpecs", () => {
       } as ProPackage,
       "Super usage, reset monthly",
     );
-    // Machine and storage share the wrapping row; the usage phrase and the
-    // email/subdomain extra each take a full row below it.
-    expect(specs.map((s) => s.ownRow)).toEqual([
-      undefined,
-      undefined,
-      true,
-      true,
-    ]);
+    // Machine, storage, usage and the extras all flow in the same wrapping
+    // row; where the line breaks is the tile's width to decide, not a flag
+    // set here.
+    for (const spec of specs) {
+      expect(Object.keys(spec).sort()).toEqual(["icon", "label"]);
+    }
   });
 });
 

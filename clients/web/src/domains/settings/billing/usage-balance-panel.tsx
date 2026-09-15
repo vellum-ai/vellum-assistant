@@ -36,11 +36,16 @@ export function UsageBalancePanel({
   const spent = ratio >= 1;
 
   return (
+    // Transparent, so the panel sits on the tile's own surface instead of
+    // laying a near-identical shade over it; the border alone groups it.
     <div
       data-testid="plan-usage-balance"
-      className="flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-base)] bg-[color-mix(in_srgb,var(--surface-overlay)_40%,transparent)] px-4 py-3"
+      className="flex w-full flex-col gap-2 rounded-[10px] border border-[var(--border-base)] px-4 py-3"
     >
-      <div className="flex w-full items-center justify-between gap-3">
+      {/* Label and reading share the first row; the bar gets the next one to
+          itself, so its length is the tile's width rather than whatever the
+          label left over. */}
+      <div className="flex w-full items-baseline justify-between gap-3">
         <Typography
           as="span"
           variant="body-large-default"
@@ -48,29 +53,27 @@ export function UsageBalancePanel({
         >
           {title}
         </Typography>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
-          <ProgressBar
-            value={ratio}
-            height={8}
-            aria-label={title}
-            fillColor={spent ? "var(--system-negative-strong)" : undefined}
-            className="w-full min-w-0 max-w-[249px] rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
-          />
-          <Typography
-            as="span"
-            variant="body-small-default"
-            className={
-              spent
-                ? "whitespace-nowrap text-[var(--system-negative-strong)]"
-                : "whitespace-nowrap text-[var(--content-secondary)]"
-            }
-          >
-            {t("planCard.usageBalancePctUsed", { pct })}
-          </Typography>
-        </div>
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className={
+            spent
+              ? "whitespace-nowrap text-[var(--system-negative-strong)]"
+              : "whitespace-nowrap text-[var(--content-secondary)]"
+          }
+        >
+          {t("planCard.usageBalancePctUsed", { pct })}
+        </Typography>
       </div>
+      <ProgressBar
+        value={ratio}
+        height={8}
+        aria-label={title}
+        fillColor={spent ? "var(--system-negative-strong)" : undefined}
+        className="w-full rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
+      />
       {exhausted ? (
-        <div className="flex min-h-8 w-full items-center justify-between gap-2 rounded-md bg-[var(--system-negative-weak)] px-2 py-1">
+        <div className="mt-1 flex min-h-8 w-full items-center justify-between gap-2 rounded-md bg-[var(--system-negative-weak)] px-2 py-1">
           <Typography
             as="span"
             variant="body-medium-default"
