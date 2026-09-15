@@ -2246,6 +2246,48 @@ describe("VoiceRoom: camera", () => {
     ).toBe("photo");
   });
 
+  // A press on the camera control while the spoken open is still acquiring
+  // starts an open of its own, which supersedes the first. That camera is the
+  // user's, for photos, however the older open settles afterwards.
+  test("a camera press during a pending spoken open keeps the press's camera out of Live", async () => {
+    let releaseSpokenOpen!: (stream: MediaStream) => void;
+    let calls = 0;
+    const getUserMedia = mock(async (_constraints?: MediaStreamConstraints) => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise<MediaStream>((resolve) => {
+          releaseSpokenOpen = resolve;
+        });
+      }
+      return fakeStream();
+    });
+    stubMediaDevices(getUserMedia);
+    seedLiveCapableAssistant();
+    startOwnedSession("listening");
+    useLiveVoiceStore.getState().setCameraLookRequest("start");
+
+    render(<VoiceRoom />);
+    await waitFor(() => {
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    await waitFor(() => {
+      expect(viewfinder()).not.toBeNull();
+    });
+
+    await act(async () => {
+      releaseSpokenOpen(fakeStream());
+    });
+    await act(async () => {});
+
+    expect(
+      screen.getByTestId("voice-room-shutter").getAttribute("data-mode"),
+    ).toBe("photo");
+  });
+
   test("a spoken stop closes an open viewfinder and leaves the call running", async () => {
     stubMediaDevices(async () => fakeStream());
     seedCameraCapableAssistant();
