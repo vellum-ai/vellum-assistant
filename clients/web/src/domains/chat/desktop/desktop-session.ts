@@ -53,15 +53,34 @@ export function openDesktopSession({
   let ws: WebSocket | null = null;
   let rfb: RFB | null = null;
   let currentViewOnly = viewOnly;
+  let resizeFrame: number | undefined;
+  const cancelResize = (): void => {
+    if (resizeFrame !== undefined) {
+      window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = undefined;
+    }
+  };
   const updateViewOnly = (): void => {
+    cancelResize();
     if (rfb) {
+      rfb.resizeSession = false;
       rfb.viewOnly = currentViewOnly;
       rfb.focusOnClick = !currentViewOnly;
+      if (!currentViewOnly) {
+        // Wait for the portal to reach its fullscreen container before resizing.
+        resizeFrame = window.requestAnimationFrame(() => {
+          resizeFrame = undefined;
+          if (!done && rfb) {
+            rfb.resizeSession = true;
+          }
+        });
+      }
     }
   };
   const teardown: (() => void)[] = [];
 
   const release = (): void => {
+    cancelResize();
     for (const fn of teardown.splice(0)) {
       fn();
     }
@@ -103,8 +122,6 @@ export function openDesktopSession({
     rfb = client;
     client.background = "transparent";
     client.scaleViewport = true;
-    // Scale the whole desktop without changing its resolution or window layout.
-    client.resizeSession = false;
     updateViewOnly();
     client.clipViewport = false;
 
