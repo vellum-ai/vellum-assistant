@@ -33,6 +33,7 @@ import { getLogger } from "../util/logger.js";
 import {
   CLAUDE_OAUTH_CONFIG,
   clearAcpClaudeRefreshToken,
+  forgetAcpClaudeRenewalStateIfUnbound,
   hasStoredAcpClaudeAccessToken,
   isAcpClaudeTokenExpiring,
   persistRefreshedAcpClaudeTokens,
@@ -69,6 +70,14 @@ export async function ensureFreshAcpClaudeToken(): Promise<void> {
   // that field, not to mint a new credential after the user removed it.
   if (!(await hasStoredAcpClaudeAccessToken())) {
     return;
+  }
+  try {
+    await forgetAcpClaudeRenewalStateIfUnbound();
+  } catch (err) {
+    log.debug(
+      { err },
+      "Could not drop unbound Claude OAuth renewal state before refresh",
+    );
   }
   if (!(await isAcpClaudeTokenExpiring())) {
     return;

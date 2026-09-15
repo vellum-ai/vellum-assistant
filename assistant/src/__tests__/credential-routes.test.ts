@@ -532,7 +532,7 @@ describe("credentials routes", () => {
       );
     });
 
-    test("clears stale Claude refresh material after a direct access-token write", async () => {
+    test("stores a pasted Claude token without touching leftover refresh material", async () => {
       secureStore.set("acp:claude_oauth_refresh_token", "stale-refresh");
       secureStore.set("acp:claude_oauth_expires_at", "111");
 
@@ -547,8 +547,10 @@ describe("credentials routes", () => {
       expect(secureStore.get("acp:claude_oauth_token")).toBe(
         "sk-ant-oat01-pasted-token",
       );
-      expect(secureStore.has("acp:claude_oauth_refresh_token")).toBe(false);
-      expect(secureStore.has("acp:claude_oauth_expires_at")).toBe(false);
+      expect(secureStore.get("acp:claude_oauth_refresh_token")).toBe(
+        "stale-refresh",
+      );
+      expect(secureStore.get("acp:claude_oauth_expires_at")).toBe("111");
     });
 
 

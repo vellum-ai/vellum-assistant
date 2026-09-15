@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ACP_OAUTH_ACCESS_DIGEST_FIELD,
   ACP_OAUTH_EXPIRES_AT_FIELD,
   ACP_OAUTH_REFRESH_TOKEN_FIELD,
   ACP_OAUTH_TOKEN_FIELD,
@@ -74,6 +75,7 @@ describe("constants", () => {
     expect(ACP_OAUTH_TOKEN_FIELD).toBe("claude_oauth_token");
     expect(ACP_OAUTH_REFRESH_TOKEN_FIELD).toBe("claude_oauth_refresh_token");
     expect(ACP_OAUTH_EXPIRES_AT_FIELD).toBe("claude_oauth_expires_at");
+    expect(ACP_OAUTH_ACCESS_DIGEST_FIELD).toBe("claude_oauth_access_digest");
   });
 });
 
@@ -89,6 +91,9 @@ describe("isAcpClaudeOauthField", () => {
       false,
     );
     expect(isAcpClaudeOauthField("acp", "claude_oauth_expires_at")).toBe(false);
+    expect(isAcpClaudeOauthField("acp", "claude_oauth_access_digest")).toBe(
+      false,
+    );
     expect(isAcpClaudeOauthField("sentry", "claude_oauth_token")).toBe(false);
     expect(isAcpClaudeOauthField("openai", "api_key")).toBe(false);
   });

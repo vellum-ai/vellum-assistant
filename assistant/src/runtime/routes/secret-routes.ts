@@ -357,9 +357,6 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
             `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
           );
         }
-        const { clearCredentialCompanionFields } =
-          await import("../../tools/credentials/store.js");
-        await clearCredentialCompanionFields(service, field);
         if (!isNonSecretPlatformField(service, field)) {
           // Same seam as the api_key branch: the scrub runs immediately after
           // the secure-store write, before side effects that can throw. The

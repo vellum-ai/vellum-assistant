@@ -25,7 +25,6 @@
  */
 
 import {
-  ACP_OAUTH_TOKEN_FIELD,
   ACP_SERVICE,
   assertAcpCredentialFormat,
 } from "../../acp/acp-credentials.js";
@@ -132,8 +131,6 @@ export async function storeCredentialValue(
     );
   }
 
-  await clearCredentialCompanionFields(service, field);
-
   // The stored plaintext may already sit in recent transcripts: the user
   // message that pasted it, the persisted tool_use input, the tool result
   // echoing the command. This is the scrub seam, not setSecureKeyAsync, which
@@ -183,21 +180,4 @@ export async function storeCredentialValue(
   await invalidateEmailReadinessForByoCredential(service);
 
   return { credentialId: metadata.credentialId, service, field };
-}
-
-/**
- * After a direct plaintext write that is not a Connect or refresh, drop
- * companion secrets that described the previous value. No-op when this
- * credential has none.
- */
-export async function clearCredentialCompanionFields(
-  service: string,
-  field: string,
-): Promise<void> {
-  if (service !== ACP_SERVICE || field !== ACP_OAUTH_TOKEN_FIELD) {
-    return;
-  }
-  const { forgetAcpClaudeRenewalStateOnForeignWrite } =
-    await import("../../acp/acp-claude-oauth.js");
-  await forgetAcpClaudeRenewalStateOnForeignWrite(service, field);
 }

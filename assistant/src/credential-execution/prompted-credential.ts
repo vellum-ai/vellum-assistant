@@ -202,9 +202,6 @@ export async function persistPromptedCredential(args: {
     if (!ok) {
       return { outcome: "error", message: "failed to store credential" };
     }
-    const { clearCredentialCompanionFields } =
-      await import("../tools/credentials/store.js");
-    await clearCredentialCompanionFields(service, field);
   }
 
   // The prompt UI never puts the value in the transcript, but the flow is

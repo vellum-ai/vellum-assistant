@@ -11,7 +11,7 @@
  * spawn time, persists any refresh token and expiry the exchange returned,
  * and provisions the `acp_spawn` read policy.
  *
- * Companion fields (refresh token and expiry) are stored without credential
+ * Refresh, expiry, and the bound-access digest are stored without credential
  * metadata so the broker cannot hand them to a spawned agent. The policy for
  * when to spend the refresh token lives in `claude-token-refresh.ts`.
  */
@@ -28,6 +28,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import { claudeTokenDigest } from "./acp-auth-marker-store.js";
 import {
+  ACP_OAUTH_ACCESS_DIGEST_FIELD,
   ACP_OAUTH_EXPIRES_AT_FIELD,
   ACP_OAUTH_REFRESH_TOKEN_FIELD,
   ACP_OAUTH_TOKEN_FIELD,
@@ -181,9 +182,9 @@ function vaultKey(field: string): string {
  * Both outcomes are checked. The store signals failure by return value rather
  * than by throwing (`setSecureKeyAsync` returns false, `deleteSecureKeyAsync`
  * returns `"error"` on timeout), so ignoring them would let a backend hiccup
- * report success while leaving the three fields out of sync: an access token
- * with no way to renew it, or a new access token still paired with a previous
- * connect's refresh token.
+ * report success while leaving the token-set fields out of sync: an access
+ * token with no way to renew it, or a new access token still paired with a
+ * previous connect's refresh token.
  */
 async function writeOrClear(
   field: string,
@@ -236,6 +237,11 @@ async function writeConnectedTokenSet(tokens: AcpClaudeTokens): Promise<void> {
     await writeOrClear(
       ACP_OAUTH_EXPIRES_AT_FIELD,
       expiresAt == null ? undefined : String(expiresAt),
+    );
+    const hasRenewal = Boolean(tokens.refreshToken) || expiresAt != null;
+    await writeOrClear(
+      ACP_OAUTH_ACCESS_DIGEST_FIELD,
+      hasRenewal ? claudeTokenDigest(tokens.accessToken) : undefined,
     );
   });
 }
@@ -382,6 +388,10 @@ async function usableStoredClaudeToken(): Promise<string | undefined> {
     return undefined;
   }
   if (await isAcpClaudeTokenExpiring()) {
+    const boundDigest = await readBoundAccessDigest();
+    if (boundDigest && boundDigest !== claudeTokenDigest(token)) {
+      return token;
+    }
     if (!(await hasAcpClaudeRefreshToken())) {
       return undefined;
     }
@@ -455,10 +465,11 @@ export async function acpConnectCardStillWarranted(
  * cannot condemn the new access token.
  *
  * `expectedRefreshToken` is the refresh token this request spent. If the
- * vault no longer holds that value (Connect or a paste landed while the
- * network call was in flight), or the access-token field is gone, the
- * persist is skipped so a newer token set is not overwritten and a deleted
- * credential is not recreated. Returns whether the write happened.
+ * vault no longer holds that value, the access-token field is gone, or the
+ * stored access token is not the one this refresh material was written
+ * with, the persist is skipped so a newer token set is not overwritten and
+ * a deleted or pasted credential is not replaced. Returns whether the write
+ * happened.
  */
 export async function persistRefreshedAcpClaudeTokens(
   tokens: AcpClaudeTokens,
@@ -475,9 +486,16 @@ export async function persistRefreshedAcpClaudeTokens(
       );
       return false;
     }
-    if (!(await hasStoredAcpClaudeAccessToken())) {
+    const access = await getSecureKeyAsync(vaultKey(ACP_OAUTH_TOKEN_FIELD));
+    if (access == null || access.length === 0) {
       log.info(
         "Skipping Claude OAuth refresh persist because the access token is no longer stored",
+      );
+      return false;
+    }
+    if (!(await renewalIsBoundTo(access))) {
+      log.info(
+        "Skipping Claude OAuth refresh persist because the stored access token is not the one this refresh material was written with",
       );
       return false;
     }
@@ -495,6 +513,10 @@ export async function persistRefreshedAcpClaudeTokens(
     await writeOrClear(
       ACP_OAUTH_EXPIRES_AT_FIELD,
       expiresAt == null ? undefined : String(expiresAt),
+    );
+    await writeOrClear(
+      ACP_OAUTH_ACCESS_DIGEST_FIELD,
+      claudeTokenDigest(tokens.accessToken),
     );
     return true;
   });
@@ -548,6 +570,24 @@ export async function hasStoredAcpClaudeAccessToken(): Promise<boolean> {
   return token != null && token.length > 0;
 }
 
+async function readBoundAccessDigest(): Promise<string | null> {
+  const digest = await getSecureKeyAsync(
+    vaultKey(ACP_OAUTH_ACCESS_DIGEST_FIELD),
+  );
+  return digest != null && digest.length > 0 ? digest : null;
+}
+
+async function renewalIsBoundTo(accessToken: string): Promise<boolean> {
+  const digest = await readBoundAccessDigest();
+  return digest != null && digest === claudeTokenDigest(accessToken);
+}
+
+async function clearRenewalFields(): Promise<void> {
+  await writeOrClear(ACP_OAUTH_REFRESH_TOKEN_FIELD, undefined);
+  await writeOrClear(ACP_OAUTH_EXPIRES_AT_FIELD, undefined);
+  await writeOrClear(ACP_OAUTH_ACCESS_DIGEST_FIELD, undefined);
+}
+
 /**
  * Drop the refresh token, keeping the recorded expiry and the access token.
  * Called when the provider rejects the refresh token.
@@ -576,46 +616,27 @@ export async function clearAcpClaudeRefreshToken(
 }
 
 /**
- * Forget everything we know about renewing the stored access token: both the
- * refresh token and the recorded expiry.
+ * Drop refresh, expiry, and the bound-access digest when they do not describe
+ * the access token currently stored.
  *
- * For when the access token is replaced by a path that knows nothing about
- * either (`credentials set`, the secret-collection route, a prompted
- * credential). The companion fields describe the previous token, and keeping
- * them against a new one is wrong twice over: a stale past expiry makes a
- * valid token report as not connected, and a stale refresh token can be spent
- * to overwrite the token that was just pasted.
+ * Connect and persist write those fields as a set with the access token. A
+ * later paste or CLI write replaces only the access-token field. Spending the
+ * leftover refresh token would overwrite that replacement.
  */
-export async function forgetAcpClaudeRenewalState(): Promise<void> {
+export async function forgetAcpClaudeRenewalStateIfUnbound(): Promise<void> {
   await withAcpClaudeTokenWrite(async () => {
-    await writeOrClear(ACP_OAUTH_REFRESH_TOKEN_FIELD, undefined);
-    await writeOrClear(ACP_OAUTH_EXPIRES_AT_FIELD, undefined);
+    const access = await getSecureKeyAsync(vaultKey(ACP_OAUTH_TOKEN_FIELD));
+    const refresh = await readAcpClaudeRefreshToken();
+    const expiresAt = await readExpiresAt();
+    const digest = await readBoundAccessDigest();
+    const hasRenewal = refresh != null || expiresAt != null || digest != null;
+    if (!hasRenewal) {
+      return;
+    }
+    if (access && digest && digest === claudeTokenDigest(access)) {
+      return;
+    }
+    await clearRenewalFields();
   });
-}
-
-/**
- * Call after any successful access-token write that did not come from the
- * Connect flow or a token refresh, so a hand-provisioned Claude token does
- * not inherit the previous one's renewal state. A no-op for every other
- * service and field.
- *
- * Best-effort by contract: the token itself is already stored, so a failure
- * to tidy the companion fields is logged and swallowed.
- */
-export async function forgetAcpClaudeRenewalStateOnForeignWrite(
-  service: string,
-  field: string,
-): Promise<void> {
-  if (service !== ACP_SERVICE || field !== ACP_OAUTH_TOKEN_FIELD) {
-    return;
-  }
-  try {
-    await forgetAcpClaudeRenewalState();
-  } catch (err) {
-    log.warn(
-      { err, service, field },
-      "Failed to clear Claude OAuth renewal state after a direct credential write",
-    );
-  }
 }
 

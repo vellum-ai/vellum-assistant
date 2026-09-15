@@ -29,6 +29,7 @@ let refreshImpl: () => Promise<OAuth2TokenResult> = async () => {
 let spawnDenial: string | undefined = undefined;
 const isAcpClaudeTokenExpiring = mock(async () => expiring);
 const hasStoredAcpClaudeAccessToken = mock(async () => storedAccessToken);
+const forgetAcpClaudeRenewalStateIfUnbound = mock(async () => {});
 const readAcpClaudeRefreshToken = mock(async () => storedRefreshToken);
 const persistRefreshedAcpClaudeTokens = mock(
   async (_tokens: unknown, _expectedRefreshToken: string) => true,
@@ -45,6 +46,7 @@ mock.module("../acp-claude-oauth.js", () => ({
   },
   isAcpClaudeTokenExpiring,
   hasStoredAcpClaudeAccessToken,
+  forgetAcpClaudeRenewalStateIfUnbound,
   readAcpClaudeRefreshToken,
   persistRefreshedAcpClaudeTokens,
   clearAcpClaudeRefreshToken,
@@ -67,6 +69,7 @@ beforeEach(() => {
   };
   isAcpClaudeTokenExpiring.mockClear();
   hasStoredAcpClaudeAccessToken.mockClear();
+  forgetAcpClaudeRenewalStateIfUnbound.mockClear();
   readAcpClaudeRefreshToken.mockClear();
   persistRefreshedAcpClaudeTokens.mockClear();
   clearAcpClaudeRefreshToken.mockClear();
@@ -93,6 +96,16 @@ describe("ensureFreshAcpClaudeToken: skip paths", () => {
 
     expect(refreshOAuth2Token).not.toHaveBeenCalled();
     expect(clearAcpClaudeRefreshToken).not.toHaveBeenCalled();
+  });
+
+  test("drops unbound leftover refresh material before deciding to renew", async () => {
+    expiring = false;
+    storedAccessToken = true;
+
+    await ensureFreshAcpClaudeToken();
+
+    expect(forgetAcpClaudeRenewalStateIfUnbound).toHaveBeenCalledTimes(1);
+    expect(refreshOAuth2Token).not.toHaveBeenCalled();
   });
 
   test("does not mint a new access token after the stored one was deleted", async () => {

@@ -88,7 +88,7 @@ describe("secret routes ACP OAuth-token format guard", () => {
     ).toBe("sk-ant-oat01-valid-oauth-token");
   });
 
-  test("clears stale refresh material after a direct access-token write", async () => {
+  test("stores a pasted Claude token without touching leftover refresh material", async () => {
     secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)] =
       "stale-refresh";
     secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)] =
@@ -101,10 +101,10 @@ describe("secret routes ACP OAuth-token format guard", () => {
     ).toBe("sk-ant-oat01-pasted-token");
     expect(
       secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)],
-    ).toBeUndefined();
+    ).toBe("stale-refresh");
     expect(
       secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)],
-    ).toBeUndefined();
+    ).toBe("111");
   });
 
   test("deletes only the requested Claude access-token field", async () => {
