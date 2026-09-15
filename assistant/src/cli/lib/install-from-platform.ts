@@ -8,9 +8,9 @@
  * and extracts it into the plugin's install directory — it does NOT clone the
  * plugin from GitHub itself, and it does NOT emit `plugin_installed` telemetry
  * (hitting this endpoint *is* the recorded install; the server rejects that
- * event type on the usual ingest path). A tarball that ships no
- * `package.json` gets the same synthesized manifest the GitHub clone path
- * writes, so the loader still registers the plugin's skills.
+ * event type on the usual ingest path). A tarball that ships neither supported
+ * manifest gets the same synthesized manifest the GitHub clone path writes, so
+ * the loader still registers the plugin's skills.
  *
  *     GET {PLATFORM_BASE_URL}/v1/plugins/{name}/install/
  *
@@ -36,6 +36,7 @@ import {
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { getExistingDeviceId } from "../../util/device-id.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import { hasPluginManifest } from "../../util/plugin-manifest.js";
 import { APP_VERSION } from "../../version.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
@@ -206,10 +207,10 @@ export async function installPluginFromPlatform(
   }
 
   // Same default as the GitHub clone path: a marketplace tarball that
-  // ships skills/mcp.json but no Vellum package.json still has to load.
+  // ships components but no supported manifest still has to load.
   // The loader skips a directory with no manifest, so synthesize one
   // before the fingerprint and swap.
-  if (!existsSync(join(stagingDir, "package.json"))) {
+  if (!hasPluginManifest(stagingDir)) {
     synthesizeMinimalPackageJson(name, stagingDir);
   }
 

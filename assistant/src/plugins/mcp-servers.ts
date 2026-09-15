@@ -141,7 +141,7 @@ export function interpolatePluginPaths(
  *
  * `listAllPlugins` is an inventory of directories and reports a malformed
  * entry rather than dropping it, so it happily returns a directory with no
- * usable `package.json`. The runtime loader rejects those in
+ * usable selected manifest. The runtime loader rejects those in
  * `parsePluginManifest`: the manifest must parse and carry a non-empty
  * `name`. Applying the same gate here keeps `mcp.json` from being honored
  * for a directory that will never load as a plugin.
@@ -192,7 +192,7 @@ export function readPluginMcpServers(
     if (!hasLoadableManifest(plugin)) {
       issues.push({
         pluginName: plugin.name,
-        message: `${PLUGIN_MCP_MANIFEST} ignored: package.json is missing, unparseable, or has no name, so the runtime will not load this directory as a plugin`,
+        message: `${PLUGIN_MCP_MANIFEST} ignored: the selected plugin manifest is missing or invalid, so the runtime will not load this directory as a plugin`,
       });
       continue;
     }

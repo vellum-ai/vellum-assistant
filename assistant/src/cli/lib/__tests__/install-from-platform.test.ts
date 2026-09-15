@@ -145,7 +145,13 @@ const noSleep = async () => {};
 describe("installPluginFromPlatform — success", () => {
   test("downloads, verifies, and extracts files at the plugin root", async () => {
     const entries: TarEntry[] = [
-      { name: "plugin.json", content: '{"name":"reading-pal"}' },
+      {
+        name: "plugin.json",
+        content: JSON.stringify({
+          $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          name: "reading-pal",
+        }),
+      },
       { name: "README.md", content: "# reading pal" },
       { name: "skills/read/SKILL.md", content: "skill body" },
     ];
@@ -177,7 +183,7 @@ describe("installPluginFromPlatform — success", () => {
     );
     expect(existsSync(join(target, "README.md"))).toBe(true);
     expect(existsSync(join(target, "skills", "read", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(target, "package.json"))).toBe(true);
+    expect(existsSync(join(target, "package.json"))).toBe(false);
 
     // Provenance records the pinned commit and the verified ETag.
     const meta = readInstallMeta(target);

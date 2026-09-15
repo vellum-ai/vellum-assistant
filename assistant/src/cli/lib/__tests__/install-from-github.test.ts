@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { readPluginMcpServers } from "../../../plugins/mcp-servers.js";
 import type { FetchLike } from "../fetch-like.js";
 import {
   type GitRunner,
@@ -1223,6 +1224,49 @@ describe("installPlugin — direct (untrusted) install", () => {
     expect(meta?.source.repo).toBe("dev-plugin");
     expect(meta?.source.ref).toBe("HEAD");
     expect(meta?.commit).toBe("a".repeat(40));
+  });
+
+  test("installs a standard-only plugin without synthesizing package.json", async () => {
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: {
+        "plugin.json": JSON.stringify({
+          $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          name: "standard-plugin",
+          version: "1.4.0",
+        }),
+        "mcp.json": JSON.stringify({
+          $schema: "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+          mcpServers: {
+            "standard-plugin": {
+              type: "streamable-http",
+              url: "https://mcp.example.com",
+            },
+          },
+        }),
+      },
+      commit: "9".repeat(40),
+    });
+
+    const result = await installPlugin(
+      {
+        name: "standard-plugin",
+        directSource: {
+          owner: "owner",
+          repo: "standard-plugin",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    expect(existsSync(join(result.target, "plugin.json"))).toBe(true);
+    expect(existsSync(join(result.target, "package.json"))).toBe(false);
+    expect(readInstallMeta(result.target)?.version).toBe("1.4.0");
+    const mcp = readPluginMcpServers({ workspacePluginsDir: pluginsDir });
+    expect(mcp.issues).toEqual([]);
+    expect(mcp.servers.map((server) => server.id)).toEqual(["standard-plugin"]);
   });
 
   test("never overlays a curated adapter stub, even if one matches the name", async () => {

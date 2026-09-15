@@ -39,6 +39,20 @@ function writePackageJson(dir: string, pkg: Record<string, unknown>): void {
   writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2));
 }
 
+function writePluginJson(dir: string, manifest: Record<string, unknown>): void {
+  writeFileSync(
+    join(dir, "plugin.json"),
+    JSON.stringify(
+      {
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        ...manifest,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 function writeSurfaceFile(dir: string, relPath: string, body: string): void {
   const parts = relPath.split("/");
   parts.pop();
@@ -103,6 +117,31 @@ describe("loadExternalPlugin — manifest", () => {
     );
     expect(registered).toBeDefined();
     expect(registered?.manifest.version).toBe("0.0.0");
+  });
+
+  test("loads a standard plugin.json when package.json is absent", async () => {
+    const dir = freshPluginDir("standard-only");
+    writePluginJson(dir, { name: "standard-only", version: "2.1.0" });
+
+    await loadExternalPlugin(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (plugin) => plugin.manifest.name === "standard-only",
+    );
+    expect(registered?.manifest.version).toBe("2.1.0");
+  });
+
+  test("keeps package.json authoritative when plugin.json is also present", async () => {
+    const dir = freshPluginDir("mixed-manifests");
+    writePackageJson(dir, { name: "legacy-name", version: "1.2.3" });
+    writeFileSync(join(dir, "plugin.json"), "{ foreign and malformed }");
+
+    await loadExternalPlugin(dir);
+
+    const registered = getRegisteredPlugins().find(
+      (plugin) => plugin.manifest.name === "mixed-manifests",
+    );
+    expect(registered?.manifest.version).toBe("1.2.3");
   });
 });
 
@@ -277,6 +316,19 @@ describe("loadExternalPlugin — plugin-api peerDependency", () => {
   test("malformed package.json is logged and skipped (registry untouched)", async () => {
     const dir = freshPluginDir("malformed-pkg");
     writeFileSync(join(dir, "package.json"), "{ this is not json");
+    writePluginJson(dir, { name: "valid-standard-fallback" });
+
+    await loadExternalPlugin(dir);
+
+    expect(registeredNames()).toHaveLength(0);
+  });
+
+  test("malformed selected plugin.json is logged and skipped", async () => {
+    const dir = freshPluginDir("malformed-standard");
+    writeFileSync(
+      join(dir, "plugin.json"),
+      JSON.stringify({ name: "missing-schema" }),
+    );
 
     await loadExternalPlugin(dir);
 
