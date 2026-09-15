@@ -79,7 +79,11 @@ export class McpClient {
     return this.connected;
   }
 
-  constructor(serverId: string, source: McpServerSource = "workspace") {
+  constructor(
+    serverId: string,
+    source: McpServerSource = "workspace",
+    private readonly onUnexpectedClose?: () => void,
+  ) {
     this.serverId = serverId;
     this.source = source;
     this.client = new Client({
@@ -95,6 +99,14 @@ export class McpClient {
         { serverId: this.serverId, err: error },
         "MCP SDK transport error (non-fatal)",
       );
+    };
+    this.client.onclose = () => {
+      const wasConnected = this.connected;
+      this.connected = false;
+      this.transport = null;
+      if (wasConnected) {
+        this.onUnexpectedClose?.();
+      }
     };
   }
 
@@ -180,6 +192,13 @@ export class McpClient {
       log.error(
         { serverId: this.serverId, err },
         "MCP server connection failed",
+      );
+      return;
+    }
+
+    if (this.transport === null) {
+      this._lastError = new Error(
+        `MCP server "${this.serverId}" closed during initialization`,
       );
       return;
     }
@@ -278,12 +297,12 @@ export class McpClient {
       return;
     }
 
+    this.connected = false;
     try {
       await this.client.close();
     } catch (err) {
       log.warn({ err, serverId: this.serverId }, "Error closing MCP client");
     }
-    this.connected = false;
     this.transport = null;
     log.info({ serverId: this.serverId }, "MCP client disconnected");
   }

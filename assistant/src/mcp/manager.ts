@@ -15,9 +15,26 @@ export interface McpServerToolInfo {
   tools: McpToolInfo[];
 }
 
+export type McpConnectionState =
+  | "connecting"
+  | "connected"
+  | "needs-auth"
+  | "error";
+
+export type McpUnexpectedCloseHandler = () => void;
+
 export class McpServerManager {
   private clients = new Map<string, McpClient>();
-  private serverConfigs = new Map<string, ResolvedMcpServerConfig>();
+  private connectionStates = new Map<
+    string,
+    { source: ResolvedMcpServerConfig["source"]; state: McpConnectionState }
+  >();
+
+  constructor(private onUnexpectedClose?: McpUnexpectedCloseHandler) {}
+
+  setUnexpectedCloseHandler(handler: McpUnexpectedCloseHandler): void {
+    this.onUnexpectedClose = handler;
+  }
 
   async start(config: ResolvedMcpConfig): Promise<McpServerToolInfo[]> {
     const results: McpServerToolInfo[] = [];
@@ -26,6 +43,10 @@ export class McpServerManager {
       `[MCP] Starting ${Object.keys(config.servers).length} server(s)...`,
     );
     for (const [serverId, serverConfig] of Object.entries(config.servers)) {
+      this.connectionStates.set(serverId, {
+        source: serverConfig.source,
+        state: "connecting",
+      });
       try {
         console.log(
           `[MCP] Starting server "${serverId}" (transport: ${serverConfig.transport.type})`,
@@ -41,18 +62,37 @@ export class McpServerManager {
         }
         // The server's own origin decides whether it may resolve
         // `mcp:<serverId>:*` from the credential store.
-        const client = new McpClient(serverId, serverConfig.source);
+        const client = new McpClient(serverId, serverConfig.source, () => {
+          if (this.clients.get(serverId) !== client) {
+            return;
+          }
+          this.connectionStates.set(serverId, {
+            source: serverConfig.source,
+            state: "error",
+          });
+          this.onUnexpectedClose?.();
+        });
         await client.connect(serverConfig.transport);
 
         if (!client.isConnected) {
-          // Server requires authentication — connect() logged guidance
+          this.connectionStates.set(serverId, {
+            source: serverConfig.source,
+            state: client.lastError ? "error" : "needs-auth",
+          });
           continue;
         }
 
         this.clients.set(serverId, client);
-        this.serverConfigs.set(serverId, serverConfig);
 
         let tools = await client.listTools();
+        if (!client.isConnected || this.clients.get(serverId) !== client) {
+          this.clients.delete(serverId);
+          this.connectionStates.set(serverId, {
+            source: serverConfig.source,
+            state: "error",
+          });
+          continue;
+        }
         log.info(
           { serverId, toolCount: tools.length },
           "MCP server tools discovered",
@@ -71,7 +111,15 @@ export class McpServerManager {
         }
 
         results.push({ serverId, serverConfig, tools });
+        this.connectionStates.set(serverId, {
+          source: serverConfig.source,
+          state: "connected",
+        });
       } catch (err) {
+        this.connectionStates.set(serverId, {
+          source: serverConfig.source,
+          state: "error",
+        });
         console.error(`[MCP] Failed to connect to server "${serverId}":`, err);
         log.error({ err, serverId }, "Failed to connect to MCP server");
         // Clean up any partially-connected client
@@ -83,7 +131,6 @@ export class McpServerManager {
             /* ignore */
           }
           this.clients.delete(serverId);
-          this.serverConfigs.delete(serverId);
         }
       }
     }
@@ -119,7 +166,7 @@ export class McpServerManager {
     );
     await Promise.all(disconnects);
     this.clients.clear();
-    this.serverConfigs.clear();
+    this.connectionStates.clear();
     log.info("All MCP servers disconnected");
   }
 
@@ -138,6 +185,14 @@ export class McpServerManager {
 
   getClient(serverId: string): McpClient | undefined {
     return this.clients.get(serverId);
+  }
+
+  getServerState(
+    serverId: string,
+    source: ResolvedMcpServerConfig["source"],
+  ): McpConnectionState | undefined {
+    const entry = this.connectionStates.get(serverId);
+    return entry?.source === source ? entry.state : undefined;
   }
 }
 

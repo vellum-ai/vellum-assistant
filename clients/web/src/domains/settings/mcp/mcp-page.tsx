@@ -23,12 +23,10 @@ import type { McpServerEntry } from "./mcp-api";
 import { McpServerCard } from "./mcp-server-card";
 import { McpActionButton } from "./mcp-action-button";
 import { McpServerDetailModal } from "./mcp-server-detail-modal";
+import { mcpQueryKeys } from "./mcp-query-keys";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
-
-const MCP_SERVERS_KEY = "mcp-servers";
-const MCP_TOOLS_KEY = "mcp-tools-summary";
 
 function McpPageInner() {
   const { t } = useTranslation("settings");
@@ -56,7 +54,7 @@ function McpPageInner() {
     isLoading: serversLoading,
     isError: serversError,
   } = useQuery({
-    queryKey: [MCP_SERVERS_KEY, assistantId],
+    queryKey: mcpQueryKeys.list(assistantId),
     queryFn: () => fetchMcpServers(assistantId),
   });
 
@@ -65,17 +63,17 @@ function McpPageInner() {
     isLoading: toolsLoading,
     isError: toolsError,
   } = useQuery({
-    queryKey: [MCP_TOOLS_KEY, assistantId],
+    queryKey: mcpQueryKeys.details(assistantId),
     queryFn: () => fetchMcpToolsSummary(assistantId),
     enabled: configureServerId !== null,
   });
 
   const invalidateAll = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: [MCP_SERVERS_KEY, assistantId],
+      queryKey: mcpQueryKeys.list(assistantId),
     });
     void queryClient.invalidateQueries({
-      queryKey: [MCP_TOOLS_KEY, assistantId],
+      queryKey: mcpQueryKeys.details(assistantId),
     });
   }, [queryClient, assistantId]);
 

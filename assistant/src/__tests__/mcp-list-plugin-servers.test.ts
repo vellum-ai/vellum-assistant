@@ -19,25 +19,18 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, jest, mock, test } from "bun:test";
 
-const mockConnect = jest.fn();
-const mockDisconnect = jest.fn();
-/** Server ids the route actually constructed an MCP client for. */
-const connectedServerIds: string[] = [];
+const getServerState = jest.fn();
 
 mock.module("../mcp/client.js", () => ({
   McpClient: class {
-    constructor(serverId: string) {
-      connectedServerIds.push(serverId);
+    constructor() {
+      throw new Error("list route must not construct an MCP client");
     }
-    get isConnected() {
-      return true;
-    }
-    get lastError() {
-      return null;
-    }
-    connect = mockConnect;
-    disconnect = mockDisconnect;
   },
+}));
+
+mock.module("../mcp/manager.js", () => ({
+  getMcpServerManager: () => ({ getServerState }),
 }));
 
 mock.module("../mcp/mcp-auth-orchestrator.js", () => ({
@@ -108,6 +101,19 @@ function writePlugin(name: string, mcpJson: unknown): void {
   writeFileSync(join(dir, "mcp.json"), JSON.stringify(mcpJson));
 }
 
+function writeStandardPlugin(name: string, mcpJson: unknown): void {
+  const dir = join(getWorkspacePluginsDir(), name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "plugin.json"),
+    JSON.stringify({
+      $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      name,
+    }),
+  );
+  writeFileSync(join(dir, "mcp.json"), JSON.stringify(mcpJson));
+}
+
 function unabyssManifest(): unknown {
   return {
     mcpServers: {
@@ -123,9 +129,7 @@ async function listServers(): Promise<ListedServer[]> {
 
 describe("internal_mcp_list, plugin-declared servers", () => {
   beforeEach(() => {
-    mockConnect.mockReset();
-    mockDisconnect.mockReset();
-    connectedServerIds.length = 0;
+    getServerState.mockReset();
     rmSync(getWorkspacePluginsDir(), { recursive: true, force: true });
     mkdirSync(getWorkspacePluginsDir(), { recursive: true });
   });
@@ -136,6 +140,14 @@ describe("internal_mcp_list, plugin-declared servers", () => {
     const ids = (await listServers()).map((s) => s.id);
     expect(ids).toContain("from-workspace");
     expect(ids).toContain("unabyss");
+  });
+
+  test("a standard-only plugin keeps its server identity", async () => {
+    writeStandardPlugin("unabyss", unabyssManifest());
+
+    const plugin = (await listServers()).find((s) => s.id === "unabyss")!;
+    expect(plugin.source).toBe("plugin");
+    expect(plugin.pluginName).toBe("unabyss");
   });
 
   test("plugin servers are labelled with their origin, workspace servers are not", async () => {
@@ -171,11 +183,19 @@ describe("internal_mcp_list, plugin-declared servers", () => {
     const servers = await listServers();
 
     expect(servers.find((s) => s.id === "unabyss")!.status).toEqual("declared");
-    // The credential mocks above return a token and an Authorization header
-    // for every id. Constructing a client for the plugin server is what
-    // would ship them to the plugin-declared URL.
-    expect(connectedServerIds).toContain("from-workspace");
-    expect(connectedServerIds).not.toContain("unabyss");
+    expect(getServerState).toHaveBeenCalledWith("from-workspace", "workspace");
+    expect(getServerState).toHaveBeenCalledWith("unabyss", "plugin");
+  });
+
+  test("plugin status uses only state recorded for the plugin source", async () => {
+    writePlugin("unabyss", unabyssManifest());
+    getServerState.mockImplementation(
+      (serverId: string, source: "workspace" | "plugin") =>
+        serverId === "unabyss" && source === "plugin" ? "connected" : undefined,
+    );
+
+    const plugin = (await listServers()).find((s) => s.id === "unabyss")!;
+    expect(plugin.status).toBe("connected");
   });
 
   test("plugin servers report no assistant-owned auth even when the store has some", async () => {

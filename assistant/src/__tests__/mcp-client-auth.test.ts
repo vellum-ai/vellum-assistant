@@ -130,6 +130,60 @@ describe("McpClient auth error detection", () => {
   });
 });
 
+describe("McpClient connection lifecycle", () => {
+  test("a close during connect cannot restore a stale connected state", async () => {
+    const onUnexpectedClose = jest.fn();
+    const client = new McpClient("test-server", "workspace", onUnexpectedClose);
+    let finishConnect: (() => void) | undefined;
+    (client as any).createTransport = () => ({});
+    (client as any).client.connect = () =>
+      new Promise<void>((resolve) => {
+        finishConnect = resolve;
+      });
+
+    const connecting = client.connect(httpTransport);
+    while (!finishConnect) {
+      await Promise.resolve();
+    }
+    (client as any).client.onclose();
+    finishConnect!();
+    await connecting;
+
+    expect(client.isConnected).toBe(false);
+    expect(client.lastError?.message).toContain("closed during initialization");
+    expect(onUnexpectedClose).not.toHaveBeenCalled();
+  });
+
+  test("reports an unexpected close after connecting", async () => {
+    const onUnexpectedClose = jest.fn();
+    const client = new McpClient("test-server", "workspace", onUnexpectedClose);
+    (client as any).createTransport = () => ({});
+    (client as any).client.connect = async () => {};
+
+    await client.connect(httpTransport);
+    (client as any).client.onclose();
+
+    expect(client.isConnected).toBe(false);
+    expect(onUnexpectedClose).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not report an intentional disconnect as a transport failure", async () => {
+    const onUnexpectedClose = jest.fn();
+    const client = new McpClient("test-server", "workspace", onUnexpectedClose);
+    (client as any).createTransport = () => ({});
+    (client as any).client.connect = async () => {};
+    (client as any).client.close = async () => {
+      (client as any).client.onclose();
+    };
+
+    await client.connect(httpTransport);
+    await client.disconnect();
+
+    expect(client.isConnected).toBe(false);
+    expect(onUnexpectedClose).not.toHaveBeenCalled();
+  });
+});
+
 describe("McpOAuthProvider redirectUrl", () => {
   test("redirectUrl is undefined until startCallbackServer() is called", () => {
     const nonInteractive = new McpOAuthProvider(

@@ -18426,7 +18426,7 @@ paths:
     get:
       operationId: internal_mcp_list_get
       summary: List MCP servers with health status
-      description: Returns configured MCP servers with live health-check results (connected, needs auth, error).
+      description: Returns configured MCP servers with recorded runtime status without opening new connections.
       tags:
         - internal
       responses:
