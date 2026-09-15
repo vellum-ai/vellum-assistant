@@ -627,6 +627,43 @@ describe("HostCuProxy", () => {
       }
     });
 
+    test("judges each concurrent response by the action it carried", async () => {
+      setup();
+      await stepWithUnchangedTree("computer_use_click", { element_id: 1 }, 1);
+
+      // A click and an observation dispatched from one model response, with
+      // the observation recorded last and the click answered last.
+      const clickPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const observePromise = proxy.request(
+        "computer_use_observe",
+        {},
+        "session-1",
+        3,
+      );
+      proxy.recordAction("computer_use_observe", {});
+      const click = sentMessages[1] as Record<string, unknown>;
+      const observe = sentMessages[2] as Record<string, unknown>;
+
+      proxy.processObservation(observe.requestId as string, {
+        axTree: "Button [1]",
+      });
+      proxy.processObservation(click.requestId as string, {
+        axTree: "Button [1]",
+      });
+
+      expect((await observePromise).content).not.toContain(
+        "tree did not change",
+      );
+      expect((await clickPromise).content).toContain("tree did not change");
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+    });
+
     test("an observation between two unchanged clicks keeps the streak", async () => {
       setup();
       await stepWithUnchangedTree("computer_use_click", { element_id: 1 }, 1);
@@ -1757,10 +1794,19 @@ describe("HostCuProxy", () => {
       observation: Record<string, string>,
       // The step the unchanged streak is judged on. An observation leaves the
       // streak alone, so a test of how snapshots reset it stands in an action.
-      recordedTool = "computer_use_observe",
+      toolName = "computer_use_observe",
     ) {
-      proxy.recordAction(recordedTool, input);
-      const pending = observe(input);
+      proxy.recordAction(toolName, input);
+      const pending = proxy.request(
+        toolName,
+        input,
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        undefined,
+        "user-1",
+      );
       const sent = sentMessages.at(-1) as { requestId: string };
       proxy.processObservation(sent.requestId, observation);
       return await pending;

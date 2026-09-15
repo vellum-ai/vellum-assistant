@@ -139,7 +139,9 @@ const NO_AX_DIFF_TOOLS = new Set([
   "computer_use_run_applescript",
 ]);
 
-function isNoDiffTool(action: ActionRecord | undefined): boolean {
+type ActionIdentity = Pick<ActionRecord, "toolName" | "input">;
+
+function isNoDiffTool(action: ActionIdentity | undefined): boolean {
   return action !== undefined && NO_AX_DIFF_TOOLS.has(action.toolName);
 }
 
@@ -148,7 +150,7 @@ function isNoDiffTool(action: ActionRecord | undefined): boolean {
  * selection/cursor/clipboard state: changes the AX tree cannot represent, so
  * an empty diff is expected rather than a sign the action did nothing.
  */
-function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
+function isNoDiffKeyAction(action: ActionIdentity | undefined): boolean {
   if (action?.toolName !== "computer_use_key") {
     return false;
   }
@@ -259,6 +261,7 @@ export class HostCuProxy {
       resetGeneration: number;
       dispatchedAt: number;
       toolName: string;
+      input: Record<string, unknown>;
       step: number;
     }
   >();
@@ -469,6 +472,7 @@ export class HostCuProxy {
         resetGeneration: this._resetGeneration,
         dispatchedAt: Date.now(),
         toolName,
+        input,
         step: stepNumber,
       });
 
@@ -562,6 +566,11 @@ export class HostCuProxy {
       this._consecutiveUnchangedSteps = 0;
     }
     const prevAXTree = this._previousAXTree;
+    // Judge the empty diff against the action this request carried, for the
+    // same reason the timings line does.
+    const action: ActionIdentity | undefined = owned
+      ? { toolName: owned.toolName, input: owned.input }
+      : this.lastRecordedAction();
     const comparableObservation = scopedObservation
       ? { ...observation, axDiff: undefined, secondaryWindows: undefined }
       : observation;
@@ -571,7 +580,7 @@ export class HostCuProxy {
       !scopedObservation &&
       owned?.toolName !== POINT_AT_PROXY_TOOL
     ) {
-      this.updateStateFromObservation(comparableObservation);
+      this.updateStateFromObservation(comparableObservation, action);
       // A desktop has had its first look only once pixels from it arrived,
       // so a failed capture leaves the next request asking again.
       if (owned && observation.screenshot) {
@@ -582,6 +591,7 @@ export class HostCuProxy {
       comparableObservation,
       prevAXTree,
       owned?.screenshotSkipped ?? false,
+      action,
     );
     interaction.rpcResolve(result);
     return result;
@@ -686,6 +696,7 @@ export class HostCuProxy {
     obs: CuObservationResult,
     previousAXTree?: string,
     screenshotSkipped = false,
+    action: ActionIdentity | undefined = this.lastRecordedAction(),
   ): ToolExecutionResult {
     const prevTree = previousAXTree;
     const parts: string[] = [];
@@ -704,11 +715,7 @@ export class HostCuProxy {
       parts.push(obs.axDiff);
       parts.push("");
     } else if (prevTree != null && obs.axTree != null) {
-      const lastAction =
-        this._actionHistory.length > 0
-          ? this._actionHistory[this._actionHistory.length - 1]
-          : undefined;
-      if (!isNoDiffTool(lastAction) && !isNoDiffKeyAction(lastAction)) {
+      if (!isNoDiffTool(action) && !isNoDiffKeyAction(action)) {
         if (
           this._consecutiveUnchangedSteps >=
           CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
@@ -833,20 +840,23 @@ export class HostCuProxy {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private updateStateFromObservation(obs: CuObservationResult): void {
+  private lastRecordedAction(): ActionRecord | undefined {
+    return this._actionHistory.at(-1);
+  }
+
+  private updateStateFromObservation(
+    obs: CuObservationResult,
+    action: ActionIdentity | undefined,
+  ): void {
     if (this._stepCount > 0) {
-      const lastAction =
-        this._actionHistory.length > 0
-          ? this._actionHistory[this._actionHistory.length - 1]
-          : undefined;
-      if (obs.axDiff != null || isNoDiffKeyAction(lastAction)) {
+      if (obs.axDiff != null || isNoDiffKeyAction(action)) {
         // A real diff, or an exempt key whose effect is invisible by design,
         // breaks the no-effect streak. Clearing it rather than preserving a
         // stale count keeps an intervening cmd+a from bridging two no-op
         // actions into a false "consecutive" escalation.
         this._consecutiveUnchangedSteps = 0;
       } else if (
-        !isNoDiffTool(lastAction) &&
+        !isNoDiffTool(action) &&
         this._previousAXTree != null &&
         obs.axTree != null
       ) {
