@@ -286,7 +286,8 @@ export async function restoreBackup(
 }
 
 /** Filename kinds this CLI writes: `<assistantId>-<kind>-<timestamp>.vbundle`. */
-const CLI_BACKUP_KINDS = ["pre-upgrade", "pre-teleport"] as const;
+export const CLI_BACKUP_KINDS = ["pre-upgrade", "pre-teleport"] as const;
+export type CliBackupKind = (typeof CLI_BACKUP_KINDS)[number];
 
 /** `new Date().toISOString().replace(/[:.]/g, "-")`, as used in every CLI backup filename. */
 const BACKUP_TIMESTAMP_PATTERN =
@@ -297,14 +298,17 @@ function escapeRegExp(value: string): string {
 }
 
 /**
- * Matches the backup filenames this CLI wrote for exactly `assistantId`. The
- * kind and timestamp segments are matched in full, so an assistant whose id
- * is a prefix of another's (`alpha` vs `alpha-prod`) never matches the
- * other's files.
+ * Matches the backup filenames this CLI wrote for exactly `assistantId` and
+ * one of `kinds`. The kind and timestamp segments are matched in full, so an
+ * assistant whose id is a prefix of another's (`alpha` vs `alpha-prod`, or
+ * `alpha` vs `alpha-pre-teleport-prod`) never matches the other's files.
  */
-export function assistantBackupFilenamePattern(assistantId: string): RegExp {
+export function assistantBackupFilenamePattern(
+  assistantId: string,
+  kinds: readonly CliBackupKind[] = CLI_BACKUP_KINDS,
+): RegExp {
   return new RegExp(
-    `^${escapeRegExp(assistantId)}-(?:${CLI_BACKUP_KINDS.join("|")})-${BACKUP_TIMESTAMP_PATTERN}\\.vbundle$`,
+    `^${escapeRegExp(assistantId)}-(?:${kinds.join("|")})-${BACKUP_TIMESTAMP_PATTERN}\\.vbundle$`,
   );
 }
 
@@ -342,23 +346,23 @@ export function listAssistantBackupTimes(assistantId: string): string[] {
 }
 
 /**
- * Keep only the N most recent backups of one `kind` (the filename segment
- * after the assistant id, e.g. `pre-upgrade`) for an assistant, deleting
- * older ones. Default: keep 3 pre-upgrade backups.
+ * Keep only the N most recent backups of one `kind` for an assistant,
+ * deleting older ones. Filenames are matched exactly (id, kind and
+ * timestamp), never by prefix. Default: keep 3 pre-upgrade backups.
  * Never throws — failures are silently ignored.
  */
 export function pruneOldBackups(
   assistantId: string,
   keep: number = 3,
-  kind: string = "pre-upgrade",
+  kind: CliBackupKind = "pre-upgrade",
 ): void {
   try {
     const backupsDir = getBackupsDir();
     if (!existsSync(backupsDir)) return;
 
-    const prefix = `${assistantId}-${kind}-`;
+    const pattern = assistantBackupFilenamePattern(assistantId, [kind]);
     const entries = readdirSync(backupsDir)
-      .filter((f) => f.startsWith(prefix) && f.endsWith(".vbundle"))
+      .filter((f) => pattern.test(f))
       .sort();
 
     if (entries.length <= keep) return;

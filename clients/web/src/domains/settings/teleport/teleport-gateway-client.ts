@@ -14,6 +14,8 @@
  *     which already attaches the session + organization headers.
  */
 
+import { pinLabelForAssistant } from "@vellumai/local-mode/teleport-backup-policy";
+
 import { client } from "@/generated/api/client.gen";
 import { t } from "@/i18n";
 import { getLocalGatewayUrl } from "@/lib/local-mode";
@@ -130,12 +132,17 @@ export async function importLocalBundle(
 
 /**
  * Take a gateway backup snapshot of a local assistant now:
- * `POST /v1/backups/create` with `{ pin: <assistantId> }`. The gateway
- * exports a fresh `.vbundle`, writes it to the shared local pool plus any
- * configured offsite destinations, and copies it into the pinned pool for
- * this assistant, which the worker's shared-pool retention never touches.
- * Blocks for the full export. Throws on a non-2xx status, a
- * `{success:false}` body, or a response without the pinned copy.
+ * `POST /v1/backups/create` with `{ pin: <label> }`, where the label encodes
+ * the assistant id. The gateway exports a fresh `.vbundle`, writes it to the
+ * shared local pool plus any configured offsite destinations, and copies it
+ * into the pinned pool for this assistant, which the worker's shared-pool
+ * retention never touches. Blocks for the full export. Throws on a non-2xx
+ * status, a `{success:false}` body, or a `pinned: null` response.
+ *
+ * A gateway that predates pinned pools ignores the body and answers without
+ * a `pinned` field at all. That snapshot is accepted as the backup: it is the
+ * best that gateway can produce, and refusing it would block every teleport
+ * until the local gateway is upgraded.
  */
 export async function createLocalBackup(
   assistant: LockfileAssistant,
@@ -148,7 +155,9 @@ export async function createLocalBackup(
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ pin: assistant.assistantId }),
+    body: JSON.stringify({
+      pin: await pinLabelForAssistant(assistant.assistantId),
+    }),
   });
   if (!response.ok) {
     throw new TeleportError(
@@ -168,7 +177,7 @@ export async function createLocalBackup(
       t("settings:teleportCard.backupLocalReportedFailure"),
     );
   }
-  if (!json.pinned) {
+  if ("pinned" in json && !json.pinned) {
     throw new TeleportError(
       "backup_failed",
       t("settings:teleportCard.backupLocalNotPinned"),

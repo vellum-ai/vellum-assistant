@@ -70,7 +70,11 @@ export function getPinnedBackupsDir(label: string): string {
   return join(getPinnedBackupsRootDir(), label);
 }
 
-/** Pin labels are a single safe path segment; anything else is rejected. */
+/**
+ * Pin labels are a single safe path segment; anything else is rejected.
+ * Clients derive labels with `pinLabelForAssistant` in
+ * `@vellumai/local-mode/teleport-backup-policy`, which targets this grammar.
+ */
 export const PIN_LABEL_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 // ---------------------------------------------------------------------------

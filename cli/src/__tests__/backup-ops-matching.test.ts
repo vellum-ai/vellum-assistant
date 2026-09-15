@@ -31,6 +31,15 @@ describe("assistantBackupFilenamePattern", () => {
     expect(pattern.test(`alpha-pre-upgrade-${STAMP}.vbundle.enc`)).toBe(false);
   });
 
+  test("restricts to the requested kinds", () => {
+    const pattern = assistantBackupFilenamePattern("alpha", ["pre-teleport"]);
+    expect(pattern.test(`alpha-pre-teleport-${STAMP}.vbundle`)).toBe(true);
+    expect(pattern.test(`alpha-pre-upgrade-${STAMP}.vbundle`)).toBe(false);
+    expect(
+      pattern.test(`alpha-pre-teleport-prod-pre-teleport-${STAMP}.vbundle`),
+    ).toBe(false);
+  });
+
   test("escapes regex metacharacters in ids", () => {
     const pattern = assistantBackupFilenamePattern("a.b");
     expect(pattern.test(`a.b-pre-upgrade-${STAMP}.vbundle`)).toBe(true);

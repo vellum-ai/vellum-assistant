@@ -57,6 +57,14 @@ afterEach(async () => {
 
 const deps = { assistantRuntimeBaseUrl: "http://127.0.0.1:7821" };
 
+/**
+ * Snapshot filenames carry a millisecond timestamp and retention sorts by
+ * it, so two snapshots cut in the same millisecond tie. Space consecutive
+ * runs out so "newest" is well defined.
+ */
+const nextMillisecond = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 5));
+
 describe("pinned backup pools", () => {
   test("a pin label copies the snapshot into its own pool", async () => {
     const { createSnapshotNow } = await import("../backup/backup-worker.js");
@@ -86,6 +94,7 @@ describe("pinned backup pools", () => {
     const { createSnapshotNow } = await import("../backup/backup-worker.js");
 
     const first = await createSnapshotNow(deps, { pin: "ast-1" });
+    await nextMillisecond();
     // A later snapshot from any gateway sharing the local pool (retention 1
     // prunes the earlier local file).
     const second = await createSnapshotNow(deps);
@@ -105,6 +114,7 @@ describe("pinned backup pools", () => {
       await writeFile(join(pinnedDir, `backup-${stamp}.vbundle`), "x");
     }
     await createSnapshotNow(deps, { pin: "ast-1" });
+    await nextMillisecond();
     const second = await createSnapshotNow(deps, { pin: "ast-1" });
 
     const kept = await readdir(pinnedDir);

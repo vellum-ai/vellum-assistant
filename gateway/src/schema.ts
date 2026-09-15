@@ -4383,7 +4383,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "List backup snapshots",
           description:
-            "Lists local and offsite backup snapshots. The gateway owns the backup encryption key and performs all encrypt/decrypt operations.",
+            "Lists local, pinned and offsite backup snapshots. The gateway owns the backup encryption key and performs all encrypt/decrypt operations.",
           operationId: "backupsList",
           security: [{ BearerAuth: [] }],
           responses: {
@@ -4393,7 +4393,7 @@ export function buildSchema(): Record<string, unknown> {
                 "application/json": {
                   schema: {
                     type: "object",
-                    required: ["local", "offsite"],
+                    required: ["local", "pinned", "offsite"],
                     properties: {
                       local: {
                         type: "object",
@@ -4404,6 +4404,25 @@ export function buildSchema(): Record<string, unknown> {
                             type: "array",
                             items: {
                               $ref: "#/components/schemas/BackupSnapshot",
+                            },
+                          },
+                        },
+                      },
+                      pinned: {
+                        type: "array",
+                        description:
+                          "Pinned pools, one per label given to POST /v1/backups/create. Each keeps its own newest snapshots and is not subject to the local pool's retention.",
+                        items: {
+                          type: "object",
+                          required: ["label", "directory", "snapshots"],
+                          properties: {
+                            label: { type: "string" },
+                            directory: { type: "string" },
+                            snapshots: {
+                              type: "array",
+                              items: {
+                                $ref: "#/components/schemas/BackupSnapshot",
+                              },
                             },
                           },
                         },
@@ -4442,9 +4461,27 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Create backup snapshot",
           description:
-            "Triggers a manual backup snapshot. The gateway exports a plaintext vbundle from the daemon, writes it locally, and encrypts + mirrors to offsite destinations.",
+            "Triggers a manual backup snapshot. The gateway exports a plaintext vbundle from the daemon, writes it locally, and encrypts + mirrors to offsite destinations. With a `pin` label the snapshot is also copied into that label's pinned pool, which keeps its own three newest snapshots and is never pruned by the local pool's retention.",
           operationId: "backupsCreate",
           security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    pin: {
+                      type: "string",
+                      pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                      description:
+                        "Label of the pinned pool to also copy the snapshot into. One safe path segment.",
+                    },
+                  },
+                },
+              },
+            },
+          },
           responses: {
             "200": {
               description: "Backup snapshot created",
@@ -4452,11 +4489,25 @@ export function buildSchema(): Record<string, unknown> {
                 "application/json": {
                   schema: {
                     type: "object",
-                    required: ["success", "local", "offsite", "duration_ms"],
+                    required: [
+                      "success",
+                      "local",
+                      "pinned",
+                      "offsite",
+                      "duration_ms",
+                    ],
                     properties: {
                       success: { type: "boolean" },
                       local: {
                         $ref: "#/components/schemas/BackupSnapshot",
+                      },
+                      pinned: {
+                        description:
+                          "The copy in the pinned pool when a `pin` label was given, otherwise null.",
+                        oneOf: [
+                          { $ref: "#/components/schemas/BackupSnapshot" },
+                          { type: "null" },
+                        ],
                       },
                       offsite: {
                         type: "array",
@@ -4471,6 +4522,7 @@ export function buildSchema(): Record<string, unknown> {
             "401": {
               description: "Unauthorized — missing or invalid bearer token",
             },
+            "400": { description: "Invalid pin label" },
             "403": { description: "Insufficient scope" },
             "409": {
               description: "A backup snapshot is already in progress",
