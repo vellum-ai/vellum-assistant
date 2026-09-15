@@ -56,12 +56,9 @@ import {
   VELLUM_MANAGED_PROVIDER,
 } from "../vellum-model-routing.js";
 import { VercelAIGatewayProvider } from "../vercel-ai-gateway/client.js";
-import type {
-  ConnectionModelTransport,
-  ProviderConnection,
-  ResolvedAuth,
-} from "./auth.js";
-import { collectModelTransports, effectiveConnectionAuth } from "./auth.js";
+import type { ResolvedAuth } from "./auth.js";
+import type { ProviderConnection } from "./auth.js";
+import { effectiveConnectionAuth } from "./auth.js";
 import { MissingCredentialGuardProvider } from "./missing-credential-guard.js";
 import { resolveAuth } from "./resolve-auth.js";
 
@@ -76,12 +73,6 @@ export interface AdapterCreateOpts {
   useNativeWebSearch: boolean;
   /** When true, the OpenAI adapter targets the Codex subscription endpoint. */
   codexSubscription?: boolean;
-  /**
-   * Explicit wire transport per model id, from the connection's model
-   * entries (`ConnectionModel.transport`). Consumed by providers that serve
-   * both OpenAI-style APIs from one origin (OpenCode); others ignore it.
-   */
-  modelTransports?: Readonly<Record<string, ConnectionModelTransport>>;
 }
 
 type AdapterFactory = (opts: AdapterCreateOpts) => Provider;
@@ -175,10 +166,9 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
       assistantReasoningField: "reasoning_content",
       ...(baseURL ? { baseURL } : {}),
     }),
-  opencode: ({ apiKey, model, streamTimeoutMs, baseURL, modelTransports }) =>
+  opencode: ({ apiKey, model, streamTimeoutMs, baseURL }) =>
     new OpenCodeProvider(apiKey, model, {
       streamTimeoutMs,
-      modelTransports,
       ...(baseURL ? { baseURL } : {}),
     }),
   // Keyless openai-compatible endpoints (e.g. LM Studio) ignore the key; the
@@ -610,7 +600,6 @@ function buildConnectionAdapter(
     baseURL,
     useNativeWebSearch: opts.useNativeWebSearch ?? false,
     codexSubscription,
-    modelTransports: collectModelTransports(connection.models),
   });
   if (!adapter) {
     return null;

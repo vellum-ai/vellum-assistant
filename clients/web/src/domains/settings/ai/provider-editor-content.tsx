@@ -251,11 +251,6 @@ export function ProviderEditorContent({
       }
 
       const labelValue = label.trim() || null;
-      // The editor only edits ids; an id that is still present keeps its
-      // stored entry (display name, transport) instead of being rebuilt bare.
-      const storedModels = new Map(
-        (connection?.models ?? []).map((m) => [m.id, m] as const),
-      );
 
       // Edit only — create mode is handled by ProviderCreateForm (see the
       // early return above), which owns the POST path. This component never
@@ -270,9 +265,8 @@ export function ProviderEditorContent({
           models: connectionModels.trim()
             ? connectionModels
                 .split(",")
-                .map((id) => id.trim())
-                .filter((id) => id.length > 0)
-                .map((id) => storedModels.get(id) ?? { id })
+                .map((id) => ({ id: id.trim() }))
+                .filter((m) => m.id)
             : null,
         }),
       };

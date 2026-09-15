@@ -163,41 +163,13 @@ export const ConnectionProviderSchema = z
 // Per-connection model entries (openai-compatible)
 // ---------------------------------------------------------------------------
 
-/**
- * Wire API a connection model is served over. Only OpenCode serves both
- * OpenAI-style transports from one origin and consults this; every other
- * provider fixes its transport in the adapter factory. Absent, OpenCode
- * falls back to its built-in per-model default.
- */
-export const ConnectionModelTransportSchema = z.enum([
-  "chat_completions",
-  "responses",
-]);
-export type ConnectionModelTransport = z.infer<
-  typeof ConnectionModelTransportSchema
->;
-
 export const ConnectionModelSchema = z
   .object({
     id: z.string().min(1),
     displayName: z.string().min(1).optional(),
-    transport: ConnectionModelTransportSchema.optional(),
   })
   .meta({ id: "ConnectionModel" });
 export type ConnectionModel = z.infer<typeof ConnectionModelSchema>;
-
-/**
- * The explicit transports declared on a connection's model entries, keyed by
- * model id. `undefined` when no entry declares one.
- */
-export function collectModelTransports(
-  models: readonly ConnectionModel[] | null | undefined,
-): Readonly<Record<string, ConnectionModelTransport>> | undefined {
-  const entries = (models ?? []).flatMap((m) =>
-    m.transport ? [[m.id, m.transport] as const] : [],
-  );
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
-}
 
 /**
  * Providers whose connections require an explicit `baseUrl` and non-empty

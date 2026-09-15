@@ -112,6 +112,15 @@ export class VercelAIGatewayProvider extends OpenAIChatCompletionsProvider {
     return Object.keys(reasoning).length > 0 ? { reasoning } : {};
   }
 
+  private resolveEffectiveModel(options?: SendMessageOptions): string {
+    const config = options?.config as Record<string, unknown> | undefined;
+    const override =
+      typeof config?.model === "string" && config.model.trim().length > 0
+        ? config.model.trim()
+        : undefined;
+    return override ?? this.defaultModel;
+  }
+
   private getAnthropicInner(): AnthropicProvider {
     if (!this.anthropicInner) {
       this.anthropicInner = new AnthropicProvider(

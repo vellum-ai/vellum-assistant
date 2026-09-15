@@ -1709,39 +1709,3 @@ describe("Route policy declarations", () => {
     expect(route.policy!.requiredScopes).toContain("settings.write");
   });
 });
-
-describe("models[].transport", () => {
-  test("persists an explicit transport on an opencode connection", async () => {
-    const result = (await call(
-      findHandler("inference_provider_connections_create"),
-      {
-        body: {
-          name: "opencode-transport",
-          provider: "opencode",
-          auth: { type: "api_key", credential: "vault/opencode/key" },
-          models: [
-            { id: "custom-muse", transport: "responses" },
-            { id: "mimo-v2.5-free" },
-          ],
-        },
-      },
-    )) as { models: unknown };
-    expect(result.models).toEqual([
-      { id: "custom-muse", transport: "responses" },
-      { id: "mimo-v2.5-free" },
-    ]);
-  });
-
-  test("rejects transport on a provider that fixes its transport", async () => {
-    await expect(
-      call(findHandler("inference_provider_connections_create"), {
-        body: {
-          name: "compat-transport",
-          provider: "openai-compatible",
-          base_url: "http://localhost:1234/v1",
-          models: [{ id: "my-model", transport: "responses" }],
-        },
-      }),
-    ).rejects.toThrow(/transport is only valid for opencode/);
-  });
-});

@@ -270,6 +270,15 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
     return openRouterOutputTokenLimitField(model);
   }
 
+  private resolveEffectiveModel(options?: SendMessageOptions): string {
+    const config = options?.config as Record<string, unknown> | undefined;
+    const override =
+      typeof config?.model === "string" && config.model.trim().length > 0
+        ? config.model.trim()
+        : undefined;
+    return override ?? this.defaultModel;
+  }
+
   private getAnthropicInner(): AnthropicProvider {
     if (!this.anthropicInner) {
       this.anthropicInner = new AnthropicProvider(

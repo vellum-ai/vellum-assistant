@@ -859,16 +859,6 @@ export class OpenAIChatCompletionsProvider implements Provider {
     return this.model;
   }
 
-  /** The model a send targets: a non-blank per-call `config.model` override, else the constructed one. */
-  protected resolveEffectiveModel(options?: SendMessageOptions): string {
-    const config = options?.config as Record<string, unknown> | undefined;
-    const override =
-      typeof config?.model === "string" && config.model.trim().length > 0
-        ? config.model.trim()
-        : undefined;
-    return override ?? this.model;
-  }
-
   async sendMessage(
     messages: Message[],
     options?: SendMessageOptions,
