@@ -177,6 +177,7 @@ Each instance gets its own:
 
 - **`VELLUM_WORKSPACE_DIR`**: Set to `<instanceDir>/.vellum/workspace`. The daemon resolves all workspace state (DB, logs, memory indices) relative to this directory.
 - **`GATEWAY_SECURITY_DIR`** / **`CREDENTIAL_SECURITY_DIR`**: Set to `<instanceDir>/.vellum/protected`. The gateway and credential-executor resolve their security state (keys, trust rules, credentials) relative to these directories.
+- **`CES_BOOTSTRAP_SOCKET_DIR`**: Set to `<instanceDir>/.vellum/protected/credential-executor`. CES binds `ces.sock` here; the assistant and its children discover the same path. Not derived from `VELLUM_WORKSPACE_DIR`.
 - **Daemon port** (`RUNTIME_HTTP_PORT`), **Gateway port** (`GATEWAY_PORT`), **Qdrant port** (`QDRANT_HTTP_PORT`): Allocated by scanning upward from the environment's base port — see "Port allocation" below.
 - **PID file**: `<instanceDir>/.vellum/vellum.pid`
 - **SQLite database, logs, memory indices**: All under `<instanceDir>/.vellum/workspace/data/`

@@ -108,7 +108,7 @@ describe("startCes", () => {
     // startCes unlinks the stale socket, then polls for it. We create it with
     // a slight delay so the poll catches it.
     setTimeout(() => {
-      const socketDir = join(vellumDir, "workspace");
+      const socketDir = join(vellumDir, "protected", "credential-executor");
       mkdirSync(socketDir, { recursive: true });
       writeFileSync(join(socketDir, "ces.sock"), "");
     }, 50);
@@ -139,6 +139,9 @@ describe("startCes", () => {
     // Verify env vars
     const env = lastSpawnCall!.options.env!;
     expect(env["CES_LOCAL_SOCKET"]).toBeUndefined();
+    expect(env["CES_BOOTSTRAP_SOCKET_DIR"]).toBe(
+      join(tempDir, ".vellum", "protected", "credential-executor"),
+    );
     expect(env["CREDENTIAL_SECURITY_DIR"]).toBeDefined();
     expect(env["VELLUM_WORKSPACE_DIR"]).toBeDefined();
 
@@ -164,7 +167,12 @@ describe("startCes", () => {
     const socketPath = resolveCesSocketPath(resources, "linux");
     expect(socketPath).toBe(
       resolveIpcEndpoint("ces", {
-        workspaceDir: join("/tmp/assistant-123", ".vellum", "workspace"),
+        workspaceDir: join(
+          "/tmp/assistant-123",
+          ".vellum",
+          "protected",
+          "credential-executor",
+        ),
         platform: "linux",
       }).path,
     );

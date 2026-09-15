@@ -56,10 +56,9 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
   "CES_MANAGED_MODE",
   // Child processes (bash, skill sandbox, scheduled scripts) reach CES
-  // over IPC. Local children discover the sibling socket from
-  // `VELLUM_WORKSPACE_DIR`; managed children use `CES_BOOTSTRAP_SOCKET_DIR`.
-  // CES HTTP credentials stay on the assistant process for RPC-to-HTTP
-  // failover and are not forwarded.
+  // over IPC via `CES_BOOTSTRAP_SOCKET_DIR`. Local CLI and managed
+  // deployments share that resolver. CES HTTP credentials stay on the
+  // assistant process for RPC-to-HTTP failover and are not forwarded.
   // Per-instance port of the assistant-managed Qdrant sidecar, so skill and
   // bash-tool subprocesses that use the vector helpers (e.g. embed/search over
   // `@vellumai/plugin-api`) resolve the same local sidecar as the daemon

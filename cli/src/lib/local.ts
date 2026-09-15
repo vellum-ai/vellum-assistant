@@ -607,6 +607,24 @@ type DaemonStartOptions = {
 };
 
 /**
+ * Directory that holds the local CES Unix socket (`ces.sock`).
+ *
+ * Matches CES's local data root: `{CREDENTIAL_SECURITY_DIR}/credential-executor`.
+ * Local CLI and managed sidecars share `CES_BOOTSTRAP_SOCKET_DIR`; this is the
+ * writable per-instance directory used outside containers.
+ */
+function resolveCesBootstrapSocketDir(
+  resources?: LocalInstanceResources,
+  env?: Record<string, string | undefined>,
+): string {
+  const securityDir = resources
+    ? join(resources.instanceDir, ".vellum", "protected")
+    : env?.CREDENTIAL_SECURITY_DIR?.trim() ||
+      join(homedir(), ".vellum", "protected");
+  return join(securityDir, "credential-executor");
+}
+
+/**
  * Apply per-instance resource overrides and shared daemon options to an
  * environment object. Called from all daemon spawn paths (source, watch,
  * bundled binary) to eliminate drift between the three.
@@ -644,9 +662,11 @@ function applyDaemonEnvOverrides(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
-  // CES and the assistant resolve the sibling endpoint from
-  // VELLUM_WORKSPACE_DIR. A parent-environment CES_LOCAL_SOCKET must not
-  // leak into the daemon.
+  // CES and the assistant resolve the socket from CES_BOOTSTRAP_SOCKET_DIR.
+  // A parent-environment CES_LOCAL_SOCKET must not leak into the daemon.
+  const bootstrapDir = resolveCesBootstrapSocketDir(resources, env);
+  env.CES_BOOTSTRAP_SOCKET_DIR = bootstrapDir;
+  mkdirSync(bootstrapDir, { recursive: true });
   delete env.CES_LOCAL_SOCKET;
   applyIpcSocketDirOverride(env);
 }
@@ -1021,7 +1041,7 @@ function resolveCesDir(resources?: LocalInstanceResources): string {
 
 /**
  * Resolve the local IPC endpoint shared by the CLI-launched CES sibling and
- * assistant. CES binds this path from `VELLUM_WORKSPACE_DIR` via the same
+ * assistant. CES binds this path from `CES_BOOTSTRAP_SOCKET_DIR` via the same
  * `resolveIpcEndpoint("ces")` helper. Windows uses a named pipe. POSIX uses
  * a Unix socket, including the shared macOS AF_UNIX fallback.
  */
@@ -1029,11 +1049,8 @@ export function resolveCesSocketPath(
   resources?: LocalInstanceResources,
   hostPlatform: NodeJS.Platform = platform(),
 ): string {
-  const workspaceDir = resources
-    ? join(resources.instanceDir, ".vellum", "workspace")
-    : join(homedir(), ".vellum", "workspace");
   return resolveIpcEndpoint("ces", {
-    workspaceDir,
+    workspaceDir: resolveCesBootstrapSocketDir(resources),
     platform: hostPlatform,
   }).path;
 }
@@ -1095,12 +1112,15 @@ export async function startCes(
   const workspaceDir = resources
     ? join(resources.instanceDir, ".vellum", "workspace")
     : join(homedir(), ".vellum", "workspace");
+  const bootstrapDir = resolveCesBootstrapSocketDir(resources);
   mkdirSync(securityDir, { recursive: true });
+  mkdirSync(bootstrapDir, { recursive: true });
 
   const cesEnv: Record<string, string | undefined> = {
     ...process.env,
     CREDENTIAL_SECURITY_DIR: securityDir,
     VELLUM_WORKSPACE_DIR: workspaceDir,
+    CES_BOOTSTRAP_SOCKET_DIR: bootstrapDir,
   };
   delete cesEnv.CES_LOCAL_SOCKET;
 

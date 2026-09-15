@@ -32,7 +32,6 @@ import {
 } from "../credential-execution/client.js";
 import {
   discoverCesWithRetry,
-  discoverLocalSiblingCes,
   discoverManagedCes,
 } from "../credential-execution/executable-discovery.js";
 
@@ -85,58 +84,111 @@ function createMockTransport(): CesTransport & {
 // ---------------------------------------------------------------------------
 
 describe("managed CES discovery", () => {
+  function withBootstrapSocket(socketPath: string): () => void {
+    const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
+    const savedSocketDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+    delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+    process.env["CES_BOOTSTRAP_SOCKET"] = socketPath;
+    return () => {
+      const restore = (key: string, value: string | undefined) => {
+        if (value !== undefined) {
+          process.env[key] = value;
+        } else {
+          delete process.env[key];
+        }
+      };
+      restore("CES_BOOTSTRAP_SOCKET", savedSocket);
+      restore("CES_BOOTSTRAP_SOCKET_DIR", savedSocketDir);
+    };
+  }
+
   test("returns unavailable when bootstrap socket does not exist", async () => {
-    // In a non-containerized test environment, the managed socket path
-    // does not exist. Verify fail-closed behavior.
-    const saved = process.env["CES_BOOTSTRAP_SOCKET"];
+    const restore = withBootstrapSocket("/tmp/ces-test-nonexistent.sock");
     try {
-      // Point at a non-existent path to ensure predictable behavior
-      process.env["CES_BOOTSTRAP_SOCKET"] = "/tmp/ces-test-nonexistent.sock";
       const result = await discoverManagedCes();
       expect(result.mode).toBe("unavailable");
       expect((result as { reason: string }).reason).toContain(
         "CES bootstrap socket not found",
       );
     } finally {
-      if (saved !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET"] = saved;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET"];
-      }
+      restore();
     }
   });
 
   test("never returns a fallback or in-process mode", async () => {
-    const saved = process.env["CES_BOOTSTRAP_SOCKET"];
+    const restore = withBootstrapSocket("/tmp/ces-test-nonexistent.sock");
     try {
-      process.env["CES_BOOTSTRAP_SOCKET"] = "/tmp/ces-test-nonexistent.sock";
       const result = await discoverManagedCes();
-      // Must be "managed" or "unavailable" — no fallback modes.
+      // Must be "managed" or "unavailable". No fallback modes.
       expect(["managed", "unavailable"]).toContain(result.mode);
     } finally {
-      if (saved !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET"] = saved;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET"];
-      }
+      restore();
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// Sibling discovery — local workspace IPC path, no CES_LOCAL_SOCKET
+// Bootstrap-dir discovery — CES_BOOTSTRAP_SOCKET_DIR, not workspace
 // ---------------------------------------------------------------------------
 
-describe("local sibling CES discovery", () => {
-  test("looks for the sibling socket at the workspace IPC path", () => {
-    const workspaceDir = process.env.VELLUM_WORKSPACE_DIR;
-    expect(workspaceDir).toBeDefined();
-    const socketPath = resolveIpcEndpoint("ces", {
-      workspaceDir: workspaceDir!,
-    }).path;
-    const result = discoverLocalSiblingCes();
-    expect(result.mode).toBe("unavailable");
-    expect((result as { reason: string }).reason).toContain(socketPath);
+describe("CES bootstrap socket discovery", () => {
+  test("looks for the socket under CES_BOOTSTRAP_SOCKET_DIR", () => {
+    const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-bootstrap-"));
+    const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+    const savedFull = process.env["CES_BOOTSTRAP_SOCKET"];
+    delete process.env["CES_BOOTSTRAP_SOCKET"];
+    process.env["CES_BOOTSTRAP_SOCKET_DIR"] = bootstrapDir;
+    try {
+      const socketPath = resolveIpcEndpoint("ces", {
+        workspaceDir: bootstrapDir,
+      }).path;
+      const result = discoverManagedCes();
+      expect(result.mode).toBe("unavailable");
+      expect((result as { reason: string }).reason).toContain(socketPath);
+    } finally {
+      if (savedDir !== undefined) {
+        process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
+      } else {
+        delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+      }
+      if (savedFull !== undefined) {
+        process.env["CES_BOOTSTRAP_SOCKET"] = savedFull;
+      } else {
+        delete process.env["CES_BOOTSTRAP_SOCKET"];
+      }
+      rmSync(bootstrapDir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not discover CES from VELLUM_WORKSPACE_DIR", () => {
+    const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-bootstrap-"));
+    const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+    const savedFull = process.env["CES_BOOTSTRAP_SOCKET"];
+    delete process.env["CES_BOOTSTRAP_SOCKET"];
+    process.env["CES_BOOTSTRAP_SOCKET_DIR"] = bootstrapDir;
+    try {
+      const result = discoverManagedCes();
+      const workspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+      expect(workspaceDir).toBeDefined();
+      const workspaceSocket = resolveIpcEndpoint("ces", {
+        workspaceDir: workspaceDir!,
+      }).path;
+      expect((result as { reason: string }).reason).not.toContain(
+        workspaceSocket,
+      );
+    } finally {
+      if (savedDir !== undefined) {
+        process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
+      } else {
+        delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+      }
+      if (savedFull !== undefined) {
+        process.env["CES_BOOTSTRAP_SOCKET"] = savedFull;
+      } else {
+        delete process.env["CES_BOOTSTRAP_SOCKET"];
+      }
+      rmSync(bootstrapDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -148,10 +200,8 @@ describe("discoverCesWithRetry", () => {
   function withManagedEnv(socketPath: string): () => void {
     const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
     const savedSocketDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    const savedContainerized = process.env["IS_CONTAINERIZED"];
     delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
     process.env["CES_BOOTSTRAP_SOCKET"] = socketPath;
-    process.env["IS_CONTAINERIZED"] = "true";
     return () => {
       const restore = (key: string, value: string | undefined) => {
         if (value !== undefined) {
@@ -162,7 +212,6 @@ describe("discoverCesWithRetry", () => {
       };
       restore("CES_BOOTSTRAP_SOCKET", savedSocket);
       restore("CES_BOOTSTRAP_SOCKET_DIR", savedSocketDir);
-      restore("IS_CONTAINERIZED", savedContainerized);
     };
   }
 

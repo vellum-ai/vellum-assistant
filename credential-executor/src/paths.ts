@@ -92,64 +92,39 @@ export function getCesLogDir(mode?: CesMode): string {
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap socket path (managed mode only)
+// CES socket path (local sibling and managed sidecar)
 // ---------------------------------------------------------------------------
 
-/** Default directory for the bootstrap Unix socket shared volume. */
+/** Default directory for the CES Unix socket. */
 const BOOTSTRAP_SOCKET_DIR = "/run/ces-bootstrap";
 
-/** Default bootstrap socket filename. */
-const BOOTSTRAP_SOCKET_NAME = "ces.sock";
-
 /**
- * Return the path to the bootstrap Unix socket.
+ * Return the path to the CES Unix socket used in every environment.
  *
- * In managed mode, CES listens on this socket for exactly one assistant
- * connection, then unlinks it. The path is on a shared `emptyDir` volume
- * visible to both containers.
+ * Local siblings and managed sidecars share this resolver. The assistant
+ * dials the same path CES binds.
  *
  * Priority:
- * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory) — appends `ces.sock`
- * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
- * 3. Hardcoded default: `/run/ces-bootstrap/ces.sock`
+ * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory). Resolves `ces.sock`
+ *    through `resolveIpcEndpoint` so macOS AF_UNIX limits and Windows
+ *    named pipes stay consistent.
+ * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override).
+ * 3. Hardcoded default directory: `/run/ces-bootstrap`.
  *
- * The pod template exports `CES_BOOTSTRAP_SOCKET_DIR`; the full-path
- * override is kept for local testing convenience.
+ * The pod template and local CLI export `CES_BOOTSTRAP_SOCKET_DIR`. The
+ * full-path override is kept for tests.
  */
 export function getBootstrapSocketPath(): string {
-  const dir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+  const dir = process.env["CES_BOOTSTRAP_SOCKET_DIR"]?.trim();
   if (dir) {
-    return join(dir, BOOTSTRAP_SOCKET_NAME);
+    return resolveIpcEndpoint("ces", { workspaceDir: dir }).path;
   }
-  return (
-    process.env["CES_BOOTSTRAP_SOCKET"] ??
-    join(BOOTSTRAP_SOCKET_DIR, BOOTSTRAP_SOCKET_NAME)
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Local-mode CES socket
-// ---------------------------------------------------------------------------
-
-function getLocalWorkspaceDir(): string {
-  const override = process.env["VELLUM_WORKSPACE_DIR"]?.trim();
-  if (override) {
-    return override;
+  const fullPath = process.env["CES_BOOTSTRAP_SOCKET"]?.trim();
+  if (fullPath) {
+    return fullPath;
   }
-  return join(homedir(), ".vellum", "workspace");
-}
-
-/**
- * Return the path to the local-mode CES IPC endpoint.
- *
- * CES, the CLI, and the assistant all resolve this from
- * `VELLUM_WORKSPACE_DIR` through `resolveIpcEndpoint("ces")` so they agree
- * without a dedicated socket env var. Windows uses a named pipe; POSIX uses
- * a Unix socket, including the shared macOS AF_UNIX fallback.
- */
-export function getLocalSocketPath(): string {
   return resolveIpcEndpoint("ces", {
-    workspaceDir: getLocalWorkspaceDir(),
+    workspaceDir: BOOTSTRAP_SOCKET_DIR,
   }).path;
 }
 

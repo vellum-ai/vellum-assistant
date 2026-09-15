@@ -9,8 +9,9 @@
  *      child processes that lazily connect to the CES socket (see below).
  *   2. Lazy CES RPC connect - non-assistant processes (workers, CLI
  *      subprocesses) that never call startCes(). On first credential
- *      resolution they discover the CES socket (managed bootstrap path, or
- *      the local workspace `ces` IPC endpoint) and cache the connection.
+ *      resolution they discover the CES bootstrap socket
+ *      (`CES_BOOTSTRAP_SOCKET_DIR` / `CES_BOOTSTRAP_SOCKET`) and cache
+ *      the connection.
  *   3. CES HTTP - containerized failover when IPC is unavailable
  *      (`IS_CONTAINERIZED` + `CES_CREDENTIAL_URL`). Used if the assistant's
  *      bootstrap RPC transport is down, or if a process with HTTP env could
@@ -419,9 +420,9 @@ export async function attemptCesReconnection(
  * Workers and CLI subprocesses never call startCes(). This function
  * establishes a direct CES connection on first credential resolution,
  * memoizing the in-flight promise so concurrent callers share a single
- * connect+handshake. Discovery uses the managed bootstrap socket or the
- * local workspace `ces` IPC endpoint; a missing socket fails immediately
- * so callers can fall through without polling.
+ * connect+handshake. Discovery uses the shared CES bootstrap socket; a
+ * missing socket fails immediately so callers can fall through without
+ * polling.
  *
  * On success, the client is injected via setCesClient() so subsequent
  * resolveBackendAsync() calls take the fast CES RPC path (step 1). A
@@ -526,8 +527,8 @@ async function doResolveBackend(): Promise<CredentialBackend> {
 
   // 2. Lazy CES RPC connect. Child processes never call startCes(). When
   //    the assistant's setCesReconnect() is NOT registered, attempt a
-  //    direct connection to the CES socket (managed bootstrap or local
-  //    workspace IPC). On success, inject the client via setCesClient()
+  //    direct connection to the CES bootstrap socket. On success, inject
+  //    the client via setCesClient()
   //    and re-resolve through the CES RPC path. On failure, fall through.
   if (!_cesClient && !_cesReconnect) {
     const lazyClient = await tryLazyCesConnect();

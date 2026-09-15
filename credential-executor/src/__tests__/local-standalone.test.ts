@@ -140,15 +140,20 @@ describe("local CES standalone sibling (real entrypoint)", () => {
     tmpDir = mkdtempSync(join(tmpdir(), "ces-standalone-"));
     const securityDir = join(tmpDir, "protected");
     const workspaceDir = join(tmpDir, "workspace");
+    const bootstrapDir = join(securityDir, "credential-executor");
     mkdirSync(securityDir, { recursive: true });
     mkdirSync(workspaceDir, { recursive: true });
-    const socketPath = resolveIpcEndpoint("ces", { workspaceDir }).path;
+    mkdirSync(bootstrapDir, { recursive: true });
+    const socketPath = resolveIpcEndpoint("ces", {
+      workspaceDir: bootstrapDir,
+    }).path;
 
     const localMain = resolve(__dirname, "..", "main.ts");
     const env: Record<string, string | undefined> = {
       ...process.env,
       CREDENTIAL_SECURITY_DIR: securityDir,
       VELLUM_WORKSPACE_DIR: workspaceDir,
+      CES_BOOTSTRAP_SOCKET_DIR: bootstrapDir,
     };
     delete env.CES_LOCAL_SOCKET;
 

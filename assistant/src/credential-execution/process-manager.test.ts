@@ -33,7 +33,7 @@ let mockSocketPath = "";
 mock.module("./executable-discovery.js", () => ({
   ...realDiscovery,
   discoverCesWithRetry: async () => ({
-    mode: "sibling" as const,
+    mode: "managed" as const,
     socketPath: mockSocketPath,
   }),
 }));
