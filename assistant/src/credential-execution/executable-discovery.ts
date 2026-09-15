@@ -1,10 +1,9 @@
 /**
  * CES socket discovery and transport bootstrap.
  *
- * Local siblings and managed sidecars share one resolver: the CES bootstrap
- * socket path (`CES_BOOTSTRAP_SOCKET_DIR` / `CES_BOOTSTRAP_SOCKET`, default
- * `/run/ces-bootstrap/ces.sock`). Discovery fails closed if the socket cannot
- * be found.
+ * Local siblings and managed sidecars share one resolver: `ces.sock` under
+ * `CES_BOOTSTRAP_SOCKET_DIR` (default `/run/ces-bootstrap`). Discovery fails
+ * closed if the socket cannot be found.
  */
 
 import { existsSync } from "node:fs";
@@ -24,24 +23,14 @@ const DEFAULT_BOOTSTRAP_SOCKET_DIR = "/run/ces-bootstrap";
 /**
  * Resolve the CES socket path used in every environment.
  *
- * Priority:
- * 1. `CES_BOOTSTRAP_SOCKET_DIR` env var (directory). Resolves `ces.sock`
- *    through `resolveIpcEndpoint`.
- * 2. `CES_BOOTSTRAP_SOCKET` env var (full file path override)
- * 3. Hardcoded default directory: `/run/ces-bootstrap`
+ * Uses `CES_BOOTSTRAP_SOCKET_DIR` when set, otherwise `/run/ces-bootstrap`.
+ * `ces.sock` is resolved through `resolveIpcEndpoint`.
  */
 function getCesSocketPath(): string {
-  const dir = process.env["CES_BOOTSTRAP_SOCKET_DIR"]?.trim();
-  if (dir) {
-    return resolveIpcEndpoint("ces", { workspaceDir: dir }).path;
-  }
-  const fullPath = process.env["CES_BOOTSTRAP_SOCKET"]?.trim();
-  if (fullPath) {
-    return fullPath;
-  }
-  return resolveIpcEndpoint("ces", {
-    workspaceDir: DEFAULT_BOOTSTRAP_SOCKET_DIR,
-  }).path;
+  const dir =
+    process.env["CES_BOOTSTRAP_SOCKET_DIR"]?.trim() ||
+    DEFAULT_BOOTSTRAP_SOCKET_DIR;
+  return resolveIpcEndpoint("ces", { workspaceDir: dir }).path;
 }
 
 export interface ManagedDiscoverySuccess {

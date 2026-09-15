@@ -2,17 +2,16 @@
  * CES process manager.
  *
  * Creates a transport connection to the CES process over the shared bootstrap
- * socket. Local CLI siblings and managed sidecars bind the same path
- * (`CES_BOOTSTRAP_SOCKET_DIR` / `CES_BOOTSTRAP_SOCKET`). The process manager
- * owns only the transport connection lifecycle; the CES process itself is
- * managed by the CLI (sibling) or the pod infrastructure (managed).
+ * socket. Local CLI siblings and managed sidecars bind the same path under
+ * `CES_BOOTSTRAP_SOCKET_DIR`. The process manager owns only the transport
+ * connection lifecycle; the CES process itself is managed by the CLI
+ * (sibling) or the pod infrastructure (managed).
  *
  * Env contract:
- * - CES_BOOTSTRAP_SOCKET_DIR — Directory containing `ces.sock`
- * - CES_BOOTSTRAP_SOCKET     — Full path override (tests)
- * - /assistant-data-ro       — Assistant data mounted read-only into CES
- * - /ces-data                — CES private data directory (separate PVC)
- * - CES_HEALTH_PORT          — Health check port exposed by the CES sidecar
+ * - CES_BOOTSTRAP_SOCKET_DIR: directory containing `ces.sock`
+ * - /assistant-data-ro: assistant data mounted read-only into CES
+ * - /ces-data: CES private data directory (separate PVC)
+ * - CES_HEALTH_PORT: health check port exposed by the CES sidecar
  */
 
 import { createConnection, type Socket } from "node:net";

@@ -114,17 +114,7 @@ describe("startCes", () => {
     }, 50);
 
     lastSpawnCall = null;
-    const priorSocket = process.env.CES_LOCAL_SOCKET;
-    process.env.CES_LOCAL_SOCKET = "/tmp/stale-ces.sock";
-    try {
-      await startCes(false, resources);
-    } finally {
-      if (priorSocket == null) {
-        delete process.env.CES_LOCAL_SOCKET;
-      } else {
-        process.env.CES_LOCAL_SOCKET = priorSocket;
-      }
-    }
+    await startCes(false, resources);
 
     // Verify spawn was called
     expect(lastSpawnCall).not.toBeNull();
@@ -138,7 +128,6 @@ describe("startCes", () => {
 
     // Verify env vars
     const env = lastSpawnCall!.options.env!;
-    expect(env["CES_LOCAL_SOCKET"]).toBeUndefined();
     expect(env["CES_BOOTSTRAP_SOCKET_DIR"]).toBe(
       join(tempDir, ".vellum", "protected", "credential-executor"),
     );

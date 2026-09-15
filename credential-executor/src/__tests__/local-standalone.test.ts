@@ -155,7 +155,6 @@ describe("local CES standalone sibling (real entrypoint)", () => {
       VELLUM_WORKSPACE_DIR: workspaceDir,
       CES_BOOTSTRAP_SOCKET_DIR: bootstrapDir,
     };
-    delete env.CES_LOCAL_SOCKET;
 
     // stdin closed is how the CLI launches the sibling — CES serves over a
     // Unix socket, not stdio.

@@ -663,11 +663,9 @@ function applyDaemonEnvOverrides(
       options.defaultWorkspaceConfigPath;
   }
   // CES and the assistant resolve the socket from CES_BOOTSTRAP_SOCKET_DIR.
-  // A parent-environment CES_LOCAL_SOCKET must not leak into the daemon.
   const bootstrapDir = resolveCesBootstrapSocketDir(resources, env);
   env.CES_BOOTSTRAP_SOCKET_DIR = bootstrapDir;
   mkdirSync(bootstrapDir, { recursive: true });
-  delete env.CES_LOCAL_SOCKET;
   applyIpcSocketDirOverride(env);
 }
 
@@ -1122,7 +1120,6 @@ export async function startCes(
     VELLUM_WORKSPACE_DIR: workspaceDir,
     CES_BOOTSTRAP_SOCKET_DIR: bootstrapDir,
   };
-  delete cesEnv.CES_LOCAL_SOCKET;
 
   let ces;
   const runtimeCesDir = !watch ? localRuntimeCesDir(resources) : undefined;

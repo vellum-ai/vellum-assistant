@@ -401,9 +401,7 @@ describe("CES data paths", () => {
   });
 
   test("getBootstrapSocketPath defaults to /run/ces-bootstrap", () => {
-    const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
     const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    delete process.env["CES_BOOTSTRAP_SOCKET"];
     delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
     try {
       expect(getBootstrapSocketPath()).toBe(
@@ -412,34 +410,6 @@ describe("CES data paths", () => {
         }).path,
       );
     } finally {
-      if (savedSocket !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET"] = savedSocket;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET"];
-      }
-      if (savedDir !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-      }
-    }
-  });
-
-  test("getBootstrapSocketPath respects CES_BOOTSTRAP_SOCKET env var", () => {
-    const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
-    const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    // CES_BOOTSTRAP_SOCKET_DIR takes precedence; clear it so the
-    // CES_BOOTSTRAP_SOCKET fallback is actually exercised.
-    delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    process.env["CES_BOOTSTRAP_SOCKET"] = "/tmp/test-ces.sock";
-    try {
-      expect(getBootstrapSocketPath()).toBe("/tmp/test-ces.sock");
-    } finally {
-      if (savedSocket !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET"] = savedSocket;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET"];
-      }
       if (savedDir !== undefined) {
         process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
       } else {
@@ -449,10 +419,8 @@ describe("CES data paths", () => {
   });
 
   test("getBootstrapSocketPath uses CES_BOOTSTRAP_SOCKET_DIR via resolveIpcEndpoint", () => {
-    const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
     const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
     const savedWorkspace = process.env["VELLUM_WORKSPACE_DIR"];
-    delete process.env["CES_BOOTSTRAP_SOCKET"];
     process.env["CES_BOOTSTRAP_SOCKET_DIR"] = "/tmp/ces-bootstrap";
     process.env["VELLUM_WORKSPACE_DIR"] = "/tmp/ces-ws";
     try {
@@ -465,11 +433,6 @@ describe("CES data paths", () => {
         resolveIpcEndpoint("ces", { workspaceDir: "/tmp/ces-ws" }).path,
       );
     } finally {
-      if (savedSocket !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET"] = savedSocket;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET"];
-      }
       if (savedDir !== undefined) {
         process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
       } else {

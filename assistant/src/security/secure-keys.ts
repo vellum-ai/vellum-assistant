@@ -10,7 +10,7 @@
  *   2. Lazy CES RPC connect - non-assistant processes (workers, CLI
  *      subprocesses) that never call startCes(). On first credential
  *      resolution they discover the CES bootstrap socket
- *      (`CES_BOOTSTRAP_SOCKET_DIR` / `CES_BOOTSTRAP_SOCKET`) and cache
+ *      (`CES_BOOTSTRAP_SOCKET_DIR`) and cache
  *      the connection.
  *   3. CES HTTP - containerized failover when IPC is unavailable
  *      (`IS_CONTAINERIZED` + `CES_CREDENTIAL_URL`). Used if the assistant's

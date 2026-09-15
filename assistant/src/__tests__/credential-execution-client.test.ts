@@ -80,64 +80,54 @@ function createMockTransport(): CesTransport & {
 }
 
 // ---------------------------------------------------------------------------
-// Managed discovery — fail closed when socket is missing or handshake fails
+// CES discovery — CES_BOOTSTRAP_SOCKET_DIR, not workspace
 // ---------------------------------------------------------------------------
 
-describe("managed CES discovery", () => {
-  function withBootstrapSocket(socketPath: string): () => void {
-    const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
-    const savedSocketDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    process.env["CES_BOOTSTRAP_SOCKET"] = socketPath;
-    return () => {
-      const restore = (key: string, value: string | undefined) => {
-        if (value !== undefined) {
-          process.env[key] = value;
-        } else {
-          delete process.env[key];
-        }
-      };
-      restore("CES_BOOTSTRAP_SOCKET", savedSocket);
-      restore("CES_BOOTSTRAP_SOCKET_DIR", savedSocketDir);
-    };
-  }
+function withBootstrapDir(dir: string): () => void {
+  const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+  process.env["CES_BOOTSTRAP_SOCKET_DIR"] = dir;
+  return () => {
+    if (savedDir !== undefined) {
+      process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
+    } else {
+      delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+    }
+  };
+}
 
-  test("returns unavailable when bootstrap socket does not exist", async () => {
-    const restore = withBootstrapSocket("/tmp/ces-test-nonexistent.sock");
+describe("managed CES discovery", () => {
+  test("returns unavailable when bootstrap socket does not exist", () => {
+    const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-missing-"));
+    const restore = withBootstrapDir(bootstrapDir);
     try {
-      const result = await discoverManagedCes();
+      const result = discoverManagedCes();
       expect(result.mode).toBe("unavailable");
       expect((result as { reason: string }).reason).toContain(
         "CES bootstrap socket not found",
       );
     } finally {
       restore();
+      rmSync(bootstrapDir, { recursive: true, force: true });
     }
   });
 
-  test("never returns a fallback or in-process mode", async () => {
-    const restore = withBootstrapSocket("/tmp/ces-test-nonexistent.sock");
+  test("never returns a fallback or in-process mode", () => {
+    const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-missing-"));
+    const restore = withBootstrapDir(bootstrapDir);
     try {
-      const result = await discoverManagedCes();
-      // Must be "managed" or "unavailable". No fallback modes.
+      const result = discoverManagedCes();
       expect(["managed", "unavailable"]).toContain(result.mode);
     } finally {
       restore();
+      rmSync(bootstrapDir, { recursive: true, force: true });
     }
   });
 });
 
-// ---------------------------------------------------------------------------
-// Bootstrap-dir discovery — CES_BOOTSTRAP_SOCKET_DIR, not workspace
-// ---------------------------------------------------------------------------
-
 describe("CES bootstrap socket discovery", () => {
   test("looks for the socket under CES_BOOTSTRAP_SOCKET_DIR", () => {
     const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-bootstrap-"));
-    const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    const savedFull = process.env["CES_BOOTSTRAP_SOCKET"];
-    delete process.env["CES_BOOTSTRAP_SOCKET"];
-    process.env["CES_BOOTSTRAP_SOCKET_DIR"] = bootstrapDir;
+    const restore = withBootstrapDir(bootstrapDir);
     try {
       const socketPath = resolveIpcEndpoint("ces", {
         workspaceDir: bootstrapDir,
@@ -146,26 +136,14 @@ describe("CES bootstrap socket discovery", () => {
       expect(result.mode).toBe("unavailable");
       expect((result as { reason: string }).reason).toContain(socketPath);
     } finally {
-      if (savedDir !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-      }
-      if (savedFull !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET"] = savedFull;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET"];
-      }
+      restore();
       rmSync(bootstrapDir, { recursive: true, force: true });
     }
   });
 
   test("does not discover CES from VELLUM_WORKSPACE_DIR", () => {
     const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-bootstrap-"));
-    const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    const savedFull = process.env["CES_BOOTSTRAP_SOCKET"];
-    delete process.env["CES_BOOTSTRAP_SOCKET"];
-    process.env["CES_BOOTSTRAP_SOCKET_DIR"] = bootstrapDir;
+    const restore = withBootstrapDir(bootstrapDir);
     try {
       const result = discoverManagedCes();
       const workspaceDir = process.env.VELLUM_WORKSPACE_DIR;
@@ -177,16 +155,7 @@ describe("CES bootstrap socket discovery", () => {
         workspaceSocket,
       );
     } finally {
-      if (savedDir !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-      }
-      if (savedFull !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET"] = savedFull;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET"];
-      }
+      restore();
       rmSync(bootstrapDir, { recursive: true, force: true });
     }
   });
@@ -197,27 +166,9 @@ describe("CES bootstrap socket discovery", () => {
 // ---------------------------------------------------------------------------
 
 describe("discoverCesWithRetry", () => {
-  function withManagedEnv(socketPath: string): () => void {
-    const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
-    const savedSocketDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    process.env["CES_BOOTSTRAP_SOCKET"] = socketPath;
-    return () => {
-      const restore = (key: string, value: string | undefined) => {
-        if (value !== undefined) {
-          process.env[key] = value;
-        } else {
-          delete process.env[key];
-        }
-      };
-      restore("CES_BOOTSTRAP_SOCKET", savedSocket);
-      restore("CES_BOOTSTRAP_SOCKET_DIR", savedSocketDir);
-    };
-  }
-
   test("returns unavailable after polling when the socket never appears", async () => {
-    const socketPath = join(tmpdir(), `ces-retry-missing-${Date.now()}.sock`);
-    const restore = withManagedEnv(socketPath);
+    const bootstrapDir = mkdtempSync(join(tmpdir(), "ces-retry-missing-"));
+    const restore = withBootstrapDir(bootstrapDir);
     try {
       const start = Date.now();
       const result = await discoverCesWithRetry({
@@ -225,17 +176,17 @@ describe("discoverCesWithRetry", () => {
         intervalMs: 20,
       });
       expect(result.mode).toBe("unavailable");
-      // It must actually have waited rather than failing on the first probe.
       expect(Date.now() - start).toBeGreaterThanOrEqual(150);
     } finally {
       restore();
+      rmSync(bootstrapDir, { recursive: true, force: true });
     }
   });
 
   test("resolves to managed once the socket is re-bound mid-poll", async () => {
     const dir = mkdtempSync(join(tmpdir(), "ces-retry-"));
-    const socketPath = join(dir, "ces.sock");
-    const restore = withManagedEnv(socketPath);
+    const socketPath = resolveIpcEndpoint("ces", { workspaceDir: dir }).path;
+    const restore = withBootstrapDir(dir);
     const timer = setTimeout(() => writeFileSync(socketPath, ""), 80);
     try {
       const result = await discoverCesWithRetry({
