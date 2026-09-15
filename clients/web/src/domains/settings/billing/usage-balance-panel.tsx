@@ -38,9 +38,16 @@ export function UsageBalancePanel({
   return (
     <div
       data-testid="plan-usage-balance"
-      className="flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-base)] bg-[color-mix(in_srgb,var(--surface-overlay)_40%,transparent)] px-4 py-3"
+      className="@container flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-base)] bg-[color-mix(in_srgb,var(--surface-overlay)_40%,transparent)] px-4 py-3"
     >
-      <div className="flex w-full items-center justify-between gap-3">
+      {/*
+        On a panel at least 32rem wide the bar starts a fixed 64px after the
+        title and the percentage follows it; a narrower panel keeps the bar at
+        the right edge and lets it shrink, which is what phones need. The
+        breakpoint reads the panel's own width because the tile is half a card
+        beside a next tile and the whole card without one.
+      */}
+      <div className="flex w-full items-center gap-3 @lg:gap-16">
         <Typography
           as="span"
           variant="body-large-default"
@@ -48,7 +55,7 @@ export function UsageBalancePanel({
         >
           {title}
         </Typography>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-3 @lg:justify-start">
           <ProgressBar
             value={ratio}
             height={8}

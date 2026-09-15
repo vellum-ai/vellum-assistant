@@ -29,10 +29,16 @@ const meta = {
     ratio: { control: { type: "range", min: 0, max: 1, step: 0.01 } },
   },
   decorators: [
-    (Story) => (
+    (Story, context) => (
       // The panel fills whatever column the plan tile gives it, so pin that
       // width rather than letting the centered layout shrink-wrap it.
-      <div style={{ width: TILE_WIDTH_PX }}>
+      <div
+        style={{
+          width:
+            (context.parameters["frameWidth"] as number | undefined) ??
+            TILE_WIDTH_PX,
+        }}
+      >
         <Story />
       </div>
     ),
@@ -71,4 +77,13 @@ export const Exhausted: Story = {
 export const ExhaustedWithoutCta: Story = {
   name: "Exhausted, no CTA",
   args: { ratio: 1, exhausted: true },
+};
+
+/**
+ * The tile at full card width, which is what a current plan with no next tile
+ * beside it gets. The bar sits a fixed gap after the title instead of at the
+ * far edge, and the slack falls to the right of the percentage.
+ */
+export const WideTile: Story = {
+  parameters: { frameWidth: 940 },
 };

@@ -34,6 +34,21 @@ describe("UsageBalancePanel", () => {
     );
   });
 
+  test("holds the bar a fixed gap after the title on wide panels", () => {
+    // Class assertions are all happy-dom offers for layout; the Storybook
+    // `WideTile` story is the visual check.
+    const { getByTestId } = render(<UsageBalancePanel ratio={0.4} />);
+
+    const panel = getByTestId("plan-usage-balance");
+    const row = panel.firstElementChild;
+    expect(row?.className).toContain("@lg:gap-16");
+    expect(row?.className).not.toContain("justify-between");
+    const barGroup = panel.querySelector(
+      '[data-slot="progress-bar"]',
+    )?.parentElement;
+    expect(barGroup?.className).toContain("@lg:justify-start");
+  });
+
   test("used-up grants turn negative with credits still in hand", () => {
     // The caller leaves `exhausted` off while the wallet has something left,
     // so the reading goes red on its own and no strip appears.
