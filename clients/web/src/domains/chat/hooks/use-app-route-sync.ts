@@ -14,7 +14,7 @@ import { isAppMainView } from "@/stores/pane-state";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
   clearAppViewer,
-  dropFailedAppFromRoute,
+  dropAppFromRoute,
 } from "@/utils/conversation-navigation";
 
 export function useAppRouteSync(
@@ -61,7 +61,7 @@ export function useAppRouteSync(
       if (loaded || cancelled) {
         return;
       }
-      dropFailedAppFromRoute(navigate, routeAppId);
+      dropAppFromRoute(navigate, routeAppId);
     });
     return () => {
       cancelled = true;

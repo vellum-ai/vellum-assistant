@@ -63,13 +63,14 @@ import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 import type { ChatInfoCategory } from "@/stores/viewer-store";
+import { routes } from "@/utils/routes";
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
 const OTHER_CONVERSATION_ID = "conv-2";
 const APP_ID = "app-1";
-const CONVERSATION_PATH = `/assistant/conversations/${CONVERSATION_ID}`;
-const APP_PATH = `${CONVERSATION_PATH}/app/${APP_ID}`;
+const CONVERSATION_PATH = routes.conversation(CONVERSATION_ID);
+const APP_PATH = routes.conversation(CONVERSATION_ID, APP_ID);
 
 const restoreDomStubs = installChatInfoDomStubs();
 

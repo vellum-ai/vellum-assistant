@@ -30,9 +30,9 @@
 
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useViewerStore } from "@/stores/viewer-store";
 import {
   closeAppRoute,
+  exitAppSplit,
   keepOpenAppBesideConversation,
   keptAppId,
   type PathNavigate,
@@ -105,7 +105,6 @@ function setView(
   ctx: AppViewerActionContext,
   data?: Record<string, unknown>,
 ): void {
-  const viewer = useViewerStore.getState();
   switch (data?.view) {
     case "chat":
       // The mobile overlay's own close replaces, so this one does too: Back
@@ -113,9 +112,7 @@ function setView(
       closeAppRoute(ctx.navigate, { replace: ctx.isMobile });
       return;
     case "full":
-      if (viewer.mainView === "app-editing") {
-        viewer.exitAppEditing();
-      }
+      exitAppSplit();
       return;
     case "split": {
       if (ctx.isMobile) {

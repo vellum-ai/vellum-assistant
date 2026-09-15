@@ -2,6 +2,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 import { useViewerStore } from "@/stores/viewer-store";
+import { exitAppSplit } from "@/utils/conversation-navigation";
 
 const OPEN_LAYER_SELECTOR = [
   '[data-slot="modal-content"][data-state="open"]',
@@ -116,7 +117,7 @@ function dismissViewerLayer(closeAppRoute: () => void): boolean {
       viewer.minimizeApp();
       return true;
     case "app-editing":
-      viewer.exitAppEditing();
+      exitAppSplit();
       return true;
     default:
       return viewer.closeActiveOverlay();

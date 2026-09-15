@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
+
 type BackButtonHandler = (payload: { canGoBack: boolean }) => void;
 
 let nativeAndroid = true;
@@ -14,7 +16,6 @@ let viewerMainView = "chat";
 let viewerAppMinimized = false;
 const closeAppMock = mock(() => {});
 const minimizeViewerAppMock = mock(() => {});
-const exitAppEditingMock = mock(() => {});
 const closeActiveOverlayMock = mock(() => viewerMainView === "tool-detail");
 mock.module("@/stores/viewer-store", () => ({
   useViewerStore: {
@@ -23,11 +24,16 @@ mock.module("@/stores/viewer-store", () => ({
       isAppMinimized: viewerAppMinimized,
       closeApp: closeAppMock,
       minimizeApp: minimizeViewerAppMock,
-      exitAppEditing: exitAppEditingMock,
       closeActiveOverlay: closeActiveOverlayMock,
     }),
   },
 }));
+
+// The split exit is the shared helper's, so this suite watches the call.
+const exitAppSplitMock = mock(() => {});
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({ exitAppSplit: exitAppSplitMock }),
+);
 
 let backButtonHandler: BackButtonHandler | null = null;
 const removeMock = mock(async () => {});
@@ -83,7 +89,7 @@ beforeEach(() => {
   removeMock.mockClear();
   closeAppMock.mockClear();
   minimizeViewerAppMock.mockClear();
-  exitAppEditingMock.mockClear();
+  exitAppSplitMock.mockClear();
   closeActiveOverlayMock.mockClear();
   closeAppRouteMock.mockClear();
   window.history.replaceState(null, "", "/assistant");
@@ -432,7 +438,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     historyBackSpy.mockRestore();
   });
 
-  test("exits the split before changing history", async () => {
+  test("exits the split through the shared helper before changing history", async () => {
     const historyBackSpy = spyOn(window.history, "back").mockImplementation(
       () => undefined,
     );
@@ -443,7 +449,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     await flushAsyncWork();
     await pressBack(true);
 
-    expect(exitAppEditingMock).toHaveBeenCalledTimes(1);
+    expect(exitAppSplitMock).toHaveBeenCalledTimes(1);
     expect(historyBackSpy).not.toHaveBeenCalled();
     historyBackSpy.mockRestore();
   });

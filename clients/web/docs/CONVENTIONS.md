@@ -854,8 +854,10 @@ by routes as views are ported.
 The app viewer is ported this way:
 `/assistant/conversations/:conversationId/app/:appId` names the app on
 screen. `useAppRouteSync` is the one bridge from that segment into
-`useViewerStore`, and the helpers in `utils/conversation-navigation.ts`
-are the one place that moves it; their docblocks carry the rules.
+`useViewerStore`. An open navigates to
+`routes.conversation(conversationId, appId)`; every removal of the
+segment goes through the helpers in `utils/conversation-navigation.ts`,
+whose docblocks carry the rules.
 
 References:
 - [React Router — Nested Routes](https://reactrouter.com/start/framework/routing#nested-routes)
