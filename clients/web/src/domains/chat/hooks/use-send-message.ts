@@ -18,7 +18,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 import { appIdForPath, routes } from "@/utils/routes";
-import { currentPathname } from "@/utils/conversation-navigation";
+import { carriedAppEntryState } from "@/utils/app-navigation";
+import {
+  currentEntryState,
+  currentPathname,
+} from "@/utils/conversation-navigation";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
 import {
   isLocalMetaCommand,
@@ -1172,6 +1176,11 @@ export function useSendMessage({
               activeConversationId,
               newConversationId,
             );
+          // Entries pushed before this send still name the draft, which the
+          // daemon has no row for; the loader redirects them onto this id.
+          useConversationStore
+            .getState()
+            .recordDraftReplacement(activeConversationId, newConversationId);
           resolveDraftKey(
             queryClient,
             assistantId,
@@ -1210,15 +1219,22 @@ export function useSendMessage({
             useConversationStore
               .getState()
               .setActiveConversationId(newConversationId);
-            // The same conversation under a new id, so the rewrite carries
-            // the segment the URL names: `keptAppId()` reads the app on
-            // screen, and an overlay covering it would drop the app here.
+            // The same conversation under a new id, so the rewrite carries the
+            // segment the URL names and the return path recorded on this entry,
+            // re-keyed to the new id: `keptAppId()` reads the app on screen,
+            // and an overlay covering it would drop the app here.
             void navigate(
               routes.conversation(
                 newConversationId,
                 appIdForPath(currentPathname()),
               ),
-              { replace: true },
+              {
+                replace: true,
+                state: carriedAppEntryState(
+                  currentEntryState(),
+                  newConversationId,
+                ),
+              },
             );
           }
         } else if (resolvedId && isDraft) {

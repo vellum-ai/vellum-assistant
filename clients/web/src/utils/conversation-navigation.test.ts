@@ -37,6 +37,7 @@ import {
   showOpenAppRoute,
   showPath,
 } from "@/stores/open-app.test-helper";
+import { carriedAppEntryState } from "@/utils/app-navigation";
 import { navigateDouble } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 
@@ -469,6 +470,22 @@ describe("closeAppRoute", () => {
     const navigate = navigateDouble();
 
     closeAppRoute(navigate, { state: appEntryStateFor(OPEN_CONVERSATION) });
+
+    expect(navigate).toHaveBeenCalledWith(-1);
+  });
+
+  test("pops when the recording was re-keyed onto the conversation the URL names", () => {
+    // The shape a draft's first send leaves: the open recorded a return to the
+    // draft, and the rewrite re-keyed that return to the id the server gave.
+    openAppViewer();
+    const navigate = navigateDouble();
+
+    closeAppRoute(navigate, {
+      state: carriedAppEntryState(
+        appEntryStateFor("draft-1"),
+        OPEN_CONVERSATION,
+      ),
+    });
 
     expect(navigate).toHaveBeenCalledWith(-1);
   });

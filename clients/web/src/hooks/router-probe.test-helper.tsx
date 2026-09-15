@@ -21,14 +21,16 @@ import { MemoryRouter, useLocation } from "react-router";
 
 const PATHNAME_TEST_ID = "router-probe-pathname";
 const SEARCH_TEST_ID = "router-probe-search";
+const STATE_TEST_ID = "router-probe-state";
 
 /** Renders the router's location for {@link currentLocation} to read. */
 export function LocationProbe(): ReactElement {
-  const { pathname, search } = useLocation();
+  const { pathname, search, state } = useLocation();
   return (
     <>
       <span data-testid={PATHNAME_TEST_ID}>{pathname}</span>
       <span data-testid={SEARCH_TEST_ID}>{search}</span>
+      <span data-testid={STATE_TEST_ID}>{JSON.stringify(state ?? null)}</span>
     </>
   );
 }
@@ -47,11 +49,21 @@ export function LocationMirror(): null {
   return null;
 }
 
-/** Where the mounted probe's router currently is. `search` includes its `?`. */
-export function currentLocation(): { pathname: string; search: string } {
+/**
+ * Where the mounted probe's router currently is. `search` includes its `?`, and
+ * `state` is the entry's history state, `null` when it carries none.
+ */
+export function currentLocation(): {
+  pathname: string;
+  search: string;
+  state: unknown;
+} {
   return {
     pathname: screen.getByTestId(PATHNAME_TEST_ID).textContent ?? "",
     search: screen.getByTestId(SEARCH_TEST_ID).textContent ?? "",
+    state: JSON.parse(
+      screen.getByTestId(STATE_TEST_ID).textContent || "null",
+    ) as unknown,
   };
 }
 

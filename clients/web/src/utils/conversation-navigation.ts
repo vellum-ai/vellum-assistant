@@ -56,6 +56,17 @@ export function currentPathname(): string {
     : pathname;
 }
 
+/**
+ * The history state on the route on screen, for an imperative caller with no
+ * `useLocation` of its own. React Router keeps a location's state under `usr`.
+ */
+export function currentEntryState(): unknown {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return (window.history.state as { usr?: unknown } | null)?.usr ?? null;
+}
+
 /** Let go of the app on screen and of the chat pane bound beside it. */
 export function clearAppViewer(): void {
   useViewerStore.getState().closeApp();

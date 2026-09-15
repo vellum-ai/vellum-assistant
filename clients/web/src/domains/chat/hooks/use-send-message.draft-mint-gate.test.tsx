@@ -10,7 +10,8 @@
  *
  * The success path swaps the draft key for the server's id and replaces the
  * URL with it. The app the URL already names is carried across, so the id
- * swap closes neither an app on screen nor one an overlay is covering.
+ * swap closes neither an app on screen nor one an overlay is covering, and the
+ * return path the entry records rides along re-keyed, so the close still pops.
  *
  * Driven end-to-end against a spied daemon client, mirroring the sibling
  * plugins test so the module registry stays clean.
@@ -32,6 +33,7 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTurnStore, INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
+  appEntryStateFor,
   SAMPLE_APP,
   showOpenAppRoute,
   showPath,
@@ -167,5 +169,32 @@ describe("useSendMessage: a draft resolving to its server id", () => {
 
   test("names no app when the viewer is on the chat", async () => {
     expect(await sendFirstMessage()).toBe(routes.conversation(SERVER_ID));
+  });
+
+  test("re-keys the return path the entry records, so the close still pops", async () => {
+    showOpenAppRoute({
+      conversationId: DRAFT_ID,
+      entryState: appEntryStateFor(DRAFT_ID),
+    });
+
+    await sendFirstMessage();
+
+    expect(currentLocation().state).toEqual(appEntryStateFor(SERVER_ID));
+  });
+
+  test("records the replacement, so an entry naming the draft finds the row", async () => {
+    await sendFirstMessage();
+
+    expect(
+      useConversationStore.getState().draftReplacements.get(DRAFT_ID),
+    ).toBe(SERVER_ID);
+  });
+
+  test("records nothing when the entry the app sits on records nothing", async () => {
+    showOpenAppRoute({ conversationId: DRAFT_ID });
+
+    await sendFirstMessage();
+
+    expect(currentLocation().state).toBeNull();
   });
 });

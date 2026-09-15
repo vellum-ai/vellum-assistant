@@ -298,3 +298,34 @@ describe("draft conversation ids", () => {
     expect(getState().draftConversationIds.size).toBe(0);
   });
 });
+
+describe("draft replacements", () => {
+  it("records the id a send assigned a draft", () => {
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+
+    expect(getState().draftReplacements.get("draft-1")).toBe("conv-server-1");
+  });
+
+  it("records nothing for a draft the server kept the id of", () => {
+    getState().recordDraftReplacement("draft-1", "draft-1");
+
+    expect(getState().draftReplacements.size).toBe(0);
+  });
+
+  it("keeps the same map reference when the pair is already recorded", () => {
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+    const before = getState().draftReplacements;
+
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+
+    expect(getState().draftReplacements).toBe(before);
+  });
+
+  it("drops every replacement on reset", () => {
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+
+    getState().reset();
+
+    expect(getState().draftReplacements.size).toBe(0);
+  });
+});

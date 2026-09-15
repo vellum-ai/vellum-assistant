@@ -39,6 +39,7 @@ export function conversationNavigationMock(
 ): ConversationNavigationModule {
   return {
     currentPathname: () => "",
+    currentEntryState: () => null,
     clearAppViewer: () => {},
     dropAppFromRoute: () => {},
     keepOpenAppBesideConversation: () => false,

@@ -2,12 +2,17 @@
  * The entry an open app records so its close can pop back through it. The
  * cases are the ones that decide pop or replace: the conversation the app is
  * opening on (with the spellings the router matches), a route already naming
- * an app, another conversation, and an entry carrying a one-shot param.
+ * an app, another conversation, and an entry carrying a one-shot param. The
+ * re-key a replace carries onto the entry is pinned alongside them.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import { appEntryState, hasAppReturnEntry } from "@/utils/app-navigation";
+import {
+  appEntryState,
+  carriedAppEntryState,
+  hasAppReturnEntry,
+} from "@/utils/app-navigation";
 import {
   ESCAPED_CONVERSATIONS_PREFIX,
   ESCAPED_PREFIX_APP_PATH,
@@ -88,4 +93,33 @@ describe("hasAppReturnEntry", () => {
   ])("rejects malformed state %p", (malformed) => {
     expect(hasAppReturnEntry(malformed, APP_ID, CONVERSATION_PATH)).toBe(false);
   });
+});
+
+describe("carriedAppEntryState", () => {
+  const state = appEntryState(
+    { pathname: CONVERSATION_PATH, search: "" },
+    APP_ID,
+    CONV_ID,
+  );
+
+  test("re-keys the return path to the conversation the entry now names", () => {
+    const carried = carriedAppEntryState(state, "conv-server-1");
+
+    expect(carried).toEqual({
+      appEntry: {
+        appId: APP_ID,
+        returnTo: routes.conversation("conv-server-1"),
+      },
+    });
+    expect(
+      hasAppReturnEntry(carried, APP_ID, routes.conversation("conv-server-1")),
+    ).toBe(true);
+  });
+
+  test.each([null, undefined, "appEntry", 7, {}, { appEntry: {} }])(
+    "carries nothing from %p, which records no entry",
+    (stateless) => {
+      expect(carriedAppEntryState(stateless, CONV_ID)).toBeUndefined();
+    },
+  );
 });

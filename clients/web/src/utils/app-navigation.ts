@@ -54,22 +54,61 @@ export function appEntryState(
   return { appEntry: { appId, returnTo } };
 }
 
+/** The recording an entry carries, or `null` when it carries none. */
+function readAppEntry(state: unknown): AppEntryState["appEntry"] | null {
+  if (!state || typeof state !== "object" || !("appEntry" in state)) {
+    return null;
+  }
+  const entry = state.appEntry;
+  if (
+    !entry ||
+    typeof entry !== "object" ||
+    !("appId" in entry) ||
+    typeof entry.appId !== "string" ||
+    !("returnTo" in entry) ||
+    typeof entry.returnTo !== "string"
+  ) {
+    return null;
+  }
+  return { appId: entry.appId, returnTo: entry.returnTo };
+}
+
 /** Whether the entry behind this one is where `appId` was opened from. */
 export function hasAppReturnEntry(
   state: unknown,
   appId: string,
   returnTo: string,
 ): boolean {
-  if (!state || typeof state !== "object" || !("appEntry" in state)) {
-    return false;
+  const entry = readAppEntry(state);
+  return entry !== null && entry.appId === appId && entry.returnTo === returnTo;
+}
+
+/**
+ * The recording to hand a replace that keeps the app on the entry it is on.
+ * The entry survives the replace, so the recording stands, re-keyed to the
+ * conversation the entry now names.
+ *
+ * The entry behind keeps the id it was pushed under, so a re-key leaves the
+ * return path naming a conversation that entry's URL does not. The pop still
+ * lands there, and `useConversationLoader` redirects a retired draft URL onto
+ * its server row (`draftReplacements`), so the entry resolves to the same
+ * conversation the return path names.
+ *
+ * `undefined` when the entry carries no recording, which leaves the close on
+ * its replace fallback.
+ */
+export function carriedAppEntryState(
+  state: unknown,
+  conversationId: string,
+): AppEntryState | undefined {
+  const entry = readAppEntry(state);
+  if (entry === null) {
+    return undefined;
   }
-  const entry = state.appEntry;
-  return (
-    !!entry &&
-    typeof entry === "object" &&
-    "appId" in entry &&
-    entry.appId === appId &&
-    "returnTo" in entry &&
-    entry.returnTo === returnTo
-  );
+  return {
+    appEntry: {
+      appId: entry.appId,
+      returnTo: routes.conversation(conversationId),
+    },
+  };
 }

@@ -13,8 +13,10 @@
  *
  * The last blocks cover what the loader does to the URL once it holds a key:
  * a URL that already names the resolved key is left alone, segments and all,
- * so the app viewer sub-route survives a reload, and a new chat started while
- * an app is kept beside it names that app in the URL it lands on.
+ * so the app viewer sub-route survives a reload, a URL naming a draft the
+ * first send re-keyed is redirected onto the row that send created, and a new
+ * chat started while an app is kept beside it names that app in the URL it
+ * lands on.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -251,7 +253,10 @@ beforeEach(() => {
   podIsServing = true;
   orgIsReady = true;
   navigateMock.mockClear();
-  useConversationStore.setState({ activeConversationId: null });
+  useConversationStore.setState({
+    activeConversationId: null,
+    draftReplacements: new Map(),
+  });
   localStorage.clear();
   stubDaemon();
 });
@@ -608,6 +613,55 @@ describe("URL path is kept when it already names the key", () => {
     expect(useConversationStore.getState().activeConversationId).toBe(
       "stored-chat",
     );
+  });
+});
+
+describe("a URL naming a retired draft", () => {
+  /* The entries the open pushed still name the draft; the row is under the id
+     the send came back with, and nothing else resolves one to the other. */
+  beforeEach(() => {
+    useConversationStore
+      .getState()
+      .recordDraftReplacement("draft-1", "conv-server-1");
+  });
+
+  test("redirects onto the row the send created", async () => {
+    showPath(routes.conversation("draft-1"));
+
+    renderColdBoot(new QueryClient(), "draft-1");
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        routes.conversation("conv-server-1"),
+        { replace: true },
+      );
+    });
+  });
+
+  test("keeps the app segment, so the redirect does not close the app", async () => {
+    showPath(routes.conversation("draft-1", SAMPLE_APP.appId));
+
+    renderColdBoot(new QueryClient(), "draft-1");
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        routes.conversation("conv-server-1", SAMPLE_APP.appId),
+        { replace: true },
+      );
+    });
+  });
+
+  test("leaves the row itself alone, so the redirect cannot loop", async () => {
+    showPath(routes.conversation("conv-server-1"));
+
+    renderColdBoot(new QueryClient(), "conv-server-1");
+
+    await waitFor(() => {
+      expect(useConversationStore.getState().activeConversationId).toBe(
+        "conv-server-1",
+      );
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
 

@@ -25,8 +25,11 @@ import { toast } from "@vellumai/design-library";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
-import { navigateToNewConversation } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
+import {
+  currentPathname,
+  navigateToNewConversation,
+} from "@/utils/conversation-navigation";
+import { appIdForPath, routes } from "@/utils/routes";
 import { useNavigate } from "react-router";
 
 import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
@@ -343,6 +346,24 @@ export function useConversationLoader({
     ) {
       return;
     }
+    // A draft entry pushed before the first send names an id the daemon never
+    // had once that send re-keyed it, so the entry becomes its row in place,
+    // app segment and all. The map never holds a server id as a key, so the
+    // destination cannot redirect again.
+    const replacementId =
+      explicitConversationId === null
+        ? undefined
+        : useConversationStore
+            .getState()
+            .draftReplacements.get(explicitConversationId);
+    if (replacementId !== undefined) {
+      void navigate(
+        routes.conversation(replacementId, appIdForPath(currentPathname())),
+        { replace: true },
+      );
+      return;
+    }
+
     lastAppliedUrlConversationIdRef.current = explicitConversationId;
 
     let onboardingDraftConversationId: string | null = null;

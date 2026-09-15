@@ -20,28 +20,38 @@ export const SAMPLE_APP: OpenedAppState = {
   html: "<h1>hi</h1>",
 };
 
-/** Put the window on `path`, which the imperative route helpers read. */
-export function showPath(path: string): void {
-  window.history.replaceState(null, "", path);
+/**
+ * Put the window on `path`, which the imperative route helpers read. `state` is
+ * the entry's own history state, which React Router keeps under `usr`.
+ */
+export function showPath(path: string, state?: unknown): void {
+  window.history.replaceState(
+    state === undefined ? null : { usr: state },
+    "",
+    path,
+  );
 }
 
 /**
  * Show {@link SAMPLE_APP} on `conversationId`'s route, the shape a wide
  * viewport keeps beside the chat: loaded in the viewer, and named by the URL.
+ * `entryState` seeds what the entry records, for a caller that reads it.
  */
 export function showOpenAppRoute({
   conversationId,
   mainView = "app",
+  entryState,
 }: {
   conversationId: string;
   mainView?: "app" | "app-editing";
+  entryState?: unknown;
 }): void {
   useViewerStore.setState({
     mainView,
     activeAppId: SAMPLE_APP.appId,
     openedAppState: SAMPLE_APP,
   });
-  showPath(routes.conversation(conversationId, SAMPLE_APP.appId));
+  showPath(routes.conversation(conversationId, SAMPLE_APP.appId), entryState);
 }
 
 /** The history state an open from `conversationId` records on its entry. */

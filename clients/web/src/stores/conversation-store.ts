@@ -33,6 +33,9 @@
  * - `pendingDraftPlugins` — plugins picked in the composer for the same
  *   not-yet-loaded conversations, keyed by conversation id → selected plugin
  *   ids (see field doc below)
+ * - `draftReplacements`: draft ids the server re-keyed on their first send,
+ *   mapped to the id it assigned, so a history entry naming the retired draft
+ *   can be redirected onto the row (see field doc below)
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
  * @see @/hooks/conversation-queries.ts for the server-state half
@@ -148,6 +151,19 @@ export interface ConversationListState {
    * removed once applied and on reset.
    */
   pendingDraftPlugins: Map<string, Set<string>>;
+  /**
+   * Draft ids a first send re-keyed, mapped to the id the server assigned.
+   *
+   * History entries pushed while the conversation was still a draft go on
+   * naming the draft id, and the daemon never had a row under it: selecting it
+   * lands an empty transcript on a dead key. `useConversationLoader` reads this
+   * to redirect such an entry onto its row instead.
+   *
+   * Session-scoped like {@link ConversationListState.draftConversationIds}: a
+   * reload starts with no entry from before the send, so there is nothing to
+   * redirect.
+   */
+  draftReplacements: Map<string, string>;
 }
 
 export interface ConversationListActions {
@@ -195,6 +211,14 @@ export interface ConversationListActions {
   /** Drop the draft mark once the key resolves server-side (no-op when absent). */
   clearDraftConversationId: (conversationId: string) => void;
 
+  // --- Draft replacements ---
+  /**
+   * Record the id a send assigned a draft. A draft the server kept the id of
+   * records nothing: the entries naming it name a row that exists, and a
+   * self-mapping would redirect onto itself.
+   */
+  recordDraftReplacement: (draftId: string, serverId: string) => void;
+
   // --- Pending draft profiles ---
   setPendingDraftProfile: (conversationId: string, profile: string) => void;
   /** Remove the stash for a single conversation id (no-op when absent). */
@@ -231,6 +255,7 @@ const INITIAL_STATE: ConversationListState = {
   draftConversationIds: new Set(),
   pendingDraftProfiles: new Map(),
   pendingDraftPlugins: new Map(),
+  draftReplacements: new Map(),
 };
 
 // ---------------------------------------------------------------------------
@@ -374,6 +399,16 @@ export const useConversationStore = createSelectors(
       });
     },
 
+    // --- Draft replacements ---
+
+    recordDraftReplacement: (draftId, serverId) => {
+      const current = get().draftReplacements;
+      if (draftId === serverId || current.get(draftId) === serverId) {
+        return;
+      }
+      set({ draftReplacements: new Map(current).set(draftId, serverId) });
+    },
+
     // --- Pending draft profiles ---
 
     setPendingDraftProfile: (conversationId, profile) => {
@@ -465,6 +500,7 @@ export const useConversationStore = createSelectors(
         draftConversationIds: new Set(),
         pendingDraftProfiles: new Map(),
         pendingDraftPlugins: new Map(),
+        draftReplacements: new Map(),
       });
     },
   })),
