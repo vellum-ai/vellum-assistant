@@ -92,4 +92,13 @@ describe("app HTML cache", () => {
     respondWith(FINISHED);
     expect(await getCachedAppHtml(ASSISTANT_ID, APP_ID, 2)).toBe(FINISHED);
   });
+
+  test("an unversioned prime cannot inherit a cached revision", async () => {
+    respondWith(FINISHED);
+    expect(await getCachedAppHtml(ASSISTANT_ID, APP_ID, 2)).toBe(FINISHED);
+    primeAppHtmlCache(ASSISTANT_ID, APP_ID, SCAFFOLD);
+    respondWith(FINISHED);
+    expect(await getCachedAppHtml(ASSISTANT_ID, APP_ID, 2)).toBe(FINISHED);
+    expect(post).toHaveBeenCalledTimes(2);
+  });
 });

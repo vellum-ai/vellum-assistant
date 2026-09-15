@@ -61,7 +61,7 @@ export function primeAppHtmlCache(
 ): void {
   const key = cacheKey(assistantId, appId);
   htmlCache.set(key, {
-    updatedAt: updatedAt ?? htmlCache.get(key)?.updatedAt,
+    updatedAt,
     html: Promise.resolve(requireAppHtml(html)),
   });
 }
