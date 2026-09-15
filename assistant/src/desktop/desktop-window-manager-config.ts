@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   type Document,
@@ -9,6 +9,9 @@ import {
   type Element,
   XMLSerializer,
 } from "@xmldom/xmldom";
+
+const XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace";
+const XINCLUDE_NAMESPACE = "http://www.w3.org/2001/XInclude";
 
 const WORKSPACE_MENUS = new Set([
   "client-list-menu",
@@ -43,29 +46,54 @@ export function writeDesktopWindowManagerConfig(
   application.setAttribute("class", "*");
   child(application, "desktop").textContent = "1";
   child(root, "applications").appendChild(application);
-  removeWorkspaceControls(config);
   mkdirSync(configDir, { recursive: true });
-  const menuFiles = Array.from(
-    child(root, "menu").getElementsByTagNameNS("*", "file"),
-  );
-  for (const [index, file] of menuFiles.entries()) {
-    const name = file.textContent?.trim();
-    if (!name) {
-      continue;
+  const copies = new Map<string, string>();
+  function copyConfig(source: { path: string; contents: string }): string {
+    const existing = copies.get(source.path);
+    if (existing) {
+      return existing;
     }
-    const menuSource = readConfig(
-      name.startsWith("~/") ? join(home, name.slice(2)) : name,
-      searchDirs,
-    );
-    if (!menuSource) {
-      continue;
-    }
-    const menu = parseXml(menuSource.contents, menuSource.path);
-    removeWorkspaceControls(menu);
-    const menuPath = join(configDir, `openbox-menu-${index}.xml`);
-    writeFileSync(menuPath, new XMLSerializer().serializeToString(menu));
-    file.textContent = menuPath;
+    const path = join(configDir, `openbox-include-${copies.size}.xml`);
+    copies.set(source.path, path);
+    const document = parseXml(source.contents, source.path);
+    adaptReferences(document);
+    writeFileSync(path, new XMLSerializer().serializeToString(document));
+    return path;
   }
+  function adaptReferences(document: Document): void {
+    removeWorkspaceControls(document);
+    for (const include of Array.from(
+      document.getElementsByTagNameNS(XINCLUDE_NAMESPACE, "include"),
+    )) {
+      if (include.getAttribute("parse") === "text") {
+        continue;
+      }
+      const url = new URL(include.getAttribute("href") ?? "", xmlBase(include));
+      const included = readConfig(fileURLToPath(url), []);
+      if (included) {
+        include.setAttribute("href", pathToFileURL(copyConfig(included)).href);
+      }
+    }
+    for (const file of Array.from(
+      document.getElementsByTagNameNS("*", "file"),
+    )) {
+      if ((file.parentNode as Element | null)?.localName !== "menu") {
+        continue;
+      }
+      const name = file.textContent?.trim();
+      if (!name) {
+        continue;
+      }
+      const menuSource = readConfig(
+        name.startsWith("~/") ? join(home, name.slice(2)) : name,
+        searchDirs,
+      );
+      if (menuSource) {
+        file.textContent = copyConfig(menuSource);
+      }
+    }
+  }
+  adaptReferences(config);
   const path = join(configDir, "openbox.xml");
   writeFileSync(path, new XMLSerializer().serializeToString(config));
   return path;
@@ -95,16 +123,34 @@ function parseXml(contents: string, sourcePath: string): Document {
     },
   }).parseFromString(contents, "application/xml");
   const root = document.documentElement!;
-  const xmlNamespace = "http://www.w3.org/XML/1998/namespace";
   root.setAttributeNS(
-    xmlNamespace,
+    XML_NAMESPACE,
     "xml:base",
     new URL(
-      root.getAttributeNS(xmlNamespace, "base") ?? "",
+      root.getAttributeNS(XML_NAMESPACE, "base") ?? "",
       pathToFileURL(sourcePath),
     ).href,
   );
   return document;
+}
+
+function xmlBase(element: Element): string {
+  const ancestors: Element[] = [];
+  for (
+    let node: Element | null = element;
+    node;
+    node = node.parentNode?.nodeType === 1 ? (node.parentNode as Element) : null
+  ) {
+    ancestors.unshift(node);
+  }
+  let base = "";
+  for (const ancestor of ancestors) {
+    const value = ancestor.getAttributeNS(XML_NAMESPACE, "base");
+    if (value) {
+      base = base ? new URL(value, base).href : value;
+    }
+  }
+  return base;
 }
 
 function child(parent: Element, name: string): Element {

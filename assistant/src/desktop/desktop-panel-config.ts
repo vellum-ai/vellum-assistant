@@ -40,14 +40,6 @@ export function writeDesktopPanelConfig(
 ): void {
   const { configDir } = request;
   mkdirSync(configDir, { recursive: true });
-  for (const name of [
-    "tint2rc",
-    "browser.png",
-    "chromium.desktop",
-    "terminal.desktop",
-  ]) {
-    rmSync(join(configDir, name), { force: true });
-  }
 
   const terminalIcon = join(configDir, "terminal.png");
   const browserIcon = join(

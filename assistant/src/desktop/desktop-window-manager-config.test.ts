@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "bun:test";
 
 import { DOMParser } from "@xmldom/xmldom";
@@ -101,4 +102,75 @@ test("adapts existing settings without removing window controls, application men
   );
   expect(composed.getElementsByTagName("action").length).toBe(actions.length);
   expect(readFileSync(join(sourceDir, "rc.xml"), "utf8")).toBe(source);
+});
+
+test("adapts nested XIncludes while preserving window actions, lookup bases and source files", () => {
+  const home = mkdtempSync(join(tmpdir(), "desktop-window-includes-"));
+  roots.push(home);
+  const sourceDir = join(home, ".config", "openbox");
+  mkdirSync(join(sourceDir, "bindings", "nested"), { recursive: true });
+  const sources = {
+    "rc.xml": `<openbox_config xmlns="http://openbox.org/3.4/rc" xmlns:xi="http://www.w3.org/2001/XInclude">
+      <theme><name>Custom</name></theme>
+      <xi:include href="bindings/keyboard.xml"/>
+      <menu><file>menu.xml</file></menu>
+    </openbox_config>`,
+    "bindings/keyboard.xml": `<keyboard xmlns="http://openbox.org/3.4/rc" xmlns:xi="http://www.w3.org/2001/XInclude" xml:base="nested/">
+      <keybind key="A-Tab"><action name="NextWindow"/></keybind>
+      <keybind key="C-A-Right"><action name="GoToDesktop"/></keybind>
+      <xi:include href="more.xml" xpointer="xpointer(/bindings/keybind)"/>
+    </keyboard>`,
+    "bindings/nested/more.xml": `<bindings>
+      <keybind key="A-F4"><action name="Close"/></keybind>
+      <keybind key="C-A-Plus"><action name="AddDesktopLast"/></keybind>
+    </bindings>`,
+    "menu.xml": `<openbox_menu xmlns:xi="http://www.w3.org/2001/XInclude">
+      <menu id="root-menu"><xi:include href="menu-items.xml"/></menu>
+    </openbox_menu>`,
+    "menu-items.xml": `<menu id="apps">
+      <item label="Terminal"><action name="Execute"><command>xterm</command></action></item>
+      <item label="Workspaces"><action name="ShowMenu"><menu>client-list-menu</menu></action></item>
+    </menu>`,
+  };
+  for (const [name, contents] of Object.entries(sources)) {
+    writeFileSync(join(sourceDir, name), contents);
+  }
+  const configDir = join(home, "generated");
+  const readXml = (path: string) =>
+    new DOMParser().parseFromString(
+      readFileSync(path, "utf8"),
+      "application/xml",
+    );
+  const config = readXml(
+    writeDesktopWindowManagerConfig(
+      configDir,
+      home,
+      writeDesktopWindowTheme(configDir, home),
+    ),
+  );
+  const include = (document: ReturnType<typeof readXml>) =>
+    document.getElementsByTagNameNS(
+      "http://www.w3.org/2001/XInclude",
+      "include",
+    )[0]!;
+  const keyboard = readXml(
+    fileURLToPath(include(config).getAttribute("href")!),
+  );
+  expect(keyboard.toString()).toContain('name="NextWindow"');
+  expect(keyboard.toString()).not.toContain('name="GoToDesktop"');
+  expect(include(keyboard).getAttribute("xpointer")).toBe(
+    "xpointer(/bindings/keybind)",
+  );
+  const nested = readXml(
+    fileURLToPath(include(keyboard).getAttribute("href")!),
+  );
+  expect(nested.toString()).toContain('name="Close"');
+  expect(nested.toString()).not.toContain('name="AddDesktopLast"');
+  const menu = readXml(config.getElementsByTagName("file")[0]!.textContent!);
+  const items = readXml(fileURLToPath(include(menu).getAttribute("href")!));
+  expect(items.toString()).toContain("xterm");
+  expect(items.toString()).not.toContain("client-list-menu");
+  for (const [name, contents] of Object.entries(sources)) {
+    expect(readFileSync(join(sourceDir, name), "utf8")).toBe(contents);
+  }
 });
