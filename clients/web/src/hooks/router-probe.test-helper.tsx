@@ -39,13 +39,15 @@ export function LocationProbe(): ReactElement {
  * Mirrors the router's location onto `window.location`, which a memory router
  * does not drive. The imperative route helpers (`currentPathname`,
  * `appIdForPath` readers, `closeAppRoute`, `dropAppFromRoute`) read the window,
- * so without this they see whatever path the suite last set by hand.
+ * so without this they see whatever path the suite last set by hand. The
+ * entry's state goes with it, under the `usr` key React Router keeps it on,
+ * for the helpers that decide by what the entry records.
  */
 export function LocationMirror(): null {
-  const { pathname, search } = useLocation();
+  const { pathname, search, state } = useLocation();
   useEffect(() => {
-    window.history.replaceState(null, "", pathname + search);
-  }, [pathname, search]);
+    window.history.replaceState({ usr: state ?? null }, "", pathname + search);
+  }, [pathname, search, state]);
   return null;
 }
 

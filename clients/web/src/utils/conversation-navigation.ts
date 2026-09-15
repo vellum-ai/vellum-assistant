@@ -287,6 +287,26 @@ export function navigateToNewConversation(
 }
 
 /**
+ * Leave the app entry on screen for `target`: back through the entry the open
+ * recorded ({@link appEntryState}) when this entry carries that recording, and
+ * otherwise a replace of the app's own entry. `forceReplace` takes the replace
+ * for a move with no gesture behind it.
+ */
+function leaveAppEntry(
+  navigate: PathNavigate,
+  appId: string,
+  target: string,
+  state: unknown,
+  forceReplace: boolean,
+): void {
+  if (!forceReplace && hasAppReturnEntry(state, appId, target)) {
+    void navigate(-1);
+    return;
+  }
+  void navigate(target, { replace: true });
+}
+
+/**
  * Close the app viewer: back through the entry the app was opened from when
  * one was recorded there ({@link appEntryState}), and otherwise a replace of
  * the app's own entry. The fallback covers a direct link, a reload that lost
@@ -319,15 +339,17 @@ export function closeAppRoute(
     useConversationStore.getState().setActiveConversationId(conversationId);
   }
   const target = routes.conversation(conversationId);
-  if (
-    options?.replace !== true &&
-    appId !== null &&
-    hasAppReturnEntry(options?.state, appId, target)
-  ) {
-    void navigate(-1);
+  if (appId === null) {
+    void navigate(target, { replace: true });
     return;
   }
-  void navigate(target, { replace: true });
+  leaveAppEntry(
+    navigate,
+    appId,
+    target,
+    options?.state,
+    options?.replace === true,
+  );
 }
 
 /**
@@ -353,16 +375,19 @@ export function navigateFromApp(
 
 /**
  * Take `appId`'s segment off the route, landing on the conversation the route
- * names. A no-op once the URL has moved on to another app. An `activeAppId`
- * still on the app means an overlay holds it, so the URL stands.
+ * names: back through the recorded opening entry when the entry carries one,
+ * and otherwise a replace of the app's own entry. A no-op once the URL has
+ * moved on to another app. An `activeAppId` still on the app means an overlay
+ * holds it, so the URL stands.
  *
  * `evenIfHeld` drops the segment while the viewer still holds the app, for a
  * caller that means the app to stay in memory behind what is in front of it.
+ * `replace` forces the replace for a drop with no gesture behind it.
  */
 export function dropAppFromRoute(
   navigate: PathNavigate,
   appId: string,
-  options?: { evenIfHeld?: boolean },
+  options?: { evenIfHeld?: boolean; replace?: boolean },
 ): void {
   if (
     options?.evenIfHeld !== true &&
@@ -378,5 +403,11 @@ export function dropAppFromRoute(
   if (conversationId === null) {
     return;
   }
-  void navigate(routes.conversation(conversationId), { replace: true });
+  leaveAppEntry(
+    navigate,
+    appId,
+    routes.conversation(conversationId),
+    currentEntryState(),
+    options?.replace === true,
+  );
 }

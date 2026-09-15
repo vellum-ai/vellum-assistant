@@ -193,7 +193,8 @@ export interface OpenAppFromChatOptions {
  *
  * Re-opening the app the URL already names has nowhere to navigate, so it
  * reloads in place, which is how an app the assistant rewrites picks up its
- * new HTML. A reload the viewer gives up on drops the app segment.
+ * new HTML. A reload the viewer gives up on drops the app segment, unless it
+ * joined a request someone else started, whose starter drops it instead.
  */
 export function useOpenAppFromChat(): (
   appId: string,
@@ -211,10 +212,16 @@ export function useOpenAppFromChat(): (
       haptic.light();
       if (appIdForPath(currentPathname()) === appId) {
         exitAppSplit();
-        const loaded = await useViewerStore
-          .getState()
-          .loadApp(assistantId, appId);
-        if (!loaded) {
+        const viewer = useViewerStore.getState();
+        const pending = viewer.appLoad;
+        const joined =
+          pending !== null &&
+          pending.assistantId === assistantId &&
+          pending.appId === appId;
+        const loaded = await viewer.loadApp(assistantId, appId);
+        // The caller that started the request owns the drop: both dropping
+        // pops twice, and the second pop lands an entry past the conversation.
+        if (!loaded && !joined) {
           dropAppFromRoute(navigate, appId);
         }
         return;

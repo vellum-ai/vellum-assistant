@@ -20,7 +20,8 @@
  * viewer, drops the split binding, and lands on the conversation URL without
  * the app segment. It pops back through the entry the open recorded when that
  * entry is the one behind this app, and replaces the app's own entry in every
- * other case.
+ * other case. `dropAppFromRoute` takes the same decision for a segment the
+ * viewer already let go of, reading the recording off the entry on screen.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -740,5 +741,65 @@ describe("dropAppFromRoute", () => {
     dropAppFromRoute(navigate, SAMPLE_APP.appId, { evenIfHeld: true });
 
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  test("pops the entry the open recorded", () => {
+    showPath(
+      routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId),
+      appEntryStateFor(OPEN_CONVERSATION),
+    );
+    const navigate = navigateDouble();
+
+    dropAppFromRoute(navigate, SAMPLE_APP.appId);
+
+    expect(navigate).toHaveBeenCalledWith(-1);
+  });
+
+  test("replaces when the recording names another conversation", () => {
+    showPath(
+      routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId),
+      appEntryStateFor("conv-other"),
+    );
+    const navigate = navigateDouble();
+
+    dropAppFromRoute(navigate, SAMPLE_APP.appId);
+
+    expect(navigate).toHaveBeenCalledWith(
+      routes.conversation(OPEN_CONVERSATION),
+      { replace: true },
+    );
+  });
+
+  test("replaces when the recording names another app", () => {
+    showPath(
+      routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId),
+      appEntryStateFor(OPEN_CONVERSATION, "app-2"),
+    );
+    const navigate = navigateDouble();
+
+    dropAppFromRoute(navigate, SAMPLE_APP.appId);
+
+    expect(navigate).toHaveBeenCalledWith(
+      routes.conversation(OPEN_CONVERSATION),
+      { replace: true },
+    );
+  });
+
+  test("replace forces the replace over a recorded entry", () => {
+    showOpenAppRoute({
+      conversationId: OPEN_CONVERSATION,
+      entryState: appEntryStateFor(OPEN_CONVERSATION),
+    });
+    const navigate = navigateDouble();
+
+    dropAppFromRoute(navigate, SAMPLE_APP.appId, {
+      evenIfHeld: true,
+      replace: true,
+    });
+
+    expect(navigate).toHaveBeenCalledWith(
+      routes.conversation(OPEN_CONVERSATION),
+      { replace: true },
+    );
   });
 });

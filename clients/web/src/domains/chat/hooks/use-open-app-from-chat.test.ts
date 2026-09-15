@@ -509,6 +509,68 @@ describe("useOpenAppFromChat", () => {
     expect(result.current.navigationType).toBe(NavigationType.Replace);
   });
 
+  test("leaves the drop to the request an in-place reload joined", async () => {
+    // GIVEN a load for this app already in flight, whose starter owns the drop
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    loadAppMock.mockImplementation(async () => {
+      useViewerStore.setState({
+        mainView: "chat",
+        activeAppId: null,
+        openedAppState: null,
+      });
+      return false;
+    });
+    useViewerStore.setState({
+      appLoad: {
+        assistantId: ASSISTANT_ID,
+        appId: APP_ID,
+        token: 1,
+        promise: Promise.resolve(false),
+      },
+    });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user clicks it again and the shared request gives up
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN this caller leaves the URL alone: dropping from both pops twice,
+    // and the second pop lands an entry past the conversation
+    expect(currentLocation().pathname).toBe(APP_PATH);
+  });
+
+  test("drops the app segment when the load in flight is for another app", async () => {
+    // GIVEN the request in flight names a different app, so this reload starts
+    // its own and owns the drop
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    loadAppMock.mockImplementation(async () => {
+      useViewerStore.setState({
+        mainView: "chat",
+        activeAppId: null,
+        openedAppState: null,
+      });
+      return false;
+    });
+    useViewerStore.setState({
+      appLoad: {
+        assistantId: ASSISTANT_ID,
+        appId: OTHER_APP_ID,
+        token: 1,
+        promise: Promise.resolve(false),
+      },
+    });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user clicks it again and it gives up
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the dead segment leaves the URL
+    expect(currentLocation().pathname).toBe(CHAT_PATH);
+  });
+
   test("drops the app segment from the conversation the user moved to", async () => {
     // GIVEN a reload of the app that is still in flight
     useConversationStore.setState({ activeConversationId: CONV_ID });

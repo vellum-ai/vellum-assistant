@@ -152,8 +152,9 @@ export function ActiveChatView() {
         }
         // An overlay hides the app, so only the URL is stale. Dropping the
         // segment leaves the release to the route sync, which keeps the
-        // overlay in front.
-        dropAppFromRoute(navigate, appId, { evenIfHeld: true });
+        // overlay in front. An unpin has no gesture behind it, so the entry is
+        // replaced rather than popped.
+        dropAppFromRoute(navigate, appId, { evenIfHeld: true, replace: true });
       },
       [navigate],
     ),

@@ -248,6 +248,77 @@ describe("app route history", () => {
     router.dispose();
   });
 
+  test("a failed load pops the entry the open recorded", async () => {
+    holdOpens = true;
+    const router = renderHistory([LIBRARY_PATH, CONVERSATION_PATH]);
+
+    click("Open app");
+    await waitFor(() => expect(pendingOpens).toHaveLength(1));
+    await act(async () => {
+      pendingOpens[0].reject();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(CONVERSATION_PATH),
+    );
+    expect(router.state.historyAction).toBe(NavigationType.Pop);
+
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.pathname).toBe(LIBRARY_PATH);
+
+    router.dispose();
+  });
+
+  test("a reload that joined the request in flight pops once", async () => {
+    holdOpens = true;
+    const router = renderHistory([LIBRARY_PATH, CONVERSATION_PATH]);
+
+    click("Open app");
+    await waitFor(() => expect(pendingOpens).toHaveLength(1));
+    // The second click lands on the app's own route, so it reloads in place
+    // and joins the request the route sync started.
+    click("Open app");
+    await waitFor(() =>
+      expect(useViewerStore.getState().appLoad).not.toBeNull(),
+    );
+    expect(openRequests).toBe(1);
+    expect(pendingOpens).toHaveLength(1);
+
+    await act(async () => {
+      pendingOpens[0].reject();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(CONVERSATION_PATH),
+    );
+    expect(router.state.historyAction).toBe(NavigationType.Pop);
+
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.pathname).toBe(LIBRARY_PATH);
+
+    router.dispose();
+  });
+
+  test("a failed load on a deep-linked app replaces its entry", async () => {
+    holdOpens = true;
+    const router = renderHistory([APP_PATH]);
+
+    await waitFor(() => expect(pendingOpens).toHaveLength(1));
+    await act(async () => {
+      pendingOpens[0].reject();
+      await Promise.resolve();
+    });
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(CONVERSATION_PATH),
+    );
+    expect(router.state.historyAction).toBe(NavigationType.Replace);
+
+    router.dispose();
+  });
+
   test("an abandoned request cannot close the app a newer one opened", async () => {
     holdOpens = true;
     const router = renderHistory([CONVERSATION_PATH]);
