@@ -14,6 +14,7 @@ interface DesktopSidebarFrameProps {
 
 export function DesktopSidebarFrame({ children }: DesktopSidebarFrameProps) {
   const { t } = useTranslation("chat");
+  const { t: tCommon } = useTranslation();
   const isMobile = useIsMobile();
   const close = useDesktopSidebarStore.use.close();
   const paneRef = useRef<HTMLElement>(null);
@@ -55,8 +56,8 @@ export function DesktopSidebarFrame({ children }: DesktopSidebarFrameProps) {
       <DetailShell
         Glyph={Monitor}
         title={t("assistantDesktop.title")}
-        closeLabel={t("common:sideListDrawer.closeSidebarAria")}
-        closeTooltip={t("common:sideListDrawer.closeAria")}
+        closeLabel={tCommon("sideListDrawer.closeSidebarAria")}
+        closeTooltip={tCommon("sideListDrawer.closeAria")}
         onClose={close}
       >
         {children}
