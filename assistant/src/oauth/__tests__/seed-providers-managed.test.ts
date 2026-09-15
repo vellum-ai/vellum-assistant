@@ -60,6 +60,16 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
       );
     }
 
+    // `folders:read` is documented too, but the app's scope picker only
+    // offers `folder_metadata:read` under Folders, so Figma answers
+    // "Invalid scopes for app" whenever it is requested.
+    expect(figma.defaultScopes).not.toContain("folders:read");
+    if (Array.isArray(availableScopes)) {
+      expect(availableScopes.map(({ scope }) => scope)).toContain(
+        "folders:read",
+      );
+    }
+
     // GET /v1/me backs both the ping and the identity label.
     expect(figma.defaultScopes).toContain("current_user:read");
   });

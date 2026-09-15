@@ -68,7 +68,7 @@ Tell the user:
 >    - `file_comments:write`
 >    - `file_dev_resources:read`
 >    - `file_dev_resources:write`
->    - `folders:read`
+>    - `file_code_connect:write`
 >    - `folder_metadata:read`
 >    - `library_content:read`
 >    - `library_assets:read`

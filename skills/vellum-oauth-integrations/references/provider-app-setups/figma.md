@@ -103,7 +103,7 @@ different, follow the CLI.
 > - `file_comments:write` - post and delete comments and comment reactions
 > - `file_dev_resources:read` - dev resources in files
 > - `file_dev_resources:write` - write dev resources to files
-> - `folders:read` - list folders and the files inside them
+> - `file_code_connect:write` - write and change component code (Code Connect)
 > - `folder_metadata:read` - metadata of folders
 > - `library_content:read` - published components and styles of files
 > - `library_assets:read` - data of individual published components and styles

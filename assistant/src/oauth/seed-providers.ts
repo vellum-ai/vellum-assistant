@@ -1003,7 +1003,11 @@ export const PROVIDER_SEED_DATA: Record<
     // default, because Figma rejects the whole authorization request if the
     // app cannot grant a requested scope. `selections:read` is withheld for
     // that same reason: it is not offered in the app's OAuth scope list, so
-    // requesting it would fail the entire authorization.
+    // requesting it would fail the entire authorization. `folders:read` is
+    // withheld likewise: Figma documents it, but the app's scope picker only
+    // offers `folder_metadata:read` under Folders. `file_code_connect:write`
+    // is requested because the managed app enables it; Figma marks it
+    // Organization-plan only.
     defaultScopes: [
       "current_user:read",
       "file_content:read",
@@ -1013,7 +1017,7 @@ export const PROVIDER_SEED_DATA: Record<
       "file_comments:write",
       "file_dev_resources:read",
       "file_dev_resources:write",
-      "folders:read",
+      "file_code_connect:write",
       "folder_metadata:read",
       "library_content:read",
       "library_assets:read",
@@ -1052,6 +1056,10 @@ export const PROVIDER_SEED_DATA: Record<
       {
         scope: "file_dev_resources:write",
         description: "Write dev resources to files",
+      },
+      {
+        scope: "file_code_connect:write",
+        description: "Write and change component code (Code Connect)",
       },
       {
         scope: "folders:read",
