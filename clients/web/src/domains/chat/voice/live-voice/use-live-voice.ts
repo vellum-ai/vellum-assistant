@@ -102,7 +102,10 @@ import type {
   LiveVoiceEntry,
   LiveVoiceSessionControlServerFrame,
 } from "@/domains/chat/voice/live-voice/protocol";
-import { applyLiveVoiceSessionControl } from "@/domains/chat/voice/live-voice/session-control";
+import {
+  applyLiveVoiceSessionControl,
+  liveVoiceSessionControls,
+} from "@/domains/chat/voice/live-voice/session-control";
 import { fixedT } from "@/i18n";
 import {
   isLiveVoiceSessionActive,
@@ -1632,6 +1635,7 @@ export function useLiveVoice(
         assistantId,
         conversationId,
         ...(session.entry ? { entry: session.entry } : {}),
+        sessionControls: liveVoiceSessionControls(assistantId, session.entry),
         ...(session.handsFree
           ? {
               turnDetection: "server_vad" as const,

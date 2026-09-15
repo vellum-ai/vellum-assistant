@@ -512,6 +512,14 @@ export interface LiveVoiceState {
    */
   screenShareTarget: WatchCaptureTarget | null;
   /**
+   * The user asked out loud for the call to look through the camera, and the
+   * voice room has not taken the ask yet. The camera is the room's (its hooks
+   * own the viewfinder and Live), and the room may not even be mounted when
+   * the ask lands, so the ask waits here for the room to take it. Taken once:
+   * a room that mounts later must not reopen the camera for an old ask.
+   */
+  cameraLookRequested: boolean;
+  /**
    * Whether the user has the mouse down on the shared surface, drawing.
    *
    * The reason it is here rather than left to the drawing itself: while it is
@@ -730,6 +738,8 @@ export interface LiveVoiceActions {
   setUtteranceOpen: (utteranceOpen: boolean) => void;
   /** Set or clear what the session is being shown. See `screenShareTarget`. */
   setScreenShareTarget: (screenShareTarget: WatchCaptureTarget | null) => void;
+  /** Raise or take the spoken camera ask. See `cameraLookRequested`. */
+  setCameraLookRequested: (cameraLookRequested: boolean) => void;
   /**
    * Record a mark the user is making on the shared surface: the hand going
    * down, or coming off with the strokes it left.
@@ -978,6 +988,7 @@ const INITIAL_SESSION_STATE: Omit<
   controls: null,
   utteranceOpen: false,
   screenShareTarget: null,
+  cameraLookRequested: false,
   shareDrawing: false,
   shareAnnotation: null,
   partialTranscript: "",
@@ -1287,6 +1298,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   setFirstRunCardOpen: (firstRunCardOpen) => set({ firstRunCardOpen }),
   setConfigNotice: (configNotice) => set({ configNotice }),
   setUtteranceOpen: (utteranceOpen) => set({ utteranceOpen }),
+  setCameraLookRequested: (cameraLookRequested) => set({ cameraLookRequested }),
   setScreenShareTarget: (screenShareTarget) =>
     set({
       screenShareTarget,
@@ -1608,6 +1620,29 @@ export function setLiveVoiceScreenShare(
     return;
   }
   state.setScreenShareTarget(target);
+}
+
+/**
+ * Ask the voice room to open the camera in Live, for a spoken "look at this".
+ * No-op without an active session. The room takes the ask with
+ * {@link takeLiveVoiceCameraLookRequest}.
+ */
+export function requestLiveVoiceCameraLook(): void {
+  const state = useLiveVoiceStore.getState();
+  if (!isLiveVoiceSessionActive(state.state) || state.sightFramesUnsupported) {
+    return;
+  }
+  state.setCameraLookRequested(true);
+}
+
+/** Take the pending camera ask, if any, so it is acted on exactly once. */
+export function takeLiveVoiceCameraLookRequest(): boolean {
+  const state = useLiveVoiceStore.getState();
+  if (!state.cameraLookRequested) {
+    return false;
+  }
+  state.setCameraLookRequested(false);
+  return true;
 }
 
 export function sendLiveVoiceSightFrame(

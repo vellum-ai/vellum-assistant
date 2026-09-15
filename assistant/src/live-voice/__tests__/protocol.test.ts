@@ -701,7 +701,7 @@ describe("parseLiveVoiceClientTextFrame", () => {
   test("keeps known session controls and drops unknown ones", () => {
     const result = validateLiveVoiceClientFrame({
       type: "start",
-      sessionControls: ["mute", "look_screen", "end", "mute", 7],
+      sessionControls: ["mute", "look_camera", "end", "mute", 7, "fly"],
       audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
     });
 
@@ -712,14 +712,14 @@ describe("parseLiveVoiceClientTextFrame", () => {
     // A newer client's controls cost it nothing on an older daemon.
     expect(result.frame).toMatchObject({
       type: "start",
-      sessionControls: ["end", "mute"],
+      sessionControls: ["end", "mute", "look_camera"],
     });
   });
 
   test.each([
     ["absent", {}],
     ["not an array", { sessionControls: "end" }],
-    ["all unknown", { sessionControls: ["look_screen"] }],
+    ["all unknown", { sessionControls: ["fly"] }],
   ])(
     "omits sessionControls from the start frame when %s",
     (_label, extra: Record<string, unknown>) => {

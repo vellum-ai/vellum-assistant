@@ -148,7 +148,11 @@ export interface LiveVoiceClientStartFrame {
 }
 
 /** A session control this client carries out on the assistant's behalf. */
-export type LiveVoiceSessionControl = "end" | "mute";
+export type LiveVoiceSessionControl =
+  | "end"
+  | "mute"
+  | "look_screen"
+  | "look_camera";
 
 export interface LiveVoiceClientPttReleaseFrame {
   readonly type: "ptt_release";
@@ -411,7 +415,9 @@ export interface LiveVoiceMinimizeRoomServerFrame extends LiveVoiceServerFrameBa
  * A session control the user asked for out loud: the completed reply ended
  * with a control marker, and its acknowledgement has been synthesized. Sent
  * after `tts_done`, so the client still waits for local playback to drain
- * before acting. `mute` with `durationMs` unmutes again once it elapses.
+ * before acting. `mute` with `durationMs` unmutes again once it elapses;
+ * `look_screen` and `look_camera` start showing the call the screen or the
+ * camera.
  *
  * The body is not validated by {@link parseServerFrame}; the handler treats
  * an unknown `action` or a malformed `durationMs` as nothing to do.

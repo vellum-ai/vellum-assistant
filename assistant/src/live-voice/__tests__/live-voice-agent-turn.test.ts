@@ -1043,6 +1043,28 @@ describe("LiveVoiceSession spoken session controls", () => {
     ).toMatchObject({ action: "mute", durationMs: 30_000 });
   });
 
+  test("a declared look sends its look control after the acknowledgement", async () => {
+    const { frames, session, getCallbacks } = createControlsHarness([
+      "look_screen",
+    ]);
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(
+      getCallbacks,
+      "Taking a look. What should I focus on? [LOOK:SCREEN]",
+    );
+    emitMessageComplete(getCallbacks);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "session_control"),
+    );
+
+    expect(
+      frames.find((frame) => frame.type === "session_control"),
+    ).toMatchObject({ action: "look_screen" });
+    // The marker is control, never caption text.
+    expect(assistantDeltaTexts(frames).join("").includes("[LOOK")).toBe(false);
+  });
+
   test("a control the client did not declare is never sent", async () => {
     const { frames, session, getCallbacks } = createControlsHarness(["mute"]);
 

@@ -149,6 +149,14 @@ export function setCompanionScreenShare(pick?: CompanionCapturePick): void {
 }
 
 /**
+ * Whether this shell can show a call the screen at all: the macOS app, whose
+ * bridge carries the share. Other shells, and a browser, answer no.
+ */
+export function canCompanionShareScreen(): boolean {
+  return typeof bridge()?.setScreenShare === "function";
+}
+
+/**
  * Let the user draw on the surface they are sharing, or give the mouse back
  * to the desktop.
  *

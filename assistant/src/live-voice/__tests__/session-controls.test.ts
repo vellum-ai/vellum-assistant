@@ -71,6 +71,31 @@ describe("sessionControlTeaching", () => {
     expect(teaching).toContain("Never emit any other bracketed marker.");
   });
 
+  test("a device that can show both asks which one a bare look means", () => {
+    const teaching = sessionControlTeaching(["look_screen", "look_camera"], {});
+
+    expect(teaching).toContain("[LOOK:SCREEN]");
+    expect(teaching).toContain("[LOOK:CAMERA]");
+    expect(teaching).toContain("ask which one instead of guessing");
+  });
+
+  test("a device that can show one look needs no question", () => {
+    const teaching = sessionControlTeaching(["look_camera"], {});
+
+    expect(teaching).toContain("[LOOK:CAMERA]");
+    expect(teaching).not.toContain("[LOOK:SCREEN]");
+    expect(teaching).not.toContain("ask which one");
+    expect(teaching).not.toContain("cannot turn on a screen share");
+  });
+
+  // The silent failure in the report this exists for: asked to look, the
+  // assistant neither looked nor said it could not.
+  test("a device that can show neither says so rather than pretending", () => {
+    expect(sessionControlTeaching(["end"], {})).toContain(
+      "This call cannot turn on a screen share or the camera.",
+    );
+  });
+
   test("the front-door leg keeps its verdict tokens", () => {
     expect(sessionControlTeaching(["end"], { frontDoor: true })).not.toContain(
       "Never emit any other bracketed marker.",

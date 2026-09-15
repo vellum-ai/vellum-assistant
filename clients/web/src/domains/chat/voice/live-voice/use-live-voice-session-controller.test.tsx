@@ -245,6 +245,7 @@ describe("starter registration", () => {
     await startListeningViaStarter(h, "conv-1");
 
     expect(h.lastClient().connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
@@ -273,6 +274,7 @@ describe("starter registration", () => {
     });
 
     expect(h.lastClient().connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: undefined,
       turnDetection: "server_vad",
@@ -306,6 +308,7 @@ describe("starter registration", () => {
     expect(draftId).toBeDefined();
     expect(draftId).not.toBe("conv-1");
     expect(h.lastClient().connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: draftId,
       turnDetection: "server_vad",
@@ -391,6 +394,7 @@ describe("re-draining on an assistant switch", () => {
     expect(draftId).toBeDefined();
     expect(h.clients).toHaveLength(1);
     expect(h.lastClient().connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-2",
       conversationId: draftId,
       turnDetection: "server_vad",
@@ -440,6 +444,7 @@ describe("re-draining on an assistant switch", () => {
     expect(draftId).toBeDefined();
     expect(h.clients).toHaveLength(1);
     expect(h.lastClient().connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-2",
       conversationId: draftId,
       turnDetection: "server_vad",

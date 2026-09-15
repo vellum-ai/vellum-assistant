@@ -1,8 +1,50 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
-import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { applyLiveVoiceSessionControl } from "@/domains/chat/voice/live-voice/session-control";
+import {
+  takeLiveVoiceCameraLookRequest,
+  useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  applyLiveVoiceSessionControl,
+  liveVoiceSessionControls,
+} from "@/domains/chat/voice/live-voice/session-control";
+import { MIN_VERSION as SIGHT_STREAM_MIN_VERSION } from "@/lib/backwards-compat/use-supports-sight-stream";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+
+const ASSISTANT_ID = "assistant-1";
+
+/** An assistant that takes frames, as the looks need. */
+function withSightStreamAssistant(): void {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Test", SIGHT_STREAM_MIN_VERSION, ASSISTANT_ID);
+  useLiveVoiceStore.getState().setSessionContext(ASSISTANT_ID, null);
+}
+
+/** The macOS app's bridge, as far as the share needs it. */
+function withShareBridge() {
+  const setScreenShare = mock((_pick?: unknown) => {});
+  (window as unknown as { vellum?: unknown }).vellum = {
+    platform: "electron",
+    companion: { setScreenShare },
+  };
+  return setScreenShare;
+}
+
+function withVisionMode(value: string): void {
+  useClientFeatureFlagStore
+    .getState()
+    .setStringFlags({ visionMode: value }, null);
+}
+
+function withCamera(): void {
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: { getUserMedia: async () => new MediaStream() },
+  });
+}
 
 /** Controls whose mute writes the store, as the real controller does. */
 function registerControls() {
@@ -21,6 +63,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 beforeEach(() => {
+  // An assistant too old for frames until a case says otherwise.
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("Test", "0.0.1", ASSISTANT_ID);
   useLiveVoiceStore.getState().reset();
   useLiveVoiceStore.getState().setState("listening");
 });
@@ -29,6 +75,8 @@ afterEach(() => {
   // Ending cancels any timer a case left behind.
   applyLiveVoiceSessionControl({ action: "end" });
   useLiveVoiceStore.getState().setControls(null);
+  delete (window as unknown as { vellum?: unknown }).vellum;
+  withVisionMode("off");
 });
 
 describe("applyLiveVoiceSessionControl", () => {
@@ -111,4 +159,91 @@ describe("applyLiveVoiceSessionControl", () => {
       expect(useLiveVoiceStore.getState().muted).toBe(true);
     },
   );
+});
+
+describe("look controls", () => {
+  test("a screen look shares the display under the pointer", () => {
+    withSightStreamAssistant();
+    const setScreenShare = withShareBridge();
+
+    applyLiveVoiceSessionControl({ action: "look_screen" });
+
+    expect(setScreenShare.mock.calls).toEqual([[{ kind: "pointerDisplay" }]]);
+  });
+
+  test("a screen look leaves a running share alone", () => {
+    withSightStreamAssistant();
+    const setScreenShare = withShareBridge();
+    useLiveVoiceStore
+      .getState()
+      .setScreenShareTarget({ kind: "display", displayId: 1 } as never);
+
+    applyLiveVoiceSessionControl({ action: "look_screen" });
+
+    expect(setScreenShare).not.toHaveBeenCalled();
+  });
+
+  test("a camera look leaves one ask for the room, taken once", () => {
+    applyLiveVoiceSessionControl({ action: "look_camera" });
+
+    expect(takeLiveVoiceCameraLookRequest()).toBe(true);
+    // A room that mounts later must not reopen the camera for the same ask.
+    expect(takeLiveVoiceCameraLookRequest()).toBe(false);
+  });
+});
+
+describe("liveVoiceSessionControls", () => {
+  test("end and mute only, for an assistant that cannot take frames", () => {
+    withShareBridge();
+    withVisionMode("on");
+    withCamera();
+
+    expect(liveVoiceSessionControls(ASSISTANT_ID, "composer")).toEqual([
+      "end",
+      "mute",
+    ]);
+  });
+
+  test("the macOS app's chat call can be shown the screen and the camera", () => {
+    withSightStreamAssistant();
+    withShareBridge();
+    withVisionMode("on");
+    withCamera();
+
+    expect(liveVoiceSessionControls(ASSISTANT_ID, "composer")).toEqual([
+      "end",
+      "mute",
+      "look_screen",
+      "look_camera",
+    ]);
+  });
+
+  test("a companion call has no room, so no camera", () => {
+    withSightStreamAssistant();
+    withShareBridge();
+    withVisionMode("on");
+    withCamera();
+
+    expect(liveVoiceSessionControls(ASSISTANT_ID, "companion")).toEqual([
+      "end",
+      "mute",
+      "look_screen",
+    ]);
+  });
+
+  test("a browser gets the camera behind the vision flag", () => {
+    withSightStreamAssistant();
+    withCamera();
+
+    expect(liveVoiceSessionControls(ASSISTANT_ID, "composer")).toEqual([
+      "end",
+      "mute",
+    ]);
+    withVisionMode("on");
+    expect(liveVoiceSessionControls(ASSISTANT_ID, "composer")).toEqual([
+      "end",
+      "mute",
+      "look_camera",
+    ]);
+  });
 });

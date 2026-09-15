@@ -1,6 +1,8 @@
 import {
   END_CALL_MARKER,
   FEWER_UPDATES_MARKER,
+  LOOK_CAMERA_MARKER,
+  LOOK_SCREEN_MARKER,
   MUTE_MARKER,
   NORMAL_UPDATES_MARKER,
   parseTerminalSessionControl,
@@ -24,6 +26,8 @@ import type { LiveVoiceSessionControl } from "./protocol.js";
 
 const CLIENT_CONTROL_LINES: Record<LiveVoiceSessionControl, string> = {
   end: `- To end the call (for example "I'm all done" or "okay, I'm gonna go"), say a brief goodbye, then end your reply with ${END_CALL_MARKER}. Being done with a task is not the same as leaving the call; end only when they are leaving.`,
+  look_screen: `- To look at their screen (for example "take a look at my screen" or "can you see what I'm looking at?"), say you are taking a look, then end your reply with ${LOOK_SCREEN_MARKER}. Their screen starts being shared with you once you finish speaking, so you cannot describe it yet: ask what they want you to look at, or say you will take it from their next words.`,
+  look_camera: `- To look through their camera (for example "look at this" or "can you see this?" while they hold something up), say you are taking a look, then end your reply with ${LOOK_CAMERA_MARKER}. The camera turns on once you finish speaking, so you cannot describe what it sees yet: ask them to show you, or say you will take it from their next words.`,
   mute: `- To mute their microphone (for example "mute for 30 seconds" or "mute yourself, I need to take this"), confirm in a few words, then end your reply with [MUTE:<seconds>] when they gave a duration or ${MUTE_MARKER} when they did not. While muted you cannot hear them, so mention they can unmute from the call controls unless the mute is timed.`,
 };
 
@@ -47,9 +51,31 @@ export function sessionControlTeaching(
   return [
     "The user can also control this call by asking you. Only when they clearly ask:",
     ...controls.map((control) => CLIENT_CONTROL_LINES[control]),
+    ...lookGuidance(controls),
     UPDATES_LINE,
     `The marker must be the very last thing in your reply. It is never spoken and does nothing anywhere else.${leg.frontDoor === true ? "" : " Never emit any other bracketed marker."}`,
   ].join("\n");
+}
+
+/**
+ * What to say about looking beyond the per-control lines: ask which when the
+ * device can do both and the request does not say, and say so plainly when it
+ * can do neither, rather than failing silently.
+ */
+function lookGuidance(controls: readonly LiveVoiceSessionControl[]): string[] {
+  const screen = controls.includes("look_screen");
+  const camera = controls.includes("look_camera");
+  if (screen && camera) {
+    return [
+      `- If they just say "take a look" and it is not clear whether they mean their screen or their camera, ask which one instead of guessing, and use no marker until they answer.`,
+    ];
+  }
+  if (!screen && !camera) {
+    return [
+      "- This call cannot turn on a screen share or the camera. If they ask you to look at their screen or at something and you have no other way to see it, say so briefly instead of pretending to look.",
+    ];
+  }
+  return [];
 }
 
 /** A session control the client carries out, sent as a `session_control` frame. */

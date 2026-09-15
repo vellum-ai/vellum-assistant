@@ -146,6 +146,7 @@ import {
   minimizeVoiceRoom,
   setLiveVoiceMuted,
   setLiveVoiceOutputMuted,
+  takeLiveVoiceCameraLookRequest,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { FrameGateHud } from "@/domains/chat/frame-gate-hud";
@@ -755,6 +756,32 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     }
     setLive(false);
   }, [roomVisible, setLive]);
+  // A spoken "look at this": the session left the ask in the store because the
+  // camera is this room's, and the room may have been minimized or not yet
+  // mounted when it landed. Taken the moment the room sees it, so a room that
+  // mounts later never reopens the camera for an old ask; Live follows once
+  // the viewfinder is up, since Live on a closed camera is forced back off.
+  const cameraLookRequested = useLiveVoiceStore.use.cameraLookRequested();
+  const [liveOnceOpen, setLiveOnceOpen] = useState(false);
+  useEffect(() => {
+    if (!cameraLookRequested || !takeLiveVoiceCameraLookRequest()) {
+      return;
+    }
+    if (!cameraSupported) {
+      return;
+    }
+    setLiveOnceOpen(true);
+    if (!cameraOpen) {
+      void open();
+    }
+  }, [cameraLookRequested, cameraSupported, cameraOpen, open]);
+  useEffect(() => {
+    if (!liveOnceOpen || !cameraOpen || !liveAvailable) {
+      return;
+    }
+    setLiveOnceOpen(false);
+    setLive(true);
+  }, [liveOnceOpen, cameraOpen, liveAvailable, setLive]);
   // One value for what the camera is doing, read by the pill, the shutter, the
   // hint and the announcement alike, so no two of them can disagree about it.
   const cameraMode = live ? "live" : "photo";

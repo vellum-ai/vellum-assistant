@@ -29,6 +29,7 @@ import {
   LIVE_VOICE_AUDIO_FORMAT,
   type LiveVoiceMetricsServerFrame,
   type LiveVoiceMinimizeRoomServerFrame,
+  type LiveVoiceSessionControl,
   type LiveVoiceSessionControlServerFrame,
   type LiveVoiceReadyServerFrame,
   type LiveVoiceSpeechStartedServerFrame,
@@ -260,7 +261,22 @@ export interface LiveVoiceConnectArgs {
    * means the daemon reports the session's entry point as unknown.
    */
   entry?: LiveVoiceEntry;
+  /**
+   * The session controls this client can carry out, sent on the `start`
+   * frame. Omitted means end and mute, which every surface can do; the looks
+   * depend on the device, so the caller works those out.
+   */
+  sessionControls?: readonly LiveVoiceSessionControl[];
 }
+
+/**
+ * What every surface this client runs on (web, the macOS app, iOS) can carry
+ * out: end and mute go through the same store controls everywhere.
+ */
+const DEFAULT_SESSION_CONTROLS: readonly LiveVoiceSessionControl[] = [
+  "end",
+  "mute",
+];
 
 /** Factory so tests can inject a mock WebSocket. Defaults to the global. */
 export type WebSocketFactory = (url: string) => WebSocket;
@@ -290,6 +306,8 @@ export class LiveVoiceChannelClient {
   private silenceThresholdMs: number | undefined;
   private bargeInMinSpeechMs: number | undefined;
   private entry: LiveVoiceEntry | undefined;
+  private sessionControls: readonly LiveVoiceSessionControl[] =
+    DEFAULT_SESSION_CONTROLS;
   // Set once an assistant running daemon code older than the `update_config`
   // frame rejects it with `unknown_type`. We then stop sending config updates
   // for this session so an older assistant is neither killed nor spammed by the
@@ -371,6 +389,7 @@ export class LiveVoiceChannelClient {
     silenceThresholdMs,
     bargeInMinSpeechMs,
     entry,
+    sessionControls,
   }: LiveVoiceConnectArgs): Promise<void> {
     if (this.state !== "idle") {
       return;
@@ -381,6 +400,7 @@ export class LiveVoiceChannelClient {
     this.silenceThresholdMs = silenceThresholdMs;
     this.bargeInMinSpeechMs = bargeInMinSpeechMs;
     this.entry = entry;
+    this.sessionControls = sessionControls ?? DEFAULT_SESSION_CONTROLS;
 
     let url: string;
     try {
@@ -609,9 +629,7 @@ export class LiveVoiceChannelClient {
       // session outright with `credentials_unavailable`, which is precisely
       // the outcome the text-only path exists to avoid.
       textInput: true,
-      // Unconditional too: every surface this client runs on (web, the macOS
-      // app, iOS) ends and mutes through the same store controls.
-      sessionControls: ["end", "mute"],
+      sessionControls: this.sessionControls,
       ...(this.entry ? { entry: this.entry } : {}),
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),

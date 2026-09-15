@@ -1,21 +1,81 @@
 /**
  * Carries out a session control the user asked for out loud ("okay, I'm
- * gonna go", "mute for 30 seconds"). The assistant decides; this only acts,
- * through the same store controls the end and mute buttons use, so a spoken
- * mute and a pressed one are the same mute.
+ * gonna go", "mute for 30 seconds", "take a look at my screen"). The
+ * assistant decides; this only acts, through the same paths the buttons use,
+ * so a spoken mute and a pressed one are the same mute and a spoken share is
+ * the same share as Option+S.
  *
  * The timed unmute lives here rather than in the assistant because a muted
  * mic sends silence: nothing upstream can hear the user ask to unmute, so the
  * timer has to be the client's.
  */
 
-import type { LiveVoiceSessionControlServerFrame } from "@/domains/chat/voice/live-voice/protocol";
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
+  requestLiveVoiceCameraLook,
+  restoreVoiceRoom,
   setLiveVoiceMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type {
+  LiveVoiceEntry,
+  LiveVoiceSessionControl,
+  LiveVoiceSessionControlServerFrame,
+} from "@/domains/chat/voice/live-voice/protocol";
+import { liveVoiceCanBeShownTheScreen } from "@/domains/chat/voice/live-voice/screen-share-availability";
+import { isVoiceCameraSupported } from "@/domains/chat/voice/voice-room/voice-camera";
+import { isVisionModeOn } from "@/hooks/use-vision-mode-flag";
+import { supportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
+import {
+  canCompanionShareScreen,
+  setCompanionScreenShare,
+} from "@/runtime/companion-surface";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+
+/**
+ * Entries whose call has no voice room: the companion's pill and the voice
+ * key. The camera is the room's, so a call started from one of these cannot
+ * be shown the camera without putting a room in front of the user.
+ */
+const ROOMLESS_ENTRIES: ReadonlySet<LiveVoiceEntry> = new Set([
+  "companion",
+  "voice_key",
+  "voice_key_ask",
+]);
+
+/**
+ * The controls a session about to start can carry out, for its start frame.
+ *
+ * End and mute everywhere. The looks by device: the screen where the shell
+ * can share it (the macOS app), the camera where the room can run Live (the
+ * vision flag, a camera, and a call that has a room). A macOS call from the
+ * chat gets both and the assistant asks which; iOS and a browser get the
+ * camera; the companion gets the screen. Both looks need an assistant that
+ * takes frames at all.
+ */
+export function liveVoiceSessionControls(
+  assistantId: string,
+  entry: LiveVoiceEntry | undefined,
+): LiveVoiceSessionControl[] {
+  const controls: LiveVoiceSessionControl[] = ["end", "mute"];
+  if (!supportsSightStream(assistantId)) {
+    return controls;
+  }
+  if (canCompanionShareScreen()) {
+    controls.push("look_screen");
+  }
+  const visionMode =
+    useClientFeatureFlagStore.getState().stringFlags.visionMode ?? "off";
+  if (
+    isVisionModeOn(visionMode) &&
+    isVoiceCameraSupported() &&
+    (entry === undefined || !ROOMLESS_ENTRIES.has(entry))
+  ) {
+    controls.push("look_camera");
+  }
+  return controls;
+}
 
 interface TimedUnmute {
   readonly timer: ReturnType<typeof setTimeout>;
@@ -102,6 +162,22 @@ export function applyLiveVoiceSessionControl(
       }
       return;
     }
+    case "look_screen":
+      // The screen under the pointer, as Option+S shares it. Where the mouse
+      // is belongs to the host at the moment the ask lands. A share already
+      // running is left alone: the user asked to be seen, and they are.
+      if (
+        liveVoiceCanBeShownTheScreen() &&
+        useLiveVoiceStore.getState().screenShareTarget === null
+      ) {
+        setCompanionScreenShare({ kind: "pointerDisplay" });
+      }
+      return;
+    case "look_camera":
+      // The room owns the camera, so bring it back and leave the ask for it.
+      restoreVoiceRoom();
+      requestLiveVoiceCameraLook();
+      return;
     default:
       // A control this client does not know; nothing to do.
       return;
