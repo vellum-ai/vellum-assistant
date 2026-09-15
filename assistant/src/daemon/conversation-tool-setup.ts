@@ -1147,7 +1147,8 @@ export function createResolveToolsCallback(
     // UI definitions stay identical across channel and background turns.
     // Channel renderers enforce their supported surface subset at execution,
     // while background calls persist the full surface content for the next
-    // capable client that opens the conversation.
+    // capable client that opens the conversation. Skill tools stay off this
+    // list (`skill_execute` dispatch) and are a separate disclosure path.
     let allBaseDefs = [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
       (d) => !excluded.has(d.name),
     );

@@ -1,12 +1,15 @@
 /**
- * Per-conversation wire projections of the UI surface tool definitions.
+ * Conversation-stable wire projections of the UI surface tool definitions.
  *
- * Surface definitions stay identical across channels and background turns.
- * A channel's renderer validates the surface it can display when ui_show or
- * ui_update executes, while background turns persist surface content for the
- * next capable client that opens the conversation. Activation-rail
- * conversations alone receive the optional `activation_moment` telemetry
- * parameter because that per-conversation state is stable.
+ * `ui_show`, `ui_update`, and `ui_dismiss` keep one definition across every
+ * channel and across live vs clientless turns. Channel renderers enforce the
+ * surfaces they can display at execution. Clientless calls persist surface
+ * content for the next capable client that opens the conversation.
+ *
+ * `activation_moment` is the remaining schema projection. It applies only to
+ * activation-rail conversations, whose marker is written before the first
+ * tool resolution, so the extra property is stable for that conversation's
+ * lifetime. It must not vary by channel or turn presence.
  */
 
 import type { ToolDefinition } from "../../providers/types.js";
@@ -21,7 +24,7 @@ const ACTIVATION_MOMENT_PROPERTY = {
 
 /**
  * Add the optional `activation_moment` param to ui_show's schema. Applied
- * only for activation-rail conversations (`isActivationSession`) — the rail
+ * only for activation-rail conversations (`isActivationSession`). The rail
  * bootstrap prompt instructs the tagging, and the daemon's emit path reads
  * the tag from tool input independently of this schema.
  */

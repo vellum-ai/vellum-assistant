@@ -819,6 +819,10 @@ export function applySightFrameRetention(
  * `null` on the happy path (desktop, full capabilities, no special context)
  * where no block is injected. Split from {@link injectChannelCapabilityContext}
  * so callers can capture the exact injected text for metadata persistence.
+ *
+ * Live vs clientless guidance belongs here, not in tool schemas. Tool
+ * definitions stay identical so the tools cache prefix can reuse; this block
+ * sits later in the system prompt and can describe the current turn.
  */
 export function buildChannelCapabilityBlock(
   caps: ChannelCapabilities,
@@ -879,18 +883,20 @@ export function buildChannelCapabilityBlock(
         lines.push(
           "- ui_show, ui_update, and ui_dismiss persist conversation content for the next capable client that opens this conversation. Do not claim a surface is visible now or wait for an action.",
         );
-      } else if (caps.channel === "slack") {
-        lines.push(
-          '- Do NOT use app_create. Only use ui_show/ui_update for card surfaces with template: "task_progress"; present all other information as text.',
-        );
       } else {
+        if (caps.channel === "slack") {
+          lines.push(
+            '- Do NOT use app_create. Only use ui_show/ui_update for card surfaces with template: "task_progress"; present all other information as text.',
+          );
+        } else {
+          lines.push(
+            "- Do NOT use ui_show, ui_update, or app_create. This channel cannot render them.",
+          );
+        }
         lines.push(
-          "- Do NOT use ui_show, ui_update, or app_create — this channel cannot render them.",
+          "- Present information as well-formatted text instead of dynamic UI.",
         );
       }
-      lines.push(
-        "- Present information as well-formatted text instead of dynamic UI.",
-      );
     }
     if (caps.channel === "whatsapp") {
       lines.push(

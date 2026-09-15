@@ -588,19 +588,30 @@ describe("injectChannelCapabilityContext", () => {
   });
 
   test("guides non-interactive turns to persist UI for a later capable client", () => {
-    const caps: ChannelCapabilities = {
+    const slack: ChannelCapabilities = {
       channel: "slack",
       dashboardCapable: false,
       supportsDynamicUi: false,
       supportsVoiceInput: false,
     };
+    const phone: ChannelCapabilities = {
+      channel: "phone",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
 
-    const text = buildChannelCapabilityBlock(caps, undefined, true)!;
-    expect(text).toContain(
-      "ui_show, ui_update, and ui_dismiss persist conversation content",
-    );
-    expect(text).not.toContain("Only use ui_show/ui_update");
-    expect(text).not.toContain("Do NOT use ui_show, ui_update, or app_create");
+    for (const caps of [slack, phone]) {
+      const text = buildChannelCapabilityBlock(caps, undefined, true)!;
+      expect(text).toContain(
+        "ui_show, ui_update, and ui_dismiss persist conversation content",
+      );
+      expect(text).not.toContain("Only use ui_show/ui_update");
+      expect(text).not.toContain("Do NOT use ui_show, ui_update, or app_create");
+      expect(text).not.toContain(
+        "Present information as well-formatted text instead of dynamic UI.",
+      );
+    }
   });
 
   test("keeps blanket ui_show/ui_update prohibition for other non-dynamic channels", () => {

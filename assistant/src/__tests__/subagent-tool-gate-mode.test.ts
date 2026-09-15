@@ -250,43 +250,54 @@ describe("createResolveToolsCallback — toolContextPin", () => {
     });
   }
 
-  test("Slack turns keep the same full ui_show schema while surfaces persist", () => {
+  test("Slack and desktop turns keep the same full ui_show schema while surfaces persist", () => {
     projectedSkillToolNames = [];
-    const liveResolve = createResolveToolsCallback(
+    const slackCaps = {
+      channel: "slack" as const,
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+    const desktopCaps = {
+      channel: "macos" as const,
+      dashboardCapable: true,
+      supportsDynamicUi: true,
+      supportsVoiceInput: true,
+    };
+    const liveSlackResolve = createResolveToolsCallback(
       [uiShowTool],
       makeProjectionCtx({
         hasNoClient: false,
-        channelCapabilities: {
-          channel: "slack",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-        },
+        channelCapabilities: slackCaps,
       }),
     )!;
-    const clientlessResolve = createResolveToolsCallback(
+    const clientlessSlackResolve = createResolveToolsCallback(
       [uiShowTool],
       clientlessExecutionCtx({
-        channelCapabilities: {
-          channel: "slack",
-          dashboardCapable: false,
-          supportsDynamicUi: false,
-          supportsVoiceInput: false,
-        },
+        channelCapabilities: slackCaps,
+      }),
+    )!;
+    const liveDesktopResolve = createResolveToolsCallback(
+      [uiShowTool],
+      makeProjectionCtx({
+        hasNoClient: false,
+        channelCapabilities: desktopCaps,
       }),
     )!;
 
-    const [liveUiShow] = liveResolve(EMPTY_HISTORY);
-    const [clientlessUiShow] = clientlessResolve(EMPTY_HISTORY);
-    expect(liveUiShow).toEqual(clientlessUiShow);
+    const [liveSlackUiShow] = liveSlackResolve(EMPTY_HISTORY);
+    const [clientlessSlackUiShow] = clientlessSlackResolve(EMPTY_HISTORY);
+    const [liveDesktopUiShow] = liveDesktopResolve(EMPTY_HISTORY);
+    expect(liveSlackUiShow).toEqual(clientlessSlackUiShow);
+    expect(liveSlackUiShow).toEqual(liveDesktopUiShow);
     expect(
       (
-        liveUiShow.input_schema as {
+        liveSlackUiShow.input_schema as {
           properties: { surface_type: { enum: string[] } };
         }
       ).properties.surface_type.enum,
     ).toContain("choice");
-    expect(liveUiShow.description).toContain("dynamic_page");
+    expect(liveSlackUiShow.description).toContain("dynamic_page");
   });
 
   test("control: without a pin, a clientless fork drops client-gated tools but keeps host and UI tools", () => {
