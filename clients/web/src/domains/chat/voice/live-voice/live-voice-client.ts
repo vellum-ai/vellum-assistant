@@ -29,6 +29,7 @@ import {
   LIVE_VOICE_AUDIO_FORMAT,
   type LiveVoiceMetricsServerFrame,
   type LiveVoiceMinimizeRoomServerFrame,
+  type LiveVoiceSessionControlServerFrame,
   type LiveVoiceReadyServerFrame,
   type LiveVoiceSpeechStartedServerFrame,
   type LiveVoiceSttFinalServerFrame,
@@ -200,6 +201,8 @@ export interface LiveVoiceClientEventMap {
   turnCancelled: LiveVoiceTurnCancelledServerFrame;
   /** The completed turn asked the client to dismiss the full-screen room. */
   minimizeRoom: LiveVoiceMinimizeRoomServerFrame;
+  /** The user asked out loud to end the call or mute (see session-control.ts). */
+  sessionControl: LiveVoiceSessionControlServerFrame;
   metrics: LiveVoiceMetricsServerFrame;
   archived: LiveVoiceArchivedServerFrame;
   /**
@@ -316,6 +319,7 @@ export class LiveVoiceChannelClient {
     ttsDone: new Set(),
     turnCancelled: new Set(),
     minimizeRoom: new Set(),
+    sessionControl: new Set(),
     metrics: new Set(),
     archived: new Set(),
     attachImageRejected: new Set(),
@@ -605,6 +609,9 @@ export class LiveVoiceChannelClient {
       // session outright with `credentials_unavailable`, which is precisely
       // the outcome the text-only path exists to avoid.
       textInput: true,
+      // Unconditional too: every surface this client runs on (web, the macOS
+      // app, iOS) ends and mutes through the same store controls.
+      sessionControls: ["end", "mute"],
       ...(this.entry ? { entry: this.entry } : {}),
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
@@ -679,6 +686,9 @@ export class LiveVoiceChannelClient {
         return;
       case "minimize_room":
         this.emit("minimizeRoom", frame);
+        return;
+      case "session_control":
+        this.emit("sessionControl", frame);
         return;
       case "metrics":
         this.emit("metrics", frame);

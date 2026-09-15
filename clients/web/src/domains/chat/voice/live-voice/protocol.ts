@@ -138,7 +138,17 @@ export interface LiveVoiceClientStartFrame {
    * back on `ready` as `audioInput: false`.
    */
   readonly textInput?: boolean;
+  /**
+   * The session controls this client carries out when a reply asks for one
+   * (see {@link LiveVoiceSessionControlServerFrame}). The assistant is taught
+   * only these, so it never says it ended a call this client cannot end.
+   * An older assistant ignores the field and never sends the frame.
+   */
+  readonly sessionControls?: readonly LiveVoiceSessionControl[];
 }
+
+/** A session control this client carries out on the assistant's behalf. */
+export type LiveVoiceSessionControl = "end" | "mute";
 
 export interface LiveVoiceClientPttReleaseFrame {
   readonly type: "ptt_release";
@@ -226,6 +236,7 @@ const LIVE_VOICE_SERVER_FRAME_TYPES = [
   "tts_done",
   "turn_cancelled",
   "minimize_room",
+  "session_control",
   "metrics",
   "archived",
   "error",
@@ -396,6 +407,22 @@ export interface LiveVoiceMinimizeRoomServerFrame extends LiveVoiceServerFrameBa
   readonly turnId: string;
 }
 
+/**
+ * A session control the user asked for out loud: the completed reply ended
+ * with a control marker, and its acknowledgement has been synthesized. Sent
+ * after `tts_done`, so the client still waits for local playback to drain
+ * before acting. `mute` with `durationMs` unmutes again once it elapses.
+ *
+ * The body is not validated by {@link parseServerFrame}; the handler treats
+ * an unknown `action` or a malformed `durationMs` as nothing to do.
+ */
+export interface LiveVoiceSessionControlServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "session_control";
+  readonly turnId: string;
+  readonly action: LiveVoiceSessionControl;
+  readonly durationMs?: number;
+}
+
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
   /**
@@ -504,6 +531,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceTtsDoneServerFrame
   | LiveVoiceTurnCancelledServerFrame
   | LiveVoiceMinimizeRoomServerFrame
+  | LiveVoiceSessionControlServerFrame
   | LiveVoiceMetricsServerFrame
   | LiveVoiceArchivedServerFrame
   | LiveVoiceErrorServerFrame;

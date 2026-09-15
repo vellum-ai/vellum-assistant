@@ -99,6 +99,7 @@ import {
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
 import type { LiveVoiceEntry } from "@/domains/chat/voice/live-voice/protocol";
+import { applyLiveVoiceSessionControl } from "@/domains/chat/voice/live-voice/session-control";
 import { fixedT } from "@/i18n";
 import {
   isLiveVoiceSessionActive,
@@ -1315,6 +1316,20 @@ export function useLiveVoice(
             // other route) this is a no-op — minimizeVoiceRoom() is an
             // idempotent store write.
             minimizeVoiceRoom();
+          });
+        }),
+        client.on("sessionControl", (frame) => {
+          if (!live()) {
+            return;
+          }
+          // The user asked out loud to end or mute. Same local drain as the
+          // minimize above: the goodbye or the "muting you" is heard in full
+          // before the call ends or the mic goes quiet.
+          void session.player.waitUntilDrained().then(() => {
+            if (!live()) {
+              return;
+            }
+            applyLiveVoiceSessionControl(frame);
           });
         }),
         client.on("turnCancelled", () => {
