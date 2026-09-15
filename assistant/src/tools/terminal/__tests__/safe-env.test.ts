@@ -50,6 +50,17 @@ describe("safe-env Qdrant forwarding", () => {
   });
 });
 
+describe("safe-env plugin skill grant stripping", () => {
+  test("does not forward a parent-supplied plugin skill invocation grant", () => {
+    expect(SAFE_ENV_VARS).not.toContain("VELLUM_PLUGIN_SKILL_INVOCATION");
+
+    const env = buildSanitizedEnv("linux", {
+      VELLUM_PLUGIN_SKILL_INVOCATION: "psk1.deadbeef.forgedsecret",
+    });
+    expect(env.VELLUM_PLUGIN_SKILL_INVOCATION).toBeUndefined();
+  });
+});
+
 describe("safe-env CES child forwarding", () => {
   test("forwards CES HTTP credentials so sanitized children can resolve managed connections", () => {
     expect(SAFE_ENV_VARS).toContain("CES_SERVICE_TOKEN");

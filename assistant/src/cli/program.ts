@@ -39,6 +39,7 @@ import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPendingCommand } from "./commands/pending.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerPluginsCommand } from "./commands/plugins.js";
+import { registerPluginSkillCommand } from "./commands/plugin-skill.js";
 import { registerPsCommand } from "./commands/ps.js";
 import { registerRoadmapCommand } from "./commands/roadmap.js";
 import { registerRoutesCommand } from "./commands/routes.js";
@@ -136,6 +137,7 @@ Examples:
   registerPendingCommand(program);
   registerPlatformCommand(program);
   registerPluginsCommand(program);
+  registerPluginSkillCommand(program);
   registerMonitoringCommand(program);
   registerPsCommand(program);
   registerRoadmapCommand(program);

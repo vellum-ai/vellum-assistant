@@ -70,6 +70,21 @@ beforeAll(async () => {
 }`,
     "utf-8",
   );
+
+  await writeFile(
+    join(tempDir, "grant-echo.ts"),
+    `export async function run() {
+  const token = process.env.VELLUM_PLUGIN_SKILL_INVOCATION ?? "";
+  return {
+    content: JSON.stringify({
+      hasGrant: token.startsWith("psk1."),
+      pluginName: process.env.VELLUM_PLUGIN_NAME ?? null,
+    }),
+    isError: false,
+  };
+}`,
+    "utf-8",
+  );
 });
 
 afterAll(async () => {
@@ -112,6 +127,29 @@ describe("runSkillToolScript sandbox — success", () => {
     expect(parsed.input).toEqual({ foo: "bar" });
     expect(parsed.workingDir).toBe("/my/project");
     expect(parsed.conversationId).toBe("sess-42");
+  }, 15_000);
+
+  test("issues a plugin skill grant for a plugin-owned skill tool", async () => {
+    const result = await runSkillToolScript(
+      tempDir,
+      "grant-echo.ts",
+      {},
+      makeContext(),
+      {
+        target: "sandbox",
+        pluginOwner: "psk-demo",
+        skillId: "psk-demo-skill",
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content) as {
+      hasGrant: boolean;
+      pluginName: string | null;
+    };
+    expect(parsed.hasGrant).toBe(true);
+    expect(parsed.pluginName).toBeNull();
+    expect(result.content).not.toContain("psk1.");
   }, 15_000);
 });
 

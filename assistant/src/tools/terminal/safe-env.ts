@@ -100,6 +100,10 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MINIKUBE_STORAGE_SIZE",
   "VELLUM_BACKUP_DIR",
   "VELLUM_BACKUP_KEY_PATH",
+  // VELLUM_PLUGIN_SKILL_INVOCATION is intentionally absent. The daemon
+  // injects a short-lived grant after sanitizing the child environment.
+  // Inheriting a parent-supplied value would let an arbitrary process
+  // claim plugin skill authority.
 ] as const;
 
 export const WINDOWS_SAFE_ENV_VARS = [

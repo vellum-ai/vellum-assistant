@@ -169,10 +169,12 @@ export { publishEvent } from "./publish-event.js";
 // `inputModalities.image` override winning when set (mix profiles are
 // vision-capable if any arm is). Returns false when nothing resolves.
 export { doesSupportVision } from "./vision-support.js";
-// Resolve a stored credential to its plaintext value — the same value
-// `assistant credentials reveal` prints — from a UUID or a "service/field"
+// Resolve a stored credential to its plaintext value (the same value
+// `assistant credentials reveal` prints) from a UUID or a "service/field"
 // reference. When a plugin is in context, resolution is scoped to credentials
-// whose service matches the plugin's manifest name; outside any plugin it is
+// whose service matches the plugin's runtime name. A plugin-resident skill
+// script or skill-tool child presents a daemon-issued invocation grant and is
+// scoped the same way. Outside any plugin context or grant the resolver is
 // unscoped. Throws CredentialResolutionError when the ref does not resolve, the
 // store is unreachable, or the credential is out of the plugin's scope.
 export {

@@ -67,6 +67,7 @@ import { DOCUMENTS_SYNC_IPC_METHODS } from "./routes/documents-sync-ipc-routes.j
 import { EVENTS_IPC_METHODS } from "./routes/events-ipc-routes.js";
 import { GUARDIAN_LABEL_IPC_METHODS } from "./routes/guardian-label-ipc-routes.js";
 import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
+import { PLUGIN_SKILL_IPC_METHODS } from "./routes/plugin-skill-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
@@ -222,6 +223,7 @@ export class AssistantIpcServer {
       DOCUMENTS_SYNC_IPC_METHODS,
       ACTIVATION_SYNC_IPC_METHODS,
       EVENTS_IPC_METHODS,
+      PLUGIN_SKILL_IPC_METHODS,
     ]) {
       for (const [operationId, handler] of Object.entries(methodMap)) {
         this.methods.set(operationId, handler);

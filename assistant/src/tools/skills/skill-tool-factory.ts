@@ -32,6 +32,8 @@ export function createSkillTool(
   skillDir: string,
   versionHash: string,
   bundled?: boolean,
+  pluginOwner?: string,
+  skillId?: string,
 ): Tool {
   return {
     name: entry.name,
@@ -96,6 +98,8 @@ export function createSkillTool(
           target: entry.execution_target,
           expectedSkillVersionHash: versionHash,
           bundled,
+          pluginOwner,
+          skillId,
         },
       );
     },
@@ -113,8 +117,17 @@ export function createSkillToolsFromManifest(
   skillDir: string,
   versionHash: string,
   bundled?: boolean,
+  pluginOwner?: string,
+  skillId?: string,
 ): Tool[] {
   return entries.map((entry) =>
-    createSkillTool(entry, skillDir, versionHash, bundled),
+    createSkillTool(
+      entry,
+      skillDir,
+      versionHash,
+      bundled,
+      pluginOwner,
+      skillId,
+    ),
   );
 }

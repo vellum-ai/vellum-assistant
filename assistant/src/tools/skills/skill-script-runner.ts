@@ -24,6 +24,14 @@ export interface RunSkillToolScriptOptions {
    *  with `execution_target: host` (in-process); non-bundled skills are forced to
    *  execute in the sandbox. */
   bundled?: boolean;
+  /**
+   * Catalog owner id when this skill is plugin-resident. The sandbox runner
+   * issues a conversation-bound grant so the child can resolve credentials
+   * under that plugin's service. Never taken from the child or TOOLS.json.
+   */
+  pluginOwner?: string;
+  /** Skill id that projected this tool, recorded on the grant. */
+  skillId?: string;
 }
 
 /**
@@ -42,6 +50,8 @@ export async function runSkillToolScript(
       timeoutMs: options.timeoutMs,
       expectedSkillVersionHash: options.expectedSkillVersionHash,
       skillDirHashResolver: options.skillDirHashResolver,
+      pluginOwner: options.pluginOwner,
+      skillId: options.skillId,
     });
   }
 

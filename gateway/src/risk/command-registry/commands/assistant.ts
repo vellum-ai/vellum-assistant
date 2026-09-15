@@ -356,6 +356,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "plugins upgrade",
   "plugins enable",
   "plugins disable",
+  "plugin-skill",
+  "plugin-skill run",
 ] as const;
 
 interface AssistantRiskOverride {
@@ -956,6 +958,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "medium",
     reason:
       "Disables a plugin by creating a .disabled sentinel file in the workspace",
+  },
+  {
+    path: "plugin-skill run",
+    risk: "high",
+    reason:
+      "Executes plugin-resident skill code with scoped credential access",
   },
   {
     path: "plugins enable",
