@@ -1,7 +1,10 @@
 import { z } from "zod";
 
-import { getAcpSessionManager } from "../../acp/index.js";
-import type { AcpSessionState } from "../../acp/types.js";
+import {
+  type AcpSessionSnapshot,
+  getAcpSessionSnapshot,
+  listAcpSessionSnapshots,
+} from "../../acp/session-snapshot.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -24,31 +27,46 @@ export const acpStatusInputSchema = z.looseObject({
  * `AcpSessionState` for those surfaces should not reach this one by default.
  * `model` stays: which model a session is running on is answerable.
  */
-function projectSession(state: AcpSessionState) {
+function projectSession(snapshot: AcpSessionSnapshot) {
+  const fromHistory = snapshot.source === "history";
+  const idle =
+    fromHistory &&
+    snapshot.status === "completed" &&
+    snapshot.stopReason !== "cancelled" &&
+    snapshot.resumable;
+  const latestUsage =
+    snapshot.usedTokens !== undefined && snapshot.contextSize !== undefined
+      ? {
+          usedTokens: snapshot.usedTokens,
+          contextSize: snapshot.contextSize,
+          costAmount: snapshot.costAmount,
+          costCurrency: snapshot.costCurrency,
+          inputTokens: snapshot.inputTokens,
+          outputTokens: snapshot.outputTokens,
+        }
+      : undefined;
   return {
-    id: state.id,
-    agentId: state.agentId,
-    acpSessionId: state.acpSessionId,
-    parentConversationId: state.parentConversationId,
-    status: state.status,
-    startedAt: state.startedAt,
-    completedAt: state.completedAt,
-    error: state.error,
-    stopReason: state.stopReason,
-    task: state.task,
-    parentToolUseId: state.parentToolUseId,
-    authErrorCode: state.authErrorCode,
-    authErrorCredential: state.authErrorCredential,
-    latestUsage: state.latestUsage,
-    model: state.model,
+    id: snapshot.id,
+    agentId: snapshot.agentId,
+    acpSessionId: snapshot.acpSessionId,
+    parentConversationId: snapshot.parentConversationId,
+    status: idle ? "idle" : snapshot.status,
+    startedAt: snapshot.startedAt,
+    completedAt: snapshot.completedAt ?? undefined,
+    error: snapshot.error ?? undefined,
+    stopReason: snapshot.stopReason ?? undefined,
+    task: snapshot.task,
+    parentToolUseId: snapshot.parentToolUseId,
+    authErrorCode: snapshot.authErrorCode,
+    latestUsage,
+    model: snapshot.model,
+    ...(fromHistory
+      ? {
+          resumable: snapshot.resumable,
+          lastRunStatus: snapshot.status,
+        }
+      : {}),
   };
-}
-
-/** Projects either shape `getStatus` answers with. */
-function projectStatus(status: AcpSessionState | AcpSessionState[]): unknown {
-  return Array.isArray(status)
-    ? status.map(projectSession)
-    : projectSession(status);
 }
 
 export async function executeAcpStatus(
@@ -60,24 +78,33 @@ export async function executeAcpStatus(
     return invalidToolInputResult("acp_status", parsedInput.error);
   }
   const acpSessionId = parsedInput.data.acp_session_id;
-  const manager = getAcpSessionManager();
-
   try {
     if (acpSessionId) {
+      const snapshot = getAcpSessionSnapshot(acpSessionId, {
+        includeEventLog: false,
+      });
+      if (!snapshot) {
+        return {
+          content: `ACP session "${acpSessionId}" not found`,
+          isError: true,
+        };
+      }
       return {
-        content: JSON.stringify(projectStatus(manager.getStatus(acpSessionId))),
+        content: JSON.stringify(projectSession(snapshot)),
         isError: false,
       };
     }
 
-    // List all sessions.
-    const allStates = manager.getStatus();
-    if (Array.isArray(allStates) && allStates.length === 0) {
+    const snapshots = listAcpSessionSnapshots({
+      limit: 50,
+      includeEventLog: false,
+    }).sessions.slice(0, 50);
+    if (snapshots.length === 0) {
       return { content: "No ACP sessions found.", isError: false };
     }
 
     return {
-      content: JSON.stringify(projectStatus(allStates)),
+      content: JSON.stringify(snapshots.map(projectSession)),
       isError: false,
     };
   } catch (err) {

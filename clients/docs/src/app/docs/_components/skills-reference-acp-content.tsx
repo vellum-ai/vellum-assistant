@@ -103,7 +103,7 @@ export function SkillsReferenceACPContent() {
                   <td className="px-3 py-2">
                     &ldquo;Check on my coding agent&rdquo;
                   </td>
-                  <td className="px-3 py-2">Gets agent status</td>
+                  <td className="px-3 py-2">Gets active or resumable idle agent status</td>
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
@@ -123,7 +123,7 @@ export function SkillsReferenceACPContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>Supports multiple external development tools (Claude Code, Codex, Gemini CLI)</li>
             <li>Agents run as separate processes with their own context</li>
-            <li>Status tracking: pending, running, completed, failed, aborted</li>
+            <li>Status checks include running sessions and completed sessions that are idle and resumable</li>
           </ul>
         </section>
 
@@ -148,6 +148,11 @@ export function SkillsReferenceACPContent() {
             <li>
               <strong>Coordinated results.</strong> Your assistant coordinates with the agent and
               reports back results.
+            </li>
+            <li>
+              <strong>Keep iterating in context.</strong> Completed sessions with durable resume
+              metadata remain discoverable as idle. Follow-up work attempts to reuse the same
+              session instead of starting a new agent and losing its prior context.
             </li>
             <li>
               <strong>Choose the right agent.</strong> Claude Code for general development, Codex for
