@@ -1540,8 +1540,10 @@ export const PROVIDER_SEED_DATA: Record<
     // authenticate the client with HTTP Basic.
     refreshUrl: "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
     tokenEndpointAuthMethod: "client_secret_basic",
-    revokeUrl: "https://developer.api.intuit.com/v2/oauth2/tokens/revoke",
-    revokeBodyTemplate: { token: "{access_token}" },
+    // No revokeUrl: Intuit's revocation endpoint wants a JSON body under HTTP
+    // Basic client auth, and the daemon's revoke helper only posts an
+    // unauthenticated form body, so a seeded URL would fail silently on every
+    // your-own disconnect. The platform registry revokes managed tokens itself.
     // Every Accounting API path is scoped to the company (realm) the user
     // picked on Intuit's consent screen. The realm arrives only as the
     // callback's `realmId` query parameter; the platform captures it into the
@@ -1550,9 +1552,10 @@ export const PROVIDER_SEED_DATA: Record<
     // (`/query`, `/customer/123`). Production and sandbox keys use different
     // hosts; the platform picks the host per environment.
     baseUrl: "https://quickbooks.api.intuit.com/v3/company/{realm_id}",
-    pingUrl:
-      "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}",
-    pingHeaders: { Accept: "application/json" },
+    // No pingUrl: the only company-independent probe would still need the
+    // realm in its path, which the ping route cannot fill in (it sends the
+    // URL's origin as a per-request base override, which would also pin a
+    // managed sandbox connection to the production host).
     displayLabel: "QuickBooks",
     description: "Invoices, customers, vendors, and accounting data",
     dashboardUrl: "https://developer.intuit.com/app/developer/dashboard",

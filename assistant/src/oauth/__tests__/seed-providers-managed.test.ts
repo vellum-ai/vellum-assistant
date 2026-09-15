@@ -229,13 +229,19 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     // connection; a hardcoded realm here would send every company's calls
     // to the wrong books.
     const quickbooks = PROVIDER_SEED_DATA.quickbooks;
-    for (const url of [
-      quickbooks.baseUrl,
-      quickbooks.pingUrl,
-      quickbooks.identityUrl,
-    ]) {
+    for (const url of [quickbooks.baseUrl, quickbooks.identityUrl]) {
       expect(url).toContain("/v3/company/{realm_id}");
     }
+  });
+
+  test("quickbooks seeds no ping or revoke URL", () => {
+    // The ping route sends the URL's origin as a base override and cannot
+    // fill {realm_id}; the daemon's revoke helper posts an unauthenticated
+    // form body that Intuit's JSON + Basic-auth endpoint rejects. Either
+    // would fail silently on every your-own connection.
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    expect(quickbooks.pingUrl).toBeUndefined();
+    expect(quickbooks.revokeUrl).toBeUndefined();
   });
 
   test("quickbooks requests only the accounting scope by default", () => {

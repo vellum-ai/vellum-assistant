@@ -6,7 +6,7 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 
 - **Provider key:** `quickbooks`
 - **Dashboard:** `https://developer.intuit.com/app/developer/dashboard`
-- **Ping URL:** `https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}`
+- **Ping URL:** none (every probe needs the company id in its path)
 - **Callback transport:** Loopback (port 17342)
 - **Requires secret:** Yes (token endpoint authenticates with HTTP Basic client credentials)
 - **Managed mode:** Supported
@@ -31,9 +31,9 @@ QuickBooks scopes every Accounting API call to one **company** (Intuit calls it
 a realm). The user picks the company on Intuit's consent screen, and the API
 path carries its id: `/v3/company/<realmId>/...`.
 
-- **Managed connections** remember the company. `assistant oauth connections list --provider quickbooks --json`
-  shows it as `providerParams.realm_id`, and the account label is the company
-  name. Requests are sent **relative to the company**, because the platform
+- **Managed connections** remember the company. `assistant oauth status quickbooks --json`
+  lists it under each connection as `providerParams.realm_id`, and the
+  account label is the company name. Requests are sent **relative to the company**, because the platform
   fills `https://quickbooks.api.intuit.com/v3/company/<realmId>` in for you:
 
   ```bash
