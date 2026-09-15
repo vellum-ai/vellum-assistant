@@ -16,7 +16,6 @@ import {
   COMPANION_PICKER_VOICES,
 } from "@vellumai/ipc-contract";
 
-import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import {
   closeCompanionPicker,
@@ -31,6 +30,7 @@ import {
   groupVoicesByAccent,
   voiceTraitsLabel,
 } from "@/lib/tts/managed-voice-catalog";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   getPreferredInputDeviceId,
   listVoiceInputDevices,
@@ -110,11 +110,22 @@ export function useCompanionPickers(): void {
     };
   }, [microphonesOpen]);
 
-  const activeAssistantId = useActiveAssistantId();
-  // Handed no assistant while the picker is closed, which leaves its queries
-  // off for the rest of the app's life.
+  // Read raw rather than through `useActiveAssistantId`: this runs in the
+  // root layout, where welcome and onboarding have no assistant yet.
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const inCall = useLiveVoiceStore((state) =>
+    isLiveVoiceSessionActive(state.state),
+  );
+  // Handed an assistant only during a call, which is when the call bar asks
+  // whether there are voices to offer. Off the call its queries stay off.
   const { available, voices, currentModel, defaultModel, selectModel } =
-    useManagedVoiceSelection(voicesOpen ? activeAssistantId : null);
+    useManagedVoiceSelection(inCall ? activeAssistantId : null);
+
+  // Whether the voice chevron has anything to open: an assistant on its own
+  // speech provider, or a daemon without voice selection, has no catalog.
+  useEffect(() => {
+    useCompanionPopoverStore.setState({ voicesPickable: inCall && available });
+  }, [inCall, available]);
 
   useEffect(() => {
     if (!voicesOpen || !available) {

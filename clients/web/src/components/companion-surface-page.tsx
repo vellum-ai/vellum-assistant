@@ -166,6 +166,9 @@ export function CompanionSurfacePage() {
   // What the assistant is putting in front of the user, and how main has it
   // shown. A call's bar carries the short form as a row of its own, and counts
   // what was put off. The whole of it is the popover's own window.
+  // Whether the call's assistant has voices to pick from, so the voice
+  // chevron is drawn only when it has something to open.
+  const [voicesPickable, setVoicesPickable] = useState(false);
   const [popover, setPopover] = useState<CompanionPopoverContent | undefined>(
     undefined,
   );
@@ -313,6 +316,7 @@ export function CompanionSurfacePage() {
       setWatchRetro(state.watchRetro);
       setDictationOffer(state.dictationOffer);
       setPopover(state.popover);
+      setVoicesPickable(state.voicesPickable === true);
       setPopoverView(state.popoverView);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
@@ -1045,6 +1049,7 @@ export function CompanionSurfacePage() {
             ? popover.kind
             : undefined
         }
+        voicesPickable={voicesPickable}
         onPicker={
           companionHasPickers()
             ? (picker) => {

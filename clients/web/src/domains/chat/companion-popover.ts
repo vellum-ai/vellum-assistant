@@ -59,6 +59,8 @@ interface CompanionPopoverState {
    * its own speech provider has no catalog to pick from.
    */
   voices: CompanionVoices | null;
+  /** Whether the call's assistant has voices to pick from. */
+  voicesPickable: boolean;
 }
 
 export interface CompanionMicrophones {
@@ -79,6 +81,7 @@ export const useCompanionPopoverStore = create<CompanionPopoverState>()(() => ({
   openPicker: null,
   microphones: null,
   voices: null,
+  voicesPickable: false,
 }));
 
 /** Open a picker, or close it when it is the one open. */

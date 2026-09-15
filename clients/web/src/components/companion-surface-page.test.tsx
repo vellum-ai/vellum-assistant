@@ -99,6 +99,7 @@ const resetState = () => {
   delete STATE.captureTarget;
   delete STATE.screenShare;
   delete STATE.screenShareEnabled;
+  delete STATE.voicesPickable;
   STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
@@ -2441,7 +2442,7 @@ describe("the pickers on the call's bar", () => {
     ).find((button) => button.closest("[inert]") === null) ?? null;
 
   test("a chevron opens its picker, and reads held while it is showing", async () => {
-    Object.assign(STATE, { call: LISTENING_CALL });
+    Object.assign(STATE, { call: LISTENING_CALL, voicesPickable: true });
     const { container } = render(<CompanionSurfacePage />);
 
     const mic = await waitFor(() => {
@@ -2459,6 +2460,7 @@ describe("the pickers on the call's bar", () => {
     pushState({
       ...STATE,
       call: LISTENING_CALL,
+      voicesPickable: true,
       popover: {
         kind: "microphones",
         id: "microphones",
@@ -2474,6 +2476,20 @@ describe("the pickers on the call's bar", () => {
     expect(
       chevronOf(container, "Choose voice")!.getAttribute("aria-pressed"),
     ).toBe("false");
+  });
+
+  test("draws no voice chevron when there are no voices to pick", async () => {
+    Object.assign(STATE, { call: LISTENING_CALL });
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      if (chevronOf(container, "Choose microphone") === null) {
+        throw new Error("Expected the microphone chevron");
+      }
+    });
+    expect(chevronOf(container, "Choose voice")).toBeNull();
+
+    pushState({ ...STATE, call: LISTENING_CALL, voicesPickable: true });
+    expect(chevronOf(container, "Choose voice")).not.toBeNull();
   });
 
   test("is not drawn for a shell with nowhere to send the press", async () => {

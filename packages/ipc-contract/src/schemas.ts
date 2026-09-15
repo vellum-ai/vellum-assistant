@@ -536,6 +536,7 @@ export const companionContextSchema = z.object({
   // a popover that fails its bounds is one the surface does not draw, which
   // must not cost the rest of the context.
   popover: companionPopoverSchema.optional().catch(undefined),
+  voicesPickable: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------

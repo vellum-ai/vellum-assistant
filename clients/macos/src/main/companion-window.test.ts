@@ -3384,6 +3384,57 @@ describe("the popover beside the surface", () => {
     expect(state().popover).toEqual(ONE);
   });
 
+  /** Several voices are tried in a row, so a pick leaves the list up. */
+  test("keeps the voice picker up after a pick, and passes the pick on", () => {
+    const VOICES = {
+      kind: "voices" as const,
+      id: "voices",
+      groups: [
+        {
+          accent: "American",
+          voices: [
+            { id: "aura-1", label: "Warm", sampleUrl: "", isDefault: true },
+            { id: "aura-2", label: "Bright", sampleUrl: "", isDefault: false },
+          ],
+        },
+      ],
+      selected: "aura-1",
+    };
+    send("vellum:companion:setContext", context({ popover: VOICES }));
+
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "pick", optionId: "aura-2" },
+      "voices",
+    );
+
+    expect(state().popover).toEqual(VOICES);
+    expect(dispatched).toEqual([
+      {
+        kind: "answerCompanionPopover",
+        popoverId: "voices",
+        answer: { kind: "pick", optionId: "aura-2" },
+      },
+    ]);
+  });
+
+  test("a chevron's press opens its picker in the window holding the call", () => {
+    send("vellum:companion:togglePicker", "microphones");
+
+    expect(dispatched).toEqual([
+      { kind: "toggleCompanionPicker", picker: "microphones" },
+    ]);
+    expect(windowsRaised).toBe(0);
+  });
+
+  test("the voice chevron follows what the window publishes", () => {
+    send("vellum:companion:setContext", context({ voicesPickable: true }));
+    expect(state().voicesPickable).toBe(true);
+
+    send("vellum:companion:setContext", context());
+    expect(state().voicesPickable).toBe(false);
+  });
+
   test("an answer travels without raising the app", () => {
     send("vellum:companion:setContext", context({ popover: ONE }));
 

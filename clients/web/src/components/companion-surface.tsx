@@ -755,6 +755,11 @@ export interface CompanionSurfaceProps {
    * its chevron reads as held open.
    */
   openPicker?: CompanionPicker;
+  /**
+   * Whether the assistant has voices to pick from. Without a catalog the
+   * voice chevron would open nothing, so it is not drawn.
+   */
+  voicesPickable?: boolean;
   /** A chevron pressed: open that picker in the popover, or close it. */
   onPicker?: (picker: CompanionPicker) => void;
   /**
@@ -955,6 +960,7 @@ export function CompanionSurface({
   marked = false,
   onClearMarks,
   openPicker,
+  voicesPickable = false,
   onPicker,
   shortcuts,
   onAvatarClick,
@@ -1465,6 +1471,7 @@ export function CompanionSurface({
                   onAnnotate={onAnnotate}
                   onClearMarks={onClearMarks}
                   openPicker={openPicker}
+                  voicesPickable={voicesPickable}
                   onPicker={onPicker}
                   pickerSide={
                     vertical ? (dock === "left" ? "right" : "left") : dock === "top" ? "below" : "above"
@@ -2312,6 +2319,7 @@ function CallBody({
   onAnnotate,
   onClearMarks,
   openPicker,
+  voicesPickable,
   onPicker,
   pickerSide,
   shortcuts,
@@ -2347,6 +2355,7 @@ function CallBody({
   onAnnotate?: (annotating: boolean) => void;
   onClearMarks?: () => void;
   openPicker?: CompanionPicker;
+  voicesPickable: boolean;
   onPicker?: (picker: CompanionPicker) => void;
   /** Where the popover a chevron opens hangs from the bar, which it points at. */
   pickerSide: DrawToolsPlacement;
@@ -2509,13 +2518,15 @@ function CallBody({
           );
         }}
       />
-      <PickerChevron
-        picker="voices"
-        label={t("companionSurface.chooseVoice")}
-        side={pickerSide}
-        open={openPicker === "voices"}
-        onPicker={onPicker}
-      />
+      {voicesPickable ? (
+        <PickerChevron
+          picker="voices"
+          label={t("companionSurface.chooseVoice")}
+          side={pickerSide}
+          open={openPicker === "voices"}
+          onPicker={onPicker}
+        />
+      ) : null}
       <EndCallButton onControl={onControl} />
     </>
   );

@@ -2260,6 +2260,11 @@ export interface CompanionContext {
    * something. Absent when there is nothing. See {@link CompanionPopover}.
    */
   popover?: CompanionPopover;
+  /**
+   * Whether the call's assistant has managed voices to pick from, so the call
+   * bar draws its voice chevron. Absent is a publisher that predates it.
+   */
+  voicesPickable?: boolean;
 }
 
 /**
@@ -2447,6 +2452,8 @@ export interface CompanionSurfaceState {
    * while something is. See {@link CompanionPopover}.
    */
   popover?: CompanionPopover;
+  /** Whether the call bar's voice chevron has a catalog to open. */
+  voicesPickable?: boolean;
   /** How the popover is being shown, while there is one. */
   popoverView?: CompanionPopoverView;
 

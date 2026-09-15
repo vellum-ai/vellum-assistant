@@ -706,6 +706,9 @@ const currentState = (): CompanionSurfaceState => {
     dictationOffer: context.dictationOffer,
     // Passed through as it arrived, for the reason `dictationOffer` is.
     popover: currentPopover(),
+    // Settled the way `watching` is: a chevron offered on an unknown answer
+    // opens nothing.
+    voicesPickable: context.voicesPickable === true,
     // Main's own: the call's bar and the popover's window both draw it.
     popoverView: currentPopoverView(),
     // Settled the same way, and to zero rather than to anything carried over:
@@ -3226,7 +3229,12 @@ export const installCompanionWindow = (): void => {
       if ("itemId" in answer) {
         holdAnswered(answer.itemId);
         pushState();
-      } else if (answer.kind !== "open" && shown !== undefined) {
+      } else if (
+        answer.kind !== "open" &&
+        shown !== undefined &&
+        // A voice pick leaves the list up, so several can be tried in a row.
+        !(answer.kind === "pick" && shown.kind === "voices")
+      ) {
         holdAnswered(shown.id);
         pushState();
       }
@@ -3582,6 +3590,7 @@ export const installCompanionWindow = (): void => {
       dictationOffer: undefined,
       // So does the popover: its answers are acted on in that window.
       popover: undefined,
+      voicesPickable: false,
     };
     syncWatchFrame();
     pushState();
