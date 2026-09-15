@@ -107,6 +107,51 @@ describe("testInferenceConnection", () => {
     expect(calls[0].body).not.toHaveProperty(OPENCODE_SESSION_HEADER);
   });
 
+  test("probes /responses for an OpenCode responses-only model", async () => {
+    const calls: ProbeCall[] = [];
+    const result = await testInferenceConnection(
+      {
+        provider: "opencode",
+        auth: { type: "none" },
+        baseUrl: "https://opencode.ai/zen/v1",
+        models: [{ id: "muse-spark-1.2-contributor-free" }],
+      },
+      stubFetch(200, calls),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      resolved_url: "https://opencode.ai/zen/v1/responses",
+    });
+    expect(calls[0].body).toMatchObject({
+      model: "muse-spark-1.2-contributor-free",
+      input: "ping",
+      max_output_tokens: 16,
+    });
+    expect(calls[0].headers[OPENCODE_SESSION_HEADER]).toBeTruthy();
+  });
+
+  test("keeps other OpenCode models on /chat/completions", async () => {
+    const calls: ProbeCall[] = [];
+    const result = await testInferenceConnection(
+      {
+        provider: "opencode",
+        auth: { type: "none" },
+        baseUrl: "https://opencode.ai/zen/v1",
+        models: [{ id: "mimo-v2.5-free" }],
+      },
+      stubFetch(200, calls),
+    );
+
+    expect(result?.resolved_url).toBe(
+      "https://opencode.ai/zen/v1/chat/completions",
+    );
+    expect(calls[0].body).toMatchObject({
+      model: "mimo-v2.5-free",
+      max_tokens: 1,
+    });
+  });
+
   test("does not send OpenCode headers to other providers", async () => {
     const calls: ProbeCall[] = [];
     await testInferenceConnection(CONNECTION, stubFetch(200, calls));
