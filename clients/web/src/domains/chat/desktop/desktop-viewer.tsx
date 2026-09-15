@@ -81,7 +81,7 @@ export function DesktopViewer({
     <div className="relative h-full w-full" data-testid="desktop-panel">
       <div
         ref={containerRef}
-        className="h-full w-full overflow-hidden [&_canvas]:rounded-lg"
+        className="h-full w-full overflow-hidden"
         data-testid="desktop-panel-viewport"
       />
       {state.kind === "connected" ? null : (
