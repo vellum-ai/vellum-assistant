@@ -1,5 +1,5 @@
 import { Button } from "@vellumai/design-library";
-import { ChevronsRight, Monitor } from "lucide-react";
+import { Monitor } from "lucide-react";
 
 import { useTranslation } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -25,7 +25,8 @@ export function AssistantDesktopAffordance() {
   return (
     <Button
       variant="ghost"
-      iconOnly={open ? <ChevronsRight /> : <Monitor />}
+      active={open}
+      iconOnly={<Monitor />}
       aria-label={label}
       tooltip={label}
       aria-expanded={open}
