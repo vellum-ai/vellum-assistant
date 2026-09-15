@@ -26,7 +26,10 @@ import { type ReactNode, createRef } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
-import { useConversationStore } from "@/stores/conversation-store";
+import {
+  readStoredDraftReplacements,
+  useConversationStore,
+} from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
   SAMPLE_APP,
@@ -258,6 +261,7 @@ beforeEach(() => {
     draftReplacements: new Map(),
   });
   localStorage.clear();
+  sessionStorage.clear();
   stubDaemon();
 });
 
@@ -646,6 +650,24 @@ describe("a URL naming a retired draft", () => {
     await waitFor(() => {
       expect(navigateMock).toHaveBeenCalledWith(
         routes.conversation("conv-server-1", SAMPLE_APP.appId),
+        { replace: true },
+      );
+    });
+  });
+
+  test("redirects after a reload, which keeps the entry but not the store", async () => {
+    /* The reload's store is seeded from the tab's storage alone: an empty key
+       would leave this assignment with nothing to redirect. */
+    useConversationStore.setState({
+      draftReplacements: readStoredDraftReplacements(),
+    });
+    showPath(routes.conversation("draft-1"));
+
+    renderColdBoot(new QueryClient(), "draft-1");
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        routes.conversation("conv-server-1"),
         { replace: true },
       );
     });
