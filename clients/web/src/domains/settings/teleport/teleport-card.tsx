@@ -4,8 +4,9 @@
  * hosting environments (local / Docker / cloud), preserving the source until
  * the new one is confirmed working.
  *
- * Rendered only when the `teleport` client feature flag is on AND the client is
- * the Electron host (gated by the caller in `general-page.tsx`).
+ * Only the Electron host renders it (gated by the caller in `general-page.tsx`).
+ * Platform-to-local teleport is GA; local-to-platform stays behind the
+ * `teleport` client feature flag.
  */
 
 import { CheckCircle2, Loader2 } from "lucide-react";
@@ -13,6 +14,7 @@ import { CheckCircle2, Loader2 } from "lucide-react";
 import { DetailCard } from "@/components/detail-card";
 import { useTranslation } from "@/i18n";
 import { resolveDesktopHostOS } from "@/runtime/platform-detection";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -25,10 +27,11 @@ export function TeleportCard() {
   const { t } = useTranslation("settings");
   const teleport = useTeleport();
   const { destination, phase } = teleport;
+  const teleportEnabled = useClientFeatureFlagStore.use.teleport();
 
   // No eligible destination for this assistant — leave teleport hidden, matching
   // the Swift picker which renders nothing for out-of-scope assistants.
-  if (!destination) {
+  if (!destination || (destination === "platform" && !teleportEnabled)) {
     return null;
   }
 
