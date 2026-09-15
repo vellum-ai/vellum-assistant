@@ -52,6 +52,10 @@ import {
   getWorkspacePluginsDir,
   isWindows,
 } from "../../util/platform.js";
+import {
+  getPluginManifestInstallAction,
+  readPluginManifest,
+} from "../../util/plugin-manifest.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
   type DependencyInstaller,
@@ -860,16 +864,18 @@ export async function materializePluginTree(
   // stub for it, overlay the stub and run its transform so the materialized
   // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched,
   // except for a minimal package.json synthesis when the upstream repo shipped
-  // none — the Vellum loader hard-requires one and would silently skip the
-  // plugin without it. The synthesis is deterministic (name + fixed version +
-  // fixed peer-dep range), so it produces the same bytes on initial install
+  // no recognized manifest. The synthesis is deterministic (name + fixed
+  // version + fixed peer-dep range), so it produces the same bytes on initial install
   // and upgrade re-materialization; the fingerprint is computed after
   // materialization, so the synthesized file is present in both baselines and
   // the comparison stays clean.
   if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
   }
-  if (cloned.fileCount > 0 && !existsSync(join(opts.destDir, "package.json"))) {
+  if (
+    cloned.fileCount > 0 &&
+    getPluginManifestInstallAction(opts.destDir) === "synthesize-legacy"
+  ) {
     synthesizeMinimalPackageJson(opts.name, opts.destDir);
   }
   return cloned;
@@ -1557,22 +1563,15 @@ interface WriteInstallMetaParams {
 }
 
 /**
- * Read the `version` field from a staged plugin's `package.json`. Lenient — a
- * missing or malformed manifest simply yields `undefined` so provenance is
+ * Read the `version` field from a staged plugin's selected manifest. A
+ * missing or malformed manifest yields `undefined` so provenance is
  * recorded without it rather than failing the install.
  */
-function readStagedPackageVersion(stagingDir: string): string | undefined {
-  const pkgPath = join(stagingDir, "package.json");
-  if (!existsSync(pkgPath)) {
-    return undefined;
-  }
+function readStagedManifestVersion(stagingDir: string): string | undefined {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (typeof parsed === "object" && parsed !== null) {
-      const version = (parsed as Record<string, unknown>).version;
-      if (typeof version === "string" && version.length > 0) {
-        return version;
-      }
+    const version = readPluginManifest(stagingDir).version;
+    if (version && version.length > 0) {
+      return version;
     }
   } catch {
     // fall through to undefined
@@ -1602,7 +1601,7 @@ function writeInstallMeta(
   const meta: InstallMeta = {
     origin: "vellum",
     installedAt: new Date().toISOString(),
-    version: readStagedPackageVersion(stagingDir),
+    version: readStagedManifestVersion(stagingDir),
     sourceRepo: `${source.owner}/${source.repo}`,
     contentHash,
     author: "user",

@@ -7,6 +7,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useTranslation } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { navigateToNewConversation } from "@/utils/conversation-navigation";
+import { routes } from "@/utils/routes";
 import { McpAddServerModal } from "./mcp-add-server-modal";
 import {
   addMcpServer,
@@ -15,21 +16,17 @@ import {
   pollMcpAuthStatus,
   reloadMcpServers,
   removeMcpServer,
-  revokeMcpOAuth,
   startMcpAuth,
   updateMcpServer,
-  type McpServerEntry,
-  type McpToolsSummaryServer,
 } from "./mcp-api";
+import type { McpServerEntry } from "./mcp-api";
 import { McpServerCard } from "./mcp-server-card";
 import { McpActionButton } from "./mcp-action-button";
 import { McpServerDetailModal } from "./mcp-server-detail-modal";
+import { mcpQueryKeys } from "./mcp-query-keys";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { toast } from "@vellumai/design-library/components/toast";
-
-const MCP_SERVERS_KEY = "mcp-servers";
-const MCP_TOOLS_KEY = "mcp-tools-summary";
 
 function McpPageInner() {
   const { t } = useTranslation("settings");
@@ -51,40 +48,34 @@ function McpPageInner() {
   const [authenticatingServerId, setAuthenticatingServerId] = useState<
     string | null
   >(null);
-  const [revokingServerId, setRevokingServerId] = useState<string | null>(null);
 
   const {
     data: serversData,
     isLoading: serversLoading,
     isError: serversError,
   } = useQuery({
-    queryKey: [MCP_SERVERS_KEY, assistantId],
+    queryKey: mcpQueryKeys.list(assistantId),
     queryFn: () => fetchMcpServers(assistantId),
   });
 
-  const { data: toolsData } = useQuery({
-    queryKey: [MCP_TOOLS_KEY, assistantId],
+  const {
+    data: toolsData,
+    isLoading: toolsLoading,
+    isError: toolsError,
+  } = useQuery({
+    queryKey: mcpQueryKeys.details(assistantId),
     queryFn: () => fetchMcpToolsSummary(assistantId),
+    enabled: configureServerId !== null,
   });
 
   const invalidateAll = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: [MCP_SERVERS_KEY, assistantId],
+      queryKey: mcpQueryKeys.list(assistantId),
     });
     void queryClient.invalidateQueries({
-      queryKey: [MCP_TOOLS_KEY, assistantId],
+      queryKey: mcpQueryKeys.details(assistantId),
     });
   }, [queryClient, assistantId]);
-
-  const toolsByServer = useMemo(() => {
-    const map = new Map<string, McpToolsSummaryServer>();
-    if (toolsData) {
-      for (const entry of toolsData.servers) {
-        map.set(entry.serverId, entry);
-      }
-    }
-    return map;
-  }, [toolsData]);
 
   const configureServer = useMemo<McpServerEntry | null>(() => {
     if (!configureServerId || !serversData) {
@@ -150,22 +141,6 @@ function McpPageInner() {
       } finally {
         setAuthenticatingServerId(null);
         invalidateAll();
-      }
-    },
-    [assistantId, invalidateAll, t],
-  );
-
-  const handleRevokeOAuth = useCallback(
-    async (serverId: string) => {
-      setRevokingServerId(serverId);
-      try {
-        await revokeMcpOAuth(assistantId, serverId);
-        invalidateAll();
-        toast.success(t("mcpPage.toastOAuthRevoked", { serverId }));
-      } catch {
-        toast.error(t("mcpPage.toastOAuthRevokeFailed", { serverId }));
-      } finally {
-        setRevokingServerId(null);
       }
     },
     [assistantId, invalidateAll, t],
@@ -339,19 +314,6 @@ function McpPageInner() {
         </p>
       </div>
 
-      {toolsData ? (
-        <div className="flex gap-4 text-body-small-default text-[var(--content-tertiary)]">
-          <span>
-            {t("mcpPage.totalTools", { count: toolsData.totalToolCount })}
-          </span>
-          <span>
-            {t("mcpPage.totalTokens", {
-              count: toolsData.totalEstimatedTokens.toLocaleString(),
-            })}
-          </span>
-        </div>
-      ) : null}
-
       {serversLoading ? (
         <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-tertiary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -384,13 +346,13 @@ function McpPageInner() {
             <McpServerCard
               key={server.id}
               server={server}
-              toolsSummary={toolsByServer.get(server.id)}
               onRemove={setRemoveServerId}
               onConfigure={setConfigureServerId}
               onAuthenticate={handleAuthenticate}
-              onRevokeOAuth={handleRevokeOAuth}
+              onManagePlugin={(pluginName) =>
+                navigate(`${routes.plugins}/${encodeURIComponent(pluginName)}`)
+              }
               isAuthenticating={authenticatingServerId === server.id}
-              isRevoking={revokingServerId === server.id}
             />
           ))}
         </div>
@@ -407,9 +369,12 @@ function McpPageInner() {
 
       <McpServerDetailModal
         server={configureServer}
-        toolsSummary={
-          configureServerId ? toolsByServer.get(configureServerId) : undefined
-        }
+        readOnly={configureServer?.source === "plugin"}
+        toolsLoading={toolsLoading}
+        toolsError={toolsError}
+        toolsSummary={toolsData?.servers.find(
+          (entry) => entry.serverId === configureServerId,
+        )}
         onClose={() => setConfigureServerId(null)}
         onSave={handleSave}
         isPending={isSaving}

@@ -8,20 +8,17 @@ import {
   useAssistantsOauthDisconnectByConnectionCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
-import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { useTranslation } from "@/i18n";
-import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
+import { ActionMenu } from "@vellumai/design-library/components/action-menu";
 import { Button } from "@vellumai/design-library/components/button";
-import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { PanelItem } from "@vellumai/design-library/components/panel-item";
-import { Popover } from "@vellumai/design-library/components/popover";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
-
 import { extractErrorMessage } from "@/utils/api-errors";
+
+import { IntegrationListRow } from "./integration-list-row";
 
 interface IntegrationRowProps {
   platformAssistantId: string;
@@ -34,15 +31,6 @@ interface IntegrationRowProps {
   onConfigure: () => void;
 }
 
-/**
- * Renders a single integration row matching the macOS desktop layout:
- * icon + title/description on the left, right-aligned "Enable" button
- * when not connected, or "Configure" dropdown menu when connected.
- *
- * The Configure menu offers:
- *   - "Edit connections": opens a detail modal via `onConfigure`.
- *   - "Disable":          disconnects the account (with confirmation).
- */
 export function IntegrationRow({
   platformAssistantId,
   providerKey,
@@ -56,18 +44,15 @@ export function IntegrationRow({
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const isConnected = Boolean(connection?.connected);
-
   const [menuOpen, setMenuOpen] = useState(false);
-  const [confirmDisableOpen, setConfirmDisableOpen] = useState(false);
+  const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false);
 
   const connectionsQueryKey = assistantsOauthConnectionsListQueryKey({
     path: { assistant_id: platformAssistantId },
   });
-
   const connectionsOpts = { path: { assistant_id: platformAssistantId } };
-
-  const disconnectOAuth =
-    useAssistantsOauthDisconnectByConnectionCreateMutation({
+  const disconnectOAuth = useAssistantsOauthDisconnectByConnectionCreateMutation(
+    {
       onSuccess(_data, variables) {
         toast.success(
           t("integrationRow.disconnectedToast", { name: displayName }),
@@ -76,29 +61,24 @@ export function IntegrationRow({
         assistantsOauthConnectionsListSetQueryData(
           queryClient,
           connectionsOpts,
-          (old) => old?.filter((c) => c.id !== connectionId),
+          (old) => old?.filter((item) => item.id !== connectionId),
         );
         queryClient.invalidateQueries({ queryKey: connectionsQueryKey });
       },
       onError(error) {
-        const detail = extractErrorMessage(
-          error,
-          undefined,
-          t("integrationRow.disconnectFailedToast", { name: displayName }),
+        toast.error(
+          extractErrorMessage(
+            error,
+            undefined,
+            t("integrationRow.disconnectFailedToast", { name: displayName }),
+          ),
         );
-        toast.error(detail);
       },
-    });
+    },
+  );
 
-  const handleDisable = () => {
-    if (!connection?.id) {
-      return;
-    }
-    setConfirmDisableOpen(true);
-  };
-
-  const confirmDisable = () => {
-    setConfirmDisableOpen(false);
+  const confirmDisconnect = () => {
+    setConfirmDisconnectOpen(false);
     if (!connection?.id) {
       return;
     }
@@ -109,78 +89,54 @@ export function IntegrationRow({
 
   return (
     <>
-      <Card.Root>
-        <Card.Body padding="sm" className="flex items-center gap-4 px-4">
+      <IntegrationListRow
+        icon={
           <IntegrationIcon
             providerKey={providerKey}
             displayName={displayName}
             logoUrl={logoUrl}
             size={32}
           />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-title-small text-[var(--content-default)]">
-              {displayName}
-            </p>
-            {description && (
-              <p className="truncate text-body-medium-lighter text-[var(--content-tertiary)]">
-                {description}
-              </p>
-            )}
-          </div>
-          {isConnected && platformGate === "full" ? (
-            <div className="shrink-0">
-              <IntegrationConfigureMenu
-                displayName={displayName}
-                open={menuOpen}
-                onOpenChange={setMenuOpen}
-                onEditConnections={() => {
-                  setMenuOpen(false);
-                  onConfigure();
-                }}
-                onDisable={() => {
-                  setMenuOpen(false);
-                  handleDisable();
-                }}
-                disablePending={disconnectOAuth.isPending}
-              />
-            </div>
+        }
+        title={displayName}
+        subtitle={description}
+        primaryAction={
+          isConnected && platformGate === "full" ? (
+            <IntegrationConfigureMenu
+              displayName={displayName}
+              open={menuOpen}
+              onOpenChange={setMenuOpen}
+              onEditConnections={onConfigure}
+              onDisconnect={() => setConfirmDisconnectOpen(true)}
+              disconnectPending={disconnectOAuth.isPending}
+            />
           ) : (
-            <Button
-              variant="primary"
-              onClick={onConfigure}
-              className="shrink-0"
-            >
-              {t("integrationRow.enable")}
+            <Button variant="primary" onClick={onConfigure}>
+              {t("integrationRow.connect")}
             </Button>
-          )}
-        </Card.Body>
-      </Card.Root>
+          )
+        }
+      />
       <ConfirmDialog
-        open={confirmDisableOpen}
+        open={confirmDisconnectOpen}
         title={t("integrationRow.disconnectTitle", { name: displayName })}
         message={t("integrationRow.disconnectMessage", { name: displayName })}
         confirmLabel={t("integrationRow.disconnect")}
         destructive
-        onConfirm={confirmDisable}
-        onCancel={() => setConfirmDisableOpen(false)}
+        onConfirm={confirmDisconnect}
+        onCancel={() => setConfirmDisconnectOpen(false)}
       />
     </>
   );
 }
-
-// ---------------------------------------------------------------------------
-// IntegrationConfigureMenu: anchored popover / touch bottom-sheet wrapper
-// for the connected-integration "Configure" action menu. Extracted so the
-// branch can be unit-tested without standing up the parent's mutations.
-// ---------------------------------------------------------------------------
 
 export interface IntegrationConfigureMenuProps {
   displayName: string;
   open: boolean;
   onOpenChange: (next: boolean) => void;
   onEditConnections: () => void;
-  onDisable: () => void;
-  disablePending: boolean;
+  onDisconnect: () => void;
+  disconnectPending: boolean;
 }
 
 export function IntegrationConfigureMenu({
@@ -188,98 +144,36 @@ export function IntegrationConfigureMenu({
   open,
   onOpenChange,
   onEditConnections,
-  onDisable,
-  disablePending,
+  onDisconnect,
+  disconnectPending,
 }: IntegrationConfigureMenuProps) {
   const { t } = useTranslation("settings");
-  const isTouchMobile = useTouchMobile();
-
-  if (isTouchMobile) {
-    return (
-      <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
-        <BottomSheet.Trigger asChild>
-          <Button
-            variant="outlined"
-            rightIcon={<ChevronDown />}
-            aria-haspopup="menu"
-            aria-expanded={open}
-          >
-            {t("integrationRow.configure")}
-          </Button>
-        </BottomSheet.Trigger>
-        <BottomSheet.Content>
-          {/* Use the integration name as the (visible) sheet title — gives
-              the user a clear anchor for which integration they're acting on. */}
-          <BottomSheet.Header>
-            <BottomSheet.Title>{displayName}</BottomSheet.Title>
-          </BottomSheet.Header>
-          <BottomSheet.Body>
-            <PanelItem
-              icon={Pencil}
-              label={t("integrationRow.editConnections")}
-              onSelect={onEditConnections}
-            />
-            <PanelItem
-              icon={disablePending ? Loader2 : XCircle}
-              label={t("integrationRow.disable")}
-              onSelect={() => {
-                if (disablePending) {
-                  return;
-                }
-                onDisable();
-              }}
-            />
-          </BottomSheet.Body>
-        </BottomSheet.Content>
-      </BottomSheet.Root>
-    );
-  }
   return (
-    <Popover.Root open={open} onOpenChange={onOpenChange}>
-      <Popover.Trigger asChild>
-        <Button
-          variant="outlined"
-          rightIcon={<ChevronDown />}
-          aria-haspopup="menu"
-          aria-expanded={open}
-        >
+    <ActionMenu.Root open={open} onOpenChange={onOpenChange}>
+      <ActionMenu.Trigger asChild>
+        <Button variant="outlined" rightIcon={<ChevronDown />}>
           {t("integrationRow.configure")}
         </Button>
-      </Popover.Trigger>
-      <Popover.Content
+      </ActionMenu.Trigger>
+      <ActionMenu.Content
+        title={displayName}
+        showTitle
+        closeLabel={t("integrationRow.actionsSheetClose")}
         align="end"
-        sideOffset={4}
-        role="menu"
-        className="w-56 overflow-hidden p-0"
       >
-        <Button
-          type="button"
-          role="menuitem"
-          variant="ghost"
-          onClick={onEditConnections}
-          className="w-full justify-start rounded-none"
-          leftIcon={<Pencil aria-hidden />}
-        >
-          {t("integrationRow.editConnections")}
-        </Button>
-        <Button
-          type="button"
-          role="menuitem"
-          variant="dangerGhost"
-          onClick={onDisable}
-          disabled={disablePending}
-          className="w-full justify-start rounded-none"
-          leftIcon={
-            disablePending ? (
-              <Loader2 className="animate-spin" aria-hidden />
-            ) : (
-              <XCircle aria-hidden />
-            )
-          }
-        >
-          {t("integrationRow.disable")}
-        </Button>
-      </Popover.Content>
-    </Popover.Root>
+        <ActionMenu.Item
+          icon={Pencil}
+          label={t("integrationRow.editConnections")}
+          onSelect={onEditConnections}
+        />
+        <ActionMenu.Item
+          icon={disconnectPending ? Loader2 : XCircle}
+          label={t("integrationRow.disconnect")}
+          tone="destructive"
+          onSelect={onDisconnect}
+          disabled={disconnectPending}
+        />
+      </ActionMenu.Content>
+    </ActionMenu.Root>
   );
 }

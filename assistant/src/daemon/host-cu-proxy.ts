@@ -48,8 +48,8 @@ const SCREENSHOT_OMITTED_MESSAGE =
   "Screenshot omitted: the accessibility tree above is current. Pass include_screenshot: true on computer_use_observe to see the screen.";
 
 // computer_use_key combos that change only selection/cursor/clipboard state.
-// The AX tree models none of these, so they always produce an empty diff —
-// exempt them from the "NO VISIBLE EFFECT" signal (mirrors computer_use_wait).
+// The AX tree models none of these, so they always produce an empty diff and
+// are exempt from the unchanged-tree signal.
 // Stored in canonical form (see canonicalizeKeyCombo): modifier aliases
 // normalized and ordered, so `cmd + a`, `command+a`, `alt+tab`, `tab+shift`
 // all match.
@@ -129,12 +129,28 @@ export interface ActionRecord {
   reasoning?: string;
 }
 
+// Steps whose empty diff says nothing about whether they worked: waiting and
+// observing change nothing by design, and an AppleScript reports its own
+// outcome in the execution result, often for an app whose content the tree
+// cannot see. They neither warn nor move the unchanged streak.
+const NO_AX_DIFF_TOOLS = new Set([
+  "computer_use_wait",
+  "computer_use_observe",
+  "computer_use_run_applescript",
+]);
+
+type ActionIdentity = Pick<ActionRecord, "toolName" | "input">;
+
+function isNoDiffTool(action: ActionIdentity | undefined): boolean {
+  return action !== undefined && NO_AX_DIFF_TOOLS.has(action.toolName);
+}
+
 /**
  * True when `action` is a computer_use_key press whose key only mutates
- * selection/cursor/clipboard state — changes the AX tree cannot represent, so
+ * selection/cursor/clipboard state: changes the AX tree cannot represent, so
  * an empty diff is expected rather than a sign the action did nothing.
  */
-function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
+function isNoDiffKeyAction(action: ActionIdentity | undefined): boolean {
   if (action?.toolName !== "computer_use_key") {
     return false;
   }
@@ -143,24 +159,6 @@ function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
     typeof key === "string" &&
     NO_AX_DIFF_KEY_COMBOS.has(canonicalizeKeyCombo(key))
   );
-}
-
-/**
- * True when the observation answers an AppleScript that returned a value.
- * Reading state (`enabled of menu item`, a window title, an app's own query) is
- * a step whose product is the return value, not a screen change, so an empty
- * diff is expected rather than a sign the script did nothing. `toolName` comes
- * from the request this observation belongs to, so two steps in flight at once
- * each get classified by their own tool.
- */
-function isResultBearingAppleScript(
-  toolName: string | undefined,
-  obs: CuObservationResult,
-): boolean {
-  if (toolName !== "computer_use_run_applescript") {
-    return false;
-  }
-  return (obs.executionResult ?? "").trim().length > 0;
 }
 
 /**
@@ -263,6 +261,7 @@ export class HostCuProxy {
       resetGeneration: number;
       dispatchedAt: number;
       toolName: string;
+      input: Record<string, unknown>;
       step: number;
     }
   >();
@@ -473,6 +472,7 @@ export class HostCuProxy {
         resetGeneration: this._resetGeneration,
         dispatchedAt: Date.now(),
         toolName,
+        input,
         step: stepNumber,
       });
 
@@ -556,7 +556,7 @@ export class HostCuProxy {
     }
 
     // A targeted snapshot has no comparable action/diff baseline; neither it
-    // nor the first desktop observation after it can imply "no visible effect".
+    // nor the first desktop observation after it can imply an unchanged tree.
     // A response dispatched before the last reset belongs to a finished run,
     // so it must not change any state the new run has started building.
     const fromCurrentRun =
@@ -566,6 +566,11 @@ export class HostCuProxy {
       this._consecutiveUnchangedSteps = 0;
     }
     const prevAXTree = this._previousAXTree;
+    // Judge the empty diff against the action this request carried, for the
+    // same reason the timings line does.
+    const action: ActionIdentity | undefined = owned
+      ? { toolName: owned.toolName, input: owned.input }
+      : this.lastRecordedAction();
     const comparableObservation = scopedObservation
       ? { ...observation, axDiff: undefined, secondaryWindows: undefined }
       : observation;
@@ -575,7 +580,7 @@ export class HostCuProxy {
       !scopedObservation &&
       owned?.toolName !== POINT_AT_PROXY_TOOL
     ) {
-      this.updateStateFromObservation(comparableObservation, owned?.toolName);
+      this.updateStateFromObservation(comparableObservation, action);
       // A desktop has had its first look only once pixels from it arrived,
       // so a failed capture leaves the next request asking again.
       if (owned && observation.screenshot) {
@@ -586,7 +591,7 @@ export class HostCuProxy {
       comparableObservation,
       prevAXTree,
       owned?.screenshotSkipped ?? false,
-      owned?.toolName,
+      action,
     );
     interaction.rpcResolve(result);
     return result;
@@ -691,7 +696,7 @@ export class HostCuProxy {
     obs: CuObservationResult,
     previousAXTree?: string,
     screenshotSkipped = false,
-    actionToolName?: string,
+    action: ActionIdentity | undefined = this.lastRecordedAction(),
   ): ToolExecutionResult {
     const prevTree = previousAXTree;
     const parts: string[] = [];
@@ -710,28 +715,17 @@ export class HostCuProxy {
       parts.push(obs.axDiff);
       parts.push("");
     } else if (prevTree != null && obs.axTree != null) {
-      const lastAction =
-        this._actionHistory.length > 0
-          ? this._actionHistory[this._actionHistory.length - 1]
-          : undefined;
-      const isWaitAction = lastAction?.toolName === "computer_use_wait";
-      const isNoDiffKey = isNoDiffKeyAction(lastAction);
-      const isReadOnlyScript = isResultBearingAppleScript(
-        actionToolName ?? lastAction?.toolName,
-        obs,
-      );
-
-      if (!isWaitAction && !isNoDiffKey && !isReadOnlyScript) {
+      if (!isNoDiffTool(action) && !isNoDiffKeyAction(action)) {
         if (
           this._consecutiveUnchangedSteps >=
           CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
         ) {
           parts.push(
-            `WARNING: ${this._consecutiveUnchangedSteps} consecutive actions had NO VISIBLE EFFECT on the UI. You MUST try a completely different approach.`,
+            `WARNING: the accessibility tree did not change across ${this._consecutiveUnchangedSteps} consecutive actions. If the screenshot does not show them working either, try a different approach.`,
           );
         } else {
           parts.push(
-            "Your last action had NO VISIBLE EFFECT on the UI. Try something different.",
+            "The accessibility tree did not change after your last action. Apps that draw their own content (timelines, canvases, spreadsheet grids) change without it, so check the screenshot before deciding the action did nothing.",
           );
         }
         parts.push("");
@@ -846,27 +840,26 @@ export class HostCuProxy {
   // Private helpers
   // ---------------------------------------------------------------------------
 
+  private lastRecordedAction(): ActionRecord | undefined {
+    return this._actionHistory.at(-1);
+  }
+
   private updateStateFromObservation(
     obs: CuObservationResult,
-    actionToolName?: string,
+    action: ActionIdentity | undefined,
   ): void {
     if (this._stepCount > 0) {
-      const lastAction =
-        this._actionHistory.length > 0
-          ? this._actionHistory[this._actionHistory.length - 1]
-          : undefined;
-      if (
-        obs.axDiff != null ||
-        isNoDiffKeyAction(lastAction) ||
-        isResultBearingAppleScript(actionToolName ?? lastAction?.toolName, obs)
-      ) {
-        // A real diff, an exempt key whose effect is invisible by design, or a
-        // script that answered with a value breaks the no-effect streak. Clear
-        // it rather than preserving a stale count so an intervening cmd+a
-        // can't bridge two no-op actions into a false "consecutive"
-        // escalation.
+      if (obs.axDiff != null || isNoDiffKeyAction(action)) {
+        // A real diff, or an exempt key whose effect is invisible by design,
+        // breaks the no-effect streak. Clearing it rather than preserving a
+        // stale count keeps an intervening cmd+a from bridging two no-op
+        // actions into a false "consecutive" escalation.
         this._consecutiveUnchangedSteps = 0;
-      } else if (this._previousAXTree != null && obs.axTree != null) {
+      } else if (
+        !isNoDiffTool(action) &&
+        this._previousAXTree != null &&
+        obs.axTree != null
+      ) {
         this._consecutiveUnchangedSteps++;
       }
     }

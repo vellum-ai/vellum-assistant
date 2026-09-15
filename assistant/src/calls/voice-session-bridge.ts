@@ -31,6 +31,7 @@ import {
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
+import { preactivateHostProxySkills } from "../daemon/host-proxy-preactivation.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   newestPersistedSightFrame,
@@ -464,6 +465,14 @@ export interface VoiceTurnOptions {
    * path has always used.
    */
   actorFallbackSuppressed?: boolean;
+  /**
+   * Whether the session was opened from the macOS desktop client. A leg that
+   * can run tools then starts with the desktop skills (computer use, app
+   * control, screen annotation) already active, as a typed turn from that
+   * client does. The turn interface cannot answer this: every live-voice
+   * session reports `macos` for its channel capabilities, iOS included.
+   */
+  macosDesktopSession?: boolean;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -2016,6 +2025,20 @@ export async function startVoiceTurn(
         (needsImagePin
           ? VOICE_IMAGE_PROFILE
           : (conversationProfile?.profile ?? null));
+      if (opts.macosDesktopSession === true && !frontDoorToolsSuppressed) {
+        const sourceInterface = turnInterfaceContext.userMessageInterface;
+        const sourceActorPrincipalId =
+          voiceTurnValues.actorPrincipalId ?? undefined;
+        conversation.ensureHostProxiesForTurn(
+          sourceInterface,
+          sourceActorPrincipalId,
+        );
+        preactivateHostProxySkills(
+          conversation,
+          sourceInterface,
+          sourceActorPrincipalId,
+        );
+      }
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {

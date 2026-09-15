@@ -5322,6 +5322,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // as telemetry instead, on `voiceTelemetry` below.
         userMessageInterface: "macos",
         assistantMessageInterface: "macos",
+        ...(this.context.startFrame.client === "macos"
+          ? { macosDesktopSession: true }
+          : {}),
         voiceTelemetry: {
           sessionId: this.context.sessionId,
           ...(this.context.startFrame.client

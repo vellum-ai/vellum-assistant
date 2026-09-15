@@ -17,7 +17,6 @@ import { z } from "zod";
 import type { McpServerConfig } from "../../config/schemas/mcp.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
-import { McpClient } from "../../mcp/client.js";
 import { getMcpServerManager } from "../../mcp/manager.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
@@ -74,9 +73,7 @@ function persistWorkspaceMcpConfig(config: {
   try {
     saveWorkspaceMcpConfig(config);
   } catch (err) {
-    throw new InternalError(
-      err instanceof Error ? err.message : String(err),
-    );
+    throw new InternalError(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -171,53 +168,6 @@ function handleMcpReload(_args: { body?: Record<string, unknown> }): {
 }
 
 // ---------------------------------------------------------------------------
-// Health check helper
-// ---------------------------------------------------------------------------
-
-const HEALTH_CHECK_TIMEOUT_MS = 10_000;
-
-async function checkMachineReadableHealth(
-  serverId: string,
-  config: McpServerConfig,
-  timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
-): Promise<string> {
-  const client = new McpClient(serverId);
-  try {
-    await Promise.race([
-      client.connect(config.transport),
-      new Promise<never>((_, reject) => {
-        const t = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-        if (typeof t === "object" && "unref" in t) {
-          t.unref();
-        }
-      }),
-    ]);
-
-    if (client.isConnected) {
-      await client.disconnect();
-      return "connected";
-    }
-
-    const err = client.lastError;
-    if (err) {
-      if (err.message.includes("timeout")) {
-        return "error";
-      }
-      return "error";
-    }
-
-    return "needs-auth";
-  } catch {
-    try {
-      await client.disconnect();
-    } catch {
-      /* ignore */
-    }
-    return "error";
-  }
-}
-
-// ---------------------------------------------------------------------------
 // List
 // ---------------------------------------------------------------------------
 
@@ -271,10 +221,15 @@ async function handleMcpList(_args: {
   const configEntries = (
     Object.entries(servers) as [string, McpServerConfig][]
   ).filter(([, config]) => config && typeof config === "object");
+  const manager = getMcpServerManager();
 
   const workspaceEntries: McpServerEntry[] = await Promise.all(
     configEntries.map(async ([id, config]) => {
-      const status = await checkMachineReadableHealth(id, config);
+      const runtimeState = manager.getServerState(id, "workspace");
+      const status =
+        runtimeState === "connected" || runtimeState === "needs-auth"
+          ? runtimeState
+          : "error";
       const hasOAuth =
         config.transport.type !== "stdio" ? await hasMcpOAuthTokens(id) : false;
 
@@ -365,9 +320,10 @@ function listPluginServerEntries(
         .transport as Record<string, unknown>;
       return {
         id: server.id,
-        status: manager.getClient(server.id)?.isConnected
-          ? "connected"
-          : PLUGIN_SERVER_STATUS,
+        status:
+          manager.getServerState(server.id, "plugin") === "connected"
+            ? "connected"
+            : PLUGIN_SERVER_STATUS,
         transport: safeTransport as McpServerEntry["transport"],
         // A plugin server has no assistant-owned credentials. Resolving
         // these against `mcp:<id>:*` would report, and could disclose, a
@@ -687,7 +643,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List MCP servers with health status",
     description:
-      "Returns configured MCP servers with live health-check results (connected, needs auth, error).",
+      "Returns configured MCP servers with recorded runtime status without opening new connections.",
     tags: ["internal"],
     responseBody: z.object({
       servers: z.array(

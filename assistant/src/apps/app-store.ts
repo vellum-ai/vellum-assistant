@@ -43,6 +43,7 @@ import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir, getWorkspacePluginsDir } from "../util/platform.js";
+import { hasPluginManifest } from "../util/plugin-manifest.js";
 
 const log = getLogger("app-store");
 
@@ -787,8 +788,8 @@ function listAppsForPlugin(
  * `<workspace>/plugins/<name>/apps/`.
  *
  * Plugin discovery mirrors the plugin loader's `scanPlugins`: a plugin is an
- * entry that resolves to a directory (following symlinks) and carries a
- * `package.json` manifest. Stray directories without a manifest are ignored,
+ * entry that resolves to a directory (following symlinks) and carries a root
+ * plugin manifest. Stray directories without a manifest are ignored,
  * and disabled plugins (those with a `.disabled` sentinel) contribute nothing,
  * matching how their other surfaces (tools, hooks, routes) are gated.
  */
@@ -813,7 +814,7 @@ export function listPluginApps(): EnumeratedApp[] {
     } catch {
       continue;
     }
-    if (!existsSync(join(pluginDir, "package.json"))) {
+    if (!hasPluginManifest(pluginDir)) {
       continue;
     }
     if (isPluginDisabled(name)) {
@@ -874,7 +875,7 @@ function isSafeIdSegment(segment: string): boolean {
  * (`plugins~<name>~<app>`, resolved by direct path build). Returns null when
  * the app does not exist, when the id is not a safe path segment, or when a
  * plugin id fails the same installed-plugin gates as discovery (directory,
- * `package.json` manifest, not disabled).
+ * root manifest, not disabled).
  */
 export function resolveAppSource(id: string): ResolvedAppSource | null {
   if (id.startsWith(PLUGIN_APP_ID_PREFIX)) {
@@ -900,7 +901,7 @@ export function resolveAppSource(id: string): ResolvedAppSource | null {
     } catch {
       return null;
     }
-    if (!existsSync(join(pluginDir, "package.json"))) {
+    if (!hasPluginManifest(pluginDir)) {
       return null;
     }
     if (isPluginDisabled(pluginName)) {
