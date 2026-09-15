@@ -1,9 +1,9 @@
 import { Button } from "@vellumai/design-library";
-import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/i18n";
 
+import { DesktopStatus } from "./desktop-status";
 import type { DesktopEndReason } from "./desktop-connection";
 import {
   openDesktopSession,
@@ -92,29 +92,24 @@ export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: Deskt
       ) : null}
       {state.kind === "connected" ? null : (
         <div
-          className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[var(--surface-base)] text-[var(--content-default)]"
+          className="absolute inset-0 bg-[var(--surface-base)]"
           data-testid="desktop-panel-status"
           data-state={state.kind === "ended" ? state.reason : state.kind}
         >
-          {state.kind === "connecting" ? (
-            <>
-              <Loader2 className="h-5 w-5 animate-spin text-[var(--content-tertiary)]" />
-              <span className="text-body-medium-lighter">
-                {t("assistantDesktop.connecting")}
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="text-body-medium-lighter">
-                {t(END_REASON_KEY[state.reason])}
-              </span>
-              {RETRYABLE_END_REASONS.has(state.reason) ? (
-                <Button variant="outlined" onClick={reconnect}>
-                  {t("assistantDesktop.reconnectButton")}
-                </Button>
-              ) : null}
-            </>
-          )}
+          <DesktopStatus
+            loading={state.kind === "connecting"}
+            message={
+              state.kind === "connecting"
+                ? t("assistantDesktop.connecting")
+                : t(END_REASON_KEY[state.reason])
+            }
+          >
+            {state.kind === "ended" && RETRYABLE_END_REASONS.has(state.reason) ? (
+              <Button variant="outlined" onClick={reconnect}>
+                {t("assistantDesktop.reconnectButton")}
+              </Button>
+            ) : null}
+          </DesktopStatus>
         </div>
       )}
     </div>

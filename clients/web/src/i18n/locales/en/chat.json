@@ -111,7 +111,6 @@
     "installingPackages": "Installing desktop components…",
     "installingChrome": "Installing Google Chrome…",
     "checkingInstall": "Checking the installation…",
-    "installBackground": "Setup continues if you close this window.",
     "installFailed": "Installation failed. Try again to finish setup.",
     "setupRequestFailed": "Could not check desktop setup. Reconnect to try again.",
     "setupUnsupported": "Desktop installation requires a Linux x64 or ARM64 container with administrator access."

@@ -111,7 +111,6 @@
     "installingPackages": "正在安裝桌面元件…",
     "installingChrome": "正在安裝 Google Chrome…",
     "checkingInstall": "正在檢查安裝…",
-    "installBackground": "關閉此視窗後，安裝仍會繼續。",
     "installFailed": "安裝失敗。請重試以完成設定。",
     "setupRequestFailed": "無法檢查桌面設定。請重新連線後再試。",
     "setupUnsupported": "桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
