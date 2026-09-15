@@ -72,6 +72,7 @@ import {
   keptAppId,
   navigateToConversation,
   navigateToNewConversation,
+  prepareFreshConversation,
 } from "@/utils/conversation-navigation";
 import { haptic } from "@/utils/haptics";
 
@@ -974,33 +975,27 @@ export function ChatLayout({
     ? (activeConversationId ?? undefined)
     : undefined;
 
-  // Sidebar pinned-app open. The viewer panel only renders under ChatPage
-  // (mounted at `/assistant` index + `/assistant/conversations/:id`), so a
-  // pinned-app click from library / identity / inspector etc. would
-  // mutate the viewer store with no surface to display against. Navigate
-  // to a chat route first when off-chat, then run the shared open flow.
-  //
-  // See `use-open-app-from-chat.ts` for the full-width loadApp flow shared
-  // with the transcript / assets-pill open path.
+  // Sidebar pinned-app open. The opener navigates to
+  // `routes.conversation(conversationId, appId)`, so off a chat route a fresh
+  // draft is minted first for the app to hang off, and the open is still the
+  // single navigation.
   const openAppFromChat = useOpenAppFromChat();
   const activeAppId = useViewerStore.use.activeAppId();
   const handleOpenAppFromSidebar = useCallback(
     async (appId: string) => {
-      // Off a chat route the viewer panel has no surface to render against, so
-      // we must land on one before opening the app. Routing to `/assistant`
-      // isn't neutral: the chat index auto-bootstraps to the last active /
-      // latest conversation (`use-conversation-loader`), which resurfaces the
-      // stale conversation behind the app and once it's closed (LUM-2691) —
-      // `activeConversationId` persists across route changes for SSE /
-      // attention consumers, so it doesn't reflect the user's intent. Opening
-      // over a fresh silent draft hands the loader an explicit id it won't
+      // A draft rather than `/assistant`: the chat index auto-bootstraps to
+      // the last active / latest conversation (`use-conversation-loader`),
+      // which resurfaces a stale conversation behind the app and once it is
+      // closed (LUM-2691). `activeConversationId` persists across route
+      // changes for SSE / attention consumers, so it doesn't reflect the
+      // user's intent. A fresh draft hands the loader an explicit id it won't
       // override and leaves a clean new-chat surface on close.
       if (!isConversationChatPath(location.pathname)) {
-        navigateToNewConversation(navigate, { silent: true });
+        prepareFreshConversation();
       }
       await openAppFromChat(appId);
     },
-    [location.pathname, navigate, openAppFromChat],
+    [location.pathname, openAppFromChat],
   );
 
   // Inspector affordance for the sidebar context menu. The topbar variant
