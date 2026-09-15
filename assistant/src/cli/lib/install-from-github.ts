@@ -53,7 +53,7 @@ import {
   isWindows,
 } from "../../util/platform.js";
 import {
-  hasPluginManifest,
+  getPluginManifestInstallAction,
   readPluginManifest,
 } from "../../util/plugin-manifest.js";
 import type { FetchLike } from "./fetch-like.js";
@@ -864,15 +864,18 @@ export async function materializePluginTree(
   // stub for it, overlay the stub and run its transform so the materialized
   // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched,
   // except for a minimal package.json synthesis when the upstream repo shipped
-  // neither supported manifest. The synthesis is deterministic (name + fixed version +
-  // fixed peer-dep range), so it produces the same bytes on initial install
+  // no recognized manifest. The synthesis is deterministic (name + fixed
+  // version + fixed peer-dep range), so it produces the same bytes on initial install
   // and upgrade re-materialization; the fingerprint is computed after
   // materialization, so the synthesized file is present in both baselines and
   // the comparison stays clean.
   if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
   }
-  if (cloned.fileCount > 0 && !hasPluginManifest(opts.destDir)) {
+  if (
+    cloned.fileCount > 0 &&
+    getPluginManifestInstallAction(opts.destDir) === "synthesize-legacy"
+  ) {
     synthesizeMinimalPackageJson(opts.name, opts.destDir);
   }
   return cloned;

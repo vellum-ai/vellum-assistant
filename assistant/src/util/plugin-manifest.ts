@@ -80,6 +80,8 @@ export interface ResolvedPluginManifest {
   readonly raw: Record<string, unknown>;
 }
 
+export type PluginManifestInstallAction = "keep" | "synthesize-legacy";
+
 export class PluginManifestError extends Error {
   constructor(
     readonly pluginDir: string,
@@ -98,6 +100,47 @@ export function hasPluginManifest(pluginDir: string): boolean {
     existsSync(join(pluginDir, LEGACY_PLUGIN_MANIFEST)) ||
     existsSync(join(pluginDir, STANDARD_PLUGIN_MANIFEST))
   );
+}
+
+/**
+ * Decide whether an installed artifact needs the compatibility `package.json`.
+ *
+ * Existing `package.json` files are always preserved. A root `plugin.json`
+ * claims the Agent Plugins format only when it names the supported schema. A
+ * claimed standard manifest is validated before install; other `plugin.json`
+ * files remain foreign metadata beside the synthesized compatibility manifest.
+ */
+export function getPluginManifestInstallAction(
+  pluginDir: string,
+): PluginManifestInstallAction {
+  if (existsSync(join(pluginDir, LEGACY_PLUGIN_MANIFEST))) {
+    return "keep";
+  }
+
+  const standardPath = join(pluginDir, STANDARD_PLUGIN_MANIFEST);
+  if (!existsSync(standardPath)) {
+    return "synthesize-legacy";
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(readFileSync(standardPath, "utf8"));
+  } catch {
+    return "synthesize-legacy";
+  }
+
+  if (
+    typeof json !== "object" ||
+    json === null ||
+    Array.isArray(json) ||
+    (json as Record<string, unknown>).$schema !==
+      AGENT_PLUGINS_MANIFEST_SCHEMA_URL
+  ) {
+    return "synthesize-legacy";
+  }
+
+  readPluginManifest(pluginDir);
+  return "keep";
 }
 
 /**

@@ -36,7 +36,7 @@ import {
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { getExistingDeviceId } from "../../util/device-id.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
-import { hasPluginManifest } from "../../util/plugin-manifest.js";
+import { getPluginManifestInstallAction } from "../../util/plugin-manifest.js";
 import { APP_VERSION } from "../../version.js";
 import type { FetchLike } from "./fetch-like.js";
 import {
@@ -206,12 +206,16 @@ export async function installPluginFromPlatform(
     throw new PluginNotFoundError(name, meta.ref ?? "", meta.repo ?? name);
   }
 
-  // Same default as the GitHub clone path: a marketplace tarball that
-  // ships components but no supported manifest still has to load.
-  // The loader skips a directory with no manifest, so synthesize one
-  // before the fingerprint and swap.
-  if (!hasPluginManifest(stagingDir)) {
-    synthesizeMinimalPackageJson(name, stagingDir);
+  // Same default as the GitHub clone path: a marketplace tarball without a
+  // recognized manifest still has to load. A claimed standard manifest is
+  // validated before the fingerprint and swap.
+  try {
+    if (getPluginManifestInstallAction(stagingDir) === "synthesize-legacy") {
+      synthesizeMinimalPackageJson(name, stagingDir);
+    }
+  } catch (err) {
+    rmSync(stagingDir, { recursive: true, force: true });
+    throw err;
   }
 
   await confirmStagedOrAbort(name, stagingDir, deps.confirmStaged);

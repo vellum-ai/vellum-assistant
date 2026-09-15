@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { readPluginMcpServers } from "../../../plugins/mcp-servers.js";
+import { PluginManifestError } from "../../../util/plugin-manifest.js";
 import type { FetchLike } from "../fetch-like.js";
 import {
   type GitRunner,
@@ -1267,6 +1268,72 @@ describe("installPlugin — direct (untrusted) install", () => {
     const mcp = readPluginMcpServers({ workspacePluginsDir: pluginsDir });
     expect(mcp.issues).toEqual([]);
     expect(mcp.servers.map((server) => server.id)).toEqual(["standard-plugin"]);
+  });
+
+  test("synthesizes package.json beside a foreign plugin.json", async () => {
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: {
+        "plugin.json": JSON.stringify({ name: "foreign-plugin" }),
+        "mcp.json": JSON.stringify({
+          mcpServers: {
+            "foreign-plugin": {
+              type: "streamable-http",
+              url: "https://mcp.example.com",
+            },
+          },
+        }),
+      },
+      commit: "8".repeat(40),
+    });
+
+    const result = await installPlugin(
+      {
+        name: "foreign-plugin",
+        directSource: {
+          owner: "owner",
+          repo: "foreign-plugin",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    expect(existsSync(join(result.target, "plugin.json"))).toBe(true);
+    expect(existsSync(join(result.target, "package.json"))).toBe(true);
+    const mcp = readPluginMcpServers({ workspacePluginsDir: pluginsDir });
+    expect(mcp.issues).toEqual([]);
+    expect(mcp.servers.map((server) => server.id)).toEqual(["foreign-plugin"]);
+  });
+
+  test("rejects a malformed claimed standard manifest before install", async () => {
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: {
+        "plugin.json": JSON.stringify({
+          $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          name: "Invalid Standard Name",
+        }),
+      },
+      commit: "7".repeat(40),
+    });
+
+    await expect(
+      installPlugin(
+        {
+          name: "invalid-standard",
+          directSource: {
+            owner: "owner",
+            repo: "invalid-standard",
+            rootPath: "",
+            ref: "HEAD",
+          },
+        },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginManifestError);
+    expect(existsSync(join(pluginsDir, "invalid-standard"))).toBe(false);
   });
 
   test("never overlays a curated adapter stub, even if one matches the name", async () => {
