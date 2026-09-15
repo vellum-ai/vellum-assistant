@@ -19,6 +19,7 @@ import type {
   CompanionDictating,
   CompanionIntroAction,
   CompanionPopoverAnswer,
+  CompanionPicker,
   CompanionPopoverView,
   CompanionSurfaceState,
   DictationOfferAnswer,
@@ -368,6 +369,22 @@ export function setCompanionAttachedPopoverHeight(
   height: number,
 ): void {
   bridge()?.setAttachedPopoverHeight?.(popoverId, height);
+}
+
+/**
+ * Open a picker from the call bar in the popover, or close it when it is the
+ * one open. The window holding the call fills it and takes the pick.
+ */
+export function toggleCompanionPicker(picker: CompanionPicker): void {
+  bridge()?.togglePicker?.(picker);
+}
+
+/**
+ * Whether the shell takes a chevron's press. One that predates the pickers
+ * has nowhere to send it, and a chevron drawn for it would press into nothing.
+ */
+export function companionHasPickers(): boolean {
+  return typeof bridge()?.togglePicker === "function";
 }
 
 /**

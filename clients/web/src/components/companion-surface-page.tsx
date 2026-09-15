@@ -38,6 +38,8 @@ import {
   advanceCompanionIntro,
   captureCompanionSourceThumbnail,
   clearCompanionMarks,
+  companionHasPickers,
+  toggleCompanionPicker,
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
@@ -164,6 +166,9 @@ export function CompanionSurfacePage() {
   // What the assistant is putting in front of the user, and how main has it
   // shown. A call's bar carries the short form as a row of its own, and counts
   // what was put off. The whole of it is the popover's own window.
+  // Whether the call's assistant has voices to pick from, so the voice
+  // chevron is drawn only when it has something to open.
+  const [voicesPickable, setVoicesPickable] = useState(false);
   const [popover, setPopover] = useState<CompanionPopoverContent | undefined>(
     undefined,
   );
@@ -311,6 +316,7 @@ export function CompanionSurfacePage() {
       setWatchRetro(state.watchRetro);
       setDictationOffer(state.dictationOffer);
       setPopover(state.popover);
+      setVoicesPickable(state.voicesPickable === true);
       setPopoverView(state.popoverView);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
@@ -1035,6 +1041,22 @@ export function CompanionSurfacePage() {
         onClearMarks={() => {
           clearCompanionMarks();
         }}
+        // The chevrons beside the mic and the assistant's audio. The window
+        // holding the call fills the picker; what the popover shows is how
+        // the chevron knows it is open.
+        openPicker={
+          popover?.kind === "microphones" || popover?.kind === "voices"
+            ? popover.kind
+            : undefined
+        }
+        voicesPickable={voicesPickable}
+        onPicker={
+          companionHasPickers()
+            ? (picker) => {
+                toggleCompanionPicker(picker);
+              }
+            : undefined
+        }
         // The tool, main's the same way: the press asks, and `annotationTool`
         // above is what main did with the ask.
         annotationTool={annotationTool}

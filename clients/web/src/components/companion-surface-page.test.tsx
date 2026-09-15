@@ -26,6 +26,9 @@ const toggleWatchMock = mock((_pick?: unknown) => undefined);
 const setScreenShareMock = mock((_pick?: unknown) => undefined);
 const setAnnotatingMock = mock((_annotating: boolean) => undefined);
 const clearMarksMock = mock(() => undefined);
+const togglePickerMock = mock((_picker: string) => undefined);
+/** Whether the shell takes a chevron's press. */
+let hasPickers = true;
 const setAnnotationToolMock = mock((_tool: string) => undefined);
 /**
  * What the shell lists for the picker. Null is a shell with no picker to
@@ -96,6 +99,7 @@ const resetState = () => {
   delete STATE.captureTarget;
   delete STATE.screenShare;
   delete STATE.screenShareEnabled;
+  delete STATE.voicesPickable;
   STATE.watchEnabled = true;
   STATE.intro = null;
   STATE.assistantName = "Ziggy";
@@ -148,6 +152,8 @@ mock.module("@/runtime/companion-surface", () => ({
   setCompanionScreenShare: setScreenShareMock,
   setCompanionAnnotating: setAnnotatingMock,
   clearCompanionMarks: clearMarksMock,
+  toggleCompanionPicker: togglePickerMock,
+  companionHasPickers: () => hasPickers,
   setCompanionAnnotationTool: setAnnotationToolMock,
   listCompanionCaptureSources: listSourcesMock,
   // The picker's tiles ask for these; a desktop with nothing to picture is
@@ -184,6 +190,8 @@ afterEach(() => {
   setScreenShareMock.mockClear();
   setAnnotatingMock.mockClear();
   clearMarksMock.mockClear();
+  togglePickerMock.mockClear();
+  hasPickers = true;
   setAnnotationToolMock.mockClear();
   listSourcesMock.mockClear();
   captureSources = null;
@@ -2422,5 +2430,77 @@ describe("prompts on the call's bar", () => {
     });
 
     expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+  });
+});
+
+describe("the pickers on the call's bar", () => {
+  const chevronOf = (container: HTMLElement, label: string) =>
+    Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        `button[aria-label="${label}"]`,
+      ),
+    ).find((button) => button.closest("[inert]") === null) ?? null;
+
+  test("a chevron opens its picker, and reads held while it is showing", async () => {
+    Object.assign(STATE, { call: LISTENING_CALL, voicesPickable: true });
+    const { container } = render(<CompanionSurfacePage />);
+
+    const mic = await waitFor(() => {
+      const found = chevronOf(container, "Choose microphone");
+      if (found === null) {
+        throw new Error("Expected the microphone chevron");
+      }
+      return found;
+    });
+    fireEvent.click(mic);
+    fireEvent.click(chevronOf(container, "Choose voice")!);
+    expect(togglePickerMock.mock.calls).toEqual([["microphones"], ["voices"]]);
+    expect(mic.getAttribute("aria-pressed")).toBe("false");
+
+    pushState({
+      ...STATE,
+      call: LISTENING_CALL,
+      voicesPickable: true,
+      popover: {
+        kind: "microphones",
+        id: "microphones",
+        options: [],
+        selected: "",
+        needsPermission: false,
+      },
+      popoverView: "expanded",
+    });
+    expect(
+      chevronOf(container, "Choose microphone")!.getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      chevronOf(container, "Choose voice")!.getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
+  test("draws no voice chevron when there are no voices to pick", async () => {
+    Object.assign(STATE, { call: LISTENING_CALL });
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      if (chevronOf(container, "Choose microphone") === null) {
+        throw new Error("Expected the microphone chevron");
+      }
+    });
+    expect(chevronOf(container, "Choose voice")).toBeNull();
+
+    pushState({ ...STATE, call: LISTENING_CALL, voicesPickable: true });
+    expect(chevronOf(container, "Choose voice")).not.toBeNull();
+  });
+
+  test("is not drawn for a shell with nowhere to send the press", async () => {
+    hasPickers = false;
+    Object.assign(STATE, { call: LISTENING_CALL });
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      if (chevronOf(container, "Mute microphone") === null) {
+        throw new Error("Expected the call bar");
+      }
+    });
+    expect(chevronOf(container, "Choose microphone")).toBeNull();
   });
 });

@@ -40,6 +40,7 @@ import type {
   DictationOfferAnswer,
   CompanionPopoverAnswer,
   CompanionPopoverView,
+  CompanionPicker,
   ChordBinding,
   ChordRegistrationResult,
   DictationPartialsResult,
@@ -431,6 +432,7 @@ declare global {
         setPopoverSize?(popoverId: string, width: number, height: number): void;
         setPopoverView?(popoverId: string, view: CompanionPopoverView): void;
         setAttachedPopoverHeight?(popoverId: string, height: number): void;
+        togglePicker?(picker: CompanionPicker): void;
         openLink?(url: string): void;
         takesPrompts?(): Promise<boolean>;
         activate?(): void;

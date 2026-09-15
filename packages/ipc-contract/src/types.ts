@@ -206,6 +206,12 @@ export type VellumCommand =
       answer: CompanionPopoverAnswer;
     }
   /**
+   * Open a picker from the call bar in the popover, or close it when it is
+   * the one open. Never raises the app: the point is choosing without
+   * leaving what the user is doing.
+   */
+  | { kind: "toggleCompanionPicker"; picker: CompanionPicker }
+  /**
    * Start a live-voice session, or end the one that is running.
    *
    * The keyboard's version of Talk. It differs from `startVoice` in the one
@@ -1617,7 +1623,66 @@ export type CompanionPopover =
       kind: "surface";
       id: string;
       title: string;
+    }
+  | {
+      /**
+       * The microphones a call can listen through, opened from the call bar.
+       * `id` is always {@link COMPANION_PICKER_MICROPHONES}.
+       */
+      kind: "microphones";
+      id: string;
+      /** Every microphone, System Default first. */
+      options: readonly CompanionPickerOption[];
+      /** The option in use. Empty is System Default. */
+      selected: string;
+      /** Inputs exist but cannot be named until mic access is granted. */
+      needsPermission: boolean;
+    }
+  | {
+      /**
+       * The voices the assistant can speak in, opened from the call bar.
+       * `id` is always {@link COMPANION_PICKER_VOICES}.
+       */
+      kind: "voices";
+      id: string;
+      /** Grouped by accent, as Settings lists them. */
+      groups: readonly CompanionVoiceGroup[];
+      /** The voice in use. */
+      selected: string;
     };
+
+/** The pickers the call bar opens in the popover. */
+export const COMPANION_PICKER_MICROPHONES = "microphones";
+export const COMPANION_PICKER_VOICES = "voices";
+export type CompanionPicker =
+  | typeof COMPANION_PICKER_MICROPHONES
+  | typeof COMPANION_PICKER_VOICES;
+
+/** One row of a picker. */
+export interface CompanionPickerOption {
+  id: string;
+  label: string;
+}
+
+/** Voices sharing an accent, under its heading. */
+export interface CompanionVoiceGroup {
+  accent: string;
+  voices: readonly CompanionVoiceOption[];
+}
+
+export interface CompanionVoiceOption {
+  /** The managed voice's model id. */
+  id: string;
+  /** Its character traits, as Settings words them. */
+  label: string;
+  /** A hosted sample the popover plays for a preview. Empty when none. */
+  sampleUrl: string;
+  /** The platform default voice. */
+  isDefault: boolean;
+}
+
+/** The most rows a picker carries. */
+export const COMPANION_PICKER_OPTIONS_MAX = 200;
 
 /** One tool approval, as the popover puts it to the user. */
 export interface CompanionApproval {
@@ -1689,6 +1754,8 @@ export const COMPANION_POPOVER_SECRET_MAX = 10_000;
  * the conversation; on a surface it also stops the popover offering it, since
  * the user has gone to answer it there.
  *
+ * `pick` chooses a row of a picker.
+ *
  * Not Now, Review and Enter are not here: they change only what the companion
  * shows, which main holds (see {@link CompanionPopoverView}).
  */
@@ -1699,7 +1766,8 @@ export type CompanionPopoverAnswer =
   | { kind: "secret"; value: string }
   | { kind: "action"; actionId: string }
   | { kind: "open" }
-  | { kind: "dismiss" };
+  | { kind: "dismiss" }
+  | { kind: "pick"; optionId: string };
 
 /**
  * How the companion is showing the popover, which is main's to hold because
@@ -2192,6 +2260,11 @@ export interface CompanionContext {
    * something. Absent when there is nothing. See {@link CompanionPopover}.
    */
   popover?: CompanionPopover;
+  /**
+   * Whether the call's assistant has managed voices to pick from, so the call
+   * bar draws its voice chevron. Absent is a publisher that predates it.
+   */
+  voicesPickable?: boolean;
 }
 
 /**
@@ -2379,6 +2452,8 @@ export interface CompanionSurfaceState {
    * while something is. See {@link CompanionPopover}.
    */
   popover?: CompanionPopover;
+  /** Whether the call bar's voice chevron has a catalog to open. */
+  voicesPickable?: boolean;
   /** How the popover is being shown, while there is one. */
   popoverView?: CompanionPopoverView;
 

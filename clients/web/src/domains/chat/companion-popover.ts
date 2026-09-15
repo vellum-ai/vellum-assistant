@@ -13,10 +13,16 @@
 import { create } from "zustand";
 
 import {
+  COMPANION_PICKER_MICROPHONES,
+  COMPANION_PICKER_OPTIONS_MAX,
+  COMPANION_PICKER_VOICES,
   COMPANION_POPOVER_ACTIONS_MAX,
   COMPANION_POPOVER_APPROVALS_MAX,
   COMPANION_POPOVER_BODY_MAX,
   type CompanionApproval,
+  type CompanionPicker,
+  type CompanionPickerOption,
+  type CompanionVoiceGroup,
   type CompanionPopover,
   type CompanionPopoverAction,
   type CompanionPopoverPermission,
@@ -40,11 +46,57 @@ interface CompanionPopoverState {
    * surfaces in front of the user.
    */
   offeredSurfaceId: string | null;
+  /** The picker the call bar opened, until it is closed or the call ends. */
+  openPicker: CompanionPicker | null;
+  /**
+   * The microphones to offer, listed by `useCompanionPickers` while the
+   * microphone picker is open. Null until the first listing lands.
+   */
+  microphones: CompanionMicrophones | null;
+  /**
+   * The voices to offer and how to choose one, from `useCompanionPickers`
+   * while the voice picker is open. Null while unavailable: an assistant on
+   * its own speech provider has no catalog to pick from.
+   */
+  voices: CompanionVoices | null;
+  /** Whether the call's assistant has voices to pick from. */
+  voicesPickable: boolean;
+}
+
+export interface CompanionMicrophones {
+  /** Every microphone but System Default, with a saved one gone missing last. */
+  options: CompanionPickerOption[];
+  selected: string;
+  needsPermission: boolean;
+}
+
+export interface CompanionVoices {
+  groups: CompanionVoiceGroup[];
+  selected: string;
+  select: (model: string) => void;
 }
 
 export const useCompanionPopoverStore = create<CompanionPopoverState>()(() => ({
   offeredSurfaceId: null,
+  openPicker: null,
+  microphones: null,
+  voices: null,
+  voicesPickable: false,
 }));
+
+/** Open a picker, or close it when it is the one open. */
+export function toggleCompanionPicker(picker: CompanionPicker): void {
+  const { openPicker } = useCompanionPopoverStore.getState();
+  useCompanionPopoverStore.setState({
+    openPicker: openPicker === picker ? null : picker,
+  });
+}
+
+export function closeCompanionPicker(): void {
+  if (useCompanionPopoverStore.getState().openPicker !== null) {
+    useCompanionPopoverStore.setState({ openPicker: null });
+  }
+}
 
 export function offerSurfaceToCompanion(surfaceId: string): void {
   useCompanionPopoverStore.setState({ offeredSurfaceId: surfaceId });
@@ -142,6 +194,39 @@ function popoverForSurface(surface: Surface): CompanionPopover {
   };
 }
 
+/** The open picker as the popover draws it, once there is something to list. */
+function popoverForPicker(): CompanionPopover | undefined {
+  const { openPicker, microphones, voices } =
+    useCompanionPopoverStore.getState();
+  if (openPicker === COMPANION_PICKER_MICROPHONES && microphones !== null) {
+    return {
+      kind: "microphones",
+      id: COMPANION_PICKER_MICROPHONES,
+      options: microphones.options
+        .slice(0, COMPANION_PICKER_OPTIONS_MAX - 1)
+        .map(({ id, label }) => ({ id, label: bounded(label, 200) })),
+      selected: microphones.selected,
+      needsPermission: microphones.needsPermission,
+    };
+  }
+  if (openPicker === COMPANION_PICKER_VOICES && voices !== null) {
+    return {
+      kind: "voices",
+      id: COMPANION_PICKER_VOICES,
+      groups: voices.groups.slice(0, COMPANION_PICKER_OPTIONS_MAX).map((group) => ({
+        accent: bounded(group.accent, 120),
+        voices: group.voices.slice(0, COMPANION_PICKER_OPTIONS_MAX).map((voice) => ({
+          ...voice,
+          label: bounded(voice.label, 200),
+          sampleUrl: voice.sampleUrl.length > 2048 ? "" : voice.sampleUrl,
+        })),
+      })),
+      selected: voices.selected,
+    };
+  }
+  return undefined;
+}
+
 /** A pending approval, and the tool call it is attached to when it has one. */
 export interface PendingApproval {
   confirmation: PendingConfirmationState;
@@ -226,7 +311,8 @@ const providerKeyFor = (service: string): string =>
  *
  * Approvals first: the turn is stopped until they are answered, and the rest
  * will still be there after. Then a credential, which stops the turn the same
- * way. Then the offered surface.
+ * way. Then a picker the user opened from the call bar, since they asked for
+ * it just now. Then the offered surface.
  */
 export function currentCompanionPopover(): CompanionPopover | undefined {
   const approvals = pendingApprovals().slice(
@@ -254,6 +340,10 @@ export function currentCompanionPopover(): CompanionPopover | undefined {
       label: bounded(secret.label ?? secret.field ?? "", 120),
       placeholder: bounded(secret.placeholder ?? "", 200),
     };
+  }
+  const picker = popoverForPicker();
+  if (picker !== undefined) {
+    return picker;
   }
   const surface = offeredSurface();
   return surface === null ? undefined : popoverForSurface(surface);
