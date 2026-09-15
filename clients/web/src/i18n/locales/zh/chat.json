@@ -1597,10 +1597,6 @@
   "singleActivity": {
     "webSearch": "网页搜索"
   },
-  "skillCreatedCard": {
-    "view": "查看",
-    "viewAria": "查看 {name}"
-  },
   "skillDetailPanel": {
     "actionsAria": "技能操作",
     "closeDetails": "关闭技能详情",

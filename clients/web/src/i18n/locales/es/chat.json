@@ -1559,10 +1559,6 @@
   "singleActivity": {
     "webSearch": "Búsqueda web"
   },
-  "skillCreatedCard": {
-    "view": "Ver",
-    "viewAria": "Ver {name}"
-  },
   "skillDetailPanel": {
     "actionsAria": "Acciones de habilidad",
     "closeDetails": "Cerrar detalles de la habilidad",

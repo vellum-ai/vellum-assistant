@@ -1608,10 +1608,6 @@
   "singleActivity": {
     "webSearch": "Web Search"
   },
-  "skillCreatedCard": {
-    "view": "View",
-    "viewAria": "View {name}"
-  },
   "skillDetailPanel": {
     "actionsAria": "Skill actions",
     "closeDetails": "Close skill details",

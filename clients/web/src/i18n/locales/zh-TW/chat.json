@@ -1597,10 +1597,6 @@
   "singleActivity": {
     "webSearch": "網路搜尋"
   },
-  "skillCreatedCard": {
-    "view": "檢視",
-    "viewAria": "檢視 {name}"
-  },
   "skillDetailPanel": {
     "actionsAria": "技能動作",
     "closeDetails": "關閉技能詳細資料",
