@@ -145,37 +145,19 @@ describe("hasWebhookRoutingConfigured resolution order", () => {
     });
   });
 
-  test("the twilio option falls back to managed callbacks with no ingress", async () => {
-    platformContextEnabled = true;
-
-    expect(await hasWebhookRoutingConfigured(true, { twilio: true })).toEqual({
-      configured: true,
-      usesManagedCallbacks: true,
-    });
-  });
-
-  // ── Tier 3: platform-connected fallback ──────────────────────────────────
-
-  test("a platform-connected assistant with no ingress uses managed callbacks", async () => {
-    platformContextEnabled = true;
-
-    // The LUM-2882 case: `webhooks register` hands back a platform callback
-    // URL here, so the status surfaces must not report missing ingress.
-    expect(await hasWebhookRoutingConfigured(true)).toEqual({
-      configured: true,
-      usesManagedCallbacks: true,
-    });
-  });
-
-  test("the fallback applies when the ingress URL is present but empty", async () => {
-    platformContextEnabled = true;
-    rawConfig = { ingress: { publicBaseUrl: "" } };
-
-    expect(await hasWebhookRoutingConfigured(true)).toEqual({
-      configured: true,
-      usesManagedCallbacks: true,
-    });
-  });
+  test.each([undefined, { publicBaseUrl: "" }, { enabled: false }])(
+    "platform credentials do not make missing ingress ready: %j",
+    async (ingress) => {
+      platformContextEnabled = true;
+      rawConfig = { ingress };
+      for (const twilio of [true, false]) {
+        expect(await hasWebhookRoutingConfigured(true, { twilio })).toEqual({
+          configured: false,
+          usesManagedCallbacks: false,
+        });
+      }
+    },
+  );
 
   test("an explicit ingress.enabled false blocks the fallback", async () => {
     platformContextEnabled = true;

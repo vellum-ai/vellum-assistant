@@ -19,6 +19,7 @@ import {
   pollMcpAuthStatus,
   startMcpAuth,
 } from "./mcp-api";
+import { mcpSetupErrorKey } from "./mcp-setup-error";
 import { mcpQueryKeys } from "./mcp-query-keys";
 
 interface McpConnectAttempt {
@@ -79,7 +80,9 @@ export function useMcpConnect(assistantId: string) {
     queryKey: mcpQueryKeys.auth(assistantId, attempt?.operationId ?? ""),
     queryFn: () => pollMcpAuthStatus(assistantId, attempt!.serverId),
     enabled: awaitingAuthorization,
-    refetchInterval: awaitingAuthorization ? CONNECTION_POLL_INTERVAL_MS : false,
+    refetchInterval: awaitingAuthorization
+      ? CONNECTION_POLL_INTERVAL_MS
+      : false,
     staleTime: 0,
     gcTime: 0,
     retry: 1,
@@ -367,7 +370,7 @@ export function useMcpConnect(assistantId: string) {
                 current && {
                   ...current,
                   phase: "error",
-                  error: t("mcpConnect.startFailed"),
+                  error: t(mcpSetupErrorKey(error) ?? "mcpConnect.startFailed"),
                 },
             );
           }

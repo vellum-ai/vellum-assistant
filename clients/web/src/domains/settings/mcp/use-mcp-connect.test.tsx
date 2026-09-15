@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { createElement, type PropsWithChildren } from "react";
 
+import { ApiError } from "@/utils/api-errors";
 import { mcpServer } from "../integration-test-fixtures";
 import type {
   McpServerEntry,
@@ -134,6 +135,40 @@ afterEach(() => {
 });
 
 describe("useMcpConnect", () => {
+  test.each(["prepare", "authorize"])(
+    "shows an actionable callback failure from %s and closes its popup",
+    async (stage) => {
+      const failure = new ApiError(422, "Private backend detail", {
+        code: "PUBLIC_INGRESS_NOT_CONFIGURED",
+      });
+      const prepare =
+        stage === "prepare"
+          ? async () => {
+              throw failure;
+            }
+          : undefined;
+      if (stage === "authorize") {
+        start.mockImplementationOnce(async () => {
+          throw failure;
+        });
+      }
+      const { result } = renderConnect();
+      act(() => result.current.connect("example-integration", prepare));
+      await waitFor(() => expect(result.current.attempt?.phase).toBe("error"));
+      expect(result.current.attempt?.error).toContain(
+        "needs a callback address",
+      );
+      expect(result.current.attempt?.error).not.toContain(
+        "Private backend detail",
+      );
+      expect(popup.close).toHaveBeenCalled();
+      expect(popup.location.replace).not.toHaveBeenCalled();
+      if (stage === "prepare") {
+        expect(start).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   test("pre-opens a desktop popup before asynchronous preparation and prevents double starts", async () => {
     const preparation = deferred<void>();
     const prepare = mock(() => {
@@ -206,7 +241,9 @@ describe("useMcpConnect", () => {
     expect(popup.close).not.toHaveBeenCalled();
 
     const prepareOtherServer = mock(async () => {});
-    act(() => result.current.connect("another-integration", prepareOtherServer));
+    act(() =>
+      result.current.connect("another-integration", prepareOtherServer),
+    );
     expect(result.current.attempt?.serverId).toBe("example-integration");
     expect(result.current.attempt?.phase).toBe("waiting");
     expect(prepareOtherServer).not.toHaveBeenCalled();

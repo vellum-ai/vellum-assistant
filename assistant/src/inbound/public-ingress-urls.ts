@@ -35,6 +35,7 @@ import {
 } from "@vellumai/service-contracts/twilio-ingress";
 
 import { getIngressPublicBaseUrl } from "../config/env.js";
+import { RouteError } from "../runtime/routes/errors.js";
 
 export interface IngressConfig {
   ingress?: {
@@ -46,13 +47,8 @@ export interface IngressConfig {
 /**
  * True when the user has explicitly switched public ingress off.
  *
- * An explicit opt-out is a decision not to accept inbound webhooks at all, so
- * it must not be silently routed around via platform callbacks. An *absent*
- * ingress config is merely "not set up yet" and is eligible for the platform
- * fallback, so only a literal `false` counts here.
- *
- * Every consumer that offers a platform-callback fallback has to consult this
- * before falling back, which is why it lives here rather than in each caller.
+ * An explicit opt-out prevents self-hosted callback registration even when
+ * a public address is configured.
  */
 export function isPublicIngressDisabled(config: IngressConfig): boolean {
   return config.ingress?.enabled === false;
@@ -61,17 +57,28 @@ export function isPublicIngressDisabled(config: IngressConfig): boolean {
 /**
  * Thrown when a URL builder is asked for a URL while ingress is opted out.
  *
- * Distinct from the "no URL configured" error so callers with a
- * platform-callback fallback can tell the two apart: "not set up yet" is
- * eligible for the fallback, an explicit opt-out is not. Matching on the
- * message text would break the moment the copy is reworded.
+ * The stable error code lets clients explain how to restore callbacks without
+ * matching the message text.
  */
-export class PublicIngressDisabledError extends Error {
+export class PublicIngressDisabledError extends RouteError {
   constructor() {
     super(
       "Public ingress is disabled. Ask the assistant to enable it, or update it from the Settings page.",
+      "PUBLIC_INGRESS_DISABLED",
+      422,
     );
     this.name = "PublicIngressDisabledError";
+  }
+}
+
+export class PublicIngressNotConfiguredError extends RouteError {
+  constructor() {
+    super(
+      "No public base URL configured. Set ingress.publicBaseUrl in config.",
+      "PUBLIC_INGRESS_NOT_CONFIGURED",
+      422,
+    );
+    this.name = "PublicIngressNotConfiguredError";
   }
 }
 
@@ -106,9 +113,7 @@ export function getPublicBaseUrl(config: IngressConfig): string {
     return normalizedIngressEnvValue;
   }
 
-  throw new Error(
-    "No public base URL configured. Set ingress.publicBaseUrl in config.",
-  );
+  throw new PublicIngressNotConfiguredError();
 }
 
 /**

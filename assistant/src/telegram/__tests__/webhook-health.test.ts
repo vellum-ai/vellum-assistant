@@ -217,27 +217,15 @@ describe("gating", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test("runs for a platform-connected local assistant with no ingress", async () => {
-    // LUM-2882: `webhooks register telegram` registers a platform callback
-    // route in this exact configuration, so a broken registration is real and
-    // the sweep has to verify it rather than skip.
+  test("does not run for a platform-connected local assistant with no ingress", async () => {
     ingressConfig = {};
     platformContextEnabled = true;
-    setWebhookInfo({
-      url: WEBHOOK_URL,
-      last_error_date: unixSecondsAgo(30),
-      last_error_message: "Wrong response from the webhook: 404 Not Found",
-    });
 
     const result = await runTelegramWebhookHealthCheck();
 
-    expect(result.status).toBe("delivery_failing");
-    expect(fetchCallCount).toBeGreaterThan(0);
-    expect(emittedSignals).toHaveLength(1);
-    // The callback route is platform-owned, so the self-hosted remediation
-    // (point config at a new tunnel URL) does not apply.
-    expect(result.detail).not.toContain("assistant config set");
-    expect(result.detail).toContain("contact support");
+    expect(result.status).toBe("skipped");
+    expect(fetchCallCount).toBe(0);
+    expect(emittedSignals).toHaveLength(0);
   });
 
   test("runs when platform-managed callbacks stand in for public ingress", async () => {

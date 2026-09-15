@@ -287,46 +287,31 @@ describe("platform callback registration", () => {
     ).resolves.toBe("https://detected.example.com/v1/gateway/callbacks/x/");
   });
 
-  test("self-hosted registerCallbackRoute omits callback_base_url when no ingress is available", async () => {
+  test("self-hosted registration rejects missing ingress before contacting the platform", async () => {
     mockIsPlatform = false;
-    mockConfig = {};
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
     mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      "22222222-3333-4444-8555-666666666666";
+      "assistant-123";
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
-      "ast-self-hosted-key";
-
-    globalThis.fetch = mock(
-      async (_input: RequestInfo | URL, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body)) as Record<string, string>;
-        expect(body).toEqual({
-          assistant_id: "22222222-3333-4444-8555-666666666666",
-          callback_path: "webhooks/telegram",
-          type: "telegram",
-        });
-        expect(body).not.toHaveProperty("callback_base_url");
-
-        return new Response(
-          JSON.stringify({
-            callback_url:
-              "https://platform.example.com/v1/gateway/callbacks/x/",
-            callback_path:
-              "22222222-3333-4444-8555-666666666666/webhooks/telegram",
-            type: "telegram",
-            assistant_id: "22222222-3333-4444-8555-666666666666",
-          }),
-          {
-            status: 201,
-            headers: { "content-type": "application/json" },
-          },
-        );
-      },
-    ) as unknown as typeof fetch;
-
+      "example-key";
+    const fetchMock = mock(async () => new Response(null, { status: 400 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
     await expect(
-      registerCallbackRoute("webhooks/telegram", "telegram"),
-    ).resolves.toBe("https://platform.example.com/v1/gateway/callbacks/x/");
+      registerCallbackRoute("webhooks/oauth/callback", "oauth"),
+    ).rejects.toMatchObject({
+      code: "PUBLIC_INGRESS_NOT_CONFIGURED",
+      statusCode: 422,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    mockConfig = { ingress: { enabled: false } };
+    await expect(
+      registerCallbackRoute("webhooks/oauth/callback", "oauth"),
+    ).rejects.toMatchObject({
+      code: "PUBLIC_INGRESS_DISABLED",
+      statusCode: 422,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("platform-managed registerCallbackRoute omits callback_base_url even when ingress exists", async () => {
@@ -582,18 +567,16 @@ describe("resolveCallbackUrl resolution order", () => {
     expect(ipcRegisterCalls).toEqual([]);
   });
 
-  test("a platform-connected assistant with no ingress registers with the platform", async () => {
-    // LUM-2882: this used to return the direct builder's throw because the
-    // platform branch was gated on IS_PLATFORM, which is only true on a pod.
+  test("platform credentials cannot replace a self-hosted callback address", async () => {
     seedPlatformCredentials();
-
     await expect(
       resolveCallbackUrl(noIngress, "webhooks/twilio/voice", "twilio_voice"),
-    ).resolves.toBe(PLATFORM_URL);
-    expect(registerCalls).toBe(1);
+    ).rejects.toThrow("No public base URL configured");
+    expect(registerCalls).toBe(0);
   });
 
   test("query parameters are appended to the platform URL", async () => {
+    mockIsPlatform = true;
     seedPlatformCredentials();
 
     await expect(

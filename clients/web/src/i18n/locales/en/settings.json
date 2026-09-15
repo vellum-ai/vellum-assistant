@@ -2386,6 +2386,8 @@
     "missingDeps": "Waiting on: {deps}"
   },
   "mcpConnect": {
+    "callbackNotConfigured": "Your assistant needs a callback address before you can connect. Ask your assistant to set up a public callback URL, then try again.",
+    "callbackDisabled": "Callbacks are disabled for your assistant. Enable public ingress in your assistant settings, then try again.",
     "addFailed": "Could not add the integration.",
     "authorizationFailed": "Authorization failed. Try connecting again.",
     "cancel": "Cancel connection",

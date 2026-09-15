@@ -237,11 +237,7 @@ async function resolveExpectedTelegramWebhookUrl(
   //      this resolver. Platform pods are exempt (see the comment there).
   //   4. A configured public ingress URL wins (a self-hosted tunnel, or the
   //      Velay-published URL while the tunnel is registered).
-  //   5. Platform-connected local assistants holding vellum credentials fall
-  //      back to a managed platform callback route.
-  //      `registerManagedTelegramCallbackRoute` self-gates on platform
-  //      features and credential presence, so a gateway with no platform
-  //      context resolves to undefined and reconciliation skips.
+  //   5. Self-hosted assistants without ingress have no callback address.
   if (isPlatformMode()) {
     if (isFeatureFlagEnabled("velay-webhooks")) {
       const velayUrl = resolveVelayTelegramWebhookUrl(caches);
@@ -253,11 +249,7 @@ async function resolveExpectedTelegramWebhookUrl(
   }
 
   const baseUrl = readIngressBaseUrl(caches);
-  if (baseUrl) {
-    return `${baseUrl}${TELEGRAM_WEBHOOK_INGRESS_PATH}`;
-  }
-
-  return registerManagedTelegramCallbackRoute(caches);
+  return baseUrl ? `${baseUrl}${TELEGRAM_WEBHOOK_INGRESS_PATH}` : undefined;
 }
 
 /** The request waiting to run, holding the caches of whoever asked last. */

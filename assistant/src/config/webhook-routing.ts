@@ -14,11 +14,9 @@ import {
   resolveTwilioPublicBaseUrl,
 } from "@vellumai/service-contracts/twilio-ingress";
 
-import { resolvePlatformCallbackRegistrationContext } from "../inbound/platform-callback-registration.js";
-import { isPublicIngressDisabled } from "../inbound/public-ingress-urls.js";
 import { isVelayWebhooksEnabled } from "../inbound/velay-webhooks-gate.js";
 import { getIsPlatform } from "./env-registry.js";
-import { getConfig, loadRawConfig } from "./loader.js";
+import { loadRawConfig } from "./loader.js";
 
 /**
  * True when a public ingress base URL is set and ingress is enabled.
@@ -46,21 +44,6 @@ export function hasIngressConfigured(
 }
 
 /**
- * True when the user has explicitly switched public ingress off.
- *
- * Reads the validated config rather than the raw file so the check matches
- * what `getPublicBaseUrl` enforces. A config that fails to load is treated as
- * "not explicitly disabled": absence of a decision is not an opt-out.
- */
-function isIngressExplicitlyDisabled(): boolean {
-  try {
-    return isPublicIngressDisabled(getConfig());
-  } catch {
-    return false;
-  }
-}
-
-/**
  * True when inbound webhooks have somewhere to land.
  *
  * Mirrors the resolution order `handleWebhooksRegister` uses in
@@ -74,20 +57,11 @@ function isIngressExplicitlyDisabled(): boolean {
  *      fallback — including when ingress is explicitly disabled, matching
  *      `resolveCallbackUrl`'s pod behavior.
  *   2. **A configured public ingress wins** for everyone else.
- *   3. **Platform-connected assistants with no ingress** fall back to managed
- *      callbacks. Connectivity is decided by credentials (platform base URL +
- *      assistant ID + assistant API key), not by `IS_PLATFORM`, which is only
- *      ever true on a platform pod.
- *   4. Otherwise nothing is configured.
+ *   3. Self-hosted assistants without ingress are not configured, regardless
+ *      of platform credentials. Platform registration requires their address.
  *
- * Ingress deliberately precedes the platform fallback: any logged-in local
- * assistant holds platform credentials for the LLM proxy, so treating
- * credential presence as "managed" would misreport an explicitly configured
- * self-hosted webhook as platform-routed. An explicit `ingress.enabled: false`
- * is a decision not to accept inbound webhooks at all and blocks the fallback.
- *
- * `allowManagedCallbacks` gates both platform tiers: channels that can only be
- * served by a self-hosted ingress pass `false` and never see them.
+ * `allowManagedCallbacks` gates the platform-pod tier. Channels served only
+ * through self-hosted ingress pass `false`.
  *
  * The gateway's Telegram webhook reconciler implements this same resolution
  * order when deciding what URL to hand Telegram's setWebhook
@@ -117,10 +91,5 @@ export async function hasWebhookRoutingConfigured(
     return { configured: true, usesManagedCallbacks: true };
   }
 
-  if (!allowManagedCallbacks || isIngressExplicitlyDisabled()) {
-    return { configured: false, usesManagedCallbacks: false };
-  }
-
-  const { enabled } = await resolvePlatformCallbackRegistrationContext();
-  return { configured: enabled, usesManagedCallbacks: enabled };
+  return { configured: false, usesManagedCallbacks: false };
 }

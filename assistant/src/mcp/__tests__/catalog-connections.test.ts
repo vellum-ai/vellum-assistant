@@ -26,6 +26,12 @@ const entry = {
   setup: { mode: "oauth" },
 };
 let entries = [entry];
+const callback = mock(
+  async () => "https://callback.example.com/webhooks/oauth/callback",
+);
+mock.module("../../inbound/oauth-callback-url.js", () => ({
+  resolveOauthCallbackUrl: callback,
+}));
 const reload = mock(async () => ({ success: true }));
 const publish = mock(async () => {});
 mock.module("../catalog.js", () => ({ getMcpCatalog: () => entries }));
@@ -45,6 +51,10 @@ describe("catalog connection identity", () => {
   beforeEach(() => {
     entries = [entry];
     entry.setup.mode = "oauth";
+    callback.mockReset();
+    callback.mockImplementation(
+      async () => "https://callback.example.com/webhooks/oauth/callback",
+    );
     reload.mockClear();
     publish.mockClear();
     setConfig("mcp", {
@@ -57,6 +67,20 @@ describe("catalog connection identity", () => {
         },
       },
     });
+  });
+
+  test("a failed callback prerequisite leaves config and runtime untouched, and can be retried", async () => {
+    const before = loadRawConfig();
+    callback.mockImplementationOnce(async () => {
+      throw new Error("Callback unavailable");
+    });
+    await expect(connectMcpCatalogEntry(request)).rejects.toThrow(
+      "Callback unavailable",
+    );
+    expect(loadRawConfig()).toEqual(before);
+    expect(reload).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect((await connectMcpCatalogEntry(request)).created).toBe(true);
   });
 
   test("concurrent clicks share one saved instance without merging matching custom URLs", async () => {
@@ -78,6 +102,26 @@ describe("catalog connection identity", () => {
     });
     expect(reload).toHaveBeenCalledTimes(1);
     expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  test("reuses a saved connection when callback registration is unavailable", async () => {
+    const first = await connectMcpCatalogEntry(request);
+    const before = loadRawConfig();
+    callback.mockReset();
+    callback.mockImplementation(async () => {
+      throw new Error("Callback unavailable");
+    });
+    reload.mockClear();
+    publish.mockClear();
+
+    expect(await connectMcpCatalogEntry(request)).toEqual({
+      serverId: first.serverId,
+      created: false,
+    });
+    expect(callback).not.toHaveBeenCalled();
+    expect(loadRawConfig()).toEqual(before);
+    expect(reload).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
   });
 
   test("rejects stale definitions and unknown catalog identities before writing", async () => {

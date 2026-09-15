@@ -50,7 +50,12 @@ import { readPluginMcpServers } from "../../plugins/mcp-servers.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  RouteError,
+} from "./errors.js";
 import { parseBody } from "./parse-body.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -127,6 +132,9 @@ async function handleMcpAuthStart({
         },
       });
     } catch (err) {
+      if (err instanceof RouteError) {
+        throw err;
+      }
       throw new InternalError(err instanceof Error ? err.message : String(err));
     }
 

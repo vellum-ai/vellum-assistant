@@ -2328,6 +2328,8 @@
     "title": "Personalidad"
   },
   "mcpConnect": {
+    "callbackNotConfigured": "Tu asistente necesita una dirección de retorno para conectarse. Pídele que configure una URL pública de retorno y vuelve a intentarlo.",
+    "callbackDisabled": "Las llamadas de retorno están desactivadas para tu asistente. Activa el acceso público entrante en la configuración del asistente y vuelve a intentarlo.",
     "addFailed": "No se pudo añadir la integración.",
     "authorizationFailed": "La autorización falló. Intenta conectar de nuevo.",
     "cancel": "Cancelar conexión",

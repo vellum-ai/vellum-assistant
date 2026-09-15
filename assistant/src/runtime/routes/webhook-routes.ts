@@ -19,10 +19,7 @@ import {
   resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
 import { resolveClaimedPodWebhookUrl } from "../../inbound/pod-webhook-claim.js";
-import {
-  getPublicBaseUrl,
-  isPublicIngressDisabled,
-} from "../../inbound/public-ingress-urls.js";
+import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { isVelayWebhooksEnabled } from "../../inbound/velay-webhooks-gate.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -124,16 +121,8 @@ async function registerWithPlatform(
  *      tunnel URL the gateway publishes into `ingress.publicBaseUrl`, so a
  *      platform-connected local assistant with a live tunnel already resolves
  *      to a stable platform-owned URL here.
- *   3. **Platform-connected assistants with no ingress** register with the
- *      platform gateway rather than failing. Connectivity is decided by
- *      credentials (platform base URL + assistant ID + assistant API key), not
- *      by `IS_PLATFORM`, which is only ever true on a platform pod.
- *
- * Ingress deliberately precedes platform registration: any logged-in local
- * assistant holds platform credentials (it needs them for the LLM proxy), so
- * treating credential presence as "managed" would silently reroute an
- * explicitly configured self-hosted webhook through the platform. The gateway's
- * Telegram and email registrars order the same two tiers the same way.
+ *   3. **Self-hosted assistants without ingress** report the missing callback
+ *      address. Platform registration also requires their public base URL.
  */
 async function handleWebhooksRegister(
   args: RouteHandlerArgs,
@@ -166,34 +155,13 @@ async function handleWebhooksRegister(
     return registerWithPlatform(webhookPath, type, sourceIdentifier);
   }
 
-  const config = getConfig();
-  if (isPublicIngressDisabled(config)) {
-    throw new UnprocessableEntityError(
-      "Public ingress is disabled. Ask the assistant to enable it, or update it from the Settings page.",
-    );
-  }
-
-  let ingressError: Error;
-  try {
-    const baseUrl = getPublicBaseUrl(config);
-    return {
-      callbackUrl: `${baseUrl}/${webhookPath}`,
-      type,
-      path: webhookPath,
-      mode: "self-hosted",
-    };
-  } catch (err) {
-    ingressError = err as Error;
-  }
-
-  // No ingress configured. Fall back to the platform gateway when this
-  // assistant is connected to the platform.
-  const context = await resolvePlatformCallbackRegistrationContext();
-  if (context.enabled) {
-    return registerWithPlatform(webhookPath, type, sourceIdentifier);
-  }
-
-  throw new UnprocessableEntityError(ingressError.message);
+  const baseUrl = getPublicBaseUrl(getConfig());
+  return {
+    callbackUrl: `${baseUrl}/${webhookPath}`,
+    type,
+    path: webhookPath,
+    mode: "self-hosted",
+  };
 }
 
 async function handleWebhooksList(
@@ -258,7 +226,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Register a webhook callback URL",
     description:
-      "Resolves a stable callback URL for a webhook type. On platform-managed assistants, registers the route with the platform gateway. Otherwise uses the configured ingress.publicBaseUrl, falling back to the platform gateway when no ingress is configured and the assistant is connected to the platform.",
+      "Resolves a stable callback URL for a webhook type. Platform-managed assistants use managed routing. Self-hosted assistants require an enabled public ingress URL; missing or disabled ingress returns a 422 setup error.",
     tags: ["webhooks"],
     requestBody: WebhooksRegisterRequestSchema,
     responseBody: WebhooksRegisterResponseSchema,

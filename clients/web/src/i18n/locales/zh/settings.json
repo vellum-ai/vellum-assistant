@@ -2376,6 +2376,8 @@
     "soleProviderHint": "仅 {name} 提供此模型。"
   },
   "mcpConnect": {
+    "callbackNotConfigured": "连接前，你的助手需要一个回调地址。请让助手设置公共回调 URL，然后重试。",
+    "callbackDisabled": "你的助手已禁用回调。请在助手设置中启用公共入站访问，然后重试。",
     "addFailed": "无法添加集成。",
     "authorizationFailed": "授权失败。请重新连接。",
     "cancel": "取消连接",

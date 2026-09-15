@@ -56,6 +56,7 @@ import {
   BadRequestError,
   InternalError,
   NotFoundError,
+  RouteError,
   UnprocessableEntityError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -502,6 +503,9 @@ async function handleCallbackRoutesRegister(
   try {
     callbackUrl = await registerCallbackRoute(path, type);
   } catch (err) {
+    if (err instanceof RouteError) {
+      throw err;
+    }
     throw new InternalError(
       `Failed to register callback route: ${(err as Error).message}`,
     );

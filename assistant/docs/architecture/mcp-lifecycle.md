@@ -99,6 +99,19 @@ A stale cancellation returns `{cancelled: false}`.
 CLI polling requires a matching status ID when start advertised an attempt ID;
 older assistants that omit it retain their existing polling behavior.
 
+## OAuth callback prerequisites
+
+Catalog Connect resolves the shared OAuth callback before saving a connection.
+Self-hosted assistants require an enabled `ingress.publicBaseUrl` or a detected
+public ingress address; platform credentials alone cannot supply that address.
+Platform-hosted assistants retain managed callback registration and the existing
+Velay route-claim flow. Missing or disabled self-hosted ingress returns HTTP 422
+with `PUBLIC_INGRESS_NOT_CONFIGURED` or `PUBLIC_INGRESS_DISABLED`. The web client
+maps these codes to setup guidance and retains generic copy for unknown errors
+from older assistants. The platform CLI preserves these errors; channel readiness
+and Telegram registration use the same self-hosted ingress prerequisite.
+Saved connections and credentials are not migrated.
+
 ## Acknowledgement boundaries
 
 Explicit teardown requests strict local cleanup. The manager retains client

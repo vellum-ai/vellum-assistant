@@ -15,6 +15,12 @@ let oauthConnectionStore: Record<
 > = {};
 const syncCalls: Array<{ provider: string; accountInfo?: string }> = [];
 let platformContextEnabled = false;
+let isPlatform = false;
+const actualEnvRegistry = await import("../config/env-registry.js");
+mock.module("../config/env-registry.js", () => ({
+  ...actualEnvRegistry,
+  getIsPlatform: () => isPlatform,
+}));
 
 const registerCallbackRouteMock = mock(
   async (callbackPath: string, _type: string) =>
@@ -133,6 +139,7 @@ describe("Telegram config handler", () => {
     oauthConnectionStore = {};
     syncCalls.length = 0;
     platformContextEnabled = false;
+    isPlatform = false;
     registerCallbackRouteMock.mockClear();
     setIngressPublicBaseUrl("");
     globalThis.fetch = originalFetch;
@@ -157,11 +164,8 @@ describe("Telegram config handler", () => {
     expect(oauthConnectionStore["telegram"]?.accountInfo).toBe("@testbot");
   });
 
-  // A platform-connected local assistant (IS_PLATFORM unset, valid platform
-  // credentials, no public ingress) receives Telegram webhooks only through
-  // managed platform callbacks, so saving the bot token must register the
-  // route.
-  test("set registers the platform callback route for a platform-connected local assistant", async () => {
+  test("set registers the platform callback route for a platform-hosted assistant", async () => {
+    isPlatform = true;
     platformContextEnabled = true;
     globalThis.fetch = mockTelegramApi();
 
@@ -174,6 +178,18 @@ describe("Telegram config handler", () => {
       "webhooks/telegram",
       "telegram",
     );
+  });
+
+  test("set does not register a callback for a platform-connected local assistant without ingress", async () => {
+    platformContextEnabled = true;
+    globalThis.fetch = mockTelegramApi();
+
+    const result = await setTelegramConfig(
+      "123456789:AAtesttoken_testtoken_testtoken_test",
+    );
+
+    expect(result.success).toBe(true);
+    expect(registerCallbackRouteMock).not.toHaveBeenCalled();
   });
 
   test("set does not register a platform callback route when not platform-connected", async () => {

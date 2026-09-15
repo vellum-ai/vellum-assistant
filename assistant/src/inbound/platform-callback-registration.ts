@@ -26,10 +26,7 @@ import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { resolveClaimedPodWebhookUrl } from "./pod-webhook-claim.js";
-import {
-  PublicIngressDisabledError,
-  tryGetPublicBaseUrl,
-} from "./public-ingress-urls.js";
+import { getPublicBaseUrl } from "./public-ingress-urls.js";
 import { isVelayWebhooksEnabled } from "./velay-webhooks-gate.js";
 
 const log = getLogger("platform-callback-registration");
@@ -173,11 +170,7 @@ function resolveSelfHostedCallbackBaseUrl(): string | undefined {
   if (getIsPlatform()) {
     return undefined;
   }
-  try {
-    return tryGetPublicBaseUrl(getConfig());
-  } catch {
-    return undefined;
-  }
+  return getPublicBaseUrl(getConfig());
 }
 
 /**
@@ -225,13 +218,12 @@ export async function registerLocalWebhookRoute(
  * Resolve a callback URL, registering with the platform when appropriate.
  *
  * Resolution order, matching `handleWebhooksRegister` in
- * `runtime/routes/webhook-routes.ts` and `hasWebhookRoutingConfigured` in
- * `config/webhook-routing.ts`:
+ * `runtime/routes/webhook-routes.ts`:
  *
  *   1. **Platform pods** (`IS_PLATFORM`) with the `velay-webhooks` flag off
  *      always register with the platform gateway. With the flag on, they try
- *      the direct supplier first — the gateway's Velay client publishes the
- *      tunnel URL into `ingress.publicBaseUrl` — and fall back to platform
+ *      the direct supplier first (the gateway's Velay client publishes the
+ *      tunnel URL into `ingress.publicBaseUrl`) and fall back to platform
  *      registration on any failure, including an explicit
  *      `ingress.enabled: false`: a pod owner toggling that flag must not
  *      lose webhooks entirely. The subpath is claimed on the gateway before
@@ -239,21 +231,16 @@ export async function registerLocalWebhookRoute(
  *      way.
  *   2. **A configured public ingress wins** for everyone else, so the direct
  *      supplier is tried first and its value returned when it resolves.
- *   3. **Platform-connected assistants with no ingress** register with the
- *      platform gateway rather than surfacing the direct builder's error.
- *      Connectivity is decided by credentials (platform base URL + assistant
- *      ID + assistant API key), not by `IS_PLATFORM`, which is only ever true
- *      on a platform pod.
+ *   3. **Self-hosted assistants without ingress** report the missing callback
+ *      address. Platform registration also requires their public base URL.
  *
  * Off a pod, an explicit `ingress.enabled: false` is a decision not to accept
  * inbound webhooks at all, so `PublicIngressDisabledError` propagates instead
- * of being routed around. Ingress precedes the platform fallback because any
- * logged-in local assistant holds platform credentials for the LLM proxy:
- * treating credential presence as "managed" would silently reroute an
- * explicitly configured self-hosted callback through the platform.
+ * of being routed around. Platform credentials alone do not make a
+ * self-hosted assistant reachable for callbacks.
  *
  * The `directUrl` parameter is a **lazy supplier** (a function returning a
- * string) rather than an eagerly-evaluated string. This is critical because
+ * string). This is necessary because
  * the direct URL builders (e.g. `getTwilioVoiceWebhookUrl`) call
  * `getPublicBaseUrl()` which throws when no public ingress URL is configured.
  * On a platform pod the direct URL is never needed, and deferring evaluation
@@ -283,28 +270,7 @@ export async function resolveCallbackUrl(
       }
     }
   } else {
-    let ingressUrl: string | undefined;
-    let ingressError: unknown;
-    try {
-      ingressUrl = directUrl();
-    } catch (err) {
-      if (err instanceof PublicIngressDisabledError) {
-        throw err;
-      }
-      ingressError = err;
-    }
-
-    if (ingressUrl !== undefined) {
-      return ingressUrl;
-    }
-
-    // No ingress configured. Fall back to the platform gateway when this
-    // assistant is connected to the platform. Platform pods always are, so
-    // they skip the context probe and register directly.
-    const context = await resolvePlatformCallbackRegistrationContext();
-    if (!context.enabled) {
-      throw ingressError;
-    }
+    return directUrl();
   }
 
   try {

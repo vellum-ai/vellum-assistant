@@ -109,14 +109,15 @@ export interface ApiErrorEnvelope {
 }
 
 /**
- * Read the daemon error envelope's `code` and `details` off a raw error body.
- * Bodies in any other shape yield an empty envelope.
+ * Read `code` and `details` from a nested assistant error, a flat gateway
+ * error, or an ApiError. Bodies without these fields yield an empty envelope.
  */
 export function extractErrorEnvelope(error: unknown): ApiErrorEnvelope {
-  if (!error || typeof error !== "object" || !("error" in error)) {
+  if (!error || typeof error !== "object") {
     return {};
   }
-  const inner = error.error;
+  const inner =
+    "error" in error && typeof error.error === "object" ? error.error : error;
   if (!inner || typeof inner !== "object") {
     return {};
   }
@@ -141,7 +142,11 @@ export class ApiError extends Error {
   readonly code?: string;
   readonly details?: unknown;
 
-  constructor(status: number, message: string, envelope: ApiErrorEnvelope = {}) {
+  constructor(
+    status: number,
+    message: string,
+    envelope: ApiErrorEnvelope = {},
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;

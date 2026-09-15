@@ -9,6 +9,7 @@ import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { openUrlInNewTab } from "@/runtime/browser";
 
+import { mcpSetupErrorKey } from "./mcp-setup-error";
 import type { McpCatalogEntry } from "./mcp-catalog-api";
 
 export function McpCatalogSetupModal({
@@ -96,7 +97,12 @@ export function McpCatalogSetupModal({
                 </Button>
               )}
               {callback.isError ? (
-                <p role="alert">{t("mcpCatalog.callbackUrlFailed")}</p>
+                <p role="alert">
+                  {t(
+                    mcpSetupErrorKey(callback.error) ??
+                      "mcpCatalog.callbackUrlFailed",
+                  )}
+                </p>
               ) : null}
             </div>
           ) : null}

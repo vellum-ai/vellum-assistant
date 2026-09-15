@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { loadRawConfig, saveRawConfig } from "../config/loader.js";
 import type { McpConfig } from "../config/schemas/mcp.js";
 import { reloadMcpServers } from "../daemon/mcp-reload-service.js";
+import { resolveOauthCallbackUrl } from "../inbound/oauth-callback-url.js";
 import {
   BadRequestError,
   InternalError,
@@ -21,6 +22,17 @@ export interface CatalogConnectRequest {
   serverKey: string;
   definitionDigest: string;
   setupAcknowledged?: boolean;
+}
+
+function findCatalogConnection(
+  servers: McpConfig["servers"] | undefined,
+  request: CatalogConnectRequest,
+): string | undefined {
+  return Object.entries(servers ?? {}).find(
+    ([, server]) =>
+      server.catalog?.id === request.catalogId &&
+      server.catalog.serverKey === request.serverKey,
+  )?.[0];
 }
 
 export async function connectMcpCatalogEntry(
@@ -57,17 +69,23 @@ export async function connectMcpCatalogEntry(
     );
   }
 
+  const existingServerId = await withMcpConfigWrite(async () => {
+    const mcp = loadRawConfig().mcp as Partial<McpConfig> | undefined;
+    return findCatalogConnection(mcp?.servers, request);
+  });
+  if (existingServerId) {
+    return { serverId: existingServerId, created: false };
+  }
+
+  await resolveOauthCallbackUrl();
+
   const result = await withMcpConfigWrite(async () => {
     const raw = loadRawConfig();
     const mcp = (raw.mcp ??= { servers: {} }) as Partial<McpConfig>;
     const servers = (mcp.servers ??= {});
-    const existing = Object.entries(servers).find(
-      ([, server]) =>
-        server.catalog?.id === entry.id &&
-        server.catalog.serverKey === entry.serverKey,
-    );
+    const existing = findCatalogConnection(servers, request);
     if (existing) {
-      return { serverId: existing[0], created: false };
+      return { serverId: existing, created: false };
     }
     const serverId = `catalog-${entry.id}-${randomUUID()}`;
     servers[serverId] = {

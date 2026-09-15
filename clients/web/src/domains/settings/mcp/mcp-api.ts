@@ -7,6 +7,7 @@
  */
 
 import { client } from "@/generated/daemon/client.gen";
+import { toApiError } from "@/utils/api-errors";
 
 // ---------------------------------------------------------------------------
 // Response shapes (mirror the daemon's responseBody Zod schemas)
@@ -86,7 +87,7 @@ export async function fetchMcpServers(
   if (!response?.ok) {
     throw new Error(`Failed to fetch MCP servers: ${response?.status}`);
   }
-  return (data as unknown) as McpListResponse;
+  return data as unknown as McpListResponse;
 }
 
 export async function fetchMcpToolsSummary(
@@ -99,7 +100,7 @@ export async function fetchMcpToolsSummary(
   if (!response?.ok) {
     throw new Error(`Failed to fetch MCP tools summary: ${response?.status}`);
   }
-  return (data as unknown) as McpToolsSummaryResponse;
+  return data as unknown as McpToolsSummaryResponse;
 }
 
 export async function updateMcpServer(
@@ -163,15 +164,17 @@ export async function startMcpAuth(
   already_authenticated?: boolean;
   attempt_id?: string;
 }> {
-  const { data, response } = await client.post({
+  const { data, error, response } = await client.post({
     url: "/v1/assistants/{assistant_id}/internal/mcp/auth/start" as "/v1/assistants/{assistant_id}/config",
     path: { assistant_id: assistantId },
     body: { serverId } as Record<string, unknown>,
   });
   if (!response?.ok) {
-    throw new Error(`Failed to start MCP auth: ${response?.status}`);
+    throw response
+      ? toApiError(error, response)
+      : new Error("No MCP setup response");
   }
-  return (data as unknown) as {
+  return data as unknown as {
     auth_url: string;
     state: string;
     already_authenticated?: boolean;
@@ -197,7 +200,7 @@ export async function pollMcpAuthStatus(
   if (!response?.ok) {
     throw new Error(`Failed to poll MCP auth status: ${response?.status}`);
   }
-  return (data as unknown) as {
+  return data as unknown as {
     status: string;
     attempt_id?: string;
     auth_url?: string;
@@ -229,5 +232,5 @@ export async function cancelMcpAuth(
   if (!response?.ok) {
     throw new Error(`Failed to cancel MCP auth: ${response?.status}`);
   }
-  return (data as unknown) as { cancelled: boolean };
+  return data as unknown as { cancelled: boolean };
 }

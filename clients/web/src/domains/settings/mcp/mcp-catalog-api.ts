@@ -1,4 +1,5 @@
 import { client } from "@/generated/daemon/client.gen";
+import { toApiError } from "@/utils/api-errors";
 
 export interface McpCatalogEntry {
   id: string;
@@ -26,7 +27,9 @@ export interface McpCatalogResponse {
   entries: McpCatalogEntry[];
 }
 
-export async function fetchMcpCatalog(assistantId: string): Promise<McpCatalogResponse> {
+export async function fetchMcpCatalog(
+  assistantId: string,
+): Promise<McpCatalogResponse> {
   const { data, response } = await client.get({
     url: "/v1/assistants/{assistant_id}/internal/mcp/catalog" as "/v1/assistants/{assistant_id}/config",
     path: { assistant_id: assistantId },
@@ -41,7 +44,10 @@ export async function fetchMcpCatalog(assistantId: string): Promise<McpCatalogRe
   if (!catalog || !Array.isArray(catalog.entries)) {
     throw new Error("Invalid integration catalog response");
   }
-  return { supportsConnect: catalog.supportsConnect === true, entries: catalog.entries };
+  return {
+    supportsConnect: catalog.supportsConnect === true,
+    entries: catalog.entries,
+  };
 }
 
 export interface McpCatalogConnectRequest {
@@ -55,16 +61,22 @@ export async function connectMcpCatalogEntry(
   assistantId: string,
   body: McpCatalogConnectRequest,
 ): Promise<{ serverId: string; created: boolean }> {
-  const { data, response } = await client.post({
+  const { data, error, response } = await client.post({
     url: "/v1/assistants/{assistant_id}/internal/mcp/catalog/connect" as "/v1/assistants/{assistant_id}/config",
     path: { assistant_id: assistantId },
     body: { ...body },
   });
   if (!response?.ok) {
-    throw new Error(`Failed to connect integration: ${response?.status}`);
+    throw response
+      ? toApiError(error, response)
+      : new Error("No MCP setup response");
   }
   const result = data as unknown as { serverId?: unknown; created?: unknown };
-  if (!result || typeof result.serverId !== "string" || typeof result.created !== "boolean") {
+  if (
+    !result ||
+    typeof result.serverId !== "string" ||
+    typeof result.created !== "boolean"
+  ) {
     throw new Error("Invalid integration connection response");
   }
   return { serverId: result.serverId, created: result.created };

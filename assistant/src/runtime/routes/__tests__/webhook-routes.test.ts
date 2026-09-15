@@ -5,7 +5,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { InternalError, UnprocessableEntityError } from "../errors.js";
+import { InternalError } from "../errors.js";
 
 let isPlatform = false;
 let velayWebhooksEnabled = false;
@@ -96,22 +96,15 @@ describe("webhooks_register callback URL resolution", () => {
     expect(registerLocalWebhookRouteMock).not.toHaveBeenCalled();
   });
 
-  // The bug: a local assistant that IS connected to the platform used to fall
-  // through to the self-hosted branch and 422 when it had no public ingress.
-  test("platform-connected local assistant with no ingress gets the platform callback URL", async () => {
+  test("platform credentials cannot replace a local callback address", async () => {
     platformContextEnabled = true;
-
-    expect(await register({ type: "telegram" })).toEqual({
-      callbackUrl: "https://gateway.vellum.ai/assistant-123/webhooks/telegram",
-      type: "telegram",
-      path: "webhooks/telegram",
-      mode: "platform",
+    await expect(
+      register({ type: "oauth", path: "webhooks/oauth/callback" }),
+    ).rejects.toMatchObject({
+      code: "PUBLIC_INGRESS_NOT_CONFIGURED",
+      statusCode: 422,
     });
-    expect(registerCallbackRouteMock).toHaveBeenCalledWith(
-      "webhooks/telegram",
-      "telegram",
-      undefined,
-    );
+    expect(registerCallbackRouteMock).not.toHaveBeenCalled();
   });
 
   test("velay-webhooks on: a pod claims the subpath and uses the published URL", async () => {
@@ -190,9 +183,9 @@ describe("webhooks_register callback URL resolution", () => {
   });
 
   test("disconnected local assistant with no ingress is still unprocessable", async () => {
-    await expect(register({ type: "telegram" })).rejects.toBeInstanceOf(
-      UnprocessableEntityError,
-    );
+    await expect(register({ type: "telegram" })).rejects.toMatchObject({
+      statusCode: 422,
+    });
   });
 
   // A logged-in local assistant holds platform credentials for the LLM proxy,
@@ -234,13 +227,14 @@ describe("webhooks_register callback URL resolution", () => {
     platformContextEnabled = true;
     config = { ingress: { enabled: false } };
 
-    await expect(register({ type: "telegram" })).rejects.toBeInstanceOf(
-      UnprocessableEntityError,
-    );
+    await expect(register({ type: "telegram" })).rejects.toMatchObject({
+      statusCode: 422,
+    });
     expect(registerCallbackRouteMock).not.toHaveBeenCalled();
   });
 
   test("the source identifier is forwarded to the platform registration", async () => {
+    isPlatform = true;
     platformContextEnabled = true;
 
     await register({ type: "telegram", source: "@my_bot" });
@@ -253,6 +247,7 @@ describe("webhooks_register callback URL resolution", () => {
   });
 
   test("a failed platform registration surfaces as a 500", async () => {
+    isPlatform = true;
     platformContextEnabled = true;
     registerCallbackRouteError = new Error(
       "Platform callback route registration failed (HTTP 502)",
@@ -264,17 +259,19 @@ describe("webhooks_register callback URL resolution", () => {
   });
 
   test("a missing platform registration context surfaces as a 422", async () => {
+    isPlatform = true;
     platformContextEnabled = true;
     registerCallbackRouteError = new Error(
       "Platform callbacks not available — missing platform registration context",
     );
 
-    await expect(register({ type: "telegram" })).rejects.toBeInstanceOf(
-      UnprocessableEntityError,
-    );
+    await expect(register({ type: "telegram" })).rejects.toMatchObject({
+      statusCode: 422,
+    });
   });
 
   test("a path override replaces the derived webhook path", async () => {
+    isPlatform = true;
     platformContextEnabled = true;
 
     expect(

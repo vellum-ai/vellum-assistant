@@ -27,6 +27,10 @@ mock.module("../mcp/mcp-auth-state.js", () => ({
   setMcpAuthCancellationCleanupPending: () => {},
 }));
 
+import {
+  PublicIngressDisabledError,
+  PublicIngressNotConfiguredError,
+} from "../inbound/public-ingress-urls.js";
 import { setConfig } from "./helpers/set-config.js";
 
 // Seed the MCP server the routes look up via `loadRawConfig()` into the
@@ -86,6 +90,20 @@ describe("mcp-auth-routes", () => {
         name: "BadRequestError",
         message: expect.stringContaining("not configured"),
       });
+    });
+
+    test.each([
+      new PublicIngressNotConfiguredError(),
+      new PublicIngressDisabledError(),
+    ])("preserves actionable callback errors: %s", async (error) => {
+      mockOrchestrateConnect.mockImplementationOnce(async () => {
+        throw error;
+      });
+      await expect(
+        findRoute("internal_mcp_auth_start").handler({
+          body: { serverId: "my-server" },
+        }),
+      ).rejects.toBe(error);
     });
 
     test("wraps orchestrator error in InternalError", async () => {

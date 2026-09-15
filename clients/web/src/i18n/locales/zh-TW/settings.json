@@ -2376,6 +2376,8 @@
     "soleProviderHint": "僅 {name} 提供此模型。"
   },
   "mcpConnect": {
+    "callbackNotConfigured": "連線前，你的助手需要一個回呼位址。請讓助手設定公開回呼 URL，然後再試一次。",
+    "callbackDisabled": "你的助手已停用回呼。請在助手設定中啟用公開輸入存取，然後再試一次。",
     "addFailed": "無法新增整合。",
     "authorizationFailed": "授權失敗。請重新連線。",
     "cancel": "取消連線",
