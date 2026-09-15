@@ -15,6 +15,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
+import { ENCODED_APP_ID } from "@/utils/routes.test-helper";
 import {
   getEditChatConversationId,
   setEditChatConversationId,
@@ -49,9 +50,7 @@ const ASSISTANT_ID = "asst-1";
 const REMEMBERED_ID = "conv-remembered";
 const LIBRARY_PATH = "/assistant/library/app-42";
 const APP_CONVERSATION_PATH = routes.conversation(CONV_ID, APP.appId);
-// A plugin app takes its id from the author's directory name, so the id can
-// carry a space the browser holds percent-encoded.
-const ENCODED_APP: OpenedAppState = { ...APP, appId: "plugins~p~My App" };
+const ENCODED_APP: OpenedAppState = { ...APP, appId: ENCODED_APP_ID };
 const ENCODED_APP_PATH = routes.conversation(
   CONV_ID,
   encodeURIComponent(ENCODED_APP.appId),
