@@ -696,6 +696,10 @@
     "stepConnect": "連接",
     "stepCreate": "建立機器人"
   },
+  "tenantHost": {
+    "shopifyLabel": "商店網域",
+    "shopifyPlaceholder": "your-store.myshopify.com"
+  },
   "terminalPanel": {
     "recoveryModeBanner": "復原模式已啟用：此工作階段已連接到偵錯終端機。"
   },

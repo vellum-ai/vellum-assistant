@@ -696,6 +696,10 @@
     "stepConnect": "Connect",
     "stepCreate": "Create bot"
   },
+  "tenantHost": {
+    "shopifyLabel": "Shop domain",
+    "shopifyPlaceholder": "your-store.myshopify.com"
+  },
   "terminalPanel": {
     "recoveryModeBanner": "Recovery Mode active: this session is connected to the debug terminal."
   },

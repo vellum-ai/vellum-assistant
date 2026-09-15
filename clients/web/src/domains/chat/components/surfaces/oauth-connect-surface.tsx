@@ -22,6 +22,7 @@ import {
 import type { Surface } from "@/domains/chat/types/types";
 import { useManagedOAuthConnect } from "@/hooks/use-managed-oauth-connect";
 import { useTenantHostInput } from "@/hooks/use-tenant-host-input";
+import { useTenantHostRequirement } from "@/hooks/use-tenant-host-requirement";
 import { useTranslation } from "@/i18n";
 import { Input } from "@vellumai/design-library/components/input";
 
@@ -139,6 +140,10 @@ export function OAuthConnectSurface({
   const [provider, setProvider] = useState<ManagedOAuthProviderSummary | null>(
     null,
   );
+  // Connect waits for this. A per-tenant provider's requirement arrives with
+  // the summary, and a click before it lands would start a request the
+  // platform rejects for lacking the host.
+  const [providerSettled, setProviderSettled] = useState(false);
   const mountedRef = useRef(true);
   const claimedSurfaceRef = useRef<string | null>(null);
   useEffect(() => {
@@ -156,9 +161,11 @@ export function OAuthConnectSurface({
     if (!assistantId || !providerKey) {
       return;
     }
+    setProviderSettled(false);
     void fetchProvider(assistantId, providerKey).then((result) => {
       if (!cancelled) {
         setProvider(result);
+        setProviderSettled(true);
       }
     });
     return () => {
@@ -185,7 +192,10 @@ export function OAuthConnectSurface({
   });
   // Per-tenant providers (Shopify) have no authorize URL until the user says
   // which shop, so the card collects it before offering Connect.
-  const tenantHost = provider?.tenant_host ?? null;
+  const tenantHost = useTenantHostRequirement(
+    providerKey,
+    provider ? provider.tenant_host : undefined,
+  );
   const tenantHostInput = useTenantHostInput(tenantHost);
 
   // The connection the platform reports is the outcome, whenever and wherever
@@ -239,6 +249,7 @@ export function OAuthConnectSurface({
   const isConnected = connect.status === "connected";
   const connectDisabled =
     missingConfiguration ||
+    !providerSettled ||
     isAttempting ||
     isConnected ||
     !tenantHostInput.valid;

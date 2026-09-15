@@ -9,7 +9,10 @@ import {
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import type { OAuthConnectPreset } from "@/domains/settings/oauth-scope-presets";
 import type { OAuthConnection } from "@/generated/api/types.gen";
-import { useTenantHostInput } from "@/hooks/use-tenant-host-input";
+import {
+  type TenantHostRequirement,
+  useTenantHostInput,
+} from "@/hooks/use-tenant-host-input";
 import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -38,7 +41,7 @@ export interface ManagedTabProps {
    * connect can start, since the provider's OAuth endpoints live on the
    * customer's own domain. Absent for providers with one global host.
    */
-  tenantHost?: { pattern: string; label: string; placeholder: string } | null;
+  tenantHost?: TenantHostRequirement | null;
 }
 
 export function ManagedTab({
