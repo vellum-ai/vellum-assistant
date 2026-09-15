@@ -260,8 +260,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const handleAppAction = useCallback(
     (actionId: string, data?: Record<string, unknown>) =>
-      handleAppViewerAction({ navigate, isMobile }, actionId, data),
-    [navigate, isMobile],
+      handleAppViewerAction(
+        { navigate, isMobile, state: location.state },
+        actionId,
+        data,
+      ),
+    [navigate, isMobile, location.state],
   );
 
   const handleCloseDocument = documentRoute.closeDocument;

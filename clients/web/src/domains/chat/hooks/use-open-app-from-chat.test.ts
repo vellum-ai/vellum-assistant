@@ -11,6 +11,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import {
   type NavigateFunction,
   NavigationType,
+  useLocation,
   useNavigate,
   useNavigationType,
 } from "react-router";
@@ -29,7 +30,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { currentLocation, wrapperAt } from "@/hooks/router-probe.test-helper";
-import { showPath } from "@/stores/open-app.test-helper";
+import { appEntryStateFor, showPath } from "@/stores/open-app.test-helper";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 
@@ -84,6 +85,7 @@ function renderOpenApp(initialPath: string) {
       openApp: useOpenAppFromChat(),
       navigate: useNavigate(),
       navigationType: useNavigationType(),
+      state: useLocation().state as unknown,
     }),
     { wrapper: wrapperAt(initialPath) },
   );
@@ -182,8 +184,9 @@ describe("useOpenAppFromChat", () => {
     });
 
     // THEN the URL names the app and `useAppRouteSync` owns the load, so
-    // browser Back closes the app
+    // browser Back closes the app, landing on the entry it was opened from
     expect(currentLocation().pathname).toBe(APP_PATH);
+    expect(result.current.state).toEqual(appEntryStateFor(CONV_ID, APP_ID));
     expect(loadAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
@@ -214,6 +217,51 @@ describe("useOpenAppFromChat", () => {
   // LUM-2691: off a chat route the click came from Library, Home or the
   // inspector, and `activeConversationId` names whatever the SSE and attention
   // consumers keep it on rather than anything the user is looking at.
+  test("records nothing for an open onto a freshly minted draft", async () => {
+    // GIVEN nothing on screen for the app segment to hang off
+    const { result } = renderOpenApp(routes.assistant);
+
+    // WHEN the user opens an app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN there is no conversation entry behind the app to pop back to
+    expect(result.current.state).toBeNull();
+  });
+
+  test("records nothing for an open from a URL carrying a one-shot param", async () => {
+    // GIVEN a conversation on screen whose entry auto-sends on load
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    const { result } = renderOpenApp(`${CHAT_PATH}?prompt=hi`);
+
+    // WHEN the user opens an app from there
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN nothing is recorded: a pop back would re-fire the prompt
+    expect(currentLocation().pathname).toBe(APP_PATH);
+    expect(result.current.state).toBeNull();
+  });
+
+  test("records nothing for an open carrying the app to another conversation", async () => {
+    // GIVEN an app already on screen at its own route
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    const { result } = renderOpenApp(OTHER_APP_PATH);
+
+    // WHEN the user opens a different app from there
+    await act(async () => {
+      await result.current.openApp(OTHER_APP_ID, {
+        conversationId: OTHER_CONV_ID,
+      });
+    });
+
+    // THEN the entry behind it names an app of its own, so none is recorded
+    expect(currentLocation().pathname).toBe(OTHER_CONV_OTHER_APP_PATH);
+    expect(result.current.state).toBeNull();
+  });
+
   test("mints a draft for an open off a chat route", async () => {
     // GIVEN a conversation selected behind a route that is not the chat
     useConversationStore.setState({ activeConversationId: CONV_ID });
@@ -234,6 +282,8 @@ describe("useOpenAppFromChat", () => {
     expect(currentLocation().pathname).toBe(
       routes.conversation(draftId!, APP_ID),
     );
+    // The Library entry behind it is not the conversation the app hangs off.
+    expect(result.current.state).toBeNull();
   });
 
   // LUM-2553: opening an app is a view action, so the entry point must not

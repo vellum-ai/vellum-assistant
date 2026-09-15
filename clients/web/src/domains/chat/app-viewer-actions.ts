@@ -19,7 +19,8 @@
  *
  * - `set_view` ({ view }) — moves the app panel: `"split"` (side by side with
  *   chat), `"full"` (full-width), or `"chat"` (`closeAppRoute`, which closes
- *   the viewer and lands on the conversation URL, naming no app). Side-by-side
+ *   the viewer and returns through the entry the app was opened from, landing
+ *   on a conversation URL that names no app). Side-by-side
  *   has no mobile layout, so `"split"` is ignored on mobile (the app keeps its
  *   full-screen overlay). On a wide viewport it uses the open conversation,
  *   and starts one when none is open.
@@ -44,6 +45,8 @@ export interface AppViewerActionContext {
   navigate: PathNavigate;
   /** Side-by-side has no mobile layout, so `set_view: "split"` is ignored when true. */
   isMobile: boolean;
+  /** The current entry's history state, holding the entry the app was opened from. */
+  state?: unknown;
 }
 
 function relayPrompt(
@@ -107,9 +110,7 @@ function setView(
 ): void {
   switch (data?.view) {
     case "chat":
-      // The mobile overlay's own close replaces, so this one does too: Back
-      // must not reopen an app the app itself dismissed.
-      closeAppRoute(ctx.navigate, { replace: ctx.isMobile });
+      closeAppRoute(ctx.navigate, { state: ctx.state });
       return;
     case "full":
       exitAppSplit();

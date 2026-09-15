@@ -1,6 +1,11 @@
 import type { Location } from "react-router";
 
-import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
+import {
+  appIdForPath,
+  conversationIdForPath,
+  hasOneShotEntryParam,
+  routes,
+} from "@/utils/routes";
 
 export const DOCUMENT_RETURN_PARAM = "documentReturn";
 
@@ -50,11 +55,7 @@ export function documentEntryState(
   surfaceId: string,
 ) {
   const returnTo = safeReturnPath(location.pathname);
-  const params = new URLSearchParams(location.search);
-  if (
-    returnTo === null ||
-    ["prompt", "relay", "document"].some((key) => params.has(key))
-  ) {
+  if (returnTo === null || hasOneShotEntryParam(location.search)) {
     return undefined;
   }
   return {

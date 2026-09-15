@@ -1,15 +1,10 @@
 import { useCallback } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import {
   closeAppRoute,
   navigateFromApp,
 } from "@/utils/conversation-navigation";
-
-interface UseAppViewerRouteHandlersOptions {
-  /** Close by replacing the history entry rather than pushing one. */
-  replaceOnClose?: boolean;
-}
 
 interface UseAppViewerRouteHandlersResult {
   handleCloseApp: () => void;
@@ -24,15 +19,15 @@ interface UseAppViewerRouteHandlersResult {
  * Both callbacks are stable for a given router, which keeps the viewer's
  * sandbox message bridge from re-arming on every render.
  */
-export function useAppViewerRouteHandlers(
-  options?: UseAppViewerRouteHandlersOptions,
-): UseAppViewerRouteHandlersResult {
+export function useAppViewerRouteHandlers(): UseAppViewerRouteHandlersResult {
   const navigate = useNavigate();
-  const replaceOnClose = options?.replaceOnClose === true;
+  // `location.state` is referentially stable within an entry, so the callback
+  // identity promise below holds.
+  const { state } = useLocation();
 
   const handleCloseApp = useCallback(() => {
-    closeAppRoute(navigate, { replace: replaceOnClose });
-  }, [navigate, replaceOnClose]);
+    closeAppRoute(navigate, { state });
+  }, [navigate, state]);
 
   const handleNavigateAppRoute = useCallback(
     (href: string) => {

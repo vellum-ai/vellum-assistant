@@ -16,7 +16,7 @@
  */
 
 import { screen } from "@testing-library/react";
-import { type ReactElement, type ReactNode } from "react";
+import { useEffect, type ReactElement, type ReactNode } from "react";
 import { MemoryRouter, useLocation } from "react-router";
 
 const PATHNAME_TEST_ID = "router-probe-pathname";
@@ -31,6 +31,20 @@ export function LocationProbe(): ReactElement {
       <span data-testid={SEARCH_TEST_ID}>{search}</span>
     </>
   );
+}
+
+/**
+ * Mirrors the router's location onto `window.location`, which a memory router
+ * does not drive. The imperative route helpers (`currentPathname`,
+ * `appIdForPath` readers, `closeAppRoute`, `dropAppFromRoute`) read the window,
+ * so without this they see whatever path the suite last set by hand.
+ */
+export function LocationMirror(): null {
+  const { pathname, search } = useLocation();
+  useEffect(() => {
+    window.history.replaceState(null, "", pathname + search);
+  }, [pathname, search]);
+  return null;
 }
 
 /** Where the mounted probe's router currently is. `search` includes its `?`. */

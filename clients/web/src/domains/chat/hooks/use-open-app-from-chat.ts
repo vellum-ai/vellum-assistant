@@ -27,6 +27,7 @@ import {
   documentEntryState,
   documentEntryUrl,
 } from "@/utils/document-navigation";
+import { appEntryState } from "@/utils/app-navigation";
 import { appIdForPath, isConversationChatPath, routes } from "@/utils/routes";
 
 import {
@@ -186,6 +187,7 @@ export function useOpenAppFromChat(): (
 ) => Promise<void> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const navigate = useNavigate();
+  const location = useLocation();
 
   return useCallback(
     async (appId: string, options?: OpenAppFromChatOptions) => {
@@ -208,8 +210,15 @@ export function useOpenAppFromChat(): (
       // full width.
       const conversationId = options?.conversationId ?? conversationForApp();
       exitAppSplit();
-      await navigate(routes.conversation(conversationId, appId));
+      // Recorded on the entry this push creates, so the close pops back here.
+      await navigate(routes.conversation(conversationId, appId), {
+        state: appEntryState(
+          { pathname: currentPathname(), search: location.search },
+          appId,
+          conversationId,
+        ),
+      });
     },
-    [assistantId, navigate],
+    [assistantId, navigate, location.search],
   );
 }

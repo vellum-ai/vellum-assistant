@@ -1,6 +1,8 @@
 /**
- * Inert stand-ins for every export of `@/utils/conversation-navigation`, for
- * the suites that replace that module wholesale.
+ * Test doubles for `@/utils/conversation-navigation`: {@link navigateDouble}
+ * for the suites that pass one navigator in, and
+ * {@link conversationNavigationMock} for those that replace the module
+ * wholesale.
  *
  * `mock.module` is process-global in bun, and a factory that omits an export
  * hides it from every importer in the process. The module's own type is this
@@ -12,8 +14,18 @@
  * the real functions in `afterAll`, so it holds them already.
  */
 
+import { mock } from "bun:test";
+
 type ConversationNavigationModule =
   typeof import("@/utils/conversation-navigation");
+
+/**
+ * A `PathNavigate` spy. Both of its overloads are recorded, so a suite can
+ * tell a pop (`-1`) from a path navigation by the argument it was called with.
+ */
+export function navigateDouble() {
+  return mock((_to: string | number, _options?: { replace?: boolean }) => {});
+}
 
 /** The id the draft-minting stubs hand back when a suite doesn't read it. */
 const DRAFT_CONVERSATION_ID = "draft-conversation";

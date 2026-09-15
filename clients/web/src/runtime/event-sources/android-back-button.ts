@@ -100,8 +100,9 @@ async function dismissEscapeLayer(): Promise<boolean> {
 /**
  * The viewer layer owns layout: minimizing an expanded app, leaving a
  * minimized one, and leaving the split. Which app is open is the URL's
- * business, so a minimized app leaves through the route rather than a history
- * pop, which lands wherever the entry behind it points.
+ * business, so a minimized app leaves through the route close, which pops to
+ * the entry the app was opened from when there is one and replaces the app's
+ * entry otherwise.
  */
 function dismissViewerLayer(closeAppRoute: () => void): boolean {
   if (!document.querySelector(ACTIVE_CHAT_SELECTOR)) {

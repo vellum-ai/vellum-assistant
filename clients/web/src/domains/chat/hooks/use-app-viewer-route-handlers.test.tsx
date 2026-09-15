@@ -21,10 +21,10 @@ const APP_PATH = routes.conversation(CONV_ID, APP_ID);
 const CONVERSATION_PATH = routes.conversation(CONV_ID);
 const LIBRARY_PATH = "/assistant/library";
 
-function renderHandlers(options?: { replaceOnClose?: boolean }) {
+function renderHandlers() {
   return renderHook(
     () => ({
-      handlers: useAppViewerRouteHandlers(options),
+      handlers: useAppViewerRouteHandlers(),
       navigate: useNavigate(),
     }),
     { wrapper: wrapperAt(APP_PATH) },
@@ -72,7 +72,7 @@ describe("useAppViewerRouteHandlers", () => {
     expect(currentLocation().pathname).toBe(LIBRARY_PATH);
   });
 
-  test("closing pushes an entry, so Back returns to the app", () => {
+  test("closing replaces the app entry when nothing recorded where it opened", () => {
     const { result } = renderHandlers();
 
     act(() => result.current.handlers.handleCloseApp());
@@ -80,18 +80,7 @@ describe("useAppViewerRouteHandlers", () => {
       void result.current.navigate(-1);
     });
 
-    expect(currentLocation().pathname).toBe(APP_PATH);
-  });
-
-  test("replaceOnClose leaves Back nothing to re-open the app from", () => {
-    const { result } = renderHandlers({ replaceOnClose: true });
-
-    act(() => result.current.handlers.handleCloseApp());
-    act(() => {
-      void result.current.navigate(-1);
-    });
-
-    expect(currentLocation().pathname).toBe(CONVERSATION_PATH);
+    expect(currentLocation().pathname).not.toBe(APP_PATH);
   });
 
   test("the callbacks keep their identity across renders", () => {

@@ -1,20 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
+  appEntryStateFor,
   SAMPLE_APP,
   showOpenAppRoute,
   showPath,
 } from "@/stores/open-app.test-helper";
+import { navigateDouble } from "@/utils/conversation-navigation.test-helper";
 
-function makeCtx(isMobile = false) {
-  return {
-    navigate: mock((_to: string, _options?: { replace?: boolean }) => {}),
-    isMobile,
-  };
+function makeCtx(isMobile = false, state?: unknown) {
+  return { navigate: navigateDouble(), isMobile, state };
 }
 
 let restoreViewport: (() => void) | undefined;
@@ -121,14 +120,14 @@ describe("handleAppViewerAction — set_view", () => {
     );
   });
 
-  it("'chat' replaces on mobile, so Back does not reopen the app", () => {
+  it("'chat' pops back to the entry the open recorded", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
     showOpenAppRoute({ conversationId: "conv-1" });
-    const ctx = makeCtx(true);
+    const ctx = makeCtx(false, appEntryStateFor("conv-1"));
 
     handleAppViewerAction(ctx, "set_view", { view: "chat" });
 
-    expect(ctx.navigate.mock.calls[0][1]).toEqual({ replace: true });
+    expect(ctx.navigate).toHaveBeenCalledWith(-1);
   });
 
   it("'chat' with no conversation starts one to land on", () => {

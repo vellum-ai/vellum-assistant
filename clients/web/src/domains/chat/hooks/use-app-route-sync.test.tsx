@@ -37,13 +37,14 @@ const wrapper = wrapperAt(APP_PATH);
 
 interface HookProps {
   assistantId: string | null;
+  conversationId?: string | null;
   routeAppId: string | null;
 }
 
 function renderSync(props: HookProps) {
   return renderHook(
-    ({ assistantId, routeAppId }: HookProps) =>
-      useAppRouteSync(assistantId, routeAppId),
+    ({ assistantId, conversationId = CONV_ID, routeAppId }: HookProps) =>
+      useAppRouteSync(assistantId, conversationId, routeAppId),
     { wrapper, initialProps: props },
   );
 }
@@ -288,6 +289,67 @@ describe("useAppRouteSync", () => {
     expect(state.openedAppState).toBeNull();
     expect(closeAppMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(null);
+  });
+
+  test("joins a load already in flight", async () => {
+    // GIVEN a request for this app already running, which left the viewer
+    // naming the app with nothing loaded yet
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: APP_ID,
+      openedAppState: null,
+    });
+
+    // WHEN a surface mounts onto that app's route
+    renderSync({ assistantId: ASSISTANT_ID, routeAppId: APP_ID });
+
+    // THEN it asks for the app, which the store answers with the running
+    // request rather than a second one
+    await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
+    expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+  });
+
+  test("re-binds the split to the conversation the route names", async () => {
+    // GIVEN the app open beside a conversation
+    useConversationStore.setState({ editingConversationId: CONV_ID });
+    const { rerender } = renderSync({
+      assistantId: ASSISTANT_ID,
+      routeAppId: APP_ID,
+    });
+    await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
+    setEditingConversationIdMock.mockReset();
+
+    // WHEN Back lands on another conversation sharing the same app
+    rerender({
+      assistantId: ASSISTANT_ID,
+      conversationId: "conv-2",
+      routeAppId: APP_ID,
+    });
+
+    // THEN the chat pane follows the route, and the app is not reloaded
+    expect(setEditingConversationIdMock).toHaveBeenCalledWith("conv-2");
+    expect(loadAppMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("leaves an unbound split alone", async () => {
+    // GIVEN the app full width, with no chat pane bound beside it
+    useConversationStore.setState({ editingConversationId: null });
+    const { rerender } = renderSync({
+      assistantId: ASSISTANT_ID,
+      routeAppId: APP_ID,
+    });
+    await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
+    setEditingConversationIdMock.mockReset();
+
+    // WHEN the route moves to another conversation carrying the same app
+    rerender({
+      assistantId: ASSISTANT_ID,
+      conversationId: "conv-2",
+      routeAppId: APP_ID,
+    });
+
+    // THEN no split is created out of a route change
+    expect(setEditingConversationIdMock).not.toHaveBeenCalled();
   });
 
   test("does not touch the viewer when no app is open and none is routed", () => {

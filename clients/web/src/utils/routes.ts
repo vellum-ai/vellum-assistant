@@ -43,6 +43,20 @@ export const CONVERSATION_APP_SEGMENT = "app";
  */
 export const PACKAGE_PARAM = "package";
 
+/**
+ * Search params that fire once on the entry carrying them: an auto-send
+ * prompt, its relay token, and the document a conversation URL opens with.
+ * An entry holding one is not a destination to pop back to, since the pop
+ * would re-fire it, so the app and document entry recorders both refuse it.
+ */
+const ONE_SHOT_ENTRY_PARAMS = ["prompt", "relay", "document"] as const;
+
+/** Whether `search` carries a param that would re-fire on a pop back to it. */
+export function hasOneShotEntryParam(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return ONE_SHOT_ENTRY_PARAMS.some((key) => params.has(key));
+}
+
 export const routes = {
   assistant: r("/assistant"),
   /**

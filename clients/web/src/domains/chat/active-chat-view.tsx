@@ -437,7 +437,7 @@ export function ActiveChatView() {
   useDeepLinkApp(urlConversationId ?? null, searchParams);
 
   // The app segment of the URL names an app for the viewer to show.
-  useAppRouteSync(assistantId, urlAppId ?? null);
+  useAppRouteSync(assistantId, urlConversationId ?? null, urlAppId ?? null);
 
   // Conversation-change side effects (dismiss prompts, reset subagent state,
   // auto-fetch subagent details for entries reconstructed from history)

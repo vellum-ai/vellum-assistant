@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
@@ -343,11 +343,17 @@ export function RootLayout() {
   // workspace files, invoices, inspector exports).
   useDownloadFeedback();
   // Android Back closes a minimized app the WebView history root cannot pop.
+  // The listener is armed once and reads the current entry's recorded return
+  // through the ref.
+  const locationStateRef = useRef(location.state);
+  useEffect(() => {
+    locationStateRef.current = location.state;
+  }, [location.state]);
   useEffect(
     () =>
       subscribeAndroidBackButtonSource({
         closeAppRoute: () => {
-          closeAppRoute(navigate, { replace: true });
+          closeAppRoute(navigate, { state: locationStateRef.current });
         },
       }),
     [navigate],

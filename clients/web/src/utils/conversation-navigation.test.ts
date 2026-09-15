@@ -18,7 +18,9 @@
  *
  * `closeAppRoute` is how every close affordance leaves an app: it closes the
  * viewer, drops the split binding, and lands on the conversation URL without
- * the app segment.
+ * the app segment. It pops back through the entry the open recorded when that
+ * entry is the one behind this app, and replaces the app's own entry in every
+ * other case.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -30,10 +32,12 @@ import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
+  appEntryStateFor,
   SAMPLE_APP,
   showOpenAppRoute,
   showPath,
 } from "@/stores/open-app.test-helper";
+import { navigateDouble } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 
 const hapticLight = mock(() => {});
@@ -388,9 +392,7 @@ describe("closeAppRoute", () => {
     openAppViewer("app-editing");
     useConversationStore.getState().setEditingConversationId(OPEN_CONVERSATION);
     useConversationStore.getState().setActiveConversationId("conv-elsewhere");
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
-    );
+    const navigate = navigateDouble();
 
     closeAppRoute(navigate);
 
@@ -400,7 +402,7 @@ describe("closeAppRoute", () => {
     expect(useConversationStore.getState().editingConversationId).toBeNull();
     expect(navigate).toHaveBeenCalledWith(
       routes.conversation(OPEN_CONVERSATION),
-      { replace: false },
+      { replace: true },
     );
   });
 
@@ -411,16 +413,14 @@ describe("closeAppRoute", () => {
       openedAppState: SAMPLE_APP,
     });
     showPath(routes.conversation("conv-7"));
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
-    );
+    const navigate = navigateDouble();
 
     closeAppRoute(navigate);
 
     expect(useViewerStore.getState().mainView).toBe("chat");
     expect(useViewerStore.getState().activeAppId).toBeNull();
     expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-7"), {
-      replace: false,
+      replace: true,
     });
   });
 
@@ -428,14 +428,12 @@ describe("closeAppRoute", () => {
     openAppViewer();
     showPath(routes.assistant);
     useConversationStore.getState().setActiveConversationId("conv-5");
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
-    );
+    const navigate = navigateDouble();
 
     closeAppRoute(navigate);
 
     expect(navigate).toHaveBeenCalledWith(routes.conversation("conv-5"), {
-      replace: false,
+      replace: true,
     });
   });
 
@@ -445,9 +443,7 @@ describe("closeAppRoute", () => {
     const realEnterAppEditing = useViewerStore.getState().enterAppEditing;
     const enterAppEditing = mock(() => {});
     useViewerStore.setState({ enterAppEditing });
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
-    );
+    const navigate = navigateDouble();
 
     try {
       closeAppRoute(navigate);
@@ -464,19 +460,49 @@ describe("closeAppRoute", () => {
     expect(useViewerStore.getState().mainView).toBe("chat");
     expect(useConversationStore.getState().editingConversationId).toBeNull();
     expect(navigate).toHaveBeenCalledWith(routes.conversation(draftId!), {
-      replace: false,
+      replace: true,
     });
   });
 
-  test("replace: true replaces the entry the app was open on", () => {
+  test("pops back to the entry the open recorded", () => {
     openAppViewer();
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
+    const navigate = navigateDouble();
+
+    closeAppRoute(navigate, { state: appEntryStateFor(OPEN_CONVERSATION) });
+
+    expect(navigate).toHaveBeenCalledWith(-1);
+  });
+
+  test("replaces when the recorded entry names another conversation or app", () => {
+    openAppViewer();
+    const navigate = navigateDouble();
+
+    closeAppRoute(navigate, { state: appEntryStateFor("conv-elsewhere") });
+    closeAppRoute(navigate, {
+      state: appEntryStateFor(OPEN_CONVERSATION, "app-other"),
+    });
+
+    for (const call of navigate.mock.calls) {
+      expect(call).toEqual([
+        routes.conversation(OPEN_CONVERSATION),
+        { replace: true },
+      ]);
+    }
+  });
+
+  test("replace: true forces the replace past a recorded entry", () => {
+    openAppViewer();
+    const navigate = navigateDouble();
+
+    closeAppRoute(navigate, {
+      state: appEntryStateFor(OPEN_CONVERSATION),
+      replace: true,
+    });
+
+    expect(navigate).toHaveBeenCalledWith(
+      routes.conversation(OPEN_CONVERSATION),
+      { replace: true },
     );
-
-    closeAppRoute(navigate, { replace: true });
-
-    expect(navigate.mock.calls[0][1]).toEqual({ replace: true });
   });
 });
 
@@ -647,9 +673,7 @@ describe("navigateFromApp", () => {
 describe("dropAppFromRoute", () => {
   test("replaces the app segment away once the viewer let the app go", () => {
     showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
-    );
+    const navigate = navigateDouble();
 
     dropAppFromRoute(navigate, SAMPLE_APP.appId);
 
@@ -662,9 +686,7 @@ describe("dropAppFromRoute", () => {
   test("leaves the URL alone while the viewer still holds the app", () => {
     openOverlayOverApp();
     showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
-    );
+    const navigate = navigateDouble();
 
     dropAppFromRoute(navigate, SAMPLE_APP.appId);
 
@@ -673,9 +695,7 @@ describe("dropAppFromRoute", () => {
 
   test("leaves the URL alone when it moved on to another app", () => {
     showPath(routes.conversation(OPEN_CONVERSATION, "app-2"));
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
-    );
+    const navigate = navigateDouble();
 
     dropAppFromRoute(navigate, SAMPLE_APP.appId);
 
@@ -685,9 +705,7 @@ describe("dropAppFromRoute", () => {
   test("evenIfHeld drops the segment while the viewer still holds the app", () => {
     openOverlayOverApp();
     showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
-    );
+    const navigate = navigateDouble();
 
     dropAppFromRoute(navigate, SAMPLE_APP.appId, { evenIfHeld: true });
 
@@ -700,9 +718,7 @@ describe("dropAppFromRoute", () => {
   test("still leaves a URL that moved on to another app alone", () => {
     openOverlayOverApp();
     showPath(routes.conversation(OPEN_CONVERSATION, "app-2"));
-    const navigate = mock(
-      (_to: string, _options?: { replace?: boolean }) => {},
-    );
+    const navigate = navigateDouble();
 
     dropAppFromRoute(navigate, SAMPLE_APP.appId, { evenIfHeld: true });
 

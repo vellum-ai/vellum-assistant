@@ -33,10 +33,16 @@ let documentResult: () => Promise<DocumentResult> = () =>
 let appResult: () => Promise<AppResult> = () =>
   Promise.reject(new Error("not stubbed"));
 
+/** How many app-open requests the SDK has been asked for. */
+let appRequests = 0;
+
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   documentsByIdGet: () => documentResult(),
-  appsByIdOpenPost: () => appResult(),
+  appsByIdOpenPost: () => {
+    appRequests++;
+    return appResult();
+  },
 }));
 
 const { isAppNotFoundError, sameChatInfoTarget, useViewerStore } =
@@ -59,6 +65,7 @@ function unseenFor(conversationId: string): string[] {
 
 beforeEach(() => {
   getState().reset();
+  appRequests = 0;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
 });
 
@@ -213,6 +220,77 @@ describe("loadApp", () => {
     const state = getState();
     expect(state.activeAppId).toBe("app-1");
     expect(state.openedAppState).toEqual(SAMPLE_APP);
+  });
+
+  it("makes one request for concurrent loads of the same app", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    const [first, second] = await Promise.all([
+      getState().loadApp("asst-1", "app-1"),
+      getState().loadApp("asst-1", "app-1"),
+    ]);
+
+    expect(appRequests).toBe(1);
+    expect(first).toBe(true);
+    expect(second).toBe(true);
+  });
+
+  it("starts its own request for another app or another assistant", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    void getState().loadApp("asst-1", "app-1");
+    void getState().loadApp("asst-1", "app-2");
+    await getState().loadApp("asst-2", "app-2");
+
+    expect(appRequests).toBe(3);
+  });
+
+  it("abandons the request when the app is closed mid-flight", async () => {
+    let finish!: (value: AppResult) => void;
+    appResult = () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      });
+
+    const pending = getState().loadApp("asst-1", "app-1");
+    await waitFor(() => expect(finish).toBeFunction());
+    getState().closeApp();
+    finish({ data: OPENED_APP });
+
+    expect(await pending).toBe(false);
+    const state = getState();
+    expect(state.mainView).toBe("chat");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+  });
+
+  it("leaves a newer app open when an older request fails late", async () => {
+    let fail!: (reason: unknown) => void;
+    appResult = () =>
+      new Promise((_resolve, reject) => {
+        fail = reject;
+      });
+
+    const stale = getState().loadApp("asst-1", "app-1");
+    await waitFor(() => expect(fail).toBeFunction());
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+    expect(await getState().loadApp("asst-1", "app-2")).toBe(true);
+    fail({ error: { code: "NOT_FOUND", message: "App not found: app-1" } });
+
+    expect(await stale).toBe(false);
+    const state = getState();
+    expect(state.mainView).toBe("app");
+    expect(state.activeAppId).toBe("app-2");
+    expect(state.openedAppState).toEqual(SAMPLE_APP);
+  });
+
+  it("refetches once the request it shared has settled", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    await getState().loadApp("asst-1", "app-1");
+    await getState().loadApp("asst-1", "app-1");
+
+    expect(appRequests).toBe(2);
   });
 });
 

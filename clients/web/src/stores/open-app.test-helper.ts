@@ -9,6 +9,7 @@
  */
 
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
+import type { AppEntryState } from "@/utils/app-navigation";
 import { routes } from "@/utils/routes";
 
 /** The app the viewer holds. */
@@ -40,4 +41,14 @@ export function showOpenAppRoute({
     openedAppState: SAMPLE_APP,
   });
   showPath(routes.conversation(conversationId, SAMPLE_APP.appId));
+}
+
+/** The history state an open from `conversationId` records on its entry. */
+export function appEntryStateFor(
+  conversationId: string,
+  appId: string = SAMPLE_APP.appId,
+): AppEntryState {
+  return {
+    appEntry: { appId, returnTo: routes.conversation(conversationId) },
+  };
 }

@@ -7,6 +7,7 @@ import {
   isConversationChatPath,
   routes,
 } from "@/utils/routes";
+import { hasAppReturnEntry } from "@/utils/app-navigation";
 
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
@@ -19,11 +20,14 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
 
-/** A path, optionally replacing the history entry. `NavigateFunction` is one. */
-export type PathNavigate = (
-  to: string,
-  options?: { replace?: boolean },
-) => void | Promise<void>;
+/**
+ * A path, optionally replacing the history entry, or a history delta.
+ * `NavigateFunction` is one.
+ */
+export interface PathNavigate {
+  (to: string, options?: { replace?: boolean }): void | Promise<void>;
+  (delta: number): void | Promise<void>;
+}
 
 export interface NavigateToConversationOptions {
   /** An explicit presentation URL for the same conversation. */
@@ -272,11 +276,13 @@ export function navigateToNewConversation(
 }
 
 /**
- * Close the app viewer: a navigation to the conversation URL without the app
- * segment. Every close affordance goes through here. The default is a push, as
- * `LibraryDetailPage` closes its viewer, so Back returns to the app the user
- * closed; a programmatic close (Android Back, an unpinned app) passes
- * `replace`, having no entry of its own to leave behind.
+ * Close the app viewer: back through the entry the app was opened from when
+ * one was recorded there ({@link appEntryState}), and otherwise a replace of
+ * the app's own entry. The fallback covers a direct link, a reload that lost
+ * the state, an open from the Library, and an app carried in from another
+ * conversation. Desktop, compact and Android all take this one decision, so
+ * Back reads the same everywhere. `replace` forces the fallback for a close
+ * with no gesture behind it (an unpinned app).
  *
  * The viewer is cleared here as well, rather than left to the route sync, so a
  * viewer the URL never named still closes, and the split binding goes with it
@@ -289,19 +295,28 @@ export function navigateToNewConversation(
  */
 export function closeAppRoute(
   navigate: PathNavigate,
-  options?: { replace?: boolean },
+  options?: { state?: unknown; replace?: boolean },
 ): void {
+  const pathname = currentPathname();
+  const appId = appIdForPath(pathname);
   clearAppViewer();
   let conversationId =
-    conversationIdForPath(currentPathname()) ??
+    conversationIdForPath(pathname) ??
     useConversationStore.getState().activeConversationId;
   if (conversationId === null) {
     conversationId = mintDraftConversation();
     useConversationStore.getState().setActiveConversationId(conversationId);
   }
-  void navigate(routes.conversation(conversationId), {
-    replace: options?.replace === true,
-  });
+  const target = routes.conversation(conversationId);
+  if (
+    options?.replace !== true &&
+    appId !== null &&
+    hasAppReturnEntry(options?.state, appId, target)
+  ) {
+    void navigate(-1);
+    return;
+  }
+  void navigate(target, { replace: true });
 }
 
 /**

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
+import { useLocation } from "react-router";
 
 // `mock.module` is safe for `use-is-mobile` because it's a pure
 // derived-value hook (no module-local state). The mobile case is
@@ -115,10 +116,13 @@ describe("useEditApp", () => {
 
   test("loads the app into the viewer and opens the split edit view on desktop", () => {
     // GIVEN the viewer has no app loaded (e.g. the standalone Library view)
-    const { result } = renderHook(() => useEditApp(), { wrapper });
+    const { result } = renderHook(
+      () => ({ edit: useEditApp(), state: useLocation().state as unknown }),
+      { wrapper },
+    );
 
     // WHEN the user clicks Edit
-    act(() => result.current(APP));
+    act(() => result.current.edit(APP));
 
     // THEN the app is loaded, bound to its edit conversation, the split
     // view opens, and we navigate to that conversation
@@ -129,6 +133,9 @@ describe("useEditApp", () => {
     // Desktop uses the split view, not the mobile minimized strip.
     expect(minimizeAppMock).not.toHaveBeenCalled();
     expect(currentLocation().pathname).toBe(APP_CONVERSATION_PATH);
+    // The Library entry behind it is not the edit conversation, so an Edit
+    // records no return.
+    expect(result.current.state).toBeNull();
   });
 
   test("starts a conversation, registered as a draft, when none is selected", () => {

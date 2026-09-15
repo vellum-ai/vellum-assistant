@@ -10,6 +10,8 @@ import {
   getEditChatConversationId,
   setEditChatConversationId,
 } from "@/utils/edit-chat-session";
+import { appEntryState } from "@/utils/app-navigation";
+import { currentPathname } from "@/utils/conversation-navigation";
 import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
 
 /**
@@ -83,7 +85,15 @@ export function useEditApp(): (app: OpenedAppState) => void {
         conversationIdForPath(pathname) !== convId ||
         appIdForPath(pathname) !== app.appId
       ) {
-        void navigate(routes.conversation(convId, app.appId));
+        // Uniform with the view opener, though an Edit lands on its own
+        // conversation and so usually records nothing.
+        void navigate(routes.conversation(convId, app.appId), {
+          state: appEntryState(
+            { pathname: currentPathname(), search: "" },
+            app.appId,
+            convId,
+          ),
+        });
       }
     },
     [assistantId, isMobile, navigate, pathname],
