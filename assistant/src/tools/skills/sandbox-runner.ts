@@ -7,9 +7,12 @@ import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import {
   buildShellInvocation,
+  buildShellSpawnFlags,
   terminateProcessTree,
+  watchShellProcessStart,
 } from "../../util/host-process.js";
 import { safeStringSlice } from "../../util/unicode.js";
+import { SHELL_DID_NOT_START_MESSAGE } from "../shared/shell-output.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -160,9 +163,9 @@ function spawnRunner(
       cwd: runDir,
       env,
       stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
-      windowsHide: true,
+      ...buildShellSpawnFlags(),
     });
+    const launch = watchShellProcessStart(child);
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -187,6 +190,14 @@ function spawnRunner(
     child.on("close", (code) => {
       clearTimeout(timer);
       context.signal?.removeEventListener("abort", onAbort);
+
+      if (!launch.didStart()) {
+        resolve({
+          content: `Failed to spawn skill tool script "${executorPath}": ${SHELL_DID_NOT_START_MESSAGE}`,
+          isError: true,
+        });
+        return;
+      }
 
       if (timedOut) {
         resolve({

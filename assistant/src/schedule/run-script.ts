@@ -1,6 +1,7 @@
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import {
   buildShellInvocation,
+  buildShellSpawnFlags,
   terminateProcessTree,
 } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
@@ -64,10 +65,9 @@ export async function runScript(
   const shell = buildShellInvocation(command);
   const proc = Bun.spawn([shell.command, ...shell.args], {
     cwd,
-    detached: true,
+    ...buildShellSpawnFlags(),
     stdout: "pipe",
     stderr: "pipe",
-    windowsHide: true,
     env: {
       ...buildSanitizedEnv(),
       // __SCHEDULE_ID lets a saved command find its own dir; __SCHEDULE_RUN_ID
