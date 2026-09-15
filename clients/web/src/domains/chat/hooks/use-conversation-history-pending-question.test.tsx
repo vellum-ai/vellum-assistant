@@ -15,7 +15,11 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
-import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
+import {
+  conversationHistoryQueryKey,
+  type HistoryCache,
+  type HistoryPaginationResult,
+} from "@/domains/chat/transcript/use-history-pagination";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -53,6 +57,34 @@ function messagesWithMarker(): DisplayMessage[] {
       ],
     } satisfies DisplayMessage,
   ];
+}
+
+function messagesWithConfirmationMarkers(
+  requestIds: string[],
+): DisplayMessage[] {
+  return [
+    {
+      id: "confirmation-message",
+      role: "assistant",
+      toolCalls: requestIds.map((requestId, index) => ({
+        id: `confirmation-tool-${index}`,
+        name: "bash",
+        input: {},
+        pendingConfirmation: { requestId },
+      })),
+    } satisfies DisplayMessage,
+  ];
+}
+
+function confirmationRequestIds(messages: DisplayMessage[]): string[] {
+  return messages.flatMap(
+    (message) =>
+      message.toolCalls?.flatMap((toolCall) =>
+        toolCall.pendingConfirmation
+          ? [toolCall.pendingConfirmation.requestId]
+          : [],
+      ) ?? [],
+  );
 }
 
 let currentMessages: DisplayMessage[] = [];
@@ -133,11 +165,38 @@ mock.module("@/domains/chat/api/interactions", () => ({
 const { useConversationHistory } =
   await import("@/domains/chat/hooks/use-conversation-history");
 
+let queryClient: QueryClient;
+
 function Wrapper({ children }: { children: ReactNode }) {
   return (
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
       {children}
     </QueryClientProvider>
+  );
+}
+
+function seedHistoryCache(messages: DisplayMessage[]): void {
+  queryClient.setQueryData<HistoryCache>(
+    conversationHistoryQueryKey("asst-1", "conv-A"),
+    {
+      pages: [
+        {
+          messages,
+          hasMore: false,
+          oldestTimestamp: null,
+          oldestMessageId: null,
+        },
+      ],
+      pageParams: [null],
+    },
+  );
+}
+
+function cachedMessages(): DisplayMessage[] {
+  return (
+    queryClient.getQueryData<HistoryCache>(
+      conversationHistoryQueryKey("asst-1", "conv-A"),
+    )?.pages[0]?.messages ?? []
   );
 }
 
@@ -171,6 +230,7 @@ function renderHistoryAcrossLifecycle() {
 }
 
 beforeEach(() => {
+  queryClient = new QueryClient();
   currentMessages = messagesWithMarker();
   reportedInteractions = {};
   gate = null;
@@ -237,7 +297,13 @@ describe("secret and confirmation recovery", () => {
   test.each(["secret", "confirmation"] as const)(
     "does not retire a newer %s that arrives during the registry read",
     async (kind) => {
-      currentMessages = [];
+      currentMessages =
+        kind === "confirmation"
+          ? messagesWithConfirmationMarkers(["confirmation-old"])
+          : [];
+      if (kind === "confirmation") {
+        seedHistoryCache(currentMessages);
+      }
       deferredCalls = [];
       useChatSessionStore.setState({
         previousAssistantId: "asst-1",
@@ -278,11 +344,26 @@ describe("secret and confirmation recovery", () => {
       expect(
         useConversationStore.getState().attentionConversationIds.has("conv-A"),
       ).toBe(true);
+      if (kind === "confirmation") {
+        expect(
+          confirmationRequestIds(
+            useChatSessionStore.getState().snapshot?.messages ?? [],
+          ),
+        ).toEqual(["confirmation-old"]);
+        expect(confirmationRequestIds(cachedMessages())).toEqual([
+          "confirmation-old",
+        ]);
+      }
     },
   );
 
   test("replaces a stale confirmation with the request reported by the registry", async () => {
-    currentMessages = [];
+    currentMessages = messagesWithConfirmationMarkers([
+      "confirmation-old",
+      "confirmation-new",
+      "confirmation-unrelated",
+    ]);
+    seedHistoryCache(currentMessages);
     reportedInteractions = {
       pendingSecret: null,
       pendingConfirmation: {
@@ -298,6 +379,7 @@ describe("secret and confirmation recovery", () => {
     useChatSessionStore
       .getState()
       .setConfirmationToolCall("confirmation-old", "tool-call-old");
+    useConversationStore.getState().addAttentionConversationId("conv-A");
     useInteractionStore.getState().showConfirmation({
       requestId: "confirmation-old",
       title: "Old confirmation",
@@ -323,10 +405,61 @@ describe("secret and confirmation recovery", () => {
     expect(
       useInteractionStore.getState().inlineConfirmationToolCallId,
     ).toBeNull();
+    expect(
+      confirmationRequestIds(
+        useChatSessionStore.getState().snapshot?.messages ?? [],
+      ),
+    ).toEqual(["confirmation-new", "confirmation-unrelated"]);
+    expect(confirmationRequestIds(cachedMessages())).toEqual([
+      "confirmation-new",
+      "confirmation-unrelated",
+    ]);
+    expect(
+      useConversationStore.getState().attentionConversationIds.has("conv-A"),
+    ).toBe(true);
+  });
+
+  test("removes a resolved confirmation from the transcript and history cache", async () => {
+    currentMessages = messagesWithConfirmationMarkers([
+      "confirmation-stale",
+      "confirmation-unrelated",
+    ]);
+    seedHistoryCache(currentMessages);
+    reportedInteractions = {
+      pendingSecret: null,
+      pendingConfirmation: null,
+      pendingQuestion: null,
+    };
+    useChatSessionStore.setState({
+      previousAssistantId: "asst-1",
+      previousConversationId: "conv-A",
+    });
+    useInteractionStore
+      .getState()
+      .showConfirmation({ requestId: "confirmation-stale" });
+    useConversationStore.getState().addAttentionConversationId("conv-A");
+
+    renderHistory();
+
+    await waitFor(() => {
+      expect(useInteractionStore.getState().pendingConfirmation).toBeNull();
+    });
+    expect(
+      confirmationRequestIds(
+        useChatSessionStore.getState().snapshot?.messages ?? [],
+      ),
+    ).toEqual(["confirmation-unrelated"]);
+    expect(confirmationRequestIds(cachedMessages())).toEqual([
+      "confirmation-unrelated",
+    ]);
+    expect(
+      useConversationStore.getState().attentionConversationIds.has("conv-A"),
+    ).toBe(false);
   });
 
   test("refreshes a confirmation payload without dropping its request mapping", async () => {
-    currentMessages = [];
+    currentMessages = messagesWithConfirmationMarkers(["confirmation-1"]);
+    seedHistoryCache(currentMessages);
     reportedInteractions = {
       pendingSecret: null,
       pendingConfirmation: {
@@ -361,6 +494,14 @@ describe("secret and confirmation recovery", () => {
         .getState()
         .confirmationToolCallMap.get("confirmation-1"),
     ).toBe("tool-call-1");
+    expect(
+      confirmationRequestIds(
+        useChatSessionStore.getState().snapshot?.messages ?? [],
+      ),
+    ).toEqual(["confirmation-1"]);
+    expect(confirmationRequestIds(cachedMessages())).toEqual([
+      "confirmation-1",
+    ]);
   });
 
   test.each(["secret", "confirmation"] as const)(

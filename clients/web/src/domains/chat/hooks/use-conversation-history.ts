@@ -61,6 +61,7 @@ import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/re
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
 import {
+  clearConfirmationByRequestId,
   parsePendingSecretState,
   parsePendingConfirmationData,
 } from "@/domains/chat/utils/send-message-utils";
@@ -78,6 +79,7 @@ import {
 } from "@/domains/chat/transcript/use-history-pagination";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import {
+  patchTranscriptMessages,
   registerHistoryCachePatcher,
   type MessagesUpdater,
 } from "@/domains/chat/transcript/patch-transcript-messages";
@@ -181,6 +183,12 @@ function applyReportedQuestion(params: {
   } else if (action.kind === "retire") {
     interactionStore.dismissQuestionIfMatches(action.requestId);
   }
+}
+
+function clearConfirmationTranscriptMarker(requestId: string): void {
+  patchTranscriptMessages((messages) =>
+    clearConfirmationByRequestId(messages, requestId),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -566,6 +574,7 @@ export function useConversationHistory({
               sessionStore.confirmationToolCallMap.get(previousRequestId) ??
                 pendingConfirmationBeforeFetch.toolUseId,
             );
+            clearConfirmationTranscriptMarker(previousRequestId);
             sessionStore.deleteConfirmationToolCall(previousRequestId);
           }
           useInteractionStore
@@ -586,6 +595,7 @@ export function useConversationHistory({
             sessionStore.confirmationToolCallMap.get(requestId) ??
               pendingConfirmationBeforeFetch.toolUseId,
           );
+          clearConfirmationTranscriptMarker(requestId);
           sessionStore.deleteConfirmationToolCall(requestId);
         }
         // A question parks the turn on the user exactly like a secret or a

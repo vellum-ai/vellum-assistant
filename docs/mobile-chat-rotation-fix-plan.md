@@ -135,6 +135,13 @@ unchanged.
   Focused regressions also verify that late uploads and failed or successful
   sends cannot write drafts, prompts, transcript rows, or processing state into
   the next authenticated session. Independent review and targeted lint passed.
+- Recovery review follow-up clears a resolved or replaced confirmation from
+  both the materialized transcript and the history cache while preserving the
+  current prompt, unrelated markers, attention state, and stale-read guards.
+  The focused history recovery suite passes with 23 tests and 63 assertions.
+- Three deterministic CI test mocks for email settings, resize settings, and
+  subagent stream handling spread their real modules before overriding the
+  focused dependency. Their 24 scoped tests pass.
 - A localhost Vite and headless Chromium smoke reached the assistant selection
   screen at 767px and 768px. It could not reach chat because the supporting
   local auth, feature-flag, and assistant services were unavailable. This does
