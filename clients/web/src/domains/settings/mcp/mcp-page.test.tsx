@@ -15,6 +15,13 @@ let assistantFlags: Record<string, boolean> = {};
 let flagsHydrated = true;
 
 const navigateToNewConversation = mock((..._args: unknown[]) => {});
+let serversResponse: Array<Record<string, unknown>> = [];
+const fetchMcpServers = mock(async () => ({ servers: serversResponse }));
+const fetchMcpToolsSummary = mock(async () => ({
+  servers: [],
+  totalToolCount: 0,
+  totalEstimatedTokens: 0,
+}));
 mock.module("@/utils/conversation-navigation", () => ({
   navigateToNewConversation,
 }));
@@ -37,6 +44,7 @@ mock.module("@vellumai/design-library/components/button", () => ({
     children,
     iconOnly,
     leftIcon,
+    rightIcon,
     size: _size,
     tooltip: _tooltip,
     variant: _variant,
@@ -45,6 +53,7 @@ mock.module("@vellumai/design-library/components/button", () => ({
     children?: ReactNode;
     iconOnly?: ReactNode;
     leftIcon?: ReactNode;
+    rightIcon?: ReactNode;
     size?: string;
     tooltip?: string;
     variant?: string;
@@ -53,6 +62,7 @@ mock.module("@vellumai/design-library/components/button", () => ({
       {iconOnly}
       {leftIcon}
       {children}
+      {rightIcon}
     </button>
   ),
 }));
@@ -66,12 +76,8 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 }));
 
 mock.module("./mcp-api", () => ({
-  fetchMcpServers: mock(async () => ({ servers: [] })),
-  fetchMcpToolsSummary: mock(async () => ({
-    servers: [],
-    totalToolCount: 0,
-    totalEstimatedTokens: 0,
-  })),
+  fetchMcpServers,
+  fetchMcpToolsSummary,
   addMcpServer: mock(async () => {}),
   startMcpAuth: mock(async () => ({
     auth_url: "https://example.com/oauth",
@@ -80,7 +86,6 @@ mock.module("./mcp-api", () => ({
   pollMcpAuthStatus: mock(async () => ({ status: "pending" })),
   reloadMcpServers: mock(async () => {}),
   removeMcpServer: mock(async () => {}),
-  revokeMcpOAuth: mock(async () => {}),
   updateMcpServer: mock(async () => {}),
 }));
 
@@ -101,7 +106,10 @@ afterEach(() => {
   cleanup();
   assistantFlags = {};
   flagsHydrated = true;
+  serversResponse = [];
   navigateToNewConversation.mockClear();
+  fetchMcpServers.mockClear();
+  fetchMcpToolsSummary.mockClear();
 });
 
 describe("McpPage", () => {
@@ -168,5 +176,31 @@ describe("McpPage", () => {
     fireEvent.click(cta);
 
     expect(navigateToNewConversation).not.toHaveBeenCalled();
+  });
+
+  test("loads tool details only after Configure opens", async () => {
+    serversResponse = [
+      {
+        id: "example-server",
+        status: "connected",
+        source: "workspace",
+        transport: {
+          type: "streamable-http",
+          url: "https://example.com/mcp",
+        },
+        hasOAuth: false,
+        hasStaticAuth: false,
+        authType: "none",
+      },
+    ];
+
+    render(<McpPage />, { wrapper: Wrapper });
+
+    const configure = await screen.findByRole("button", { name: "Configure" });
+    expect(fetchMcpToolsSummary).not.toHaveBeenCalled();
+    fireEvent.click(configure);
+    await waitFor(() => {
+      expect(fetchMcpToolsSummary).toHaveBeenCalledTimes(1);
+    });
   });
 });
