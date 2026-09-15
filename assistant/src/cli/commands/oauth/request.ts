@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { exitCodeFromIpcResult } from "../../../ipc/cli-client.js";
+import { cliIpcCall, exitCodeFromIpcResult } from "../../../ipc/cli-client.js";
 import {
   findContentTypeHeader,
   parseRequestBodyBytes,
@@ -90,6 +90,27 @@ export interface AuthenticatedRequestOptions {
   silent?: boolean;
   verbose?: boolean;
   include?: boolean;
+}
+
+interface AuthenticatedRequestResult {
+  ok: boolean;
+  status: number;
+  headers: Record<string, string>;
+  body: unknown;
+  bodyEncoding?: "base64";
+  hint?: string;
+  account?: string | null;
+  accountWarning?: string;
+}
+
+async function shouldUseDaemonRequest(): Promise<boolean> {
+  const { getIsContainerized } =
+    await import("../../../config/env-registry.js");
+  return (
+    getIsContainerized() &&
+    (!process.env.CES_CREDENTIAL_URL?.trim() ||
+      !process.env.CES_SERVICE_TOKEN?.trim())
+  );
 }
 
 /**
@@ -182,6 +203,7 @@ export async function runAuthenticatedRequest(params: {
       parsedData = readBodyData(opts.data, parsedHeaders);
     }
 
+    const useDaemonRequest = await shouldUseDaemonRequest();
     const body: Record<string, unknown> = {
       provider: providerKey,
       url,
@@ -193,7 +215,12 @@ export async function runAuthenticatedRequest(params: {
       body.headers = parsedHeaders;
     }
     if (parsedData !== undefined) {
-      body.parsed_data = parsedData;
+      if (useDaemonRequest && Buffer.isBuffer(parsedData)) {
+        body.parsed_data = parsedData.toString("base64");
+        body.body_encoding = "base64";
+      } else {
+        body.parsed_data = parsedData;
+      }
     }
     if (opts.get) {
       body.force_get = true;
@@ -208,37 +235,46 @@ export async function runAuthenticatedRequest(params: {
       body.client_id = params.clientId;
     }
 
-    // Run the route handler in this process so Gmail-sized fetch and
-    // JSON parse stay off the assistant event loop.
-    const { handleRequest } =
-      await import("../../../runtime/routes/oauth-commands-routes.js");
-    const { RouteError } = await import("../../../runtime/routes/errors.js");
-
-    let result: {
-      ok: boolean;
-      status: number;
-      headers: Record<string, string>;
-      body: unknown;
-      bodyEncoding?: "base64";
-      hint?: string;
-      account?: string | null;
-      accountWarning?: string;
-    };
-    try {
-      result = (await handleRequest({ body })) as typeof result;
-    } catch (err) {
-      if (err instanceof RouteError) {
-        // A structured route failure (unknown provider, no connection) is
-        // reported the way every other failure here is, so `--json` gets its
-        // envelope and the caller's diagnostics hint is not lost; only the
-        // exit code comes from the route's status.
-        writeError(cmd, `${err.message}\n\n${params.diagnosticsHint}`);
-        process.exitCode = exitCodeFromIpcResult({
-          statusCode: err.statusCode,
-        });
+    let result: AuthenticatedRequestResult;
+    if (useDaemonRequest) {
+      const ipcResult = await cliIpcCall<AuthenticatedRequestResult>(
+        "oauth_request",
+        { body },
+      );
+      if (!ipcResult.ok) {
+        writeError(
+          cmd,
+          `${ipcResult.error ?? "Unknown error"}\n\n${params.diagnosticsHint}`,
+        );
+        process.exitCode = exitCodeFromIpcResult(ipcResult);
         return;
       }
-      throw err;
+      result = ipcResult.result!;
+    } else {
+      // Run the route handler in this process so Gmail-sized fetch and
+      // JSON parse stay off the assistant event loop.
+      const { handleRequest } =
+        await import("../../../runtime/routes/oauth-commands-routes.js");
+      const { RouteError } = await import("../../../runtime/routes/errors.js");
+
+      try {
+        result = (await handleRequest({
+          body,
+        })) as unknown as AuthenticatedRequestResult;
+      } catch (err) {
+        if (err instanceof RouteError) {
+          // A structured route failure (unknown provider, no connection) is
+          // reported the way every other failure here is, so `--json` gets its
+          // envelope and the caller's diagnostics hint is not lost; only the
+          // exit code comes from the route's status.
+          writeError(cmd, `${err.message}\n\n${params.diagnosticsHint}`);
+          process.exitCode = exitCodeFromIpcResult({
+            statusCode: err.statusCode,
+          });
+          return;
+        }
+        throw err;
+      }
     }
 
     // Non-2xx exit code

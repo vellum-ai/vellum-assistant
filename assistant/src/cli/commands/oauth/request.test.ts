@@ -7,8 +7,15 @@ const PNG_MAGIC = Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xfe, 0x00,
 ]);
 
-const ipcCalls: string[] = [];
+const ipcCalls: Array<{
+  method: string;
+  params?: Record<string, unknown>;
+}> = [];
 const handleRequestCalls: unknown[] = [];
+
+const ORIGINAL_IS_CONTAINERIZED = process.env.IS_CONTAINERIZED;
+const ORIGINAL_CES_CREDENTIAL_URL = process.env.CES_CREDENTIAL_URL;
+const ORIGINAL_CES_SERVICE_TOKEN = process.env.CES_SERVICE_TOKEN;
 
 let handleRequestResult: {
   ok: boolean;
@@ -26,9 +33,9 @@ let handleRequestResult: {
 };
 
 mock.module("../../../ipc/cli-client.js", () => ({
-  cliIpcCall: async (method: string) => {
-    ipcCalls.push(method);
-    return { ok: false, error: `Unexpected IPC method ${method}` };
+  cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
+    ipcCalls.push({ method, params });
+    return { ok: true, result: handleRequestResult };
   },
   exitFromIpcResult: (r: { error?: string }) => {
     throw new Error(r.error ?? "IPC error");
@@ -56,6 +63,9 @@ beforeEach(() => {
   ipcCalls.length = 0;
   handleRequestCalls.length = 0;
   process.exitCode = 0;
+  process.env.IS_CONTAINERIZED = "false";
+  delete process.env.CES_CREDENTIAL_URL;
+  delete process.env.CES_SERVICE_TOKEN;
   tempDir = mkdtempSync(join(tmpdir(), "oauth-request-"));
   handleRequestResult = {
     ok: true,
@@ -69,7 +79,29 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
   process.exitCode = 0;
+  restoreEnv("IS_CONTAINERIZED", ORIGINAL_IS_CONTAINERIZED);
+  restoreEnv("CES_CREDENTIAL_URL", ORIGINAL_CES_CREDENTIAL_URL);
+  restoreEnv("CES_SERVICE_TOKEN", ORIGINAL_CES_SERVICE_TOKEN);
 });
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}
+
+function setContainerizedCesHttpEnv(configured: boolean): void {
+  process.env.IS_CONTAINERIZED = "true";
+  if (configured) {
+    process.env.CES_CREDENTIAL_URL = "http://127.0.0.1:8090";
+    process.env.CES_SERVICE_TOKEN = "test-service-token";
+  } else {
+    delete process.env.CES_CREDENTIAL_URL;
+    delete process.env.CES_SERVICE_TOKEN;
+  }
+}
 
 async function runRequestCommand(args: string[]): Promise<{
   stdout: Buffer;
@@ -110,7 +142,9 @@ async function runRequestCommand(args: string[]): Promise<{
 }
 
 describe("assistant oauth request", () => {
-  test("runs handleRequest in-process and does not call IPC", async () => {
+  test("keeps a containerized CLI with CES HTTP credentials in-process", async () => {
+    setContainerizedCesHttpEnv(true);
+
     const { stdout } = await runRequestCommand([
       "--provider",
       "google",
@@ -124,6 +158,34 @@ describe("assistant oauth request", () => {
         body: {
           provider: "google",
           url: "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        },
+      },
+    ]);
+    expect(stdout.toString("utf8")).toContain("hello");
+  });
+
+  test("uses daemon IPC when a containerized CLI lacks CES HTTP credentials", async () => {
+    setContainerizedCesHttpEnv(false);
+
+    const { stdout } = await runRequestCommand([
+      "--provider",
+      "outlook",
+      "--account",
+      "user@example.com",
+      "-s",
+      "https://graph.microsoft.com/v1.0/me",
+    ]);
+
+    expect(handleRequestCalls).toEqual([]);
+    expect(ipcCalls).toEqual([
+      {
+        method: "oauth_request",
+        params: {
+          body: {
+            provider: "outlook",
+            url: "https://graph.microsoft.com/v1.0/me",
+            account: "user@example.com",
+          },
         },
       },
     ]);
@@ -193,6 +255,43 @@ describe("oauth request body encoding", () => {
     });
     expect(Buffer.isBuffer(parsed)).toBe(true);
     expect(Buffer.from(parsed as Uint8Array).equals(PNG_MAGIC)).toBe(true);
+  });
+
+  test("base64-encodes a binary @file for daemon IPC", async () => {
+    setContainerizedCesHttpEnv(false);
+    const filePath = join(tempDir, "report.pdf");
+    writeFileSync(filePath, PNG_MAGIC);
+
+    const { exitCode } = await runRequestCommand([
+      "--provider",
+      "google",
+      "-s",
+      "-X",
+      "POST",
+      "-H",
+      "Content-Type: application/pdf",
+      "-d",
+      `@${filePath}`,
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=media",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(handleRequestCalls).toEqual([]);
+    expect(ipcCalls).toEqual([
+      {
+        method: "oauth_request",
+        params: {
+          body: {
+            provider: "google",
+            url: "https://www.googleapis.com/upload/drive/v3/files?uploadType=media",
+            method: "POST",
+            headers: { "Content-Type": "application/pdf" },
+            parsed_data: PNG_MAGIC.toString("base64"),
+            body_encoding: "base64",
+          },
+        },
+      },
+    ]);
   });
 
   test("forwards a binary @file to the route handler as a Buffer", async () => {
