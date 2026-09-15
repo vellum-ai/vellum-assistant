@@ -113,8 +113,15 @@ test("adapts nested XIncludes while preserving window actions, lookup bases and 
     "rc.xml": `<openbox_config xmlns="http://openbox.org/3.4/rc" xmlns:xi="http://www.w3.org/2001/XInclude">
       <theme><name>Custom</name></theme>
       <xi:include href="bindings/keyboard.xml"/>
+      <xi:include href="sections.xml" xpointer="xpointer(/sections/*)"/>
       <menu><file>menu.xml</file></menu>
     </openbox_config>`,
+    "sections.xml": `<sections>
+      <desktops><number>4</number><firstdesk>3</firstdesk></desktops>
+      <mouse><screenEdgeWarpTime>400</screenEdgeWarpTime></mouse>
+      <menu><manageDesktops>yes</manageDesktops><file>menu.xml</file></menu>
+      <applications><application class="XTerm"><desktop>4</desktop><maximized>yes</maximized></application></applications>
+    </sections>`,
     "bindings/keyboard.xml": `<keyboard xmlns="http://openbox.org/3.4/rc" xmlns:xi="http://www.w3.org/2001/XInclude" xml:base="nested/">
       <keybind key="A-Tab"><action name="NextWindow"/></keybind>
       <keybind key="C-A-Right"><action name="GoToDesktop"/></keybind>
@@ -153,6 +160,32 @@ test("adapts nested XIncludes while preserving window actions, lookup bases and 
       "http://www.w3.org/2001/XInclude",
       "include",
     )[0]!;
+  const sections = readXml(
+    fileURLToPath(
+      config
+        .getElementsByTagNameNS(
+          "http://www.w3.org/2001/XInclude",
+          "include",
+        )[1]!
+        .getAttribute("href")!,
+    ),
+  );
+  expect(sections.getElementsByTagName("number")[0]!.textContent).toBe("1");
+  expect(sections.getElementsByTagName("firstdesk")[0]!.textContent).toBe("1");
+  expect(
+    sections.getElementsByTagName("screenEdgeWarpTime")[0]!.textContent,
+  ).toBe("0");
+  expect(sections.getElementsByTagName("manageDesktops")[0]!.textContent).toBe(
+    "no",
+  );
+  const rules = Array.from(sections.getElementsByTagName("application"));
+  expect(rules[0]!.getElementsByTagName("maximized")[0]!.textContent).toBe(
+    "yes",
+  );
+  expect(rules.at(-1)!.getAttribute("class")).toBe("*");
+  expect(rules.at(-1)!.getElementsByTagName("desktop")[0]!.textContent).toBe(
+    "1",
+  );
   const keyboard = readXml(
     fileURLToPath(include(config).getAttribute("href")!),
   );

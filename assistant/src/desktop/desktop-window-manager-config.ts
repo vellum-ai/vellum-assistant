@@ -32,20 +32,9 @@ export function writeDesktopWindowManagerConfig(
   }
   const config = parseXml(source.contents, source.path);
   const root = config.documentElement!;
-  const desktops = child(root, "desktops");
-  child(desktops, "number").textContent = "1";
-  child(desktops, "firstdesk").textContent = "1";
-  child(desktops, "popupTime").textContent = "0";
-  const mouse = root.getElementsByTagNameNS("*", "mouse")[0];
-  if (mouse) {
-    child(mouse, "screenEdgeWarpTime").textContent = "0";
+  for (const section of ["desktops", "mouse", "menu", "applications"]) {
+    child(root, section);
   }
-  child(child(root, "menu"), "manageDesktops").textContent = "no";
-  // The last matching rule also covers windows restored with stale assignments.
-  const application = config.createElementNS(root.namespaceURI, "application");
-  application.setAttribute("class", "*");
-  child(application, "desktop").textContent = "1";
-  child(root, "applications").appendChild(application);
   mkdirSync(configDir, { recursive: true });
   const copies = new Map<string, string>();
   function copyConfig(source: { path: string; contents: string }): string {
@@ -62,6 +51,7 @@ export function writeDesktopWindowManagerConfig(
   }
   function adaptReferences(document: Document): void {
     removeWorkspaceControls(document);
+    configureWorkspaceSections(document);
     for (const include of Array.from(
       document.getElementsByTagNameNS(XINCLUDE_NAMESPACE, "include"),
     )) {
@@ -97,6 +87,41 @@ export function writeDesktopWindowManagerConfig(
   const path = join(configDir, "openbox.xml");
   writeFileSync(path, new XMLSerializer().serializeToString(config));
   return path;
+}
+
+function configureWorkspaceSections(document: Document): void {
+  for (const desktops of Array.from(
+    document.getElementsByTagNameNS("*", "desktops"),
+  )) {
+    child(desktops, "number").textContent = "1";
+    child(desktops, "firstdesk").textContent = "1";
+    child(desktops, "popupTime").textContent = "0";
+  }
+  for (const mouse of Array.from(
+    document.getElementsByTagNameNS("*", "mouse"),
+  )) {
+    child(mouse, "screenEdgeWarpTime").textContent = "0";
+  }
+  for (const menu of Array.from(document.getElementsByTagNameNS("*", "menu"))) {
+    if (
+      !menu.hasAttribute("id") &&
+      (menu.parentNode as Element | null)?.localName !== "action"
+    ) {
+      child(menu, "manageDesktops").textContent = "no";
+    }
+  }
+  for (const applications of Array.from(
+    document.getElementsByTagNameNS("*", "applications"),
+  )) {
+    // The last matching rule also covers windows restored with stale assignments.
+    const application = document.createElementNS(
+      applications.namespaceURI,
+      "application",
+    );
+    application.setAttribute("class", "*");
+    child(application, "desktop").textContent = "1";
+    applications.appendChild(application);
+  }
 }
 
 function readConfig(name: string, directories: string[]) {
