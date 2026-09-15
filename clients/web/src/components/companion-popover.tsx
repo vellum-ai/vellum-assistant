@@ -85,20 +85,21 @@ export const COMPANION_POPOVER_SURFACE_CLASS =
   "border border-white/5 bg-[var(--surface-base)] text-[var(--content-default)] shadow-lg shadow-black/40";
 
 /**
- * The ground of a popover drawn whole: a dark panel with a soft rim and a
- * gradient faintly tinted in the assistant's colour.
+ * The ground of a popover drawn whole: the call bar's own dark, so the panel
+ * and the bar beneath it read as one material, with a faint wash of the
+ * assistant's colour from the top corner.
  *
- * A gradient rather than a blur of what is behind it. The popover is a window
- * of its own over another application, and a page cannot see what another
- * window draws, so the tint is what gives the panel the colour a glass one
- * would pick up.
+ * A wash rather than a blur of what is behind it. The popover is a window of
+ * its own over another application, and a page cannot see what another
+ * window draws. Kept faint: a stronger tint turns a warm accent muddy against
+ * the neutral bar.
  */
 const panelBackground = (accentHex: string | undefined): string => {
-  const tint =
+  const wash =
     accentHex === undefined
-      ? "#2a2b2e"
-      : `color-mix(in srgb, ${accentHex} 14%, #26272a)`;
-  return `linear-gradient(145deg, ${tint} 0%, #242528 55%, #1e1f21 100%)`;
+      ? "transparent"
+      : `color-mix(in srgb, ${accentHex} 7%, transparent)`;
+  return `radial-gradient(120% 80% at 0% 0%, ${wash} 0%, transparent 70%), #17181b`;
 };
 
 export function CompanionPopover({
@@ -153,7 +154,7 @@ export function CompanionPopover({
         // A column the page bounds in height: a header and a row of answers
         // that stay put, and the content between them scrolling, so the
         // answers are always within reach however long the content runs.
-        "flex min-h-0 flex-col gap-4 rounded-[20px] border border-white/10 p-5 text-[var(--content-default)] shadow-2xl shadow-black/50",
+        "flex min-h-0 flex-col gap-3 rounded-[20px] border border-white/10 p-4 text-[var(--content-default)] shadow-2xl shadow-black/50",
         popover.kind === "approvals" ? "w-max max-w-[640px]" : "w-[360px]",
         className,
       )}
@@ -522,17 +523,17 @@ function PopoverHeader({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="-mt-1 -mr-2 flex min-h-8 items-center gap-2">
+    <div className="-mt-0.5 -mr-1.5 flex min-h-7 items-center gap-2">
       {icon}
       <p
         dir="auto"
-        className="min-w-0 flex-1 text-body-medium-default text-[var(--content-tertiary)] select-none"
+        className="min-w-0 flex-1 text-body-small-default text-[var(--content-tertiary)] select-none"
       >
         {title}
       </p>
       <Button
         variant="ghost"
-        className="size-8 rounded-lg px-0"
+        className="size-7 rounded-lg px-0"
         aria-label={t("companionPopover.dismiss")}
         iconOnly={<X className="size-4" strokeWidth={2} />}
         onClick={onClose}
@@ -704,7 +705,7 @@ function SurfaceCard({
             fadeEdges="end"
             hideScrollBar
           >
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3">
               {popover.title !== "" || popover.subtitle !== "" ? (
                 <div className="flex flex-col gap-0.5">
                   {popover.title !== "" ? (
@@ -798,7 +799,10 @@ function CardBody({
   return (
     <MarkdownMessage
       content={body}
-      className="text-body-medium-lighter text-[var(--content-secondary)]"
+      // The chat's spacing is sized for a transcript, a line's height between
+      // paragraphs. A card this size wants a third of that, and lists that
+      // sit in the text rather than out from it.
+      className="text-body-medium-lighter text-[var(--content-secondary)] [&_li]:mb-1 [&_ol]:mb-2 [&_ol]:pl-4 [&_p]:mb-2 [&_ul]:mb-2 [&_ul]:pl-4"
       linkComponent={link}
       imageComponent={PopoverImage}
       urlTransform={popoverUrlTransform}

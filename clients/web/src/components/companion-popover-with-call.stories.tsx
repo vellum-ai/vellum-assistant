@@ -203,6 +203,38 @@ export const CredentialFormAboveTheBar: Story = {
   render: () => <Stage popover={whole(SECRET)} />,
 };
 
+/**
+ * A text card with a list, in a warm accent, over a bar lit in the same
+ * colour: the panel's spacing and wash against the bar's own material.
+ */
+export const ResearchCardAboveTheBar: Story = {
+  render: () => (
+    <Stage
+      call={{
+        ...CALL,
+        phase: "speaking",
+        label: "Speaking…",
+        accentHex: "#E9642F",
+      }}
+      popover={
+        <CompanionPopover
+          view="expanded"
+          assistantName="relish"
+          accentHex="#E9642F"
+          popover={{
+            kind: "card",
+            id: "surf-2",
+            title: "Blue Whales: Research Roundup",
+            subtitle: "Journal-level findings, with sources",
+            body: "A couple of headliners from the recent literature:\n\n- **Heartbeat study:** PNAS, 2019\n- **New population:** Endangered Species Research, 2020",
+            actions: [],
+          }}
+        />
+      }
+    />
+  ),
+};
+
 /** A card with an image and a link, above the bar. */
 export const CardAboveTheBar: Story = {
   render: () => <Stage popover={whole(CARD)} />,
