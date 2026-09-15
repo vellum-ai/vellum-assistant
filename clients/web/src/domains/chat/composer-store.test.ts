@@ -554,6 +554,29 @@ describe("addFiles upload metadata", () => {
     expect(getStore().attachments).toEqual([]);
   });
 
+  test("logout reset prevents an in-flight upload from entering a later session", async () => {
+    let finishUpload!: (result: UploadAttachmentResult) => void;
+    uploadChatAttachmentMock.mockImplementationOnce(
+      () =>
+        new Promise<UploadAttachmentResult>((resolve) => {
+          finishUpload = resolve;
+        }),
+    );
+    getStore().addFiles(
+      [new File(["notes"], "notes.txt", { type: "text/plain" })],
+      "assistant-1",
+    );
+    for (let i = 0; i < 100 && !finishUpload; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    getStore().resetForLogout();
+    finishUpload({ ok: true, id: "attachment-1" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getStore().attachments).toEqual([]);
+  });
+
   test("adopts stored metadata and previews the stored bytes when the assistant transcodes", async () => {
     uploadChatAttachmentMock.mockResolvedValueOnce({
       ok: true,
@@ -733,16 +756,42 @@ describe("restoreFailedDraft", () => {
   test("parks the text where the conversation will look for it", () => {
     getStore().loadAssistantDrafts("assistant-1");
 
-    getStore().restoreFailedDraft("assistant-1", "conv-A", "the lost message");
+    getStore().restoreFailedDraft(
+      "assistant-1",
+      "conv-A",
+      "the lost message",
+      getStore().sessionGeneration,
+    );
 
     expect(draftFor("conv-A")).toBe("the lost message");
+  });
+
+  test("ignores a failed send that completes after logout", () => {
+    getStore().loadAssistantDrafts("assistant-1");
+    const sessionGeneration = getStore().sessionGeneration;
+
+    getStore().resetForLogout();
+    getStore().restoreFailedDraft(
+      "assistant-1",
+      "conv-A",
+      "private failed send",
+      sessionGeneration,
+    );
+    getStore().loadAssistantDrafts("assistant-1");
+
+    expect(draftFor("conv-A")).toBe("");
   });
 
   test("leaves an occupied slot alone", () => {
     getStore().loadAssistantDrafts("assistant-1");
     getStore().saveDraft("conv-A", "typed later");
 
-    getStore().restoreFailedDraft("assistant-1", "conv-A", "the lost message");
+    getStore().restoreFailedDraft(
+      "assistant-1",
+      "conv-A",
+      "the lost message",
+      getStore().sessionGeneration,
+    );
 
     expect(draftFor("conv-A")).toBe("typed later");
   });
@@ -750,7 +799,12 @@ describe("restoreFailedDraft", () => {
   test("ignores blank text", () => {
     getStore().loadAssistantDrafts("assistant-1");
 
-    getStore().restoreFailedDraft("assistant-1", "conv-A", "   ");
+    getStore().restoreFailedDraft(
+      "assistant-1",
+      "conv-A",
+      "   ",
+      getStore().sessionGeneration,
+    );
 
     expect(draftFor("conv-A")).toBe("");
   });
@@ -761,7 +815,12 @@ describe("restoreFailedDraft", () => {
     getStore().loadAssistantDrafts("assistant-1");
     getStore().loadAssistantDrafts("assistant-2");
 
-    getStore().restoreFailedDraft("assistant-1", "conv-A", "the lost message");
+    getStore().restoreFailedDraft(
+      "assistant-1",
+      "conv-A",
+      "the lost message",
+      getStore().sessionGeneration,
+    );
 
     // THEN assistant-2, whose map is live, never sees it
     expect(draftFor("conv-A")).toBe("");
@@ -777,7 +836,12 @@ describe("restoreFailedDraft", () => {
     getStore().saveDraft("conv-A", "typed later");
     getStore().loadAssistantDrafts("assistant-2");
 
-    getStore().restoreFailedDraft("assistant-1", "conv-A", "the lost message");
+    getStore().restoreFailedDraft(
+      "assistant-1",
+      "conv-A",
+      "the lost message",
+      getStore().sessionGeneration,
+    );
 
     getStore().loadAssistantDrafts("assistant-2");
     getStore().loadAssistantDrafts("assistant-1");

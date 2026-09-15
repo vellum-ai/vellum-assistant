@@ -129,6 +129,12 @@ unchanged.
   and conversation attachment behavior.
 - ESLint passed for every changed TypeScript and TSX file.
 - `tsc --noEmit` passed for `clients/web`.
+- Auth review follow-up covers SPA logout and login with reused assistant and
+  conversation IDs. The logout storage seam cancels the old SSE epoch and
+  clears conversation, transcript, composer, turn, and interaction state.
+  Focused regressions also verify that late uploads and failed or successful
+  sends cannot write drafts, prompts, transcript rows, or processing state into
+  the next authenticated session. Independent review and targeted lint passed.
 - A localhost Vite and headless Chromium smoke reached the assistant selection
   screen at 767px and 768px. It could not reach chat because the supporting
   local auth, feature-flag, and assistant services were unavailable. This does
