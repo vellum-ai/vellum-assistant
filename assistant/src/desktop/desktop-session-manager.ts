@@ -25,6 +25,7 @@ import {
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
 import { DESKTOP_WINDOW_DRAG_SCRIPT } from "./desktop-window-drag.js";
+import { writeDesktopWindowManagerConfig } from "./desktop-window-manager-config.js";
 import { writeDesktopWindowTheme } from "./desktop-window-theme.js";
 
 const log = getLogger("desktop-session");
@@ -38,8 +39,6 @@ const DESKTOP_LINGER_MS = 5 * 60_000;
 const VNC_READY_DEADLINE_MS = 10_000;
 const VNC_PROBE_INTERVAL_MS = 100;
 const KILL_GRACE_MS = 2_000;
-const BROWSER_CRASH_WINDOW_MS = 60_000;
-const BROWSER_CRASH_LIMIT = 3;
 const PANEL_RESTART_LIMIT = 3;
 const PANEL_RESTART_DELAY_MS = 1_000;
 
@@ -181,6 +180,7 @@ interface DesktopSessionManagerOptions {
   /** Where the children's allowlisted env is read from. */
   readonly sourceEnv?: NodeJS.ProcessEnv;
   readonly panelRestartDelayMs?: number;
+  readonly writeWindowManagerConfig?: (configDir: string) => string;
 }
 
 type DesktopBinaries = ReturnType<typeof resolveDesktopBinaries>;
@@ -196,7 +196,6 @@ export class DesktopSessionManager {
   private viewer: DesktopViewer | null = null;
   private lingerTimer: ReturnType<typeof setTimeout> | null = null;
   private ingressClosed = false;
-  private browserExitsAt: number[] = [];
   /** Resolved for the current tree, and read again when the dock comes up. */
   private binaries: DesktopBinaries | null = null;
   private panelStarted = false;
@@ -233,6 +232,7 @@ export class DesktopSessionManager {
   >;
   private readonly sourceEnv: NodeJS.ProcessEnv;
   private readonly panelRestartDelayMs: number;
+  private readonly writeWindowManagerConfig: (configDir: string) => string;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
     this.spawn = options.spawn ?? spawnDetached;
@@ -262,6 +262,25 @@ export class DesktopSessionManager {
     this.sourceEnv = options.sourceEnv ?? process.env;
     this.panelRestartDelayMs =
       options.panelRestartDelayMs ?? PANEL_RESTART_DELAY_MS;
+    this.writeWindowManagerConfig =
+      options.writeWindowManagerConfig ??
+      ((configDir) => {
+        let sourcePath: string | undefined;
+        try {
+          sourcePath = writeDesktopWindowTheme(
+            configDir,
+            this.sourceEnv.HOME,
+            resolveNotificationAccentHex(readAvatarState()),
+          );
+        } catch (err) {
+          log.warn({ err }, "Desktop window theme could not be applied");
+        }
+        return writeDesktopWindowManagerConfig(
+          configDir,
+          this.sourceEnv.HOME,
+          sourcePath,
+        );
+      });
     this.renderWallpaper =
       options.renderWallpaper ?? renderCurrentDesktopWallpaper;
   }
@@ -306,7 +325,6 @@ export class DesktopSessionManager {
     }
     if (this.running) {
       void this.refreshWallpaper(this.childEnv(), this.generation);
-      void this.ensureBrowser(this.childEnv(), this.generation);
       return Promise.resolve();
     }
     this.starting ??= this.startDesktop().finally(() => {
@@ -346,26 +364,19 @@ export class DesktopSessionManager {
           `Desktop VNC server not ready on port ${DESKTOP_VNC_PORT} after ${this.readyDeadlineMs}ms`,
         );
       }
-      const windowManagerCommand = [this.binaries.windowManager];
-      try {
-        windowManagerCommand.push(
-          "--config-file",
-          writeDesktopWindowTheme(
-            this.panelConfigDir,
-            env.HOME,
-            resolveNotificationAccentHex(readAvatarState()),
-          ),
-        );
-      } catch (err) {
-        log.warn({ err }, "Desktop window theme could not be applied");
-      }
+      const windowManagerConfig = this.writeWindowManagerConfig(
+        this.panelConfigDir,
+      );
       this.launch(
         "window-manager",
         [
           this.binaries.python,
           "-c",
           DESKTOP_WINDOW_DRAG_SCRIPT,
-          ...windowManagerCommand,
+          this.binaries.windowManager,
+          "--sm-disable",
+          "--config-file",
+          windowManagerConfig,
         ],
         env,
       );
@@ -382,7 +393,7 @@ export class DesktopSessionManager {
     this.running = true;
     log.info({ display: DESKTOP_DISPLAY }, "Desktop started");
     void this.refreshWallpaper(env, generation);
-    void this.ensureBrowser(env, generation);
+    void this.startBrowser(env, generation);
   }
 
   private async refreshWallpaper(
@@ -444,16 +455,13 @@ export class DesktopSessionManager {
   }
 
   /** Launch Chrome and its dock once the X server is ready. */
-  private async ensureBrowser(
+  private async startBrowser(
     env: Record<string, string>,
     generation: number,
   ): Promise<void> {
-    if (this.children.has("browser")) {
-      return;
-    }
     try {
       const executable = await this.resolveChromePath();
-      if (this.generation !== generation || this.children.has("browser")) {
+      if (this.generation !== generation) {
         return;
       }
       mkdirSync(this.profileDir, { recursive: true });
@@ -570,7 +578,6 @@ export class DesktopSessionManager {
     }
     if (role === "browser") {
       log.info({ outcome }, "Desktop browser exited");
-      this.onBrowserExit();
       return;
     }
     if (COSMETIC_ROLES.has(role)) {
@@ -586,31 +593,6 @@ export class DesktopSessionManager {
   }
 
   /**
-   * A closed browser is normal use when nobody is watching; the next viewer
-   * gets a fresh window. Under a viewer it is relaunched so they are not
-   * stranded on an empty desktop, unless it keeps dying.
-   */
-  private onBrowserExit(): void {
-    if (!this.viewer || !this.running) {
-      return;
-    }
-    const now = Date.now();
-    this.browserExitsAt = this.browserExitsAt.filter(
-      (at) => now - at < BROWSER_CRASH_WINDOW_MS,
-    );
-    this.browserExitsAt.push(now);
-    if (this.browserExitsAt.length > BROWSER_CRASH_LIMIT) {
-      log.warn("Desktop browser is crash looping, tearing down");
-      void this.teardown({
-        code: DESKTOP_CLOSE.failed,
-        reason: "Desktop browser keeps crashing",
-      });
-      return;
-    }
-    void this.ensureBrowser(this.childEnv(), this.generation);
-  }
-
-  /**
    * Kill the tree. The viewer, if any, hears `loss` before the kill starts;
    * the linger path passes none since nobody is watching by then.
    */
@@ -618,7 +600,6 @@ export class DesktopSessionManager {
     this.clearLinger();
     this.generation += 1;
     this.running = false;
-    this.browserExitsAt = [];
     this.binaries = null;
     this.panelStarted = false;
     if (this.panelRestartTimer) {

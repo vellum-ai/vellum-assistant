@@ -87,6 +87,7 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
       options.panelConfigDir ?? join(options.profileDir, "desktop-panel"),
     sourceEnv: options.sourceEnv,
     panelRestartDelayMs: options.panelRestartDelayMs,
+    writeWindowManagerConfig: (configDir) => join(configDir, "openbox.xml"),
   });
   return {
     manager,

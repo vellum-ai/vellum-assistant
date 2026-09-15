@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
+import { resolveOpenCodeRequestHeaders } from "../opencode/client.js";
 import type { Auth, ConnectionModel } from "./auth.js";
 import { resolveAuth } from "./resolve-auth.js";
 
@@ -72,12 +73,20 @@ export async function testInferenceConnection(
   }
   const authHeaders =
     resolved.resolved.kind === "header" ? resolved.resolved.headers : {};
+  // OpenCode Go rejects requests without a session header, which would
+  // report a false HTTP 400 hint for a correctly configured connection.
+  const providerHeaders =
+    connection.provider === "opencode" ? resolveOpenCodeRequestHeaders() : {};
 
   const url = `${connection.baseUrl.replace(/\/+$/, "")}/chat/completions`;
   try {
     const res = await fetchImpl(url, {
       method: "POST",
-      headers: { ...authHeaders, "Content-Type": "application/json" },
+      headers: {
+        ...authHeaders,
+        ...providerHeaders,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         model,
         messages: [{ role: "user", content: "ping" }],
