@@ -132,8 +132,14 @@ const withLibraryFixture: Decorator = function WithLibraryFixture(Story) {
       ASSISTANT_ID,
       "app-threadkeeper",
       THREADKEEPER_PREVIEW,
+      STORY_APPS[0]!.updatedAt,
     );
-    primeAppHtmlCache(ASSISTANT_ID, "app-calculator", CALCULATOR_PREVIEW);
+    primeAppHtmlCache(
+      ASSISTANT_ID,
+      "app-calculator",
+      CALCULATOR_PREVIEW,
+      STORY_APPS[1]!.updatedAt,
+    );
 
     return previous;
   });

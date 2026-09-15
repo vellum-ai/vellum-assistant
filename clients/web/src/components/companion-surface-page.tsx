@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -8,6 +9,10 @@ import {
 } from "react";
 
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
+import {
+  CompanionPopover,
+  CompanionPromptRow,
+} from "@/components/companion-popover";
 import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
 import {
   CompanionIntro,
@@ -26,7 +31,10 @@ import { companionAccentHexFor } from "@/components/companion-accent";
 import {
   activateCompanionApp,
   answerCompanionDictationOffer,
+  answerCompanionPopover,
   answerCompanionWatchRetro,
+  openCompanionLink,
+  setCompanionAttachedPopoverHeight,
   advanceCompanionIntro,
   captureCompanionSourceThumbnail,
   clearCompanionMarks,
@@ -37,6 +45,7 @@ import {
   setCompanionAnnotating,
   setCompanionAnnotationTool,
   setCompanionInteractive,
+  setCompanionPopoverView,
   setCompanionScreenShare,
   showCompanionContextMenu,
   startCompanionVoice,
@@ -57,6 +66,8 @@ import type {
   CompanionCharacter,
   CompanionGrowth,
   CompanionIntroBeat,
+  CompanionPopover as CompanionPopoverContent,
+  CompanionPopoverView,
   CompanionSurfaceState,
   CompanionWatchRetro,
   CompanionDictating,
@@ -73,6 +84,12 @@ import type {
  * turn "take me back to Vellum" into a one-pixel nudge that does nothing.
  */
 const DRAG_SLOP = 3;
+
+/**
+ * The tallest a popover on the call's bar is drawn, in the surface's units.
+ * Past it the content scrolls between the header and the answers.
+ */
+const COMPANION_ATTACHED_POPOVER_MAX_HEIGHT = 440;
 
 /**
  * The companion surface inside its Electron canvas
@@ -143,6 +160,15 @@ export function CompanionSurfacePage() {
   // use it stands. Its own state for the reason `watchRetro` is.
   const [dictationOffer, setDictationOffer] = useState<
     CompanionDictationOfferWords | undefined
+  >(undefined);
+  // What the assistant is putting in front of the user, and how main has it
+  // shown. A call's bar carries the short form as a row of its own, and counts
+  // what was put off. The whole of it is the popover's own window.
+  const [popover, setPopover] = useState<CompanionPopoverContent | undefined>(
+    undefined,
+  );
+  const [popoverView, setPopoverView] = useState<
+    CompanionPopoverView | undefined
   >(undefined);
   // Whether Watch is offered at all, which is the flag as main last read it.
   const [watchEnabled, setWatchEnabled] = useState(false);
@@ -218,6 +244,9 @@ export function CompanionSurfacePage() {
   const pickerRef = useRef<HTMLDivElement | null>(null);
   // The offer's card, for the reason the picker's is.
   const offerRef = useRef<HTMLDivElement | null>(null);
+  // The prompt row a call's bar carries above or below itself, for the reason
+  // the offer's card is.
+  const promptRef = useRef<HTMLDivElement | null>(null);
   // The strip of drawing tools, for the same reason: it stands off the pill,
   // and every button on it is a press.
   const drawToolsEl = useRef<HTMLDivElement | null>(null);
@@ -225,10 +254,10 @@ export function CompanionSurfacePage() {
   // moment the strip goes away under it.
   const overDrawToolsRef = useRef(false);
   // A callback rather than a ref object, so this window hears the strip go.
-  // The strip goes with the mode, with the share, with the call, and under
-  // an approval that takes the row, and it can go under a pointer resting
-  // on it that nothing then moves: no mouse-move arrives to say the pointer
-  // is now over empty canvas. Give the desktop back the way the picker does,
+  // The strip goes with the mode, with the share and with the call, and it
+  // can go under a pointer resting on it that nothing then moves: no
+  // mouse-move arrives to say the pointer is now over empty canvas. Give the
+  // desktop back the way the picker does,
   // and only when the pointer was on the strip: a press on Draw itself
   // leaves the pointer on the pill, which is still there to be pressed.
   const drawToolsRef = useCallback((element: HTMLDivElement | null) => {
@@ -281,6 +310,8 @@ export function CompanionSurfacePage() {
       setDictationText(state.dictationText ?? "");
       setWatchRetro(state.watchRetro);
       setDictationOffer(state.dictationOffer);
+      setPopover(state.popover);
+      setPopoverView(state.popoverView);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
       // control this decides starts reading the user's screen, so a state of
@@ -455,6 +486,51 @@ export function CompanionSurfacePage() {
       setCompanionInteractive(false);
     }
   }, [dictationOffer]);
+
+  // Whether the last forwarded move put the pointer on the call's prompt row.
+  const overPromptRef = useRef(false);
+  // The popover on the call's bar, joined to it as one shape: while the bar
+  // is a row (docked to the top or bottom) and the popover is not put off.
+  // Main keeps the popover's own window away in exactly this case.
+  const promptShown =
+    popover !== undefined &&
+    popoverView !== undefined &&
+    popoverView !== "deferred" &&
+    (call !== null || dialing) &&
+    dock !== "left" &&
+    dock !== "right";
+  // How tall it stands above the bar, told to main, which grows the canvas to
+  // hold a list or a form taller than the room kept for a card. Named for the
+  // popover and measured again for each view, which is a shape of its own.
+  const promptId = promptShown ? popover?.id : undefined;
+  useLayoutEffect(() => {
+    const shelf = promptRef.current;
+    if (promptId === undefined || shelf === null) {
+      return;
+    }
+    const report = (): void => {
+      setCompanionAttachedPopoverHeight(
+        promptId,
+        shelf.getBoundingClientRect().height,
+      );
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(shelf);
+    return () => {
+      observer.disconnect();
+    };
+  }, [promptId, popoverView]);
+  // The row goes when it is answered, reviewed or put off, under a pointer
+  // that has not moved. Give the desktop back the way the offer's card does,
+  // and only when the pointer was on the row.
+  useEffect(() => {
+    if (!promptShown && overPromptRef.current) {
+      overPromptRef.current = false;
+      interactiveRef.current = false;
+      setCompanionInteractive(false);
+    }
+  }, [promptShown]);
 
   const onPick = (pick: CompanionCapturePick) => {
     sourcesRequestRef.current += 1;
@@ -671,6 +747,15 @@ export function CompanionSurfacePage() {
         event.clientX,
         event.clientY,
       );
+    // The prompt row on the call's bar, for the same reason.
+    const promptRow = promptRef.current;
+    const onPrompt =
+      promptRow !== null &&
+      containsPoint(
+        promptRow.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
     // The drawing tools, for the same reason and for as long as they are drawn.
     const drawTools = drawToolsEl.current;
     const onDrawTools =
@@ -686,12 +771,23 @@ export function CompanionSurfacePage() {
     // thing.
     setHovered(onSurface);
     overDrawToolsRef.current = onDrawTools;
-    setInteractive(onSurface || onIntro || onPicker || onOffer || onDrawTools);
+    overPromptRef.current = onPrompt;
+    setInteractive(
+      onSurface || onIntro || onPicker || onOffer || onDrawTools || onPrompt,
+    );
   };
 
   // The avatar's own colour, shared with the display's edge glow so the two
   // lights cannot come apart. See `companionAccentHexFor`.
   const accentHex = companionAccentHexFor(call, publishedAccentHex, character);
+
+  // What was put off with Not Now, counted on the bar so it can be reviewed.
+  const deferredCount =
+    popover === undefined || popoverView !== "deferred"
+      ? 0
+      : popover.kind === "approvals"
+        ? popover.items.length
+        : 1;
 
   return (
     <div
@@ -972,6 +1068,47 @@ export function CompanionSurfacePage() {
             />
           ) : null
         }
+        prompt={
+          !promptShown || popover === undefined ? null : popoverView ===
+              "row" &&
+            (popover.kind === "approvals" || popover.kind === "secret") ? (
+            <CompanionPromptRow
+              popover={popover}
+              onAnswer={(answer) => {
+                answerCompanionPopover(answer, popover.id);
+              }}
+              onView={(view) => {
+                setCompanionPopoverView(popover.id, view);
+              }}
+            />
+          ) : (
+            <CompanionPopover
+              // Remounted per popover, so nothing drawn for one carries to
+              // the next.
+              key={popover.id}
+              attached
+              popover={popover}
+              view={popoverView ?? "expanded"}
+              style={{ maxHeight: COMPANION_ATTACHED_POPOVER_MAX_HEIGHT }}
+              onAnswer={(answer) => {
+                answerCompanionPopover(answer, popover.id);
+              }}
+              onView={(view) => {
+                setCompanionPopoverView(popover.id, view);
+              }}
+              onOpenLink={(url) => {
+                openCompanionLink(url);
+              }}
+            />
+          )
+        }
+        promptRef={promptRef}
+        promptsDeferred={deferredCount}
+        onReviewPrompts={() => {
+          if (popover !== undefined) {
+            setCompanionPopoverView(popover.id, "expanded");
+          }
+        }}
         // Out through main and back down into whichever renderer holds the
         // session. This page has no session to act on: it draws one.
         onControl={(action, requestId) => {

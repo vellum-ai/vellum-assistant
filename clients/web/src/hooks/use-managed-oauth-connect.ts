@@ -93,8 +93,12 @@ export interface UseManagedOAuthConnectOptions {
 }
 
 export interface UseManagedOAuthConnectResult {
-  /** Pass scopes to request a subset for this attempt; omit for the default. */
-  connect: (overrideScopes?: string[]) => void;
+  /**
+   * Pass scopes to request a subset for this attempt; omit for the default.
+   * `tenantHost` is required by per-tenant providers (see
+   * `startManagedOAuth`) and ignored by the rest.
+   */
+  connect: (overrideScopes?: string[], tenantHost?: string) => void;
   /** The user's own cancellation. Nothing else ends an attempt. */
   dismiss: () => void;
   status: ManagedOAuthConnectStatus;
@@ -282,7 +286,7 @@ export function useManagedOAuthConnect({
   }, [attempt, invalidateConnections]);
 
   const connect = useCallback(
-    (overrideScopes?: string[]) => {
+    (overrideScopes?: string[], tenantHost?: string) => {
       // The store outlives the calling component, so a remounted card reads the
       // open attempt back and cannot start a second one.
       if (
@@ -346,6 +350,7 @@ export function useManagedOAuthConnect({
             requestId,
             native,
             overrideScopes ?? requestedScopes,
+            tenantHost,
           );
 
           if (!stillOurs()) {

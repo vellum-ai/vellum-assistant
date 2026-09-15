@@ -103,7 +103,6 @@ different, follow the CLI.
 > - `file_comments:write` - post and delete comments and comment reactions
 > - `file_dev_resources:read` - dev resources in files
 > - `file_dev_resources:write` - write dev resources to files
-> - `folders:read` - list folders and the files inside them
 > - `folder_metadata:read` - metadata of folders
 > - `library_content:read` - published components and styles of files
 > - `library_assets:read` - data of individual published components and styles
@@ -113,7 +112,7 @@ different, follow the CLI.
 
 Wait for the user to confirm scopes are set.
 
-**Narrower grants.** If the user does not want to enable all thirteen, have them
+**Narrower grants.** If the user does not want to enable all twelve, have them
 enable only the ones they are comfortable with and pass that exact set on
 connect, which replaces the defaults entirely:
 

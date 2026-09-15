@@ -2513,6 +2513,25 @@ describe("transcript hygiene (teardown pass)", () => {
     expect(events).toContain("loadFromDb");
   });
 
+  test("a row ending with a session control marker persists with it stripped", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () =>
+      makeRow("Muting you for thirty seconds. [MUTE:30]");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([
+          { type: "text", text: "Muting you for thirty seconds." },
+        ]),
+      },
+    ]);
+    expect(events).toContain("loadFromDb");
+  });
+
   test("a mid-text [-1] (content, not command) leaves the row untouched", async () => {
     const { events } = makeReservedRowConversation();
     getMessageByIdImpl = () =>

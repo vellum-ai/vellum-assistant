@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   readTakeoverAvatarStash,
@@ -13,6 +13,13 @@ import {
   getNotificationIdentitySnapshot,
   publishPreparedNotificationIdentity,
 } from "@/runtime/notification-avatar";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import type { EventStream } from "@/lib/streaming/stream-transport";
 
 import { clearUserScopedStorage } from "./session-cleanup";
 
@@ -60,6 +67,95 @@ describe("clearUserScopedStorage", () => {
     clearUserScopedStorage();
 
     expect(sessionStorage.length).toBe(0);
+  });
+
+  test("clears in-memory chat state before the same route identity is reused", () => {
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    useChatSessionStore.setState({
+      previousAssistantId: "assistant-1",
+      previousConversationId: "conv-1",
+      snapshot: {
+        messages: [
+          {
+            id: "message-1",
+            role: "assistant",
+            textSegments: ["Private transcript"],
+            contentOrder: [{ type: "text", id: "0" }],
+            contentBlocks: [{ type: "text", text: "Private transcript" }],
+          },
+        ],
+        hasMore: false,
+        oldestTimestamp: null,
+        oldestMessageId: null,
+        seq: 1,
+      },
+      optimisticSends: [
+        {
+          id: "message-2",
+          role: "user",
+          textSegments: ["Private pending message"],
+          contentOrder: [{ type: "text", id: "0" }],
+          contentBlocks: [{ type: "text", text: "Private pending message" }],
+        },
+      ],
+    });
+    useConversationStore.getState().setPendingDraftProfile("conv-1", "profile-1");
+    useConversationStore
+      .getState()
+      .setPendingDraftPlugins("conv-1", new Set(["plugin-1"]));
+    useComposerStore.getState().loadAssistantDrafts("assistant-1");
+    useComposerStore.getState().setInput("Private draft");
+    useComposerStore
+      .getState()
+      .saveDraft("conv-1", "Private persisted draft");
+    useComposerStore.getState().addPathReferences(["/private/path"]);
+    useTurnStore.getState().requestSend("turn-1");
+    useInteractionStore
+      .getState()
+      .showAcpConnect({ toolUseId: "tool-1", conversationId: "conv-1" });
+    const cancelStream = mock(() => {});
+    const streamEpoch = useStreamStore.getState().streamEpoch;
+    useStreamStore.setState({
+      stream: { cancel: cancelStream } as EventStream,
+      streamContext: {
+        assistantId: "assistant-1",
+        conversationId: "conv-1",
+      },
+    });
+
+    clearUserScopedStorage();
+
+    expect(useChatSessionStore.getState().previousAssistantId).toBeNull();
+    expect(useChatSessionStore.getState().previousConversationId).toBeNull();
+    expect(cancelStream).toHaveBeenCalledTimes(1);
+    expect(useStreamStore.getState().stream).toBeNull();
+    expect(useStreamStore.getState().streamContext).toBeNull();
+    expect(useStreamStore.getState().streamEpoch).toBe(streamEpoch + 1);
+    useChatSessionStore.getState().switchToConversation({
+      assistantId: "assistant-1",
+      activeConversationId: "conv-1",
+    });
+
+    expect(useConversationStore.getState().activeConversationId).toBeNull();
+    expect(useChatSessionStore.getState().snapshot).toBeNull();
+    expect(useChatSessionStore.getState().optimisticSends).toEqual([]);
+    expect(useChatSessionStore.getState().previousAssistantId).toBe(
+      "assistant-1",
+    );
+    expect(useChatSessionStore.getState().previousConversationId).toBe(
+      "conv-1",
+    );
+    expect(useComposerStore.getState().input).toBe("");
+    expect(useComposerStore.getState().restoredDraftConversationId).toBeNull();
+    expect(useComposerStore.getState().attachments).toEqual([]);
+    useComposerStore.getState().loadAssistantDrafts("assistant-1");
+    useComposerStore.getState().restoreDraftIfEmpty("conv-1");
+    expect(useComposerStore.getState().input).toBe("");
+    expect(localStorage.getItem("vellum:chatDrafts:assistant-1")).toBeNull();
+    expect(useTurnStore.getState().phase).toBe("idle");
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+    expect(useConversationStore.getState().pendingDraftProfiles.size).toBe(0);
+    expect(useConversationStore.getState().pendingDraftPlugins.size).toBe(0);
   });
 
   test("clears a takeover avatar stash whose write never reached storage", () => {

@@ -97,6 +97,7 @@ const storyFetchProvider = async () => ({
   supports_managed_mode: true,
   managed_service_is_paid: false,
   feature_flag: null,
+  tenant_host: null,
   acts_as: "user" as const,
 });
 

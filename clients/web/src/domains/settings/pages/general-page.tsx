@@ -67,7 +67,6 @@ export function GeneralPage() {
   } = useAssistantWithHealthz();
   const multiPlatformAssistant =
     useClientFeatureFlagStore.use.multiPlatformAssistant();
-  const teleportEnabled = useClientFeatureFlagStore.use.teleport();
   const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const settingsSleepPolicy =
     useAssistantFeatureFlagStore.use.settingsSleepPolicy();
@@ -331,8 +330,6 @@ export function GeneralPage() {
         onClose={() => setPreferencesOpen(false)}
       />
 
-      {teleportEnabled && isElectron() && <TeleportCard />}
-
       <NativeAppCard />
 
       <PairDeviceCard />
@@ -371,6 +368,8 @@ export function GeneralPage() {
           }
         />
       )}
+
+      {isElectron() && <TeleportCard />}
 
       {(showRetire || showDeleteAccount) && (
         <DetailCard variant="danger" title={t("generalPage.dangerZoneTitle")}>

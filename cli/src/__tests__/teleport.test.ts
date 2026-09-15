@@ -39,6 +39,8 @@ import * as assistantConfig from "../lib/assistant-config.js";
 import * as guardianToken from "../lib/guardian-token.js";
 import * as platformClient from "../lib/platform-client.js";
 import * as localRuntimeClient from "../lib/local-runtime-client.js";
+import * as backupOps from "../lib/backup-ops.js";
+import * as teleportBackup from "../lib/teleport-backup.js";
 
 // Snapshot the real exports before any `mock.module()` call so we can
 // reliably restore them after this file's tests complete, regardless of
@@ -47,6 +49,8 @@ const realAssistantConfig = { ...assistantConfig };
 const realGuardianToken = { ...guardianToken };
 const realPlatformClient = { ...platformClient };
 const realLocalRuntimeClient = { ...localRuntimeClient };
+const realBackupOps = { ...backupOps };
+const realTeleportBackup = { ...teleportBackup };
 
 const findAssistantByNameMock = mock<
   typeof assistantConfig.findAssistantByName
@@ -282,6 +286,36 @@ mock.module("../lib/local-runtime-client.js", () => ({
   localRuntimePreflightFromGcs: localRuntimePreflightFromGcsMock,
 }));
 
+// Pre-export source backup. Default to "no backups yet" so the create path
+// runs; individual tests override to exercise reuse and failure.
+const listAssistantBackupTimesMock = mock<
+  typeof backupOps.listAssistantBackupTimes
+>(() => []);
+const createBackupMock = mock<typeof backupOps.createBackup>(
+  async () => "/tmp/backups/my-local-pre-teleport-2026.vbundle",
+);
+const pruneOldBackupsMock = mock<typeof backupOps.pruneOldBackups>(() => {});
+
+mock.module("../lib/backup-ops.js", () => ({
+  ...realBackupOps,
+  listAssistantBackupTimes: listAssistantBackupTimesMock,
+  createBackup: createBackupMock,
+  pruneOldBackups: pruneOldBackupsMock,
+}));
+
+const listPlatformBackupsMock = mock<typeof teleportBackup.listPlatformBackups>(
+  async () => [],
+);
+const createPlatformBackupMock = mock<
+  typeof teleportBackup.createPlatformBackup
+>(async () => {});
+
+mock.module("../lib/teleport-backup.js", () => ({
+  ...realTeleportBackup,
+  listPlatformBackups: listPlatformBackupsMock,
+  createPlatformBackup: createPlatformBackupMock,
+}));
+
 // Snapshot the remaining real modules before mocking so `afterAll` can
 // restore them too — otherwise these mocks leak into sibling test files that
 // import the same modules in the same `bun test` run.
@@ -362,6 +396,8 @@ afterAll(() => {
   mock.module("../lib/guardian-token.js", () => realGuardianToken);
   mock.module("../lib/platform-client.js", () => realPlatformClient);
   mock.module("../lib/local-runtime-client.js", () => realLocalRuntimeClient);
+  mock.module("../lib/backup-ops.js", () => realBackupOps);
+  mock.module("../lib/teleport-backup.js", () => realTeleportBackup);
   mock.module("../lib/hatch-local.js", () => realHatchLocal);
   mock.module("../lib/docker.js", () => realDocker);
   mock.module("../lib/process.js", () => realProcess);
@@ -531,6 +567,19 @@ beforeEach(() => {
   localRuntimeIdentityMock.mockResolvedValue({ version: "0.6.5" });
   localRuntimePollJobStatusMock.mockReset();
   localRuntimePollJobStatusMock.mockImplementation(defaultLocalRuntimePollImpl);
+
+  listAssistantBackupTimesMock.mockReset();
+  listAssistantBackupTimesMock.mockReturnValue([]);
+  createBackupMock.mockReset();
+  createBackupMock.mockResolvedValue(
+    "/tmp/backups/my-local-pre-teleport-2026.vbundle",
+  );
+  pruneOldBackupsMock.mockReset();
+  pruneOldBackupsMock.mockImplementation(() => {});
+  listPlatformBackupsMock.mockReset();
+  listPlatformBackupsMock.mockResolvedValue([]);
+  createPlatformBackupMock.mockReset();
+  createPlatformBackupMock.mockResolvedValue(undefined);
 
   hatchLocalMock.mockReset();
   hatchLocalMock.mockResolvedValue(undefined);
@@ -2018,6 +2067,254 @@ describe("dry-run", () => {
 // ---------------------------------------------------------------------------
 // Pre-check: block teleport to platform when existing assistant detected
 // ---------------------------------------------------------------------------
+
+describe("pre-export source backup", () => {
+  test("local source with no recent backup: exports a host-side backup before exporting", async () => {
+    setArgv("--from", "my-local", "--platform");
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    const order: string[] = [];
+    createBackupMock.mockImplementation(async () => {
+      order.push("backup");
+      return "/tmp/backups/my-local-pre-teleport-2026.vbundle";
+    });
+    localRuntimeExportToGcsMock.mockImplementation(async () => {
+      order.push("export");
+      return { jobId: "local-export-job-1" };
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+    } finally {
+      restoreFetch();
+    }
+
+    expect(listAssistantBackupTimesMock).toHaveBeenCalledWith("my-local");
+    expect(createBackupMock).toHaveBeenCalledWith(
+      "http://localhost:7821",
+      "my-local",
+      expect.objectContaining({ prefix: "my-local-pre-teleport" }),
+    );
+    expect(pruneOldBackupsMock).toHaveBeenCalledWith(
+      "my-local",
+      3,
+      "pre-teleport",
+    );
+    expect(createPlatformBackupMock).not.toHaveBeenCalled();
+    expect(order).toEqual(["backup", "export"]);
+  });
+
+  test("local source with a recent backup: reuses it and skips the export", async () => {
+    setArgv("--from", "my-local", "--platform");
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+    listAssistantBackupTimesMock.mockReturnValue([
+      new Date(Date.now() - 5 * 60_000).toISOString(),
+    ]);
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+    } finally {
+      restoreFetch();
+    }
+
+    expect(createBackupMock).not.toHaveBeenCalled();
+    expect(localRuntimeExportToGcsMock).toHaveBeenCalled();
+  });
+
+  test("local source with only stale backups: takes a fresh one", async () => {
+    setArgv("--from", "my-local", "--platform");
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+    listAssistantBackupTimesMock.mockReturnValue([
+      new Date(Date.now() - 3 * 60 * 60_000).toISOString(),
+    ]);
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+    } finally {
+      restoreFetch();
+    }
+
+    expect(createBackupMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("docker source: backs up host-side through its runtime URL", async () => {
+    setArgv("--from", "my-docker", "--local");
+    const dockerEntry = makeEntry("my-docker", {
+      cloud: "docker",
+      runtimeUrl: "http://localhost:9821",
+    });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-docker" ? dockerEntry : null,
+    );
+    const freshLocal = makeEntry("fresh-local", { cloud: "local" });
+    loadAllAssistantsMock.mockImplementation(() =>
+      hatchLocalMock.mock.calls.length > 0
+        ? [dockerEntry, freshLocal]
+        : [dockerEntry],
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+    } finally {
+      restoreFetch();
+    }
+
+    expect(createBackupMock).toHaveBeenCalledWith(
+      "http://localhost:9821",
+      "my-docker",
+      expect.objectContaining({ prefix: "my-docker-pre-teleport" }),
+    );
+  });
+
+  test("platform source: takes a PVC snapshot through the source platform before exporting", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    const order: string[] = [];
+    createPlatformBackupMock.mockImplementation(async () => {
+      order.push("backup");
+    });
+    localRuntimeExportToGcsMock.mockImplementation(async () => {
+      order.push("export");
+      return { jobId: "local-export-job-1" };
+    });
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+    } finally {
+      restoreFetch();
+    }
+
+    expect(listPlatformBackupsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assistantId: "my-platform",
+        runtimeUrl: "https://platform.vellum.ai",
+      }),
+      "platform-token",
+    );
+    expect(createPlatformBackupMock).toHaveBeenCalledWith(
+      expect.objectContaining({ assistantId: "my-platform" }),
+      "platform-token",
+    );
+    expect(createBackupMock).not.toHaveBeenCalled();
+    expect(order).toEqual(["backup", "export"]);
+  });
+
+  test("platform source with a recent ready snapshot: reuses it", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+    listPlatformBackupsMock.mockResolvedValue([
+      new Date(Date.now() - 20 * 60_000).toISOString(),
+    ]);
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+    } finally {
+      restoreFetch();
+    }
+
+    expect(createPlatformBackupMock).not.toHaveBeenCalled();
+    expect(localRuntimeExportToGcsMock).toHaveBeenCalled();
+  });
+
+  test("host-side backup failure aborts before export and before hatching", async () => {
+    setArgv("--from", "my-local", "--platform");
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+    createBackupMock.mockResolvedValue(null);
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+    } finally {
+      restoreFetch();
+    }
+
+    expect(localRuntimeExportToGcsMock).not.toHaveBeenCalled();
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+    expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Could not back up 'my-local'"),
+    );
+  });
+
+  test("platform snapshot failure (never ready) aborts too", async () => {
+    setArgv("--from", "my-platform", "--local", "my-local");
+    const platformEntry = makeEntry("my-platform", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-platform") return platformEntry;
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+    createPlatformBackupMock.mockRejectedValue(
+      new Error("Platform backup snap-1 was not ready after 600s"),
+    );
+
+    const restoreFetch = installTrackingFetch();
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+    } finally {
+      restoreFetch();
+    }
+
+    expect(localRuntimeExportToGcsMock).not.toHaveBeenCalled();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("was not ready"),
+    );
+  });
+
+  test("dry-run never backs up the source", async () => {
+    setArgv("--from", "my-local", "--platform", "--dry-run");
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+
+    await teleport();
+
+    expect(listAssistantBackupTimesMock).not.toHaveBeenCalled();
+    expect(createBackupMock).not.toHaveBeenCalled();
+  });
+});
 
 describe("pre-check: existing platform assistant", () => {
   test("blocks before any work when pre-check finds existing assistant", async () => {

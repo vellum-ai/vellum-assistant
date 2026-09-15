@@ -95,9 +95,13 @@ enum HostCuActionRunner {
 
     /// Record a cancel for `requestId`. Entries older than a minute are
     /// dropped, which also bounds cancels that arrive after a request ended.
+    /// Any cancel means the run has stopped, whether the user pressed Stop or
+    /// the task finished (the daemon sends one with an unused ID then), so the
+    /// pointer goes back to the user now.
     static func cancel(requestId: String, now: Date = Date()) {
         cancelledRequests = cancelledRequests.filter { now.timeIntervalSince($0.value) < 60 }
         cancelledRequests[requestId] = now
+        ActionExecutor.returnPointerHome()
     }
 
     private static func isCancelled(_ requestId: String) -> Bool {
@@ -238,7 +242,7 @@ enum HostCuActionRunner {
 
             // Resolve element IDs to coordinates if needed
             let resolveStart = DispatchTime.now()
-            let resolvedAction = await resolveCoordinatesIfNeeded(
+            let resolution = await resolveCoordinatesIfNeeded(
                 for: agentAction,
                 enumerator: enumerator,
                 stepNumber: stepNumber,
@@ -247,12 +251,16 @@ enum HostCuActionRunner {
             if agentAction.resolvedFromElementId != nil || agentAction.resolvedToElementId != nil {
                 timer.record(.resolve, since: resolveStart)
             }
-            guard let resolvedAction else {
+            let resolvedAction: AgentAction
+            switch resolution {
+            case .success(let action):
+                resolvedAction = action
+            case .failure(let problem):
                 let obs = await buildObservation(
                     enumerator: enumerator,
                     screenCapture: screenCapture,
                     executionResult: nil,
-                    executionError: "Could not resolve element coordinates for action",
+                    executionError: problem.message,
                     stepNumber: stepNumber,
                     conversationId: conversationId,
                     timer: timer,
@@ -264,6 +272,7 @@ enum HostCuActionRunner {
             // Handle done/respond completion signals — skip execution
             if resolvedAction.type == .done {
                 clearSession(conversationId)
+                ActionExecutor.returnPointerHome()
                 let obs = await buildObservation(
                     enumerator: enumerator,
                     screenCapture: screenCapture,
@@ -431,15 +440,19 @@ enum HostCuActionRunner {
                 break actionLoop
             }
             let resolveStart = DispatchTime.now()
-            let resolved = await resolveCoordinatesIfNeeded(
+            let resolution = await resolveCoordinatesIfNeeded(
                 for: action,
                 enumerator: enumerator,
                 stepNumber: stepNumber,
                 conversationId: conversationId
             )
             resolveMs += PhaseTimer.millis(since: resolveStart)
-            guard let resolved else {
-                stoppedAt = "Stopped at \(label): could not resolve element coordinates."
+            let resolved: AgentAction
+            switch resolution {
+            case .success(let action):
+                resolved = action
+            case .failure(let problem):
+                stoppedAt = "Stopped at \(label): \(problem.message)"
                 break actionLoop
             }
             if ActionExecutor.takesOverFromUser(resolved), ActionExecutor.userIsCurrentlyActive() {
@@ -579,7 +592,7 @@ enum HostCuActionRunner {
         enumerator: AccessibilityTreeEnumerator,
         stepNumber: Int,
         conversationId: String
-    ) async -> AgentAction? {
+    ) async -> Result<AgentAction, CoordinateProblem> {
         var resolved = action
 
         switch resolved.type {
@@ -587,11 +600,11 @@ enum HostCuActionRunner {
             if resolved.x == nil || resolved.y == nil {
                 guard let sourceId = resolved.resolvedFromElementId else {
                     log.error("[\(stepNumber)] Action requires either x/y coordinates or element_id")
-                    return nil
+                    return .failure(.missingTarget(resolved.type))
                 }
                 guard let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
-                    return nil
+                    return .failure(.unknownElement(sourceId))
                 }
                 resolved.x = center.x
                 resolved.y = center.y
@@ -601,7 +614,7 @@ enum HostCuActionRunner {
             if (resolved.x == nil || resolved.y == nil), let sourceId = resolved.resolvedFromElementId {
                 guard let center = await elementCenter(for: sourceId, conversationId: conversationId, enumerator: enumerator) else {
                     log.error("[\(stepNumber)] Could not resolve element_id [\(sourceId)]")
-                    return nil
+                    return .failure(.unknownElement(sourceId))
                 }
                 resolved.x = center.x
                 resolved.y = center.y
@@ -625,7 +638,23 @@ enum HostCuActionRunner {
             break
         }
 
-        return resolved
+        return .success(resolved)
+    }
+
+    /// Why an action could not be given screen coordinates. The message reaches
+    /// the model as `executionError`, so it names what to send instead.
+    enum CoordinateProblem: Error {
+        case missingTarget(ActionType)
+        case unknownElement(Int)
+
+        var message: String {
+            switch self {
+            case .missingTarget(let type):
+                return "\(type.rawValue) needs element_id, or x and y. Nothing was done."
+            case .unknownElement(let id):
+                return "Element [\(id)] is not in the latest observation. Nothing was done. Observe again and use an ID from that tree, or pass x and y."
+            }
+        }
     }
 
     /// Find the center point of an AX element by ID. The IDs the model names

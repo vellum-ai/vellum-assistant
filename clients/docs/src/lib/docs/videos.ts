@@ -38,6 +38,15 @@ export const DOCS_VIDEOS = {
     uploadDate: "2026-08-25T11:06:40-07:00",
     poster: "/docs/video-local-hosting-setup.webp",
   },
+  "agentic-payments-link-wallet": {
+    youtubeId: "Bg3Wx7J7b-s",
+    title: "Connect your Stripe Link wallet to your AI assistant",
+    description:
+      "A walkthrough of connecting a Stripe Link wallet to Vellum Assistant through Settings or by asking the assistant directly.",
+    durationSeconds: 67,
+    uploadDate: "2026-09-10T18:11:11+00:00",
+    poster: "/docs/video-agentic-payments-link-wallet.webp",
+  },
   "mobile-pairing": {
     youtubeId: "LL8N3j91Yg4",
     title: "How to use your locally hosted AI assistant on mobile",
