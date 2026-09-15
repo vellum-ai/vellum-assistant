@@ -24,7 +24,15 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
 }));
 
 mock.module("@/stores/resolved-assistants-store", () => ({
-  useResolvedAssistantsStore: { use: { activeAssistantId: () => assistantId } },
+  useResolvedAssistantsStore: {
+    use: {
+      activeAssistantId: () => assistantId,
+      assistants: () => [
+        { id: "asst-1", name: "Alice" },
+        { id: "asst-2", name: "Bob" },
+      ],
+    },
+  },
 }));
 
 let panelUnmounts = 0;
@@ -57,7 +65,7 @@ function DesktopHarness() {
 
 const openDesktop = async () => {
   render(<DesktopHarness />);
-  fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open Alice's Computer" }));
   await waitFor(() =>
     expect(screen.getByTestId("desktop-panel")).not.toBeNull(),
   );
@@ -91,7 +99,7 @@ describe("AssistantDesktopAffordance", () => {
       );
     }
     render(<MenuHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Alice's Computer" }));
     await waitFor(() => expect(screen.getByTestId("desktop-panel")).toBeTruthy());
     expect(screen.queryByRole("navigation") === null).toBe(true);
     expect(screen.getByRole("dialog")).toBeTruthy();
@@ -111,20 +119,24 @@ describe("AssistantDesktopAffordance", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
     );
-    expect(screen.getByRole("button", { name: "Open desktop" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Open Alice's Computer" }),
+    ).not.toBeNull();
   });
   for (const flag of [false, undefined]) {
     test(`hides the desktop control and panel when the flag is ${flag}`, () => {
       desktopEnabled = flag;
       render(<DesktopHarness />);
-      expect(screen.queryByRole("button", { name: "Open desktop" })).toBeNull();
+      expect(
+      screen.queryByRole("button", { name: "Open Alice's Computer" }),
+    ).toBeNull();
       expect(screen.queryByTestId("desktop-panel") === null).toBe(true);
     });
   }
 
   test("unmounts an open desktop when the flag is disabled", async () => {
     const { rerender } = render(<DesktopHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Alice's Computer" }));
     await waitFor(() =>
       expect(screen.getByTestId("desktop-panel")).not.toBeNull(),
     );
@@ -182,7 +194,9 @@ describe("AssistantDesktopAffordance", () => {
       expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
     );
     expect(panelUnmounts).toBe(1);
-    expect(screen.getByRole("button", { name: "Open desktop" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Open Alice's Computer" }),
+    ).not.toBeNull();
   });
 
   test("the preview X closes it without opening fullscreen", async () => {
@@ -194,7 +208,9 @@ describe("AssistantDesktopAffordance", () => {
       expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.getByRole("button", { name: "Open desktop" })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Open Alice's Computer" }),
+    ).not.toBeNull();
   });
 
   function mockPreviewGeometry() {
@@ -260,7 +276,7 @@ describe("AssistantDesktopAffordance", () => {
 
   test("switching assistants closes the previous session", async () => {
     const { rerender } = render(<DesktopHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Alice's Computer" }));
     await waitFor(() =>
       expect(screen.getByTestId("desktop-panel")).not.toBeNull(),
     );

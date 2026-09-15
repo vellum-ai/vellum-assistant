@@ -16,6 +16,9 @@ export function AssistantDesktopAffordance({
   const { t } = useTranslation("chat");
   const enabled = useAssistantFeatureFlagStore.use.assistantDesktop();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const assistantName = useResolvedAssistantsStore.use
+    .assistants()
+    .find((assistant) => assistant.id === assistantId)?.name;
   const session = useDesktopPreviewStore.use.session();
   const fullscreenOnly = usePointerCoarse();
 
@@ -26,7 +29,9 @@ export function AssistantDesktopAffordance({
   const open = session?.assistantId === assistantId;
   const label = open
     ? t("assistantDesktop.hideAria")
-    : t("assistantDesktop.openAria");
+    : assistantName
+      ? t("assistantDesktop.openAria", { name: assistantName })
+      : t("assistantDesktop.openUnnamedAria");
 
   return (
     <Button
