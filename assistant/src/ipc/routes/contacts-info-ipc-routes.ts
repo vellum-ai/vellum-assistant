@@ -207,6 +207,32 @@ export function handleContactMirrorProbe({ body = {} }: RouteHandlerArgs) {
 }
 
 // ---------------------------------------------------------------------------
+// contacts_list_ids_by_type
+// ---------------------------------------------------------------------------
+
+const ContactsListIdsByTypeParamsSchema = z.object({
+  contactType: z.string(),
+});
+
+/**
+ * List all contact IDs in the assistant DB whose `contact_type` matches the
+ * given value. Called by the gateway before its SQL query so the type filter
+ * can be applied as an `IN (ids)` condition — making it part of the gateway
+ * SQL rather than an in-memory post-filter, and eliminating the 200-row cap
+ * workaround the post-filter approach required.
+ */
+export function handleContactsListIdsByType({ body = {} }: RouteHandlerArgs) {
+  const { contactType } = ContactsListIdsByTypeParamsSchema.parse(body);
+  const db = getDb();
+  const rows = db
+    .select({ id: contacts.id })
+    .from(contacts)
+    .where(sql`${contacts.contactType} = ${contactType}`)
+    .all();
+  return { contactIds: rows.map((r) => r.id) };
+}
+
+// ---------------------------------------------------------------------------
 // contact_user_file_slugs
 // ---------------------------------------------------------------------------
 
@@ -239,6 +265,7 @@ export const CONTACTS_INFO_IPC_METHODS: Record<
   (args: RouteHandlerArgs) => unknown
 > = {
   contacts_info_batch: handleContactsInfoBatch,
+  contacts_list_ids_by_type: handleContactsListIdsByType,
   contact_channel_identity_lookup: handleContactChannelIdentityLookup,
   contact_mirror_probe: handleContactMirrorProbe,
   contact_user_file_slugs: handleContactUserFileSlugs,
