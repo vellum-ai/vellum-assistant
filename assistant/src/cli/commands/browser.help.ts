@@ -97,6 +97,11 @@ export const browserHelp: CliCommandHelp = {
   description: "Control the browser via the running assistant.",
   options: [
     {
+      flags: "--desktop",
+      description:
+        "Use Chrome in the streamed assistant desktop with visible cursor feedback.",
+    },
+    {
       flags: "--session <id>",
       description: "Session ID to preserve browser state across invocations.",
       defaultValue: "default",
@@ -118,6 +123,35 @@ export const browserHelp: CliCommandHelp = {
   ],
   helpText: `
 Browser operations are executed through the running assistant.
+In the web client, automatic selection prefers the streamed desktop Chrome
+when its feature is enabled, installation is ready and the conversation has
+an identified guardian. The macOS and Windows apps keep their existing browser
+selection and fallback behavior; streamed Chrome requires an explicit --desktop
+choice there. Existing sessions and explicit backend/client choices take priority.
+--browser-mode local (alias playwright) means the assistant's Playwright browser,
+not the user's Chrome. Use --desktop to choose streamed Chrome from any client.
+Use --desktop for the Chrome window in the Desktop modal. This requires
+an identified guardian conversation and respects Take control in that modal.
+Start with assistant browser --desktop status. The desktop feature flag and
+completed automatic installation are required. If setup is required or running,
+ask the user to open the Desktop modal and wait for installation to finish.
+Report other availability errors without switching to a personal computer.
+The assistant manages Chrome startup. Do not launch a separate desktop stack,
+install desktop packages, or drive webpages with shell-level xdotool.
+With --desktop, screenshot captures the page directly from Chrome over CDP
+as a color JPEG. Use --output to save it and file_read to view it. Do not use
+shell-level xwd or custom screenshot conversion scripts.
+Use snapshot for current element IDs and tabs list for current tab IDs.
+Refresh the snapshot after navigation, tab changes or stale-element errors.
+Inspect the result before retrying a failed action; it may have happened.
+A purple page pointer shows CDP mouse movement in the stream. Browser toolbar
+controls, native dialogs and other apps are outside this CLI's page controls.
+Do not combine --desktop with personal browser targets, other browser modes
+or --use-active-tab. Download waiting is unavailable on this target.
+If the user selects Take control, stop. After they select Allow assistant
+and ask you to continue, take a fresh snapshot. Closing the viewer does not
+release control. Run assistant browser --desktop detach when finished or
+blocked, including before asking a question. Chrome stays running.
 Each subcommand maps to a browser operation and communicates
 with the assistant process.
 
@@ -131,6 +165,8 @@ local. Useful for debugging or when deterministic backend selection
 is required.
 
 Examples:
+  $ assistant browser --desktop status
+  $ assistant browser --desktop screenshot --output /tmp/desktop-page.jpg
   $ assistant browser navigate --url https://example.com
   $ assistant browser snapshot
   $ assistant browser click --selector "#login"

@@ -35,6 +35,25 @@ describe("RuntimeHttpServer /v1/desktop/stream upgrade", () => {
     setOverridesForTesting({});
   });
 
+  test("desktop control rejects unauthenticated and actor requests and hides the disabled feature", async () => {
+    for (const method of ["GET", "POST"]) {
+      const request = (token?: string) =>
+        fetch(`http://${baseUrl}/v1/desktop/control`, {
+          method,
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          ...(method === "POST"
+            ? { body: JSON.stringify({ action: "take" }) }
+            : {}),
+        });
+      expect((await request()).status).toBe(401);
+      expect((await request(mintActorToken())).status).toBe(403);
+      expect((await request(mintGatewayToken())).status).toBe(404);
+    }
+  });
+
   test("refuses a non-private origin with 403", async () => {
     const res = await fetch(
       `http://${baseUrl}/v1/desktop/stream?token=${mintGatewayToken()}`,

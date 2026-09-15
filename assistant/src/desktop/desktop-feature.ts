@@ -4,10 +4,7 @@ import type { AssistantConfig } from "../config/schema.js";
 
 const ASSISTANT_DESKTOP_FLAG = "assistant-desktop" as const;
 
-/**
- * Whether this daemon serves `/v1/desktop/stream`: the `assistant-desktop` flag
- * plus a containerized runtime where desktop components can be installed.
- */
+/** Gates desktop streaming and control to enabled, containerized assistants. */
 export function isAssistantDesktopEnabled(
   config: AssistantConfig,
   containerized: boolean = getIsContainerized(),

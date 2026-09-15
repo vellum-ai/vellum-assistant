@@ -7,7 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 
 import { waitFor } from "../__tests__/helpers/wait-for.js";
 import { sleep } from "../util/retry.js";
@@ -19,6 +19,7 @@ import {
   newViewer,
   settle,
 } from "./__tests__/fake-desktop.js";
+import * as browserEndpoint from "./desktop-browser-endpoint.js";
 import {
   DESKTOP_VNC_PORT,
   type DesktopChildRole,
@@ -736,3 +737,77 @@ describe("DesktopSessionManager viewer slot", () => {
     expect(h.count("x-server")).toBe(1);
   });
 });
+
+describe("desktop automation lifecycle", () => {
+  test("an automation session outlives viewer disconnect and idles after both release", async () => {
+    const f = newManager({ exitOnTerm: true });
+    const viewer = newViewer();
+    const automation = newViewer();
+    expect(f.manager.acquireViewerSlot(viewer.viewer)).toEqual({ ok: true });
+    expect(f.manager.acquireAutomationSlot(automation.viewer)).toEqual({
+      ok: true,
+    });
+    await f.manager.ensureDesktopRunning();
+    f.manager.releaseViewerSlot(viewer.viewer);
+    await sleep(LINGER_MS + 20);
+    expect(f.terminated()).toHaveLength(0);
+    f.manager.releaseAutomationSlot(automation.viewer);
+    await waitFor(() => f.terminated().length > 0);
+    await f.manager.destroy();
+  });
+
+  test("shutdown notifies both the viewer and automation owner", async () => {
+    const f = newManager({ exitOnTerm: true });
+    const viewer = newViewer();
+    const automation = newViewer();
+    f.manager.acquireViewerSlot(viewer.viewer);
+    f.manager.acquireAutomationSlot(automation.viewer);
+    await f.manager.ensureDesktopRunning();
+    await f.manager.destroy();
+    expect(viewer.lost[0]?.code).toBe(1001);
+    expect(automation.lost[0]?.code).toBe(1001);
+    expect(f.manager.acquireAutomationSlot(newViewer().viewer)).toEqual(
+      SHUTTING_DOWN,
+    );
+  });
+});
+
+test.each([undefined, 4321])(
+  "browser control uses the reopened dock PID %s or launches Chrome when absent",
+  async (dockPid) => {
+    const h = newManager({ exitOnTerm: true });
+    const owner = newViewer().viewer;
+    h.manager.acquireViewerSlot(owner);
+    await h.manager.ensureDesktopRunning();
+    await settle();
+    h.child("browser").exit(0);
+    await settle();
+    h.manager.acquireAutomationSlot(owner);
+    const abort = new AbortController();
+    const find = spyOn(
+      browserEndpoint,
+      "findDesktopBrowserPid",
+    ).mockResolvedValue(dockPid);
+    const discover = spyOn(
+      browserEndpoint,
+      "discoverDesktopBrowser",
+    ).mockImplementation(async () => {
+      abort.abort();
+      throw new Error("Reached verified discovery");
+    });
+    try {
+      await expect(
+        h.manager.browser.client("conv-123", abort.signal),
+      ).rejects.toThrow("Reached verified discovery");
+      expect(h.count("browser")).toBe(dockPid ? 1 : 2);
+      expect(discover.mock.calls[0]?.[0]).toBe(
+        dockPid ?? h.child("browser").pid,
+      );
+      expect(find).toHaveBeenCalledTimes(1);
+    } finally {
+      find.mockRestore();
+      discover.mockRestore();
+      await h.manager.destroy();
+    }
+  },
+);

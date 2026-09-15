@@ -11,7 +11,10 @@ import {
 
 import { client } from "@/generated/daemon/client.gen";
 
-const open = mock(() => ({ close: mock(() => {}) }));
+const open = mock(() => ({
+  close: mock(() => {}),
+  setViewOnly: mock(() => {}),
+}));
 mock.module("./desktop-session", () => ({ openDesktopSession: open }));
 mock.module("@/hooks/use-is-org-ready", () => ({ useIsOrgReady: () => true }));
 const listeners = new Map<string, (event: unknown) => void>();

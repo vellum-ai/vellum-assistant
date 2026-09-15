@@ -8,9 +8,7 @@
 
 import type { AssistantEvent } from "../api/index.js";
 import {
-  type ClientOs,
   type HostProxyCapability,
-  parseClientOs,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
@@ -74,6 +72,7 @@ import {
   conversationSupportsGuardianQuestionCards,
 } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
+import { resolveTurnClientOs } from "./conversation-client-surface.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
 import {
   restoreSurfaceStateEntry,
@@ -743,30 +742,6 @@ export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
- * Host OS of the client driving this turn. The Electron renderer reports
- * `interface: "web"` and carries the real OS in `clientOs`, so this prefers
- * the frozen per-turn value and only falls back to a desktop transport.
- */
-function resolveTurnClientOs(ctx: Conversation): {
-  clientOs: ClientOs | undefined;
-  transportInterface: Conversation["transportInterface"];
-} {
-  const pin = ctx.toolContextPin;
-  const transportInterface = pin
-    ? pin.transportInterface
-    : ctx.transportInterface;
-  const clientOs = pin
-    ? pin.clientOs
-    : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
-      (transportInterface === "macos" ||
-      transportInterface === "windows" ||
-      transportInterface === "linux"
-        ? transportInterface
-        : undefined));
-  return { clientOs, transportInterface };
-}
-
-/**
  * Windows parity gate: skill tools may declare `supported_client_os`; drop
  * them when the turn's client OS (or pinned OS for wakes) is not listed.
  */
@@ -1149,9 +1124,11 @@ export function createResolveToolsCallback(
     // while background calls persist the full surface content for the next
     // capable client that opens the conversation. Skill tools stay off this
     // list (`skill_execute` dispatch) and are a separate disclosure path.
-    let allBaseDefs = [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
-      (d) => !excluded.has(d.name),
-    );
+    let allBaseDefs = [
+      ...scopedCoreDefs,
+      ...scopedWorkspaceDefs,
+      ...scopedMcpDefs,
+    ].filter((d) => !excluded.has(d.name));
     // Activation-rail conversations carry the optional `activation_moment`
     // telemetry param on ui_show. The marker is written before the first
     // tool resolution (see `applyBootstrapTemplate` in system-prompt.ts), so
