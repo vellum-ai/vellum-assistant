@@ -274,4 +274,42 @@ describe("a malformed escape keeps its raw spelling, as the router does", () => 
     expect(appIdForPath(path)).toBe(MALFORMED);
     expect(isConversationChatPath(path)).toBe(true);
   });
+
+  test("leaves the app id raw when the conversation id is the bad one", () => {
+    // The router decodes the whole path in one pass, so one bad escape leaves
+    // the app's own good escape undecoded too.
+    const path = `/assistant/conversations/${MALFORMED}/app/My%20App`;
+    expect(conversationIdForPath(path)).toBe(MALFORMED);
+    expect(appIdForPath(path)).toBe("My%20App");
+  });
+
+  test("leaves the conversation id raw when the app id is the bad one", () => {
+    const path = `/assistant/conversations/conv%20x/app/${MALFORMED}`;
+    expect(conversationIdForPath(path)).toBe("conv%20x");
+    expect(appIdForPath(path)).toBe(MALFORMED);
+  });
+});
+
+describe("an encoded slash comes back as a slash inside an id", () => {
+  // `matchPath` restores `%2F` in every param, so an id holding a `/` reaches
+  // `useParams` whole rather than splitting the segment it rode in.
+  test("on the decoded path", () => {
+    expect(appIdForPath("/assistant/conversations/c1/app/a%2Fb")).toBe("a/b");
+    expect(conversationIdForPath("/assistant/conversations/a%2Fb")).toBe("a/b");
+  });
+
+  test("and on the raw path a malformed escape leaves undecoded", () => {
+    const path = "/assistant/conversations/conv%1/app/a%2Fb";
+    expect(conversationIdForPath(path)).toBe("conv%1");
+    expect(appIdForPath(path)).toBe("a/b");
+  });
+});
+
+describe("the prefix is read off the decoded path, as the router reads it", () => {
+  test("an escaped spelling of the prefix still names the route", () => {
+    expect(appIdForPath("/assistant/%63onversations/c1/app/app-1")).toBe(
+      "app-1",
+    );
+    expect(conversationIdForPath("/assistant/%63onversations/c1")).toBe("c1");
+  });
 });

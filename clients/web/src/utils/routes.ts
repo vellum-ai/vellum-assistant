@@ -409,40 +409,54 @@ export function isConversationPath(pathname: string): boolean {
 }
 
 /**
- * The id a path segment names. The browser percent-encodes what the producers
- * write unencoded, so a segment is decoded the way `useParams` decodes it and
- * compares equal to the id the store holds. An id carrying a space or a
- * non-ASCII character (a plugin app takes its id from the author's directory
- * name) is only equal after this. A malformed escape keeps its raw spelling,
- * as `useParams` does, so an id holding a literal `%` still names its route.
+ * The pathname the router matches on: one decode over the whole path, so a
+ * malformed escape anywhere keeps every segment raw, exactly as React Router's
+ * own `decodePath` does. A decoded `/` is escaped back to `%2F` so it cannot
+ * split a segment; {@link restoreEncodedSlashes} puts it back inside an id.
  */
-function decodeSegment(segment: string): string {
+function decodePath(pathname: string): string {
   try {
-    return decodeURIComponent(segment);
+    return pathname
+      .split("/")
+      .map((segment) => decodeURIComponent(segment).replace(/\//g, "%2F"))
+      .join("/");
   } catch {
-    return segment;
+    return pathname;
   }
+}
+
+/**
+ * The `/` an id carries, back from the `%2F` that keeps it one segment. React
+ * Router's `matchPath` does this to every param it hands `useParams`, whether
+ * the path decoded or a malformed escape left it raw.
+ */
+function restoreEncodedSlashes(segment: string): string {
+  return segment.replace(/%2F/g, "/");
 }
 
 /**
  * Sole owner of the conversation URL shape: `/assistant/conversations/:id`,
  * optionally followed by the app viewer segment (`/app/:appId`), tolerating a
- * trailing slash. Ids come back decoded. Anything else (the conversations
- * list, a subroute such as the inspector, a deeper path) is `null`.
+ * trailing slash. The whole path is decoded first, the way the router decodes
+ * a location before matching it, so an escaped spelling of the prefix names
+ * the route too and the ids are the ones `useParams` yields. Anything else
+ * (the conversations list, a subroute such as the inspector, a deeper path) is
+ * `null`.
  */
 function parseConversationPath(
   pathname: string,
 ): { conversationId: string; appId: string | null } | null {
+  const decoded = decodePath(pathname);
   const prefix = `${routes.conversations}/`;
-  if (!pathname.startsWith(prefix)) {
+  if (!decoded.startsWith(prefix)) {
     return null;
   }
-  const rest = pathname.slice(prefix.length).replace(/\/+$/, "");
+  const rest = decoded.slice(prefix.length).replace(/\/+$/, "");
   if (rest.length === 0) {
     return null;
   }
   const segments = rest.split("/");
-  const conversationId = decodeSegment(segments[0]);
+  const conversationId = restoreEncodedSlashes(segments[0]);
   // An empty id means a doubled slash (`/conversations//app/a1`), never a route.
   if (conversationId.length === 0) {
     return null;
@@ -451,7 +465,7 @@ function parseConversationPath(
     return { conversationId, appId: null };
   }
   if (segments.length === 3 && segments[1] === CONVERSATION_APP_SEGMENT) {
-    const appId = decodeSegment(segments[2]);
+    const appId = restoreEncodedSlashes(segments[2]);
     return appId.length > 0 ? { conversationId, appId } : null;
   }
   return null;
