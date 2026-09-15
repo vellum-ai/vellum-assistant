@@ -5,6 +5,12 @@
  * The bar and the percentage turn negative off `ratio` alone, the moment the
  * granted credit is used up. The add-credits strip waits on `exhausted`, which
  * the caller sets only once the wallet behind the grants is empty too.
+ *
+ * The date line under the title is a third independent reading: it appears
+ * only when the caller hands over a `periodEnd`, and names that date a reset
+ * or a renewal depending on whether the sub holds a credit bundle. Its
+ * fixtures are built from local noon so the printed day holds in every host
+ * timezone.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -15,6 +21,9 @@ import { UsageBalancePanel } from "./usage-balance-panel";
 afterEach(() => {
   cleanup();
 });
+
+/** Local noon, so the printed calendar day holds whatever the host offset is. */
+const SEP_20 = new Date(2026, 8, 20, 12).toISOString();
 
 describe("UsageBalancePanel", () => {
   test("draws a neutral reading below 100%", () => {
@@ -47,6 +56,41 @@ describe("UsageBalancePanel", () => {
       '[data-slot="progress-bar"]',
     )?.parentElement;
     expect(barGroup?.className).toContain("@lg:justify-start");
+  });
+
+  test("prints the reset date under the title for a bundled subscription", () => {
+    const { getByTestId } = render(
+      <UsageBalancePanel
+        ratio={0.4}
+        periodEnd={{ at: SEP_20, resets: true }}
+      />,
+    );
+
+    expect(getByTestId("plan-usage-period-end").textContent).toBe(
+      "Resets on Sep 20",
+    );
+  });
+
+  test("names the date a renewal for a subscription with no bundle", () => {
+    const { getByTestId } = render(
+      <UsageBalancePanel
+        ratio={0.4}
+        periodEnd={{ at: SEP_20, resets: false }}
+      />,
+    );
+
+    expect(getByTestId("plan-usage-period-end").textContent).toBe(
+      "Renews on Sep 20",
+    );
+  });
+
+  test("prints no date line without a period end", () => {
+    const explicit = render(<UsageBalancePanel ratio={0.4} periodEnd={null} />);
+    expect(explicit.queryByTestId("plan-usage-period-end")).toBeNull();
+    cleanup();
+
+    const omitted = render(<UsageBalancePanel ratio={0.4} />);
+    expect(omitted.queryByTestId("plan-usage-period-end")).toBeNull();
   });
 
   test("used-up grants turn negative with credits still in hand", () => {

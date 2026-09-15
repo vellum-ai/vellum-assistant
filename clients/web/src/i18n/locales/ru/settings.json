@@ -1277,10 +1277,11 @@
     "nextPlan": "Следующий план",
     "powerUp": "Усилить",
     "powerUpFor": "Усилить за +{amount}/мес",
-    "renewsOn": "Ежемесячная оплата • Подписка автоматически продлится {date}.",
     "usageBalanceAddCredits": "Добавить",
     "usageBalanceExhausted": "Добавление кредитов, чтобы продолжить пользоваться ассистентом",
     "usageBalancePctUsed": "использовано {pct}%",
+    "usageBalanceRenews": "Продлится {date}",
+    "usageBalanceResets": "Сброс {date}",
     "usageBalanceTitle": "Текущее использование",
     "usageChip": "Использование {name}, сброс каждый месяц",
     "viewAllPlans": "Все планы"

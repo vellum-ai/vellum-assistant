@@ -1,6 +1,6 @@
 /**
- * Tests for the PlanCard: verifies the plan name, renewal text, the single
- * header button (base-only "View All Plans" or paid-only "Manage
+ * Tests for the PlanCard: verifies the plan name, the cancellation line, the
+ * single header button (base-only "View All Plans" or paid-only "Manage
  * Subscription"), and the side-by-side current / next plan tiles render
  * correctly, plus the header button's navigation wiring. The card shows
  * no credit bundle label and no invoices button; invoices render in an inline
@@ -223,17 +223,19 @@ function plansWithSuper(): PlanListResponse {
   return plans;
 }
 
-/** A subscriber currently on the Mighty Pro package. */
+/** A subscriber currently on the Mighty Pro package, bundle and all. */
 function proMightySubscription(): SubscriptionResponse {
   return {
     plan_id: "pro",
     status: "active",
     renewal_date: null,
     current_period_start: null,
-    current_period_end: "2026-08-10T00:00:00Z",
+    // Noon rather than midnight, so the printed day survives a host offset.
+    current_period_end: "2026-08-10T12:00:00Z",
     cancel_at_period_end: false,
     cancel_at: null,
     package: { key: "mighty", name: "Mighty", version: 1, customized: false },
+    selected_credit_tier: "credits_25",
     entitlements: { managed_email: false, phone_number: false },
   };
 }
@@ -447,13 +449,12 @@ afterEach(() => {
 });
 
 describe("PlanCard", () => {
-  test("shows the plan name and renewal text for a base plan", () => {
+  test("shows the plan name for a base plan", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Free");
     expect(html).toContain("Current");
-    expect(html).toContain("plan-card-renews");
-    expect(html).toContain("auto renew");
+    expect(html).not.toContain("plan-card-renews");
   });
 
   test("shows the plans button for a base plan", () => {
@@ -1139,11 +1140,31 @@ describe("PlanCard usage balance", () => {
     // $10 of the $25 the cycle granted is gone.
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("Current Usage");
+    expect(panel.textContent).toContain("Resets on Aug 10");
     expect(panel.textContent).toContain("40% used");
     // The bar is the replacement, so the monthly price must not stand beside
     // it on the current tile.
     expect(queryByTestId("plan-card-price")).toBeNull();
     expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
+    // The panel is the only place the date shows; the header carries none.
+    expect(queryByTestId("plan-card-renews")).toBeNull();
+  });
+
+  test("a cancelling sub prints no reset date", async () => {
+    // A sub that is ending does not renew, and the header's cancellation line
+    // already says when it stops.
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "15.00";
+    const { findByTestId } = renderCardInteractive(
+      { ...proMightySubscription(), cancel_at_period_end: true },
+      plansWithSuper(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("40% used");
+    expect(panel.textContent).not.toContain("Resets on");
+    expect(panel.textContent).not.toContain("Renews on");
   });
 
   test("both tiles name the package's usage instead of a dollar bundle", () => {
@@ -1221,10 +1242,25 @@ describe("PlanCard usage balance", () => {
     expect(current.queryByTestId("plan-card-price")).toBeNull();
   });
 
+  test("a Custom sub with a bundle dates its reset", async () => {
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "15.00";
+    const { findByTestId } = renderCardInteractive(
+      customProSubscription("credits_45"),
+      plansWithCreditTiers(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("40% used");
+    expect(panel.textContent).toContain("Resets on Aug 10");
+  });
+
   test("a Custom sub with no live grants reads as fully spent", async () => {
     // Every grant this sub ever held is used or expired, so the summary's
     // total is zero. The plan has nothing left to give, which is a full bar
-    // with no reset date, not a missing one.
+    // dated as a renewal, not a missing one: a sub holding no bundle has
+    // nothing that turns over.
     totalUsageBalance = "0.00";
     availableUsageBalance = "0.00";
     const { findByTestId, queryByTestId, queryByText } = renderCardInteractive(
@@ -1235,6 +1271,8 @@ describe("PlanCard usage balance", () => {
 
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("100% used");
+    expect(panel.textContent).toContain("Renews on Aug 10");
+    expect(panel.textContent).not.toContain("Resets on");
     expect(
       panel
         .querySelector('[data-slot="progress-bar-fill"]')
@@ -1401,6 +1439,10 @@ describe("PlanCard usage balance", () => {
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("Current Usage");
     expect(panel.textContent).toContain("68% used");
+    // The base fixture carries a `current_period_end`, so this proves the gate
+    // is the plan rather than the field.
+    expect(panel.textContent).not.toContain("Resets on");
+    expect(panel.textContent).not.toContain("Renews on");
     const current = within(currentTile(container));
     expect(current.queryByTestId("plan-card-price")).toBeNull();
     expect(current.queryByText("Free Forever")).toBeNull();

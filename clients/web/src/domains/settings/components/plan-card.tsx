@@ -238,10 +238,7 @@ function RecommendedUpgrade({
       }
     } catch (error) {
       toast.error(
-        extractMutationError(
-          error,
-          t("planCard.checkoutFailedToast"),
-        ),
+        extractMutationError(error, t("planCard.checkoutFailedToast")),
       );
     } finally {
       setPending(false);
@@ -498,9 +495,21 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // for chat banners, where a BYOK route never spends the managed wallet.
   const walletEmpty = balance != null && Number(balance) <= 0;
   const creditsExhausted = usage != null && usage.ratio >= 1 && walletEmpty;
+  // The free plan's grant is one-time and a cancelling sub ends rather than
+  // renews, which the header's cancellation line already says. A sub's credit
+  // bundle turns over at the period end, while a sub holding no bundle only
+  // renews.
+  const usagePeriodEnd =
+    !isFreePlan && showRenewal && subscription.current_period_end
+      ? {
+          at: subscription.current_period_end,
+          resets: subscription.selected_credit_tier != null,
+        }
+      : null;
   const usagePanel = usage ? (
     <UsageBalancePanel
       ratio={usage.ratio}
+      periodEnd={usagePeriodEnd}
       exhausted={creditsExhausted}
       onAddCredits={() => setAddCreditsOpen(true)}
     />
@@ -518,18 +527,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
             <PlanHeading />
-            {showRenewal && (
-              <Typography
-                variant="body-small-default"
-                as="div"
-                className="leading-snug text-[var(--content-tertiary)]"
-                data-testid="plan-card-renews"
-              >
-                {t("planCard.renewsOn", {
-                  date: formatGraceDate(subscription.current_period_end!),
-                })}
-              </Typography>
-            )}
             {showCancellation && (
               <Typography
                 variant="body-small-default"
