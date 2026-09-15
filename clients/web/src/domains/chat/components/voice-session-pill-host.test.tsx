@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { MainView } from "@/stores/viewer-store";
+import { composerViewerStoreMock } from "@/stores/viewer-store.test-helper";
 import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 
@@ -55,21 +56,13 @@ mock.module("react-router", () => ({
 // matters, and only to decide whether the state word navigates.
 
 let mockMainView: MainView = "chat";
-// The app view covers the composer only while an app is there to draw, so the
-// id travels with the view.
 let mockActiveAppId: string | null = null;
-mock.module("@/stores/viewer-store", () => ({
-  useViewerStore: {
-    use: {
-      mainView: () => mockMainView,
-      activeAppId: () => mockActiveAppId,
-      openedAppState: () =>
-        mockActiveAppId === null
-          ? null
-          : { appId: mockActiveAppId, name: "App", html: "" },
-    },
-  },
-}));
+mock.module("@/stores/viewer-store", () =>
+  composerViewerStoreMock(() => ({
+    mainView: mockMainView,
+    activeAppId: mockActiveAppId,
+  })),
+);
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
