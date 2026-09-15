@@ -389,3 +389,40 @@ describe("DesktopViewer", () => {
 afterAll(() => {
   globalThis.WebSocket = originalWebSocket;
 });
+
+test("preview suppresses clipboard traffic and expands without reconnecting", async () => {
+  const written: string[] = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => { written.push(text); } },
+  });
+  const onExpand = mock(() => {});
+  const { rerender } = render(<DesktopViewer assistantId="asst-1" viewOnly onExpand={onExpand} />);
+  await flush();
+  act(() => rfb().emit("connect"));
+  const node = document.createTextNode("selected text");
+  document.body.appendChild(node);
+  document.getSelection()?.selectAllChildren(document.body);
+  const selected = document.getSelection()?.toString() ?? "";
+  act(() => {
+    rfb().emit("clipboard", { text: "remote text" });
+    window.dispatchEvent(new Event("copy"));
+  });
+  await flush();
+  expect(written).toEqual([]);
+  expect(rfb().pasted).toEqual([]);
+  fireEvent.click(screen.getByRole("button", { name: "Expand desktop" }));
+  expect(onExpand).toHaveBeenCalledTimes(1);
+  rerender(<DesktopViewer assistantId="asst-1" viewOnly={false} onExpand={onExpand} />);
+  act(() => {
+    rfb().emit("clipboard", { text: "remote text" });
+    window.dispatchEvent(new Event("copy"));
+  });
+  await flush();
+  expect(written).toEqual(["remote text"]);
+  expect(rfb().pasted).toEqual([selected]);
+  expect(FakeRFB.instances).toHaveLength(1);
+  expect(rfb().disconnectCalls).toBe(0);
+  expect(screen.queryByRole("button", { name: "Expand desktop" })).toBeNull();
+  node.remove();
+});

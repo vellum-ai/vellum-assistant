@@ -94,6 +94,8 @@
     "earlierActivity": "Earlier activity"
   },
   "assistantDesktop": {
+    "collapseAria": "Collapse desktop sidebar",
+    "expandAria": "Expand desktop",
     "busy": "The desktop is in use by another viewer.",
     "connecting": "Connecting to the desktop…",
     "failed": "The desktop couldn't start.",

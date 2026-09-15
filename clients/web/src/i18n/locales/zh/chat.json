@@ -94,6 +94,8 @@
     "earlierActivity": "更早的活动"
   },
   "assistantDesktop": {
+    "collapseAria": "收起桌面侧栏",
+    "expandAria": "展开桌面",
     "busy": "桌面正在被其他用户使用。",
     "connecting": "正在连接桌面…",
     "failed": "桌面无法启动。",

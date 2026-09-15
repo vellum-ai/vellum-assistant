@@ -94,6 +94,8 @@
     "earlierActivity": "Actividad anterior"
   },
   "assistantDesktop": {
+    "collapseAria": "Contraer el panel del escritorio",
+    "expandAria": "Ampliar escritorio",
     "busy": "Otro usuario está usando el escritorio.",
     "connecting": "Conectando con el escritorio…",
     "failed": "No se pudo iniciar el escritorio.",
