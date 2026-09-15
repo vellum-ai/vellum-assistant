@@ -146,16 +146,18 @@ function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
 }
 
 /**
- * True when the step was an AppleScript that returned a value. Reading state
- * (`enabled of menu item`, a window title, an app's own query) is a step whose
- * product is the return value, not a screen change, so an empty diff is
- * expected rather than a sign the script did nothing.
+ * True when the observation answers an AppleScript that returned a value.
+ * Reading state (`enabled of menu item`, a window title, an app's own query) is
+ * a step whose product is the return value, not a screen change, so an empty
+ * diff is expected rather than a sign the script did nothing. `toolName` comes
+ * from the request this observation belongs to, so two steps in flight at once
+ * each get classified by their own tool.
  */
 function isResultBearingAppleScript(
-  action: ActionRecord | undefined,
+  toolName: string | undefined,
   obs: CuObservationResult,
 ): boolean {
-  if (action?.toolName !== "computer_use_run_applescript") {
+  if (toolName !== "computer_use_run_applescript") {
     return false;
   }
   return (obs.executionResult ?? "").trim().length > 0;
@@ -573,7 +575,7 @@ export class HostCuProxy {
       !scopedObservation &&
       owned?.toolName !== POINT_AT_PROXY_TOOL
     ) {
-      this.updateStateFromObservation(comparableObservation);
+      this.updateStateFromObservation(comparableObservation, owned?.toolName);
       // A desktop has had its first look only once pixels from it arrived,
       // so a failed capture leaves the next request asking again.
       if (owned && observation.screenshot) {
@@ -584,6 +586,7 @@ export class HostCuProxy {
       comparableObservation,
       prevAXTree,
       owned?.screenshotSkipped ?? false,
+      owned?.toolName,
     );
     interaction.rpcResolve(result);
     return result;
@@ -688,6 +691,7 @@ export class HostCuProxy {
     obs: CuObservationResult,
     previousAXTree?: string,
     screenshotSkipped = false,
+    actionToolName?: string,
   ): ToolExecutionResult {
     const prevTree = previousAXTree;
     const parts: string[] = [];
@@ -712,7 +716,10 @@ export class HostCuProxy {
           : undefined;
       const isWaitAction = lastAction?.toolName === "computer_use_wait";
       const isNoDiffKey = isNoDiffKeyAction(lastAction);
-      const isReadOnlyScript = isResultBearingAppleScript(lastAction, obs);
+      const isReadOnlyScript = isResultBearingAppleScript(
+        actionToolName ?? lastAction?.toolName,
+        obs,
+      );
 
       if (!isWaitAction && !isNoDiffKey && !isReadOnlyScript) {
         if (
@@ -839,7 +846,10 @@ export class HostCuProxy {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private updateStateFromObservation(obs: CuObservationResult): void {
+  private updateStateFromObservation(
+    obs: CuObservationResult,
+    actionToolName?: string,
+  ): void {
     if (this._stepCount > 0) {
       const lastAction =
         this._actionHistory.length > 0
@@ -848,7 +858,7 @@ export class HostCuProxy {
       if (
         obs.axDiff != null ||
         isNoDiffKeyAction(lastAction) ||
-        isResultBearingAppleScript(lastAction, obs)
+        isResultBearingAppleScript(actionToolName ?? lastAction?.toolName, obs)
       ) {
         // A real diff, an exempt key whose effect is invisible by design, or a
         // script that answered with a value breaks the no-effect streak. Clear

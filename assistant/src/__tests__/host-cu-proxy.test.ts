@@ -739,6 +739,45 @@ describe("HostCuProxy", () => {
       expect(result2.content).toContain("NO VISIBLE EFFECT");
     });
 
+    test("classifies a value-returning AppleScript by its own request while another action is in flight", async () => {
+      setup();
+
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "MenuBar [1]",
+      });
+      await p1;
+
+      // Two steps dispatched from one response: the script's observation comes
+      // back while the click is the latest recorded action.
+      const script = 'tell application "System Events" to return frontmost';
+      const pScript = proxy.request(
+        "computer_use_run_applescript",
+        { script },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_run_applescript", { script });
+      const sentScript = sentMessages[1] as Record<string, unknown>;
+      proxy.request("computer_use_click", { element_id: 2 }, "session-1", 3);
+      proxy.recordAction("computer_use_click", { element_id: 2 });
+
+      proxy.processObservation(sentScript.requestId as string, {
+        axTree: "MenuBar [1]",
+        executionResult: "true",
+      });
+      const scriptResult = await pScript;
+      expect(scriptResult.content).not.toContain("NO VISIBLE EFFECT");
+      expect(proxy.consecutiveUnchangedSteps).toBe(0);
+    });
+
     test("exempts key combos regardless of spacing, case, alias, or modifier order", async () => {
       // All of these normalize to an exempt combo the mac helper would execute
       // identically: spaced, uppercase, alt->option alias, command->cmd alias,
