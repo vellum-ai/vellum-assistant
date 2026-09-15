@@ -92,6 +92,7 @@ import {
   markV3LiveBlock,
   MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
 } from "../plugins/defaults/memory/v3/types.js";
+import { stabilizeSystemPrompt } from "../prompts/cache-boundary.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -998,7 +999,8 @@ export class Conversation {
 
     const configuredMaxTokens = maxTokens;
     // When a systemPromptOverride was provided, use it as-is; otherwise
-    // rebuild the full prompt each turn (picks up any workspace file changes).
+    // rebuild the prompt each turn (see `buildCurrentSystemPrompt` for what a
+    // rebuild is allowed to change mid-conversation).
     const hasSystemPromptOverride = systemPrompt !== buildSystemPrompt();
     this.hasSystemPromptOverride = hasSystemPromptOverride;
 
@@ -1124,31 +1126,43 @@ export class Conversation {
   /**
    * Build the system prompt for the current conversation state. When a
    * system-prompt override was supplied at construction, use it as-is;
-   * otherwise rebuild the full prompt (picks up workspace file changes,
-   * live trust/channel context, persona overrides, onboarding context).
+   * otherwise rebuild the prompt under the live trust/channel context,
+   * persona overrides, onboarding context, and the turn's tool surface.
+   *
+   * The rebuild is then held against the prompt this conversation last sent
+   * ({@link stabilizeSystemPrompt}): a difference confined to the volatile
+   * block behind the cache boundary (the first-run ritual after the model
+   * deletes BOOTSTRAP.md, a voice marker it appended, a service connected
+   * mid-chat) keeps the prompt already in flight, because any change to the
+   * system prompt re-writes the provider's cache for the whole history behind
+   * it. Those workspace changes reach the next conversation. Only a change to
+   * the stable head, which is always a deliberate re-scoping of the turn,
+   * produces a new prompt.
    *
    * Called by the caller before invoking `agentLoop.run()` — the loop
    * itself never re-resolves the prompt mid-loop (re-resolving would bust
    * the provider's prefix cache).
    */
   buildCurrentSystemPrompt(): string {
-    return this.hasSystemPromptOverride
-      ? this.systemPrompt
-      : buildSystemPrompt({
-          hasNoClient: this.hasNoClient,
-          trustContext: this.currentTurnTrustContext,
-          channelCapabilities: this.currentTurnChannelCapabilities,
-          personaOverride: this.wakePersonaOverride,
-          onboardingContext: this.getOnboardingContext(),
-          conversationId: this.conversationId,
-          sendUserMessageTool: resolveSendUserMessageActive(this),
-          // Read off this turn's resolved tool surface: a workspace
-          // `tools.exclude` entry, a background run's `allowedTools` scope, a
-          // read-only subagent pass, or tools disabled all answer no, and the
-          // delegation section renders off rather than pointing at a tool the
-          // turn cannot call.
-          canSpawnSubagents: canSpawnSubagentsForTurn(this),
-        });
+    if (this.hasSystemPromptOverride) {
+      return this.systemPrompt;
+    }
+    const rebuilt = buildSystemPrompt({
+      hasNoClient: this.hasNoClient,
+      trustContext: this.currentTurnTrustContext,
+      channelCapabilities: this.currentTurnChannelCapabilities,
+      personaOverride: this.wakePersonaOverride,
+      onboardingContext: this.getOnboardingContext(),
+      conversationId: this.conversationId,
+      sendUserMessageTool: resolveSendUserMessageActive(this),
+      // Read off this turn's resolved tool surface: a workspace
+      // `tools.exclude` entry, a background run's `allowedTools` scope, a
+      // read-only subagent pass, or tools disabled all answer no, and the
+      // delegation section renders off rather than pointing at a tool the
+      // turn cannot call.
+      canSpawnSubagents: canSpawnSubagentsForTurn(this),
+    });
+    return stabilizeSystemPrompt(this.systemPrompt, rebuilt);
   }
 
   /**
@@ -1160,11 +1174,13 @@ export class Conversation {
    * construction-time persona (the guardian, or `users/default.md`) for the
    * whole conversation.
    *
-   * Pushing only when the rebuilt prompt actually differs keeps the provider's
+   * Pushing only when the resolved prompt actually differs keeps the provider's
    * prefix cache intact for the common case (a stable-identity conversation
-   * rebuilds to the same bytes, so no update is sent). A system-prompt override
-   * resolves verbatim via {@link buildCurrentSystemPrompt}, so override
-   * conversations (subagent forks, stored overrides) are inherently a no-op.
+   * resolves to the same bytes, so no update is sent), and
+   * {@link buildCurrentSystemPrompt} already holds a rebuild that differs only
+   * behind the cache boundary. A system-prompt override resolves verbatim, so
+   * override conversations (subagent forks, stored overrides) are inherently a
+   * no-op.
    *
    * Called by the turn runner before `agentLoop.run()`, once the turn's
    * persona snapshots ({@link currentTurnTrustContext},
