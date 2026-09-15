@@ -23,12 +23,12 @@
  * through the close animation and torn down only once the width reaches 0.
  */
 
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { PaneResizeHandle, useResizablePane } from "@vellumai/design-library";
 
 import { cn } from "@/utils/misc";
 
-import { DrawerWidthReveal } from "./drawer-width-reveal";
 
 /** Width of the drag-handle column. Matches the `w-2` handle below (8px). */
 const HANDLE_WIDTH_PX = 8;
@@ -46,8 +46,8 @@ const RIGHT_DRAWER_MIN_LEFT_WIDTH_PX = 300;
 export interface AnimatedRightDrawerProps {
   /** Whether the drawer is open. Drives the width animation in both directions. */
   open: boolean;
-  /** Left (chat) content — fills the remaining space via `flex-1`. */
-  left: ReactNode;
+  /** Omit to dock beside content in an existing flex layout. */
+  left?: ReactNode;
   /**
    * Right (drawer) content — rendered at the resolved width. May be `null`
    * once `open` flips to `false`; the last non-null value is retained so it
@@ -62,6 +62,9 @@ export interface AnimatedRightDrawerProps {
   minLeftWidth?: number;
   /** Optional localStorage key for persisting the drawer width across reloads. */
   storageKey?: string;
+  paneId?: string;
+  resizeLabel?: string;
+  animateOnMount?: boolean;
 }
 
 export function AnimatedRightDrawer({
@@ -72,7 +75,13 @@ export function AnimatedRightDrawer({
   minWidth = RIGHT_DRAWER_MIN_WIDTH_PX,
   minLeftWidth = RIGHT_DRAWER_MIN_LEFT_WIDTH_PX,
   storageKey,
+  paneId: requestedPaneId,
+  resizeLabel = "Resize side panel",
+  animateOnMount = false,
 }: AnimatedRightDrawerProps) {
+  const reduce = useReducedMotion();
+  const standalone = left === undefined;
+
   // No `paneRef`: motion owns the drawer element's width, so the live size has
   // to come through React state for `animate` to see it.
   const {
@@ -88,8 +97,20 @@ export function AnimatedRightDrawer({
     minSize: minWidth,
     reserveForRest: minLeftWidth + HANDLE_WIDTH_PX,
     storageKey,
-    label: "Resize side panel",
+    label: resizeLabel,
+    paneId: requestedPaneId,
   });
+
+  const attachContainer = useCallback(
+    (node: HTMLDivElement | null) => {
+      containerRef.current = standalone
+        ? node?.parentElement instanceof HTMLDivElement
+          ? node.parentElement
+          : null
+        : node;
+    },
+    [containerRef, standalone],
+  );
 
   // `useResizablePane` never clamps below `minWidth`, so a container narrower
   // than `minWidth + handle` (small window, wide sidebar) would let the drawer
@@ -130,18 +151,20 @@ export function AnimatedRightDrawer({
 
   return (
     <div
-      ref={containerRef}
+      ref={attachContainer}
       data-slot="animated-right-drawer"
-      className="flex h-full w-full overflow-hidden"
+      className={cn("flex h-full overflow-hidden", standalone ? "shrink-0" : "w-full")}
     >
       {/* Chat — fills whatever the drawer doesn't, reflowing as the drawer
           animates open/closed so there's no early snap to the narrow width.
           `flex flex-col` gives the chat body (`flex-1`) a bounded height so its
           transcript can scroll — a plain block parent would let the body grow
           to content height and kill the scroll. */}
-      <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-        {left}
-      </div>
+      {!standalone && (
+        <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+          {left}
+        </div>
+      )}
 
       {/* Drag handle. Only present while the drawer is mounted so a closed
           drawer leaves no stray hit-area or grab handle over the full-width
@@ -165,20 +188,33 @@ export function AnimatedRightDrawer({
         </PaneResizeHandle>
       )}
 
-      <DrawerWidthReveal
+      <motion.div
         id={paneId}
-        width={renderWidth}
-        open={open}
+        className="relative h-full shrink-0 overflow-hidden"
         style={{ maxWidth: `calc(100% - ${HANDLE_WIDTH_PX}px)` }}
-        instant={isResizing || isCapped}
+        initial={animateOnMount ? { width: 0 } : false}
+        animate={{ width: open ? renderWidth : 0 }}
+        exit={{ width: 0 }}
+        transition={
+          isResizing || isCapped || reduce
+            ? { duration: 0 }
+            : { duration: 0.34, ease: [0.16, 1, 0.3, 1] }
+        }
         onAnimationComplete={() => {
           if (!open) {
             setMounted(false);
           }
         }}
       >
-        {mounted ? (right ?? retainedRight) : null}
-      </DrawerWidthReveal>
+        {mounted && (
+          <div
+            className="absolute right-0 top-0 h-full"
+            style={{ width: renderWidth }}
+          >
+            {right ?? retainedRight}
+          </div>
+        )}
+      </motion.div>
     </div>
   );
 }

@@ -155,10 +155,9 @@ describe("AssistantDesktopAffordance", () => {
     const handle = screen.getByRole("separator", {
       name: "Resize desktop sidebar",
     });
-    const panel = screen.getByRole("complementary", { name: "Desktop" });
-    const originalWidth = parseFloat(panel.style.width);
+    const originalWidth = Number(handle.getAttribute("aria-valuenow"));
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
-    expect(parseFloat(panel.style.width)).toBe(originalWidth + 16);
+    expect(Number(handle.getAttribute("aria-valuenow"))).toBe(originalWidth + 16);
     expect(panelUnmounts).toBe(0);
 
     fireEvent.click(
@@ -166,8 +165,9 @@ describe("AssistantDesktopAffordance", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
     expect(
-      screen.getByRole("complementary", { name: "Desktop" }).style.width,
-    ).toBe(`${originalWidth + 16}px`);
+      screen.getByRole("separator", { name: "Resize desktop sidebar" })
+        .getAttribute("aria-valuenow"),
+    ).toBe(String(originalWidth + 16));
   });
 
   test("switching assistants closes the previous session", async () => {
