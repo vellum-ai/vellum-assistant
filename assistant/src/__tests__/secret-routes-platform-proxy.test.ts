@@ -28,6 +28,9 @@ const MANAGED_PROVIDERS = [
 ] as const;
 
 let platformBaseUrlOverride: string | undefined;
+let platformAssistantIdOverride: string | undefined;
+let platformOrganizationIdOverride: string | undefined;
+let platformUserIdOverride: string | undefined;
 
 mock.module("@google/genai", () => ({
   GoogleGenAI: class MockGoogleGenAI {
@@ -54,8 +57,18 @@ mock.module("@google/genai", () => ({
 
 mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => PLATFORM_BASE_URL,
+  getPlatformAssistantId: () => platformAssistantIdOverride,
   setPlatformBaseUrl: (value: string | undefined) => {
     platformBaseUrlOverride = value;
+  },
+  setPlatformAssistantId: (value: string | undefined) => {
+    platformAssistantIdOverride = value;
+  },
+  setPlatformOrganizationId: (value: string | undefined) => {
+    platformOrganizationIdOverride = value;
+  },
+  setPlatformUserId: (value: string | undefined) => {
+    platformUserIdOverride = value;
   },
 }));
 
@@ -182,6 +195,9 @@ describe("secret routes managed proxy registry sync", () => {
     metadataDeletes.length = 0;
     lastGeminiConstructorOpts = null;
     platformBaseUrlOverride = undefined;
+    platformAssistantIdOverride = undefined;
+    platformOrganizationIdOverride = undefined;
+    platformUserIdOverride = undefined;
     providerRefreshCalls = 0;
     identitySyncCalls = 0;
     avatarSyncCalls = 0;
@@ -349,11 +365,43 @@ describe("secret routes managed proxy registry sync", () => {
     failSecureKeyWrites = true;
 
     await expect(
-      addCredential("vellum:platform_assistant_id", "asst-1"),
+      addCredential("vellum:platform_base_url", "https://managed.example.com"),
     ).rejects.toThrow("Failed to store credential");
 
     expect(identitySyncCalls).toBe(0);
     expect(avatarSyncCalls).toBe(0);
+  });
+
+  test("platform identity credentials are applied in-memory without persisting", async () => {
+    await addCredential("vellum:platform_assistant_id", "asst-1");
+    await addCredential("vellum:platform_organization_id", "org-1");
+    await addCredential("vellum:platform_user_id", "user-1");
+
+    expect(
+      secureKeyStore[credentialKey("vellum", "platform_assistant_id")],
+    ).toBeUndefined();
+    expect(
+      secureKeyStore[credentialKey("vellum", "platform_organization_id")],
+    ).toBeUndefined();
+    expect(
+      secureKeyStore[credentialKey("vellum", "platform_user_id")],
+    ).toBeUndefined();
+    expect(metadataUpserts).toEqual([]);
+    expect(platformAssistantIdOverride).toBe("asst-1");
+    expect(platformOrganizationIdOverride).toBe("org-1");
+    expect(platformUserIdOverride).toBe("user-1");
+  });
+
+  test("an empty platform identity value clears in-memory identity without deleting leftover vault copies", async () => {
+    const key = credentialKey("vellum", "platform_assistant_id");
+    secureKeyStore[key] = "leftover-asst";
+    platformAssistantIdOverride = "asst-1";
+
+    await addCredential("vellum:platform_assistant_id", "   ");
+
+    expect(secureKeyStore[key]).toBe("leftover-asst");
+    expect(platformAssistantIdOverride).toBeUndefined();
+    expect(metadataDeletes).toEqual([]);
   });
 
   test("storing vellum:platform_base_url sets override and triggers initializeProviders", async () => {

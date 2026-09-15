@@ -307,9 +307,33 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
           'For credential type, name must be in "service:field" format (e.g. "github:api_token")',
         );
       }
-      assertMetadataWritable();
       const service = name.slice(0, colonIdx);
       const field = name.slice(colonIdx + 1);
+
+      const IDENTITY_FIELDS = new Set([
+        "platform_assistant_id",
+        "platform_organization_id",
+        "platform_user_id",
+      ]);
+      if (service === "vellum" && IDENTITY_FIELDS.has(field)) {
+        const effectiveValue = value.trim();
+        if (field === "platform_assistant_id") {
+          setPlatformAssistantId(effectiveValue || undefined);
+        } else if (field === "platform_organization_id") {
+          setPlatformOrganizationId(effectiveValue || undefined);
+        } else if (field === "platform_user_id") {
+          setPlatformUserId(effectiveValue || undefined);
+        }
+        if (field === "platform_assistant_id") {
+          void maybeDefaultSpeechToManaged();
+          syncWorkspaceIdentityToPlatform();
+          syncAvatarToPlatform();
+        }
+        log.info({ service, field }, "Platform identity applied in-memory");
+        return { success: true, type, name };
+      }
+
+      assertMetadataWritable();
 
       // Reject an Anthropic API key pasted into the ACP OAuth-token field (a 401
       // footgun) as a 400 rather than letting it persist and fail at runtime.
@@ -325,96 +349,56 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
       }
 
       const key = credentialKey(service, field);
-
-      const TRIMMED_IDENTITY_FIELDS = new Set([
-        "platform_assistant_id",
-        "platform_organization_id",
-        "platform_user_id",
-      ]);
-      const isTrimmedIdentity =
-        service === "vellum" && TRIMMED_IDENTITY_FIELDS.has(field);
-      const effectiveValue = isTrimmedIdentity ? value.trim() : value;
-
-      if (isTrimmedIdentity && effectiveValue === "") {
-        const deleteResult = await deleteSecureKeyAsync(key);
-        if (deleteResult === "error") {
-          throw new InternalError(
-            `Failed to delete stale credential from secure storage: ${service}:${field}`,
+      const stored = await setSecureKeyAsync(key, value);
+      if (!stored) {
+        throw new InternalError(
+          `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
+        );
+      }
+      if (!isNonSecretPlatformField(service, field)) {
+        // Same seam as the api_key branch: the scrub runs immediately after
+        // the secure-store write, before side effects that can throw. The
+        // value IS stored at this point; the scrub is best-effort hygiene
+        // and must stay invisible to the caller. Counts only, never the
+        // value.
+        try {
+          const scrubbed = await scrubStoredCredentialFromTranscripts(value);
+          log.info(
+            { service, field, ...scrubbed },
+            "Credential stored; scrubbed value from recent transcripts",
+          );
+        } catch (err) {
+          log.warn(
+            { err, service, field },
+            "Credential stored, but transcript scrub failed",
           );
         }
-        if (field === "platform_assistant_id") {
-          setPlatformAssistantId(undefined);
-        } else if (field === "platform_organization_id") {
-          setPlatformOrganizationId(undefined);
-        } else if (field === "platform_user_id") {
-          setPlatformUserId(undefined);
-        }
-        deleteCredentialMetadata(service, field);
-      } else {
-        const stored = await setSecureKeyAsync(key, effectiveValue);
-        if (!stored) {
-          throw new InternalError(
-            `Failed to store credential in secure storage (backend: ${getActiveBackendName()})`,
-          );
-        }
-        if (!isNonSecretPlatformField(service, field)) {
-          // Same seam as the api_key branch: the scrub runs immediately after
-          // the secure-store write, before side effects that can throw. The
-          // value IS stored at this point; the scrub is best-effort hygiene
-          // and must stay invisible to the caller. Counts only — never the
-          // value.
-          try {
-            const scrubbed =
-              await scrubStoredCredentialFromTranscripts(effectiveValue);
-            log.info(
-              { service, field, ...scrubbed },
-              "Credential stored; scrubbed value from recent transcripts",
-            );
-          } catch (err) {
-            log.warn(
-              { err, service, field },
-              "Credential stored, but transcript scrub failed",
-            );
-          }
-        }
-        upsertCredentialMetadata(service, field, {});
-        await syncManualTokenConnection(service);
-        if (service === "vellum" && field === "platform_base_url") {
-          setPlatformBaseUrl(effectiveValue);
-        }
-        if (service === "vellum" && field === "platform_assistant_id") {
-          setPlatformAssistantId(effectiveValue || undefined);
-        }
-        if (service === "vellum" && field === "platform_organization_id") {
-          setPlatformOrganizationId(effectiveValue || undefined);
-        }
-        if (service === "vellum" && field === "platform_user_id") {
-          setPlatformUserId(effectiveValue || undefined);
-        }
+      }
+      upsertCredentialMetadata(service, field, {});
+      await syncManualTokenConnection(service);
+      if (service === "vellum" && field === "platform_base_url") {
+        setPlatformBaseUrl(value);
       }
       if (isPlatformManagedCredential(service, field)) {
         await refreshProvidersAfterSecretChange();
         // Close the first-boot race where the startup capability seed ran before
         // the managed embedding credential was provisioned, leaving skill/CLI
-        // pages unseeded until restart. Detached — must not block the response.
+        // pages unseeded until restart. Detached, must not block the response.
         void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
           await notifyCesOfAssistantApiKeyUpdate(value, getCesClient());
         }
-      } else if (!isTrimmedIdentity) {
+      } else {
         await refreshProvidersForRotatedCredential(service, field);
       }
       if (
         service === "vellum" &&
-        (field === "assistant_api_key" ||
-          field === "platform_assistant_id" ||
-          field === "platform_base_url")
+        (field === "assistant_api_key" || field === "platform_base_url")
       ) {
         // Managed-speech availability needs the API key, the assistant ID,
-        // and the base URL, and the CLI connect path stores all three
-        // concurrently — fire on each so the last write to land triggers the
-        // defaulting; the hook no-ops until the connection is complete.
-        // Detached — must not block the response.
+        // and the base URL. Fire on each write that completes a piece of
+        // that set; the hook no-ops until the connection is complete.
+        // Detached, must not block the response.
         void maybeDefaultSpeechToManaged();
         // Same last-write-wins shape: the startup syncs no-op before live
         // registration, so re-enqueue them here. Both dedup and no-op until

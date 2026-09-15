@@ -222,7 +222,7 @@ describe("secrets_add credential transcript scrub", () => {
     expect(scrubbedValues).toEqual([CREDENTIAL_VALUE]);
   });
 
-  test("non-secret platform fields are stored but never scrubbed", async () => {
+  test("non-secret platform fields are not scrubbed", async () => {
     for (const field of [
       "platform_assistant_id",
       "platform_organization_id",
@@ -239,9 +239,10 @@ describe("secrets_add credential transcript scrub", () => {
       expect(result).toEqual(expect.objectContaining({ success: true }));
     }
 
-    // All four stored, none scrubbed — they are benign UUIDs/URLs that
-    // legitimately appear in transcripts.
-    expect(secureStore.size).toBe(4);
+    expect(secureStore.size).toBe(1);
+    expect(secureStore.get(credentialKey("vellum", "platform_base_url"))).toBe(
+      "0198f4c2-1111-2222-3333-444455556666",
+    );
     expect(scrubbedValues).toEqual([]);
   });
 
