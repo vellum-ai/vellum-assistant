@@ -113,7 +113,7 @@ describe("useAutoSendEffects — URL prompt dedupe", () => {
   });
 });
 
-describe("useAutoSendEffects — URL prompt provenance", () => {
+describe("useAutoSendEffects: URL prompt provenance", () => {
   it("pre-fills instead of sending when the URL arrived without in-app state", () => {
     const sendMessage = mock(async (_content: string) => {});
     const props = {

@@ -4,10 +4,10 @@
  * `?prompt=<text>` is how a conversation URL carries a message to seed the
  * chat with. It has two kinds of author:
  *
- * - **In-app code** — the quick input, document feedback, the app-viewer
+ * - **In-app code**: the quick input, document feedback, the app-viewer
  *   relay, onboarding suggestions, `PromptLaunchButton`. These navigate with
  *   `navigate()` and intend the message to be sent on the user's behalf.
- * - **A link the user clicked** — the marketing "open in Vellum" menus, the
+ * - **A link the user clicked**: the marketing "open in Vellum" menus, the
  *   Day-2 check-in email, or any page a user was sent a URL from. Nothing
  *   vouches for that text, so it must only pre-fill the composer and leave
  *   the send to the user. This is the same call the native deep-link path

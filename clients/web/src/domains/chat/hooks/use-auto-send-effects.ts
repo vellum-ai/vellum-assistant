@@ -1,12 +1,12 @@
 /**
  * Consolidates the three auto-send paths that fire on mount/navigation:
  *
- * 1. **URL prompt** — `?prompt=<text>` is consumed once an active
+ * 1. **URL prompt**: `?prompt=<text>` is consumed once an active
  *    conversation exists. Navigations the app issued itself carry the
  *    `autoSendPromptState` marker (see `utils/auto-send-prompt.ts`) and send
  *    immediately (quick input, document feedback, the app-viewer relay). A URL
- *    without it — a link the user clicked from an email, a marketing page, or
- *    anywhere outside the SPA — is untrusted text, so it only pre-fills the
+ *    without it (a link the user clicked from an email, a marketing page, or
+ *    anywhere outside the SPA) is untrusted text, so it only pre-fills the
  *    composer and the user decides whether to send. One-shot callers have the
  *    `prompt` stripped from the URL after dispatch so a refresh can't replay
  *    it; relay callers keep theirs to re-fire on a new token.
@@ -82,7 +82,7 @@ export function useAutoSendEffects({
   useLayoutEffect(() => {
     getPendingInitialMessageHiddenRef.current = getPendingInitialMessageHidden;
   });
-  // 1. URL ?prompt= — auto-send for in-app navigations, pre-fill otherwise.
+  // 1. URL ?prompt=: auto-send for in-app navigations, pre-fill otherwise.
   // Keyed by conversationId + prompt so the same text sent to different
   // draft conversations (e.g. repeated quick-input submissions) isn't deduped.
   const promptConsumedRef = useRef<string | null>(null);
