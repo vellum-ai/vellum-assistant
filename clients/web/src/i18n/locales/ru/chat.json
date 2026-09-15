@@ -6,6 +6,7 @@
   },
   "acpConnectAffordance": {
     "title": "Подключить Claude Code",
+    "dismissButton": "Скрыть",
     "subtitleIdle": "Использование подписки Claude Code",
     "subtitleStarting": "Запускаем вход...",
     "subtitleWaiting": "Ждём вход в Claude...",

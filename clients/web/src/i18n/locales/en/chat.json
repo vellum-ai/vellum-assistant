@@ -23,6 +23,7 @@
   },
   "acpConnectAffordance": {
     "connectButton": "Connect",
+    "dismissButton": "Dismiss",
     "errorFallback": "Connecting Claude failed. Please try again.",
     "pastePlaceholder": "Paste your key",
     "saveButton": "Save",

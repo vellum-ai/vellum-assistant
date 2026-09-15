@@ -23,6 +23,7 @@
   },
   "acpConnectAffordance": {
     "connectButton": "连接",
+    "dismissButton": "忽略",
     "errorFallback": "连接 Claude 失败。请重试。",
     "pastePlaceholder": "粘贴您的密钥",
     "saveButton": "保存",

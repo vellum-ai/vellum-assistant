@@ -23,6 +23,7 @@
   },
   "acpConnectAffordance": {
     "connectButton": "Conectar",
+    "dismissButton": "Descartar",
     "errorFallback": "No se pudo conectar Claude. Inténtalo de nuevo.",
     "pastePlaceholder": "Pega tu clave",
     "saveButton": "Guardar",
