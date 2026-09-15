@@ -263,6 +263,7 @@ export const geometryFor = (
   avatar: CompanionSize,
   options: CompanionSize,
   dock: CompanionDock = "bottom",
+  attachedRise = 0,
 ): CompanionGeometry => {
   const avatarBox = companionBoxFor("avatar", avatar);
   const optionsBox = companionBoxFor("options", options);
@@ -314,12 +315,16 @@ export const geometryFor = (
       maxReach,
     };
   }
+  // A popover drawn on a call's bar stands on the bar's centre line and can
+  // be taller than the card the canvas keeps room for, so the card's side
+  // grows to hold it. Only that side: the near edge is the bar's, unchanged.
+  const heldRise = Math.max(riseAbove, Math.round(attachedRise));
   return {
     avatarBox,
     optionsBox,
     canvasWidth,
-    canvasHeight,
-    riseAbove,
+    canvasHeight: heldRise + dropBelow,
+    riseAbove: heldRise,
     dropBelow,
     maxReach,
   };
@@ -1205,22 +1210,82 @@ const currentPopoverView = (): CompanionPopoverView | undefined => {
 };
 
 /**
- * Whether a call's bar carries the popover's short form as a row of its own,
- * which is when the bar is a row (docked to the top or bottom) and the
- * popover is in its short form. The popover's window stays away then.
+ * Whether a call's bar carries the popover, joined to it as one shape, which
+ * is whenever the bar is a row (docked to the top or bottom) and the popover
+ * is not put off. The popover's own window stays away then.
  */
-const popoverRidesTheBar = (): boolean =>
-  callSurfaceFor(call, dialing) &&
-  !companionDockIsSide(dock) &&
-  currentPopoverView() === "row";
+const popoverRidesTheBar = (): boolean => {
+  const view = currentPopoverView();
+  return (
+    callSurfaceFor(call, dialing) &&
+    !companionDockIsSide(dock) &&
+    view !== undefined &&
+    view !== "deferred"
+  );
+};
+
+/**
+ * How tall the popover on the bar stands above the bar's centre line, in
+ * points, as the surface last measured it for the popover it is drawing.
+ */
+let attached: { id: string; height: number } | null = null;
+
+/**
+ * The canvas room above the avatar the popover on the bar needs: its height
+ * and the canvas's own pad, or nothing while the bar carries none.
+ */
+const attachedRise = (): number => {
+  const popover = currentPopover();
+  if (
+    attached === null ||
+    popover === undefined ||
+    attached.id !== popover.id ||
+    !popoverRidesTheBar()
+  ) {
+    return 0;
+  }
+  return (
+    attached.height + companionPadFor(geometry.avatarBox, geometry.optionsBox)
+  );
+};
+
+/** Whether the surface's window has been lent key status for a form. */
+let surfaceKeyLent = false;
+
+/**
+ * Lend the surface's window the keyboard while the credential form is on the
+ * bar, and take it back after. `setFocusable` both ways and never `blur()`:
+ * on macOS `blur` flashes a panel and drops its mouse forwarding.
+ */
+const syncSurfaceKey = (wanted: boolean): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (win === null || win.isDestroyed()) {
+    surfaceKeyLent = false;
+    return;
+  }
+  if (wanted && !surfaceKeyLent) {
+    surfaceKeyLent = true;
+    win.setFocusable(true);
+    win.focus();
+  } else if (!wanted && surfaceKeyLent) {
+    surfaceKeyLent = false;
+    win.setFocusable(false);
+  }
+};
 
 const syncPopover = (): void => {
   const view = currentPopoverView();
   const popover = currentPopover();
+  const riding = popoverRidesTheBar();
+  const form = popover?.kind === "secret" && view === "expanded";
   syncCompanionPopover(popover, popoverAnchor(), {
-    show: view !== "deferred" && !popoverRidesTheBar(),
-    keyboard: popover?.kind === "secret" && view === "expanded",
+    show: view !== "deferred" && !riding,
+    keyboard: form && !riding,
   });
+  syncSurfaceKey(form && riding && popoverAnchor() !== null);
+  // The canvas holds what the bar carries, and gives the room back once it
+  // carries nothing. A rebuild pushes, and this runs again with it settled.
+  syncCanvas();
 };
 
 /**
@@ -3190,6 +3255,28 @@ export const installCompanionWindow = (): void => {
   );
 
   /**
+   * How tall the popover on the call's bar stands above the bar, from the
+   * surface's window, which is the one drawing it. The canvas is rebuilt to
+   * hold it.
+   */
+  on(
+    "vellum:companion:setAttachedPopoverHeight",
+    z.tuple([z.string(), z.number().finite().nonnegative().max(4000)]),
+    ([popoverId, height]) => {
+      const popover = currentPopover();
+      if (popover?.id !== popoverId) {
+        return;
+      }
+      const rounded = Math.ceil(height);
+      if (attached?.id === popoverId && attached.height === rounded) {
+        return;
+      }
+      attached = { id: popoverId, height: rounded };
+      syncCanvas();
+    },
+  );
+
+  /**
    * Review, Enter and Not Now. Held here rather than answered in the app's
    * window, since they change only what the companion shows, and the call's
    * bar and the popover's window both draw it. A press for a popover no
@@ -3701,6 +3788,7 @@ export const setCompanionSurfaceSize = (
       readCompanionSize("avatar"),
       readCompanionSize("options"),
       canvasDock(),
+      attachedRise(),
     ),
   );
 };
@@ -3720,6 +3808,7 @@ const syncCanvas = (): boolean => {
     readCompanionSize("avatar"),
     readCompanionSize("options"),
     canvasDock(),
+    attachedRise(),
   );
   if (
     next.canvasHeight === geometry.canvasHeight &&

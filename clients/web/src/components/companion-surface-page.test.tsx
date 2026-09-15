@@ -54,6 +54,7 @@ const contextMenuMock = mock(() => undefined);
 const sendControlMock = mock((_control: { action: string }) => undefined);
 const answerPopoverMock = mock((_answer: unknown, _popoverId: string) => undefined);
 const setPopoverViewMock = mock((_popoverId: string, _view: string) => undefined);
+const attachedHeightMock = mock((_popoverId: string, _height: number) => undefined);
 
 const STATE: CompanionSurfaceState = {
   growth: "right",
@@ -158,6 +159,8 @@ mock.module("@/runtime/companion-surface", () => ({
   answerCompanionDictationOffer: answerOfferMock,
   answerCompanionPopover: answerPopoverMock,
   setCompanionPopoverView: setPopoverViewMock,
+  setCompanionAttachedPopoverHeight: attachedHeightMock,
+  openCompanionLink: () => undefined,
   setCompanionContext: () => undefined,
   advanceCompanionIntro: advanceIntroMock,
   showCompanionContextMenu: contextMenuMock,
@@ -190,6 +193,7 @@ afterEach(() => {
   sendControlMock.mockClear();
   answerPopoverMock.mockClear();
   setPopoverViewMock.mockClear();
+  attachedHeightMock.mockClear();
 });
 
 /** The canvas the page fills, which is where the pointer handlers live. */
@@ -2273,6 +2277,29 @@ describe("prompts on the call's bar", () => {
       ["req-1,req-2,req-3", "expanded"],
       ["req-1,req-2,req-3", "deferred"],
     ]);
+  });
+
+  /** Reviewed, the list joins the bar too: one shape, not a window above it. */
+  test("carries the reviewed list on the bar and reports how tall it stands", async () => {
+    Object.assign(STATE, {
+      call: LISTENING_CALL,
+      popover: APPROVALS,
+      popoverView: "expanded",
+    });
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      const rows = Array.from(container.querySelectorAll("li")).filter(
+        (row) => row.closest("[inert]") === null,
+      );
+      if (rows.length !== 3) {
+        throw new Error("Expected the list on the bar");
+      }
+    });
+    expect(promptRowOf(container)).toBeNull();
+    expect(attachedHeightMock.mock.calls.at(-1)?.[0]).toBe(
+      "req-1,req-2,req-3",
+    );
   });
 
   test("answers a single approval from the row", async () => {

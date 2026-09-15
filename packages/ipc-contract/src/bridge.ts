@@ -819,6 +819,12 @@ export interface VellumBridge {
      */
     setPopoverView(popoverId: string, view: CompanionPopoverView): void;
     /**
+     * Report how tall the popover drawn on a call's bar stands above the
+     * bar's centre line, from the surface's own window, so main can make the
+     * canvas tall enough to hold it.
+     */
+    setAttachedPopoverHeight(popoverId: string, height: number): void;
+    /**
      * Open a web link from the popover in the user's browser. Main refuses any
      * scheme but http and https.
      */

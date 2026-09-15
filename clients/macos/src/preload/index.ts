@@ -636,6 +636,13 @@ const bridge: VellumBridge = {
     setPopoverView: (popoverId: string, view: CompanionPopoverView): void => {
       ipcRenderer.send("vellum:companion:setPopoverView", popoverId, view);
     },
+    setAttachedPopoverHeight: (popoverId: string, height: number): void => {
+      ipcRenderer.send(
+        "vellum:companion:setAttachedPopoverHeight",
+        popoverId,
+        height,
+      );
+    },
     openLink: (url: string): void => {
       ipcRenderer.send("vellum:companion:openLink", url);
     },

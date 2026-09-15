@@ -8,8 +8,6 @@ import {
 } from "@/components/companion-popover";
 import { CompanionSurface } from "@/components/companion-surface";
 import {
-  COMPANION_BASE_AVATAR_BOX,
-  companionNearEdgeFor,
   type CompanionPopover as CompanionPopoverContent,
   type CompanionPopoverView,
   type VoiceActivityState,
@@ -17,12 +15,11 @@ import {
 
 /**
  * The popover and the call's bar together, the way a user on a call sees
- * them: a prompt's short form joined to the bar as a row of its own, or the
- * whole popover standing just above the bar in its own window.
+ * them: every form of it joined to the bar as one shape, with the call's
+ * light travelling the edge of the whole of it. The bar widens to the
+ * popover when the popover is the wider.
  *
- * The bar is the real surface in a stand-in of its canvas. The popover above
- * it is drawn where main places its window: centred on the bar and clear of
- * it by the gap main keeps.
+ * The bar is the real surface in a stand-in of its canvas.
  */
 const meta: Meta = {
   title: "Companion/Popover with call",
@@ -95,27 +92,18 @@ const CARD: CompanionPopoverContent = {
   ],
 };
 
-/** The canvas the bar is drawn in, and how far its centre sits off the bottom. */
+/** The canvas the bar is drawn in. */
 const STAGE_WIDTH = 900;
 const STAGE_HEIGHT = 720;
-const BAR_CENTRE_FROM_BOTTOM = companionNearEdgeFor(
-  COMPANION_BASE_AVATAR_BOX,
-  COMPANION_BASE_AVATAR_BOX,
-);
-/** Half the bar's height, and the gap main keeps between bar and popover. */
-const BAR_HALF = 22;
-const POPOVER_GAP = 8;
 
 function Stage({
   call = CALL,
   prompt,
   promptsDeferred,
-  popover,
 }: {
   call?: VoiceActivityState;
   prompt?: ReactNode;
   promptsDeferred?: number;
-  popover?: ReactNode;
 }) {
   return (
     <div
@@ -128,16 +116,6 @@ function Stage({
           "radial-gradient(120% 90% at 20% 10%, #b3391d 0%, transparent 60%), linear-gradient(140deg, #8e2a14 0%, #6d1f10 55%, #4a150b 100%)",
       }}
     >
-      {popover !== undefined ? (
-        <div
-          className="absolute left-1/2 -translate-x-1/2"
-          style={{
-            bottom: BAR_CENTRE_FROM_BOTTOM + BAR_HALF + POPOVER_GAP,
-          }}
-        >
-          {popover}
-        </div>
-      ) : null}
       <div className="absolute inset-0">
         <CompanionSurface
           phase="call"
@@ -153,11 +131,17 @@ function Stage({
   );
 }
 
-const whole = (
+/** A popover drawn whole on the bar, as the surface draws it there. */
+const onBar = (
   popover: CompanionPopoverContent,
   view: CompanionPopoverView = "expanded",
 ) => (
-  <CompanionPopover popover={popover} view={view} accentHex={CALL.accentHex} />
+  <CompanionPopover
+    attached
+    popover={popover}
+    view={view}
+    style={{ maxHeight: 440 }}
+  />
 );
 
 /** The call alone, for comparison. */
@@ -177,9 +161,9 @@ export const ApprovalsOnTheBar: Story = {
   render: () => <Stage prompt={<CompanionPromptRow popover={THREE} />} />,
 };
 
-/** Reviewed: the numbered list in its own window above the bar. */
-export const ApprovalsReviewedAboveTheBar: Story = {
-  render: () => <Stage popover={whole(THREE)} />,
+/** Reviewed: the numbered list on the bar. */
+export const ApprovalsReviewedOnTheBar: Story = {
+  render: () => <Stage prompt={onBar(THREE)} />,
 };
 
 /** Put off: counted on the bar, a press away. */
@@ -192,16 +176,16 @@ export const CredentialOnTheBar: Story = {
   render: () => <Stage prompt={<CompanionPromptRow popover={SECRET} />} />,
 };
 
-/** Entered: the form in its own window above the bar. */
-export const CredentialFormAboveTheBar: Story = {
-  render: () => <Stage popover={whole(SECRET)} />,
+/** Entered: the form on the bar. */
+export const CredentialFormOnTheBar: Story = {
+  render: () => <Stage prompt={onBar(SECRET)} />,
 };
 
 /**
  * A text card with a list, in a warm accent, over a bar lit in the same
  * colour: the panel's spacing and wash against the bar's own material.
  */
-export const ResearchCardAboveTheBar: Story = {
+export const ResearchCardOnTheBar: Story = {
   render: () => (
     <Stage
       call={{
@@ -210,25 +194,19 @@ export const ResearchCardAboveTheBar: Story = {
         label: "Speaking…",
         accentHex: "#E9642F",
       }}
-      popover={
-        <CompanionPopover
-          view="expanded"
-          accentHex="#E9642F"
-          popover={{
-            kind: "card",
-            id: "surf-2",
-            title: "Blue Whales: Research Roundup",
-            subtitle: "Journal-level findings, with sources",
-            body: "A couple of headliners from the recent literature:\n\n- **Heartbeat study:** PNAS, 2019\n- **New population:** Endangered Species Research, 2020",
-            actions: [],
-          }}
-        />
-      }
+      prompt={onBar({
+        kind: "card",
+        id: "surf-2",
+        title: "Blue Whales: Research Roundup",
+        subtitle: "Journal-level findings, with sources",
+        body: "A couple of headliners from the recent literature:\n\n- **Heartbeat study:** PNAS, 2019\n- **New population:** Endangered Species Research, 2020",
+        actions: [],
+      })}
     />
   ),
 };
 
-/** A card with an image and a link, above the bar. */
-export const CardAboveTheBar: Story = {
-  render: () => <Stage popover={whole(CARD)} />,
+/** A card with an image and a link, on the bar. */
+export const CardOnTheBar: Story = {
+  render: () => <Stage prompt={onBar(CARD)} />,
 };

@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -8,7 +9,10 @@ import {
 } from "react";
 
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
-import { CompanionPromptRow } from "@/components/companion-popover";
+import {
+  CompanionPopover,
+  CompanionPromptRow,
+} from "@/components/companion-popover";
 import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
 import {
   CompanionIntro,
@@ -29,6 +33,8 @@ import {
   answerCompanionDictationOffer,
   answerCompanionPopover,
   answerCompanionWatchRetro,
+  openCompanionLink,
+  setCompanionAttachedPopoverHeight,
   advanceCompanionIntro,
   captureCompanionSourceThumbnail,
   clearCompanionMarks,
@@ -60,7 +66,7 @@ import type {
   CompanionCharacter,
   CompanionGrowth,
   CompanionIntroBeat,
-  CompanionPopover,
+  CompanionPopover as CompanionPopoverContent,
   CompanionPopoverView,
   CompanionSurfaceState,
   CompanionWatchRetro,
@@ -78,6 +84,12 @@ import type {
  * turn "take me back to Vellum" into a one-pixel nudge that does nothing.
  */
 const DRAG_SLOP = 3;
+
+/**
+ * The tallest a popover on the call's bar is drawn, in the surface's units.
+ * Past it the content scrolls between the header and the answers.
+ */
+const COMPANION_ATTACHED_POPOVER_MAX_HEIGHT = 440;
 
 /**
  * The companion surface inside its Electron canvas
@@ -152,7 +164,7 @@ export function CompanionSurfacePage() {
   // What the assistant is putting in front of the user, and how main has it
   // shown. A call's bar carries the short form as a row of its own, and counts
   // what was put off. The whole of it is the popover's own window.
-  const [popover, setPopover] = useState<CompanionPopover | undefined>(
+  const [popover, setPopover] = useState<CompanionPopoverContent | undefined>(
     undefined,
   );
   const [popoverView, setPopoverView] = useState<
@@ -477,15 +489,38 @@ export function CompanionSurfacePage() {
 
   // Whether the last forwarded move put the pointer on the call's prompt row.
   const overPromptRef = useRef(false);
-  // The short form of the popover on the call's bar: while the bar is a row
-  // (docked to the top or bottom) and main has the popover in its short form.
+  // The popover on the call's bar, joined to it as one shape: while the bar
+  // is a row (docked to the top or bottom) and the popover is not put off.
   // Main keeps the popover's own window away in exactly this case.
   const promptShown =
-    popoverView === "row" &&
+    popover !== undefined &&
+    popoverView !== undefined &&
+    popoverView !== "deferred" &&
     (call !== null || dialing) &&
     dock !== "left" &&
-    dock !== "right" &&
-    (popover?.kind === "approvals" || popover?.kind === "secret");
+    dock !== "right";
+  // How tall it stands above the bar, told to main, which grows the canvas to
+  // hold a list or a form taller than the room kept for a card. Named for the
+  // popover and measured again for each view, which is a shape of its own.
+  const promptId = promptShown ? popover?.id : undefined;
+  useLayoutEffect(() => {
+    const shelf = promptRef.current;
+    if (promptId === undefined || shelf === null) {
+      return;
+    }
+    const report = (): void => {
+      setCompanionAttachedPopoverHeight(
+        promptId,
+        shelf.getBoundingClientRect().height,
+      );
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(shelf);
+    return () => {
+      observer.disconnect();
+    };
+  }, [promptId, popoverView]);
   // The row goes when it is answered, reviewed or put off, under a pointer
   // that has not moved. Give the desktop back the way the offer's card does,
   // and only when the pointer was on the row.
@@ -1034,8 +1069,9 @@ export function CompanionSurfacePage() {
           ) : null
         }
         prompt={
-          promptShown &&
-          (popover?.kind === "approvals" || popover?.kind === "secret") ? (
+          !promptShown || popover === undefined ? null : popoverView ===
+              "row" &&
+            (popover.kind === "approvals" || popover.kind === "secret") ? (
             <CompanionPromptRow
               popover={popover}
               onAnswer={(answer) => {
@@ -1045,7 +1081,26 @@ export function CompanionSurfacePage() {
                 setCompanionPopoverView(popover.id, view);
               }}
             />
-          ) : null
+          ) : (
+            <CompanionPopover
+              // Remounted per popover, so nothing drawn for one carries to
+              // the next.
+              key={popover.id}
+              attached
+              popover={popover}
+              view={popoverView ?? "expanded"}
+              style={{ maxHeight: COMPANION_ATTACHED_POPOVER_MAX_HEIGHT }}
+              onAnswer={(answer) => {
+                answerCompanionPopover(answer, popover.id);
+              }}
+              onView={(view) => {
+                setCompanionPopoverView(popover.id, view);
+              }}
+              onOpenLink={(url) => {
+                openCompanionLink(url);
+              }}
+            />
+          )
         }
         promptRef={promptRef}
         promptsDeferred={deferredCount}

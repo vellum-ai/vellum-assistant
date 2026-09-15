@@ -351,6 +351,18 @@ export function setCompanionPopoverView(
 }
 
 /**
+ * Report how tall the popover drawn on a call's bar stands above the bar's
+ * centre line, in points. Main grows the surface's canvas to hold it, since
+ * a list or a form is taller than the room the canvas keeps for a card.
+ */
+export function setCompanionAttachedPopoverHeight(
+  popoverId: string,
+  height: number,
+): void {
+  bridge()?.setAttachedPopoverHeight?.(popoverId, height);
+}
+
+/**
  * Open a link from the popover in the user's browser.
  *
  * Through main rather than `window.open`: floating windows deny every

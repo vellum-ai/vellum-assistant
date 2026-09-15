@@ -96,6 +96,18 @@ const surface = {
   },
   on: () => {},
   isDestroyed: () => false,
+  /** Whether it may become key, which a form on the bar lends it. */
+  focusable: false,
+  setFocusable: (focusable: boolean) => {
+    surface.focusable = focusable;
+  },
+  /** Whether it is key: `focus` makes it so, and nothing here resigns it. */
+  key: false,
+  focus: () => {
+    if (surface.focusable) {
+      surface.key = true;
+    }
+  },
   /** Whether the surface is on screen: off it while the app is in front. */
   visible: true,
   hide: () => {
@@ -3184,25 +3196,58 @@ describe("the popover beside the surface", () => {
     expect(state().popoverView).toBe("row");
   });
 
-  test("stands above a call's bar once reviewed, centred on it", () => {
+  /** Reviewed, the list joins the bar too: one shape, one glow. */
+  test("keeps its window away while the bar carries the reviewed list", () => {
     send("vellum:voiceActivity:start", START);
     resetCompanionSurfacePosition();
     show(THREE, 400, 180);
 
     send("vellum:companion:setPopoverView", "req-1,req-2,req-3", "expanded");
 
-    const bounds = popoverWindow()?.bounds;
-    const centre =
-      900 -
-      companionLowerReachFor(
-        companionBoxFor("avatar", "small"),
-        companionBoxFor("options", "small"),
-      );
-    expect(popoverWindow()?.visible).toBe(true);
-    expect(
-      Math.abs((bounds?.x ?? 0) + (bounds?.width ?? 0) / 2 - 720),
-    ).toBeLessThanOrEqual(1);
-    expect((bounds?.y ?? 0) + (bounds?.height ?? 0)).toBeLessThan(centre);
+    expect(popoverWindow()?.visible === true).toBe(false);
+    expect(state().popoverView).toBe("expanded");
+  });
+
+  /** A list or a form is taller than the card room the canvas keeps. */
+  test("grows the canvas to hold what the bar carries, and gives it back", () => {
+    send("vellum:voiceActivity:start", START);
+    resetCompanionSurfacePosition();
+    show(THREE, 400, 180);
+    send("vellum:companion:setPopoverView", "req-1,req-2,req-3", "expanded");
+    const before = boundsSet.at(-1)?.height ?? 0;
+
+    send("vellum:companion:setAttachedPopoverHeight", "req-1,req-2,req-3", 700);
+    const grown = boundsSet.at(-1)?.height ?? 0;
+    expect(grown).toBeGreaterThan(before);
+    expect(grown).toBeGreaterThanOrEqual(700);
+
+    send("vellum:companion:setContext", context());
+    expect(boundsSet.at(-1)?.height ?? 0).toBeLessThan(grown);
+  });
+
+  test("a height reported for another popover grows nothing", () => {
+    send("vellum:voiceActivity:start", START);
+    resetCompanionSurfacePosition();
+    show(THREE, 400, 180);
+    const count = boundsSet.length;
+
+    send("vellum:companion:setAttachedPopoverHeight", "req-0", 700);
+
+    expect(boundsSet.length).toBe(count);
+  });
+
+  /** The form takes typing, and the bar's window is the one drawing it. */
+  test("lends the surface's window the keyboard for a form on the bar", () => {
+    send("vellum:voiceActivity:start", START);
+    resetCompanionSurfacePosition();
+    show(SECRET);
+
+    send("vellum:companion:setPopoverView", "sec-1", "expanded");
+    expect(surface.focusable).toBe(true);
+    expect(surface.key).toBe(true);
+
+    send("vellum:companion:setPopoverView", "sec-1", "deferred");
+    expect(surface.focusable).toBe(false);
   });
 
   test("put off, shows nothing, and a new popover shows itself again", () => {

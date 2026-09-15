@@ -74,6 +74,11 @@ export interface CompanionPopoverProps {
    * whole. Absent draws it neutral.
    */
   accentHex?: string;
+  /**
+   * Drawn on a call's bar, which supplies the ground, the edge and the
+   * light: the popover draws its content and nothing around it.
+   */
+  attached?: boolean;
   className?: string;
   style?: CSSProperties;
 }
@@ -112,6 +117,7 @@ export function CompanionPopover({
   onView,
   onOpenLink,
   accentHex,
+  attached = false,
   className,
   style,
 }: CompanionPopoverProps) {
@@ -155,11 +161,15 @@ export function CompanionPopover({
         // A column the page bounds in height: a header and a row of answers
         // that stay put, and the content between them scrolling, so the
         // answers are always within reach however long the content runs.
-        "flex min-h-0 flex-col gap-3 rounded-[20px] border border-white/10 p-4 text-[var(--content-default)] shadow-2xl shadow-black/50",
+        "flex min-h-0 flex-col gap-3 p-4 text-[var(--content-default)]",
+        !attached &&
+          "rounded-[20px] border border-white/10 shadow-2xl shadow-black/50",
         popover.kind === "approvals" ? "w-max max-w-[640px]" : "w-[360px]",
         className,
       )}
-      style={{ background: panelBackground(accentHex), ...style }}
+      style={
+        attached ? style : { background: panelBackground(accentHex), ...style }
+      }
     >
       {popover.kind === "approvals" ? (
         <>

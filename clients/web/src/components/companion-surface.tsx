@@ -1130,8 +1130,7 @@ export function CompanionSurface({
    * Whether the call's bar carries a prompt row, joined to it as one shape.
    * Only a row can: a column has no edge to stand a line of words on.
    */
-  const joined =
-    inCall && !vertical && prompt !== null && prompt !== undefined;
+  const joined = inCall && !vertical && prompt !== null && prompt !== undefined;
   const promptMeasureRef = useRef<HTMLDivElement | null>(null);
   const [promptWidth, setPromptWidth] = useState(0);
   useLayoutEffect(() => {
@@ -1304,6 +1303,8 @@ export function CompanionSurface({
           dock={dock}
           top={avatarLine}
           width={barWidth}
+          accentHex={accentHex}
+          lit={expanded}
           promptRef={promptRef}
         >
           {prompt}
@@ -2201,12 +2202,17 @@ function PromptShelf({
   dock,
   top,
   width,
+  accentHex,
+  lit,
   promptRef,
   children,
 }: {
   dock: CompanionSurfaceDock;
   top: string;
   width: number;
+  accentHex: string;
+  /** Whether the call's light travels the shape's edge. */
+  lit: boolean;
   promptRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }) {
@@ -2233,14 +2239,30 @@ function PromptShelf({
     >
       <span
         aria-hidden
-        className={`absolute inset-0 border border-white/10 bg-[#17181b] shadow-lg shadow-black/40 ${
-          below ? "rounded-b-[22px] border-t-0" : "rounded-t-[22px] border-b-0"
+        className={`absolute inset-0 bg-[#17181b] shadow-lg shadow-black/40 ${
+          below ? "rounded-b-[22px]" : "rounded-t-[22px]"
         }`}
       />
       <span
         aria-hidden
         className="absolute right-4 left-4 h-px bg-white/10"
         style={below ? { top: 22 } : { bottom: 22 }}
+      />
+      {/* The call's light, travelling the edge of the whole shape: the shelf
+          and the half of the bar it does not run behind. The bar's own ring
+          is out while the shelf is up. */}
+      <span
+        aria-hidden
+        className="companion-working-ring pointer-events-none absolute transition-opacity duration-200"
+        style={{
+          left: -2,
+          right: -2,
+          top: below ? -24 : -2,
+          bottom: below ? -2 : -24,
+          borderRadius: 24,
+          opacity: lit ? 1 : 0,
+          ["--companion-ring-accent" as string]: accentHex,
+        }}
       />
       <div className="relative">{children}</div>
     </div>
