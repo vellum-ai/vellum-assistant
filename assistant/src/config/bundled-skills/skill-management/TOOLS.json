@@ -37,6 +37,10 @@
             "type": "boolean",
             "description": "Whether to overwrite an existing skill with the same ID (default: false)."
           },
+          "change_summary": {
+            "type": "string",
+            "description": "What changed and why, in one or two short sentences (at most 200 characters) written for the person who reads the \"Skill updated\" notice, e.g. \"Added the retry after an expired session and the export endpoint that held steady.\" Required when a background pass overwrites an existing skill (the update is rejected without it) and becomes that notice's body. Ignored on a create and on a user-directed edit."
+          },
           "includes": {
             "type": "array",
             "items": { "type": "string" },

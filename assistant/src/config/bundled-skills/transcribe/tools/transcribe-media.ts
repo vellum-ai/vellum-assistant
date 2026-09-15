@@ -19,6 +19,7 @@ import {
   FFPROBE_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../../../util/spawn.js";
+import { safeStringSlice } from "../../../../util/unicode.js";
 
 const VIDEO_EXTENSIONS = new Set([
   ".mp4",
@@ -107,7 +108,9 @@ async function splitAudio(
     signal,
   );
   if (result.exitCode !== 0) {
-    throw new Error(`Failed to split audio: ${result.stderr.slice(0, 300)}`);
+    throw new Error(
+      `Failed to split audio: ${safeStringSlice(result.stderr, 0, 300)}`,
+    );
   }
   const files = await readdir(chunkDir);
   return files
@@ -167,7 +170,7 @@ async function toWav(
     signal,
   );
   if (result.exitCode !== 0) {
-    throw new Error(`ffmpeg failed: ${result.stderr.slice(0, 500)}`);
+    throw new Error(`ffmpeg failed: ${safeStringSlice(result.stderr, 0, 500)}`);
   }
   return wavPath;
 }

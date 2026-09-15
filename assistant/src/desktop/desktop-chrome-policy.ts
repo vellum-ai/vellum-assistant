@@ -22,12 +22,17 @@ export function writeDesktopChromePolicy(policyDir: string): void {
       throw err;
     }
   }
-  if (policy.CommandLineFlagSecurityWarningsEnabled === false) {
+  if (
+    policy.CommandLineFlagSecurityWarningsEnabled === false &&
+    policy.PasswordManagerEnabled === false
+  ) {
     return;
   }
 
   // This suppresses command-line warnings; Chrome's sandbox stays unchanged.
   policy.CommandLineFlagSecurityWarningsEnabled = false;
+  // Suppress save prompts while keeping previously saved passwords usable.
+  policy.PasswordManagerEnabled = false;
   mkdirSync(policyDir, { recursive: true });
   const staging = mkdtempSync(join(policyDir, ".vellum-desktop-"));
   try {

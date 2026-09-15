@@ -25,6 +25,7 @@
  * value.
  */
 
+import { safeStringSlice } from "../../../../util/unicode.js";
 import type { CdpWsTransport } from "./ws-transport.js";
 
 /**
@@ -336,7 +337,7 @@ function parseJsonText(text: string, endpoint: string): unknown {
   } catch (err) {
     throw new DevToolsDiscoveryError(
       "invalid_response",
-      `Expected JSON from ${endpoint} but got: ${text.slice(0, 200)}`,
+      `Expected JSON from ${endpoint} but got: ${safeStringSlice(text, 0, 200)}`,
       err,
     );
   }

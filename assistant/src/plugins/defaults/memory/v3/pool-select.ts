@@ -57,7 +57,7 @@ import { z } from "zod";
 
 import { classifyConversationError } from "../../../../daemon/conversation-error.js";
 import type { PendingConversationNotice } from "../../../../daemon/conversation-notices.js";
-import { redactLogString, truncate } from "../host-utils.js";
+import { redactLogString, safeStringSlice, truncate } from "../host-utils.js";
 import {
   cachedTextBlock,
   extractToolUse,
@@ -276,7 +276,9 @@ function oneLine(text: string): string {
  * `§<title>: … <window> …`, the window being up to {@link SNIPPET_MAX_CHARS}
  * of the one-line section body centered on the first occurrence of the
  * best-contributing query term that occurs in it (the lead, titled `""`,
- * renders the window alone). `undefined` when no term occurs in the body.
+ * renders the window alone). The window edges never split a surrogate pair:
+ * an orphaned half is invalid UTF-16 and strict provider parsers reject the
+ * whole request. `undefined` when no term occurs in the body.
  */
 function renderKeywordInContext(
   section: Section,
@@ -299,7 +301,7 @@ function renderKeywordInContext(
     const end = Math.min(body.length, start + SNIPPET_MAX_CHARS);
     const window = [
       start > 0 ? "… " : "",
-      body.slice(start, end).trim(),
+      safeStringSlice(body, start, end).trim(),
       end < body.length ? " …" : "",
     ].join("");
     const title = section.title.trim();

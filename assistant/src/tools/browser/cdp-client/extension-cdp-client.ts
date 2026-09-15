@@ -1,5 +1,6 @@
 import type { HostBrowserProxy } from "../../../daemon/host-browser-proxy.js";
 import { getLogger } from "../../../util/logger.js";
+import { safeStringSlice } from "../../../util/unicode.js";
 import type { CdpErrorCode } from "./errors.js";
 import { CdpError } from "./errors.js";
 import type { CdpClientKind, ScopedCdpClient, TabInfo } from "./types.js";
@@ -121,7 +122,7 @@ export class ExtensionCdpClient implements ScopedCdpClient {
         // and mask the extension path as the true failing hop.
         throw new CdpError(
           "cdp_error",
-          result.content.slice(0, 200) || `CDP error for ${method}`,
+          safeStringSlice(result.content, 0, 200) || `CDP error for ${method}`,
           {
             cdpMethod: method,
             cdpParams: params,
@@ -164,7 +165,7 @@ export class ExtensionCdpClient implements ScopedCdpClient {
     } catch (err) {
       throw new CdpError(
         "transport_error",
-        `Non-JSON content from host_browser_result: ${result.content.slice(0, 200)}`,
+        `Non-JSON content from host_browser_result: ${safeStringSlice(result.content, 0, 200)}`,
         {
           cdpMethod: method,
           cdpParams: params,

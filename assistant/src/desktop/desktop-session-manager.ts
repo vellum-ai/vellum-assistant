@@ -17,6 +17,7 @@ import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
 import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
+import { shouldRestoreDesktopChromeSession } from "./desktop-chrome-session.js";
 import {
   desktopChromePath,
   resolveDesktopBinaries,
@@ -739,6 +740,10 @@ function browserCommand(executable: string, profileDir: string): string[] {
     "--no-sandbox",
     "--no-first-run",
     "--disable-dev-shm-usage",
+    // Crash recovery requires both flags; clean exits use normal startup.
+    ...(shouldRestoreDesktopChromeSession(profileDir)
+      ? ["--restore-last-session", "--hide-crash-restore-bubble"]
+      : []),
     "--start-maximized",
     "--window-position=0,0",
     `--window-size=${DESKTOP_WIDTH},${DESKTOP_HEIGHT}`,

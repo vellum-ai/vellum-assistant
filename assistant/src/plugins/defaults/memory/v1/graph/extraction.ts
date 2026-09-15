@@ -46,7 +46,7 @@ import type {
   SourceType,
   TriggerType,
 } from "../../graph/types.js";
-import { BackendUnavailableError } from "../../host-utils.js";
+import { BackendUnavailableError, safeStringSlice } from "../../host-utils.js";
 import { extractToolUse, userMessage } from "../../llm-helpers.js";
 import { getLogger } from "../../logging.js";
 import { buildIdentityContext } from "../identity-context.js";
@@ -1617,7 +1617,9 @@ async function findCandidateNodes(
       await import("../../../../../persistence/embeddings/embed.js");
     const searchText =
       transcript.length > 3000
-        ? transcript.slice(0, 1500) + "\n...\n" + transcript.slice(-1500)
+        ? safeStringSlice(transcript, 0, 1500) +
+          "\n...\n" +
+          safeStringSlice(transcript, transcript.length - 1500)
         : transcript;
 
     try {

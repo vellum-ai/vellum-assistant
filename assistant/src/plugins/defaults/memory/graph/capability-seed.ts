@@ -26,6 +26,7 @@ import {
   getCachedCatalogSync,
   getCatalog,
 } from "../../../../skills/catalog-cache.js";
+import { safeStringSlice } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 import type { SkillCapabilityInput } from "../substrate/skill-content.js";
@@ -245,7 +246,7 @@ function buildSkillContent(input: SkillCapabilityInput): string {
     content += ` Avoid when: ${input.avoidWhen.join("; ")}.`;
   }
   if (content.length > 500) {
-    content = content.slice(0, 500);
+    content = safeStringSlice(content, 0, 500);
   }
   return content;
 }

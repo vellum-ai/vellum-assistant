@@ -13,8 +13,8 @@
  */
 
 import type { GatewayConfig } from "../../config.js";
-import { credentialKey } from "../../credential-key.js";
 import { getLogger } from "../../logger.js";
+import { resolvePlatformAssistantIdOrUndefined } from "../../platform-identity.js";
 import {
   CircuitBreakerOpenError,
   forwardTwilioVoiceWebhook,
@@ -239,11 +239,7 @@ async function forwardToAssistant(
   caches?: TwilioValidationCaches,
 ): Promise<Response> {
   try {
-    const platformAssistantId = (
-      await caches?.credentials?.get(
-        credentialKey("vellum", "platform_assistant_id"),
-      )
-    )?.trim();
+    const platformAssistantId = await resolvePlatformAssistantIdOrUndefined();
     const runtimeResponse = await forwardTwilioVoiceWebhook(
       config,
       params,

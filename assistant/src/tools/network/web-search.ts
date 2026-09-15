@@ -15,6 +15,7 @@ import {
   getHttpRetryDelay,
   sleep,
 } from "../../util/retry.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -509,7 +510,11 @@ const KEENABLE_SNIPPET_MAX_LENGTH = 500;
  * present rather than nullish. */
 function keenableSnippet(result: KeenableSearchResult): string {
   const text = result.snippet || result.description || "";
-  return text.replace(/\s+/g, " ").trim().slice(0, KEENABLE_SNIPPET_MAX_LENGTH);
+  return safeStringSlice(
+    text.replace(/\s+/g, " ").trim(),
+    0,
+    KEENABLE_SNIPPET_MAX_LENGTH,
+  );
 }
 
 function formatKeenableResults(

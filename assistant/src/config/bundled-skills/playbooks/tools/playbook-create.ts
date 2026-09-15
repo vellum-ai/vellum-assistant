@@ -23,6 +23,7 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { safeStringSlice } from "../../../../util/unicode.js";
 
 const VALID_AUTONOMY_LEVELS = new Set<string>(["auto", "draft", "notify"]);
 
@@ -68,7 +69,7 @@ export async function executePlaybookCreate(
   };
   const statement = JSON.stringify(playbook);
   const sanitizedTrigger = trigger.replace(/[\r\n]+/g, " ");
-  const subject = `Playbook: ${sanitizedTrigger}`.slice(0, 80);
+  const subject = safeStringSlice(`Playbook: ${sanitizedTrigger}`, 0, 80);
   const content = `${subject}\n${statement}`;
 
   try {

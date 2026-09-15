@@ -248,6 +248,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../util/sqlite-retry.js",
     "../../../util/strip-comment-lines.js",
     "../../../util/truncate.js",
+    "../../../util/unicode.js",
     "../../../util/worker-compute.js",
     "../../../util/worker-memory.js",
     "../../../util/worker-process.js",

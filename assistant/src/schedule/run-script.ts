@@ -5,6 +5,7 @@ import {
 } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 const log = getLogger("run-script");
 
@@ -200,7 +201,7 @@ function truncate(text: string): string {
   if (text.length <= MAX_OUTPUT_BYTES) {
     return text;
   }
-  return text.slice(0, MAX_OUTPUT_BYTES) + "\n... (truncated)";
+  return safeStringSlice(text, 0, MAX_OUTPUT_BYTES) + "\n... (truncated)";
 }
 
 /**
