@@ -226,6 +226,11 @@ export class HostCuProxy {
    */
   private _resetGeneration = 0;
   /**
+   * Desktops a request has been sent to since the last reset, keyed by
+   * `observedTargetKey`, so the end of a task can reach each one.
+   */
+  private _dispatchedTargets = new Map<string, string | undefined>();
+  /**
    * Owned request IDs mapped to whether their observation is scoped, whether
    * the helper was told to skip the screenshot, and when the request was
    * dispatched. The dispatch time gives the round trip, which is the part of
@@ -442,6 +447,7 @@ export class HostCuProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
+      this._dispatchedTargets.set(targetKey, resolvedTargetClientId);
       this._ownedRequests.set(requestId, {
         scoped: scopedObservation,
         screenshotSkipped,
@@ -592,8 +598,36 @@ export class HostCuProxy {
     }
   }
 
+  /**
+   * Finish the task: tell every desktop this task drove that it is over, then
+   * reset. The notice rides `host_cu_cancel` with a fresh request ID, which
+   * matches nothing in flight; the helper treats any cancel as the run
+   * stopping and puts the pointer back where the user left it, instead of
+   * waiting out its idle fallback.
+   */
+  endTask(conversationId: string): void {
+    for (const targetClientId of this._dispatchedTargets.values()) {
+      try {
+        broadcastMessage(
+          {
+            type: "host_cu_cancel",
+            requestId: uuid(),
+            conversationId,
+            ...(targetClientId != null ? { targetClientId } : {}),
+          },
+          conversationId,
+          { targetClientId },
+        );
+      } catch {
+        // Best-effort: the helper still returns the pointer after its idle delay.
+      }
+    }
+    this.reset();
+  }
+
   /** Reset all CU state. Called on terminal tools (computer_use_done, etc.). */
   reset(): void {
+    this._dispatchedTargets.clear();
     this._stepCount = 0;
     this._previousAXTree = undefined;
     this._consecutiveUnchangedSteps = 0;

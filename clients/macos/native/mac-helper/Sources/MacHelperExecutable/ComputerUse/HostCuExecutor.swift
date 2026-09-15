@@ -95,9 +95,13 @@ enum HostCuActionRunner {
 
     /// Record a cancel for `requestId`. Entries older than a minute are
     /// dropped, which also bounds cancels that arrive after a request ended.
+    /// Any cancel means the run has stopped, whether the user pressed Stop or
+    /// the task finished (the daemon sends one with an unused ID then), so the
+    /// pointer goes back to the user now.
     static func cancel(requestId: String, now: Date = Date()) {
         cancelledRequests = cancelledRequests.filter { now.timeIntervalSince($0.value) < 60 }
         cancelledRequests[requestId] = now
+        ActionExecutor.returnPointerHome()
     }
 
     private static func isCancelled(_ requestId: String) -> Bool {

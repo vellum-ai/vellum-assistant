@@ -3180,7 +3180,7 @@ export async function surfaceProxyResolver(
           : typeof input.answer === "string"
             ? input.answer
             : "Task complete";
-      hostCuProxy.reset();
+      hostCuProxy.endTask(ctx.conversationId);
       return { content: summary, isError: false };
     }
 

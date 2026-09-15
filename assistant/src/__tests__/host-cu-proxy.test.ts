@@ -1232,6 +1232,38 @@ describe("HostCuProxy", () => {
     });
   });
 
+  describe("endTask", () => {
+    test("tells the desktop the task drove that it is over, once, then resets", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      const requestId = (sentMessages[0] as Record<string, unknown>)
+        .requestId as string;
+      proxy.processObservation(requestId, { axTree: "Button [1]" });
+      await resultPromise;
+
+      proxy.endTask("session-1");
+      const cancels = sentMessages.filter(
+        (m) => (m as Record<string, unknown>).type === "host_cu_cancel",
+      ) as Array<Record<string, unknown>>;
+      expect(cancels).toHaveLength(1);
+      expect(cancels[0].conversationId).toBe("session-1");
+      expect(cancels[0].requestId).not.toBe(requestId);
+
+      proxy.endTask("session-1");
+      expect(
+        sentMessages.filter(
+          (m) => (m as Record<string, unknown>).type === "host_cu_cancel",
+        ),
+      ).toHaveLength(1);
+    });
+  });
+
   describe("late resolve after abort", () => {
     test("resolve is a no-op after abort (entry already deleted)", async () => {
       setup();

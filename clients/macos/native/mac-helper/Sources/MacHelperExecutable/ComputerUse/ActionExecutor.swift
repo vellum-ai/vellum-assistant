@@ -352,9 +352,13 @@ final class ActionExecutor {
 
     // MARK: - Scroll
 
-    func scroll(at point: CGPoint, direction: String, amount: Int) throws {
-        try mouseMove(to: point)
-        usleep(30_000)
+    /// Scrolls at `point`, or wherever the pointer already is when `point` is
+    /// nil, which leaves the pointer alone.
+    func scroll(at point: CGPoint?, direction: String, amount: Int) throws {
+        if let point {
+            try mouseMove(to: point)
+            usleep(30_000)
+        }
 
         let multiplier = amount * 5
         var dy: Int32 = 0
@@ -395,11 +399,10 @@ final class ActionExecutor {
             guard let key = action.key else { throw ExecutorError.missingKey }
             try pressKey(key)
         case .scroll:
-            let x = action.x ?? 0
-            let y = action.y ?? 0
+            let point = action.x.flatMap { x in action.y.map { CGPoint(x: x, y: $0) } }
             let direction = action.scrollDirection ?? "down"
             let amount = action.scrollAmount ?? 3
-            try scroll(at: CGPoint(x: x, y: y), direction: direction, amount: amount)
+            try scroll(at: point, direction: direction, amount: amount)
         case .drag:
             guard let fromX = action.x, let fromY = action.y else { throw ExecutorError.missingCoordinates }
             guard let endX = action.toX, let endY = action.toY else { throw ExecutorError.missingCoordinates }
