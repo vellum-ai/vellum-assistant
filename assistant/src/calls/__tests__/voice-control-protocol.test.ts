@@ -165,6 +165,7 @@ describe("session control markers", () => {
     ["Muted. [MUTE]", { action: "mute" }],
     ["Taking a look. [LOOK:SCREEN]", { action: "look_screen" }],
     ["Show me. [LOOK:CAMERA]", { action: "look_camera" }],
+    ["Okay, I'll stop looking. [LOOK:STOP]", { action: "look_stop" }],
     [
       "I'll check in less. [UPDATES:FEWER]",
       { action: "updates", cadence: "fewer" },

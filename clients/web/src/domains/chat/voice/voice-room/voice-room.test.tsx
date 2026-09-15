@@ -2180,13 +2180,13 @@ describe("VoiceRoom: camera", () => {
     stubMediaDevices(getUserMedia);
     seedCameraCapableAssistant();
     startOwnedSession("listening");
-    useLiveVoiceStore.getState().setCameraLookRequested(true);
+    useLiveVoiceStore.getState().setCameraLookRequest("start");
 
     const { unmount } = render(<VoiceRoom />);
     await waitFor(() => {
       expect(viewfinder()).not.toBeNull();
     });
-    expect(useLiveVoiceStore.getState().cameraLookRequested).toBe(false);
+    expect(useLiveVoiceStore.getState().cameraLookRequest).toBeNull();
     unmount();
 
     // A room that comes back later does not reopen the camera for the old ask.
@@ -2194,6 +2194,28 @@ describe("VoiceRoom: camera", () => {
     await act(async () => {});
     expect(viewfinder()).toBeNull();
     expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  test("a spoken stop closes an open viewfinder and leaves the call running", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    expect(viewfinder()).not.toBeNull();
+
+    await act(async () => {
+      useLiveVoiceStore.getState().setCameraLookRequest("stop");
+    });
+
+    await waitFor(() => {
+      expect(viewfinder()).toBeNull();
+    });
+    expect(useLiveVoiceStore.getState().cameraLookRequest).toBeNull();
+    expect(controls.stop).not.toHaveBeenCalled();
   });
 
   test("closing the camera leaves the session alone", async () => {

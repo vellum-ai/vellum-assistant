@@ -756,25 +756,35 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     }
     setLive(false);
   }, [roomVisible, setLive]);
-  // A spoken "look at this": the session left the ask in the store because the
-  // camera is this room's, and the room may have been minimized or not yet
-  // mounted when it landed. Taken the moment the room sees it, so a room that
-  // mounts later never reopens the camera for an old ask; Live follows once
-  // the viewfinder is up, since Live on a closed camera is forced back off.
-  const cameraLookRequested = useLiveVoiceStore.use.cameraLookRequested();
+  // A spoken "look at this" or "stop looking": the session left the ask in the
+  // store because the camera is this room's, and the room may have been
+  // minimized or not yet mounted when it landed. Taken the moment the room
+  // sees it, so a room that mounts later never reopens the camera for an old
+  // ask; Live follows once the viewfinder is up, since Live on a closed camera
+  // is forced back off. A stop closes the viewfinder the way the camera
+  // control does, consent first.
+  const cameraLookRequest = useLiveVoiceStore.use.cameraLookRequest();
   const [liveOnceOpen, setLiveOnceOpen] = useState(false);
   useEffect(() => {
-    if (!cameraLookRequested || !takeLiveVoiceCameraLookRequest()) {
+    if (cameraLookRequest === null) {
       return;
     }
-    if (!cameraSupported) {
+    const request = takeLiveVoiceCameraLookRequest();
+    if (request === "stop") {
+      setLiveOnceOpen(false);
+      if (cameraOpen) {
+        closeCamera();
+      }
+      return;
+    }
+    if (request !== "start" || !cameraSupported) {
       return;
     }
     setLiveOnceOpen(true);
     if (!cameraOpen) {
       void open();
     }
-  }, [cameraLookRequested, cameraSupported, cameraOpen, open]);
+  }, [cameraLookRequest, cameraSupported, cameraOpen, open, closeCamera]);
   useEffect(() => {
     if (!liveOnceOpen || !cameraOpen || !liveAvailable) {
       return;

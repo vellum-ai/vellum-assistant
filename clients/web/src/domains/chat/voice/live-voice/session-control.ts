@@ -74,6 +74,10 @@ export function liveVoiceSessionControls(
   ) {
     controls.push("look_camera");
   }
+  // Whatever can be started by voice can be stopped by voice.
+  if (controls.includes("look_screen") || controls.includes("look_camera")) {
+    controls.push("look_stop");
+  }
   return controls;
 }
 
@@ -176,7 +180,16 @@ export function applyLiveVoiceSessionControl(
     case "look_camera":
       // The room owns the camera, so bring it back and leave the ask for it.
       restoreVoiceRoom();
-      requestLiveVoiceCameraLook();
+      requestLiveVoiceCameraLook("start");
+      return;
+    case "look_stop":
+      // Both, whichever is on: "stop looking" does not name which. The share
+      // stops the way the pill's Share does; the camera ask waits for the
+      // room, and a room that is not up has no camera running to close.
+      if (useLiveVoiceStore.getState().screenShareTarget !== null) {
+        setCompanionScreenShare();
+      }
+      requestLiveVoiceCameraLook("stop");
       return;
     default:
       // A control this client does not know; nothing to do.

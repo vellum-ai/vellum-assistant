@@ -701,7 +701,15 @@ describe("parseLiveVoiceClientTextFrame", () => {
   test("keeps known session controls and drops unknown ones", () => {
     const result = validateLiveVoiceClientFrame({
       type: "start",
-      sessionControls: ["mute", "look_camera", "end", "mute", 7, "fly"],
+      sessionControls: [
+        "mute",
+        "look_stop",
+        "look_camera",
+        "end",
+        "mute",
+        7,
+        "fly",
+      ],
       audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
     });
 
@@ -712,7 +720,7 @@ describe("parseLiveVoiceClientTextFrame", () => {
     // A newer client's controls cost it nothing on an older daemon.
     expect(result.frame).toMatchObject({
       type: "start",
-      sessionControls: ["end", "mute", "look_camera"],
+      sessionControls: ["end", "mute", "look_camera", "look_stop"],
     });
   });
 

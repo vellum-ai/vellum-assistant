@@ -173,6 +173,7 @@ const LIVE_VOICE_SESSION_CONTROLS = [
   "mute",
   "look_screen",
   "look_camera",
+  "look_stop",
 ] as const;
 
 /** A session control a client can carry out on the assistant's behalf. */
@@ -640,6 +641,7 @@ export interface LiveVoiceMinimizeRoomServerFrame extends LiveVoiceServerFrameBa
  *   "unmute".
  * - `look_screen`: start showing the call the user's screen.
  * - `look_camera`: start showing the call what the camera sees.
+ * - `look_stop`: stop showing the call the screen and the camera.
  */
 export interface LiveVoiceSessionControlServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "session_control";

@@ -68,6 +68,8 @@ const UPDATES_MARKER_PREFIX = "[UPDATES:";
  */
 export const LOOK_SCREEN_MARKER = "[LOOK:SCREEN]";
 export const LOOK_CAMERA_MARKER = "[LOOK:CAMERA]";
+/** Stop showing the call the screen and the camera, whichever is on. */
+export const LOOK_STOP_MARKER = "[LOOK:STOP]";
 const LOOK_MARKER_PREFIX = "[LOOK:";
 
 // ---------------------------------------------------------------------------
@@ -354,17 +356,18 @@ export function createControlMarkerHoldback(
  * A session control a live-voice reply asked for with a terminal marker:
  * `end` from {@link END_CALL_MARKER}, `mute` from {@link MUTE_MARKER} or its
  * timed form, `updates` from the progress-cadence markers, `look_screen` and
- * `look_camera` from the look markers.
+ * `look_camera` and `look_stop` from the look markers.
  */
 export type SessionControlRequest =
   | { readonly action: "end" }
   | { readonly action: "mute"; readonly durationMs?: number }
   | { readonly action: "updates"; readonly cadence: "fewer" | "normal" }
   | { readonly action: "look_screen" }
-  | { readonly action: "look_camera" };
+  | { readonly action: "look_camera" }
+  | { readonly action: "look_stop" };
 
 const TERMINAL_SESSION_CONTROL_REGEX =
-  /(\[END_CALL\]|\[UPDATES:(FEWER|NORMAL)\]|\[LOOK:(SCREEN|CAMERA)\]|\[MUTE\]|\[MUTE:\s*([^\]]*)\])\s*$/;
+  /(\[END_CALL\]|\[UPDATES:(FEWER|NORMAL)\]|\[LOOK:(SCREEN|CAMERA|STOP)\]|\[MUTE\]|\[MUTE:\s*([^\]]*)\])\s*$/;
 
 /**
  * The session control a reply ends with, or null.
@@ -396,7 +399,14 @@ export function parseTerminalSessionControl(
     };
   }
   if (match[3] !== undefined) {
-    return { action: match[3] === "SCREEN" ? "look_screen" : "look_camera" };
+    return {
+      action:
+        match[3] === "SCREEN"
+          ? "look_screen"
+          : match[3] === "CAMERA"
+            ? "look_camera"
+            : "look_stop",
+    };
   }
   const seconds = match[4] === undefined ? NaN : Number(match[4].trim());
   if (

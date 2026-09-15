@@ -79,6 +79,15 @@ describe("sessionControlTeaching", () => {
     expect(teaching).toContain("ask which one instead of guessing");
   });
 
+  test("a device that can look can be told to stop", () => {
+    const teaching = sessionControlTeaching(["look_screen", "look_stop"], {});
+
+    expect(teaching).toContain("[LOOK:STOP]");
+    expect(
+      requestedSessionControl("Stopping. [LOOK:STOP]", ["look_stop"]),
+    ).toEqual({ action: "look_stop" });
+  });
+
   test("a device that can show one look needs no question", () => {
     const teaching = sessionControlTeaching(["look_camera"], {});
 

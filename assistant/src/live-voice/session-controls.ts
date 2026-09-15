@@ -3,6 +3,7 @@ import {
   FEWER_UPDATES_MARKER,
   LOOK_CAMERA_MARKER,
   LOOK_SCREEN_MARKER,
+  LOOK_STOP_MARKER,
   MUTE_MARKER,
   NORMAL_UPDATES_MARKER,
   parseTerminalSessionControl,
@@ -28,6 +29,7 @@ const CLIENT_CONTROL_LINES: Record<LiveVoiceSessionControl, string> = {
   end: `- To end the call (for example "I'm all done" or "okay, I'm gonna go"), say a brief goodbye, then end your reply with ${END_CALL_MARKER}. Being done with a task is not the same as leaving the call; end only when they are leaving.`,
   look_screen: `- To look at their screen (for example "take a look at my screen" or "can you see what I'm looking at?"), say you are taking a look, then end your reply with ${LOOK_SCREEN_MARKER}. Their screen starts being shared with you once you finish speaking, so you cannot describe it yet: ask what they want you to look at, or say you will take it from their next words.`,
   look_camera: `- To look through their camera (for example "look at this" or "can you see this?" while they hold something up), say you are taking a look, then end your reply with ${LOOK_CAMERA_MARKER}. The camera turns on once you finish speaking, so you cannot describe what it sees yet: ask them to show you, or say you will take it from their next words.`,
+  look_stop: `- To stop showing you their screen or camera (for example "stop sharing" or "you can stop looking now"), confirm in a few words, then end your reply with ${LOOK_STOP_MARKER}.`,
   mute: `- To mute their microphone (for example "mute for 30 seconds" or "mute yourself, I need to take this"), confirm in a few words, then end your reply with [MUTE:<seconds>] when they gave a duration or ${MUTE_MARKER} when they did not. While muted you cannot hear them, so mention they can unmute from the call controls unless the mute is timed.`,
 };
 

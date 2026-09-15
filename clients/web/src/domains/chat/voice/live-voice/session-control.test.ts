@@ -183,12 +183,35 @@ describe("look controls", () => {
     expect(setScreenShare).not.toHaveBeenCalled();
   });
 
+  test("a spoken stop ends a running share and asks the room to close the camera", () => {
+    withSightStreamAssistant();
+    const setScreenShare = withShareBridge();
+    useLiveVoiceStore
+      .getState()
+      .setScreenShareTarget({ kind: "display", displayId: 1 } as never);
+
+    applyLiveVoiceSessionControl({ action: "look_stop" });
+
+    // No pick is the stop, as the pill's Share sends it.
+    expect(setScreenShare.mock.calls).toEqual([[]]);
+    expect(takeLiveVoiceCameraLookRequest()).toBe("stop");
+  });
+
+  test("a spoken stop with no share running sends the host nothing", () => {
+    withSightStreamAssistant();
+    const setScreenShare = withShareBridge();
+
+    applyLiveVoiceSessionControl({ action: "look_stop" });
+
+    expect(setScreenShare).not.toHaveBeenCalled();
+  });
+
   test("a camera look leaves one ask for the room, taken once", () => {
     applyLiveVoiceSessionControl({ action: "look_camera" });
 
-    expect(takeLiveVoiceCameraLookRequest()).toBe(true);
+    expect(takeLiveVoiceCameraLookRequest()).toBe("start");
     // A room that mounts later must not reopen the camera for the same ask.
-    expect(takeLiveVoiceCameraLookRequest()).toBe(false);
+    expect(takeLiveVoiceCameraLookRequest()).toBeNull();
   });
 });
 
@@ -215,6 +238,7 @@ describe("liveVoiceSessionControls", () => {
       "mute",
       "look_screen",
       "look_camera",
+      "look_stop",
     ]);
   });
 
@@ -228,6 +252,7 @@ describe("liveVoiceSessionControls", () => {
       "end",
       "mute",
       "look_screen",
+      "look_stop",
     ]);
   });
 
@@ -244,6 +269,7 @@ describe("liveVoiceSessionControls", () => {
       "end",
       "mute",
       "look_camera",
+      "look_stop",
     ]);
   });
 });
