@@ -471,8 +471,8 @@ describe("DesktopSessionManager process tree", () => {
     ]);
   });
 
-  test("a browser exit with nobody watching keeps the desktop and the next viewer gets a fresh one", async () => {
-    const h = newManager();
+  test("a browser closed without a viewer stays closed when a viewer connects", async () => {
+    const h = newManager({ exitOnTerm: true });
     await h.manager.ensureDesktopRunning();
     await settle();
 
@@ -481,17 +481,20 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.killed).toEqual([]);
     expect(h.count("browser")).toBe(1);
 
+    h.manager.acquireViewerSlot(newViewer().viewer);
     await h.manager.ensureDesktopRunning();
     await settle();
     expect(h.count("x-server")).toBe(1);
-    expect(h.count("browser")).toBe(2);
+    expect(h.count("browser")).toBe(1);
+    expect(h.killed).toEqual([]);
+    await h.manager.destroy();
   });
 
   test.each(["Default", "Profile 1"])(
     "restores a crashed %s session but preserves a subsequent clean close",
     async (profileName) => {
       const dir = mkdtempSync(join(tmpdir(), "desktop-crash-test-"));
-      const h = newFakeDesktop({ profileDir: dir, exitOnTerm: true });
+      let h = newFakeDesktop({ profileDir: dir, exitOnTerm: true });
       try {
         mkdirSync(join(dir, profileName));
         writeFileSync(
@@ -513,7 +516,11 @@ describe("DesktopSessionManager process tree", () => {
 
         h.child("browser").exit(1);
         await settle();
-        expect(h.count("browser")).toBe(2);
+        expect(h.count("browser")).toBe(1);
+        await h.manager.destroy();
+        h = newFakeDesktop({ profileDir: dir, exitOnTerm: true });
+        await h.manager.ensureDesktopRunning();
+        await settle();
         expect(h.child("browser").request.cmd).toContain(
           "--restore-last-session",
         );
@@ -524,7 +531,11 @@ describe("DesktopSessionManager process tree", () => {
         );
         h.child("browser").exit(0);
         await settle();
-        expect(h.count("browser")).toBe(3);
+        expect(h.count("browser")).toBe(1);
+        await h.manager.destroy();
+        h = newFakeDesktop({ profileDir: dir, exitOnTerm: true });
+        await h.manager.ensureDesktopRunning();
+        await settle();
         expect(h.child("browser").request.cmd).not.toContain(
           "--restore-last-session",
         );
@@ -538,39 +549,33 @@ describe("DesktopSessionManager process tree", () => {
     },
   );
 
-  test("a browser exit under a viewer relaunches it, until it crash loops", async () => {
-    const h = newManager();
-    const { viewer, lost } = newViewer();
-    h.manager.acquireViewerSlot(viewer);
-    await h.manager.ensureDesktopRunning();
-    await settle();
-
-    for (let exits = 1; exits <= 3; exits += 1) {
-      h.child("browser").exit(1);
+  test.each([0, 1])(
+    "a browser exit (%s) keeps the desktop usable and stays closed on reconnect",
+    async (exitCode) => {
+      const h = newManager({ exitOnTerm: true });
+      const { viewer, lost } = newViewer();
+      h.manager.acquireViewerSlot(viewer);
+      await h.manager.ensureDesktopRunning();
       await settle();
-      expect(h.count("browser")).toBe(exits + 1);
-      expect(lost).toEqual([]);
-    }
 
-    h.child("browser").exit(1);
-    await settle();
-    expect(h.count("browser")).toBe(4);
-    expect(lost).toEqual([
-      { code: 4011, reason: "Desktop browser keeps crashing" },
-    ]);
-    expect(
-      h
-        .terminated()
-        .map((c) => c.role)
-        .sort(),
-    ).toEqual([
-      "clipboard",
-      "compositor",
-      "panel",
-      "window-manager",
-      "x-server",
-    ]);
-  });
+      h.child("browser").exit(exitCode);
+      await settle();
+      expect(h.count("browser")).toBe(1);
+      expect(lost).toEqual([]);
+      expect(h.killed).toEqual([]);
+
+      h.manager.releaseViewerSlot(viewer);
+      expect(h.manager.acquireViewerSlot(viewer)).toEqual({ ok: true });
+      await h.manager.ensureDesktopRunning();
+      await settle();
+      expect(h.count("browser")).toBe(1);
+      expect(h.count("x-server")).toBe(1);
+      expect(h.count("panel")).toBe(1);
+      expect(lost).toEqual([]);
+      expect(h.killed).toEqual([]);
+      await h.manager.destroy();
+    },
+  );
 
   test("a browser that cannot be resolved takes the desktop down", async () => {
     const h = newManager();

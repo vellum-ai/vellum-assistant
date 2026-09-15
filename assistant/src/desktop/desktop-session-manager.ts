@@ -37,8 +37,6 @@ const DESKTOP_LINGER_MS = 5 * 60_000;
 const VNC_READY_DEADLINE_MS = 10_000;
 const VNC_PROBE_INTERVAL_MS = 100;
 const KILL_GRACE_MS = 2_000;
-const BROWSER_CRASH_WINDOW_MS = 60_000;
-const BROWSER_CRASH_LIMIT = 3;
 
 /**
  * What the desktop children see. Deliberately not `buildSanitizedEnv()`: its
@@ -193,7 +191,6 @@ export class DesktopSessionManager {
   private viewer: DesktopViewer | null = null;
   private lingerTimer: ReturnType<typeof setTimeout> | null = null;
   private ingressClosed = false;
-  private browserExitsAt: number[] = [];
   /** Resolved for the current tree, and read again when the dock comes up. */
   private binaries: DesktopBinaries | null = null;
   /** Whether this tree has already had its one dock start attempted. */
@@ -294,7 +291,6 @@ export class DesktopSessionManager {
     }
     if (this.running) {
       void this.refreshWallpaper(this.childEnv(), this.generation);
-      void this.ensureBrowser(this.childEnv(), this.generation);
       return Promise.resolve();
     }
     this.starting ??= this.startDesktop().finally(() => {
@@ -361,7 +357,7 @@ export class DesktopSessionManager {
     this.running = true;
     log.info({ display: DESKTOP_DISPLAY }, "Desktop started");
     void this.refreshWallpaper(env, generation);
-    void this.ensureBrowser(env, generation);
+    void this.startBrowser(env, generation);
   }
 
   private async refreshWallpaper(
@@ -423,16 +419,13 @@ export class DesktopSessionManager {
   }
 
   /** Launch Chrome and its dock once the X server is ready. */
-  private async ensureBrowser(
+  private async startBrowser(
     env: Record<string, string>,
     generation: number,
   ): Promise<void> {
-    if (this.children.has("browser")) {
-      return;
-    }
     try {
       const executable = await this.resolveChromePath();
-      if (this.generation !== generation || this.children.has("browser")) {
+      if (this.generation !== generation) {
         return;
       }
       mkdirSync(this.profileDir, { recursive: true });
@@ -531,7 +524,6 @@ export class DesktopSessionManager {
     }
     if (role === "browser") {
       log.info({ outcome }, "Desktop browser exited");
-      this.onBrowserExit();
       return;
     }
     if (COSMETIC_ROLES.has(role)) {
@@ -547,31 +539,6 @@ export class DesktopSessionManager {
   }
 
   /**
-   * A closed browser is normal use when nobody is watching; the next viewer
-   * gets a fresh window. Under a viewer it is relaunched so they are not
-   * stranded on an empty desktop, unless it keeps dying.
-   */
-  private onBrowserExit(): void {
-    if (!this.viewer || !this.running) {
-      return;
-    }
-    const now = Date.now();
-    this.browserExitsAt = this.browserExitsAt.filter(
-      (at) => now - at < BROWSER_CRASH_WINDOW_MS,
-    );
-    this.browserExitsAt.push(now);
-    if (this.browserExitsAt.length > BROWSER_CRASH_LIMIT) {
-      log.warn("Desktop browser is crash looping, tearing down");
-      void this.teardown({
-        code: DESKTOP_CLOSE.failed,
-        reason: "Desktop browser keeps crashing",
-      });
-      return;
-    }
-    void this.ensureBrowser(this.childEnv(), this.generation);
-  }
-
-  /**
    * Kill the tree. The viewer, if any, hears `loss` before the kill starts;
    * the linger path passes none since nobody is watching by then.
    */
@@ -579,7 +546,6 @@ export class DesktopSessionManager {
     this.clearLinger();
     this.generation += 1;
     this.running = false;
-    this.browserExitsAt = [];
     this.binaries = null;
     this.panelStarted = false;
     const children = new Map(this.children);
