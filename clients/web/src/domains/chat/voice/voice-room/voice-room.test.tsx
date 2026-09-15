@@ -41,6 +41,7 @@ import { Capacitor } from "@capacitor/core";
 import * as motionReact from "motion/react";
 
 import type { MainView } from "@/stores/viewer-store";
+import { composerViewerStoreMock } from "@/stores/viewer-store.test-helper";
 import { routes } from "@/utils/routes";
 
 import {
@@ -91,21 +92,13 @@ mock.module("react-router", () => ({
 }));
 
 let mockMainView: MainView = "chat";
-// The app view covers the composer only while an app is there to draw, so the
-// id travels with the view.
 let mockActiveAppId: string | null = null;
-mock.module("@/stores/viewer-store", () => ({
-  useViewerStore: {
-    use: {
-      mainView: () => mockMainView,
-      activeAppId: () => mockActiveAppId,
-      openedAppState: () =>
-        mockActiveAppId === null
-          ? null
-          : { appId: mockActiveAppId, name: "App", html: "" },
-    },
-  },
-}));
+mock.module("@/stores/viewer-store", () =>
+  composerViewerStoreMock(() => ({
+    mainView: mockMainView,
+    activeAppId: mockActiveAppId,
+  })),
+);
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
