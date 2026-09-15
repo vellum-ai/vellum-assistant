@@ -1701,22 +1701,6 @@
     "resumeAssistant": "繼續助理",
     "title": "復原模式"
   },
-  "referralContent": {
-    "copied": "已複製！",
-    "copyError": "無法複製推薦連結。",
-    "copySuccess": "已複製到剪貼簿！",
-    "creditsEarned": "已賺取點數",
-    "friendsReferred": "已推薦好友",
-    "gatedTooltip": "訂閱或購買點數以開始賺取！",
-    "loadError": "載入推薦資訊失敗。",
-    "loading": "載入中...",
-    "shareLink": "分享連結",
-    "subtitleDefault": "與好友分享 Vellum，每次註冊均可賺取點數。",
-    "subtitleWithAmounts": "與好友分享 Vellum - 他們註冊後，您和好友將各獲得 {creditAmount} 點數，總計最高可達 {earningCap}。"
-  },
-  "referralModal": {
-    "title": "賺取免費點數"
-  },
   "resizeCard": {
     "apply": "套用",
     "applyingResize": "正在套用大小調整…",

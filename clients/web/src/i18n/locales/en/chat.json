@@ -1369,6 +1369,7 @@
   },
   "preferencesMenu": {
     "admin": "Admin",
+    "earnCredits": "Earn Free Credits",
     "preferences": "Preferences",
     "settings": "Settings",
     "shareFeedback": "Share Feedback"

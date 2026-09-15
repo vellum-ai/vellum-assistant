@@ -437,6 +437,22 @@
     "logoAlt": "Vellum",
     "placeholder": "Pregunta lo que quieras a Vellum..."
   },
+  "referralContent": {
+    "copied": "¡Copiado!",
+    "copyError": "No se pudo copiar el enlace de referido.",
+    "copySuccess": "¡Copiado al portapapeles!",
+    "creditsEarned": "Créditos ganados",
+    "friendsReferred": "Amigos referidos",
+    "gatedTooltip": "¡Suscríbete o compra créditos para empezar a ganar!",
+    "loadError": "No se pudo cargar la información de referidos.",
+    "loading": "Cargando...",
+    "shareLink": "Compartir enlace",
+    "subtitleDefault": "Comparte Vellum con amigos y gana créditos por cada registro.",
+    "subtitleWithAmounts": "Comparte Vellum con amigos - cada uno ganará {creditAmount} créditos cuando se registren, hasta {earningCap} en total."
+  },
+  "referralModal": {
+    "title": "Gana créditos gratis"
+  },
   "removeFromDeviceDialog": {
     "confirm": "Eliminar",
     "messageOrigin": "Esto no afectará a {assistantName} ni cerrará tu sesión allí. Solo olvida la entrada en este dispositivo. Puedes añadirla de nuevo cuando quieras.",

@@ -807,6 +807,9 @@
     },
     "noColor": "Без цвета"
   },
+  "preferencesMenu": {
+    "earnCredits": "Заработать бесплатные кредиты"
+  },
   "preferencesUsagePanel": {
     "addCreditsAriaLabel": "Добавить кредиты",
     "exhausted": "Добавление кредитов для продолжения.",

@@ -1701,22 +1701,6 @@
     "resumeAssistant": "恢复助手",
     "title": "恢复模式"
   },
-  "referralContent": {
-    "copied": "已复制！",
-    "copyError": "无法复制推荐链接。",
-    "copySuccess": "已复制到剪贴板！",
-    "creditsEarned": "已赚取积分",
-    "friendsReferred": "已推荐好友",
-    "gatedTooltip": "订阅或购买积分以开始赚取！",
-    "loadError": "加载推荐信息失败。",
-    "loading": "加载中...",
-    "shareLink": "分享链接",
-    "subtitleDefault": "与好友分享 Vellum，每次注册均可赚取积分。",
-    "subtitleWithAmounts": "与好友分享 Vellum - 他们注册后，您和好友将各获得 {creditAmount} 积分，总计最高可达 {earningCap}。"
-  },
-  "referralModal": {
-    "title": "赚取免费积分"
-  },
   "resizeCard": {
     "apply": "应用",
     "applyingResize": "正在应用大小调整…",

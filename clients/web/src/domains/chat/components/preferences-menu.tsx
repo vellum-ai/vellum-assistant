@@ -2,6 +2,7 @@ import {
   ChevronDown,
   ChevronUp,
   CircleUser,
+  Gift,
   List,
   MessageSquareText,
   Settings as SettingsIcon,
@@ -49,6 +50,14 @@ import { useTranslation } from "@/i18n";
 const AddCreditsModal = lazy(() =>
   import("@/components/add-credits-modal").then((m) => ({
     default: m.AddCreditsModal,
+  })),
+);
+
+// The referral modal only opens from the earn-credits row, so its chunk stays
+// out of the initial bundle until then.
+const ReferralModal = lazy(() =>
+  import("@/components/referral-modal").then((m) => ({
+    default: m.ReferralModal,
   })),
 );
 
@@ -117,6 +126,7 @@ export function PreferencesMenu({
      both unmount their content on close, and the strip closes the menu as it
      opens the checkout. */
   const [isAddCreditsOpen, setIsAddCreditsOpen] = useState(false);
+  const [isEarnCreditsOpen, setIsEarnCreditsOpen] = useState(false);
 
   /* Warm the chunks this menu leads to as it opens rather than on the click
      that needs them, so they are usually already there by the time they are
@@ -215,6 +225,7 @@ export function PreferencesMenu({
       onClose={closeMenu}
       onShareFeedback={() => setIsFeedbackOpen(true)}
       onAddCredits={() => setIsAddCreditsOpen(true)}
+      onEarnCredits={() => setIsEarnCreditsOpen(true)}
       activeConversationId={activeConversationId}
     />
   );
@@ -271,6 +282,15 @@ export function PreferencesMenu({
           />
         </LazyBoundary>
       ) : null}
+
+      {isEarnCreditsOpen ? (
+        <LazyBoundary>
+          <ReferralModal
+            open={isEarnCreditsOpen}
+            onOpenChange={setIsEarnCreditsOpen}
+          />
+        </LazyBoundary>
+      ) : null}
     </>
   );
 }
@@ -279,6 +299,7 @@ interface PreferencesMenuContentProps {
   onClose: () => void;
   onShareFeedback: () => void;
   onAddCredits: () => void;
+  onEarnCredits: () => void;
   activeConversationId?: string | null;
 }
 
@@ -286,6 +307,7 @@ function PreferencesMenuContent({
   onClose,
   onShareFeedback,
   onAddCredits,
+  onEarnCredits,
   activeConversationId,
 }: PreferencesMenuContentProps) {
   const { t } = useTranslation("chat");
@@ -338,6 +360,21 @@ function PreferencesMenuContent({
             }}
           />
         </div>
+      ) : null}
+
+      {/* The row rides the billing gate like the credits card above it. The
+          modal itself says whether the account can earn, so the menu does not
+          ask ahead of time and no referral code is minted until someone opens
+          it. */}
+      {showBillingRows ? (
+        <PanelItem
+          icon={Gift}
+          label={t("preferencesMenu.earnCredits")}
+          onSelect={() => {
+            onClose();
+            onEarnCredits();
+          }}
+        />
       ) : null}
 
       {activationListId !== null ? (

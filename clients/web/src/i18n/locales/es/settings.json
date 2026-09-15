@@ -1723,22 +1723,6 @@
     "resumeAssistant": "Reanudar asistente",
     "title": "Modo de recuperación"
   },
-  "referralContent": {
-    "copied": "¡Copiado!",
-    "copyError": "No se pudo copiar el enlace de referido.",
-    "copySuccess": "¡Copiado al portapapeles!",
-    "creditsEarned": "Créditos ganados",
-    "friendsReferred": "Amigos referidos",
-    "gatedTooltip": "¡Suscríbete o compra créditos para empezar a ganar!",
-    "loadError": "No se pudo cargar la información de referidos.",
-    "loading": "Cargando...",
-    "shareLink": "Compartir enlace",
-    "subtitleDefault": "Comparte Vellum con amigos y gana créditos por cada registro.",
-    "subtitleWithAmounts": "Comparte Vellum con amigos - cada uno ganará {creditAmount} créditos cuando se registren, hasta {earningCap} en total."
-  },
-  "referralModal": {
-    "title": "Gana créditos gratis"
-  },
   "resizeCard": {
     "apply": "Aplicar",
     "applyingResize": "Aplicando cambio de tamaño…",

@@ -9,7 +9,7 @@ interface ReferralModalProps {
 }
 
 export function ReferralModal({ open, onOpenChange }: ReferralModalProps) {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation();
 
   return (
     <Modal.Root open={open} onOpenChange={onOpenChange}>

@@ -439,6 +439,22 @@
     "logoAlt": "Vellum",
     "placeholder": "Ask Vellum anything..."
   },
+  "referralContent": {
+    "copied": "Copied!",
+    "copyError": "Couldn't copy the referral link.",
+    "copySuccess": "Copied to clipboard!",
+    "creditsEarned": "Credits Earned",
+    "friendsReferred": "Friends Referred",
+    "gatedTooltip": "Subscribe or purchase credits to start earning!",
+    "loadError": "Failed to load referral information.",
+    "loading": "Loading...",
+    "shareLink": "Share Link",
+    "subtitleDefault": "Share Vellum with friends and earn credits for every signup.",
+    "subtitleWithAmounts": "Share Vellum with friends - you'll each earn {creditAmount} credits when they sign up, up to {earningCap} total."
+  },
+  "referralModal": {
+    "title": "Earn Free Credits"
+  },
   "removeFromDeviceDialog": {
     "confirm": "Remove",
     "messageOrigin": "This won't affect {assistantName} or sign you out there. It only forgets the entry on this device. Add it again anytime.",
