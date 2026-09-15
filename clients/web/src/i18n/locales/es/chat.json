@@ -1237,6 +1237,7 @@
     "defaultDescription": "Conecta {name} para que pueda usarlo en esta tarea.",
     "dismiss": "Descartar",
     "missingDetails": "Faltan detalles del asistente o del proveedor.",
+    "tenantHostInvalid": "Introduce un {label} válido, por ejemplo {placeholder}",
     "thisAccount": "esta cuenta",
     "waiting": "Esperando...",
     "yourAssistant": "Tu asistente"

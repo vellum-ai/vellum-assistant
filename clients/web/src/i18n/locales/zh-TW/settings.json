@@ -1001,6 +1001,7 @@
     "connectAccountLower": "連接帳號",
     "connectToContinue": "連接帳號以繼續",
     "disconnectAriaLabel": "中斷 {account} 連線",
+    "tenantHostInvalid": "請輸入有效的{label}，例如 {placeholder}",
     "waitingForAuthorization": "正在等待授權..."
   },
   "mcpAddServerModal": {

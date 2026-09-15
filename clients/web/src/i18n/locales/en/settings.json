@@ -1001,6 +1001,7 @@
     "connectAccountLower": "Connect account",
     "connectToContinue": "Connect Account to continue",
     "disconnectAriaLabel": "Disconnect {account}",
+    "tenantHostInvalid": "Enter a valid {label}, for example {placeholder}",
     "waitingForAuthorization": "Waiting for authorization..."
   },
   "mcpAddServerModal": {

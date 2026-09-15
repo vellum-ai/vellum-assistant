@@ -90,6 +90,13 @@ export const PROVIDER_SEED_DATA: Record<
     }>;
     appType?: string;
     setupNotes?: string[];
+    /**
+     * Per-tenant providers only: the host the user supplies at connect time,
+     * which the platform substitutes into `{tenant_host}` URL placeholders.
+     * `pattern` mirrors the platform registry's validation so clients can
+     * reject a malformed host before the request leaves the browser.
+     */
+    tenantHost?: { pattern: string; label: string; placeholder: string };
     identityUrl?: string;
     identityMethod?: string;
     identityHeaders?: Record<string, string>;
@@ -1493,6 +1500,12 @@ export const PROVIDER_SEED_DATA: Record<
     ],
     loopbackPort: 17341,
     managedServiceConfigKey: "shopify-oauth",
+    // Mirrors `extra_config.tenant_host` in the platform provider registry.
+    tenantHost: {
+      pattern: "^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$",
+      label: "Shop domain",
+      placeholder: "your-store.myshopify.com",
+    },
     injectionTemplates: [
       {
         hostPattern: "*.myshopify.com",

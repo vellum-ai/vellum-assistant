@@ -987,6 +987,7 @@
     "connectAccountLower": "Подключить аккаунт",
     "connectToContinue": "Подключение аккаунта для продолжения",
     "disconnectAriaLabel": "Отключить {account}",
+    "tenantHostInvalid": "Введите корректный {label}, например {placeholder}",
     "waitingForAuthorization": "Ожидание авторизации..."
   },
   "mcpAddServerModal": {

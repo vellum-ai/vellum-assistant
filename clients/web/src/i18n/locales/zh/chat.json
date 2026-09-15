@@ -1275,6 +1275,7 @@
     "defaultDescription": "连接 {name}，以便我能将其用于此任务。",
     "dismiss": "忽略",
     "missingDetails": "缺少助手或提供商详细信息。",
+    "tenantHostInvalid": "请输入有效的{label}，例如 {placeholder}",
     "thisAccount": "此账户",
     "waiting": "等待中...",
     "yourAssistant": "您的助手"

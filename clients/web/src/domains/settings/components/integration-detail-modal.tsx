@@ -40,6 +40,8 @@ interface IntegrationDetailModalProps {
   description: string | null;
   logoUrl: string | null;
   platformGate: PlatformGateState;
+  /** Per-tenant providers only; see `ManagedTabProps.tenantHost`. */
+  tenantHost?: { pattern: string; label: string; placeholder: string } | null;
   onClose: () => void;
 }
 
@@ -56,6 +58,7 @@ export function IntegrationDetailModal({
   description,
   logoUrl,
   platformGate,
+  tenantHost,
   onClose,
 }: IntegrationDetailModalProps) {
   const { t } = useTranslation("settings");
@@ -107,11 +110,11 @@ export function IntegrationDetailModal({
     providerKey,
     providerLabel: displayName,
   });
-  const handleConnect = (requestedScopes?: string[]) => {
+  const handleConnect = (requestedScopes?: string[], host?: string) => {
     if (!managedAvailable) {
       return;
     }
-    managedConnect.connect(requestedScopes);
+    managedConnect.connect(requestedScopes, host);
   };
 
   // The connections list this modal renders is the same query the connect
@@ -281,6 +284,7 @@ export function IntegrationDetailModal({
                 onConnect={handleConnect}
                 onDisconnect={handleDisconnect}
                 connectPresets={getConnectPresets(providerKey)}
+                tenantHost={tenantHost}
               />
             )
           ) : yourOwnAvailable ? (

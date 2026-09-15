@@ -1165,6 +1165,33 @@ describe("POST oauth/managed-connect/start", () => {
     expect(result.connect_url).toBe("https://app.vellum.ai/connect/abc");
   });
 
+  test("forwards tenant_host to the platform only when one is supplied", async () => {
+    // Shopify's endpoints live on the merchant's host, which the platform
+    // substitutes into its templates; other providers must not see the key.
+    const bodies: Array<Record<string, unknown>> = [];
+    mockFetchImpl = async (_path, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          connect_url: "https://app.vellum.ai/connect/abc",
+        }),
+        text: async () => "",
+      };
+    };
+    await getRoute("POST", "oauth/managed-connect/start").handler(
+      makeArgs({
+        body: { provider: "shopify", tenant_host: " my-store.myshopify.com " },
+      }),
+    );
+    await getRoute("POST", "oauth/managed-connect/start").handler(
+      makeArgs({ body: { provider: "google", tenant_host: "   " } }),
+    );
+    expect(bodies[0]?.tenant_host).toBe("my-store.myshopify.com");
+    expect(bodies[1]).not.toHaveProperty("tenant_host");
+  });
+
   test("raises InternalError when platform returns 401", async () => {
     mockFetchImpl = async () => ({
       ok: false,

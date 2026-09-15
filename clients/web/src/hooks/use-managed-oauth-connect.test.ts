@@ -225,6 +225,25 @@ describe("useManagedOAuthConnect", () => {
     expect(result.current.status).toBe("idle");
   });
 
+  test("a tenant host rides along on the start request only when given", async () => {
+    // Shopify's OAuth endpoints live on the merchant's own host, which the
+    // platform substitutes into its templates. Providers with one global host
+    // must not see the key at all, since the platform ignores nothing.
+    const { result } = renderHook(() => useManagedOAuthConnect(OPTS));
+    act(() => result.current.connect(undefined, "my-store.myshopify.com"));
+    await waitFor(() => expect(startCreateMock).toHaveBeenCalledTimes(1));
+    expect(startCreateMock.mock.calls[0]?.[0]?.body).toMatchObject({
+      tenant_host: "my-store.myshopify.com",
+    });
+
+    act(() => result.current.dismiss());
+    act(() => result.current.connect());
+    await waitFor(() => expect(startCreateMock).toHaveBeenCalledTimes(2));
+    expect(startCreateMock.mock.calls[1]?.[0]?.body).not.toHaveProperty(
+      "tenant_host",
+    );
+  });
+
   test("a completion payload only invalidates; the list still decides", async () => {
     const { result } = renderHook(() => useManagedOAuthConnect(OPTS));
     act(() => result.current.connect());

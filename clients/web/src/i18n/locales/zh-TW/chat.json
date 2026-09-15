@@ -1275,6 +1275,7 @@
     "defaultDescription": "連線 {name}，以便我能將其用於此任務。",
     "dismiss": "關閉",
     "missingDetails": "缺少助理或供應商詳細資訊。",
+    "tenantHostInvalid": "請輸入有效的{label}，例如 {placeholder}",
     "thisAccount": "此帳號",
     "waiting": "等待中...",
     "yourAssistant": "您的助理"
