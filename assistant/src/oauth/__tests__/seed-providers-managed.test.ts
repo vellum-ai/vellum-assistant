@@ -191,6 +191,75 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     expect(template?.hostPattern).toBe("*.myshopify.com");
   });
 
+  test("quickbooks is wired up for managed mode behind its flag", () => {
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    expect(quickbooks).toBeDefined();
+    expect(quickbooks.managedServiceConfigKey).toBe("quickbooks-oauth");
+    expect("quickbooks-oauth" in ServicesSchema.shape).toBe(true);
+    // Hidden until the platform side and client ids are live, like Figma
+    // and Shopify.
+    expect(quickbooks.featureFlag).toBe("quickbooks-oauth");
+  });
+
+  test("quickbooks uses Intuit's OAuth endpoints with HTTP Basic", () => {
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    expect(quickbooks.authorizeUrl).toBe(
+      "https://appcenter.intuit.com/connect/oauth2",
+    );
+    expect(quickbooks.tokenExchangeUrl).toBe(
+      "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    );
+    expect(quickbooks.refreshUrl).toBe(quickbooks.tokenExchangeUrl);
+    expect(quickbooks.tokenEndpointAuthMethod).toBe("client_secret_basic");
+  });
+
+  test("quickbooks keeps its per-company URL templates", () => {
+    // Every Accounting API path is scoped to the realm the user picked on
+    // Intuit's consent screen. The platform fills {realm_id} from the
+    // connection; a hardcoded realm here would send every company's calls
+    // to the wrong books.
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    for (const url of [
+      quickbooks.baseUrl,
+      quickbooks.pingUrl,
+      quickbooks.identityUrl,
+    ]) {
+      expect(url).toContain("/v3/company/{realm_id}");
+    }
+  });
+
+  test("quickbooks requests only the accounting scope by default", () => {
+    // Payments needs a Payments-enabled app and the OpenID scopes only add
+    // the user's profile; requesting either widens the consent screen for
+    // nothing the Accounting API needs.
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    expect(quickbooks.defaultScopes).toEqual([
+      "com.intuit.quickbooks.accounting",
+    ]);
+    const available = quickbooks.availableScopes;
+    expect(Array.isArray(available)).toBe(true);
+    if (Array.isArray(available)) {
+      expect(available.map(({ scope }) => scope)).toContain(
+        "com.intuit.quickbooks.payment",
+      );
+    }
+  });
+
+  test("quickbooks allows the credential on both Intuit API hosts", () => {
+    // Development keys only work against sandbox companies, which live on
+    // the sandbox host. Both hosts belong to Intuit and take the same
+    // bearer token.
+    const templates = PROVIDER_SEED_DATA.quickbooks.injectionTemplates ?? [];
+    expect(templates.map((t) => t.hostPattern).sort()).toEqual([
+      "quickbooks.api.intuit.com",
+      "sandbox-quickbooks.api.intuit.com",
+    ]);
+    for (const template of templates) {
+      expect(template.headerName).toBe("Authorization");
+      expect(template.valuePrefix).toBe("Bearer ");
+    }
+  });
+
   test("every managedServiceConfigKey resolves to a ServicesSchema key", () => {
     // Cross-repo invariant: a provider with managedServiceConfigKey but no
     // matching ServicesSchema entry silently falls back to BYO mode in

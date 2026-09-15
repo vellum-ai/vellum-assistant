@@ -66,6 +66,7 @@ interface PlatformConnectionEntry {
   id: string;
   account_label?: string;
   scopes_granted?: string[];
+  provider_params?: Record<string, string> | null;
   status?: string;
 }
 
@@ -574,6 +575,9 @@ async function handleStatus({ queryParams = {} }: RouteHandlerArgs) {
       account: c.account_label ?? null,
       grantedScopes: c.scopes_granted ?? [],
       status: c.status ?? "ACTIVE",
+      // Values the provider scopes the connection by (QuickBooks' realm id),
+      // so a caller can address resources the proxy's base URL does not.
+      providerParams: c.provider_params ?? {},
     }));
 
     return {
@@ -1131,6 +1135,7 @@ async function handleManagedConnectPoll({
       id: e.id,
       account_label: e.account_label ?? null,
       scopes_granted: e.scopes_granted ?? [],
+      provider_params: e.provider_params ?? {},
     })),
   };
 }

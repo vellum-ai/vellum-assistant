@@ -37,6 +37,7 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   monday: publicAsset("/images/integrations/monday.svg"),
   notion: publicAsset("/images/integrations/notion.svg"),
   outlook: publicAsset("/images/integrations/outlook.png"),
+  quickbooks: publicAsset("/images/integrations/quickbooks.svg"),
   salesforce: publicAsset("/images/integrations/salesforce.svg"),
   sanity: publicAsset("/images/integrations/sanity.svg"),
   shopify: publicAsset("/images/integrations/shopify.svg"),

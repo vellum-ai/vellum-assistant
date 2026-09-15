@@ -1529,6 +1529,90 @@ export const PROVIDER_SEED_DATA: Record<
     // cannot complete.
     featureFlag: "shopify-oauth",
   },
+
+  quickbooks: {
+    provider: "quickbooks",
+    authorizeUrl: "https://appcenter.intuit.com/connect/oauth2",
+    tokenExchangeUrl:
+      "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    // Access tokens live an hour; refresh tokens 100 days and are rotated on
+    // every refresh, which the platform persists. Both token endpoints
+    // authenticate the client with HTTP Basic.
+    refreshUrl: "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    tokenEndpointAuthMethod: "client_secret_basic",
+    revokeUrl: "https://developer.api.intuit.com/v2/oauth2/tokens/revoke",
+    revokeBodyTemplate: { token: "{access_token}" },
+    // Every Accounting API path is scoped to the company (realm) the user
+    // picked on Intuit's consent screen. The realm arrives only as the
+    // callback's `realmId` query parameter; the platform captures it into the
+    // connection's `provider_params` and fills the `{realm_id}` placeholder
+    // server-side, so managed callers send paths relative to the company
+    // (`/query`, `/customer/123`). Production and sandbox keys use different
+    // hosts; the platform picks the host per environment.
+    baseUrl: "https://quickbooks.api.intuit.com/v3/company/{realm_id}",
+    pingUrl:
+      "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}",
+    pingHeaders: { Accept: "application/json" },
+    displayLabel: "QuickBooks",
+    description: "Invoices, customers, vendors, and accounting data",
+    dashboardUrl: "https://developer.intuit.com/app/developer/dashboard",
+    clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/quickbooks",
+    // The Accounting scope covers the QuickBooks Online API. Payments is a
+    // separate product the app must be enabled for, and the OpenID scopes
+    // only add the signing-in user's profile, so none are on by default.
+    defaultScopes: ["com.intuit.quickbooks.accounting"],
+    availableScopes: [
+      {
+        scope: "com.intuit.quickbooks.accounting",
+        description:
+          "Read and write QuickBooks Online accounting data: customers, vendors, invoices, bills, payments, items, accounts, and reports",
+      },
+      {
+        scope: "com.intuit.quickbooks.payment",
+        description:
+          "QuickBooks Payments: charges, refunds, bank accounts, and cards (requires a Payments-enabled app)",
+      },
+      { scope: "openid", description: "Sign in with Intuit (OpenID Connect)" },
+      { scope: "profile", description: "The signing-in user's name" },
+      { scope: "email", description: "The signing-in user's email address" },
+      { scope: "phone", description: "The signing-in user's phone number" },
+      { scope: "address", description: "The signing-in user's address" },
+    ],
+    loopbackPort: 17342,
+    managedServiceConfigKey: "quickbooks-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "quickbooks.api.intuit.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "sandbox-quickbooks.api.intuit.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    setupNotes: [
+      "QuickBooks scopes every Accounting API call to the company (realm) chosen on Intuit's consent screen. Managed connections carry the realm as provider_params.realm_id and requests are sent relative to /v3/company/{realmId}.",
+      "Intuit development keys only authorize sandbox companies, which live on sandbox-quickbooks.api.intuit.com; production keys use quickbooks.api.intuit.com.",
+      "The Accounting API returns XML unless the request carries Accept: application/json.",
+    ],
+    // CompanyInfo does not repeat the realm (its Id is always "1"); the
+    // platform keys the connection on the captured realm and labels it with
+    // the company name.
+    identityUrl:
+      "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}",
+    identityHeaders: { Accept: "application/json" },
+    identityResponsePaths: ["CompanyInfo.CompanyName", "CompanyInfo.LegalName"],
+    // Gated like figma/shopify: the platform side lands separately, and until
+    // the client ids are live a visible tile would offer a connect flow that
+    // cannot complete.
+    featureFlag: "quickbooks-oauth",
+  },
 };
 
 export const SEEDED_PROVIDER_KEYS = new Set(Object.keys(PROVIDER_SEED_DATA));

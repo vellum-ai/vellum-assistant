@@ -475,6 +475,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "quickbooks-oauth",
+      "scope": "assistant",
+      "key": "quickbooks-oauth",
+      "label": "QuickBooks Integration",
+      "description": "Gates the seeded QuickBooks OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup, and existing connections keep injecting credentials; only its visibility changes.",
+      "defaultEnabled": false
+    },
+    {
       "id": "shopify-oauth",
       "scope": "assistant",
       "key": "shopify-oauth",
