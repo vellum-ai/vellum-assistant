@@ -146,6 +146,22 @@ function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
 }
 
 /**
+ * True when the step was an AppleScript that returned a value. Reading state
+ * (`enabled of menu item`, a window title, an app's own query) is a step whose
+ * product is the return value, not a screen change, so an empty diff is
+ * expected rather than a sign the script did nothing.
+ */
+function isResultBearingAppleScript(
+  action: ActionRecord | undefined,
+  obs: CuObservationResult,
+): boolean {
+  if (action?.toolName !== "computer_use_run_applescript") {
+    return false;
+  }
+  return (obs.executionResult ?? "").trim().length > 0;
+}
+
+/**
  * Canonical signature for loop detection. Key presses collapse equivalent
  * spellings (`cmd+a`, `command+a`, `cmd + a`) of the same combo so a stuck
  * session retrying it with alias/whitespace variants is still caught —
@@ -696,8 +712,9 @@ export class HostCuProxy {
           : undefined;
       const isWaitAction = lastAction?.toolName === "computer_use_wait";
       const isNoDiffKey = isNoDiffKeyAction(lastAction);
+      const isReadOnlyScript = isResultBearingAppleScript(lastAction, obs);
 
-      if (!isWaitAction && !isNoDiffKey) {
+      if (!isWaitAction && !isNoDiffKey && !isReadOnlyScript) {
         if (
           this._consecutiveUnchangedSteps >=
           CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
@@ -828,11 +845,16 @@ export class HostCuProxy {
         this._actionHistory.length > 0
           ? this._actionHistory[this._actionHistory.length - 1]
           : undefined;
-      if (obs.axDiff != null || isNoDiffKeyAction(lastAction)) {
-        // A real diff, or an exempt key whose effect is invisible by design,
-        // breaks the no-effect streak — clear it rather than preserving a
-        // stale count so an intervening cmd+a can't bridge two no-op actions
-        // into a false "consecutive" escalation.
+      if (
+        obs.axDiff != null ||
+        isNoDiffKeyAction(lastAction) ||
+        isResultBearingAppleScript(lastAction, obs)
+      ) {
+        // A real diff, an exempt key whose effect is invisible by design, or a
+        // script that answered with a value breaks the no-effect streak. Clear
+        // it rather than preserving a stale count so an intervening cmd+a
+        // can't bridge two no-op actions into a false "consecutive"
+        // escalation.
         this._consecutiveUnchangedSteps = 0;
       } else if (this._previousAXTree != null && obs.axTree != null) {
         this._consecutiveUnchangedSteps++;

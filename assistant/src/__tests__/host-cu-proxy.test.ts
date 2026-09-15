@@ -665,6 +665,80 @@ describe("HostCuProxy", () => {
       expect(proxy.consecutiveUnchangedSteps).toBe(0);
     });
 
+    test("skips unchanged warning and counter after an AppleScript that returned a value", async () => {
+      setup();
+
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "MenuBar [1]",
+      });
+      await p1;
+
+      // Reading state answers with a value and leaves the screen alone, so an
+      // empty diff is the expected outcome rather than a failed step.
+      const p2 = proxy.request(
+        "computer_use_run_applescript",
+        {
+          script:
+            'tell application "System Events" to return name of processes',
+        },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_run_applescript", {
+        script: 'tell application "System Events" to return name of processes',
+      });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "MenuBar [1]",
+        executionResult: "true",
+      });
+      const result2 = await p2;
+      expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+      expect(proxy.consecutiveUnchangedSteps).toBe(0);
+    });
+
+    test("still warns when an AppleScript returned nothing and changed nothing", async () => {
+      setup();
+
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "MenuBar [1]",
+      });
+      await p1;
+
+      const p2 = proxy.request(
+        "computer_use_run_applescript",
+        { script: 'tell application "System Events" to keystroke "a"' },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_run_applescript", {
+        script: 'tell application "System Events" to keystroke "a"',
+      });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "MenuBar [1]",
+        executionResult: "",
+      });
+      const result2 = await p2;
+      expect(result2.content).toContain("NO VISIBLE EFFECT");
+    });
+
     test("exempts key combos regardless of spacing, case, alias, or modifier order", async () => {
       // All of these normalize to an exempt combo the mac helper would execute
       // identically: spaced, uppercase, alt->option alias, command->cmd alias,

@@ -904,8 +904,8 @@ describe("trust-gating via channel capabilities", () => {
     expect(result).not.toBe(message);
     const injected = (result.content[0] as { type: "text"; text: string }).text;
     expect(injected).toContain("client_os: macos");
-    expect(injected).toContain("computer_use_run_applescript");
-    expect(injected).toContain("Use `host_bash` for shell commands");
+    expect(injected).toContain("drive apps with the computer-use skill");
+    expect(injected).toContain("`host_bash` is for shell commands");
     // No channel constraints — full desktop capabilities
     expect(injected).not.toContain("CHANNEL CONSTRAINTS");
   });
