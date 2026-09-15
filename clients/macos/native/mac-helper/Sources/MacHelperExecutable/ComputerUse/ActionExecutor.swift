@@ -137,19 +137,59 @@ final class ActionExecutor {
         }
     }
 
-    /// Runs `body` and puts the pointer back where the user left it, whether or
-    /// not `body` got as far as the event it was moving there to post.
-    private func restoringCursor(_ body: () throws -> Void) rethrows {
-        let saved = CGEvent(source: nil)?.location
-        defer {
-            if let saved {
-                // Posting only queues the final event, so give it time to land before the warp moves the pointer.
-                usleep(40_000)
-                CGWarpMouseCursorPosition(saved)
-                CGAssociateMouseAndMouseCursorPosition(1)
+    // MARK: - Giving the pointer back
+
+    /// Where the person's pointer was before this task first moved it, and
+    /// where the task last put it. The pointer stays where an action leaves it
+    /// while the task runs, because hover-revealed controls (Slack's message
+    /// actions, most web toolbars) disappear the moment it leaves. It goes
+    /// home when the task says it is done, or once no pointer action has come
+    /// for `pointerReturnDelay`.
+    private struct PointerHome {
+        var home: CGPoint
+        var placed: CGPoint
+        var generation: Int
+    }
+
+    private static let pointerHome = OSAllocatedUnfairLock<PointerHome?>(initialState: nil)
+    static let pointerReturnDelay: TimeInterval = 10
+
+    /// Records that the task is putting the pointer at `point`, saving the
+    /// person's position on the first move, and schedules the return.
+    private static func notePointerPlaced(at point: CGPoint) {
+        let current = CGEvent(source: nil)?.location
+        let generation = pointerHome.withLock { state -> Int? in
+            if var existing = state {
+                existing.placed = point
+                existing.generation += 1
+                state = existing
+                return existing.generation
             }
+            guard let current else { return nil }
+            state = PointerHome(home: current, placed: point, generation: 0)
+            return 0
         }
-        try body()
+        guard let generation else { return }
+        DispatchQueue.global().asyncAfter(deadline: .now() + pointerReturnDelay) {
+            returnPointerHome(ifGeneration: generation)
+        }
+    }
+
+    /// Puts the pointer back where the person left it. With a generation, only
+    /// if no pointer action has happened since that one was scheduled. If the
+    /// pointer is no longer where the task put it, the person has taken the
+    /// mouse back, so it is theirs and stays put.
+    static func returnPointerHome(ifGeneration generation: Int? = nil) {
+        let state = pointerHome.withLock { state -> PointerHome? in
+            guard let existing = state, generation == nil || existing.generation == generation else { return nil }
+            state = nil
+            return existing
+        }
+        guard let state, let current = CGEvent(source: nil)?.location else { return }
+        guard abs(current.x - state.placed.x) <= 2, abs(current.y - state.placed.y) <= 2 else { return }
+        CGWarpMouseCursorPosition(state.home)
+        CGAssociateMouseAndMouseCursorPosition(1)
+        lastSyntheticPostAt.withLock { $0 = Date() }
     }
 
     static func checkAccessibilityPermission(prompt: Bool = false) -> Bool {
@@ -211,6 +251,7 @@ final class ActionExecutor {
     }
 
     private func mouseMove(to point: CGPoint) throws {
+        Self.notePointerPlaced(at: point)
         guard let moveEvent = CGEvent(mouseEventSource: eventSource, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
             throw ExecutorError.eventCreationFailed
         }
@@ -340,10 +381,7 @@ final class ActionExecutor {
         switch action.type {
         case .click:
             guard let x = action.x, let y = action.y else { throw ExecutorError.missingCoordinates }
-            try restoringCursor { try click(at: CGPoint(x: x, y: y)) }
-        // No cursor restore on doubleClick, rightClick or drag. A context menu
-        // and a drag both track the pointer, so warping it away afterwards
-        // changes what the action did.
+            try click(at: CGPoint(x: x, y: y))
         case .doubleClick:
             guard let x = action.x, let y = action.y else { throw ExecutorError.missingCoordinates }
             try doubleClick(at: CGPoint(x: x, y: y))
@@ -361,7 +399,7 @@ final class ActionExecutor {
             let y = action.y ?? 0
             let direction = action.scrollDirection ?? "down"
             let amount = action.scrollAmount ?? 3
-            try restoringCursor { try scroll(at: CGPoint(x: x, y: y), direction: direction, amount: amount) }
+            try scroll(at: CGPoint(x: x, y: y), direction: direction, amount: amount)
         case .drag:
             guard let fromX = action.x, let fromY = action.y else { throw ExecutorError.missingCoordinates }
             guard let endX = action.toX, let endY = action.toY else { throw ExecutorError.missingCoordinates }
@@ -471,6 +509,7 @@ final class ActionExecutor {
             usleep(10_000)
         }
 
+        Self.notePointerPlaced(at: endPoint)
         guard let mouseUp = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseUp, mouseCursorPosition: endPoint, mouseButton: .left) else {
             throw ExecutorError.eventCreationFailed
         }

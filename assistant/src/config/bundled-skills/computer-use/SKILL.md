@@ -35,6 +35,13 @@ The tree is walked to a limited depth to keep steps fast, and says when it was
 cut off. If the element you need is not in it, call `computer_use_observe` with
 `full_tree: true`.
 
+## Typing is not sending
+
+Pressing enter in a chat, email or form usually sends or submits it, and that
+cannot be taken back. Send only when the user asked you to send, post or
+submit. When they asked you to type, write or draft something, type it and stop
+before pressing enter; tell them it is ready to send.
+
 ## Batching known steps (macOS)
 
 When you already know the next few actions and none depends on seeing the

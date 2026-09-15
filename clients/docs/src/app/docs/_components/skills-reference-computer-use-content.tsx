@@ -155,6 +155,16 @@ export function SkillsReferenceComputerUseContent() {
               unsupported tools are not offered to the assistant.
             </li>
             <li>
+              <strong>Typing is not sending.</strong> Asked to type or draft a message, the
+              assistant types it and stops before pressing Enter. It sends only when asked to.
+            </li>
+            <li>
+              <strong>Your pointer comes back on macOS.</strong> The pointer stays where the
+              assistant last clicked while it works, so controls that only show on hover keep
+              working. It returns to where you left it when the task ends, unless you have
+              already moved it.
+            </li>
+            <li>
               <strong>Batched actions on macOS.</strong> When the assistant already knows several
               steps, such as opening a window, typing a URL, and pressing Enter, it can run them
               in one step and look at the screen once afterward. It stops at the first action
