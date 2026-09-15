@@ -29,6 +29,11 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import {
+  SAMPLE_APP,
+  showOpenAppRoute,
+  showPath,
+} from "@/stores/open-app.test-helper";
 import { routes } from "@/utils/routes";
 
 const hapticLight = mock(() => {});
@@ -61,22 +66,11 @@ const {
   revealConversationView,
 } = await import("@/utils/conversation-navigation");
 
-const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
 /** The conversation whose route holds the app the viewer shows. */
 const OPEN_CONVERSATION = "conv-open";
 
-/** The route the conversation navigators read for the app already on screen. */
-function showPath(path: string): void {
-  window.history.replaceState(null, "", path);
-}
-
 function openAppViewer(view: "app" | "app-editing" = "app"): void {
-  useViewerStore.setState({
-    mainView: view,
-    activeAppId: SAMPLE_APP.appId,
-    openedAppState: SAMPLE_APP,
-  });
-  showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
+  showOpenAppRoute({ conversationId: OPEN_CONVERSATION, mainView: view });
 }
 
 function openOverlayOverApp(): void {
@@ -381,12 +375,7 @@ describe("keptAppId", () => {
   });
 
   test("names the app the URL names", () => {
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: SAMPLE_APP.appId,
-      openedAppState: SAMPLE_APP,
-    });
-    showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
+    openAppViewer();
 
     expect(keptAppId()).toBe(SAMPLE_APP.appId);
   });

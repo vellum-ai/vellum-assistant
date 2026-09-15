@@ -20,6 +20,8 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { OpenPanelEvent, OpenUrlEvent } from "@vellumai/assistant-api";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
+import { showOpenAppRoute, showPath } from "@/stores/open-app.test-helper";
+import { routes } from "@/utils/routes";
 
 const submitSurfaceActionCalls: Array<{
   assistantId: string;
@@ -292,7 +294,7 @@ describe("handleOpenConversation", () => {
     useViewerStore.getState().reset();
     useConversationStore.getState().reset();
     useSubagentStore.getState().reset();
-    window.history.replaceState(null, "", "/assistant");
+    showPath(routes.assistant);
   });
 
   it("switches to and focuses the target conversation by default", () => {
@@ -319,17 +321,7 @@ describe("handleOpenConversation", () => {
       coarsePointer: false,
     });
     useConversationStore.getState().setActiveConversationId("conv-origin");
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: "app-1",
-      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
-    });
-    // The app rides along only from a route that names it.
-    window.history.replaceState(
-      null,
-      "",
-      "/assistant/conversations/conv-origin/app/app-1",
-    );
+    showOpenAppRoute({ conversationId: "conv-origin" });
     const push = mock((_url: string) => {});
     const ctx = { router: { push } } as unknown as StreamHandlerContext;
 
@@ -361,17 +353,7 @@ describe("handleOpenConversation", () => {
       coarsePointer: true,
     });
     useConversationStore.getState().setActiveConversationId("conv-origin");
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: "app-1",
-      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
-    });
-    // The app rides along only from a route that names it.
-    window.history.replaceState(
-      null,
-      "",
-      "/assistant/conversations/conv-origin/app/app-1",
-    );
+    showOpenAppRoute({ conversationId: "conv-origin" });
     const push = mock((_url: string) => {});
     const ctx = { router: { push } } as unknown as StreamHandlerContext;
 

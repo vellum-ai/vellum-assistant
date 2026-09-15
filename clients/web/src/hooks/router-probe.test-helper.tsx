@@ -9,6 +9,10 @@
  * renderHook(() => useThing(), { wrapper: wrapperAt("/assistant") });
  * expect(currentLocation().pathname).toBe("/assistant/library");
  * ```
+ *
+ * A suite that brings its own wrapper (a query client, a rendered component)
+ * mounts {@link LocationProbe} inside its own router instead, and reads the
+ * same {@link currentLocation}.
  */
 
 import { screen } from "@testing-library/react";
@@ -18,7 +22,8 @@ import { MemoryRouter, useLocation } from "react-router";
 const PATHNAME_TEST_ID = "router-probe-pathname";
 const SEARCH_TEST_ID = "router-probe-search";
 
-function LocationProbe(): ReactElement {
+/** Renders the router's location for {@link currentLocation} to read. */
+export function LocationProbe(): ReactElement {
   const { pathname, search } = useLocation();
   return (
     <>

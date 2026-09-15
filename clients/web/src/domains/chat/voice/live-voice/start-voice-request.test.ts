@@ -87,6 +87,8 @@ const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { SAMPLE_APP, showOpenAppRoute, showPath } =
+  await import("@/stores/open-app.test-helper");
 const { routes } = await import("@/utils/routes");
 
 // ---------------------------------------------------------------------------
@@ -102,9 +104,6 @@ const SUPPORTED_VERSION = "0.10.12";
  * thread selected: the state a widget button or a Siri shortcut actually finds.
  */
 const PRIOR_CONVERSATION_ID = "conv-prior";
-
-/** An app the user is working in, kept beside the chat on a wide viewport. */
-const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
 
 /** The app's navigation, which the drain uses to land on the draft it mints. */
 const navigate = mock(
@@ -226,7 +225,7 @@ beforeEach(() => {
 
 afterEach(() => {
   viewport.restore();
-  window.history.replaceState(null, "", routes.assistant);
+  showPath(routes.assistant);
 });
 
 // ---------------------------------------------------------------------------
@@ -322,17 +321,7 @@ describe("starting a session", () => {
     // a plain conversation path would close it on the next reload.
     identityHydrated();
     registerStarter();
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: SAMPLE_APP.appId,
-      openedAppState: SAMPLE_APP,
-    });
-    // An app rides along only from a route that names it.
-    window.history.replaceState(
-      null,
-      "",
-      routes.conversation(PRIOR_CONVERSATION_ID, SAMPLE_APP.appId),
-    );
+    showOpenAppRoute({ conversationId: PRIOR_CONVERSATION_ID });
 
     requestVoiceStart(navigate, { entry: "deep_link" });
     await flushDrain();
