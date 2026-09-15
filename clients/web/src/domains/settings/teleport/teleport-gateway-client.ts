@@ -127,6 +127,64 @@ export async function importLocalBundle(
   }
 }
 
+/** One on-disk gateway backup snapshot, as listed by `GET /v1/backups`. */
+export interface LocalBackupSnapshot {
+  filename: string;
+  created_at: string;
+}
+
+/**
+ * List a local assistant's gateway backup snapshots (local pool only):
+ * `GET /v1/backups`.
+ */
+export async function listLocalBackups(
+  assistant: LockfileAssistant,
+): Promise<LocalBackupSnapshot[]> {
+  const base = localGatewayBase(assistant);
+  const token = await mintLocalGatewayToken(assistant, base);
+  const response = await fetch(`${base}/v1/backups`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new TeleportError(
+      "backup_failed",
+      `Could not list backups (HTTP ${response.status}).`,
+    );
+  }
+  const json = (await safeJson(response)) as {
+    local?: { snapshots?: LocalBackupSnapshot[] };
+  } | null;
+  return json?.local?.snapshots ?? [];
+}
+
+/**
+ * Take a gateway backup snapshot of a local assistant now:
+ * `POST /v1/backups/create`. The gateway exports a fresh `.vbundle` and
+ * writes it to the local pool plus any configured offsite destinations, so
+ * this call blocks for the full export. Throws on a non-2xx status or a
+ * `{success:false}` body.
+ */
+export async function createLocalBackup(
+  assistant: LockfileAssistant,
+): Promise<void> {
+  const base = localGatewayBase(assistant);
+  const token = await mintLocalGatewayToken(assistant, base);
+  const response = await fetch(`${base}/v1/backups/create`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new TeleportError(
+      "backup_failed",
+      `Backup failed (HTTP ${response.status}).`,
+    );
+  }
+  const json = (await safeJson(response)) as { success?: boolean } | null;
+  if (json && json.success === false) {
+    throw new TeleportError("backup_failed", "Backup reported failure.");
+  }
+}
+
 /**
  * Ask a managed (cloud) assistant's runtime to export to a signed GCS URL:
  * `POST /v1/assistants/{id}/migrations/export-to-gcs/`. The export is async —

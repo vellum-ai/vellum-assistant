@@ -38,6 +38,7 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import { routes } from "@/utils/routes";
 
+import { ensureSourceBackup } from "./teleport-backup";
 import {
   classifyHosting,
   resolveDestination,
@@ -124,6 +125,12 @@ export function useTeleport(): TeleportController {
       createdFresh: false,
     };
     try {
+      // Snapshot the source before anything leaves it. A failure here aborts
+      // the teleport: the source is retired on Confirm & Switch, and that is
+      // only safe with a restore point behind it.
+      setStep("Backing up assistant...");
+      await ensureSourceBackup(source);
+
       if (destination === "platform") {
         await teleportToPlatform(source, setStep, setProgress, targetRef);
       } else if (destination === "local") {

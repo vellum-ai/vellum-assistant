@@ -26,6 +26,7 @@ export type TeleportPhase =
 /** Stable error codes for teleport failures, mirroring Swift `TeleportError`. */
 export type TeleportErrorCode =
   | "not_signed_in"
+  | "backup_failed"
   | "export_failed"
   | "export_timed_out"
   | "export_job_failed"

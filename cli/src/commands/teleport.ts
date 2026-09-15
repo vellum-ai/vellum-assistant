@@ -38,6 +38,14 @@ import {
 } from "../lib/local-runtime-client.js";
 import { pollJobUntilDone } from "../lib/job-polling.js";
 import {
+  createGatewayBackup,
+  createPlatformBackup,
+  hasRecentBackup,
+  listGatewayBackups,
+  listPlatformBackups,
+  RECENT_BACKUP_MAX_AGE_MS,
+} from "../lib/teleport-backup.js";
+import {
   hatchDocker,
   retireDocker,
   sleepContainers,
@@ -87,6 +95,17 @@ function printHelp(): void {
     "The source and target must be different environments. Same-environment",
   );
   console.log("transfers (e.g. local to local) are not supported.");
+  console.log("");
+  console.log(
+    "Before exporting, the source assistant is backed up (a platform PVC",
+  );
+  console.log(
+    "snapshot for platform sources, a gateway .vbundle snapshot for local and",
+  );
+  console.log(
+    `docker sources). A backup taken within the last ${RECENT_BACKUP_MAX_AGE_MS / 60_000} minutes is reused.`,
+  );
+  console.log("If the backup fails, the teleport is aborted.");
   console.log("");
   console.log(
     "For local-to-docker and docker-to-local transfers, the source assistant",
@@ -361,6 +380,55 @@ interface ImportResponse {
     failedAccounts: string[];
     skippedPlatform?: number;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Pre-export safety backup of the source
+//
+// Runs before any data leaves the source. Reuses a backup younger than
+// RECENT_BACKUP_MAX_AGE_MS; otherwise takes one and blocks until it exists.
+// Any failure aborts the teleport: the source is retired at the end of a
+// successful teleport, and that is only safe with a restore point behind it.
+// ---------------------------------------------------------------------------
+
+async function backupSourceBeforeTeleport(
+  entry: AssistantEntry,
+  cloud: string,
+  displayName: string,
+): Promise<void> {
+  console.log(`Backing up ${displayName} (${cloud})...`);
+  try {
+    if (cloud === "vellum") {
+      const platformToken = readPlatformToken();
+      if (!platformToken) {
+        console.error("Not logged in. Run 'vellum login' first.");
+        process.exit(1);
+      }
+      const createdAts = await listPlatformBackups(entry, platformToken);
+      if (hasRecentBackup(createdAts)) {
+        console.log("Recent backup found, reusing it.");
+        return;
+      }
+      await createPlatformBackup(entry, platformToken);
+    } else {
+      const createdAts = await callRuntimeWithAuthRetry(entry, (token) =>
+        listGatewayBackups(entry, token),
+      );
+      if (hasRecentBackup(createdAts)) {
+        console.log("Recent backup found, reusing it.");
+        return;
+      }
+      await callRuntimeWithAuthRetry(entry, (token) =>
+        createGatewayBackup(entry, token),
+      );
+    }
+    console.log("Backup complete.");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Error: Could not back up '${displayName}': ${msg}`);
+    console.error("Teleport aborted; the source assistant was not modified.");
+    process.exit(1);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1399,6 +1467,8 @@ export async function teleport(): Promise<void> {
     // where the import will run. For existing targets that's the lockfile's
     // runtimeUrl; for fresh hatches it's getPlatformUrl() (which is what
     // resolveOrHatchTarget writes to the new entry).
+    await backupSourceBeforeTeleport(fromEntry, fromCloud, from);
+
     console.log(`Exporting from ${from} (${fromCloud})...`);
     const bundlePlatformUrl = targetPlatformUrl ?? getPlatformUrl();
     const { bundleKey } = await exportFromAssistant(
@@ -1468,6 +1538,8 @@ export async function teleport(): Promise<void> {
   // here so a lockfile change mid-teleport can't split export and import.
   const bundlePlatformUrl =
     fromCloud === "vellum" ? fromEntry.runtimeUrl : getPlatformUrl();
+
+  await backupSourceBeforeTeleport(fromEntry, fromCloud, from);
 
   // Export from source (bundle lives in GCS after this returns).
   console.log(`Exporting from ${from} (${fromCloud})...`);
