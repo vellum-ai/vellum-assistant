@@ -8,12 +8,9 @@ import {
   test,
 } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { createElement, type ReactNode } from "react";
 import {
-  MemoryRouter,
   type NavigateFunction,
   NavigationType,
-  useLocation,
   useNavigate,
   useNavigationType,
 } from "react-router";
@@ -31,6 +28,7 @@ mock.module("@/hooks/use-is-mobile", () => ({
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { currentLocation, wrapperAt } from "@/hooks/router-probe.test-helper";
 import { showPath } from "@/stores/open-app.test-helper";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
@@ -76,27 +74,18 @@ const OTHER_CONV_OTHER_APP_PATH = routes.conversation(
 );
 const NON_CHAT_PATH = routes.library.root;
 
-// Renders the hook beside the router's location, so a test reads where the
-// open landed from `result.current.pathname` instead of the router internals.
-// The hook reads the live route from `window.location`, which the probe router
-// does not drive, so the two start on the same path.
+// Where the open landed is read from the wrapper's location probe. The hook
+// reads the live route from `window.location`, which the probe router does not
+// drive, so the two start on the same path.
 function renderOpenApp(initialPath: string) {
   showPath(initialPath);
-  function Wrapper({ children }: { children: ReactNode }) {
-    return createElement(
-      MemoryRouter,
-      { initialEntries: [initialPath] },
-      children,
-    );
-  }
   return renderHook(
     () => ({
       openApp: useOpenAppFromChat(),
       navigate: useNavigate(),
-      pathname: useLocation().pathname,
       navigationType: useNavigationType(),
     }),
-    { wrapper: Wrapper },
+    { wrapper: wrapperAt(initialPath) },
   );
 }
 
@@ -179,7 +168,7 @@ describe("useOpenAppFromChat", () => {
     expect(loadAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
-    expect(result.current.pathname).toBe(CHAT_PATH);
+    expect(currentLocation().pathname).toBe(CHAT_PATH);
   });
 
   test("navigates to the app route for the conversation on screen", async () => {
@@ -194,7 +183,7 @@ describe("useOpenAppFromChat", () => {
 
     // THEN the URL names the app and `useAppRouteSync` owns the load, so
     // browser Back closes the app
-    expect(result.current.pathname).toBe(APP_PATH);
+    expect(currentLocation().pathname).toBe(APP_PATH);
     expect(loadAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
@@ -216,7 +205,9 @@ describe("useOpenAppFromChat", () => {
     expect(
       useConversationStore.getState().draftConversationIds.has(draftId!),
     ).toBe(true);
-    expect(result.current.pathname).toBe(routes.conversation(draftId!, APP_ID));
+    expect(currentLocation().pathname).toBe(
+      routes.conversation(draftId!, APP_ID),
+    );
     expect(loadAppMock).not.toHaveBeenCalled();
   });
 
@@ -240,7 +231,9 @@ describe("useOpenAppFromChat", () => {
     expect(
       useConversationStore.getState().draftConversationIds.has(draftId!),
     ).toBe(true);
-    expect(result.current.pathname).toBe(routes.conversation(draftId!, APP_ID));
+    expect(currentLocation().pathname).toBe(
+      routes.conversation(draftId!, APP_ID),
+    );
   });
 
   // LUM-2553: opening an app is a view action, so the entry point must not
@@ -260,7 +253,7 @@ describe("useOpenAppFromChat", () => {
     // THEN the app lands full width at its route
     expect(exitAppEditingMock).toHaveBeenCalledTimes(1);
     expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(result.current.pathname).toBe(APP_PATH);
+    expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
   test("opens the same way on a mobile viewport", async () => {
@@ -278,7 +271,69 @@ describe("useOpenAppFromChat", () => {
     // THEN the layout does not depend on the viewport either
     expect(exitAppEditingMock).toHaveBeenCalledTimes(1);
     expect(enterAppEditingMock).not.toHaveBeenCalled();
-    expect(result.current.pathname).toBe(APP_PATH);
+    expect(currentLocation().pathname).toBe(APP_PATH);
+  });
+
+  /** Puts back the split actions the rest of the suite stands mocks in for. */
+  function installRealSplitActions(): void {
+    useViewerStore.setState({
+      enterAppEditing: viewerSnapshot.enterAppEditing,
+      exitAppEditing: viewerSnapshot.exitAppEditing,
+    });
+    useConversationStore.setState({
+      editingConversationId: null,
+      setEditingConversationId: conversationSnapshot.setEditingConversationId,
+    });
+  }
+
+  // The conversation is chosen first: a fresh draft brings the chat on screen,
+  // which keeps an app already on screen beside it, and the exit after it is
+  // what lands this open full width.
+  test("lands full width when the draft is minted behind an app", async () => {
+    // GIVEN the viewer holding an app off a chat route
+    installRealSplitActions();
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: APP_ID,
+      openedAppState: { appId: APP_ID, dirName: "", name: "", html: "" },
+    });
+    const { result } = renderOpenApp(NON_CHAT_PATH);
+
+    // WHEN the user opens that same app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN it lands on a fresh draft's app route with the full width and no
+    // chat pane bound beside it
+    const draftId = useConversationStore.getState().activeConversationId;
+    expect(useViewerStore.getState().mainView).not.toBe("app-editing");
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
+    expect(currentLocation().pathname).toBe(
+      routes.conversation(draftId!, APP_ID),
+    );
+  });
+
+  test("leaves the split on an in-place reload", async () => {
+    // GIVEN the app at its own route sharing the width with the chat
+    installRealSplitActions();
+    useConversationStore.setState({
+      activeConversationId: CONV_ID,
+      editingConversationId: CONV_ID,
+    });
+    useViewerStore.setState({ mainView: "app-editing", activeAppId: APP_ID });
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user clicks it again
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the reload lands full width rather than reloading into the split
+    expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+    expect(useViewerStore.getState().mainView).toBe("app");
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
+    expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
   test("reloads in place when the URL already names the app", async () => {
@@ -294,7 +349,7 @@ describe("useOpenAppFromChat", () => {
     // THEN there is nowhere to navigate, so the app refetches in place, which
     // is how an app the assistant edited picks up its new HTML
     expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
-    expect(result.current.pathname).toBe(APP_PATH);
+    expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
   test("reloads in place without minting a draft", async () => {
@@ -311,7 +366,7 @@ describe("useOpenAppFromChat", () => {
     expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
     expect(useConversationStore.getState().activeConversationId).toBeNull();
     expect(useConversationStore.getState().draftConversationIds.size).toBe(0);
-    expect(result.current.pathname).toBe(APP_PATH);
+    expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
   test("drops the app segment when an in-place reload gives up", async () => {
@@ -334,7 +389,7 @@ describe("useOpenAppFromChat", () => {
 
     // THEN the dead segment leaves the URL, and it leaves without a history
     // entry, so a refresh or a copied bookmark does not retry the app
-    expect(result.current.pathname).toBe(CHAT_PATH);
+    expect(currentLocation().pathname).toBe(CHAT_PATH);
     expect(result.current.navigationType).toBe(NavigationType.Replace);
   });
 
@@ -370,7 +425,7 @@ describe("useOpenAppFromChat", () => {
 
     // THEN the dead segment leaves the conversation the user is on, not the
     // one the reload started from, and it leaves without a history entry
-    expect(result.current.pathname).toBe(OTHER_CHAT_PATH);
+    expect(currentLocation().pathname).toBe(OTHER_CHAT_PATH);
     expect(result.current.navigationType).toBe(NavigationType.Replace);
   });
 
@@ -406,7 +461,7 @@ describe("useOpenAppFromChat", () => {
 
     // THEN the stale failure leaves that route alone: the segment names an app
     // of its own, and `useAppRouteSync` answers for the load there
-    expect(result.current.pathname).toBe(OTHER_CONV_OTHER_APP_PATH);
+    expect(currentLocation().pathname).toBe(OTHER_CONV_OTHER_APP_PATH);
   });
 
   test("keeps the app route when the viewer still holds the app", async () => {
@@ -425,7 +480,7 @@ describe("useOpenAppFromChat", () => {
     });
 
     // THEN the URL still names what the viewer holds
-    expect(result.current.pathname).toBe(APP_PATH);
+    expect(currentLocation().pathname).toBe(APP_PATH);
   });
 });
 
