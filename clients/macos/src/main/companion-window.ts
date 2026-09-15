@@ -699,7 +699,7 @@ const currentState = (): CompanionSurfaceState => {
     // nothing was.
     dictationOffer: context.dictationOffer,
     // Passed through as it arrived, for the reason `dictationOffer` is.
-    popover: context.popover,
+    popover: currentPopover(),
     // Main's own: the call's bar and the popover's window both draw it.
     popoverView: currentPopoverView(),
     // Settled the same way, and to zero rather than to anything carried over:
@@ -1109,6 +1109,78 @@ const popoverAnchor = (): CompanionPopoverAnchor | null => {
  * the list leaves the list open on the rest. A card or a surface has no short
  * form, so it is always drawn whole.
  */
+/**
+ * How long a pressed answer keeps its prompt off the popover while the window
+ * holding it submits, in milliseconds.
+ *
+ * A press takes the approval, the credential form or the card away at once,
+ * rather than once the submission lands and the window publishes the prompt
+ * gone, which is long enough to press again. A prompt still standing when
+ * the hold runs out is one whose submission did not land, so it shows again.
+ */
+export const COMPANION_POPOVER_ANSWER_HOLD_MS = 10_000;
+
+/** Answered prompts held off the popover, by approval or popover id. */
+const answered = new Map<string, ReturnType<typeof setTimeout>>();
+
+const holdAnswered = (id: string): void => {
+  clearTimeout(answered.get(id));
+  answered.set(
+    id,
+    setTimeout(() => {
+      answered.delete(id);
+      pushState();
+    }, COMPANION_POPOVER_ANSWER_HOLD_MS),
+  );
+};
+
+/** Let go of held answers the published popover no longer carries. */
+const releaseAnswered = (popover: CompanionPopover | undefined): void => {
+  const standing = new Set<string>();
+  if (popover?.kind === "approvals") {
+    for (const item of popover.items) {
+      standing.add(item.id);
+    }
+  } else if (popover !== undefined) {
+    standing.add(popover.id);
+  }
+  for (const [id, timer] of answered) {
+    if (!standing.has(id)) {
+      clearTimeout(timer);
+      answered.delete(id);
+    }
+  }
+};
+
+/**
+ * The popover as the companion shows it: what the app's window published,
+ * less what the user has already answered. An approval list loses the rows
+ * answered and is named for the rows left, so the rest reads as a list of
+ * its own; anything else answered is nothing to show.
+ */
+export const shownPopover = (
+  popover: CompanionPopover | undefined,
+  isAnswered: (id: string) => boolean,
+): CompanionPopover | undefined => {
+  if (popover === undefined) {
+    return undefined;
+  }
+  if (popover.kind !== "approvals") {
+    return isAnswered(popover.id) ? undefined : popover;
+  }
+  const items = popover.items.filter((item) => !isAnswered(item.id));
+  if (items.length === 0) {
+    return undefined;
+  }
+  if (items.length === popover.items.length) {
+    return popover;
+  }
+  return { ...popover, id: items.map((item) => item.id).join(","), items };
+};
+
+const currentPopover = (): CompanionPopover | undefined =>
+  shownPopover(context.popover, (id) => answered.has(id));
+
 let popoverViewFor: {
   id: string;
   kind: CompanionPopover["kind"];
@@ -1116,7 +1188,7 @@ let popoverViewFor: {
 } | null = null;
 
 const currentPopoverView = (): CompanionPopoverView | undefined => {
-  const popover = context.popover;
+  const popover = currentPopover();
   if (popover === undefined) {
     return undefined;
   }
@@ -1144,9 +1216,10 @@ const popoverRidesTheBar = (): boolean =>
 
 const syncPopover = (): void => {
   const view = currentPopoverView();
-  syncCompanionPopover(context.popover, popoverAnchor(), {
+  const popover = currentPopover();
+  syncCompanionPopover(popover, popoverAnchor(), {
     show: view !== "deferred" && !popoverRidesTheBar(),
-    keyboard: context.popover?.kind === "secret" && view === "expanded",
+    keyboard: popover?.kind === "secret" && view === "expanded",
   });
 };
 
@@ -3071,7 +3144,10 @@ export const installCompanionWindow = (): void => {
     "vellum:companion:answerPopover",
     z.tuple([companionPopoverAnswerSchema, z.string()]),
     ([answer, popoverId]) => {
-      if (!answersThePopover(context.popover, popoverId, answer)) {
+      // Against what is shown, so a second press on an answer already on
+      // its way is dropped with the prompt it was pressed on.
+      const shown = currentPopover();
+      if (!answersThePopover(shown, popoverId, answer)) {
         return;
       }
       const command: VellumCommand = {
@@ -3079,6 +3155,15 @@ export const installCompanionWindow = (): void => {
         popoverId,
         answer,
       };
+      // Off the popover at once. `open` leaves the prompt where it is: the app
+      // comes forward to answer it, and the companion steps off with it.
+      if ("itemId" in answer) {
+        holdAnswered(answer.itemId);
+        pushState();
+      } else if (answer.kind !== "open" && shown !== undefined) {
+        holdAnswered(shown.id);
+        pushState();
+      }
       if (answer.kind !== "open") {
         dispatchWithoutRaising(command);
         return;
@@ -3094,7 +3179,7 @@ export const installCompanionWindow = (): void => {
     "vellum:companion:setPopoverSize",
     z.tuple([z.string(), z.number().finite(), z.number().finite()]),
     ([popoverId, width, height]) => {
-      const popover = context.popover;
+      const popover = currentPopover();
       if (popover?.id !== popoverId) {
         return;
       }
@@ -3114,7 +3199,7 @@ export const installCompanionWindow = (): void => {
     "vellum:companion:setPopoverView",
     z.tuple([z.string(), z.enum(["row", "expanded", "deferred"])]),
     ([popoverId, view]) => {
-      const popover = context.popover;
+      const popover = currentPopover();
       if (popover?.id !== popoverId) {
         return;
       }
@@ -3171,8 +3256,9 @@ export const installCompanionWindow = (): void => {
     z.tuple([companionContextSchema]),
     ([next]) => {
       context = next;
+      releaseAnswered(context.popover);
       // What the user last did with a popover goes with it.
-      if (context.popover === undefined) {
+      if (currentPopover() === undefined) {
         popoverViewFor = null;
       }
       syncWatchFrame();

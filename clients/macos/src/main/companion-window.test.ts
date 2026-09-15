@@ -605,6 +605,7 @@ const {
   shouldShowCompanionSurface,
   showCompanionCoachmarks,
   installCompanionWindow,
+  shownPopover,
 } = await import("./companion-window");
 
 const { popoverBoundsFor, POPOVER_GAP } =
@@ -3281,6 +3282,63 @@ describe("the popover beside the surface", () => {
     expect(takesPrompts()).toBe(false);
   });
 
+  /** Pressed, it goes: waiting on the submission leaves time to press again. */
+  test("takes an answered approval off at once, and drops a second press", () => {
+    send("vellum:companion:setContext", context({ popover: THREE }));
+
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "allow", itemId: "req-1" },
+      "req-1,req-2,req-3",
+    );
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "allow", itemId: "req-1" },
+      "req-2,req-3",
+    );
+
+    expect(dispatched).toHaveLength(1);
+    expect(state().popover).toEqual({
+      ...THREE,
+      id: "req-2,req-3",
+      items: THREE.items.slice(1),
+    });
+  });
+
+  test("takes the credential form off once confirmed", () => {
+    send("vellum:companion:setContext", context({ popover: SECRET }));
+
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "secret", value: "hunter2" },
+      "sec-1",
+    );
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "secret", value: "hunter2" },
+      "sec-1",
+    );
+
+    expect(dispatched).toHaveLength(1);
+    expect(state().popover).toBeUndefined();
+  });
+
+  /** The window stops publishing it, and the hold has nothing left to hide. */
+  test("forgets an answer once the prompt is gone from what is published", () => {
+    send("vellum:companion:setContext", context({ popover: ONE }));
+    send(
+      "vellum:companion:answerPopover",
+      { kind: "deny", itemId: "req-1" },
+      "req-1",
+    );
+    send("vellum:companion:setContext", context());
+
+    // The same request id published again is a prompt the user has not seen.
+    send("vellum:companion:setContext", context({ popover: ONE }));
+
+    expect(state().popover).toEqual(ONE);
+  });
+
   test("an answer travels without raising the app", () => {
     send("vellum:companion:setContext", context({ popover: ONE }));
 
@@ -3302,7 +3360,15 @@ describe("the popover beside the surface", () => {
 
   /** Another request joining the list renames it, but not the row pressed. */
   test("an approval's answer lands after the list around it changed", () => {
-    send("vellum:companion:setContext", context({ popover: THREE }));
+    const others = {
+      ...THREE,
+      id: "req-2,req-3,req-4",
+      items: [
+        ...THREE.items.slice(1),
+        { id: "req-4", title: "Save the file", detail: "" },
+      ],
+    };
+    send("vellum:companion:setContext", context({ popover: others }));
 
     send(
       "vellum:companion:answerPopover",
@@ -3374,6 +3440,39 @@ describe("the popover beside the surface", () => {
     }
 
     expect(opened).toEqual([]);
+  });
+});
+
+describe("shownPopover", () => {
+  const LIST = {
+    kind: "approvals" as const,
+    id: "a,b",
+    items: [
+      { id: "a", title: "A", detail: "" },
+      { id: "b", title: "B", detail: "" },
+    ],
+  };
+
+  test("passes a popover with nothing answered through as it is", () => {
+    expect(shownPopover(LIST, () => false)).toBe(LIST);
+  });
+
+  test("names what is left of a list for the rows left", () => {
+    expect(shownPopover(LIST, (id) => id === "a")).toEqual({
+      ...LIST,
+      id: "b",
+      items: [LIST.items[1]],
+    });
+  });
+
+  test("shows nothing once everything is answered", () => {
+    expect(shownPopover(LIST, () => true)).toBeUndefined();
+    expect(
+      shownPopover(
+        { kind: "surface", id: "s", title: "Form" },
+        (id) => id === "s",
+      ),
+    ).toBeUndefined();
   });
 });
 
