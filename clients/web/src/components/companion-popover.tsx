@@ -611,10 +611,18 @@ function SecretForm({
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Focused on arrival, so typing lands here once main lends the window the
-  // keyboard.
+  // Focused on arrival, and again each time the window is lent the keyboard:
+  // becoming key hands focus to whatever the window focused last, which is
+  // not the field, so a focus taken on arrival alone does not hold.
   useEffect(() => {
-    inputRef.current?.focus();
+    const focusField = (): void => {
+      inputRef.current?.focus();
+    };
+    focusField();
+    window.addEventListener("focus", focusField);
+    return () => {
+      window.removeEventListener("focus", focusField);
+    };
   }, []);
 
   return (
@@ -658,6 +666,9 @@ function SecretForm({
             type="password"
             fullWidth
             autoComplete="off"
+            // The surfaces around it turn selection off, and a field that
+            // inherits that will not take a caret where it is clicked.
+            className="select-text"
             maxLength={COMPANION_POPOVER_SECRET_MAX}
             label={
               popover.label !== ""
