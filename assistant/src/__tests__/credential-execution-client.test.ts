@@ -236,11 +236,8 @@ describe("discoverCesWithRetry", () => {
     const dir = mkdtempSync(join(tmpdir(), "ces-retry-"));
     const socketPath = join(dir, "ces.sock");
     const restore = withManagedEnv(socketPath);
+    const timer = setTimeout(() => writeFileSync(socketPath, ""), 80);
     try {
-      // Simulate the sidecar re-binding its bootstrap socket shortly after
-      // the assistant begins probing.
-      setTimeout(() => writeFileSync(socketPath, ""), 80);
-
       const result = await discoverCesWithRetry({
         timeoutMs: 2_000,
         intervalMs: 20,
@@ -248,6 +245,7 @@ describe("discoverCesWithRetry", () => {
       expect(result.mode).toBe("managed");
       expect((result as { socketPath: string }).socketPath).toBe(socketPath);
     } finally {
+      clearTimeout(timer);
       restore();
       rmSync(dir, { recursive: true, force: true });
     }

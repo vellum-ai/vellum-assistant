@@ -62,6 +62,12 @@ export interface CesProcessManagerConfig {
 
   /** Logger override. Defaults to the module logger; injected in tests. */
   logger?: PmLogger;
+
+  /**
+   * Socket discovery. Defaults to `discoverCesWithRetry`. Tests inject a
+   * stub that returns a known socket path.
+   */
+  discover?: typeof discoverCesWithRetry;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +113,7 @@ export function createCesProcessManager(
   config: CesProcessManagerConfig,
 ): CesProcessManager {
   const pmLog = config.logger ?? log;
+  const discover = config.discover ?? discoverCesWithRetry;
   let managedSocket: Socket | null = null;
   let discoveryResult: DiscoveryResult | null = null;
   let running = false;
@@ -122,7 +129,7 @@ export function createCesProcessManager(
       // Poll for the socket with a short backoff. CES binds
       // asynchronously, so a reconnecting assistant can briefly race
       // the re-bind.
-      discoveryResult = await discoverCesWithRetry();
+      discoveryResult = await discover();
 
       if (discoveryResult.mode === "unavailable") {
         throw new CesUnavailableError(discoveryResult.reason);
