@@ -1013,8 +1013,9 @@ export const PROVIDER_SEED_DATA: Record<
     // requesting it would fail the entire authorization. `folders:read` is
     // withheld likewise: Figma documents it, but the app's scope picker only
     // offers `folder_metadata:read` under Folders. `file_code_connect:write`
-    // is requested because the managed app enables it; Figma marks it
-    // Organization-plan only.
+    // is withheld because Figma only offers it to apps owned by an
+    // Organization-plan team, which not every managed app is, and nothing
+    // here uses Code Connect; it stays in availableScopes for BYO apps.
     defaultScopes: [
       "current_user:read",
       "file_content:read",
@@ -1024,7 +1025,6 @@ export const PROVIDER_SEED_DATA: Record<
       "file_comments:write",
       "file_dev_resources:read",
       "file_dev_resources:write",
-      "file_code_connect:write",
       "folder_metadata:read",
       "library_content:read",
       "library_assets:read",

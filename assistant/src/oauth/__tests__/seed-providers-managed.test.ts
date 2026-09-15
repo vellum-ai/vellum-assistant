@@ -70,6 +70,16 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
       );
     }
 
+    // `file_code_connect:write` is only offered to apps owned by an
+    // Organization-plan team. Managed apps in other environments are not,
+    // so requesting it fails the whole authorization there.
+    expect(figma.defaultScopes).not.toContain("file_code_connect:write");
+    if (Array.isArray(availableScopes)) {
+      expect(availableScopes.map(({ scope }) => scope)).toContain(
+        "file_code_connect:write",
+      );
+    }
+
     // GET /v1/me backs both the ping and the identity label.
     expect(figma.defaultScopes).toContain("current_user:read");
   });
