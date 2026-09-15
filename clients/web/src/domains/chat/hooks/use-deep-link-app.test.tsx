@@ -82,11 +82,12 @@ describe("useDeepLinkApp", () => {
     // THEN the landing is rewritten onto that conversation's app route
     expect(currentUrl()).toBe(routes.conversation(CONV_ID, APP_ID));
 
-    // AND a later conversation change does not re-consume the param
+    // AND the redirect took the param with it, so a later conversation change
+    // does not send the user on to a second app route
+    rerender({ urlConversationId: null, searchParams: new URLSearchParams() });
     act(() => {
       useConversationStore.setState({ activeConversationId: "c2" });
     });
-    rerender({ urlConversationId: null, searchParams });
     expect(currentUrl()).toBe(routes.conversation(CONV_ID, APP_ID));
   });
 });

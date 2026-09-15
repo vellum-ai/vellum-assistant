@@ -3,36 +3,36 @@
  * when the viewer does not already hold it, brings it back in front when an
  * overlay holds the main view, and drops the segment from the URL when the app
  * cannot be loaded. A conversation URL without the segment names no app, so
- * this hook closes one the viewer still holds.
+ * this hook lets go of one the viewer still holds.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import { isAppMainView } from "@/stores/pane-state";
 import { useViewerStore } from "@/stores/viewer-store";
-import { routes } from "@/utils/routes";
+import {
+  clearAppViewer,
+  dropFailedAppFromRoute,
+} from "@/utils/conversation-navigation";
 
 export function useAppRouteSync(
   assistantId: string | null,
-  conversationId: string | null,
   routeAppId: string | null,
 ): void {
   const navigate = useNavigate();
-  // Read through a ref so switching conversation beside an open app does not
-  // re-run the effect and reload the app.
-  const conversationIdRef = useRef(conversationId);
-  useEffect(() => {
-    conversationIdRef.current = conversationId;
-  }, [conversationId]);
 
   useEffect(() => {
     const viewer = useViewerStore.getState();
 
     if (routeAppId === null) {
-      if (viewer.activeAppId !== null || isAppMainView(viewer.mainView)) {
-        viewer.closeApp();
+      if (isAppMainView(viewer.mainView)) {
+        clearAppViewer();
+      } else if (viewer.activeAppId !== null) {
+        // This hook runs after the child effect that opened an overlay over
+        // the app, so closing would pull the view out from under it.
+        viewer.releaseApp();
         useConversationStore.getState().setEditingConversationId(null);
       }
       return;
@@ -61,17 +61,7 @@ export function useAppRouteSync(
       if (loaded || cancelled) {
         return;
       }
-      if (useViewerStore.getState().activeAppId === routeAppId) {
-        // The viewer holds the app behind an overlay, so the URL still names
-        // what the viewer holds.
-        return;
-      }
-      // An app id the viewer cannot load does not belong in the URL, where
-      // reload and Forward would retry it forever.
-      const cid = conversationIdRef.current;
-      if (cid) {
-        void navigate(routes.conversation(cid), { replace: true });
-      }
+      dropFailedAppFromRoute(navigate, routeAppId);
     });
     return () => {
       cancelled = true;

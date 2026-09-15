@@ -23,16 +23,13 @@ export function useDeepLinkApp(
   const pendingAppIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const appId = searchParams.get(LEGACY_APP_PARAM);
-    if (appId) {
-      pendingAppIdRef.current = appId;
+    const appId = searchParams.get(LEGACY_APP_PARAM) ?? pendingAppIdRef.current;
+    if (!appId) {
+      return;
     }
-  }, [searchParams]);
-
-  useEffect(() => {
     const conversationId = urlConversationId ?? activeConversationId;
-    const appId = pendingAppIdRef.current;
-    if (!appId || !conversationId) {
+    if (!conversationId) {
+      pendingAppIdRef.current = appId;
       return;
     }
     pendingAppIdRef.current = null;

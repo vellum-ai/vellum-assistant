@@ -8,6 +8,7 @@ import {
   routes,
 } from "@/utils/routes";
 
+import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -18,12 +19,7 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
 
-/**
- * Navigation as the imperative helpers here call it: a path, optionally
- * replacing the history entry. Narrower than react-router's `NavigateFunction`,
- * which satisfies it, so a caller that only knows how to push a path
- * (the app viewer's action context) satisfies it too.
- */
+/** A path, optionally replacing the history entry. `NavigateFunction` is one. */
 export type PathNavigate = (
   to: string,
   options?: { replace?: boolean },
@@ -44,12 +40,39 @@ export interface NavigateToConversationOptions {
   silent?: boolean;
 }
 
+/** The route on screen, router-relative like `useLocation().pathname`. */
+export function currentPathname(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  const { pathname } = window.location;
+  const prefix = remoteGatewayPublicPathPrefix();
+  return prefix.length > 0 && pathname.startsWith(prefix)
+    ? pathname.slice(prefix.length)
+    : pathname;
+}
+
+/** Let go of the app on screen and of the chat pane bound beside it. */
+export function clearAppViewer(): void {
+  useViewerStore.getState().closeApp();
+  useConversationStore.getState().setEditingConversationId(null);
+}
+
 /**
- * The route on screen, for the imperative callers here, which hold no hooks.
- * Empty off the browser, where it names neither conversation nor app.
+ * Clear what belongs to the conversation being left:
+ *
+ * - **The per-conversation process stores.** Subagent rows and workflow runs
+ *   are keyed by run, not by conversation, and they repopulate only from live
+ *   SSE. Left behind, the previous conversation's active run renders on the
+ *   new chat and its controls (abort, journal) reach the run that is still
+ *   going.
+ * - **The transcript side-panel payloads.** A files or tool-detail panel is
+ *   about one message of the conversation being left.
  */
-function currentPathname(): string {
-  return typeof window === "undefined" ? "" : window.location.pathname;
+function resetPerConversationState(): void {
+  useSubagentStore.getState().reset();
+  useWorkflowStore.getState().reset();
+  useViewerStore.getState().clearTranscriptPanelPayloads();
 }
 
 function isNarrowViewport(): boolean {
@@ -119,9 +142,8 @@ export function keptAppId(): string | null {
 }
 
 /**
- * Navigate to an existing conversation, resetting stale viewer state (main
- * view, subagent / workflow panels, transcript side-panel payloads) and
- * updating the active conversation in the store.
+ * Navigate to an existing conversation, resetting the state the conversation
+ * being left owns and updating the active conversation in the store.
  *
  * Pure imperative function — reads stores via `.getState()`, no React hooks.
  */
@@ -133,17 +155,12 @@ export function navigateToConversation(
   if (!options?.silent) {
     haptic.light();
   }
-  // Only wipe per-conversation process state on a genuine switch. Wiping on
-  // a same-conversation navigation kills the inline cards for subagents
-  // that are still running: the store repopulates only from live SSE
-  // events, so the spawned entries can't come back mid-run (LUM-2875).
-  //
-  // The clear runs first because it settles the chat-info view back to the
-  // one the panel was opened from, and the reveal below reads that view.
+  // Only on a genuine switch: a same-conversation navigation would kill the
+  // inline cards for subagents that are still running (LUM-2875). The clear
+  // runs first because it settles the chat-info view back to the one the panel
+  // was opened from, and the reveal below reads that view.
   if (conversationId !== useConversationStore.getState().activeConversationId) {
-    useSubagentStore.getState().reset();
-    useWorkflowStore.getState().reset();
-    useViewerStore.getState().clearTranscriptPanelPayloads();
+    resetPerConversationState();
   }
   revealConversationView(conversationId);
   useConversationStore.getState().setActiveConversationId(conversationId);
@@ -167,38 +184,23 @@ export function navigateToConversation(
 }
 
 /**
- * Mint a draft conversation id, clearing the state the previous conversation
- * leaves behind, which a draft has none of:
- *
- * - **The per-conversation process stores.** Subagent rows and workflow runs
- *   are keyed by run, not by conversation, and they repopulate only from live
- *   SSE. Left behind, the previous conversation's active run renders on the
- *   new chat and its controls (abort, journal) reach the run that is still
- *   going.
- * - **The transcript side-panel payloads.** A files or tool-detail panel is
- *   about one message, and a draft has none of them.
- *
- * Selecting the draft is the caller's, since {@link prepareFreshConversation}
- * brings the chat on screen in between and {@link closeAppRoute} must not.
+ * Mint a draft conversation id, clearing what the conversation being left owns
+ * and a draft has none of. Selecting the draft is the caller's, since
+ * {@link prepareFreshConversation} brings the chat on screen in between and
+ * {@link closeAppRoute} must not.
  */
 function mintDraftConversation(): string {
-  useSubagentStore.getState().reset();
-  useWorkflowStore.getState().reset();
-  useViewerStore.getState().clearTranscriptPanelPayloads();
+  resetPerConversationState();
   return createDraftConversationId();
 }
 
 /**
- * Mint a fresh draft conversation, select it, and put the surface in the state
- * a new chat expects. Returns the draft's id.
- *
- * On top of what {@link mintDraftConversation} clears, **the chat is brought
- * on screen**: a draft minted behind the fullscreen app viewer has no composer
- * to speak into, and `revealConversationView` keeps an app open beside it on a
- * wide viewport instead of dismissing it.
- *
- * Every entry that opens a fresh conversation for the user to speak into goes
- * through this, so none of them can be missing a piece.
+ * Mint a fresh draft through {@link mintDraftConversation}, select it, and
+ * bring the chat on screen: a draft minted behind the fullscreen app viewer has
+ * no composer to speak into, and `revealConversationView` keeps an app open
+ * beside it on a wide viewport instead of dismissing it. Returns the draft's
+ * id. Every entry that opens a fresh conversation for the user to speak into
+ * goes through this, so none of them can be missing a piece.
  */
 export function prepareFreshConversation(): string {
   const draftId = mintDraftConversation();
@@ -262,13 +264,14 @@ export function navigateToNewConversation(
 
 /**
  * Close the app viewer: a navigation to the conversation URL without the app
- * segment. Every close affordance goes through here, so the app leaves the URL
- * and browser Back cannot bring it straight back.
+ * segment. Every close affordance goes through here. The default is a push, as
+ * `LibraryDetailPage` closes its viewer, so Back returns to the app the user
+ * closed; a programmatic close (Android Back, an unpinned app) passes
+ * `replace`, having no entry of its own to leave behind.
  *
- * The viewer is closed here as well, rather than left to the route sync, so a
- * viewer the URL never named (the Chat Info panel's cross-assistant open)
- * still closes, and the split binding goes with it whichever path closed
- * first.
+ * The viewer is cleared here as well, rather than left to the route sync, so a
+ * viewer the URL never named still closes, and the split binding goes with it
+ * whichever path closed first.
  *
  * The conversation to land on is the one the route names, then the selected
  * one, and otherwise a fresh draft. The draft skips the reveal: that enters
@@ -279,8 +282,7 @@ export function closeAppRoute(
   navigate: PathNavigate,
   options?: { replace?: boolean },
 ): void {
-  useViewerStore.getState().closeApp();
-  useConversationStore.getState().setEditingConversationId(null);
+  clearAppViewer();
   let conversationId =
     conversationIdForPath(currentPathname()) ??
     useConversationStore.getState().activeConversationId;
@@ -294,19 +296,45 @@ export function closeAppRoute(
 }
 
 /**
- * Follow a link from inside an app. A chat destination leaves the close to the
- * route sync, which sees the app segment disappear from the URL. Any other
- * destination unmounts the chat page along with that sync, so the viewer and
- * its split binding are cleared here instead.
+ * Follow a link from inside an app. A chat destination the route sync can react
+ * to leaves the close to it, which sees the app segment disappear from the URL.
+ * Anything else is cleared here: a destination that unmounts the chat page
+ * unmounts that sync with it, and an app the URL never named leaves the sync
+ * with no segment to lose.
  */
 export function navigateFromApp(
   navigate: NavigateFunction,
   href: string,
 ): void {
   const pathname = href.split("#")[0].split("?")[0];
-  if (!isConversationChatPath(pathname)) {
-    useViewerStore.getState().closeApp();
-    useConversationStore.getState().setEditingConversationId(null);
+  if (
+    !isConversationChatPath(pathname) ||
+    appIdForPath(currentPathname()) === null
+  ) {
+    clearAppViewer();
   }
   void navigate(href);
+}
+
+/**
+ * Drop an app that failed to load from the route, where reload and Forward
+ * would retry it forever. An `activeAppId` still on the app means an overlay
+ * holds it, so the URL stands.
+ */
+export function dropFailedAppFromRoute(
+  navigate: PathNavigate,
+  appId: string,
+): void {
+  if (useViewerStore.getState().activeAppId === appId) {
+    return;
+  }
+  const pathname = currentPathname();
+  if (appIdForPath(pathname) !== appId) {
+    return;
+  }
+  const conversationId = conversationIdForPath(pathname);
+  if (conversationId === null) {
+    return;
+  }
+  void navigate(routes.conversation(conversationId), { replace: true });
 }

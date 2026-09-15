@@ -36,19 +36,21 @@ const wrapper = wrapperAt(APP_PATH);
 
 interface HookProps {
   assistantId: string | null;
-  conversationId: string | null;
   routeAppId: string | null;
 }
 
 function renderSync(props: HookProps) {
   return renderHook(
-    ({ assistantId, conversationId, routeAppId }: HookProps) =>
-      useAppRouteSync(assistantId, conversationId, routeAppId),
+    ({ assistantId, routeAppId }: HookProps) =>
+      useAppRouteSync(assistantId, routeAppId),
     { wrapper, initialProps: props },
   );
 }
 
 beforeEach(() => {
+  // The imperative helpers read `window.location`, which the probe router does
+  // not drive.
+  window.history.replaceState(null, "", APP_PATH);
   viewerSnapshot = useViewerStore.getState();
   conversationSnapshot = useConversationStore.getState();
 
@@ -96,7 +98,6 @@ describe("useAppRouteSync", () => {
     // WHEN the hook mounts
     renderSync({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: APP_ID,
     });
 
@@ -117,7 +118,6 @@ describe("useAppRouteSync", () => {
     // WHEN the hook mounts on that app's route
     renderSync({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: APP_ID,
     });
 
@@ -138,7 +138,6 @@ describe("useAppRouteSync", () => {
     // WHEN the hook mounts on that app's route
     renderSync({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: APP_ID,
     });
 
@@ -161,7 +160,6 @@ describe("useAppRouteSync", () => {
     // WHEN the hook mounts on that app's route
     renderSync({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: APP_ID,
     });
 
@@ -186,7 +184,6 @@ describe("useAppRouteSync", () => {
     // WHEN the hook mounts on that app's route
     renderSync({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: APP_ID,
     });
 
@@ -195,18 +192,16 @@ describe("useAppRouteSync", () => {
     expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
-  test("does not reload the app when the conversation beside it changes", async () => {
+  test("does not reload the app when the view around it re-renders", async () => {
     const { rerender } = renderSync({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: APP_ID,
     });
     await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
 
-    // WHEN the user switches conversation with the app still on screen
+    // WHEN the conversation beside the app changes under it
     rerender({
       assistantId: ASSISTANT_ID,
-      conversationId: "conv-2",
       routeAppId: APP_ID,
     });
 
@@ -218,7 +213,6 @@ describe("useAppRouteSync", () => {
     // GIVEN the assistant has not resolved yet
     const { rerender } = renderSync({
       assistantId: null,
-      conversationId: CONV_ID,
       routeAppId: APP_ID,
     });
     expect(loadAppMock).not.toHaveBeenCalled();
@@ -226,7 +220,6 @@ describe("useAppRouteSync", () => {
     // WHEN it resolves
     rerender({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: APP_ID,
     });
 
@@ -239,7 +232,6 @@ describe("useAppRouteSync", () => {
     // GIVEN the app the URL names is on screen
     const { rerender } = renderSync({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: APP_ID,
     });
     await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
@@ -247,7 +239,6 @@ describe("useAppRouteSync", () => {
     // WHEN the route drops the app segment, as every close affordance does
     rerender({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: null,
     });
 
@@ -267,7 +258,6 @@ describe("useAppRouteSync", () => {
     // WHEN the hook mounts there
     renderSync({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: null,
     });
 
@@ -276,11 +266,33 @@ describe("useAppRouteSync", () => {
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(null);
   });
 
+  test("releases the app but leaves an overlay in front of it", () => {
+    // GIVEN a document opened over the app, on a route naming no app
+    useViewerStore.setState({
+      mainView: "document",
+      activeAppId: APP_ID,
+      openedAppState: APP,
+    });
+
+    // WHEN the hook mounts there
+    renderSync({
+      assistantId: ASSISTANT_ID,
+      routeAppId: null,
+    });
+
+    // THEN the app goes, and the overlay the user just opened stays in front
+    const state = useViewerStore.getState();
+    expect(state.mainView).toBe("document");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+    expect(closeAppMock).not.toHaveBeenCalled();
+    expect(setEditingConversationIdMock).toHaveBeenCalledWith(null);
+  });
+
   test("does not touch the viewer when no app is open and none is routed", () => {
     // GIVEN the plain conversation route and a viewer showing the chat
     renderSync({
       assistantId: ASSISTANT_ID,
-      conversationId: CONV_ID,
       routeAppId: null,
     });
 
