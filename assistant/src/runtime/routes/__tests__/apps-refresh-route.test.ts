@@ -162,7 +162,7 @@ describe("apps_refresh route", () => {
       schemaJson: "{}",
       htmlDefinition: "<h1>Budget</h1>",
     });
-    const builtAt = created.updatedAt + 1_000;
+    const builtAt = Math.ceil(created.updatedAt) + 1_000;
     compileApp.mockImplementationOnce(async (appDir) => {
       const distDir = join(appDir, "dist");
       mkdirSync(distDir, { recursive: true });
@@ -223,7 +223,7 @@ describe("apps_refresh route", () => {
       (app) => app.id === pluginAppId,
     )?.updatedAt;
     expect(previousRevision).toBeDefined();
-    const builtAt = previousRevision! + 1_000;
+    const builtAt = Math.ceil(previousRevision!) + 1_000;
     compileApp.mockImplementationOnce(async (sourceDir) => {
       const distDir = join(sourceDir, "dist");
       mkdirSync(distDir, { recursive: true });
