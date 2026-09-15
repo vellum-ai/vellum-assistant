@@ -35,19 +35,45 @@ function cancelTimedUnmute(): void {
 
 /**
  * Unmute once `durationMs` elapses, unless the mute is no longer the one this
- * timer was set for. Anything the user does to the mic in between (unmuting
- * by hand, and so any later mute too) or the session ending cancels it: a
- * timer must never unmute a mic the user chose to mute themselves.
+ * timer was set for. The user unmuting by hand (and so any later mute too) or
+ * the session ending cancels it: a timer must never unmute a mic the user
+ * chose to mute themselves.
+ *
+ * **An unmute is the flag flipping inside a running session.** A hands-free
+ * reconnect also clears the flag, in a reset that takes the session through
+ * `idle` before restoring the carried-over mute, so a timer that read "not
+ * muted" as the user unmuting would drop itself on every socket blip and leave
+ * a timed mute muted for good. The logical session is its
+ * `sessionGeneration`, which a reconnect keeps and a real end bumps.
+ *
+ * The reset also clears the registered controls, so a timer that lands in a
+ * reconnect gap writes the flag itself; the store-backed flag is what the
+ * capture reads and what the next connect carries over.
  */
 function scheduleTimedUnmute(durationMs: number): void {
-  const unsubscribe = useLiveVoiceStore.subscribe((state) => {
-    if (!state.muted || !isLiveVoiceSessionActive(state.state)) {
+  const generation = useLiveVoiceStore.getState().sessionGeneration;
+  const unsubscribe = useLiveVoiceStore.subscribe((state, previous) => {
+    if (state.sessionGeneration !== generation) {
+      cancelTimedUnmute();
+      return;
+    }
+    const unmutedByHand =
+      previous.muted &&
+      !state.muted &&
+      isLiveVoiceSessionActive(previous.state) &&
+      isLiveVoiceSessionActive(state.state);
+    if (unmutedByHand) {
       cancelTimedUnmute();
     }
   });
   const timer = setTimeout(() => {
     cancelTimedUnmute();
-    setLiveVoiceMuted(false);
+    const store = useLiveVoiceStore.getState();
+    if (store.controls) {
+      setLiveVoiceMuted(false);
+    } else {
+      store.setMuted(false);
+    }
   }, durationMs);
   pendingUnmute = { timer, unsubscribe };
 }

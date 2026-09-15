@@ -73,11 +73,28 @@ describe("applyLiveVoiceSessionControl", () => {
     expect(useLiveVoiceStore.getState().muted).toBe(true);
   });
 
+  // The hands-free reconnect resets the store and restores the carried-over
+  // mute in one synchronous block. The instant in between must not read as the
+  // user unmuting, or a socket blip turns a timed mute into a permanent one.
+  test("a timed mute outlives a reconnect", async () => {
+    registerControls();
+
+    applyLiveVoiceSessionControl({ action: "mute", durationMs: 20 });
+    const store = useLiveVoiceStore.getState();
+    store.reset({ sessionContinues: true });
+    store.setState("connecting");
+    store.setMuted(true);
+    await sleep(40);
+
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
+  });
+
   test("a session that ends cancels the timer", async () => {
     const controls = registerControls();
 
     applyLiveVoiceSessionControl({ action: "mute", durationMs: 10 });
-    useLiveVoiceStore.getState().setState("idle");
+    // How a session really ends: the reset that bumps the generation.
+    useLiveVoiceStore.getState().reset();
     await sleep(30);
 
     expect(controls.setMuted.mock.calls).toEqual([[true]]);
