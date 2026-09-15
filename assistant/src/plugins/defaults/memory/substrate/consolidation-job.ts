@@ -6,8 +6,11 @@
  *
  * The consolidation job is the centerpiece of v2: an hourly background pass
  * that routes accumulated `memory/buffer.md` entries into concept pages,
- * rewrites `memory/recent.md`, promotes new essentials/threads, and trims the
- * buffer down to entries that arrived after the run started.
+ * rewrites `memory/recent.md`, and promotes new essentials/threads. The
+ * buffer itself is never written by the agent: the job hands the run exactly
+ * the entries it will remove, and removes them itself afterwards, so an
+ * entry appended while the run is in flight is still in the buffer when it
+ * ends.
  *
  * Consolidation runs as the assistant: `runBackgroundJob()` bootstraps a
  * background conversation and routes the cutoff-templated prompt through
@@ -28,11 +31,18 @@
  *      so two overlapping schedule windows can't fight over the same files.
  *      The lock contains the holder's PID + timestamp so a crashed run leaves
  *      a diagnosable trace.
- *   3. Capture the cutoff timestamp at dispatch. Any buffer entry timestamped
- *      at or after the cutoff arrived AFTER the run started — leave it for
- *      the next pass.
- *   4. Read `memory/buffer.md`. Bail if empty (no work to do, but the lock
- *      and skip path still log so operators can confirm the schedule fired).
+ *   3. Read `memory/buffer.md` once: the snapshot. Bail if empty (no work to
+ *      do, but the lock and skip path still log so operators can confirm the
+ *      schedule fired).
+ *   4. Select this pass's entries from the snapshot. The cutoff timestamp is
+ *      captured at dispatch (and pulled back to the first over-cap entry's
+ *      stamp when the buffer exceeds the per-run cap); the pass is the
+ *      snapshot's leading entries up to the first one stamped with the
+ *      cutoff minute. Those entries are rendered verbatim into the prompt,
+ *      so what the agent files and what the job later removes are the same
+ *      set by construction. An entry appended after the snapshot is never in
+ *      it, and a snapshot that ends mid-append (no terminating newline)
+ *      leaves its last entry for the next pass. Nothing eligible → bail.
  *   5. Hand off to `runBackgroundJob()` with the templated prompt. The runner
  *      handles bootstrap + processMessage + timeout + error classification,
  *      and (because we set `suppressFailureNotifications: true`) does NOT
@@ -42,10 +52,18 @@
  *      unchanged. The prompt body is loaded via `resolveConsolidationPrompt`
  *      which bounds any operator-provided override to a regular file under
  *      1 MiB before substitution.
- *   6. Verify the run drained the buffer. `runResult.ok` only means the
- *      background run completed — the trim itself is delegated to the agent.
- *      A run that completes without shrinking the buffer is reported as
- *      `invoked` with `noProgress: true` and enqueues no follow-ups. The
+ *   6. Consume the pass's entries, and only then. `runResult.ok` only means
+ *      the background run completed; the run's persisted messages must
+ *      hold at least one page-writing tool call whose result is not an
+ *      error before the job removes anything (the same evidence bar the
+ *      retrospective's cursor advance uses). With that evidence the job
+ *      removes exactly the pass's entries from the live buffer through
+ *      `consumeBufferEntries`, which leaves deferred entries and anything
+ *      appended during the run in place. A run with no verified write, or
+ *      a consume that fails, is reported as `invoked` with
+ *      `noProgress: true`, enqueues no follow-ups, and leaves the buffer
+ *      intact for the next pass. A failed run (provider error, exception,
+ *      timeout) likewise consumes nothing. The
  *      post-run page index is also read for `danglingLinks` (structural
  *      references with no target page): reported on the outcome and in the
  *      log, and fed into the NEXT pass's prompt as a repair step like
@@ -77,6 +95,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { getMessages } from "@vellumai/plugin-api";
+
 import {
   isMemoryV3Live,
   usesConceptPageMemory,
@@ -96,10 +116,20 @@ import {
 } from "../../../../persistence/jobs-store.js";
 import { runBackgroundJob } from "../../../../runtime/background-job-runner.js";
 import {
+  consumeBufferEntries,
+  type ConsumeBufferEntriesResult,
+} from "../buffer-file.js";
+import {
+  type BufferEntryLines,
   formatBufferTimestamp,
-  matchBufferEntryStart,
+  joinBufferEntries,
+  splitBufferContent,
 } from "../buffer-format.js";
 import { getLogger } from "../logging.js";
+import {
+  collectSuccessfulToolResultIds,
+  countDurableToolUses,
+} from "../memory-run-evidence.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
   CONSOLIDATION_TIMEOUT_MS,
@@ -160,6 +190,20 @@ const CONSOLIDATION_ALLOWED_TOOLS: readonly string[] = [
   "delete_memory_page",
   "recall",
 ];
+
+/**
+ * Tool names whose persisted `tool_use` blocks count as durable page work
+ * for the consume gate: the pass writes or edits concept pages and the
+ * aggregate views through the file tools and retires pages through
+ * `delete_memory_page`. The read-only tools on the allowlist do not
+ * qualify: a run that only read produced nothing the buffer entries could
+ * have been filed into.
+ */
+const CONSOLIDATION_DURABLE_TOOLS: ReadonlySet<string> = new Set([
+  "file_write",
+  "file_edit",
+  "delete_memory_page",
+]);
 
 /**
  * Durable checkpoint tracking consecutive consolidation run failures.
@@ -286,6 +330,17 @@ export type ConsolidationOutcome =
   | { kind: "disabled" }
   | { kind: "locked"; holder: string }
   | { kind: "empty_buffer" }
+  | {
+      /**
+       * The buffer holds entries but none is eligible this pass: every entry
+       * is stamped with the cutoff minute (or later), so the run would have
+       * nothing to file. No agent run, no failure bookkeeping; the next
+       * scheduler tick re-checks.
+       */
+      kind: "nothing_eligible";
+      cutoff: string;
+      deferredEntries: number;
+    }
   | { kind: "run_failed"; reason?: string }
   | {
       kind: "invoked";
@@ -299,9 +354,16 @@ export type ConsolidationOutcome =
       deferredEntries: number;
       followUpJobIds: string[];
       /**
-       * `true` when the run completed without shrinking the buffer — the
-       * agent never trimmed it, so nothing changed worth re-embedding and no
-       * follow-ups were enqueued.
+       * Entries this pass removed from the buffer: the entries it handed the
+       * run, once the run left verified page-writing evidence. `0` when
+       * `noProgress` is set.
+       */
+      consumedEntries: number;
+      /**
+       * `true` when the run completed but nothing was consumed: it left no
+       * verified page write, or the consume itself failed. The buffer is
+       * untouched, nothing changed worth re-embedding, and no follow-ups
+       * were enqueued.
        */
       noProgress: boolean;
       /**
@@ -370,10 +432,9 @@ export async function memoryV2ConsolidateJob(
       return { kind: "empty_buffer" };
     }
 
-    // Baseline for the post-run progress check — same metric the scheduler's
-    // size trigger uses, so "no progress" below means exactly "the trigger
-    // condition still holds".
-    const bufferLinesBefore = countNonEmptyLines(bufferContent);
+    // The snapshot. Everything this pass files and later removes comes from
+    // it; an entry appended after this read is by construction not in it.
+    const snapshot = splitBufferContent(bufferContent);
 
     // Step 3: capture cutoff. Formatted to match `buffer.md` entry timestamps
     // (`Mon D, h:mm AM/PM`, see `formatBufferTimestamp`) so the agent's
@@ -400,9 +461,8 @@ export async function memoryV2ConsolidateJob(
     const tuning = resolveSubstrateTuning(config.memory);
     const maxEntries = tuning.consolidation_max_entries_per_run;
     if (maxEntries != null) {
-      const entryTimestamps = bufferContent
-        .split("\n")
-        .map(extractBufferEntryTimestamp)
+      const entryTimestamps = snapshot
+        .map((entry) => entry.start?.timestamp ?? null)
         .filter((timestamp): timestamp is string => timestamp !== null);
       if (entryTimestamps.length > maxEntries) {
         const overflowTimestamp = entryTimestamps[maxEntries];
@@ -436,6 +496,22 @@ export async function memoryV2ConsolidateJob(
           );
         }
       }
+    }
+
+    // The pass: the snapshot's leading entries up to the first one stamped
+    // with the cutoff minute, rendered verbatim into the prompt and removed
+    // by this job once the run has filed them.
+    const pass = selectPassEntries(
+      snapshot,
+      cutoff,
+      bufferContent.endsWith("\n"),
+    );
+    if (pass.length === 0) {
+      log.info(
+        { cutoff, bufferEntries: snapshot.length },
+        "consolidation skipped: no buffer entry is eligible this pass (all stamped at or after the cutoff, or still being appended)",
+      );
+      return { kind: "nothing_eligible", cutoff, deferredEntries };
     }
 
     // Step 4: hand off to the centralized background-job runner. The runner
@@ -493,6 +569,7 @@ export async function memoryV2ConsolidateJob(
       {
         includeCorePagesSection: memoryV3Live,
         articleShape: memoryV3Live ? "v3" : "v2",
+        bufferEntries: joinBufferEntries(pass),
         parseFailures,
         danglingLinks,
         overlongSections,
@@ -544,17 +621,46 @@ export async function memoryV2ConsolidateJob(
         : { kind: "run_failed" };
     }
 
-    // Step 5: verify the run drained the buffer. `runResult.ok` only means
-    // the background run completed — the trim itself is delegated to the
-    // agent, and nothing above checks that it happened. A run that completes
-    // without shrinking the buffer leaves the scheduler's size trigger armed
-    // (it re-fires while the buffer stays over threshold), so enqueuing
-    // follow-ups here would fan out one reembed per re-fire for pages that
-    // never changed. Entries arriving during the run can inflate the
-    // after-count into a false "no progress"; that is benign — the next
-    // progressing run enqueues the same follow-ups.
-    const bufferLinesAfter = countBufferLines(bufferPath);
-    const noProgress = bufferLinesAfter >= bufferLinesBefore;
+    // Step 5: consume the pass's entries, gated on evidence. `runResult.ok`
+    // only means the background run completed. Before removing anything the
+    // job requires that the run's persisted messages hold at least one
+    // page-writing tool call whose result is not an error: a run that
+    // answered in prose, or whose writes all failed, filed nothing, and
+    // consuming its entries would delete them unfiled. A skipped run never
+    // invoked the agent, so it consumes nothing either. With evidence, the
+    // consume removes exactly the pass's entries and leaves every other
+    // entry (deferred past the cap, or appended during the run) in place.
+    let consumed: ConsumeBufferEntriesResult | null = null;
+    let durableWrites = 0;
+    if (runResult.skipReason === undefined) {
+      durableWrites = await countDurablePageWrites(runResult.conversationId);
+      if (durableWrites > 0) {
+        try {
+          consumed = await consumeBufferEntries(bufferPath, pass);
+        } catch (err) {
+          log.error(
+            { err, conversationId: runResult.conversationId },
+            "consolidation: buffer consume failed; entries left for the next pass",
+          );
+        }
+      }
+    }
+    const noProgress = consumed === null;
+    if (consumed !== null && consumed.alreadyAbsent > 0) {
+      // Only appenders are expected to touch the buffer during a run. An
+      // entry the job handed the run but cannot find afterwards was removed
+      // by something else, most likely a customized prompt that still
+      // rewrites `memory/buffer.md`; that rewrite carries the stale-read
+      // hazard this job exists to avoid.
+      log.warn(
+        {
+          conversationId: runResult.conversationId,
+          alreadyAbsent: consumed.alreadyAbsent,
+          removed: consumed.removed,
+        },
+        "consolidation: some of this pass's entries were already gone from buffer.md; the agent must not rewrite the buffer",
+      );
+    }
 
     // The agent's file-tool writes invalidate the page index, so this read
     // sees the post-run corpus.
@@ -581,10 +687,11 @@ export async function memoryV2ConsolidateJob(
         {
           conversationId: runResult.conversationId,
           cutoff,
-          bufferLinesBefore,
-          bufferLinesAfter,
+          passEntries: pass.length,
+          durableWrites,
+          skipReason: runResult.skipReason,
         },
-        "consolidation run completed without draining the buffer; follow-ups skipped",
+        "consolidation run completed without a verified page write; buffer left intact, follow-ups skipped",
       );
       return {
         kind: "invoked",
@@ -592,6 +699,7 @@ export async function memoryV2ConsolidateJob(
         cutoff,
         deferredEntries,
         followUpJobIds: [],
+        consumedEntries: 0,
         noProgress: true,
         danglingLinks: danglingAfter,
       };
@@ -633,6 +741,7 @@ export async function memoryV2ConsolidateJob(
       {
         conversationId: runResult.conversationId,
         cutoff,
+        consumedEntries: pass.length,
         deferredEntries,
         followUpJobIds,
       },
@@ -644,6 +753,7 @@ export async function memoryV2ConsolidateJob(
       cutoff,
       deferredEntries,
       followUpJobIds,
+      consumedEntries: pass.length,
       noProgress: false,
       danglingLinks: danglingAfter,
     };
@@ -702,20 +812,74 @@ function readBufferContent(bufferPath: string): string {
 }
 
 /**
- * Extract the bracketed timestamp from a `buffer.md` entry line
- * (`- [Mon D, h:mm AM/PM] …`, see {@link formatRememberEntry}). Returned
- * verbatim so it can serve directly as a consolidation cutoff: both sides of
- * the agent's "timestamp >= cutoff" comparison then share the exact
- * {@link formatBufferTimestamp} shape.
+ * The entries this pass files: the snapshot's leading entries up to (not
+ * including) the first one stamped with the cutoff minute. In an append-only
+ * buffer that is exactly the set the prompt describes as "timestamp <
+ * cutoff", but chosen by position, so the job and the prompt name the same
+ * entries whatever the model makes of the dates. A same-minute pull-back
+ * (the chunking cutoff) works the same way: entries sharing the over-cap
+ * entry's minute are deferred with it.
  *
- * Recognition is delegated to the shared matcher, so a remembered fact's
- * continuation lines never register as entries. That matters here beyond
- * tidiness: counting a fact's `- [ ] …` checklist lines or an indented
- * entry-shaped body line as entries would inflate the per-run budget, or hand
- * the agent a cutoff drawn from the middle of a fact.
+ * Prose before the first entry opening (a hand-written buffer) is filed too,
+ * when it holds any text; otherwise the buffer could never drain.
+ *
+ * An append is one write ending in a newline, so a snapshot that does not
+ * end in one (`snapshotIsComplete` false) caught an append mid-write; its
+ * last entry is incomplete and is left for the next pass rather than filed
+ * and removed in a truncated form.
  */
-function extractBufferEntryTimestamp(line: string): string | null {
-  return matchBufferEntryStart(line)?.timestamp ?? null;
+function selectPassEntries(
+  snapshot: readonly BufferEntryLines[],
+  cutoff: string,
+  snapshotIsComplete: boolean,
+): BufferEntryLines[] {
+  const pass: BufferEntryLines[] = [];
+  for (const entry of snapshot) {
+    if (entry.start === null) {
+      if (entry.lines.some((line) => line.trim().length > 0)) {
+        pass.push(entry);
+      }
+      continue;
+    }
+    if (entry.start.timestamp === cutoff) {
+      break;
+    }
+    pass.push(entry);
+  }
+  const last = pass[pass.length - 1];
+  if (
+    last !== undefined &&
+    last === snapshot[snapshot.length - 1] &&
+    !snapshotIsComplete
+  ) {
+    pass.pop();
+  }
+  return pass;
+}
+
+/**
+ * Page-writing tool calls in the run's conversation whose execution
+ * verifiably succeeded (a matching non-error `tool_result` persisted).
+ * A consolidation conversation is bootstrapped fresh per run, so every
+ * message in it is the run's own. A load failure reports zero: the consume
+ * gate then fails closed and the buffer waits for the next pass.
+ */
+async function countDurablePageWrites(conversationId: string): Promise<number> {
+  let messages: Awaited<ReturnType<typeof getMessages>>;
+  try {
+    messages = await getMessages(conversationId);
+  } catch (err) {
+    log.warn(
+      { err, conversationId },
+      "consolidation: failed to load the run's messages; treating the run as having written nothing",
+    );
+    return 0;
+  }
+  return countDurableToolUses(
+    messages,
+    CONSOLIDATION_DURABLE_TOOLS,
+    collectSuccessfulToolResultIds(messages),
+  );
 }
 
 /**
