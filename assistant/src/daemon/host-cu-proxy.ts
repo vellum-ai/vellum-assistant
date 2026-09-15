@@ -638,20 +638,24 @@ export class HostCuProxy {
 
   /**
    * Whether the request about to be dispatched should carry a screenshot. The
-   * accessibility tree comes back every step. Pixels come back on the first
-   * look since the last reset, for a window- or display-scoped capture, and
-   * when the model asks for them. Otherwise whether the tree is enough is the
-   * model's call.
+   * accessibility tree comes back every step. Pixels come back after every
+   * action, so the model sees what its action did, on the first look since
+   * the last reset, for a window- or display-scoped capture, and when the
+   * model asks for them. Only a plain observation leaves whether the tree is
+   * enough to the model.
    */
   private shouldAttachScreenshot(
     toolName: string,
     input: Record<string, unknown>,
     targetKey: string,
   ): boolean {
+    if (toolName !== "computer_use_observe") {
+      return true;
+    }
     return (
       !this._observedTargets.has(targetKey) ||
       hasCaptureTarget(input) ||
-      (toolName === "computer_use_observe" && input.include_screenshot === true)
+      input.include_screenshot === true
     );
   }
 
