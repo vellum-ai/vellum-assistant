@@ -135,7 +135,7 @@ function identityFingerprint(apiKey: string, baseUrl: string): string {
 }
 
 function hasBoundAssistantId(): boolean {
-  return Boolean(getPlatformAssistantId().trim());
+  return Boolean(getPlatformAssistantId()?.trim());
 }
 
 function clearPlatformIdentityOverrides(): void {
@@ -165,7 +165,7 @@ export async function ensurePlatformIdentityIds(): Promise<void> {
     ensureInFlight = (async () => {
       try {
         const apiKey = await readAssistantApiKey();
-        const baseUrl = getPlatformBaseUrl().replace(/\/+$/, "");
+        const baseUrl = (getPlatformBaseUrl() ?? "").replace(/\/+$/, "");
         if (!apiKey || !baseUrl) {
           return;
         }
@@ -216,7 +216,7 @@ export async function ensurePlatformIdentityIds(): Promise<void> {
 
 export async function resolvePlatformAssistantId(): Promise<string> {
   await ensurePlatformIdentityIds();
-  return getPlatformAssistantId().trim();
+  return getPlatformAssistantId()?.trim() ?? "";
 }
 
 export async function resolvePlatformAssistantIdOrNull(): Promise<
@@ -228,10 +228,10 @@ export async function resolvePlatformAssistantIdOrNull(): Promise<
 
 export async function resolvePlatformOrganizationId(): Promise<string> {
   await ensurePlatformIdentityIds();
-  return getPlatformOrganizationId().trim();
+  return getPlatformOrganizationId()?.trim() ?? "";
 }
 
 export async function resolvePlatformUserId(): Promise<string> {
   await ensurePlatformIdentityIds();
-  return getPlatformUserId().trim();
+  return getPlatformUserId()?.trim() ?? "";
 }
