@@ -67,6 +67,7 @@ describe("provider segment", () => {
   test("splits at the first @ so accounts keep theirs", () => {
     expect(parseProxyProviderSegment("google@a@b.example.com")).toEqual({
       provider: "google",
+      // generic-examples:ignore-next-line — reason: tests multi-@ parsing; a@b.example.com is the account segment after the first @
       account: "a@b.example.com",
     });
   });
