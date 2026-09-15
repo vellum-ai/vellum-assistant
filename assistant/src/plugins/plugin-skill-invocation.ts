@@ -19,8 +19,8 @@ import {
 } from "../plugin-api/plugin-skill-grant.js";
 import { getSecureKeyResultAsync } from "../security/secure-keys.js";
 import {
-  listCredentialRecordsLive,
   type CredentialMetadata,
+  listCredentialRecordsLive,
 } from "../tools/credentials/metadata-store.js";
 import { parseServiceFieldRef } from "../tools/credentials/ref-parse.js";
 import { resolveCredentialRef } from "../tools/credentials/resolve.js";
@@ -157,10 +157,9 @@ export function validatePluginSkillGrant(
   }
 
   const nowMs = options?.nowMs ?? Date.now();
-  sweepExpiredGrants(nowMs);
-
   const stored = grants.get(parsed.grantId);
   if (!stored) {
+    sweepExpiredGrants(nowMs);
     return { ok: false, reason: "unknown" };
   }
   if (!secretsEqual(stored.secret, parsed.secret)) {
@@ -168,8 +167,10 @@ export function validatePluginSkillGrant(
   }
   if (stored.expiresAt <= nowMs) {
     grants.delete(stored.grantId);
+    sweepExpiredGrants(nowMs);
     return { ok: false, reason: "expired" };
   }
+  sweepExpiredGrants(nowMs);
   if (
     options?.conversationId !== undefined &&
     options.conversationId !== stored.conversationId

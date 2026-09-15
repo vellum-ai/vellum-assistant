@@ -9,11 +9,11 @@ import {
 } from "../../daemon/conversation-registry.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { getWorkspaceDir, getWorkspacePluginsDir } from "../../util/platform.js";
+import { _resetPluginSkillGrantsForTest } from "../plugin-skill-invocation.js";
 import {
   authorizePluginSkillScript,
   runPluginSkillScript,
 } from "../plugin-skill-script-runner.js";
-import { _resetPluginSkillGrantsForTest } from "../plugin-skill-invocation.js";
 
 const PLUGIN_DIR = "psk-demo";
 const SKILL_ID = "psk-demo-skill";

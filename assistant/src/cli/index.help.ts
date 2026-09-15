@@ -43,8 +43,8 @@ import { notificationsHelp } from "./commands/notifications.help.js";
 import { oauthHelp } from "./commands/oauth/index.help.js";
 import { pendingHelp } from "./commands/pending.help.js";
 import { platformHelp } from "./commands/platform/index.help.js";
-import { pluginsHelp } from "./commands/plugins.help.js";
 import { pluginSkillHelp } from "./commands/plugin-skill.help.js";
+import { pluginsHelp } from "./commands/plugins.help.js";
 import { psHelp } from "./commands/ps.help.js";
 import { roadmapHelp } from "./commands/roadmap.help.js";
 import { routesHelp } from "./commands/routes.help.js";
@@ -96,8 +96,8 @@ export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
   oauthHelp,
   pendingHelp,
   platformHelp,
-  pluginsHelp,
   pluginSkillHelp,
+  pluginsHelp,
   monitoringHelp,
   psHelp,
   roadmapHelp,

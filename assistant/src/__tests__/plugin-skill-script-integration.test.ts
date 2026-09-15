@@ -6,11 +6,11 @@
  * it presents only a daemon-issued grant.
  */
 
+import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
 import {
   afterAll,
   afterEach,
@@ -43,7 +43,7 @@ import {
   _setMetadataPath,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
-import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 
 const PLUGIN_DIR = "psk-demo";
 const SKILL_ID = "psk-demo-skill";

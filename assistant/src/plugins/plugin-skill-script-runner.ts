@@ -12,9 +12,9 @@ import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 
-import { PLUGIN_SKILL_INVOCATION_ENV } from "../plugin-api/plugin-skill-grant.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { findConversationOrSubagent } from "../daemon/conversation-registry.js";
+import { PLUGIN_SKILL_INVOCATION_ENV } from "../plugin-api/plugin-skill-grant.js";
 import { conversationRevealNonce } from "../runtime/reveal-nonce.js";
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import { terminateProcessTree } from "../util/host-process.js";
