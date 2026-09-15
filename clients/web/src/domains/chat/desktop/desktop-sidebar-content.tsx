@@ -100,7 +100,13 @@ export function DesktopSidebarContent({
           />
           <div
             ref={attachFullscreen}
-            className="pointer-events-auto m-auto h-[min(80dvh,calc(100dvh-10rem))] w-[90vw] overflow-hidden rounded-lg"
+            className="pointer-events-auto mx-4 min-h-0 flex-1 overflow-hidden rounded-lg"
+            style={{
+              marginTop:
+                "calc(4rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",
+              marginBottom:
+                "calc(1rem + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+            }}
           />
         </Modal.Content>
       </Modal.Root>
