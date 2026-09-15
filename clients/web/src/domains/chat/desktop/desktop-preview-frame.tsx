@@ -47,7 +47,7 @@ export function DesktopPreviewFrame({ children }: { children: ReactNode }) {
           exit={{ opacity: 0 }}
           transition={{ duration: reduce ? 0 : 0.15 }}
         >
-          <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border-base)] px-1">
+          <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border-base)] px-1 transition-colors hover:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]">
             <Button
               variant="ghost"
               size="regular"
@@ -57,7 +57,7 @@ export function DesktopPreviewFrame({ children }: { children: ReactNode }) {
                 <GripHorizontal className="ml-auto size-4 text-[var(--content-tertiary)]" />
               }
               aria-label={t("assistantDesktop.moveAria")}
-              className="min-w-0 flex-1 cursor-grab active:cursor-grabbing active:scale-100"
+              className="min-w-0 flex-1 cursor-grab hover:bg-transparent active:cursor-grabbing active:scale-100 active:bg-transparent"
               onKeyDown={onMoveKeyDown}
               onClick={() =>
                 useDesktopPreviewStore.getState().setFullscreen(true)
