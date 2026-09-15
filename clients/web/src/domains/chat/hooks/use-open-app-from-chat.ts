@@ -20,6 +20,7 @@ import { haptic } from "@/utils/haptics";
 import {
   currentPathname,
   dropFailedAppFromRoute,
+  exitAppSplit,
   prepareFreshConversation,
 } from "@/utils/conversation-navigation";
 import {
@@ -142,19 +143,6 @@ export function useOpenDocumentFromChat(
 }
 
 /**
- * An explicit open is a view action, so the split drops on the way in, and
- * the chat pane bound beside the app goes with it.
- */
-function dropSplitView(): void {
-  const viewer = useViewerStore.getState();
-  if (viewer.mainView !== "app-editing") {
-    return;
-  }
-  viewer.exitAppEditing();
-  useConversationStore.getState().setEditingConversationId(null);
-}
-
-/**
  * The conversation the app segment hangs off. Off a chat route the click came
  * from Library, Home or the inspector, where `activeConversationId` names
  * whatever the SSE and attention consumers keep it on rather than anything the
@@ -167,10 +155,19 @@ function conversationForApp(): string {
   return selected ?? prepareFreshConversation();
 }
 
+export interface OpenAppFromChatOptions {
+  /**
+   * The conversation the app hangs off, for a surface that is about a
+   * conversation of its own (the Chat Info panel's payload) rather than
+   * whatever the route shows.
+   */
+  conversationId?: string;
+}
+
 /**
  * Open an app in the viewer panel from inside the chat surface: the sidebar's
- * pinned-app click, the transcript's "Open App" affordance, and the chat
- * header's assets pill.
+ * pinned-app click, the transcript's "Open App" affordance, the chat header's
+ * assets pill, and the Chat Info panel's app tiles.
  *
  * The open is a navigation to the URL that names the app, which
  * `useAppRouteSync` answers for. An explicit open lands the app full width
@@ -182,20 +179,21 @@ function conversationForApp(): string {
  * reloads in place, which is how an app the assistant rewrites picks up its
  * new HTML. A reload the viewer gives up on drops the app segment.
  */
-export function useOpenAppFromChat(): (appId: string) => Promise<void> {
+export function useOpenAppFromChat(): (
+  appId: string,
+  options?: OpenAppFromChatOptions,
+) => Promise<void> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const navigate = useNavigate();
 
   return useCallback(
-    async (appId: string) => {
+    async (appId: string, options?: OpenAppFromChatOptions) => {
       if (!assistantId) {
         return;
       }
       haptic.light();
-      // Ahead of the conversation choice: the reveal a fresh draft runs enters
-      // the split this open drops.
-      dropSplitView();
       if (appIdForPath(currentPathname()) === appId) {
+        exitAppSplit();
         const loaded = await useViewerStore
           .getState()
           .loadApp(assistantId, appId);
@@ -204,7 +202,12 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
         }
         return;
       }
-      await navigate(routes.conversation(conversationForApp(), appId));
+      // The conversation first: a fresh draft reveals the chat, which keeps an
+      // app already on screen beside it, and the exit is what lands this open
+      // full width.
+      const conversationId = options?.conversationId ?? conversationForApp();
+      exitAppSplit();
+      await navigate(routes.conversation(conversationId, appId));
     },
     [assistantId, navigate],
   );

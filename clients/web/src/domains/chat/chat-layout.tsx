@@ -973,16 +973,8 @@ export function ChatLayout({
     ? (activeConversationId ?? undefined)
     : undefined;
 
-  // Sidebar pinned-app open. The opener picks the conversation the app hangs
-  // off and navigates once.
   const openAppFromChat = useOpenAppFromChat();
   const activeAppId = useViewerStore.use.activeAppId();
-  const handleOpenAppFromSidebar = useCallback(
-    (appId: string) => {
-      void openAppFromChat(appId);
-    },
-    [openAppFromChat],
-  );
 
   // Inspector affordance for the sidebar context menu. The topbar variant
   // (in `chat-page.tsx`) uses `useConversationSecondaryActions` so it can
@@ -1029,7 +1021,7 @@ export function ChatLayout({
       isIntelligenceActive={isIdentityActive}
       onOpenIntelligence={handleOpenIdentity}
       activeAppId={activeAppId ?? undefined}
-      onOpenApp={handleOpenAppFromSidebar}
+      onOpenApp={openAppFromChat}
       onPinConversation={handleTogglePinConversation}
       onRenameConversation={handleRenameConversation}
       onArchiveConversation={handleArchiveConversation}

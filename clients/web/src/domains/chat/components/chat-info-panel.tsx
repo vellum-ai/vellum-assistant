@@ -12,7 +12,6 @@
 import { ChevronLeft, Layers } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router";
 
 import { Button } from "@vellumai/design-library";
 
@@ -38,7 +37,10 @@ import {
   type ConversationFileAsset,
   useConversationAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
-import { useOpenDocumentFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import {
+  useOpenAppFromChat,
+  useOpenDocumentFromChat,
+} from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useTranslation } from "@/i18n";
@@ -48,8 +50,6 @@ import {
   useViewerStore,
 } from "@/stores/viewer-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
-import { haptic } from "@/utils/haptics";
-import { routes } from "@/utils/routes";
 
 interface ChatInfoPanelProps {
   payload: ChatInfoPayload;
@@ -64,12 +64,12 @@ export function ChatInfoPanel({
   onSelectCategory,
 }: ChatInfoPanelProps) {
   const { t } = useTranslation("chat");
-  const navigate = useNavigate();
   const { assistantId, conversationId } = payload;
   const openDocument = useOpenDocumentFromChat(
     assistantId,
     useViewerStore.getState().closeChatInfo,
   );
+  const openApp = useOpenAppFromChat();
 
   // No `refreshKey`: the header trigger owns invalidation.
   const {
@@ -123,15 +123,14 @@ export function ChatInfoPanel({
   }, [clearConversation, conversationId, unseenDocuments]);
 
   // Closing first returns the viewer to whatever the panel was opened from,
-  // so the app lands there rather than behind the panel. The open is a
-  // navigation to the URL naming the app, like every other app open.
+  // so the app lands there rather than behind the panel. The app hangs off the
+  // conversation this panel is about, not whatever the route names.
   const handleOpenApp = useCallback(
     (appId: string) => {
       useViewerStore.getState().closeChatInfo();
-      haptic.light();
-      void navigate(routes.conversation(conversationId, appId));
+      void openApp(appId, { conversationId });
     },
-    [conversationId, navigate],
+    [conversationId, openApp],
   );
 
   const handleOpenFile = useCallback(
