@@ -252,4 +252,81 @@ describe("resolvePlatformAssistantId", () => {
     await expect(second).resolves.toBe(ASSISTANT_ID);
     expect(fetchCalls).toHaveLength(1);
   });
+
+  test("revalidates when the assistant API key changes", async () => {
+    const nextAssistantId = "44444444-5555-4666-8777-888888888888";
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    setPlatformBaseUrl(BASE_URL);
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+
+    process.env.ASSISTANT_API_KEY = "next-assistant-key";
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: nextAssistantId,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(nextAssistantId);
+    expect(fetchCalls).toHaveLength(2);
+    const headers = new Headers(fetchCalls[1]?.init?.headers);
+    expect(headers.get("Authorization")).toBe("Api-Key next-assistant-key");
+  });
+
+  test("drops bound identity when credentials change and validate fails", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    setPlatformBaseUrl(BASE_URL);
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+
+    process.env.ASSISTANT_API_KEY = "next-assistant-key";
+    fetchImpl = async () => new Response("no", { status: 401 });
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+    expect(fetchCalls).toHaveLength(2);
+  });
+
+  test("retries validate immediately when credentials change during cooldown", async () => {
+    process.env.ASSISTANT_API_KEY = "assistant-key";
+    setPlatformBaseUrl(BASE_URL);
+    fetchImpl = async () => new Response("down", { status: 503 });
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe("");
+
+    process.env.ASSISTANT_API_KEY = "next-assistant-key";
+    fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          assistant_id: ASSISTANT_ID,
+          organization_id: ORG_ID,
+          user_id: USER_ID,
+        }),
+        { status: 200 },
+      );
+
+    await expect(resolvePlatformAssistantId()).resolves.toBe(ASSISTANT_ID);
+    expect(fetchCalls).toHaveLength(2);
+  });
 });

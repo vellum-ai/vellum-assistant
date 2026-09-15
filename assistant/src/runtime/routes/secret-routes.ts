@@ -316,20 +316,10 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         "platform_user_id",
       ]);
       if (service === "vellum" && IDENTITY_FIELDS.has(field)) {
-        const effectiveValue = value.trim();
-        if (field === "platform_assistant_id") {
-          setPlatformAssistantId(effectiveValue || undefined);
-        } else if (field === "platform_organization_id") {
-          setPlatformOrganizationId(effectiveValue || undefined);
-        } else if (field === "platform_user_id") {
-          setPlatformUserId(effectiveValue || undefined);
-        }
-        if (field === "platform_assistant_id") {
-          void maybeDefaultSpeechToManaged();
-          syncWorkspaceIdentityToPlatform();
-          syncAvatarToPlatform();
-        }
-        log.info({ service, field }, "Platform identity applied in-memory");
+        // Identity is resolved from platform validate. Accept the write
+        // without persisting so a hatch that still POSTs these fields
+        // cannot refill the vault.
+        log.info({ service, field }, "Platform identity credential skipped");
         return { success: true, type, name };
       }
 
