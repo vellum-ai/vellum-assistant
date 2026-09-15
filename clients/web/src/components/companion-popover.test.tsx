@@ -161,6 +161,25 @@ describe("the popover's credential", () => {
     expect(views).toEqual(["expanded", "deferred"]);
   });
 
+  /** Initials beside "Need credentials" read as a person, not a service. */
+  test("draws a key rather than initials for a service with no logo", () => {
+    const { container } = renderWith(SECRET);
+
+    expect(container.textContent).not.toContain("BO");
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("svg.lucide-key-round")).not.toBeNull();
+  });
+
+  test("draws the logo of a service one ships for", () => {
+    const { container } = renderWith({
+      ...SECRET,
+      service: "GitHub",
+      providerKey: "github",
+    } as CompanionPopoverContent);
+
+    expect(container.querySelector("img")).not.toBeNull();
+  });
+
   test("takes the credential in a form and sends it on Confirm", () => {
     const { container, answers } = renderWith(SECRET, "expanded");
 

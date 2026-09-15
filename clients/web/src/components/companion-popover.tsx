@@ -16,7 +16,7 @@
  * tests as it is.
  */
 
-import { X } from "lucide-react";
+import { KeyRound, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -46,7 +46,10 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow";
 
-import { IntegrationIcon } from "@/components/integrations/integration-icon";
+import {
+  hasBundledIntegrationLogo,
+  IntegrationIcon,
+} from "@/components/integrations/integration-icon";
 import { useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 
@@ -210,10 +213,7 @@ export function CompanionPromptRow({
       )}
     >
       {popover.kind === "secret" ? (
-        <ServiceIcon
-          service={popover.service}
-          providerKey={popover.providerKey}
-        />
+        <ServiceIcon providerKey={popover.providerKey} />
       ) : null}
       <StepText
         className="min-w-0 flex-1 text-body-medium-default"
@@ -618,12 +618,7 @@ function SecretForm({
       }}
     >
       <PopoverHeader
-        icon={
-          <ServiceIcon
-            service={popover.service}
-            providerKey={popover.providerKey}
-          />
-        }
+        icon={<ServiceIcon providerKey={popover.providerKey} />}
         title={
           popover.service !== ""
             ? t("companionPopover.needsCredentialsFor", {
@@ -827,24 +822,30 @@ const PopoverImage: MarkdownImageComponent = ({ src, alt }) =>
     />
   ) : null;
 
-/** The logo of the service a credential is for, or its initials. */
-function ServiceIcon({
-  service,
-  providerKey,
-}: {
-  service: string;
-  providerKey?: string;
-}) {
-  if (service === "") {
-    return null;
+/**
+ * What stands beside a credential's words: the service's logo when one ships
+ * for it, and otherwise a key. Never the initials avatar a logo falls back
+ * to, which beside "Need credentials" reads as a person rather than a
+ * service.
+ */
+function ServiceIcon({ providerKey }: { providerKey?: string }) {
+  if (providerKey !== undefined && hasBundledIntegrationLogo(providerKey)) {
+    return (
+      <IntegrationIcon
+        providerKey={providerKey}
+        displayName={null}
+        logoUrl={null}
+        size={24}
+      />
+    );
   }
   return (
-    <IntegrationIcon
-      providerKey={providerKey ?? service}
-      displayName={service}
-      logoUrl={null}
-      size={28}
-    />
+    <span
+      aria-hidden
+      className="flex size-6 shrink-0 items-center justify-center text-[var(--content-tertiary)]"
+    >
+      <KeyRound className="size-4" strokeWidth={2} />
+    </span>
   );
 }
 

@@ -49,6 +49,16 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   twitter: publicAsset("/images/integrations/x.svg"),
 };
 
+/**
+ * Whether a logo ships for a provider key, as opposed to the initials avatar
+ * drawn for one that has none. For a surface that names a service it cannot
+ * be sure is an integration, where initials would read as someone's avatar.
+ */
+export const hasBundledIntegrationLogo = (providerKey: string): boolean => {
+  const key = providerKey.toLowerCase();
+  return key === "google" || Object.hasOwn(BUNDLED_LOGO_URLS, key);
+};
+
 // Deterministic avatar palette. Each slot is a distinct hue so adjacent
 // integrations read as visually different. This is a purely decorative
 // avatar treatment (not success/error/warning semantics), so we use a
