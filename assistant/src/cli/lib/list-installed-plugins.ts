@@ -56,8 +56,8 @@ export interface InstalledPluginInfo {
   /** Absolute path to the plugin directory. */
   readonly target: string;
   /**
-   * Metadata from the selected manifest. The property name is retained for
-   * API compatibility.
+   * Metadata from the selected manifest. The API exposes this field as
+   * `packageJson`.
    */
   readonly packageJson: PluginPackageMetadata | null;
   /**

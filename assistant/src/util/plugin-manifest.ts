@@ -1,10 +1,10 @@
 /**
  * Resolve the manifest that identifies an installed plugin.
  *
- * `package.json` remains the compatibility manifest for existing Vellum
- * plugins. A root `plugin.json` is selected only when `package.json` is absent,
- * which lets standard Agent Plugins load without reclassifying legacy installs
- * that happen to carry another ecosystem's `plugin.json`.
+ * `package.json` is the primary manifest for Vellum plugins. A root
+ * `plugin.json` is selected only when `package.json` is absent, so a legacy
+ * plugin can carry another ecosystem's `plugin.json` without being
+ * reclassified.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -105,7 +105,7 @@ export function hasPluginManifest(pluginDir: string): boolean {
 /**
  * Decide whether an installed artifact needs the compatibility `package.json`.
  *
- * Existing `package.json` files are always preserved. A root `plugin.json`
+ * A `package.json` file is always preserved. A root `plugin.json`
  * claims the Agent Plugins format only when it names the supported schema. A
  * claimed standard manifest is validated before install; other `plugin.json`
  * files remain foreign metadata beside the synthesized compatibility manifest.
@@ -146,8 +146,8 @@ export function getPluginManifestInstallAction(
 /**
  * Read and validate the selected root manifest.
  *
- * Selection is deterministic and backwards compatible: `package.json` wins
- * when present, including when it is malformed. The loader never falls through
+ * Selection is deterministic: `package.json` wins when present, including
+ * when it is malformed. The loader never falls through
  * from a selected malformed legacy manifest to `plugin.json`.
  */
 export function readPluginManifest(pluginDir: string): ResolvedPluginManifest {
