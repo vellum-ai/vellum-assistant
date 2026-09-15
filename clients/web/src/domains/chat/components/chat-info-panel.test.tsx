@@ -55,14 +55,22 @@ import {
   seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import {
+  currentLocation,
+  LocationProbe,
+} from "@/hooks/router-probe.test-helper";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 import type { ChatInfoCategory } from "@/stores/viewer-store";
+import { routes } from "@/utils/routes";
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
 const OTHER_CONVERSATION_ID = "conv-2";
+const APP_ID = "app-1";
+const CONVERSATION_PATH = routes.conversation(CONVERSATION_ID);
+const APP_PATH = routes.conversation(CONVERSATION_ID, APP_ID);
 
 const restoreDomStubs = installChatInfoDomStubs();
 
@@ -74,11 +82,17 @@ mock.module("@/hooks/use-element-size", () =>
 mock.module("@/utils/app-html-cache", chatInfoAppHtmlCacheMock);
 
 const calls: string[] = [];
+/** Where the route stood at each `closeChatInfo`, for the open sequence. */
+const routeAtClose: string[] = [];
 
 const { ChatInfoPanel } = await import(
   "@/domains/chat/components/chat-info-panel"
 );
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
+const { showPath } = await import("@/stores/open-app.test-helper");
 const { useUnseenDocumentChangesStore } = await import(
   "@/domains/chat/unseen-document-changes-store"
 );
@@ -161,10 +175,12 @@ const LEGACY_ROWS: DisplayMessage[] = [
 
 const closeChatInfo = mock((): void => {
   calls.push("closeChatInfo");
+  routeAtClose.push(currentLocation().pathname);
 });
 const loadApp = mock(
-  async (_assistantId: string, _appId: string): Promise<void> => {
+  async (_assistantId: string, _appId: string): Promise<boolean> => {
     calls.push("loadApp");
+    return true;
   },
 );
 const loadDocument = mock(
@@ -187,6 +203,8 @@ const {
   loadApp: realLoadApp,
   loadDocument: realLoadDocument,
 } = useViewerStore.getState();
+const realActiveAssistantId =
+  useResolvedAssistantsStore.getState().activeAssistantId;
 
 interface Seed {
   apps?: AppSummary[];
@@ -195,6 +213,11 @@ interface Seed {
   client?: QueryClient;
   /** Runs once the conversation is seeded, for a test that then breaks it. */
   afterSeed?: (client: QueryClient) => void;
+  /**
+   * Where both routes the app opener straddles start: the probe router's and
+   * the window's, which the imperative route helpers read.
+   */
+  path?: string;
 }
 
 /** Fills both sources the panel's hook reads, and returns its client. */
@@ -222,9 +245,12 @@ async function renderChatInfo(
   seed: Seed = {},
 ): Promise<void> {
   const client = seedPanel(seed);
+  const path = seed.path ?? CONVERSATION_PATH;
+  showPath(path);
   await act(async () => {
     render(
-      <MemoryRouter initialEntries={["/assistant/conversations/conv-1"]}>
+      <MemoryRouter initialEntries={[path]}>
+        <LocationProbe />
         <QueryClientProvider client={client}>
           <ChatInfoPanel
             payload={{
@@ -249,6 +275,7 @@ beforeEach(() => {
   // requested.
   releaseOrgHeader = holdOrgHeaderUnresolved();
   calls.length = 0;
+  routeAtClose.length = 0;
   viewport.set({ narrow: false, coarsePointer: false });
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   loadApp.mockClear();
@@ -257,6 +284,8 @@ beforeEach(() => {
   onClose.mockClear();
   onSelectCategory.mockClear();
   useViewerStore.setState({ closeChatInfo, loadApp, loadDocument });
+  // The shared opener the app tiles go through reads the active assistant.
+  useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
 });
 
 afterEach(() => {
@@ -274,6 +303,9 @@ afterAll(() => {
     closeChatInfo: realCloseChatInfo,
     loadApp: realLoadApp,
     loadDocument: realLoadDocument,
+  });
+  useResolvedAssistantsStore.setState({
+    activeAssistantId: realActiveAssistantId,
   });
   restoreDomStubs();
   mock.restore();
@@ -329,13 +361,69 @@ describe("ChatInfoPanel top level", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  test("leaves the panel before opening an app, under the payload's assistant", async () => {
+  test("leaves the panel, then opens the app as a navigation", async () => {
     await renderChatInfo();
 
     fireEvent.click(screen.getByLabelText("Open App 1"));
 
+    // The panel is gone before the app route lands, so the app opens where
+    // the panel was rather than behind it, and the app hangs off the
+    // conversation the payload names.
+    expect(calls).toEqual(["closeChatInfo"]);
+    expect(routeAtClose).toEqual([CONVERSATION_PATH]);
+    expect(loadApp).not.toHaveBeenCalled();
+    expect(currentLocation().pathname).toBe(APP_PATH);
+  });
+
+  // Through the shared opener, so the route the user is already on reloads
+  // rather than collecting a second history entry for itself.
+  test("reloads in place when the route already names the app", async () => {
+    await renderChatInfo(null, { path: APP_PATH });
+
+    fireEvent.click(screen.getByLabelText("Open App 1"));
+
     expect(calls).toEqual(["closeChatInfo", "loadApp"]);
-    expect(loadApp).toHaveBeenCalledWith(ASSISTANT_ID, "app-1");
+    expect(loadApp).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+    expect(currentLocation().pathname).toBe(APP_PATH);
+  });
+
+  test("dismisses itself when another assistant takes over", async () => {
+    await renderChatInfo();
+    expect(closeChatInfo).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    });
+
+    expect(closeChatInfo).toHaveBeenCalledTimes(1);
+  });
+
+  test("stays open while no assistant is active", async () => {
+    await renderChatInfo();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    });
+
+    expect(closeChatInfo).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
+    });
+
+    expect(closeChatInfo).not.toHaveBeenCalled();
+  });
+
+  // The dismissal lands in an effect, so a tile clicked in the same commit
+  // still has to refuse: its app id belongs to the payload's assistant.
+  test("opens no app while its assistant is not the active one", async () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+
+    await renderChatInfo();
+    fireEvent.click(screen.getByLabelText("Open App 1"));
+
+    expect(loadApp).not.toHaveBeenCalled();
+    expect(currentLocation().pathname).toBe(CONVERSATION_PATH);
   });
 
   test("reads the assets of the conversation its payload names", async () => {

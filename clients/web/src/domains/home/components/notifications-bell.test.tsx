@@ -23,6 +23,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { Conversation } from "@/types/conversation-types";
 import { ApiError } from "@/utils/api-errors";
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { formatCompactLocalDate } from "@/utils/format-date";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
 
@@ -135,10 +136,12 @@ mock.module("react-router", () => ({
 const navigateToConversationMock = mock((..._args: unknown[]) => {});
 const navigateToNewConversationMock = mock((..._args: unknown[]) => "draft-1");
 
-mock.module("@/utils/conversation-navigation", () => ({
-  navigateToConversation: navigateToConversationMock,
-  navigateToNewConversation: navigateToNewConversationMock,
-}));
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({
+    navigateToConversation: navigateToConversationMock,
+    navigateToNewConversation: navigateToNewConversationMock,
+  }),
+);
 
 /**
  * The three conversation lists the detail validates its link against, plus a
