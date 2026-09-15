@@ -1065,6 +1065,11 @@ export function ChatLayout({
       onMoveToGroup={handleMoveToGroup}
       onCreateGroupInto={handleRequestCreateGroup}
       onRemoveFromGroup={handleRemoveFromGroup}
+      leadingAction={
+        args.variant === "overlay" ? (
+          <AssistantDesktopAffordance onToggle={args.onClose} />
+        ) : undefined
+      }
       /* The same injected control the header carries, restated in the
          drawer's glyph row where the mock puts it. Sourced from the prop
          rather than imported, because it lives in another domain. */
@@ -1155,7 +1160,7 @@ export function ChatLayout({
             <>
               {topBarRightSlot}
               {topBarPill}
-              <AssistantDesktopAffordance />
+              {!isMobile && <AssistantDesktopAffordance />}
               {topBarAccessory}
             </>
           }

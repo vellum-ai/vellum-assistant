@@ -8,7 +8,11 @@ import { usePointerCoarse } from "@/utils/pointer";
 
 import { useDesktopPreviewStore } from "./desktop-preview-store";
 
-export function AssistantDesktopAffordance() {
+export function AssistantDesktopAffordance({
+  onToggle,
+}: {
+  onToggle?: () => void;
+}) {
   const { t } = useTranslation("chat");
   const enabled = useAssistantFeatureFlagStore.use.assistantDesktop();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
@@ -35,7 +39,10 @@ export function AssistantDesktopAffordance() {
       aria-controls={
         fullscreenOnly ? "assistant-desktop-modal" : "assistant-desktop-preview"
       }
-      onClick={() => useDesktopPreviewStore.getState().toggle(assistantId)}
+      onClick={() => {
+        useDesktopPreviewStore.getState().toggle(assistantId);
+        onToggle?.();
+      }}
     />
   );
 }

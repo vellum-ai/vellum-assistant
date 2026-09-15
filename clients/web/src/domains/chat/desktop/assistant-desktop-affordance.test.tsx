@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 let desktopEnabled: boolean | undefined = true;
 let assistantId = "asst-1";
@@ -75,6 +75,32 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AssistantDesktopAffordance", () => {
+  test("opening from navigation dismisses the menu and keeps fullscreen open", async () => {
+    touch = true;
+    function MenuHarness() {
+      const [menuOpen, setMenuOpen] = useState(true);
+      return (
+        <>
+          {menuOpen && (
+            <nav aria-label="Navigation">
+              <AssistantDesktopAffordance onToggle={() => setMenuOpen(false)} />
+            </nav>
+          )}
+          <AssistantDesktopPreview />
+        </>
+      );
+    }
+    render(<MenuHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
+    await waitFor(() => expect(screen.getByTestId("desktop-panel")).toBeTruthy());
+    expect(screen.queryByRole("navigation") === null).toBe(true);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+    );
+  });
+
   test("touch opens directly in fullscreen and closing dismisses the desktop", async () => {
     touch = true;
     await openDesktop();
