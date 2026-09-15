@@ -48,6 +48,7 @@ export interface FakeDesktopOptions {
   /** Whether a SIGKILL does; without either the child survives both. */
   exitOnKill?: boolean;
   sourceEnv?: NodeJS.ProcessEnv;
+  panelRestartDelayMs?: number;
   renderWallpaper?: (width: number, height: number) => Promise<Buffer | null>;
 }
 
@@ -85,6 +86,7 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
     panelConfigDir:
       options.panelConfigDir ?? join(options.profileDir, "desktop-panel"),
     sourceEnv: options.sourceEnv,
+    panelRestartDelayMs: options.panelRestartDelayMs,
   });
   return {
     manager,

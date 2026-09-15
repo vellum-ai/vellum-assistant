@@ -24,7 +24,13 @@ mock.module("@/stores/resolved-assistants-store", () => ({
 let panelUnmounts = 0;
 
 mock.module("./desktop-panel", () => ({
-  DesktopPanel: ({ viewOnly, onExpand }: { viewOnly: boolean; onExpand: () => void }) => {
+  DesktopPanel: ({
+    viewOnly,
+    onExpand,
+  }: {
+    viewOnly: boolean;
+    onExpand: () => void;
+  }) => {
     useEffect(() => {
       return () => {
         panelUnmounts += 1;
@@ -45,7 +51,12 @@ const { AssistantDesktopSidebar } = await import("./assistant-desktop-sidebar");
 const { useDesktopSidebarStore } = await import("./desktop-sidebar-store");
 
 function DesktopHarness() {
-  return <><AssistantDesktopAffordance /><AssistantDesktopSidebar /></>;
+  return (
+    <>
+      <AssistantDesktopAffordance />
+      <AssistantDesktopSidebar />
+    </>
+  );
 }
 
 const openDesktop = async () => {
@@ -57,6 +68,7 @@ const openDesktop = async () => {
 };
 
 beforeEach(() => {
+  localStorage.removeItem("desktop-sidebar-width");
   panelUnmounts = 0;
   desktopEnabled = true;
   assistantId = "asst-1";
@@ -125,7 +137,9 @@ describe("AssistantDesktopAffordance", () => {
   test("toggles the sidebar without opening fullscreen", async () => {
     await openDesktop();
     expect(screen.queryByRole("dialog")).toBeNull();
-    const collapse = screen.getByRole("button", { name: "Collapse desktop sidebar" });
+    const collapse = screen.getByRole("button", {
+      name: "Collapse desktop sidebar",
+    });
     expect(collapse.getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(collapse);
     expect(screen.queryByTestId("desktop-panel")).toBeNull();
@@ -133,10 +147,32 @@ describe("AssistantDesktopAffordance", () => {
     expect(screen.getByRole("button", { name: "Open desktop" })).not.toBeNull();
   });
 
+  test("resizes the preview without reconnecting and restores its width on reopen", async () => {
+    await openDesktop();
+    const handle = screen.getByRole("separator", {
+      name: "Resize desktop sidebar",
+    });
+    const panel = screen.getByRole("complementary", { name: "Desktop" });
+    const originalWidth = parseFloat(panel.style.width);
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(parseFloat(panel.style.width)).toBe(originalWidth + 16);
+    expect(panelUnmounts).toBe(0);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Collapse desktop sidebar" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
+    expect(
+      screen.getByRole("complementary", { name: "Desktop" }).style.width,
+    ).toBe(`${originalWidth + 16}px`);
+  });
+
   test("switching assistants closes the previous session", async () => {
     const { rerender } = render(<DesktopHarness />);
     fireEvent.click(screen.getByRole("button", { name: "Open desktop" }));
-    await waitFor(() => expect(screen.getByTestId("desktop-panel")).not.toBeNull());
+    await waitFor(() =>
+      expect(screen.getByTestId("desktop-panel")).not.toBeNull(),
+    );
     assistantId = "asst-2";
     rerender(<DesktopHarness />);
     expect(screen.queryByTestId("desktop-panel")).toBeNull();

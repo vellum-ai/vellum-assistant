@@ -94,6 +94,7 @@
     "earlierActivity": "更早的活动"
   },
   "assistantDesktop": {
+    "resizeAria": "调整桌面侧栏宽度",
     "collapseAria": "收起桌面侧栏",
     "expandAria": "展开桌面",
     "busy": "桌面正在被其他用户使用。",

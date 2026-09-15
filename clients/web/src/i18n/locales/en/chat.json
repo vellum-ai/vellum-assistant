@@ -94,6 +94,7 @@
     "earlierActivity": "Earlier activity"
   },
   "assistantDesktop": {
+    "resizeAria": "Resize desktop sidebar",
     "collapseAria": "Collapse desktop sidebar",
     "expandAria": "Expand desktop",
     "busy": "The desktop is in use by another viewer.",
