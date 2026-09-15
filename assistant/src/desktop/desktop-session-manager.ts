@@ -17,7 +17,10 @@ import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
 import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
-import { shouldRestoreDesktopChromeSession } from "./desktop-chrome-session.js";
+import {
+  configureDesktopChromeFrame,
+  shouldRestoreDesktopChromeSession,
+} from "./desktop-chrome-session.js";
 import {
   desktopChromePath,
   resolveDesktopBinaries,
@@ -465,6 +468,11 @@ export class DesktopSessionManager {
         return;
       }
       mkdirSync(this.profileDir, { recursive: true });
+      try {
+        configureDesktopChromeFrame(this.profileDir);
+      } catch (err) {
+        log.warn({ err }, "Desktop Chrome frame could not be configured");
+      }
       this.startPanel(executable, env);
       this.launch("browser", browserCommand(executable, this.profileDir), env);
     } catch (err) {

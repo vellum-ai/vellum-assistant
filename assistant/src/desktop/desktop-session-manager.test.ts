@@ -543,7 +543,12 @@ describe("DesktopSessionManager process tree", () => {
           JSON.stringify({ profile: { last_used: profileName } }),
         );
         const preferences = join(dir, profileName, "Preferences");
-        const crashed = JSON.stringify({ profile: { exit_type: "Crashed" } });
+        const original = {
+          profile: { exit_type: "Crashed" },
+          browser: { custom_chrome_frame: false, show_home_button: true },
+          session: { restore_on_startup: 1 },
+        };
+        const crashed = JSON.stringify(original);
         writeFileSync(preferences, crashed);
         h.manager.acquireViewerSlot(newViewer().viewer);
         await h.manager.ensureDesktopRunning();
@@ -553,7 +558,10 @@ describe("DesktopSessionManager process tree", () => {
         expect(h.child("browser").request.cmd).toContain(
           "--hide-crash-restore-bubble",
         );
-        expect(readFileSync(preferences, "utf8")).toBe(crashed);
+        expect(JSON.parse(readFileSync(preferences, "utf8"))).toEqual({
+          ...original,
+          browser: { ...original.browser, custom_chrome_frame: true },
+        });
 
         h.child("browser").exit(1);
         await settle();
