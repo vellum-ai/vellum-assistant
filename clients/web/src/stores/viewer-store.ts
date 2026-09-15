@@ -617,7 +617,6 @@ export interface ViewerActions {
    */
   loadApp: (assistantId: string, appId: string) => Promise<boolean>;
   setLoadedApp: (app: OpenedAppState) => void;
-  handleAppLoadFailed: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
   minimizeApp: () => void;
@@ -917,21 +916,13 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       if (!isAppNotFoundError(err)) {
         captureError(err, { context: "openApp" });
       }
-      set({ mainView: "chat", activeAppId: null, openedAppState: null });
+      get().closeApp();
       return false;
     }
   },
 
   setLoadedApp: (app) => {
     set({ openedAppState: app });
-  },
-
-  handleAppLoadFailed: () => {
-    set({
-      mainView: "chat",
-      activeAppId: null,
-      openedAppState: null,
-    });
   },
 
   closeApp: () => {

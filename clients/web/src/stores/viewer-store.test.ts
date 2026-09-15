@@ -223,21 +223,6 @@ describe("setLoadedApp", () => {
   });
 });
 
-describe("handleAppLoadFailed", () => {
-  it("resets to chat view and clears app state", () => {
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: "app-1",
-      openedAppState: SAMPLE_APP,
-    });
-    getState().handleAppLoadFailed();
-    const state = getState();
-    expect(state.mainView).toBe("chat");
-    expect(state.activeAppId).toBeNull();
-    expect(state.openedAppState).toBeNull();
-  });
-});
-
 describe("closeApp", () => {
   it("resets to chat view, clears app state, and resets minimized", () => {
     useViewerStore.setState({
