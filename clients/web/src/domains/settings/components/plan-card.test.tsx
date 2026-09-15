@@ -1138,7 +1138,7 @@ describe("PlanCard usage balance", () => {
 
     // $10 of the $25 the cycle granted is gone.
     const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Usage Balance");
+    expect(panel.textContent).toContain("Current Usage");
     expect(panel.textContent).toContain("40% used");
     // The bar is the replacement, so the monthly price must not stand beside
     // it on the current tile.
@@ -1404,7 +1404,7 @@ describe("PlanCard usage balance", () => {
     );
 
     const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Usage Balance");
+    expect(panel.textContent).toContain("Current Usage");
     expect(panel.textContent).toContain("68% used");
     const current = within(currentTile(container));
     expect(current.queryByTestId("plan-card-price")).toBeNull();
@@ -1472,5 +1472,4 @@ describe("PlanCard usage balance", () => {
       queryByText("Add credits to continue using your assistant"),
     ).toBeNull();
   });
-
 });

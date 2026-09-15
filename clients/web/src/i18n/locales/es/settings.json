@@ -1296,7 +1296,7 @@
     "usageBalanceAddCredits": "Añadir",
     "usageBalanceExhausted": "Añade créditos para seguir usando tu asistente",
     "usageBalancePctUsed": "{pct}% usado",
-    "usageBalanceTitle": "Saldo de uso",
+    "usageBalanceTitle": "Uso actual",
     "usageChip": "Uso de {name}, se restablece cada mes",
     "viewAllPlans": "Ver todos los planes"
   },

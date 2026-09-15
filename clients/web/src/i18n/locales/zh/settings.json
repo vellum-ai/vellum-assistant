@@ -1296,7 +1296,7 @@
     "usageBalanceAddCredits": "添加",
     "usageBalanceExhausted": "添加点数以继续使用您的助手",
     "usageBalancePctUsed": "已使用 {pct}%",
-    "usageBalanceTitle": "使用余额",
+    "usageBalanceTitle": "当前使用量",
     "usageChip": "{name} 使用量，每月重置",
     "viewAllPlans": "查看所有套餐"
   },
