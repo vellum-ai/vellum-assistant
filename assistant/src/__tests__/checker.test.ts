@@ -140,8 +140,16 @@ registerSkillTools("app-builder", [mockBundledSkillTool]);
 
 // Register CU tools so check() can look them up in the tool registry
 // instead of falling through to Medium (unknown tool).
-import { allComputerUseTools } from "../tools/computer-use/definitions.js";
-for (const tool of allComputerUseTools) {
+import { getBundledSkillsDir } from "../config/skills.js";
+import { parseToolManifestFile } from "../skills/tool-manifest.js";
+import { createSkillToolsFromManifest } from "../tools/skills/skill-tool-factory.js";
+const cuDir = join(getBundledSkillsDir(), "computer-use");
+for (const tool of createSkillToolsFromManifest(
+  parseToolManifestFile(join(cuDir, "TOOLS.json")).tools,
+  cuDir,
+  "test-version",
+  true,
+)) {
   registerTool(tool);
 }
 

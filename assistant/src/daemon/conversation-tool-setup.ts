@@ -5,7 +5,6 @@
  * executor callback creation to the helper functions exported here,
  * keeping the constructor body focused on wiring.
  */
-
 import type { AssistantEvent } from "../api/index.js";
 import {
   type ClientOs,
@@ -20,6 +19,8 @@ import {
   resolveSendUserMessageActive,
   SEND_USER_MESSAGE_TOOL_NAME,
 } from "../config/send-user-message-gate.js";
+import { desktopDependencyInstaller } from "../desktop/desktop-dependencies.js";
+import { isAssistantDesktopEnabled } from "../desktop/desktop-feature.js";
 import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -30,6 +31,7 @@ import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import { supportsClientOsForSkillTool } from "../tools/client-os.js";
+import { ASSISTANT_DESKTOP_TOOLS } from "../tools/computer-use/target.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
   getAllPluginToolDefinitions,
@@ -774,16 +776,27 @@ function resolveTurnClientOs(ctx: Conversation): {
  * them when the turn's client OS (or pinned OS for wakes) is not listed.
  */
 function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
-  const supportedClientOs = getTool(name)?.supportedClientOs;
+  const tool = getTool(name);
+  const supportedClientOs = tool?.supportedClientOs;
   if (!supportedClientOs) {
     return true;
   }
   const { clientOs, transportInterface } = resolveTurnClientOs(ctx);
-  return supportsClientOsForSkillTool(supportedClientOs, name, {
-    clientOs,
-    transportInterface,
-    sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
-  });
+  if (
+    supportsClientOsForSkillTool(supportedClientOs, name, {
+      clientOs,
+      transportInterface,
+      sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+    })
+  ) {
+    return true;
+  }
+  return (
+    tool?.getExecutionTarget !== undefined &&
+    ASSISTANT_DESKTOP_TOOLS.has(name) &&
+    isAssistantDesktopEnabled(getConfig()) &&
+    desktopDependencyInstaller.getStatus().state === "ready"
+  );
 }
 
 /**

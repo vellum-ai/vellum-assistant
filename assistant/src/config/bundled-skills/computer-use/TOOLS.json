@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "computer_use_observe",
-      "description": "Capture the current screen state. Returns the accessibility tree with [ID] element references and optionally a screenshot.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions - this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting.",
+      "description": "Capture the current screen state. Returns the accessibility tree with [ID] element references and optionally a screenshot.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions - this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting. On target assistant-desktop, returns a full-color screenshot, pixel coordinates and an observation_id, without an accessibility tree.",
       "category": "computer-use",
       "risk": "low",
       "input_schema": {
@@ -26,6 +26,11 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
           }
         },
         "required": []
@@ -65,6 +70,15 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
+          },
+          "observation_id": {
+            "type": "string",
+            "description": "Required on assistant-desktop: ID from its latest screenshot. Re-observe after browser CLI actions or a handoff. Omit for connected computers."
           }
         },
         "required": ["reasoning"]
@@ -91,6 +105,15 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
+          },
+          "observation_id": {
+            "type": "string",
+            "description": "Required on assistant-desktop: ID from its latest screenshot. Re-observe after browser CLI actions or a handoff. Omit for connected computers."
           }
         },
         "required": ["text", "reasoning"]
@@ -100,7 +123,7 @@
     },
     {
       "name": "computer_use_key",
-      "description": "Press a key or keyboard shortcut. Supported: enter, tab, escape, backspace, delete, up, down, left, right, space, cmd+a, cmd+c, cmd+v, cmd+z, cmd+tab, cmd+w, shift+tab, option+tab. On Windows use ctrl/alt in place of cmd/option.",
+      "description": "Press a key or keyboard shortcut. Supported: enter, tab, escape, backspace, delete, up, down, left, right, space, cmd+a, cmd+c, cmd+v, cmd+z, cmd+tab, cmd+w, shift+tab, option+tab. On Windows and the assistant desktop use ctrl/alt in place of cmd/option.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -117,6 +140,15 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
+          },
+          "observation_id": {
+            "type": "string",
+            "description": "Required on assistant-desktop: ID from its latest screenshot. Re-observe after browser CLI actions or a handoff. Omit for connected computers."
           }
         },
         "required": ["key", "reasoning"]
@@ -138,11 +170,11 @@
           },
           "x": {
             "type": "integer",
-            "description": "X coordinate on screen (fallback when no element_id)"
+            "description": "X coordinate on screen (fallback when no element_id) Required on assistant-desktop."
           },
           "y": {
             "type": "integer",
-            "description": "Y coordinate on screen (fallback when no element_id)"
+            "description": "Y coordinate on screen (fallback when no element_id) Required on assistant-desktop."
           },
           "direction": {
             "type": "string",
@@ -160,6 +192,15 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
+          },
+          "observation_id": {
+            "type": "string",
+            "description": "Required on assistant-desktop: ID from its latest screenshot. Re-observe after browser CLI actions or a handoff. Omit for connected computers."
           }
         },
         "required": ["direction", "amount", "reasoning"]
@@ -206,6 +247,15 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
+          },
+          "observation_id": {
+            "type": "string",
+            "description": "Required on assistant-desktop: ID from its latest screenshot. Re-observe after browser CLI actions or a handoff. Omit for connected computers."
           }
         },
         "required": ["reasoning"]
@@ -224,7 +274,7 @@
         "properties": {
           "duration_ms": {
             "type": "integer",
-            "description": "Milliseconds to wait"
+            "description": "Milliseconds to wait Assistant desktop: 0-10000."
           },
           "reasoning": {
             "type": "string",
@@ -233,6 +283,15 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
+          },
+          "observation_id": {
+            "type": "string",
+            "description": "Required on assistant-desktop: ID from its latest screenshot. Re-observe after browser CLI actions or a handoff. Omit for connected computers."
           }
         },
         "required": ["duration_ms", "reasoning"]
@@ -242,7 +301,7 @@
     },
     {
       "name": "computer_use_open_app",
-      "description": "Open or switch to a desktop application by name. Preferred over cmd+tab / alt+tab for switching apps - more reliable and explicit.",
+      "description": "Open or switch to a desktop application by name. Preferred over cmd+tab / alt+tab for switching apps - more reliable and explicit. Connected computers only; unavailable on the assistant desktop.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -259,6 +318,11 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
           }
         },
         "required": ["app_name", "reasoning"]
@@ -269,7 +333,7 @@
     },
     {
       "name": "computer_use_run_applescript",
-      "description": "Run an AppleScript command. Prefer this over click/type when possible - it doesn't move the cursor or interrupt foreground activity. Never use 'do shell script' inside AppleScript (blocked for security).",
+      "description": "Run an AppleScript command. Prefer this over click/type when possible - it doesn't move the cursor or interrupt foreground activity. Never use 'do shell script' inside AppleScript (blocked for security). Connected computers only; unavailable on the assistant desktop.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -286,6 +350,11 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
           }
         },
         "required": ["script", "reasoning"]
@@ -296,7 +365,7 @@
     },
     {
       "name": "computer_use_sequence",
-      "description": "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest observation, so use them only for actions that act before the screen changes. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action.",
+      "description": "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest observation, so use them only for actions that act before the screen changes. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action. Connected computers only; unavailable on the assistant desktop.",
       "category": "computer-use",
       "risk": "medium",
       "input_schema": {
@@ -377,6 +446,11 @@
           "target_client_id": {
             "type": "string",
             "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`."
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
           }
         },
         "required": ["actions"]
@@ -396,6 +470,11 @@
           "summary": {
             "type": "string",
             "description": "Human-readable summary of what was accomplished"
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
           }
         },
         "required": ["summary"]
@@ -418,6 +497,11 @@
           "reasoning": {
             "type": "string",
             "description": "Explanation of how you determined the answer"
+          },
+          "target": {
+            "type": "string",
+            "enum": ["connected-computer", "assistant-desktop"],
+            "description": "Computer to control. Omit for the connected user computer. Use assistant-desktop for the streamed desktop when enabled and installed. Never switch machines as a fallback."
           }
         },
         "required": ["answer", "reasoning"]

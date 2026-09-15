@@ -5,22 +5,18 @@ export interface ManifestOverride {
   execution_target: "host" | "sandbox";
 }
 
-/**
- * Decide a tool's execution target — sandbox (assistant container) or host
- * (guardian's device via host-bridge proxy). Pure: same input → same output.
- *
- * Resolution order:
- *   1. Declared `executionTarget` on the tool wins.
- *   2. Name prefix heuristic — `host_*` / `computer_use_*` ⇒ host.
- *   3. Default sandbox.
- *
- * Called once per tool at load/construction time. The returned value is
- * stamped onto every `Tool`, so runtime reads are just a field read.
- */
-export function resolveExecutionTarget(tool: {
-  name: string;
-  executionTarget?: ExecutionTarget;
-}): ExecutionTarget {
+/** With no invocation input, returns the tool's conservative default boundary. */
+export function resolveExecutionTarget(
+  tool: {
+    name: string;
+    executionTarget?: ExecutionTarget;
+    getExecutionTarget?: (input: Record<string, unknown>) => ExecutionTarget;
+  },
+  input?: Record<string, unknown>,
+): ExecutionTarget {
+  if (input && tool.getExecutionTarget) {
+    return tool.getExecutionTarget(input);
+  }
   if (tool.executionTarget) {
     return tool.executionTarget;
   }

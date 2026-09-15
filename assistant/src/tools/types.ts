@@ -605,7 +605,10 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 export type Tool = Required<
   Omit<ToolDefinition, "exclusive" | "supportedClientOs">
 > &
-  Pick<ToolDefinition, "exclusive" | "supportedClientOs">;
+  Pick<ToolDefinition, "exclusive" | "supportedClientOs"> & {
+    /** Runtime-only routing for trusted tools with explicit per-call targets. */
+    getExecutionTarget?: (input: Record<string, unknown>) => "sandbox" | "host";
+  };
 
 /**
  * The kind of entity that owns a tool. `"default"` is the built-in tool set

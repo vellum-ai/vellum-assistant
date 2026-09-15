@@ -1,6 +1,6 @@
 ---
 name: computer-use
-description: Control a connected desktop
+description: Control a connected computer or the assistant’s streamed desktop
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🖥️"
@@ -15,15 +15,55 @@ metadata:
       - "Task can be done via a more specific skill (gmail, calendar, contacts, terminal-sessions) or a CLI / API call"
 ---
 
-This skill provides the computer_use_* action tools for controlling a
-connected desktop. CU tools run through the main agent loop via HostCuProxy.
+Use the `computer_use_*` tools for native GUI actions. Choose the computer
+explicitly; never switch computers as a fallback.
 
-The skill is internally preactivated for conversations with a connected desktop client.
+## Targets
 
-Tools in this skill are proxy tools. Execution is forwarded to a connected
-desktop client and is never handled locally by the assistant.
+- `target: "connected-computer"` (the default): control the user's connected
+  desktop. Select `target_client_id` when needed using
+  `assistant clients list --capability host_cu`. This skill is preactivated
+  when a supported desktop client is connected.
+- `target: "assistant-desktop"`: control the assistant's streamed Linux desktop,
+  visible in the Desktop modal. Set this target on every call, including
+  `computer_use_done`. Do not provide `target_client_id`.
 
-## Observations
+The assistant desktop requires the desktop feature to be enabled, completed
+automatic installation, and an identified guardian conversation. It does not
+need a connected desktop app. If unavailable, report the error. Let the Desktop
+modal manage installation; never install or start the desktop stack yourself.
+
+## Assistant desktop workflow
+
+Use `assistant browser --desktop` for webpages in the streamed Chrome window.
+Use this skill for browser chrome, native dialogs, other applications, and
+whole-desktop screenshots. Run `assistant browser --help` for browser CLI guidance.
+
+1. Call `computer_use_observe` with `target: "assistant-desktop"`.
+2. Use the screenshot's pixel coordinates and latest `observation_id` for
+   `computer_use_click`, `computer_use_type_text`, `computer_use_key`,
+   `computer_use_scroll`, `computer_use_drag`, or `computer_use_wait`.
+   Each action returns a fresh color screenshot and ID. Verify before acting.
+3. Use the shared key names such as `enter`, `tab`, `escape`, and `ctrl+l`.
+   Scroll requires x/y. Wait accepts up to 10,000 milliseconds.
+4. Call `computer_use_done` with the same target when finished or blocked,
+   including before asking the user a question.
+
+This target provides screenshots only. Accessibility element IDs, full trees,
+window-scoped capture, app launch, AppleScript, and sequences are unsupported.
+Never use shell-level `xdotool`, `xwd`, or custom screenshot conversion scripts.
+
+Browser and native actions share one conversation-and-actor control session.
+Switching to native control clears browser element references; take a fresh
+browser snapshot before using them again. Browser commands invalidate the
+last native observation. Re-observe after switching back.
+
+If the user selects **Take control**, stop and yield. Resume with a fresh
+observation only after they select **Allow assistant** and ask you to continue.
+`computer_use_done` and `assistant browser --desktop detach` release the shared
+session and held input. Closing the viewer does not end control.
+
+## Connected-computer observations
 
 Every computer-use step returns the accessibility tree. A screenshot comes with
 a desktop's first look, with window-scoped observations, or when you call
@@ -54,7 +94,7 @@ A missing window must not be replaced with a desktop capture.
 This is a **single observation**, not a session-wide privacy boundary: normal
 click/type/scroll and other action tools still observe the whole desktop. Do not promise app-only capture for a whole control session.
 The desktop must explicitly advertise `host_cu_window_capture` support on its
-connection; the daemon rejects older or unsupported clients before requesting
+connection; the assistant rejects older or unsupported clients before requesting
 any capture. Other desktop platforms reject this option.
 
 The screenshot is window-relative, while action coordinates are screen points;

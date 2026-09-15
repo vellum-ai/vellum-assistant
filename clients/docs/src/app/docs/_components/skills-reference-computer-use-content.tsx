@@ -22,9 +22,10 @@ export function SkillsReferenceComputerUseContent() {
             What it does
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            Controls a connected desktop directly. It observes the screen through accessibility
-            APIs and screenshots, then clicks, types, and scrolls. Some actions depend on the
-            desktop operating system.
+            Controls a connected computer or the assistant&apos;s streamed desktop. It observes
+            the screen, then clicks, types, scrolls, and drags. Connected computers can provide
+            accessibility trees; the assistant desktop uses color screenshots and pixel coordinates.
+            Tell the assistant which computer to use.
           </p>
         </section>
 
@@ -33,8 +34,10 @@ export function SkillsReferenceComputerUseContent() {
             Setup required
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            None (built into the desktop app). The app will request the operating-system permissions
-            it needs.
+            Connected-computer control is built into supported desktop apps, which request the
+            operating-system permissions they need. The assistant desktop is available only when
+            the desktop feature is enabled and automatic installation in the Desktop modal has
+            finished. It does not require a connected desktop app.
           </p>
         </section>
 
@@ -45,7 +48,8 @@ export function SkillsReferenceComputerUseContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>Accessibility (mouse/keyboard control)</li>
             <li>Screen capture (seeing screen content)</li>
-            <li>Each action is prompted individually for approval</li>
+            <li>Connected-computer actions follow your existing access and permission settings</li>
+            <li>The assistant desktop requires the owner&apos;s conversation; Take control interrupts automation</li>
           </ul>
         </section>
 
@@ -124,11 +128,9 @@ export function SkillsReferenceComputerUseContent() {
             Configuration
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
-            <li>No configuration needed</li>
-            <li>Step limit of 50 actions per session</li>
-            <li>
-              Each action requires approval unless you create trust rules via the Allow button
-            </li>
+            <li>The assistant chooses the requested computer explicitly and does not switch machines as a fallback</li>
+            <li>Browser and native actions on the assistant desktop share one control session</li>
+            <li>Use Allow assistant in the Desktop modal before asking it to resume after taking control</li>
           </ul>
         </section>
 
@@ -138,9 +140,9 @@ export function SkillsReferenceComputerUseContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
-              <strong>Accessibility tree + screenshots.</strong> The assistant reads the
-              accessibility tree (same API screen readers use) on every step and takes screenshots
-              when it needs to see the screen.
+              <strong>Accessibility tree + screenshots.</strong> On connected computers, the assistant reads the
+              accessibility tree (same API screen readers use) and requests screenshots as needed.
+              On its own desktop, each native action returns a fresh color screenshot.
             </li>
             <li>
               <strong>Element-based clicking.</strong> It prefers clicking by element name rather

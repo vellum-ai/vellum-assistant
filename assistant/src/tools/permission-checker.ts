@@ -119,8 +119,8 @@ export class PermissionChecker {
     >,
     classification?: RiskClassificationWithMeta,
   ): Promise<PermissionDecision> {
-    // Sandbox/host routing for the prompt comes from the tool's manifest.
-    const executionTarget = resolveExecutionTarget(tool);
+    // Use the same target for policy evaluation and the permission prompt.
+    const executionTarget = resolveExecutionTarget(tool, input);
     classification ??= await classifyRisk(
       name,
       input,
@@ -149,7 +149,7 @@ export class PermissionChecker {
     // this, the executor's catch block would fall back to the default
     // low risk, degrading audit/alert accuracy for high-risk attempts.
     try {
-      const policyContext = buildPolicyContext(tool, context);
+      const policyContext = buildPolicyContext(tool, context, input);
       const result = await check(
         name,
         input,

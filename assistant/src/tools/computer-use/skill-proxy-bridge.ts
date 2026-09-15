@@ -1,13 +1,7 @@
-/**
- * Shared helper for computer-use skill wrapper scripts.
- *
- * Each wrapper calls forwardComputerUseProxyTool() to delegate execution to
- * the proxy resolver, which forwards the call to the connected desktop client.
- */
-
 import { formatDesktopAppRequired } from "../capability-offer.js";
 import { throwIfCancelled } from "../shared/abort.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import { computerUseTarget } from "./target.js";
 
 /**
  * The wire name the screen-annotation skill's tools forward under.
@@ -27,28 +21,28 @@ export const POINT_AT_PROXY_TOOL = "computer_use_point_at";
  */
 const TEARDOWN_TOOLS: ReadonlySet<string> = new Set(["computer_use_done"]);
 
-/**
- * Forward a computer-use proxy tool call through the context's proxyToolResolver.
- *
- * Returns a clear error result if the resolver is missing (e.g. when the tool
- * is invoked outside a session with a connected client).
- */
-export function forwardComputerUseProxyTool(
+/** Dispatch to the explicit computer target; omitted targets use the host. */
+export async function forwardComputerUseProxyTool(
   toolName: string,
   input: Record<string, unknown>,
   context: ToolContext,
   opts?: { teardown?: boolean },
 ): Promise<ToolExecutionResult> {
-  // Every non-teardown call actuates the user's desktop: a click, a keystroke,
-  // an app launch, an AppleScript run.
   if (!opts?.teardown && !TEARDOWN_TOOLS.has(toolName)) {
     throwIfCancelled(context);
   }
+  const target = computerUseTarget(input);
+  if (target === "assistant-desktop") {
+    const { executeAssistantDesktopTool } =
+      await import("./assistant-desktop-backend.js");
+    return executeAssistantDesktopTool(toolName, input, context);
+  }
   if (!context.proxyToolResolver) {
-    return Promise.resolve({
+    return {
       content: formatDesktopAppRequired("screen"),
       isError: true,
-    });
+    };
   }
-  return context.proxyToolResolver(toolName, input);
+  const { target: _target, ...hostInput } = input;
+  return context.proxyToolResolver(toolName, hostInput);
 }
