@@ -5,23 +5,22 @@ import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
 export const DOCUMENT_RETURN_PARAM = "documentReturn";
 
 /**
- * A conversation, optionally naming the app the viewer holds on screen.
- * Stricter than {@link conversationIdForPath}, which parses a pathname and so
- * tolerates the query, hash, and escape syntax an untrusted value can carry.
- */
-const CONVERSATION_RETURN =
-  /^\/assistant\/conversations\/[^/?#\\]+(?:\/app\/[^/?#\\]+)?\/?$/;
-
-/**
- * The entry surface `value` names, or `null` when it names none. An app
- * sub-route names its conversation: opening a document drops the app.
+ * The entry surface `value` names, or `null` when it names none: the Library,
+ * or a conversation. An app sub-route names its conversation, since opening a
+ * document drops the app, so the previous history entry is `returnTo` or a
+ * presentation of it. Popping back lands on the app route it was actually
+ * pushed from; the replace fallback lands on the bare conversation.
+ *
+ * `value` can come from the query, so it is checked for the characters a
+ * pathname parse would read past: a query, a hash, a backslash escape, and
+ * the doubled slash of a protocol-relative URL.
  */
 function safeReturnPath(value?: string | null): string | null {
   const path = value ?? "";
   if (path === routes.library.root || path === `${routes.library.root}/`) {
     return path;
   }
-  if (!CONVERSATION_RETURN.test(path)) {
+  if (/[?#\\]/.test(path) || path.includes("//")) {
     return null;
   }
   const conversationId = conversationIdForPath(path);
@@ -63,6 +62,12 @@ export function documentEntryState(
   };
 }
 
+/**
+ * Whether the previous history entry is the one this document was opened
+ * from: the same surface, returning to `returnTo`. The entry itself may be a
+ * presentation of that route (its app sub-route), which is why the match is
+ * on the recorded `returnTo` rather than on the entry's own path.
+ */
 export function hasDocumentReturnEntry(
   state: unknown,
   surfaceId: string,

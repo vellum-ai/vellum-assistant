@@ -3,6 +3,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { useNavigate } from "react-router";
 
 import { currentLocation, wrapperAt } from "@/hooks/router-probe.test-helper";
+import { showPath } from "@/stores/open-app.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
@@ -31,6 +32,9 @@ function renderHandlers(options?: { replaceOnClose?: boolean }) {
 }
 
 beforeEach(() => {
+  // `closeAppRoute` reads `window.location`, which the probe router does not
+  // drive: without this the route branch of the close is never taken.
+  showPath(APP_PATH);
   viewerSnapshot = useViewerStore.getState();
   conversationSnapshot = useConversationStore.getState();
   useConversationStore.setState({ activeConversationId: CONV_ID });
@@ -44,6 +48,15 @@ afterEach(() => {
 
 describe("useAppViewerRouteHandlers", () => {
   test("closing lands on the conversation the app was open in", () => {
+    const { result } = renderHandlers();
+
+    act(() => result.current.handlers.handleCloseApp());
+
+    expect(currentLocation().pathname).toBe(CONVERSATION_PATH);
+  });
+
+  test("closing follows the route the app is open on, not the selected conversation", () => {
+    useConversationStore.setState({ activeConversationId: "conv-elsewhere" });
     const { result } = renderHandlers();
 
     act(() => result.current.handlers.handleCloseApp());

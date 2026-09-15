@@ -26,9 +26,8 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import {
   closeAppRoute,
-  currentPathname,
+  dropAppFromRoute,
 } from "@/utils/conversation-navigation";
-import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
 
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -154,11 +153,7 @@ export function ActiveChatView() {
         // An overlay hides the app, so only the URL is stale. Dropping the
         // segment leaves the release to the route sync, which keeps the
         // overlay in front.
-        const pathname = currentPathname();
-        const conversationId = conversationIdForPath(pathname);
-        if (appIdForPath(pathname) === appId && conversationId !== null) {
-          void navigate(routes.conversation(conversationId), { replace: true });
-        }
+        dropAppFromRoute(navigate, appId, { evenIfHeld: true });
       },
       [navigate],
     ),

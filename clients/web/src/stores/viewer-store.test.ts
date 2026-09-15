@@ -238,6 +238,34 @@ describe("releaseApp", () => {
     expect(state.openedAppState).toBeNull();
     expect(state.isAppMinimized).toBe(false);
   });
+
+  it("settles overlay restore targets that named the app now gone", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+      viewBeforeDocument: "app",
+      viewBeforeChatInfo: "app-editing",
+      viewBeforeToolDetail: "chat",
+    });
+    getState().releaseApp();
+    const state = getState();
+    expect(state.viewBeforeDocument).toBe("chat");
+    expect(state.viewBeforeChatInfo).toBe("chat");
+    expect(state.viewBeforeToolDetail).toBe("chat");
+  });
+
+  it("closing the overlay after a release lands on the chat", () => {
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+    });
+    getState().openDocument();
+    getState().releaseApp();
+    getState().closeDocument();
+    expect(getState().mainView).toBe("chat");
+  });
 });
 
 describe("closeApp", () => {

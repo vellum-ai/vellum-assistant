@@ -48,7 +48,7 @@ const CONV_ID = "conv-edit";
 const ASSISTANT_ID = "asst-1";
 const REMEMBERED_ID = "conv-remembered";
 const LIBRARY_PATH = "/assistant/library/app-42";
-const APP_CONVERSATION_PATH = `/assistant/conversations/${CONV_ID}/app/${APP.appId}`;
+const APP_CONVERSATION_PATH = routes.conversation(CONV_ID, APP.appId);
 
 const wrapper = wrapperAt(LIBRARY_PATH);
 
@@ -122,9 +122,7 @@ describe("useEditApp", () => {
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
     // Desktop uses the split view, not the mobile minimized strip.
     expect(minimizeAppMock).not.toHaveBeenCalled();
-    expect(currentLocation().pathname).toBe(
-      routes.conversation(CONV_ID, APP.appId),
-    );
+    expect(currentLocation().pathname).toBe(APP_CONVERSATION_PATH);
   });
 
   test("starts a conversation, registered as a draft, when none is selected", () => {
@@ -183,9 +181,7 @@ describe("useEditApp", () => {
 
     // THEN the edit conversation is still bound and we navigate to it...
     expect(setEditingConversationIdMock).toHaveBeenCalledWith(CONV_ID);
-    expect(currentLocation().pathname).toBe(
-      routes.conversation(CONV_ID, APP.appId),
-    );
+    expect(currentLocation().pathname).toBe(APP_CONVERSATION_PATH);
     // ...the app is minimized so the chat is the primary surface (the strip
     // shows "Open app", not a duplicate "Edit" over a full-screen app)...
     expect(minimizeAppMock).toHaveBeenCalledTimes(1);
@@ -205,9 +201,7 @@ describe("useEditApp", () => {
     expect(openAppMock).not.toHaveBeenCalled();
     expect(setLoadedAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
-    expect(currentLocation().pathname).toBe(
-      routes.conversation(CONV_ID, APP.appId),
-    );
+    expect(currentLocation().pathname).toBe(APP_CONVERSATION_PATH);
   });
 
   test("navigates to the edit conversation from an off-chat route even when its id is already the active conversation", () => {

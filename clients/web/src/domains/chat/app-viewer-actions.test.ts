@@ -121,6 +121,16 @@ describe("handleAppViewerAction — set_view", () => {
     );
   });
 
+  it("'chat' replaces on mobile, so Back does not reopen the app", () => {
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    showOpenAppRoute({ conversationId: "conv-1" });
+    const ctx = makeCtx(true);
+
+    handleAppViewerAction(ctx, "set_view", { view: "chat" });
+
+    expect(ctx.navigate.mock.calls[0][1]).toEqual({ replace: true });
+  });
+
   it("'chat' with no conversation starts one to land on", () => {
     useConversationStore.setState({ activeConversationId: null });
     useViewerStore.setState({
@@ -153,7 +163,7 @@ describe("handleAppViewerAction — set_view", () => {
 
   it("'split' enters the side-by-side and binds the active conversation (desktop)", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
-    useViewerStore.setState({ mainView: "app", openedAppState: SAMPLE_APP });
+    showOpenAppRoute({ conversationId: "conv-1" });
 
     handleAppViewerAction(makeCtx(false), "set_view", { view: "split" });
 
@@ -165,7 +175,7 @@ describe("handleAppViewerAction — set_view", () => {
 
   it("'split' is ignored on mobile", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
-    useViewerStore.setState({ mainView: "app", openedAppState: SAMPLE_APP });
+    showOpenAppRoute({ conversationId: "conv-1" });
 
     handleAppViewerAction(makeCtx(true), "set_view", { view: "split" });
 
@@ -173,8 +183,8 @@ describe("handleAppViewerAction — set_view", () => {
   });
 
   it("'split' with no conversation starts one to put beside the app", () => {
+    showOpenAppRoute({ conversationId: "conv-1" });
     useConversationStore.setState({ activeConversationId: null });
-    useViewerStore.setState({ mainView: "app", openedAppState: SAMPLE_APP });
     const ctx = makeCtx(false);
 
     handleAppViewerAction(ctx, "set_view", { view: "split" });

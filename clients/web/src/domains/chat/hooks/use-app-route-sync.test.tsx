@@ -193,14 +193,14 @@ describe("useAppRouteSync", () => {
     expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
-  test("does not reload the app when the view around it re-renders", async () => {
+  test("does not reload the app when it re-renders on the same route", async () => {
     const { rerender } = renderSync({
       assistantId: ASSISTANT_ID,
       routeAppId: APP_ID,
     });
     await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
 
-    // WHEN the conversation beside the app changes under it
+    // WHEN the hook re-renders with the same assistant and app
     rerender({
       assistantId: ASSISTANT_ID,
       routeAppId: APP_ID,

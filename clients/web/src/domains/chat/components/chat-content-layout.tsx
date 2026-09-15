@@ -53,6 +53,7 @@ import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOverlayEscape } from "../hooks/use-overlay-escape";
 import { useAppViewerRouteHandlers } from "../hooks/use-app-viewer-route-handlers";
+import { exitAppSplit } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
 import { skillDetailBackState } from "@/utils/skills";
@@ -156,6 +157,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const documentEditorRef = useRef<DocumentViewerContainerHandle>(null);
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
+  const activeAppId = useViewerStore.use.activeAppId();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const editingConversationId =
@@ -230,11 +232,6 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const { handleCloseApp, handleNavigateAppRoute } =
     useAppViewerRouteHandlers();
-
-  const handleCloseEditPanel = useCallback(() => {
-    useConversationStore.getState().setEditingConversationId(null);
-    useViewerStore.getState().exitAppEditing();
-  }, []);
 
   const handleEditApp = useCallback(() => {
     const oas = useViewerStore.getState().openedAppState;
@@ -477,7 +474,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             assistantId={assistantId ?? ""}
             onClose={handleCloseApp}
             onNavigateAppRoute={handleNavigateAppRoute}
-            onEdit={handleCloseEditPanel}
+            onEdit={exitAppSplit}
             onShare={handleShareApp}
             isSharing={isSharing}
             onDeploy={handleDeployApp}
@@ -492,7 +489,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // Desktop full-width app viewer (non-editing). Mobile uses the
   // portal-based MobileAppOverlay — this branch is desktop-only.
-  if (mainView === "app" && !isMobile) {
+  // A released app leaves the view naming an app with none loaded and none
+  // loading: that falls through to the chat rather than spinning forever.
+  if (mainView === "app" && !isMobile && (openedAppState || activeAppId)) {
     if (!openedAppState) {
       return (
         <div className="flex flex-1 items-center justify-center">
