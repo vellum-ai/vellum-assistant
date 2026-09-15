@@ -1140,7 +1140,10 @@ export function CompanionSurface({
       return;
     }
     const measure = () => {
-      setPromptWidth(element.scrollWidth);
+      // Its fractional width, rounded up, in the surface's own units: a
+      // whole-point width rounded down leaves the row a fraction too narrow
+      // for its words, and they wrap onto a second line they do not need.
+      setPromptWidth(Math.ceil(element.getBoundingClientRect().width / scale));
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -1148,7 +1151,7 @@ export function CompanionSurface({
     return () => {
       observer.disconnect();
     };
-  }, [joined, prompt]);
+  }, [joined, prompt, scale]);
   /**
    * The bar's width while it carries a prompt: as wide as the wider of the
    * two, so the prompt's words are never cut to fit the call's controls and
