@@ -52,6 +52,7 @@ mock.module("@/domains/chat/composer-focus", () => ({
 
 const {
   closeAppRoute,
+  dropFailedAppFromRoute,
   navigateToConversation,
   navigateToNewConversation,
   keepOpenAppBesideConversation,
@@ -370,6 +371,15 @@ describe("keptAppId", () => {
     expect(keptAppId()).toBeNull();
   });
 
+  test("names the app behind a remote-gateway ingress basename", () => {
+    openAppViewer();
+    showPath(
+      `/assistant-123${routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId)}`,
+    );
+
+    expect(keptAppId()).toBe(SAMPLE_APP.appId);
+  });
+
   test("names the app the URL names", () => {
     useViewerStore.setState({
       mainView: "app",
@@ -566,6 +576,26 @@ describe("navigateFromApp", () => {
     expect(navigate).toHaveBeenCalledWith(routes.library.root);
   });
 
+  test("closes an app the URL never named for a chat destination", () => {
+    // The route sync reacts to the app segment leaving the URL, and there is
+    // no segment here to lose.
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+    });
+    showPath(routes.conversation("conv-1"));
+    useConversationStore.getState().setEditingConversationId("conv-1");
+    const navigate = mock((_to: string) => {});
+    const href = routes.conversation("conv-2");
+    navigateFromApp(navigate as unknown as NavigateFunction, href);
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useViewerStore.getState().activeAppId).toBeNull();
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(href);
+  });
+
   test("classifies by pathname, so a query string keeps the app", () => {
     openAppViewer();
     const navigate = mock((_to: string) => {});
@@ -585,5 +615,44 @@ describe("navigateFromApp", () => {
     expect(useViewerStore.getState().mainView).toBe("chat");
     expect(useViewerStore.getState().activeAppId).toBeNull();
     expect(navigate).toHaveBeenCalledWith(href);
+  });
+});
+
+describe("dropFailedAppFromRoute", () => {
+  test("replaces the app segment away once the viewer let the app go", () => {
+    showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    dropFailedAppFromRoute(navigate, SAMPLE_APP.appId);
+
+    expect(navigate).toHaveBeenCalledWith(
+      routes.conversation(OPEN_CONVERSATION),
+      { replace: true },
+    );
+  });
+
+  test("leaves the URL alone while the viewer still holds the app", () => {
+    openOverlayOverApp();
+    showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    dropFailedAppFromRoute(navigate, SAMPLE_APP.appId);
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  test("leaves the URL alone when it moved on to another app", () => {
+    showPath(routes.conversation(OPEN_CONVERSATION, "app-2"));
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    dropFailedAppFromRoute(navigate, SAMPLE_APP.appId);
+
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

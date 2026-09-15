@@ -24,7 +24,11 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { closeAppRoute } from "@/utils/conversation-navigation";
+import {
+  closeAppRoute,
+  currentPathname,
+} from "@/utils/conversation-navigation";
+import { appIdForPath, conversationIdForPath, routes } from "@/utils/routes";
 
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -141,12 +145,20 @@ export function ActiveChatView() {
     assistantId,
     useCallback(
       (appId: string) => {
-        if (!useViewerStore.getState().handleAppUnpinned(appId)) {
+        if (useViewerStore.getState().handleAppUnpinned(appId)) {
+          // The unpin already closed the viewer, so the route sync sees nothing
+          // left to close: the app segment leaves the URL from here.
+          closeAppRoute(navigate, { replace: true });
           return;
         }
-        // The unpin already closed the viewer, so the route sync sees nothing
-        // left to close: the app segment leaves the URL from here.
-        closeAppRoute(navigate, { replace: true });
+        // An overlay hides the app, so only the URL is stale. Dropping the
+        // segment leaves the release to the route sync, which keeps the
+        // overlay in front.
+        const pathname = currentPathname();
+        const conversationId = conversationIdForPath(pathname);
+        if (appIdForPath(pathname) === appId && conversationId !== null) {
+          void navigate(routes.conversation(conversationId), { replace: true });
+        }
       },
       [navigate],
     ),
@@ -430,7 +442,7 @@ export function ActiveChatView() {
   useDeepLinkApp(urlConversationId ?? null, searchParams);
 
   // The app segment of the URL names an app for the viewer to show.
-  useAppRouteSync(assistantId, urlConversationId ?? null, urlAppId ?? null);
+  useAppRouteSync(assistantId, urlAppId ?? null);
 
   // Conversation-change side effects (dismiss prompts, reset subagent state,
   // auto-fetch subagent details for entries reconstructed from history)

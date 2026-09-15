@@ -223,6 +223,23 @@ describe("setLoadedApp", () => {
   });
 });
 
+describe("releaseApp", () => {
+  it("clears the app state and leaves the view over it alone", () => {
+    useViewerStore.setState({
+      mainView: "document",
+      activeAppId: "app-1",
+      openedAppState: SAMPLE_APP,
+      isAppMinimized: true,
+    });
+    getState().releaseApp();
+    const state = getState();
+    expect(state.mainView).toBe("document");
+    expect(state.activeAppId).toBeNull();
+    expect(state.openedAppState).toBeNull();
+    expect(state.isAppMinimized).toBe(false);
+  });
+});
+
 describe("closeApp", () => {
   it("resets to chat view, clears app state, and resets minimized", () => {
     useViewerStore.setState({

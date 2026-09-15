@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
@@ -343,20 +343,14 @@ export function RootLayout() {
   // workspace files, invoices, inspector exports).
   useDownloadFeedback();
   // Android Back closes a minimized app the WebView history root cannot pop.
-  // The source lives outside React, so it reaches the router through a ref and
-  // its subscription keeps a stable identity.
-  const closeAppRouteRef = useRef<() => void>(() => undefined);
-  useEffect(() => {
-    closeAppRouteRef.current = () => {
-      closeAppRoute(navigate, { replace: true });
-    };
-  }, [navigate]);
   useEffect(
     () =>
       subscribeAndroidBackButtonSource({
-        closeAppRoute: () => closeAppRouteRef.current(),
+        closeAppRoute: () => {
+          closeAppRoute(navigate, { replace: true });
+        },
       }),
-    [],
+    [navigate],
   );
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while

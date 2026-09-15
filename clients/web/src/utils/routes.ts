@@ -465,10 +465,10 @@ export function appIdForPath(pathname: string): string | null {
 
 /**
  * Whether `pathname` mounts the conversation chat surface — the `/assistant`
- * index (draft conversation, via `ConversationRedirect`) or exactly
- * `/assistant/conversations/:id` — i.e. a route where `ChatPage` renders the
- * active conversation's composer. Stricter than {@link isConversationPath}:
- * conversation subroutes such as the inspector
+ * index (draft conversation, via `ConversationRedirect`) or
+ * `/assistant/conversations/:id`, with or without the app viewer sub-route
+ * (`/app/:appId`), which `ChatPage` stays mounted under. Stricter than
+ * {@link isConversationPath}: conversation subroutes such as the inspector
  * (`/assistant/conversations/:id/inspect`) are excluded because `InspectPage`
  * replaces `ChatPage` and has no composer.
  */

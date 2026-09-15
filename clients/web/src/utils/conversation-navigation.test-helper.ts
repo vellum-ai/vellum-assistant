@@ -8,19 +8,8 @@
  * here is one compile error rather than an `undefined` that six suites read
  * as a passing branch.
  *
- * The module is named in a type position only. These suites mock it to keep
- * the conversation stores, haptics, and sound manager it pulls in out of
- * their process, so importing it for its values would put them back.
- *
- * `activation-list-route.test.tsx` spreads the real module rather than this
- * factory because it restores the real functions in `afterAll`, which means it
- * holds the real module already.
- *
- * ```ts
- * mock.module("@/utils/conversation-navigation", () =>
- *   conversationNavigationMock({ navigateToConversation: navigateSpy }),
- * );
- * ```
+ * `activation-list-route.test.tsx` spreads the real module instead: it restores
+ * the real functions in `afterAll`, so it holds them already.
  */
 
 type ConversationNavigationModule =
@@ -37,6 +26,9 @@ export function conversationNavigationMock(
   overrides: Partial<ConversationNavigationModule> = {},
 ): ConversationNavigationModule {
   return {
+    currentPathname: () => "",
+    clearAppViewer: () => {},
+    dropFailedAppFromRoute: () => {},
     keepOpenAppBesideConversation: () => false,
     revealConversationView: () => {},
     keptAppId: () => null,

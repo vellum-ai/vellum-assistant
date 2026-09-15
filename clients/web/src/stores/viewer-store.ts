@@ -617,6 +617,11 @@ export interface ViewerActions {
    */
   loadApp: (assistantId: string, appId: string) => Promise<boolean>;
   setLoadedApp: (app: OpenedAppState) => void;
+  /**
+   * Let go of the app without touching `mainView`, so a view that opened over
+   * it (a document, a subagent detail) stays in front.
+   */
+  releaseApp: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
   minimizeApp: () => void;
@@ -925,13 +930,17 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({ openedAppState: app });
   },
 
-  closeApp: () => {
+  releaseApp: () => {
     set({
-      mainView: "chat",
       activeAppId: null,
       openedAppState: null,
       isAppMinimized: false,
     });
+  },
+
+  closeApp: () => {
+    get().releaseApp();
+    set({ mainView: "chat" });
   },
 
   toggleAppMinimized: () => {

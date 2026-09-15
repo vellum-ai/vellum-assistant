@@ -55,9 +55,7 @@ export function useEditApp(): (app: OpenedAppState) => void {
         createDraftConversationId();
       setEditChatConversationId(assistantId, app.appId, convId);
 
-      // Seeding the viewer with the HTML this caller already holds lets
-      // `useAppRouteSync` recognize the app the target URL names and skip a
-      // refetch.
+      // The HTML this caller holds lets `useAppRouteSync` skip a refetch.
       const viewer = useViewerStore.getState();
       if (viewer.activeAppId !== app.appId || !viewer.openedAppState) {
         viewer.openApp(app.appId);
