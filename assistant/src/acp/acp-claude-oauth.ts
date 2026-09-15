@@ -44,8 +44,8 @@ const log = getLogger("acp:claude-oauth");
 
 /**
  * Serializes every Claude OAuth token-set write (Connect, renewal persist,
- * companion clear, delete) so a compare-and-write cannot interleave with
- * another writer. The network refresh itself stays outside this queue.
+ * companion clear) so a compare-and-write cannot interleave with another
+ * writer. The network refresh itself stays outside this queue.
  */
 let tokenWriteQueue: Promise<unknown> = Promise.resolve();
 
@@ -455,9 +455,10 @@ export async function acpConnectCardStillWarranted(
  * cannot condemn the new access token.
  *
  * `expectedRefreshToken` is the refresh token this request spent. If the
- * vault no longer holds that value (Connect, a paste, or a delete landed
- * while the network call was in flight), the persist is skipped so the
- * newer token set is not overwritten. Returns whether the write happened.
+ * vault no longer holds that value (Connect or a paste landed while the
+ * network call was in flight), or the access-token field is gone, the
+ * persist is skipped so a newer token set is not overwritten and a deleted
+ * credential is not recreated. Returns whether the write happened.
  */
 export async function persistRefreshedAcpClaudeTokens(
   tokens: AcpClaudeTokens,
@@ -471,6 +472,12 @@ export async function persistRefreshedAcpClaudeTokens(
     if (current !== expectedRefreshToken) {
       log.info(
         "Skipping Claude OAuth refresh persist because the stored refresh token changed while the request was in flight",
+      );
+      return false;
+    }
+    if (!(await hasStoredAcpClaudeAccessToken())) {
+      log.info(
+        "Skipping Claude OAuth refresh persist because the access token is no longer stored",
       );
       return false;
     }
@@ -527,6 +534,18 @@ export async function readAcpClaudeRefreshToken(): Promise<string | null> {
 /** Whether renewal material is on hand, without revealing it. */
 export async function hasAcpClaudeRefreshToken(): Promise<boolean> {
   return (await readAcpClaudeRefreshToken()) != null;
+}
+
+/**
+ * Whether the access-token vault field is present. Presence only: not
+ * whether the value is usable, expired, or readable by the spawn broker.
+ *
+ * Renewal spends a refresh token to replace this field. If the field is
+ * gone, there is no credential to renew.
+ */
+export async function hasStoredAcpClaudeAccessToken(): Promise<boolean> {
+  const token = await getSecureKeyAsync(vaultKey(ACP_OAUTH_TOKEN_FIELD));
+  return token != null && token.length > 0;
 }
 
 /**
@@ -600,20 +619,3 @@ export async function forgetAcpClaudeRenewalStateOnForeignWrite(
   }
 }
 
-/**
- * Drop companion refresh and expiry fields when the Claude access token is
- * being deleted. Throws if the companion clear fails, so the access token
- * is left in place and the delete can be retried instead of leaving a
- * refresh token that would mint a new access token on the next spawn.
- *
- * A no-op for every other service and field.
- */
-export async function forgetAcpClaudeRenewalStateOnAccessTokenDelete(
-  service: string,
-  field: string,
-): Promise<void> {
-  if (service !== ACP_SERVICE || field !== ACP_OAUTH_TOKEN_FIELD) {
-    return;
-  }
-  await forgetAcpClaudeRenewalState();
-}

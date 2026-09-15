@@ -33,7 +33,6 @@ import { invalidateEmailReadinessForByoCredential } from "../../email/byo-email-
 import { credentialKey } from "../../security/credential-key.js";
 import { normalizeSecretValue } from "../../security/secret-normalize.js";
 import {
-  deleteSecureKeyAsync,
   getActiveBackendName,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
@@ -184,23 +183,6 @@ export async function storeCredentialValue(
   await invalidateEmailReadinessForByoCredential(service);
 
   return { credentialId: metadata.credentialId, service, field };
-}
-
-/**
- * Drop any companion secrets that hang off this credential, then delete the
- * primary vault key. Routes should call this instead of `deleteSecureKeyAsync`
- * so a service-specific companion set is not hard-coded at each HTTP entry.
- */
-export async function deleteCredentialPlaintext(
-  service: string,
-  field: string,
-): Promise<"deleted" | "not-found" | "error"> {
-  if (service === ACP_SERVICE && field === ACP_OAUTH_TOKEN_FIELD) {
-    const { forgetAcpClaudeRenewalStateOnAccessTokenDelete } =
-      await import("../../acp/acp-claude-oauth.js");
-    await forgetAcpClaudeRenewalStateOnAccessTokenDelete(service, field);
-  }
-  return deleteSecureKeyAsync(credentialKey(service, field));
 }
 
 /**

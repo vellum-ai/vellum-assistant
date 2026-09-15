@@ -98,7 +98,6 @@ const {
   hasAcpClaudeToken,
   persistRefreshedAcpClaudeTokens,
   forgetAcpClaudeRenewalStateOnForeignWrite,
-  forgetAcpClaudeRenewalStateOnAccessTokenDelete,
   clearAcpClaudeRefreshToken,
   isAcpClaudeTokenExpiring,
 } = await import("../acp-claude-oauth.js");
@@ -393,6 +392,13 @@ describe("hasAcpClaudeToken", () => {
     expect(await hasAcpClaudeToken()).toBe(true);
     expect(await isAcpClaudeTokenExpiring()).toBe(false);
   });
+
+  test("reports false when only leftover refresh material remains", async () => {
+    vault.set(REFRESH_KEY, "refresh-leftover");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
 });
 
 describe("persistRefreshedAcpClaudeTokens", () => {
@@ -400,6 +406,7 @@ describe("persistRefreshedAcpClaudeTokens", () => {
     upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
       allowedTools: ["some_other_tool"],
     });
+    vault.set(ACCESS_KEY, "sk-ant-oat-current");
     vault.set(REFRESH_KEY, "refresh-expected");
     const before = Date.now();
 
@@ -420,6 +427,7 @@ describe("persistRefreshedAcpClaudeTokens", () => {
   });
 
   test("keeps the stored refresh token when the response omits a new one", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-current");
     vault.set(REFRESH_KEY, "refresh-kept");
 
     await persistRefreshedAcpClaudeTokens(
@@ -453,6 +461,25 @@ describe("persistRefreshedAcpClaudeTokens", () => {
     expect(vault.get(REFRESH_KEY)).toBe("refresh-current");
     expect(vault.get(EXPIRES_KEY)).toBe("999");
   });
+
+  test("refuses to persist when the access token is no longer stored", async () => {
+    vault.set(REFRESH_KEY, "refresh-leftover");
+    vault.set(EXPIRES_KEY, "111");
+
+    const persisted = await persistRefreshedAcpClaudeTokens(
+      {
+        accessToken: "sk-ant-oat-resurrected",
+        refreshToken: "refresh-rotated",
+        expiresIn: 3600,
+      },
+      "refresh-leftover",
+    );
+
+    expect(persisted).toBe(false);
+    expect(vault.has(ACCESS_KEY)).toBe(false);
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-leftover");
+    expect(vault.get(EXPIRES_KEY)).toBe("111");
+  });
 });
 
 describe("clearAcpClaudeRefreshToken", () => {
@@ -481,34 +508,6 @@ describe("forgetAcpClaudeRenewalStateOnForeignWrite", () => {
     vault.set(EXPIRES_KEY, "222");
 
     await forgetAcpClaudeRenewalStateOnForeignWrite("github", "api_token");
-
-    expect(vault.get(REFRESH_KEY)).toBe("keep-refresh");
-    expect(vault.get(EXPIRES_KEY)).toBe("222");
-  });
-});
-
-describe("forgetAcpClaudeRenewalStateOnAccessTokenDelete", () => {
-  test("clears companion fields for the Claude access token", async () => {
-    vault.set(REFRESH_KEY, "refresh-to-drop");
-    vault.set(EXPIRES_KEY, "111");
-
-    await forgetAcpClaudeRenewalStateOnAccessTokenDelete(
-      ACP_SERVICE,
-      OAUTH_FIELD,
-    );
-
-    expect(vault.has(REFRESH_KEY)).toBe(false);
-    expect(vault.has(EXPIRES_KEY)).toBe(false);
-  });
-
-  test("leaves companion fields alone for an unrelated credential delete", async () => {
-    vault.set(REFRESH_KEY, "keep-refresh");
-    vault.set(EXPIRES_KEY, "222");
-
-    await forgetAcpClaudeRenewalStateOnAccessTokenDelete(
-      "github",
-      "api_token",
-    );
 
     expect(vault.get(REFRESH_KEY)).toBe("keep-refresh");
     expect(vault.get(EXPIRES_KEY)).toBe("222");

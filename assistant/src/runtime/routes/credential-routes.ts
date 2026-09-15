@@ -32,6 +32,7 @@ import {
 } from "../../oauth/oauth-store.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
+  deleteSecureKeyAsync,
   getActiveBackendInfoAsync,
   getSecureKeyResultAsync,
 } from "../../security/secure-keys.js";
@@ -46,7 +47,6 @@ import {
 import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import {
   CredentialStorageError,
-  deleteCredentialPlaintext,
   InvalidCredentialInputError,
   storeCredentialValue,
 } from "../../tools/credentials/store.js";
@@ -560,7 +560,7 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
 
   const key = credentialKey(service, field);
   const affectedConnections = assertCredentialNotInUse(key, force === true);
-  const deleteResult = await deleteCredentialPlaintext(service, field);
+  const deleteResult = await deleteSecureKeyAsync(key);
 
   if (deleteResult === "error") {
     throw new InternalError(

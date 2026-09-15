@@ -620,9 +620,7 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
         throw new NotFoundError(`Credential not found: ${name}`);
       }
       const affectedConnections = assertCredentialNotInUse(key, force === true);
-      const { deleteCredentialPlaintext } =
-        await import("../../tools/credentials/store.js");
-      const deleteResult = await deleteCredentialPlaintext(service, field);
+      const deleteResult = await deleteSecureKeyAsync(key);
       if (deleteResult === "error") {
         throw new InternalError(
           `Failed to delete credential from secure storage: ${name}`,

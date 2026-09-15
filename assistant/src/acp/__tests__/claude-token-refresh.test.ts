@@ -20,6 +20,7 @@ import type { OAuth2TokenResult } from "../../security/oauth2.js";
 // ---------------------------------------------------------------------------
 
 let expiring = false;
+let storedAccessToken = true;
 let storedRefreshToken: string | null = null;
 let refreshImpl: () => Promise<OAuth2TokenResult> = async () => {
   throw new Error("refreshOAuth2Token not stubbed for this test");
@@ -27,6 +28,7 @@ let refreshImpl: () => Promise<OAuth2TokenResult> = async () => {
 
 let spawnDenial: string | undefined = undefined;
 const isAcpClaudeTokenExpiring = mock(async () => expiring);
+const hasStoredAcpClaudeAccessToken = mock(async () => storedAccessToken);
 const readAcpClaudeRefreshToken = mock(async () => storedRefreshToken);
 const persistRefreshedAcpClaudeTokens = mock(
   async (_tokens: unknown, _expectedRefreshToken: string) => true,
@@ -42,6 +44,7 @@ mock.module("../acp-claude-oauth.js", () => ({
     tokenExchangeBodyFormat: "json",
   },
   isAcpClaudeTokenExpiring,
+  hasStoredAcpClaudeAccessToken,
   readAcpClaudeRefreshToken,
   persistRefreshedAcpClaudeTokens,
   clearAcpClaudeRefreshToken,
@@ -56,12 +59,14 @@ const { ensureFreshAcpClaudeToken } =
 
 beforeEach(() => {
   expiring = false;
+  storedAccessToken = true;
   storedRefreshToken = null;
   spawnDenial = undefined;
   refreshImpl = async () => {
     throw new Error("refreshOAuth2Token not stubbed for this test");
   };
   isAcpClaudeTokenExpiring.mockClear();
+  hasStoredAcpClaudeAccessToken.mockClear();
   readAcpClaudeRefreshToken.mockClear();
   persistRefreshedAcpClaudeTokens.mockClear();
   clearAcpClaudeRefreshToken.mockClear();
@@ -87,6 +92,18 @@ describe("ensureFreshAcpClaudeToken: skip paths", () => {
     await ensureFreshAcpClaudeToken();
 
     expect(refreshOAuth2Token).not.toHaveBeenCalled();
+    expect(clearAcpClaudeRefreshToken).not.toHaveBeenCalled();
+  });
+
+  test("does not mint a new access token after the stored one was deleted", async () => {
+    expiring = true;
+    storedAccessToken = false;
+    storedRefreshToken = "refresh-leftover";
+
+    await ensureFreshAcpClaudeToken();
+
+    expect(refreshOAuth2Token).not.toHaveBeenCalled();
+    expect(persistRefreshedAcpClaudeTokens).not.toHaveBeenCalled();
     expect(clearAcpClaudeRefreshToken).not.toHaveBeenCalled();
   });
 });

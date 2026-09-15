@@ -107,11 +107,11 @@ describe("secret routes ACP OAuth-token format guard", () => {
     ).toBeUndefined();
   });
 
-  test("clears Claude refresh material when the access token is deleted", async () => {
+  test("deletes only the requested Claude access-token field", async () => {
     secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_TOKEN_FIELD)] =
       "sk-ant-oat01-connected";
     secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)] =
-      "refresh-to-drop";
+      "refresh-leftover";
     secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)] =
       "111";
 
@@ -127,9 +127,9 @@ describe("secret routes ACP OAuth-token format guard", () => {
     ).toBeUndefined();
     expect(
       secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_REFRESH_TOKEN_FIELD)],
-    ).toBeUndefined();
+    ).toBe("refresh-leftover");
     expect(
       secureKeyStore[credentialKey(ACP_SERVICE, ACP_OAUTH_EXPIRES_AT_FIELD)],
-    ).toBeUndefined();
+    ).toBe("111");
   });
 });

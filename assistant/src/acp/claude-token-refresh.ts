@@ -33,6 +33,7 @@ import { getLogger } from "../util/logger.js";
 import {
   CLAUDE_OAUTH_CONFIG,
   clearAcpClaudeRefreshToken,
+  hasStoredAcpClaudeAccessToken,
   isAcpClaudeTokenExpiring,
   persistRefreshedAcpClaudeTokens,
   readAcpClaudeRefreshToken,
@@ -62,6 +63,11 @@ export async function ensureFreshAcpClaudeToken(): Promise<void> {
   // spending a refresh token here. Checking first also keeps a passive spawn
   // from touching a credential the workspace has fenced off.
   if (acpSpawnCredentialDenialReason(ACP_OAUTH_TOKEN_FIELD) !== undefined) {
+    return;
+  }
+  // Companions can outlive a deleted access token. Renewal exists to replace
+  // that field, not to mint a new credential after the user removed it.
+  if (!(await hasStoredAcpClaudeAccessToken())) {
     return;
   }
   if (!(await isAcpClaudeTokenExpiring())) {

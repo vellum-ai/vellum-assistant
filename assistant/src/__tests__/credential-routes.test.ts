@@ -1322,9 +1322,9 @@ describe("credentials routes", () => {
       await expect(call).rejects.toBeInstanceOf(BadRequestError);
     });
 
-    test("clears Claude refresh material when the access token is deleted", async () => {
+    test("deletes only the requested Claude access-token field", async () => {
       secureStore.set("acp:claude_oauth_token", "sk-ant-oat01-connected");
-      secureStore.set("acp:claude_oauth_refresh_token", "refresh-to-drop");
+      secureStore.set("acp:claude_oauth_refresh_token", "refresh-leftover");
       secureStore.set("acp:claude_oauth_expires_at", "111");
 
       await deleteRoute!.handler({
@@ -1332,8 +1332,10 @@ describe("credentials routes", () => {
       });
 
       expect(secureStore.has("acp:claude_oauth_token")).toBe(false);
-      expect(secureStore.has("acp:claude_oauth_refresh_token")).toBe(false);
-      expect(secureStore.has("acp:claude_oauth_expires_at")).toBe(false);
+      expect(secureStore.get("acp:claude_oauth_refresh_token")).toBe(
+        "refresh-leftover",
+      );
+      expect(secureStore.get("acp:claude_oauth_expires_at")).toBe("111");
     });
   });
 });
