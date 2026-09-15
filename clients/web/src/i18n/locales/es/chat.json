@@ -94,8 +94,9 @@
     "earlierActivity": "Actividad anterior"
   },
   "assistantDesktop": {
-    "resizeAria": "Cambiar el ancho del panel del escritorio",
-    "collapseAria": "Contraer el panel del escritorio",
+    "hideAria": "Ocultar escritorio",
+    "closeAria": "Cerrar vista previa del escritorio",
+    "moveAria": "Mover vista previa del escritorio (teclas de flecha)",
     "expandAria": "Ampliar escritorio",
     "busy": "Otro usuario está usando el escritorio.",
     "connecting": "Conectando con el escritorio…",

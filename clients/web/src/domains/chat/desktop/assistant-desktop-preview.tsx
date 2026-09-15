@@ -5,22 +5,22 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
-import { DesktopSidebarFrame } from "./desktop-sidebar-frame";
-import { useDesktopSidebarStore } from "./desktop-sidebar-store";
+import { DesktopPreviewFrame } from "./desktop-preview-frame";
+import { useDesktopPreviewStore } from "./desktop-preview-store";
 
-const DesktopSidebarContent = lazy(() =>
-  import("./desktop-sidebar-content").then((module) => ({
-    default: module.DesktopSidebarContent,
+const DesktopPreviewContent = lazy(() =>
+  import("./desktop-preview-content").then((module) => ({
+    default: module.DesktopPreviewContent,
   })),
 );
 
-export function AssistantDesktopSidebar() {
+export function AssistantDesktopPreview() {
   const enabled = useAssistantFeatureFlagStore.use.assistantDesktop();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
-  const session = useDesktopSidebarStore.use.session();
+  const session = useDesktopPreviewStore.use.session();
 
   useEffect(() => {
-    return () => useDesktopSidebarStore.getState().close();
+    return () => useDesktopPreviewStore.getState().close();
   }, [assistantId, enabled]);
 
   if (enabled !== true || assistantId === null) {
@@ -30,14 +30,14 @@ export function AssistantDesktopSidebar() {
   return (
     <AnimatePresence initial={false} key={assistantId}>
       {session?.assistantId === assistantId && (
-        <DesktopSidebarFrame key={assistantId}>
+        <DesktopPreviewFrame key={assistantId}>
           <LazyBoundary>
-            <DesktopSidebarContent
+            <DesktopPreviewContent
               assistantId={session.assistantId}
               fullscreen={session.view === "fullscreen"}
             />
           </LazyBoundary>
-        </DesktopSidebarFrame>
+        </DesktopPreviewFrame>
       )}
     </AnimatePresence>
   );

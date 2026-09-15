@@ -94,8 +94,9 @@
     "earlierActivity": "較早的活動"
   },
   "assistantDesktop": {
-    "resizeAria": "調整桌面側欄寬度",
-    "collapseAria": "收合桌面側欄",
+    "hideAria": "隱藏桌面",
+    "closeAria": "關閉桌面預覽",
+    "moveAria": "移動桌面預覽（方向鍵）",
     "expandAria": "展開桌面",
     "busy": "桌面正由其他使用者使用中。",
     "connecting": "正在連線至桌面…",

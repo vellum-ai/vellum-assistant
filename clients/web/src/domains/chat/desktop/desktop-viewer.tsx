@@ -28,7 +28,6 @@ const RETRYABLE_END_REASONS: ReadonlySet<DesktopEndReason> = new Set([
 interface DesktopViewerProps {
   assistantId: string;
   viewOnly?: boolean;
-  onExpand?: () => void;
 }
 
 /**
@@ -37,7 +36,10 @@ interface DesktopViewerProps {
  * A status overlay covers the viewport until the picture is live, and again
  * once the session ends, with a Reconnect button where retrying can help.
  */
-export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: DesktopViewerProps) {
+export function DesktopViewer({
+  assistantId,
+  viewOnly = false,
+}: DesktopViewerProps) {
   const { t } = useTranslation("chat");
   const sessionRef = useRef<DesktopSession | null>(null);
   const viewOnlyRef = useRef(viewOnly);
@@ -82,14 +84,6 @@ export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: Deskt
         className="h-full w-full overflow-hidden [&_canvas]:rounded-lg"
         data-testid="desktop-panel-viewport"
       />
-      {state.kind === "connected" && viewOnly && onExpand ? (
-        <Button
-          variant="ghost"
-          aria-label={t("assistantDesktop.expandAria")}
-          onClick={onExpand}
-          className="absolute inset-0 h-full w-full cursor-zoom-in rounded-none bg-transparent hover:bg-transparent"
-        />
-      ) : null}
       {state.kind === "connected" ? null : (
         <div
           className="absolute inset-0 bg-[var(--surface-base)]"
@@ -104,7 +98,8 @@ export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: Deskt
                 : t(END_REASON_KEY[state.reason])
             }
           >
-            {state.kind === "ended" && RETRYABLE_END_REASONS.has(state.reason) ? (
+            {state.kind === "ended" &&
+            RETRYABLE_END_REASONS.has(state.reason) ? (
               <Button variant="outlined" onClick={reconnect}>
                 {t("assistantDesktop.reconnectButton")}
               </Button>
