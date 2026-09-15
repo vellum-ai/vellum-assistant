@@ -1,13 +1,16 @@
 /**
- * The Usage Balance reading.
+ * The usage reading behind the Plan tile's Current Usage panel and the
+ * preferences menu's Usage panel.
  *
  * Every plan reads straight off the billing summary's usage-grant figures:
  * how much of the credit the org was granted (initial credit and Pro bundle
  * grants, net of refunds) is already used. Both callers already hold that
  * summary through `useBillingBalanceStatus()`, so the reading costs no usage
- * read at all. The aggregate mixes grants with different lifetimes (only the
- * bundle turns over with the billing cycle), so no single date honestly says
- * when the bar resets, and the reading quotes none.
+ * read at all. The aggregate mixes grants with different lifetimes; only a
+ * subscription's bundle turns over with the billing cycle, so the Plan tile
+ * dates the period end under its bar for a sub only, as a reset when the sub
+ * holds a bundle and as a renewal when it holds none, never for the free
+ * plan's one-time grant.
  *
  * The two figures count only unexpired grants. A Pro sub whose grants total
  * nothing (every grant expired, or a plan that never carried one) has spent

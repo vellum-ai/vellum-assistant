@@ -50,6 +50,9 @@ const TILE_WIDTH_PX = 420;
 /** Two tiles plus the row's `gap-4`. */
 const ROW_WIDTH_PX = TILE_WIDTH_PX * 2 + 16;
 
+/** A subscriber's billing cycle end, which its bundle turns over on. */
+const PERIOD_END = { at: "2026-09-20T12:00:00Z", resets: true };
+
 /** The upgrade CTA quotes the price difference, as `plan-card.tsx` composes it. */
 const UPGRADE_LABEL = `Power Up for +${formatDollars(
   SUPER.total_price_cents - MIGHTY.total_price_cents,
@@ -147,10 +150,11 @@ export const CurrentFree: Story = {
 };
 
 /**
- * The same free tile with a usage grant to chart: the Usage Balance bar takes
+ * The same free tile with a usage grant to chart: the Current Usage bar takes
  * the footer over from "Free Forever", so the tile never states its allowance
  * twice. A free account that was never granted any usage has no bar, and
- * keeps the price row above.
+ * keeps the price row above. The grant is one-time, so the title carries no
+ * date line.
  */
 export const CurrentFreeUsageBalance: Story = {
   args: {
@@ -161,7 +165,7 @@ export const CurrentFreeUsageBalance: Story = {
 
 /**
  * A subscriber's current-plan tile, on the catalog's Mighty package, when the
- * platform reports no grant figures to chart: with no Usage Balance reading
+ * platform reports no grant figures to chart: with no Current Usage reading
  * the footer keeps the price row. The price is the fixture's own
  * `total_price_cents` run through the shared `priceLabelFromCents` formatter,
  * so it stays honest if the package is repriced.
@@ -181,13 +185,14 @@ export const CurrentPaid: Story = {
 /**
  * The paid tile with a usage reading: the credits chip names the package's
  * usage allowance and shares the wrapping row with the machine and storage
- * chips, and the price footer gives way to the Usage Balance bar. Props only,
- * so the ratio here is a fixture rather than a live usage read.
+ * chips, and the price footer gives way to the Current Usage bar, dated with
+ * the day the sub's bundle turns over. Props only, so the ratio here is a
+ * fixture rather than a live usage read.
  */
 export const CurrentPaidUsageBalance: Story = {
   args: {
     ...CurrentPaid.args,
-    footer: <UsageBalancePanel ratio={0.42} />,
+    footer: <UsageBalancePanel ratio={0.42} periodEnd={PERIOD_END} />,
   },
 };
 
@@ -210,7 +215,14 @@ export const CurrentPaidNarrow: Story = {
 export const CurrentPaidExhausted: Story = {
   args: {
     ...CurrentPaid.args,
-    footer: <UsageBalancePanel ratio={1} exhausted onAddCredits={() => {}} />,
+    footer: (
+      <UsageBalancePanel
+        ratio={1}
+        periodEnd={PERIOD_END}
+        exhausted
+        onAddCredits={() => {}}
+      />
+    ),
   },
 };
 
@@ -291,7 +303,7 @@ export const SideBySide: Story = {
           nameTestId="plan-card-name"
           tag={CURRENT_TAG}
           specs={packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`)}
-          footer={<UsageBalancePanel ratio={0.42} />}
+          footer={<UsageBalancePanel ratio={0.42} periodEnd={PERIOD_END} />}
         />
         <PlanTile
           theme={inverted}

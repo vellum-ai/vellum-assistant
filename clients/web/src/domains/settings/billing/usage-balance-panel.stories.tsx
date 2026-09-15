@@ -1,5 +1,5 @@
 /**
- * The Usage Balance reading that sits where the current plan's price row
+ * The Current Usage reading that sits where the current plan's price row
  * otherwise would: how much of the usage credit the
  * account was granted is already used, and, once the wallet behind it is
  * empty too, a strip offering to top it up. The reading itself turns
@@ -17,12 +17,16 @@ import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-pane
 /** The width the billing Plan row gives the current-plan tile. */
 const TILE_WIDTH_PX = 420;
 
+/** The instant a subscriber's billing cycle ends on. */
+const PERIOD_END_AT = "2026-09-20T12:00:00Z";
+
 const meta = {
   title: "Settings/Billing/UsageBalancePanel",
   component: UsageBalancePanel,
   parameters: { layout: "centered" },
   args: {
     ratio: 0.68,
+    periodEnd: null,
     exhausted: false,
   },
   argTypes: {
@@ -50,6 +54,25 @@ type Story = StoryObj<typeof meta>;
 
 /** Mid-cycle: two thirds of the granted credit used, with room to spare. */
 export const MidCycle: Story = {};
+
+/**
+ * A bundled subscriber's panel: the title carries the date the bundle turns
+ * over beneath it. The free plan's grant is one-time, so its panel has no such
+ * line.
+ */
+export const Subscriber: Story = {
+  args: { periodEnd: { at: PERIOD_END_AT, resets: true } },
+};
+
+/**
+ * A Custom sub that picked no credit bundle. The subscription still renews on
+ * that date, but nothing turns over, so the line names a renewal instead of a
+ * reset.
+ */
+export const SubscriberNoBundle: Story = {
+  name: "Subscriber without a bundle",
+  args: { periodEnd: { at: PERIOD_END_AT, resets: false } },
+};
 
 /**
  * The grants fully used, with credits remaining in the wallet behind them. The
@@ -82,8 +105,10 @@ export const ExhaustedWithoutCta: Story = {
 /**
  * The tile at full card width, which is what a current plan with no next tile
  * beside it gets. The bar sits a fixed gap after the title instead of at the
- * far edge, and the slack falls to the right of the percentage.
+ * far edge, and the slack falls to the right of the percentage. The reset line
+ * makes the title block two lines, which the bar centres against.
  */
 export const WideTile: Story = {
   parameters: { frameWidth: 940 },
+  args: { periodEnd: { at: PERIOD_END_AT, resets: true } },
 };

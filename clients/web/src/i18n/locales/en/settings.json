@@ -1292,10 +1292,11 @@
     "nextPlan": "Next Plan",
     "powerUp": "Power Up",
     "powerUpFor": "Power Up for +{amount}/month",
-    "renewsOn": "Monthly Payment • Your subscription will auto renew on {date}.",
     "usageBalanceAddCredits": "Add",
     "usageBalanceExhausted": "Add credits to continue using your assistant",
     "usageBalancePctUsed": "{pct}% used",
+    "usageBalanceRenews": "Renews on {date}",
+    "usageBalanceResets": "Resets on {date}",
     "usageBalanceTitle": "Current Usage",
     "usageChip": "{name} usage, reset monthly",
     "viewAllPlans": "View All Plans"
