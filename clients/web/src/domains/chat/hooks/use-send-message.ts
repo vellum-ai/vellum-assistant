@@ -17,8 +17,8 @@ import { type MutableRefObject, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
-import { routes } from "@/utils/routes";
-import { keptAppId } from "@/utils/conversation-navigation";
+import { appIdForPath, routes } from "@/utils/routes";
+import { currentPathname } from "@/utils/conversation-navigation";
 import { conversationsByIdSlashPost } from "@/generated/daemon/sdk.gen";
 import {
   isLocalMetaCommand,
@@ -1210,9 +1210,16 @@ export function useSendMessage({
             useConversationStore
               .getState()
               .setActiveConversationId(newConversationId);
-            void navigate(routes.conversation(newConversationId, keptAppId()), {
-              replace: true,
-            });
+            // The same conversation under a new id, so the rewrite carries
+            // the segment the URL names: `keptAppId()` reads the app on
+            // screen, and an overlay covering it would drop the app here.
+            void navigate(
+              routes.conversation(
+                newConversationId,
+                appIdForPath(currentPathname()),
+              ),
+              { replace: true },
+            );
           }
         } else if (resolvedId && isDraft) {
           // Legacy (pre-0.8.6) assistants echo the client-minted draft id
