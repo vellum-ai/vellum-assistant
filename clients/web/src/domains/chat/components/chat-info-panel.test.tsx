@@ -27,7 +27,7 @@ import {
   test,
 } from "bun:test";
 import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter } from "react-router";
 import {
   act,
   cleanup,
@@ -55,6 +55,10 @@ import {
   seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import {
+  currentLocation,
+  LocationProbe,
+} from "@/hooks/router-probe.test-helper";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
@@ -163,7 +167,7 @@ const LEGACY_ROWS: DisplayMessage[] = [
 
 const closeChatInfo = mock((): void => {
   calls.push("closeChatInfo");
-  routeAtClose.push(currentPath());
+  routeAtClose.push(currentLocation().pathname);
 });
 const loadApp = mock(
   async (_assistantId: string, _appId: string): Promise<boolean> => {
@@ -220,15 +224,6 @@ function seedPanel({
   return client;
 }
 
-/** The route the panel navigates to, for the opens that are navigations. */
-function RoutePath() {
-  return <span data-testid="route-path">{useLocation().pathname}</span>;
-}
-
-function currentPath(): string {
-  return screen.queryByTestId("route-path")?.textContent ?? "";
-}
-
 /** Awaited so each app tile's preview html settles inside the test. */
 async function renderChatInfo(
   category: ChatInfoCategory | null = null,
@@ -238,7 +233,7 @@ async function renderChatInfo(
   await act(async () => {
     render(
       <MemoryRouter initialEntries={["/assistant/conversations/conv-1"]}>
-        <RoutePath />
+        <LocationProbe />
         <QueryClientProvider client={client}>
           <ChatInfoPanel
             payload={{
@@ -356,7 +351,7 @@ describe("ChatInfoPanel top level", () => {
       `/assistant/conversations/${CONVERSATION_ID}`,
     ]);
     expect(loadApp).not.toHaveBeenCalled();
-    expect(currentPath()).toBe(
+    expect(currentLocation().pathname).toBe(
       `/assistant/conversations/${CONVERSATION_ID}/app/app-1`,
     );
   });

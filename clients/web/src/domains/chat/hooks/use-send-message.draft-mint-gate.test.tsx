@@ -19,8 +19,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useLocation } from "react-router";
-import { useEffect, type ReactNode } from "react";
+import { MemoryRouter } from "react-router";
+import { type ReactNode } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
@@ -31,30 +31,25 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTurnStore, INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import {
+  SAMPLE_APP,
+  showOpenAppRoute,
+  showPath,
+} from "@/stores/open-app.test-helper";
+import {
+  currentLocation,
+  LocationProbe,
+} from "@/hooks/router-probe.test-helper";
 import { routes } from "@/utils/routes";
 
 const DRAFT_ID = "draft-1";
 /** The id the daemon mints for the draft's first message. */
 const SERVER_ID = "conv-server-1";
-const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
 
 let postCalls = 0;
 const originalPost = daemonClient.post;
 
 const queryClient = new QueryClient();
-
-/** Where the router currently stands, recorded rather than mocked. */
-let currentLocation = "";
-
-function LocationProbe() {
-  const { pathname } = useLocation();
-  // Recorded from an effect rather than during render: a render body may not
-  // write to anything outside itself.
-  useEffect(() => {
-    currentLocation = pathname;
-  }, [pathname]);
-  return null;
-}
 
 function Wrapper({ children }: { children: ReactNode }) {
   return (
@@ -91,7 +86,6 @@ beforeEach(() => {
   useComposerStore.getState().setInput("");
   useResolvedAssistantsStore.getState().setActiveAssistantId(null);
   useViewerStore.getState().reset();
-  currentLocation = "";
 
   daemonClient.post = mock(async () => {
     postCalls += 1;
@@ -102,7 +96,7 @@ beforeEach(() => {
 afterEach(() => {
   daemonClient.post = originalPost;
   useViewerStore.getState().reset();
-  window.history.replaceState(null, "", routes.assistant);
+  showPath(routes.assistant);
   cleanup();
 });
 
@@ -149,21 +143,11 @@ describe("useSendMessage: a draft resolving to its server id", () => {
       await result.current.sendMessage("first message");
     });
 
-    return currentLocation;
+    return currentLocation().pathname;
   }
 
   test("names the app held beside the draft, so the id swap does not close it", async () => {
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: SAMPLE_APP.appId,
-      openedAppState: SAMPLE_APP,
-    });
-    // The app rides along only from a route that names it.
-    window.history.replaceState(
-      null,
-      "",
-      routes.conversation(DRAFT_ID, SAMPLE_APP.appId),
-    );
+    showOpenAppRoute({ conversationId: DRAFT_ID });
 
     expect(await sendFirstMessage()).toBe(
       routes.conversation(SERVER_ID, SAMPLE_APP.appId),

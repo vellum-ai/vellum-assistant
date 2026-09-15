@@ -5,6 +5,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore, type OpenedAppState } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 import { currentLocation, wrapperAt } from "@/hooks/router-probe.test-helper";
+import { showPath } from "@/stores/open-app.test-helper";
 
 import { useAppRouteSync } from "./use-app-route-sync";
 
@@ -50,7 +51,7 @@ function renderSync(props: HookProps) {
 beforeEach(() => {
   // The imperative helpers read `window.location`, which the probe router does
   // not drive.
-  window.history.replaceState(null, "", APP_PATH);
+  showPath(APP_PATH);
   viewerSnapshot = useViewerStore.getState();
   conversationSnapshot = useConversationStore.getState();
 

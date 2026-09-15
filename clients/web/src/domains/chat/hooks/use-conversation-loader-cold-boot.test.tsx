@@ -27,6 +27,11 @@ import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
+  SAMPLE_APP,
+  showOpenAppRoute,
+  showPath,
+} from "@/stores/open-app.test-helper";
+import {
   conversationListPrefix,
   conversationListQueryKey,
 } from "@/utils/conversation-list-keys";
@@ -576,11 +581,7 @@ describe("useConversationLoader cold-boot landing", () => {
 
 describe("URL path is kept when it already names the key", () => {
   test("leaves an app viewer URL that already names the resolved key alone", async () => {
-    window.history.replaceState(
-      {},
-      "",
-      routes.conversation("c1") + "/app/app-1",
-    );
+    showPath(routes.conversation("c1", SAMPLE_APP.appId));
 
     renderColdBoot(new QueryClient(), "c1");
 
@@ -592,7 +593,7 @@ describe("URL path is kept when it already names the key", () => {
   });
 
   test("rewrites an index landing to the conversation it resolved", async () => {
-    window.history.replaceState({}, "", routes.assistant);
+    showPath(routes.assistant);
     saveLastViewedConversationId(ASSISTANT_ID, "stored-chat");
     byIdRow = { id: "stored-chat" };
 
@@ -611,13 +612,12 @@ describe("URL path is kept when it already names the key", () => {
 });
 
 describe("startNewConversation carries the app the viewer keeps", () => {
-  const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
   let restoreViewport: (() => void) | undefined;
 
   beforeEach(() => {
     /* A wide viewport, the only shape with a side-by-side app layout. */
     restoreViewport = stubViewportAxes({ narrow: false, coarsePointer: false });
-    window.history.replaceState({}, "", routes.conversation("c1"));
+    showPath(routes.conversation("c1"));
   });
 
   afterEach(() => {
@@ -646,16 +646,7 @@ describe("startNewConversation carries the app the viewer keeps", () => {
   }
 
   test("names the open app, so the new chat opens beside it", async () => {
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: SAMPLE_APP.appId,
-      openedAppState: SAMPLE_APP,
-    });
-    window.history.replaceState(
-      {},
-      "",
-      routes.conversation("c1", SAMPLE_APP.appId),
-    );
+    showOpenAppRoute({ conversationId: "c1" });
 
     const { draftId, path } = await startFreshChat();
 

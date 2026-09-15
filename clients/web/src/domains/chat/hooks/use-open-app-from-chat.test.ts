@@ -31,6 +31,7 @@ mock.module("@/hooks/use-is-mobile", () => ({
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { showPath } from "@/stores/open-app.test-helper";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 
@@ -80,7 +81,7 @@ const NON_CHAT_PATH = routes.library.root;
 // The hook reads the live route from `window.location`, which the probe router
 // does not drive, so the two start on the same path.
 function renderOpenApp(initialPath: string) {
-  window.history.replaceState(null, "", initialPath);
+  showPath(initialPath);
   function Wrapper({ children }: { children: ReactNode }) {
     return createElement(
       MemoryRouter,
@@ -101,7 +102,7 @@ function renderOpenApp(initialPath: string) {
 
 /** Moves both routes the hook straddles: the probe router's and the window's. */
 function goTo(navigate: NavigateFunction, path: string): void {
-  window.history.replaceState(null, "", path);
+  showPath(path);
   void navigate(path);
 }
 

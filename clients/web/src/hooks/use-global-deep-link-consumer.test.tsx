@@ -32,6 +32,7 @@ import {
 } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { showOpenAppRoute, showPath } from "@/stores/open-app.test-helper";
 import type { ShareInboxItem } from "@/runtime/share-inbox-parse";
 import { routes } from "@/utils/routes";
 import * as toastModule from "@vellumai/design-library/components/toast";
@@ -163,24 +164,7 @@ const resetStores = () => {
   useLiveVoiceStore.getState().setStarter(null);
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
-  window.history.replaceState(null, "", routes.assistant);
-};
-
-/**
- * An app loaded in the viewer, the shape a wide viewport keeps beside the
- * chat: on screen, and named by the route that put it there.
- */
-const seedOpenApp = () => {
-  useViewerStore.setState({
-    mainView: "app",
-    activeAppId: "app-1",
-    openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
-  });
-  window.history.replaceState(
-    null,
-    "",
-    routes.conversation("conv-with-app", "app-1"),
-  );
+  showPath(routes.assistant);
 };
 
 /**
@@ -262,7 +246,7 @@ describe("deeplink.openThread", () => {
       narrow: false,
       coarsePointer: false,
     });
-    seedOpenApp();
+    showOpenAppRoute({ conversationId: "conv-with-app" });
     renderConsumer();
 
     try {
@@ -288,7 +272,7 @@ describe("deeplink.openThread", () => {
       coarsePointer: false,
     });
     useConversationStore.setState({ activeConversationId: "abc-123" });
-    seedOpenApp();
+    showOpenAppRoute({ conversationId: "conv-with-app" });
     renderConsumer();
 
     try {
@@ -310,7 +294,7 @@ describe("deeplink.openThread", () => {
       narrow: true,
       coarsePointer: true,
     });
-    seedOpenApp();
+    showOpenAppRoute({ conversationId: "conv-with-app" });
     renderConsumer();
 
     try {
@@ -1351,7 +1335,7 @@ describe("deeplink.openCamera", () => {
     });
     mockPathname = routes.conversation("conv-1");
     mockSearch = "?prompt=hello";
-    seedOpenApp();
+    showOpenAppRoute({ conversationId: "conv-with-app" });
     renderConsumer();
 
     try {
