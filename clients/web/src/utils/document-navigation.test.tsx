@@ -425,6 +425,23 @@ describe("document navigation history", () => {
     },
   );
 
+  test.each([
+    "/assistant/conversations/conv-origin/app/app-1",
+    "/assistant/conversations/conv-origin/app/app-1/",
+  ])("an entry from %s returns to its conversation", (pathname) => {
+    const state = documentEntryState({ pathname, search: "" }, "surface-1");
+    expect(state?.documentEntry.returnTo).toBe(
+      "/assistant/conversations/conv-origin",
+    );
+    expect(
+      hasDocumentReturnEntry(
+        state,
+        "surface-1",
+        "/assistant/conversations/conv-origin",
+      ),
+    ).toBe(true);
+  });
+
   test("return metadata must match both the document and destination", () => {
     const state = documentEntryState(
       { pathname: "/assistant/library", search: "" },
