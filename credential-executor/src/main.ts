@@ -41,7 +41,6 @@ import {
   getCesLogDir,
   getCesMode,
   getHealthPort,
-  getLocalSocketPath,
   getSecurityDir,
   type CesMode,
 } from "./paths.js";
@@ -399,8 +398,7 @@ async function main(): Promise<void> {
   }
 
   // -- Socket server ---------------------------------------------------------
-  const socketPath =
-    mode === "managed" ? getBootstrapSocketPath() : getLocalSocketPath();
+  const socketPath = getBootstrapSocketPath();
 
   const rpcLog = getLogger("rpc");
   const rpcLogger = {
