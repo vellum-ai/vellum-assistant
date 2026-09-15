@@ -31,7 +31,17 @@ export function TeleportCard() {
 
   // No eligible destination for this assistant — leave teleport hidden, matching
   // the Swift picker which renders nothing for out-of-scope assistants.
-  if (!destination || (destination === "platform" && !teleportEnabled)) {
+  if (!destination) {
+    return null;
+  }
+  // Only gate the idle offer. Mid-transfer the selected assistant can flip to
+  // the freshly hatched local target (which reads as local-to-platform), and
+  // hiding the card then would strand the progress, verify, and error controls.
+  if (
+    phase.kind === "idle" &&
+    destination === "platform" &&
+    !teleportEnabled
+  ) {
     return null;
   }
 
