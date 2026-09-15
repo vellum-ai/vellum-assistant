@@ -109,7 +109,6 @@
     "restoreSuccessToast": "Backup restored successfully.",
     "restoreTitle": "Restore Backup",
     "typeDoctor": "Doctor",
-    "typePinned": "Pinned",
     "typePointInTime": "Point-in-time",
     "typePreview": "Preview",
     "typeScheduled": "Scheduled"
@@ -1926,7 +1925,6 @@
     "backupCreateFailed": "Cloud backup failed (HTTP {status}).",
     "backupListFailed": "Could not list cloud backups (HTTP {status}).",
     "backupLocalFailed": "Backup failed (HTTP {status}).",
-    "backupLocalNotPinned": "Backup was not kept in the pinned pool.",
     "backupLocalReportedFailure": "Backup reported failure.",
     "backupNoSnapshotName": "Cloud backup did not return a snapshot name.",
     "backupNotReady": "Cloud backup {snapshot} was not ready after {seconds}s.",

@@ -3,8 +3,6 @@ import { describe, expect, test } from "bun:test";
 import {
   hasRecentBackup,
   managedBackupIsReady,
-  PIN_LABEL_RE,
-  pinLabelForAssistant,
   readyManagedBackupCreatedAts,
   RECENT_BACKUP_MAX_AGE_MS,
 } from "./teleport-backup-policy";
@@ -86,45 +84,5 @@ describe("managedBackupIsReady", () => {
     expect(managedBackupIsReady(backups, "pending")).toBe(false);
     expect(managedBackupIsReady(backups, "unknown")).toBe(false);
     expect(managedBackupIsReady(backups, "missing")).toBe(false);
-  });
-});
-
-describe("pinLabelForAssistant", () => {
-  test("uses a safe id verbatim", async () => {
-    expect(await pinLabelForAssistant("ast-1")).toBe("ast-1");
-    expect(
-      await pinLabelForAssistant("11111111-2222-3333-4444-555555555555"),
-    ).toBe("11111111-2222-3333-4444-555555555555");
-  });
-
-  test("sanitizes ids with spaces or Unicode and appends a hash", async () => {
-    const label = await pinLabelForAssistant("My Assistant \u00e9");
-    expect(label).toMatch(PIN_LABEL_RE);
-    expect(label.startsWith("My_Assistant_-")).toBe(true);
-    expect(label).toMatch(/-[0-9a-f]{16}$/);
-  });
-
-  test("truncates over-long ids and keeps the result within the grammar", async () => {
-    const label = await pinLabelForAssistant("a".repeat(300));
-    expect(label).toMatch(PIN_LABEL_RE);
-    expect(label.length).toBeLessThanOrEqual(128);
-  });
-
-  test("distinct unsafe ids never collide", async () => {
-    const a = await pinLabelForAssistant("team alpha");
-    const b = await pinLabelForAssistant("team-alpha");
-    const c = await pinLabelForAssistant("team_alpha");
-    expect(new Set([a, b, c]).size).toBe(3);
-  });
-
-  test("falls back to the hash alone when nothing readable survives", async () => {
-    const label = await pinLabelForAssistant("\u2603\u2603");
-    expect(label).toMatch(/^[0-9a-f]{16}$/);
-  });
-
-  test("is deterministic", async () => {
-    expect(await pinLabelForAssistant("My Assistant")).toBe(
-      await pinLabelForAssistant("My Assistant"),
-    );
   });
 });

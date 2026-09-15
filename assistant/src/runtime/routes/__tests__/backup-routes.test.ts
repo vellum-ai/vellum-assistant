@@ -557,42 +557,6 @@ describe("handleBackupRestore", () => {
     expect(lastRestoreArgs!.path).toBe(expectedRealpath);
   });
 
-  test("plaintext .vbundle inside a gateway pinned pool is restored", async () => {
-    const previousBackupDir = process.env.VELLUM_BACKUP_DIR;
-    process.env.VELLUM_BACKUP_DIR = ROOT;
-    try {
-      const snapshotPath = writeBackupFile(
-        join(ROOT, "pinned", "ast-1"),
-        "backup-20260411-100000.vbundle",
-      );
-      setConfig(
-        "backup",
-        makeConfig({
-          localDirectory: LOCAL_DIR,
-          offsite: { enabled: true, destinations: [] },
-        }),
-      );
-
-      const result = await handleBackupRestore({
-        body: { path: snapshotPath },
-        pathParams: {},
-        queryParams: {},
-      });
-      expect(result).toBeDefined();
-      expect(lastRestoreArgs).not.toBeNull();
-      const expectedRealpath = await (
-        await import("node:fs/promises")
-      ).realpath(snapshotPath);
-      expect(lastRestoreArgs!.path).toBe(expectedRealpath);
-    } finally {
-      if (previousBackupDir === undefined) {
-        delete process.env.VELLUM_BACKUP_DIR;
-      } else {
-        process.env.VELLUM_BACKUP_DIR = previousBackupDir;
-      }
-    }
-  });
-
   test("encrypted .vbundle.enc is rejected with gateway redirect error", async () => {
     const snapshotPath = writeBackupFile(
       LOCAL_DIR,

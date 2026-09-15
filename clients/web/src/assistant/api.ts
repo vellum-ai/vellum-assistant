@@ -366,41 +366,14 @@ function parseDaemonBackups(data: unknown): AssistantBackup[] {
 
   const body = raw as {
     local?: { snapshots?: DaemonSnapshot[] };
-    pinned?: Array<{ snapshots?: DaemonSnapshot[] }>;
     offsite?: Array<{ snapshots?: DaemonSnapshot[] }>;
   };
 
   const snapshots: AssistantBackup[] = [];
 
-  // A pinned snapshot is a copy of a local one under the same filename. The
-  // pinned copy outlives local-pool retention, so it is the row to show and
-  // restore from; the local twin is dropped rather than listed twice under
-  // one snapshot_name.
-  const pinnedNames = new Set<string>();
-  if (Array.isArray(body.pinned)) {
-    for (const pool of body.pinned) {
-      if (Array.isArray(pool.snapshots)) {
-        for (const s of pool.snapshots) {
-          pinnedNames.add(s.filename);
-          snapshots.push({
-            snapshot_name: s.filename,
-            pvc: "",
-            created_at: s.created_at,
-            ready_to_use: true,
-            backup_type: "pinned",
-            path: s.path,
-          });
-        }
-      }
-    }
-  }
-
   const localSnapshots = body.local?.snapshots;
   if (Array.isArray(localSnapshots)) {
     for (const s of localSnapshots) {
-      if (pinnedNames.has(s.filename)) {
-        continue;
-      }
       snapshots.push({
         snapshot_name: s.filename,
         pvc: "",
@@ -624,8 +597,7 @@ export async function restartAssistant(
 }
 
 export type RetireResult =
-  | { ok: true }
-  | { ok: false; status: number; error: Record<string, unknown> };
+  { ok: true } | { ok: false; status: number; error: Record<string, unknown> };
 
 export async function retireAssistant(): Promise<RetireResult> {
   const { error, response } = await assistantsRetireDestroy({

@@ -26,7 +26,6 @@ const MAX_POINT_IN_TIME_BACKUPS = 3;
 const BACKUP_TYPE_TONE: Record<string, TagTone> = {
   point_in_time: "neutral",
   scheduled: "positive",
-  pinned: "positive",
   preview_channel: "warning",
   doctor: "warning",
 };
@@ -38,8 +37,6 @@ function BackupTypeBadge({ type }: { type: string }) {
     label = t("assistantBackups.typePointInTime");
   } else if (type === "scheduled") {
     label = t("assistantBackups.typeScheduled");
-  } else if (type === "pinned") {
-    label = t("assistantBackups.typePinned");
   } else if (type === "preview_channel") {
     label = t("assistantBackups.typePreview");
   } else if (type === "doctor") {
@@ -245,18 +242,10 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
           <table className="w-full table-fixed text-body-medium-lighter">
             <thead>
               <tr className="border-b border-[var(--border-base)] text-left text-body-small-default text-[var(--content-secondary)]">
-                <th className="w-[35%] pb-2 pr-4">
-                  {t("assistantBackups.columnSnapshotName")}
-                </th>
-                <th className="w-[13%] pb-2 pr-4">
-                  {t("assistantBackups.columnType")}
-                </th>
-                <th className="w-[12%] pb-2 pr-4">
-                  {t("assistantBackups.columnReady")}
-                </th>
-                <th className="w-[20%] pb-2 pr-4">
-                  {t("assistantBackups.columnCreated")}
-                </th>
+                <th className="w-[35%] pb-2 pr-4">{t("assistantBackups.columnSnapshotName")}</th>
+                <th className="w-[13%] pb-2 pr-4">{t("assistantBackups.columnType")}</th>
+                <th className="w-[12%] pb-2 pr-4">{t("assistantBackups.columnReady")}</th>
+                <th className="w-[20%] pb-2 pr-4">{t("assistantBackups.columnCreated")}</th>
                 <th className="w-[20%] pb-2" />
               </tr>
             </thead>
@@ -364,8 +353,8 @@ export function AssistantBackups({ assistantId }: { assistantId: string }) {
                 <BackupTypeBadge type={backup.backup_type} />
                 <Tag tone={backup.ready_to_use ? "positive" : "warning"}>
                   {backup.ready_to_use
-                    ? t("assistantBackups.ready")
-                    : t("assistantBackups.pending")}
+                        ? t("assistantBackups.ready")
+                        : t("assistantBackups.pending")}
                 </Tag>
                 <span className="text-body-small-default text-[var(--content-secondary)]">
                   {formatTimestamp(backup.created_at)}

@@ -12,11 +12,10 @@
  *   `RECENT_BACKUP_MAX_AGE_MS` stands in for a new one; platform snapshots
  *   are scoped to the assistant's own volume, so reuse cannot pick up another
  *   assistant's backup.
- * - Local sources take a gateway vbundle snapshot pinned under the source's
- *   assistant id. The gateway's shared local pool is written by every
- *   bare-metal assistant on the machine, carries no assistant identity, and
- *   is pruned by every gateway's worker, so an existing snapshot is never
- *   reused here and the fresh one is kept in a per-assistant pinned pool.
+ * - Local sources take a gateway vbundle snapshot. The gateway's local pool
+ *   is shared by every bare-metal assistant on the machine and carries no
+ *   assistant identity, so an existing snapshot is never reused here: one is
+ *   always taken.
  *
  * Policy shared with the CLI teleport lives in
  * `@vellumai/local-mode/teleport-backup-policy`.

@@ -30,11 +30,7 @@ import { getLogger } from "../logger.js";
 import { getGatewaySecurityDir } from "../paths.js";
 import { ensureBackupKey } from "./backup-key.js";
 import type { SnapshotEntry } from "./list-snapshots.js";
-import {
-  pinLocalSnapshot,
-  pruneLocalSnapshots,
-  writeLocalSnapshot,
-} from "./local-writer.js";
+import { pruneLocalSnapshots, writeLocalSnapshot } from "./local-writer.js";
 import type {
   BackupDestination,
   OffsiteWriteResult,
@@ -43,11 +39,7 @@ import {
   pruneOffsiteSnapshotsInAll,
   writeOffsiteSnapshotToAll,
 } from "./offsite-writer.js";
-import {
-  getBackupKeyPath,
-  getLocalBackupsDir,
-  getPinnedBackupsDir,
-} from "./paths.js";
+import { getBackupKeyPath, getLocalBackupsDir } from "./paths.js";
 
 const log = getLogger("backup-worker");
 
@@ -59,9 +51,6 @@ const EXPORT_TIMEOUT_MS = 60 * 60 * 1000;
 
 /** File used to persist the last successful backup timestamp across restarts. */
 const LAST_RUN_FILENAME = "backup-last-run-at";
-
-/** Snapshots kept per pinned pool, independent of the local pool's retention. */
-const PINNED_RETENTION = 3;
 
 // ---------------------------------------------------------------------------
 // Config reading
@@ -174,8 +163,6 @@ export interface BackupRunResult {
   local: SnapshotEntry;
   offsite: OffsiteWriteResult[];
   durationMs: number;
-  /** Copy in the pinned pool when a pin label was given, else null. */
-  pinned: SnapshotEntry | null;
 }
 
 interface BackupDeps {
@@ -199,7 +186,6 @@ async function performBackup(
   config: BackupConfig,
   now: Date,
   deps: BackupDeps,
-  pin?: string,
 ): Promise<BackupRunResult> {
   const startTimestamp = Date.now();
   const localDir = getLocalBackupsDir(config.localDirectory);
@@ -284,17 +270,6 @@ async function performBackup(
     // Write the plaintext archive to the local backup directory
     const localResult = await writeLocalSnapshot(tempPath, localDir, now);
 
-    // A pinned copy lives outside the shared local pool, so the worker's
-    // retention (which sees every assistant's snapshots in that pool) can't
-    // delete it out from under the caller that asked for it.
-    const pinnedResult = pin
-      ? await pinLocalSnapshot(
-          localResult,
-          getPinnedBackupsDir(pin),
-          PINNED_RETENTION,
-        )
-      : null;
-
     // Mirror to offsite destinations (with encryption)
     const offsiteResults = await writeOffsiteSnapshotToAll(
       localResult.path,
@@ -321,7 +296,6 @@ async function performBackup(
 
     return {
       local: localResult,
-      pinned: pinnedResult,
       offsite: offsiteResults,
       durationMs: Date.now() - startTimestamp,
     };
@@ -385,7 +359,6 @@ export async function runBackupTick(deps: BackupDeps): Promise<void> {
  */
 export async function createSnapshotNow(
   deps: BackupDeps,
-  options: { pin?: string } = {},
 ): Promise<BackupRunResult> {
   if (snapshotInProgress) {
     throw new Error("A backup snapshot is already in progress");
@@ -396,7 +369,7 @@ export async function createSnapshotNow(
 
   snapshotInProgress = true;
   try {
-    const result = await performBackup(config, now, deps, options.pin);
+    const result = await performBackup(config, now, deps);
     writeLastRunAt(now.getTime());
     return result;
   } finally {

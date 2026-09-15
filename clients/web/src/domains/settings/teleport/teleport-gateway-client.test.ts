@@ -13,7 +13,7 @@ mock.module("@/runtime/local-mode-host", () => ({
 const { createLocalBackup } = await import("./teleport-gateway-client");
 
 const LOCAL = {
-  assistantId: "My Assistant",
+  assistantId: "ast-local",
   cloud: "local",
 } as unknown as LockfileAssistant;
 
@@ -24,8 +24,7 @@ let createResponse: () => Response;
 beforeEach(() => {
   originalFetch = globalThis.fetch;
   calls = [];
-  createResponse = () =>
-    Response.json({ success: true, pinned: { path: "/p" } });
+  createResponse = () => Response.json({ success: true, local: {} });
   globalThis.fetch = mock(
     async (url: string | URL | Request, init?: RequestInit) => {
       const urlStr = typeof url === "string" ? url : url.toString();
@@ -46,26 +45,12 @@ afterEach(() => {
 });
 
 describe("createLocalBackup", () => {
-  test("pins under an encoded label derived from the assistant id", async () => {
+  test("posts to the gateway snapshot route with the minted token", async () => {
     await createLocalBackup(LOCAL);
 
     const create = calls.find((c) => c.url.endsWith("/v1/backups/create"));
-    const pin = (create?.body as { pin: string }).pin;
-    expect(pin).toMatch(/^My_Assistant-[0-9a-f]{16}$/);
-  });
-
-  test("accepts a legacy gateway response that has no pinned field", async () => {
-    createResponse = () => Response.json({ success: true, local: {} });
-
-    await expect(createLocalBackup(LOCAL)).resolves.toBeUndefined();
-  });
-
-  test("fails when a pin-aware gateway reports no pinned copy", async () => {
-    createResponse = () => Response.json({ success: true, pinned: null });
-
-    await expect(createLocalBackup(LOCAL)).rejects.toThrow(
-      "Backup was not kept in the pinned pool.",
-    );
+    expect(create).toBeDefined();
+    expect(create?.body).toBeNull();
   });
 
   test("fails on a non-2xx status", async () => {
