@@ -1162,27 +1162,22 @@ describe("PlanCard usage balance", () => {
     expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
   });
 
-  test("both tiles wrap their short chips into a row, usage below", () => {
+  test("both tiles keep their chips in one wrapping row", () => {
     const { container } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
       () => {},
     );
 
-    for (const [tile, usageLabel] of [
-      [currentTile(container), "Mighty usage, reset monthly"],
-      [nextTile(container), "Super usage, reset monthly"],
+    for (const [tile, labels] of [
+      [currentTile(container), MIGHTY_CHIPS],
+      [nextTile(container), SUPER_CHIPS],
     ] as const) {
-      // Child 0 is the header row; child 1 is the chip container.
-      const chips = tile.children[1] as HTMLElement;
-      const wrapRow = chips.firstElementChild as HTMLElement;
+      // Child 0 is the header row; child 1 is the wrap row.
+      const wrapRow = tile.children[1] as HTMLElement;
       expect(wrapRow.className).toContain("flex-wrap");
-      expect(wrapRow.textContent).toContain("Machine");
-      expect(wrapRow.textContent).toContain("Storage");
-      expect(wrapRow.textContent).not.toContain(usageLabel);
-      // The usage chip is the first full-width row underneath (Super's email
-      // extra takes another below it).
-      expect(chips.children[1]?.textContent).toBe(usageLabel);
+      expect(wrapRow.childElementCount).toBe(labels.length);
+      expect(wrapRow.textContent).toBe(labels.join(""));
     }
   });
 
@@ -1472,5 +1467,4 @@ describe("PlanCard usage balance", () => {
       queryByText("Add credits to continue using your assistant"),
     ).toBeNull();
   });
-
 });

@@ -47,8 +47,8 @@ const SUPER = makeSuperPackage();
 
 /** The width the settings row gives a single tile (roughly half a card). */
 const TILE_WIDTH_PX = 420;
-/** Two tiles plus the row's `gap-2`. */
-const ROW_WIDTH_PX = TILE_WIDTH_PX * 2 + 8;
+/** Two tiles plus the row's `gap-4`. */
+const ROW_WIDTH_PX = TILE_WIDTH_PX * 2 + 16;
 
 /** The upgrade CTA quotes the price difference, as `plan-card.tsx` composes it. */
 const UPGRADE_LABEL = `Power Up for +${formatDollars(
@@ -180,16 +180,25 @@ export const CurrentPaid: Story = {
 
 /**
  * The paid tile with a usage reading: the credits chip names the package's
- * usage allowance, the machine and storage chips wrap into a row with that
- * longer chip on its own beneath them, and the price footer gives way to the
- * Usage Balance bar. Props only, so the ratio here is a fixture rather than a
- * live usage read.
+ * usage allowance and shares the wrapping row with the machine and storage
+ * chips, and the price footer gives way to the Usage Balance bar. Props only,
+ * so the ratio here is a fixture rather than a live usage read.
  */
 export const CurrentPaidUsageBalance: Story = {
   args: {
     ...CurrentPaid.args,
     footer: <UsageBalancePanel ratio={0.42} />,
   },
+};
+
+/**
+ * The same tile in a narrow column, documenting the fallback: the usage chip
+ * drops to its own line, and narrower still it wraps inside its pill. Nothing
+ * overflows the tile.
+ */
+export const CurrentPaidNarrow: Story = {
+  parameters: { frameWidth: 260 },
+  args: { ...CurrentPaidUsageBalance.args },
 };
 
 /**
@@ -274,7 +283,7 @@ export const SideBySide: Story = {
   render: function SideBySideRender() {
     const inverted = useDocumentTheme() === "light" ? "dark" : "light";
     return (
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
         <PlanTile
           testId="plan-tile-current"
           tierKey={MIGHTY.key}

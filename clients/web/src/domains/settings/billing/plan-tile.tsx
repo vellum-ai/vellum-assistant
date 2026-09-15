@@ -21,9 +21,9 @@ export interface PlanTileProps {
   /** The "Current" / "Next Plan" tag rendered above the avatar row. */
   tag: ReactNode;
   /**
-   * Spec chips; omitted entirely when null or empty. The short chips flow as
-   * a wrapping row; any spec flagged `ownRow` gets a full-width row of its
-   * own below that group, which is where the long usage and extras labels go.
+   * Spec chips; omitted entirely when null or empty. The chips flow as one
+   * wrapping row; a chip flagged `multiline` may wrap inside its pill when it
+   * lands on a line narrower than its label.
    */
   specs?: PlanSpec[] | null;
   /** Bottom slot (price row or CTA), pinned to the tile's bottom edge. */
@@ -49,8 +49,6 @@ export function PlanTile({
   testId,
   className,
 }: PlanTileProps) {
-  const rowSpecs = specs?.filter((spec) => !spec.ownRow) ?? [];
-  const ownRowSpecs = specs?.filter((spec) => spec.ownRow) ?? [];
   return (
     <div
       data-theme={theme}
@@ -75,27 +73,15 @@ export function PlanTile({
         </div>
       </div>
       {specs?.length ? (
-        <div className="flex flex-col items-start gap-1">
-          {rowSpecs.length ? (
-            <div className="flex flex-row flex-wrap items-start gap-1">
-              {rowSpecs.map((spec) => (
-                <SpecChip
-                  key={spec.label}
-                  icon={spec.icon}
-                  label={spec.label}
-                  multiline={spec.multiline}
-                />
-              ))}
-            </div>
-          ) : null}
-          {ownRowSpecs.map((spec) => (
-            // An own-row chip has the whole tile width, so let a long label
-            // wrap inside the pill rather than pushing past the tile.
+        // `items-start` keeps a chip that wraps to two lines from stretching
+        // its neighbours.
+        <div className="flex flex-row flex-wrap items-start gap-1">
+          {specs.map((spec) => (
             <SpecChip
               key={spec.label}
               icon={spec.icon}
               label={spec.label}
-              multiline
+              multiline={spec.multiline}
             />
           ))}
         </div>
