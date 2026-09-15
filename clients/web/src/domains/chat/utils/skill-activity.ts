@@ -22,6 +22,10 @@
 // (`assistant/src/tools/skills/execute.ts`), so there is no other spelling to
 // tolerate here.
 import { readToolInputString } from "@/domains/chat/utils/tool-input";
+import {
+  toToolParams,
+  type ToolParamEntry,
+} from "@/domains/chat/utils/tool-params";
 
 /** A single parameter row under a skill tool's `Parameters:` list. */
 export interface SkillToolParam {
@@ -70,18 +74,6 @@ export interface SkillLoadActivity {
   errorMessage: string | null;
 }
 
-/** One resolved parameter of the inner tool a `skill_execute` dispatched. */
-export interface SkillExecuteParam {
-  key: string;
-  /**
-   * Display string for a scalar value (string / number / boolean / null).
-   * `null` when the value is an object or array — read `json` instead.
-   */
-  scalar: string | null;
-  /** Pretty-printed JSON for object/array values; `null` for scalars. */
-  json: string | null;
-}
-
 /** Readable projection of a `skill_execute` envelope. */
 export interface SkillExecuteActivity {
   /** Inner tool from `input.tool` — the thing that actually ran. */
@@ -89,7 +81,7 @@ export interface SkillExecuteActivity {
   /** Operator-facing sentence from `input.activity`. Empty when absent. */
   activity: string;
   /** Inner tool parameters, in insertion order. */
-  params: SkillExecuteParam[];
+  params: ToolParamEntry[];
 }
 
 /** Heading that opens the daemon's machine-facing tool manifest section. */
@@ -372,37 +364,6 @@ export function parseSkillLoadActivity({
 }
 
 /**
- * Format a single inner-tool parameter value for display. Scalars render
- * inline; objects and arrays are pretty-printed as JSON so nested structure
- * stays legible. A value that can't be serialised (a cycle) degrades to its
- * `String()` form rather than throwing.
- */
-function formatParamValue(
-  value: unknown,
-): Pick<SkillExecuteParam, "scalar" | "json"> {
-  if (value === null) {
-    return { scalar: "null", json: null };
-  }
-  if (typeof value === "string") {
-    return { scalar: value, json: null };
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return { scalar: String(value), json: null };
-  }
-  if (typeof value === "undefined") {
-    return { scalar: "undefined", json: null };
-  }
-  try {
-    return {
-      scalar: null,
-      json: JSON.stringify(value, null, 2) ?? String(value),
-    };
-  } catch {
-    return { scalar: String(value), json: null };
-  }
-}
-
-/**
  * Project a `skill_execute` envelope into its readable parts.
  *
  * The documented envelope is `{ tool, input: {...}, activity }`. Weaker models
@@ -430,7 +391,7 @@ export function parseSkillExecuteActivity(input: unknown): SkillExecuteActivity 
       return {
         innerToolName,
         activity,
-        params: [{ key: "input", scalar: raw, json: null }],
+        params: [{ key: "input", value: { kind: "text", text: raw } }],
       };
     }
   }
@@ -449,9 +410,7 @@ export function parseSkillExecuteActivity(input: unknown): SkillExecuteActivity 
     }
   }
 
-  const params: SkillExecuteParam[] = Object.entries(innerBag).map(
-    ([key, value]) => ({ key, ...formatParamValue(value) }),
-  );
+  const params = toToolParams(innerBag);
 
   return { innerToolName, activity, params };
 }

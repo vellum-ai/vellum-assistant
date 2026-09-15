@@ -259,24 +259,37 @@ describe("parseSkillExecuteActivity", () => {
     expect(activity.innerToolName).toBe("app_create");
     expect(activity.activity).toBe("Creating your budget tracker app");
     expect(activity.params).toEqual([
-      { key: "name", scalar: "Budget tracker", json: null },
-      { key: "public", scalar: "false", json: null },
+      { key: "name", value: { kind: "text", text: "Budget tracker" } },
+      { key: "public", value: { kind: "literal", text: "false" } },
     ]);
   });
 
-  it("pretty-prints object and array parameters as JSON", () => {
+  it("keeps object and array parameters structured", () => {
     const { params } = parseSkillExecuteActivity({
       tool: "chart_render",
       input: { series: [1, 2], axis: { x: "time" } },
       activity: "Rendering",
     });
 
-    expect(params[0]).toEqual({
-      key: "series",
-      scalar: null,
-      json: "[\n  1,\n  2\n]",
-    });
-    expect(params[1]!.json).toBe('{\n  "x": "time"\n}');
+    expect(params).toEqual([
+      {
+        key: "series",
+        value: {
+          kind: "list",
+          items: [
+            { kind: "literal", text: "1" },
+            { kind: "literal", text: "2" },
+          ],
+        },
+      },
+      {
+        key: "axis",
+        value: {
+          kind: "object",
+          entries: [{ key: "x", value: { kind: "text", text: "time" } }],
+        },
+      },
+    ]);
   });
 
   it("recovers input passed as a JSON-encoded string", () => {
@@ -286,7 +299,9 @@ describe("parseSkillExecuteActivity", () => {
       activity: "Creating a task",
     });
 
-    expect(params).toEqual([{ key: "title", scalar: "Ship it", json: null }]);
+    expect(params).toEqual([
+      { key: "title", value: { kind: "text", text: "Ship it" } },
+    ]);
   });
 
   it("keeps a non-JSON string input rather than dropping it", () => {
@@ -297,7 +312,7 @@ describe("parseSkillExecuteActivity", () => {
     });
 
     expect(params).toEqual([
-      { key: "input", scalar: "# Just some markdown", json: null },
+      { key: "input", value: { kind: "text", text: "# Just some markdown" } },
     ]);
   });
 
@@ -312,8 +327,8 @@ describe("parseSkillExecuteActivity", () => {
 
     expect(innerToolName).toBe("task_create");
     expect(params).toEqual([
-      { key: "title", scalar: "Ship it", json: null },
-      { key: "priority", scalar: "2", json: null },
+      { key: "title", value: { kind: "text", text: "Ship it" } },
+      { key: "priority", value: { kind: "literal", text: "2" } },
     ]);
   });
 
@@ -324,7 +339,9 @@ describe("parseSkillExecuteActivity", () => {
       activity: "",
     });
 
-    expect(params).toEqual([{ key: "cursor", scalar: "null", json: null }]);
+    expect(params).toEqual([
+      { key: "cursor", value: { kind: "literal", text: "null" } },
+    ]);
   });
 
   it("returns empty fields for a malformed envelope", () => {
