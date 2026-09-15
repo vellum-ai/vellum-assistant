@@ -19,7 +19,7 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
 import {
   currentPathname,
-  dropFailedAppFromRoute,
+  dropAppFromRoute,
   exitAppSplit,
   prepareFreshConversation,
 } from "@/utils/conversation-navigation";
@@ -159,7 +159,8 @@ export interface OpenAppFromChatOptions {
   /**
    * The conversation the app hangs off, for a surface that is about a
    * conversation of its own (the Chat Info panel's payload) rather than
-   * whatever the route shows.
+   * whatever the route shows. It applies only when the open is a navigation:
+   * a reload in place keeps the conversation the route already names.
    */
   conversationId?: string;
 }
@@ -198,7 +199,7 @@ export function useOpenAppFromChat(): (
           .getState()
           .loadApp(assistantId, appId);
         if (!loaded) {
-          dropFailedAppFromRoute(navigate, appId);
+          dropAppFromRoute(navigate, appId);
         }
         return;
       }

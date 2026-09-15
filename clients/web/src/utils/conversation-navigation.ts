@@ -327,7 +327,8 @@ export function navigateFromApp(
 
 /**
  * Take `appId`'s segment off the route, landing on the conversation the route
- * names. A no-op once the URL has moved on to another app.
+ * names. A no-op once the URL has moved on to another app. An `activeAppId`
+ * still on the app means an overlay holds it, so the URL stands.
  *
  * `evenIfHeld` drops the segment while the viewer still holds the app, for a
  * caller that means the app to stay in memory behind what is in front of it.
@@ -352,16 +353,4 @@ export function dropAppFromRoute(
     return;
   }
   void navigate(routes.conversation(conversationId), { replace: true });
-}
-
-/**
- * Drop an app that failed to load from the route, where reload and Forward
- * would retry it forever. An `activeAppId` still on the app means an overlay
- * holds it, so the URL stands.
- */
-export function dropFailedAppFromRoute(
-  navigate: PathNavigate,
-  appId: string,
-): void {
-  dropAppFromRoute(navigate, appId);
 }

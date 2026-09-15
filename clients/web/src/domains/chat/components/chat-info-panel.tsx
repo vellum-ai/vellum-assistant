@@ -124,7 +124,9 @@ export function ChatInfoPanel({
 
   // Closing first returns the viewer to whatever the panel was opened from,
   // so the app lands there rather than behind the panel. The app hangs off the
-  // conversation this panel is about, not whatever the route names.
+  // conversation this panel is about, not whatever the route names. An app is
+  // a route, so it opens under the active assistant, unlike the document path
+  // above, which takes this panel's assistant.
   const handleOpenApp = useCallback(
     (appId: string) => {
       useViewerStore.getState().closeChatInfo();

@@ -150,15 +150,17 @@ describe("handleAppViewerAction — set_view", () => {
     );
   });
 
-  it("'full' exits the side-by-side to full-width", () => {
+  it("'full' exits the side-by-side to full-width, letting the chat pane go", () => {
     useViewerStore.setState({
       mainView: "app-editing",
       openedAppState: SAMPLE_APP,
     });
+    useConversationStore.setState({ editingConversationId: "conv-1" });
 
     handleAppViewerAction(makeCtx(), "set_view", { view: "full" });
 
     expect(useViewerStore.getState().mainView).toBe("app");
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
   });
 
   it("'split' enters the side-by-side and binds the active conversation (desktop)", () => {

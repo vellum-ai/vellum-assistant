@@ -58,7 +58,6 @@ mock.module("@/domains/chat/composer-focus", () => ({
 const {
   closeAppRoute,
   dropAppFromRoute,
-  dropFailedAppFromRoute,
   exitAppSplit,
   navigateToConversation,
   navigateToNewConversation,
@@ -645,14 +644,14 @@ describe("navigateFromApp", () => {
   });
 });
 
-describe("dropFailedAppFromRoute", () => {
+describe("dropAppFromRoute", () => {
   test("replaces the app segment away once the viewer let the app go", () => {
     showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
     const navigate = mock(
       (_to: string, _options?: { replace?: boolean }) => {},
     );
 
-    dropFailedAppFromRoute(navigate, SAMPLE_APP.appId);
+    dropAppFromRoute(navigate, SAMPLE_APP.appId);
 
     expect(navigate).toHaveBeenCalledWith(
       routes.conversation(OPEN_CONVERSATION),
@@ -667,7 +666,7 @@ describe("dropFailedAppFromRoute", () => {
       (_to: string, _options?: { replace?: boolean }) => {},
     );
 
-    dropFailedAppFromRoute(navigate, SAMPLE_APP.appId);
+    dropAppFromRoute(navigate, SAMPLE_APP.appId);
 
     expect(navigate).not.toHaveBeenCalled();
   });
@@ -678,13 +677,11 @@ describe("dropFailedAppFromRoute", () => {
       (_to: string, _options?: { replace?: boolean }) => {},
     );
 
-    dropFailedAppFromRoute(navigate, SAMPLE_APP.appId);
+    dropAppFromRoute(navigate, SAMPLE_APP.appId);
 
     expect(navigate).not.toHaveBeenCalled();
   });
-});
 
-describe("dropAppFromRoute", () => {
   test("evenIfHeld drops the segment while the viewer still holds the app", () => {
     openOverlayOverApp();
     showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));

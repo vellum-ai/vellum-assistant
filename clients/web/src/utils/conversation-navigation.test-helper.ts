@@ -29,7 +29,6 @@ export function conversationNavigationMock(
     currentPathname: () => "",
     clearAppViewer: () => {},
     dropAppFromRoute: () => {},
-    dropFailedAppFromRoute: () => {},
     keepOpenAppBesideConversation: () => false,
     exitAppSplit: () => {},
     revealConversationView: () => {},
