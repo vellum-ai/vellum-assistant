@@ -667,6 +667,7 @@
     "copied": "Copied!",
     "copyName": "Copy name",
     "displayNameHint": "For the display name, <strong>{suggestedName}</strong> keeps this bot matching your assistant. The username is separate and does not have to match.",
+    "dmOnlyNotice": "Private chats are supported. Group, supergroup, and channel messages and button taps are not supported yet.",
     "inBotFather": "In BotFather:",
     "intro": "Telegram bots are created by messaging <strong>@BotFather</strong>. Open it, run through the prompts, then come back with the token it gives you.",
     "next": "Next",
