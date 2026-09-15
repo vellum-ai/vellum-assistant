@@ -194,6 +194,23 @@ describe("a press on the companion's popover", () => {
     expect(surfaceActions).toEqual([["surf-1", "tomorrow", { day: 1 }]]);
   });
 
+  /** A second press that crossed the first on its way here. */
+  test("posts a card's action once while its submission is in flight", async () => {
+    seedCard();
+    // Not awaited: the first submission is still out when the second arrives.
+    const first = answerCompanionPopover("surf-1", {
+      kind: "action",
+      actionId: "tomorrow",
+    });
+    await answerCompanionPopover("surf-1", {
+      kind: "action",
+      actionId: "tomorrow",
+    });
+    await first;
+
+    expect(surfaceActions).toHaveLength(1);
+  });
+
   test("does nothing for an action the card does not carry", async () => {
     seedCard();
 

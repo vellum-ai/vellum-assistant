@@ -20,6 +20,7 @@ import { X } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -149,7 +150,10 @@ export function CompanionPopover({
       role="group"
       data-companion-popover={popover.kind}
       className={cn(
-        "flex flex-col gap-4 rounded-[20px] border border-white/10 p-5 text-[var(--content-default)] shadow-2xl shadow-black/50",
+        // A column the page bounds in height: a header and a row of answers
+        // that stay put, and the content between them scrolling, so the
+        // answers are always within reach however long the content runs.
+        "flex min-h-0 flex-col gap-4 rounded-[20px] border border-white/10 p-5 text-[var(--content-default)] shadow-2xl shadow-black/50",
         popover.kind === "approvals" ? "w-max max-w-[640px]" : "w-[360px]",
         className,
       )}
@@ -213,22 +217,23 @@ export function CompanionPromptRow({
           providerKey={popover.providerKey}
         />
       ) : null}
-      <span
-        dir="auto"
+      <StepText
         className="min-w-0 flex-1 text-body-medium-default"
-      >
-        {popover.kind === "secret"
-          ? popover.service !== ""
-            ? t("companionPopover.needsCredentialsFor", {
-                service: popover.service,
-              })
-            : t("companionPopover.needsCredentials")
-          : single && first !== undefined
-            ? first.title
-            : t("companionPopover.needsOkCount", {
-                count: popover.items.length,
-              })}
-      </span>
+        maxWidth={PROMPT_TEXT_MAX_WIDTH}
+        text={
+          popover.kind === "secret"
+            ? popover.service !== ""
+              ? t("companionPopover.needsCredentialsFor", {
+                  service: popover.service,
+                })
+              : t("companionPopover.needsCredentials")
+            : single && first !== undefined
+              ? first.title
+              : t("companionPopover.needsOkCount", {
+                  count: popover.items.length,
+                })
+        }
+      />
       <span className="ml-2 flex shrink-0 items-center gap-1">
         {single && first !== undefined ? (
           <ApprovalAnswers item={first} onAnswer={onAnswer} />
@@ -246,6 +251,213 @@ export function CompanionPromptRow({
         )}
       </span>
     </div>
+  );
+}
+
+/** The widest a prompt row's words run before they wrap, in points. */
+const PROMPT_TEXT_MAX_WIDTH = 440;
+/** The same, for a row of the numbered list, which carries a number too. */
+const LIST_TEXT_MAX_WIDTH = 400;
+
+/**
+ * Where to break words into lines so that no line is wider than the one
+ * below it, within `maxWidth`, with the lines as even as that allows.
+ *
+ * As few lines as the rule allows: the lines the words need at `maxWidth`,
+ * or more when no split of that many steps outward. Among the ways to split
+ * the words into that many lines where each line is no wider than the next
+ * and the last fits, the one whose lines fall least short of the last line's
+ * width wins, so the text reads as one block stepping gently outward rather
+ * than a word left alone on top. A single word wider than the width stands
+ * on a line of its own. Past {@link STEP_LINES_MAX_WORDS} words the ordinary
+ * wrap is kept, since the search grows with the cube of the words.
+ *
+ * Pure, with the measure passed in, so it is stated in tests without fonts.
+ */
+export function stepLines(
+  text: string,
+  maxWidth: number,
+  measure: (text: string) => number,
+): string[] {
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word !== "");
+  const n = words.length;
+  if (n < 2 || measure(words.join(" ")) <= maxWidth) {
+    return [words.join(" ")];
+  }
+  // widths[i][j]: words i up to (not including) j on one line.
+  const widths: number[][] = words.map(() => []);
+  for (let i = 0; i < n; i += 1) {
+    for (let j = i + 1; j <= n; j += 1) {
+      widths[i][j] = measure(words.slice(i, j).join(" "));
+    }
+  }
+  const lineOf = (from: number, to: number): string =>
+    words.slice(from, to).join(" ");
+
+  // The ordinary wrap at the full width, and how many lines it takes.
+  const ordinary: string[] = [];
+  for (let from = 0; from < n; ) {
+    let to = from + 1;
+    while (to < n && widths[from][to + 1] <= maxWidth) {
+      to += 1;
+    }
+    ordinary.push(lineOf(from, to));
+    from = to;
+  }
+  if (ordinary.length < 2 || n > STEP_LINES_MAX_WORDS) {
+    return ordinary;
+  }
+
+  /**
+   * The evenest split into exactly `count` lines where each line is no wider
+   * than the next and the last fits, or null when there is none.
+   */
+  const evenest = (count: number): string[] | null => {
+    let best: { cost: number; breaks: number[] } | null = null;
+    // The last line first: its width is the one every other line steps up to.
+    for (let lastStart = n - 1; lastStart >= count - 1; lastStart -= 1) {
+      const last = widths[lastStart][n];
+      if (last > maxWidth && lastStart !== n - 1) {
+        continue;
+      }
+      // Keyed `end:start`: the best lines over words [0, end) whose last line
+      // is [start, end), with the starts of those lines in `breaks`.
+      let layer = new Map<string, { cost: number; breaks: number[] }>();
+      for (let end = 1; end <= lastStart; end += 1) {
+        if (widths[0][end] <= last) {
+          layer.set(`${end}:0`, {
+            cost: (last - widths[0][end]) ** 2,
+            breaks: [0],
+          });
+        }
+      }
+      for (let k = 2; k <= count - 1; k += 1) {
+        const next = new Map<string, { cost: number; breaks: number[] }>();
+        for (const [key, entry] of layer) {
+          const [end, start] = key.split(":").map(Number);
+          const width = widths[start][end];
+          for (let to = end + 1; to <= lastStart; to += 1) {
+            const nextWidth = widths[end][to];
+            if (nextWidth < width || nextWidth > last) {
+              continue;
+            }
+            const cost = entry.cost + (last - nextWidth) ** 2;
+            const nextKey = `${to}:${end}`;
+            const held = next.get(nextKey);
+            if (held === undefined || cost < held.cost) {
+              next.set(nextKey, { cost, breaks: [...entry.breaks, end] });
+            }
+          }
+        }
+        layer = next;
+      }
+      for (const [key, entry] of layer) {
+        const [end, start] = key.split(":").map(Number);
+        if (end !== lastStart || widths[start][end] > last) {
+          continue;
+        }
+        if (best === null || entry.cost < best.cost) {
+          best = { cost: entry.cost, breaks: [...entry.breaks, lastStart] };
+        }
+      }
+    }
+    if (best === null) {
+      return null;
+    }
+    const bounds = [...best.breaks, n];
+    return best.breaks.map((from, index) => lineOf(from, bounds[index + 1]));
+  };
+
+  // The fewest lines the rule allows: the ordinary count when some split of
+  // it steps outward, otherwise one more line at a time. The rule outranks
+  // the count, since a wider top line is the thing being avoided.
+  for (let count = ordinary.length; count <= n; count += 1) {
+    const lines = evenest(count);
+    if (lines !== null) {
+      return lines;
+    }
+  }
+  return ordinary;
+}
+
+/** The most words {@link stepLines} searches over. */
+const STEP_LINES_MAX_WORDS = 48;
+
+/**
+ * Words that wrap as {@link stepLines} breaks them, each line drawn on its
+ * own so the page cannot break them anywhere else. Drawn as plain text until
+ * the font can be measured, and wherever it cannot be.
+ */
+function StepText({
+  text,
+  maxWidth,
+  className,
+  title,
+}: {
+  text: string;
+  maxWidth: number;
+  className?: string;
+  title?: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [lines, setLines] = useState<string[] | null>(null);
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (element === null) {
+      return;
+    }
+    let cancelled = false;
+    const measureLines = (): void => {
+      if (cancelled) {
+        return;
+      }
+      // Measured in the page, in the element's own face, rather than on a
+      // canvas: the canvas resolves the font on its own and can differ from
+      // what is drawn by enough to pick breaks that step the wrong way.
+      const probe = document.createElement("span");
+      probe.style.cssText =
+        "position:absolute;visibility:hidden;white-space:pre;left:0;top:0";
+      element.appendChild(probe);
+      const widths = new Map<string, number>();
+      const measured = stepLines(text, maxWidth, (words) => {
+        const known = widths.get(words);
+        if (known !== undefined) {
+          return known;
+        }
+        probe.textContent = words;
+        const width = probe.getBoundingClientRect().width;
+        widths.set(words, width);
+        return width;
+      });
+      probe.remove();
+      setLines(measured.length > 1 ? measured : null);
+    };
+    measureLines();
+    // Measured again as faces finish loading, since a fallback font's widths
+    // put the breaks somewhere else.
+    document.fonts?.addEventListener("loadingdone", measureLines);
+    void document.fonts?.ready.then(measureLines);
+    return () => {
+      cancelled = true;
+      document.fonts?.removeEventListener("loadingdone", measureLines);
+    };
+  }, [text, maxWidth]);
+
+  return (
+    <span ref={ref} dir="auto" className={className} title={title}>
+      {lines === null
+        ? text
+        : lines.map((line, index) => (
+            <span key={index} className="block whitespace-nowrap">
+              {line}
+              {index < lines.length - 1 ? " " : null}
+            </span>
+          ))}
+    </span>
   );
 }
 
@@ -325,7 +537,7 @@ function ApprovalList({
 }) {
   return (
     <ScrollShadow
-      className="max-h-[480px] flex-col"
+      className="min-h-0 flex-1"
       size={20}
       fadeEdges="end"
       hideScrollBar
@@ -339,13 +551,12 @@ function ApprovalList({
             >
               {index + 1}
             </span>
-            <span
-              dir="auto"
+            <StepText
               className="min-w-0 flex-1 pl-1 text-body-medium-default"
+              maxWidth={LIST_TEXT_MAX_WIDTH}
               title={item.detail !== "" ? item.detail : undefined}
-            >
-              {item.title}
-            </span>
+              text={item.title}
+            />
             <span className="ml-2 flex shrink-0 items-center gap-1">
               <ApprovalAnswers item={item} onAnswer={onAnswer} />
             </span>
@@ -378,7 +589,7 @@ function SecretForm({
 
   return (
     <form
-      className="flex flex-col gap-3"
+      className="flex min-h-0 flex-1 flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault();
         if (value !== "") {
@@ -402,32 +613,41 @@ function SecretForm({
         }
         onClose={() => onView?.("deferred")}
       />
-      {popover.detail !== "" ? (
-        <p
-          dir="auto"
-          className="text-body-medium-lighter text-[var(--content-secondary)]"
-        >
-          {popover.detail}
-        </p>
-      ) : null}
-      <Input
-        ref={inputRef}
-        type="password"
-        fullWidth
-        autoComplete="off"
-        maxLength={COMPANION_POPOVER_SECRET_MAX}
-        label={
-          popover.label !== ""
-            ? popover.label
-            : t("companionPopover.credentialLabel")
-        }
-        placeholder={popover.placeholder}
-        value={value}
-        onChange={(event) => {
-          setValue(event.target.value);
-        }}
-      />
-      <div className="flex items-center justify-center gap-1">
+      <ScrollShadow
+        className="min-h-0 flex-1"
+        size={20}
+        fadeEdges="end"
+        hideScrollBar
+      >
+        <div className="flex flex-col gap-3">
+          {popover.detail !== "" ? (
+            <p
+              dir="auto"
+              className="text-body-medium-lighter text-[var(--content-secondary)]"
+            >
+              {popover.detail}
+            </p>
+          ) : null}
+          <Input
+            ref={inputRef}
+            type="password"
+            fullWidth
+            autoComplete="off"
+            maxLength={COMPANION_POPOVER_SECRET_MAX}
+            label={
+              popover.label !== ""
+                ? popover.label
+                : t("companionPopover.credentialLabel")
+            }
+            placeholder={popover.placeholder}
+            value={value}
+            onChange={(event) => {
+              setValue(event.target.value);
+            }}
+          />
+        </div>
+      </ScrollShadow>
+      <div className="flex shrink-0 items-center justify-center gap-1">
         <PillButton tone="primary" type="submit" disabled={value === ""}>
           {t("companionPopover.confirm")}
         </PillButton>
@@ -452,6 +672,10 @@ function SurfaceCard({
   onOpenLink?: (url: string) => void;
 }) {
   const { t } = useTranslation();
+  // A pressed action is on its way: the rest wait for the answer, so a
+  // double press cannot send the same action twice. The page remounts this
+  // for each popover, which is what clears it.
+  const [pressed, setPressed] = useState(false);
   return (
     <>
       <PopoverHeader
@@ -460,35 +684,46 @@ function SurfaceCard({
       />
       {popover.kind === "card" ? (
         <>
-          {popover.title !== "" || popover.subtitle !== "" ? (
-            <div className="flex flex-col gap-0.5">
-              {popover.title !== "" ? (
-                <p dir="auto" className="text-title-small leading-snug">
-                  {popover.title}
-                </p>
+          <ScrollShadow
+            className="min-h-0 flex-1"
+            size={20}
+            fadeEdges="end"
+            hideScrollBar
+          >
+            <div className="flex flex-col gap-4">
+              {popover.title !== "" || popover.subtitle !== "" ? (
+                <div className="flex flex-col gap-0.5">
+                  {popover.title !== "" ? (
+                    <p dir="auto" className="text-title-small leading-snug">
+                      {popover.title}
+                    </p>
+                  ) : null}
+                  {popover.subtitle !== "" ? (
+                    <p
+                      dir="auto"
+                      className="text-body-medium-lighter text-[var(--content-tertiary)]"
+                    >
+                      {popover.subtitle}
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
-              {popover.subtitle !== "" ? (
-                <p
-                  dir="auto"
-                  className="text-body-medium-lighter text-[var(--content-tertiary)]"
-                >
-                  {popover.subtitle}
-                </p>
+              {popover.body !== "" ? (
+                <CardBody body={popover.body} onOpenLink={onOpenLink} />
               ) : null}
             </div>
-          ) : null}
-          {popover.body !== "" ? (
-            <CardBody body={popover.body} onOpenLink={onOpenLink} />
-          ) : null}
+          </ScrollShadow>
           {popover.actions.length > 0 ? (
-            <div className="flex flex-wrap items-center justify-end gap-1">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
               {popover.actions.map((action) => (
                 <PillButton
                   key={action.id}
                   tone={toneForAction(action)}
-                  onClick={() =>
-                    onAnswer?.({ kind: "action", actionId: action.id })
-                  }
+                  disabled={pressed}
+                  onClick={() => {
+                    setPressed(true);
+                    onAnswer?.({ kind: "action", actionId: action.id });
+                  }}
                 >
                   {action.label}
                 </PillButton>
@@ -547,20 +782,13 @@ function CardBody({
     [onOpenLink],
   );
   return (
-    <ScrollShadow
-      className="max-h-[400px] flex-col"
-      size={20}
-      fadeEdges="end"
-      hideScrollBar
-    >
-      <MarkdownMessage
-        content={body}
-        className="text-body-medium-lighter text-[var(--content-secondary)]"
-        linkComponent={link}
-        imageComponent={PopoverImage}
-        urlTransform={popoverUrlTransform}
-      />
-    </ScrollShadow>
+    <MarkdownMessage
+      content={body}
+      className="text-body-medium-lighter text-[var(--content-secondary)]"
+      linkComponent={link}
+      imageComponent={PopoverImage}
+      urlTransform={popoverUrlTransform}
+    />
   );
 }
 

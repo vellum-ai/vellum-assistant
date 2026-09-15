@@ -12,6 +12,9 @@ import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { captureError } from "@/lib/sentry/capture-error";
 import { openSystemPermissionSettings } from "@/runtime/system-permissions";
 
+/** Surfaces with an action from the popover still being submitted. */
+const surfacesSubmitting = new Set<string>();
+
 /**
  * Act on a press on the companion's popover, in the window that holds the
  * approvals, the credential request or the surface it showed.
@@ -72,7 +75,7 @@ export async function answerCompanionPopover(
       }
       return;
     case "action": {
-      if (popover.kind !== "card") {
+      if (popover.kind !== "card" || surfacesSubmitting.has(popoverId)) {
         return;
       }
       const action = offeredSurface()?.actions?.find(
@@ -81,7 +84,14 @@ export async function answerCompanionPopover(
       if (action === undefined) {
         return;
       }
-      await handleSurfaceAction(popoverId, action.id, action.data);
+      // Claimed for the length of the submission, so a second press that
+      // crossed the first on its way here does not post the action again.
+      surfacesSubmitting.add(popoverId);
+      try {
+        await handleSurfaceAction(popoverId, action.id, action.data);
+      } finally {
+        surfacesSubmitting.delete(popoverId);
+      }
       return;
     }
     case "open":

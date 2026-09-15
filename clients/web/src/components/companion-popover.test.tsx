@@ -10,6 +10,7 @@ import type {
 import {
   CompanionPopover,
   drawsImageSource,
+  stepLines,
 } from "@/components/companion-popover";
 
 const ONE: CompanionPopoverContent = {
@@ -242,5 +243,96 @@ describe("drawsImageSource", () => {
     expect(drawsImageSource("/Users/example/a.png")).toBe(false);
     expect(drawsImageSource("data:text/html,<b>")).toBe(false);
     expect(drawsImageSource("")).toBe(false);
+  });
+});
+
+describe("stepLines", () => {
+  /** One unit a character, so each case can be read off the text. */
+  const measure = (text: string): number => text.length;
+
+  test("keeps words that fit on one line", () => {
+    expect(stepLines("Open Safari", 20, measure)).toEqual(["Open Safari"]);
+  });
+
+  test("never draws a line wider than the one below it", () => {
+    const lines = stepLines(
+      "Need your permission to read every file in your Downloads folder and move the invoices into Documents",
+      60,
+      measure,
+    );
+
+    expect(lines.join(" ")).toBe(
+      "Need your permission to read every file in your Downloads folder and move the invoices into Documents",
+    );
+    for (let index = 1; index < lines.length; index += 1) {
+      expect(lines[index - 1].length).toBeLessThanOrEqual(lines[index].length);
+    }
+    expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(60);
+  });
+
+  /** Legal but wrong: a word stranded on top above two full lines. */
+  test("keeps the lines even rather than stranding a word on top", () => {
+    const lines = stepLines(
+      "Need your permission to read every file in your Downloads folder and move the invoices",
+      40,
+      measure,
+    );
+
+    expect(lines).toHaveLength(3);
+    expect(lines[0].length).toBeGreaterThan(20);
+  });
+
+  /** Two lines would need a wider top; the rule takes a third line instead. */
+  test("takes another line rather than a top line wider than the next", () => {
+    // 39 and 39 at the full width: no two-line split steps outward.
+    const lines = stepLines(
+      "aaaaaaaaa bbbbbbbbb cccccccc dddddddddd eeeeeeeee fffffffff gggggggg hhhhhhhhhh",
+      40,
+      measure,
+    );
+
+    for (let index = 1; index < lines.length; index += 1) {
+      expect(lines[index - 1].length).toBeLessThanOrEqual(lines[index].length);
+    }
+  });
+
+  test("uses no more lines than the words need at the full width", () => {
+    const text = "aaaa bbbb cccc dddd eeee ffff gggg hhhh";
+
+    expect(stepLines(text, 20, measure)).toHaveLength(2);
+  });
+
+  test("stands a word wider than the width on a line of its own", () => {
+    expect(stepLines("a supercalifragilistic b", 10, measure).join(" ")).toBe(
+      "a supercalifragilistic b",
+    );
+  });
+});
+
+describe("presses that must land once", () => {
+  test("a card's actions wait once one is pressed", () => {
+    const { container, answers } = renderWith(
+      {
+        kind: "card",
+        id: "surf-2",
+        title: "Pick a time",
+        subtitle: "",
+        body: "",
+        actions: [
+          { id: "today", label: "Today", style: "primary" },
+          { id: "tomorrow", label: "Tomorrow", style: "secondary" },
+        ],
+      },
+      "expanded",
+    );
+
+    fireEvent.click(buttonOf(container, "Today")!);
+    fireEvent.click(buttonOf(container, "Today")!);
+    fireEvent.click(buttonOf(container, "Tomorrow")!);
+
+    expect(answers).toEqual([{ kind: "action", actionId: "today" }]);
+    expect(buttonOf(container, "Tomorrow")?.hasAttribute("disabled")).toBe(
+      true,
+    );
   });
 });
