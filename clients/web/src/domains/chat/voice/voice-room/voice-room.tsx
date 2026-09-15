@@ -763,15 +763,25 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
   // ask; Live follows once the viewfinder is up, since Live on a closed camera
   // is forced back off. A stop closes the viewfinder the way the camera
   // control does, consent first.
+  //
+  // The ask to enter Live belongs to the open it started, and lasts no longer.
+  // `opening` while that open is in flight; `awaitingLive` once it settled, for
+  // as long as the viewfinder it put up stays up. An open that failed or was
+  // cancelled, or a viewfinder closed before Live could start, drops the ask:
+  // a later open is the user's own, for photos, and must not enter Live and
+  // start sending frames on the strength of an ask that already ran its
+  // course.
   const cameraLookRequest = useLiveVoiceStore.use.cameraLookRequest();
-  const [liveOnceOpen, setLiveOnceOpen] = useState(false);
+  const [cameraLook, setCameraLook] = useState<
+    "idle" | "opening" | "awaitingLive"
+  >("idle");
   useEffect(() => {
     if (cameraLookRequest === null) {
       return;
     }
     const request = takeLiveVoiceCameraLookRequest();
     if (request === "stop") {
-      setLiveOnceOpen(false);
+      setCameraLook("idle");
       if (cameraOpen) {
         closeCamera();
       }
@@ -780,18 +790,33 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     if (request !== "start" || !cameraSupported) {
       return;
     }
-    setLiveOnceOpen(true);
-    if (!cameraOpen) {
-      void open();
-    }
-  }, [cameraLookRequest, cameraSupported, cameraOpen, open, closeCamera]);
-  useEffect(() => {
-    if (!liveOnceOpen || !cameraOpen || !liveAvailable) {
+    if (cameraOpen) {
+      setCameraLook("awaitingLive");
       return;
     }
-    setLiveOnceOpen(false);
+    setCameraLook("opening");
+    // `open` settles after the camera has reported whether it came up, so the
+    // render this settles into reads the real `cameraOpen`.
+    void open().finally(() => {
+      setCameraLook((current) =>
+        current === "opening" ? "awaitingLive" : current,
+      );
+    });
+  }, [cameraLookRequest, cameraSupported, cameraOpen, open, closeCamera]);
+  useEffect(() => {
+    if (cameraLook !== "awaitingLive") {
+      return;
+    }
+    if (!cameraOpen) {
+      setCameraLook("idle");
+      return;
+    }
+    if (!liveAvailable) {
+      return;
+    }
+    setCameraLook("idle");
     setLive(true);
-  }, [liveOnceOpen, cameraOpen, liveAvailable, setLive]);
+  }, [cameraLook, cameraOpen, liveAvailable, setLive]);
   // One value for what the camera is doing, read by the pill, the shutter, the
   // hint and the announcement alike, so no two of them can disagree about it.
   const cameraMode = live ? "live" : "photo";
