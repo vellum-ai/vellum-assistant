@@ -176,6 +176,12 @@ describe("conversationIdForPath (the id a path names, if any)", () => {
     expect(conversationIdForPath("/assistant/identity")).toBeNull();
     expect(conversationIdForPath("/assistant/library")).toBeNull();
   });
+
+  test("decodes the id the browser percent-encoded", () => {
+    expect(conversationIdForPath("/assistant/conversations/conv%201")).toBe(
+      "conv 1",
+    );
+  });
 });
 
 describe("appIdForPath (the app a path keeps on screen, if any)", () => {
@@ -198,6 +204,14 @@ describe("appIdForPath (the app a path keeps on screen, if any)", () => {
 
   test("returns null when the conversation id is empty", () => {
     expect(appIdForPath("/assistant/conversations//app/app-1")).toBeNull();
+  });
+
+  test("decodes the segment, so it equals the id the viewer holds", () => {
+    // A plugin app takes its id from the author's directory name, so a space
+    // reaches the URL encoded and the store decoded.
+    expect(
+      appIdForPath("/assistant/conversations/c1/app/plugins~p~My%20App"),
+    ).toBe("plugins~p~My App");
   });
 });
 
@@ -237,5 +251,25 @@ describe("isConversationChatPath (composer-mounting routes only)", () => {
   test("rejects non-conversation routes", () => {
     expect(isConversationChatPath("/assistant/identity")).toBe(false);
     expect(isConversationChatPath("/assistant/library")).toBe(false);
+  });
+});
+
+describe("a malformed escape names no route of ours", () => {
+  // `decodeURIComponent` throws on a truncated sequence, and a throw during
+  // render is the full-page error boundary.
+  const MALFORMED = "%E0%A4%A";
+
+  test("in the conversation id", () => {
+    const path = `/assistant/conversations/${MALFORMED}`;
+    expect(conversationIdForPath(path)).toBeNull();
+    expect(appIdForPath(path)).toBeNull();
+    expect(isConversationChatPath(path)).toBe(false);
+  });
+
+  test("in the app id", () => {
+    const path = `/assistant/conversations/conv-1/app/${MALFORMED}`;
+    expect(conversationIdForPath(path)).toBeNull();
+    expect(appIdForPath(path)).toBeNull();
+    expect(isConversationChatPath(path)).toBe(false);
   });
 });

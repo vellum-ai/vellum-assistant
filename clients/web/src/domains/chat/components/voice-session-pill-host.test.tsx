@@ -55,10 +55,18 @@ mock.module("react-router", () => ({
 // matters, and only to decide whether the state word navigates.
 
 let mockMainView: MainView = "chat";
+// The app view covers the composer only while an app is there to draw, so the
+// id travels with the view.
+let mockActiveAppId: string | null = null;
 mock.module("@/stores/viewer-store", () => ({
   useViewerStore: {
     use: {
       mainView: () => mockMainView,
+      activeAppId: () => mockActiveAppId,
+      openedAppState: () =>
+        mockActiveAppId === null
+          ? null
+          : { appId: mockActiveAppId, name: "App", html: "" },
     },
   },
 }));
@@ -112,6 +120,7 @@ beforeEach(() => {
   mockPathname = routes.conversation(OTHER_CONVERSATION_ID);
   mockSearch = "";
   mockMainView = "chat";
+  mockActiveAppId = null;
   mockIsMobile = false;
   navigateFn.mockClear();
   navigateToConversationSpy.mockClear();
@@ -176,6 +185,7 @@ describe("VoiceSessionPillHost — visibility", () => {
       .setActiveConversationId(OWNING_CONVERSATION_ID);
     mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
     mockMainView = "app";
+    mockActiveAppId = "app-1";
     render(<VoiceSessionPillHost />);
     expect(pill()).not.toBeNull();
   });
@@ -187,6 +197,7 @@ describe("VoiceSessionPillHost — visibility", () => {
       .setActiveConversationId(OWNING_CONVERSATION_ID);
     mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
     mockMainView = "app";
+    mockActiveAppId = "app-1";
     mockIsMobile = true;
     const { container } = render(<VoiceSessionPillHost />);
     expect(container.firstChild).toBeNull();
@@ -271,6 +282,7 @@ describe("VoiceSessionPillHost — failure surface", () => {
       .setActiveConversationId(OWNING_CONVERSATION_ID);
     mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
     mockMainView = "app";
+    mockActiveAppId = "app-1";
     useLiveVoiceStore.getState().fail("Connection lost.");
     render(<VoiceSessionPillHost />);
     expect(errorChip()).not.toBeNull();

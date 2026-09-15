@@ -9,8 +9,8 @@
  * path is the one worth pinning.
  *
  * The success path swaps the draft key for the server's id and replaces the
- * URL with it. An app the viewer holds beside the draft is named in that URL,
- * so the id swap does not close it.
+ * URL with it. The app the URL already names is carried across, so the id
+ * swap closes neither an app on screen nor one an overlay is covering.
  *
  * Driven end-to-end against a spied daemon client, mirroring the sibling
  * plugins test so the module registry stays clean.
@@ -148,6 +148,17 @@ describe("useSendMessage: a draft resolving to its server id", () => {
 
   test("names the app held beside the draft, so the id swap does not close it", async () => {
     showOpenAppRoute({ conversationId: DRAFT_ID });
+
+    expect(await sendFirstMessage()).toBe(
+      routes.conversation(SERVER_ID, SAMPLE_APP.appId),
+    );
+  });
+
+  test("keeps the app an overlay covers, which the URL still names", async () => {
+    // `keptAppId()` reads the app on screen and an overlay leaves none, so
+    // the rewrite reads the URL instead of releasing an app the user has.
+    showOpenAppRoute({ conversationId: DRAFT_ID });
+    useViewerStore.setState({ mainView: "document" });
 
     expect(await sendFirstMessage()).toBe(
       routes.conversation(SERVER_ID, SAMPLE_APP.appId),

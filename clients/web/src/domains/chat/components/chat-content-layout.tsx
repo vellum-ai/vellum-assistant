@@ -35,7 +35,7 @@ import {
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { paneState } from "@/stores/pane-state";
+import { paneState, showsFullWidthApp } from "@/stores/pane-state";
 import { WorkspacePanes } from "@/domains/chat/components/workspace-panes";
 import { useDeployStore } from "@/stores/deploy-store";
 import {
@@ -489,9 +489,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // Desktop full-width app viewer (non-editing). Mobile uses the
   // portal-based MobileAppOverlay — this branch is desktop-only.
-  // A released app leaves the view naming an app with none loaded and none
-  // loading: that falls through to the chat rather than spinning forever.
-  if (mainView === "app" && !isMobile && (openedAppState || activeAppId)) {
+  if (
+    showsFullWidthApp({
+      mainView,
+      isMobile,
+      activeAppId,
+      openedAppId: openedAppState?.appId ?? null,
+    })
+  ) {
     if (!openedAppState) {
       return (
         <div className="flex flex-1 items-center justify-center">

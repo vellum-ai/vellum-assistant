@@ -78,7 +78,8 @@ export const routes = {
   conversations: r("/assistant/conversations"),
   /** Conversation URL, optionally naming the app the viewer keeps on screen.
    *  `appId` is passed through unencoded, like {@link routes.library.app};
-   *  `useParams` decodes the segment on the way back. */
+   *  `useParams` and {@link appIdForPath} both decode the segment on the way
+   *  back. */
   conversation: (key: string, appId?: string | null) => {
     const base = dyn(r("/assistant/conversations"), key);
     return appId ? `${base}/${CONVERSATION_APP_SEGMENT}/${appId}` : base;
@@ -408,10 +409,27 @@ export function isConversationPath(pathname: string): boolean {
 }
 
 /**
+ * The id a path segment names. The browser percent-encodes what the producers
+ * write unencoded, so a segment is decoded the way `useParams` decodes it and
+ * compares equal to the id the store holds. An id carrying a space or a
+ * non-ASCII character (a plugin app takes its id from the author's directory
+ * name) is only equal after this. A malformed escape names no route of ours,
+ * so it reads as the empty segment does: no id at all.
+ */
+function decodeSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Sole owner of the conversation URL shape: `/assistant/conversations/:id`,
  * optionally followed by the app viewer segment (`/app/:appId`), tolerating a
- * trailing slash. Anything else (the conversations list, a subroute such as
- * the inspector, a deeper path) is `null`.
+ * trailing slash. Ids come back decoded. Anything else (the conversations
+ * list, a subroute such as the inspector, a deeper path, a malformed escape)
+ * is `null`.
  */
 function parseConversationPath(
   pathname: string,
@@ -425,7 +443,7 @@ function parseConversationPath(
     return null;
   }
   const segments = rest.split("/");
-  const conversationId = segments[0];
+  const conversationId = decodeSegment(segments[0]);
   // An empty id means a doubled slash (`/conversations//app/a1`), never a route.
   if (conversationId.length === 0) {
     return null;
@@ -434,7 +452,7 @@ function parseConversationPath(
     return { conversationId, appId: null };
   }
   if (segments.length === 3 && segments[1] === CONVERSATION_APP_SEGMENT) {
-    const appId = segments[2];
+    const appId = decodeSegment(segments[2]);
     return appId.length > 0 ? { conversationId, appId } : null;
   }
   return null;
@@ -457,7 +475,8 @@ export function conversationIdForPath(pathname: string): string | null {
 
 /**
  * The app id `pathname` keeps on screen, or `null` when it names none. The URL
- * is the source of truth for which app the viewer shows.
+ * is the source of truth for which app the viewer shows, so the id comes back
+ * decoded and compares equal to the one the viewer holds.
  */
 export function appIdForPath(pathname: string): string | null {
   return parseConversationPath(pathname)?.appId ?? null;
