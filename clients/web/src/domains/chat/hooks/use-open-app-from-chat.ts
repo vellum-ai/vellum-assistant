@@ -147,43 +147,34 @@ export function useOpenDocumentFromChat(
   );
 }
 
+/** An explicit open is a view action, so the split drops on the way in. */
+function dropSplitView(): void {
+  const viewer = useViewerStore.getState();
+  if (viewer.mainView === "app-editing") {
+    viewer.exitAppEditing();
+  }
+}
+
 /**
  * Open an app in the viewer panel from inside the chat surface: the sidebar's
  * pinned-app click, the transcript's "Open App" affordance, and the chat
  * header's assets pill.
  *
- * Opening an app is a navigation. The app lives in the URL
- * (`/assistant/conversations/:conversationId/app/:appId`) and `useAppRouteSync`
- * loads whatever the URL names, so browser Back closes the app. With no
- * conversation on screen, a fresh draft carries the app segment.
+ * Opening an app is a navigation to the URL that names it, which
+ * `useAppRouteSync` answers for; with no conversation on screen a fresh draft
+ * carries the app segment. An explicit open lands the app full width from
+ * every entry point and on every viewport (LUM-2553).
  *
  * Re-opening the app the URL already names has nowhere to navigate, so it
- * reloads in place. That is the one direct `loadApp` call for an app the URL
- * already names, and it is how an app the assistant edited picks up its new
- * HTML. A reload the viewer gives up on drops the app segment from whichever
- * conversation still shows that app, matching `useAppRouteSync`, so a refresh
- * does not retry an app that is gone.
+ * reloads in place, which is how an app the assistant rewrites picks up its
+ * new HTML. A reload the viewer gives up on drops the app segment from
+ * whichever conversation the route names.
  *
- * An explicit open is a *view* action, so the app lands full-width: an open
- * from the split drops back to `"app"` on the way. That holds on every viewport,
- * with or without an active conversation, so the app opens the same way from
- * chat as it does from Home / Library rather than the layout depending on the
- * entry point (LUM-2553).
- *
- * Split view (`app-editing`: chat on the left, app on the right) is an
- * explicit choice, never a side effect of opening:
- * - the user picks it through the viewer's "Edit" affordance
- *   (`use-edit-app.ts`), which binds a per-app edit conversation;
- * - the user selects a conversation while an app is already open
- *   (`keepOpenAppBesideConversation`), which binds that conversation;
- * - the app requests it through `set_view({ view: "split" })`
- *   (`app-viewer-actions.ts`), which binds the active conversation.
- *
- * Those paths bind `editingConversationId` themselves, and that value is only
- * read while `mainView` is `"app-editing"`, so this hook leaves it alone.
- *
- * Returns a memoized async callback `(appId: string) => Promise<void>` safe
- * to drop into deps arrays.
+ * Split view (`app-editing`) is an explicit choice made elsewhere: the
+ * viewer's "Edit" affordance (`use-edit-app.ts`), selecting a conversation
+ * beside an open app (`keepOpenAppBesideConversation`), and `set_view` from
+ * the app itself (`app-viewer-actions.ts`). Each binds `editingConversationId`
+ * itself, so this hook leaves it alone.
  *
  * Single source of truth for the active assistant's apps, used by
  * `chat-layout.tsx` (sidebar) and `chat-route-content.tsx` (transcript).
@@ -195,9 +186,8 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  // Assigned during render, not in an effect, so a reload that resolves after
-  // the user navigates reads the route they are on rather than the one the
-  // callback closed over.
+  // Assigned during render, not in an effect, so the callback reads the route
+  // the user is on rather than the one it closed over.
   const latestPathnameRef = useRef(pathname);
   // eslint-disable-next-line react-hooks/refs -- render-phase sync so the async callback below reads the latest route
   latestPathnameRef.current = pathname;
@@ -208,15 +198,11 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
         return;
       }
       haptic.light();
-      const conversationId =
-        useConversationStore.getState().activeConversationId ??
-        prepareFreshConversation();
-      const viewer = useViewerStore.getState();
-      if (viewer.mainView === "app-editing") {
-        viewer.exitAppEditing();
-      }
-      if (appIdForPath(pathname) === appId) {
-        const loaded = await viewer.loadApp(assistantId, appId);
+      if (appIdForPath(latestPathnameRef.current) === appId) {
+        dropSplitView();
+        const loaded = await useViewerStore
+          .getState()
+          .loadApp(assistantId, appId);
         const current = latestPathnameRef.current;
         const routeConversationId = conversationIdForPath(current);
         if (
@@ -225,22 +211,21 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
           appIdForPath(current) === appId &&
           routeConversationId
         ) {
-          // The viewer gives up on the app, and an app id the viewer cannot
-          // load does not belong in the URL, where reload and a copied
-          // bookmark would retry it forever. An `activeAppId` still on the app
-          // means the viewer holds it behind an overlay, so the URL stands.
-          // The segment leaves whichever conversation the route now names: a
-          // conversation switch that keeps the app beside it never reloads it,
-          // so the failure answers for that route too, while a route naming
-          // another app is that app's to own.
+          // An app the viewer cannot load does not belong in the URL, where
+          // reload and a copied bookmark retry it forever. An `activeAppId`
+          // still on the app means an overlay holds it, so the URL stands.
           await navigate(routes.conversation(routeConversationId), {
             replace: true,
           });
         }
         return;
       }
+      const conversationId =
+        useConversationStore.getState().activeConversationId ??
+        prepareFreshConversation();
+      dropSplitView();
       await navigate(routes.conversation(conversationId, appId));
     },
-    [assistantId, navigate, pathname],
+    [assistantId, navigate],
   );
 }

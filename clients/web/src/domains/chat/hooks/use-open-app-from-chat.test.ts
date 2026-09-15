@@ -62,14 +62,17 @@ const setEditingConversationIdMock = mock((_id: string | null) => undefined);
 
 const ASSISTANT_ID = "asst-1";
 const APP_ID = "app-1";
-const CONV_ID = "conv-1";
-const CHAT_PATH = `/assistant/conversations/${CONV_ID}`;
-const APP_PATH = `${CHAT_PATH}/app/${APP_ID}`;
-const OTHER_CONV_ID = "conv-2";
-const OTHER_CHAT_PATH = `/assistant/conversations/${OTHER_CONV_ID}`;
-const OTHER_APP_PATH = `${OTHER_CHAT_PATH}/app/${APP_ID}`;
 const OTHER_APP_ID = "app-2";
-const OTHER_CONV_OTHER_APP_PATH = `${OTHER_CHAT_PATH}/app/${OTHER_APP_ID}`;
+const CONV_ID = "conv-1";
+const OTHER_CONV_ID = "conv-2";
+const CHAT_PATH = routes.conversation(CONV_ID);
+const APP_PATH = routes.conversation(CONV_ID, APP_ID);
+const OTHER_CHAT_PATH = routes.conversation(OTHER_CONV_ID);
+const OTHER_APP_PATH = routes.conversation(OTHER_CONV_ID, APP_ID);
+const OTHER_CONV_OTHER_APP_PATH = routes.conversation(
+  OTHER_CONV_ID,
+  OTHER_APP_ID,
+);
 
 // Renders the hook beside the router's location, so a test reads where the
 // open landed from `result.current.pathname` instead of the router internals.
@@ -257,6 +260,23 @@ describe("useOpenAppFromChat", () => {
     // THEN there is nowhere to navigate, so the app refetches in place, which
     // is how an app the assistant edited picks up its new HTML
     expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+    expect(result.current.pathname).toBe(APP_PATH);
+  });
+
+  test("reloads in place without minting a draft", async () => {
+    // GIVEN the app's own route is on screen with no conversation selected
+    const { result } = renderOpenApp(APP_PATH);
+
+    // WHEN the user clicks it again
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the app refetches in place and no draft is minted, so the subagent
+    // / workflow / transcript stores behind it are left alone
+    expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
+    expect(useConversationStore.getState().activeConversationId).toBeNull();
+    expect(useConversationStore.getState().draftConversationIds.size).toBe(0);
     expect(result.current.pathname).toBe(APP_PATH);
   });
 
