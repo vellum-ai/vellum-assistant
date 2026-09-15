@@ -318,6 +318,30 @@ describe("app route history", () => {
     router.dispose();
   });
 
+  test("switching assistants under the app route reloads it", async () => {
+    const router = renderHistory([CONVERSATION_PATH]);
+
+    click("Open app");
+    await waitForAppOpen();
+    expect(openRequests).toBe(1);
+
+    // A switch leaves this route mounted, so the app on screen would otherwise
+    // stay the previous assistant's while every other action uses the new one.
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    });
+
+    await waitFor(() =>
+      expect(useViewerStore.getState().openedAppState?.assistantId).toBe(
+        "asst-2",
+      ),
+    );
+    expect(openRequests).toBe(2);
+    expect(router.state.location.pathname).toBe(APP_PATH);
+
+    router.dispose();
+  });
+
   test("Back between two conversations sharing an app re-binds the split", async () => {
     const router = renderHistory([CONVERSATION_PATH]);
 

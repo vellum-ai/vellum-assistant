@@ -28,7 +28,12 @@ import {
   documentEntryUrl,
 } from "@/utils/document-navigation";
 import { appEntryState } from "@/utils/app-navigation";
-import { appIdForPath, isConversationChatPath, routes } from "@/utils/routes";
+import {
+  appIdForPath,
+  conversationIdForPath,
+  isConversationChatPath,
+  routes,
+} from "@/utils/routes";
 
 import {
   documentRequestScope,
@@ -144,13 +149,22 @@ export function useOpenDocumentFromChat(
 }
 
 /**
- * The conversation the app segment hangs off. Off a chat route the click came
- * from Library, Home or the inspector, where `activeConversationId` names
- * whatever the SSE and attention consumers keep it on rather than anything the
- * user is looking at, so a fresh draft carries the app instead (LUM-2691).
+ * The conversation the app segment hangs off. The route names the conversation
+ * on screen, so it is read first: browser Back and a cold load commit it
+ * before `activeConversationId` catches up. The store stands in only on the
+ * `/assistant` index, where the draft is not in the URL yet. Off a chat route
+ * the click came from Library, Home or the inspector, where
+ * `activeConversationId` names whatever the SSE and attention consumers keep
+ * it on rather than anything the user is looking at, so a fresh draft carries
+ * the app instead (LUM-2691).
  */
 function conversationForApp(): string {
-  const selected = isConversationChatPath(currentPathname())
+  const pathname = currentPathname();
+  const fromRoute = conversationIdForPath(pathname);
+  if (fromRoute !== null) {
+    return fromRoute;
+  }
+  const selected = isConversationChatPath(pathname)
     ? useConversationStore.getState().activeConversationId
     : null;
   return selected ?? prepareFreshConversation();

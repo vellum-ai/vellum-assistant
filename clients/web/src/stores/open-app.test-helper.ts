@@ -14,6 +14,7 @@ import { routes } from "@/utils/routes";
 
 /** The app the viewer holds. */
 export const SAMPLE_APP: OpenedAppState = {
+  assistantId: "asst-1",
   appId: "app-1",
   name: "My App",
   html: "<h1>hi</h1>",

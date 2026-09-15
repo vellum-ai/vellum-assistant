@@ -387,6 +387,45 @@ describe("ChatInfoPanel top level", () => {
     expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
+  test("dismisses itself when another assistant takes over", async () => {
+    await renderChatInfo();
+    expect(closeChatInfo).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    });
+
+    expect(closeChatInfo).toHaveBeenCalledTimes(1);
+  });
+
+  test("stays open while no assistant is active", async () => {
+    await renderChatInfo();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    });
+
+    expect(closeChatInfo).not.toHaveBeenCalled();
+
+    await act(async () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
+    });
+
+    expect(closeChatInfo).not.toHaveBeenCalled();
+  });
+
+  // The dismissal lands in an effect, so a tile clicked in the same commit
+  // still has to refuse: its app id belongs to the payload's assistant.
+  test("opens no app while its assistant is not the active one", async () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+
+    await renderChatInfo();
+    fireEvent.click(screen.getByLabelText("Open App 1"));
+
+    expect(loadApp).not.toHaveBeenCalled();
+    expect(currentLocation().pathname).toBe(CONVERSATION_PATH);
+  });
+
   test("reads the assets of the conversation its payload names", async () => {
     const client = makeChatInfoQueryClient();
     seedChatInfoConversation(client, {

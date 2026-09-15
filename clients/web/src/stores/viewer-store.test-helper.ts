@@ -33,7 +33,12 @@ export function composerViewerStoreMock(read: () => ComposerViewerFields): {
           const { activeAppId } = read();
           return activeAppId === null
             ? null
-            : { appId: activeAppId, name: "App", html: "" };
+            : {
+                assistantId: "asst-1",
+                appId: activeAppId,
+                name: "App",
+                html: "",
+              };
         },
       },
     },

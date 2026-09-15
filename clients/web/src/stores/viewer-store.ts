@@ -199,6 +199,8 @@ export type MainView =
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
 export interface OpenedAppState {
+  /** The assistant the app was loaded from: an app id is assistant-scoped. */
+  assistantId: string;
   appId: string;
   dirName?: string;
   name: string;
@@ -951,6 +953,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         set({
           appLoad: null,
           openedAppState: {
+            assistantId,
             appId: result.appId,
             dirName: result.dirName,
             name: result.name,

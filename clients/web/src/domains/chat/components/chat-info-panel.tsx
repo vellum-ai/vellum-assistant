@@ -44,6 +44,7 @@ import {
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useTranslation } from "@/i18n";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   type ChatInfoCategory,
   type ChatInfoPayload,
@@ -65,6 +66,7 @@ export function ChatInfoPanel({
 }: ChatInfoPanelProps) {
   const { t } = useTranslation("chat");
   const { assistantId, conversationId } = payload;
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const openDocument = useOpenDocumentFromChat(
     assistantId,
     useViewerStore.getState().closeChatInfo,
@@ -122,17 +124,30 @@ export function ChatInfoPanel({
     }
   }, [clearConversation, conversationId, unseenDocuments]);
 
-  // Closing first returns the viewer to whatever the panel was opened from,
-  // so the app lands there rather than behind the panel. The app hangs off the
-  // conversation this panel is about, not whatever the route names. An app is
-  // a route, so it opens under the active assistant, unlike the document path
-  // above, which takes this panel's assistant.
+  // The panel is about one assistant's conversation and its tiles reach that
+  // assistant's apps, so it does not outlive a switch away from it. A cleared
+  // id is a teardown or a gap between two connects, not a switch.
+  useEffect(() => {
+    if (activeAssistantId !== null && activeAssistantId !== assistantId) {
+      useViewerStore.getState().closeChatInfo();
+    }
+  }, [activeAssistantId, assistantId]);
+
+  // An app is a route under the active assistant, so a tile opens only while
+  // this panel's assistant is that one; the dismissal above runs in an effect,
+  // so a click in the same commit still has to refuse. Closing first returns
+  // the viewer to whatever the panel was opened from, so the app lands there
+  // rather than behind the panel. The app hangs off the conversation this
+  // panel is about, not whatever the route names.
   const handleOpenApp = useCallback(
     (appId: string) => {
+      if (assistantId !== activeAssistantId) {
+        return;
+      }
       useViewerStore.getState().closeChatInfo();
       void openApp(appId, { conversationId });
     },
-    [conversationId, openApp],
+    [activeAssistantId, assistantId, conversationId, openApp],
   );
 
   const handleOpenFile = useCallback(

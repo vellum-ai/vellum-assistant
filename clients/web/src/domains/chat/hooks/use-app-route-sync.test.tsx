@@ -22,6 +22,7 @@ const CONV_ID = "conv-1";
 const APP_PATH = routes.conversation(CONV_ID, APP_ID);
 
 const APP: OpenedAppState = {
+  assistantId: ASSISTANT_ID,
   appId: APP_ID,
   dirName: "support-monitor",
   name: "Support Monitor",
@@ -127,6 +128,26 @@ describe("useAppRouteSync", () => {
     expect(loadAppMock).not.toHaveBeenCalled();
     expect(setMainViewMock).not.toHaveBeenCalled();
     expect(useViewerStore.getState().mainView).toBe("app-editing");
+  });
+
+  test("reloads the app when it was loaded for another assistant", async () => {
+    // GIVEN the viewer holding this app as the previous assistant's, which a
+    // switch leaves behind on a route that stays mounted
+    useViewerStore.setState({
+      mainView: "app",
+      activeAppId: APP_ID,
+      openedAppState: { ...APP, assistantId: "asst-old" },
+    });
+
+    // WHEN the hook runs for the assistant that is active now
+    renderSync({
+      assistantId: ASSISTANT_ID,
+      routeAppId: APP_ID,
+    });
+
+    // THEN the app the URL names is fetched again under that assistant
+    await waitFor(() => expect(loadAppMock).toHaveBeenCalledTimes(1));
+    expect(loadAppMock).toHaveBeenCalledWith(ASSISTANT_ID, APP_ID);
   });
 
   test("brings the app back in front when an overlay took the main view", () => {

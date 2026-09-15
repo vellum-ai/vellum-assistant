@@ -70,6 +70,7 @@ beforeEach(() => {
 });
 
 const SAMPLE_APP = {
+  assistantId: "asst-1",
   appId: "app-1",
   dirName: "my-app",
   name: "My App",
@@ -168,6 +169,16 @@ describe("loadApp", () => {
     expect(state.mainView).toBe("app");
     expect(state.activeAppId).toBe("app-1");
     expect(state.openedAppState).toEqual(SAMPLE_APP);
+  });
+
+  it("records the assistant the request was made for", async () => {
+    appResult = () => Promise.resolve({ data: OPENED_APP });
+
+    await getState().loadApp("asst-2", "app-1");
+
+    // The response carries no assistant, so the app the viewer holds is keyed
+    // by the one it was asked for.
+    expect(getState().openedAppState?.assistantId).toBe("asst-2");
   });
 
   it("resolves false and falls back to chat when the app is gone", async () => {

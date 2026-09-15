@@ -3,9 +3,11 @@
  * when the viewer does not already hold it, brings it back in front when an
  * overlay holds the main view, and drops the segment from the URL when the app
  * cannot be loaded. A conversation URL without the segment names no app, so
- * this hook lets go of one the viewer still holds. A load already in flight is
- * joined rather than restarted, so returning to an app whose request has not
- * settled still sees its result.
+ * this hook lets go of one the viewer still holds. The app the viewer holds is
+ * identified by assistant and app id together, so a switch to another
+ * assistant reloads the app the route names under it. A load already in flight
+ * is joined rather than restarted, so returning to an app whose request has
+ * not settled still sees its result.
  */
 
 import { useEffect } from "react";
@@ -46,7 +48,8 @@ export function useAppRouteSync(
 
     if (
       viewer.activeAppId === routeAppId &&
-      viewer.openedAppState?.appId === routeAppId
+      viewer.openedAppState?.appId === routeAppId &&
+      viewer.openedAppState.assistantId === assistantId
     ) {
       if (!isAppMainView(viewer.mainView)) {
         viewer.setMainView("app");

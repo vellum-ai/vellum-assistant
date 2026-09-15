@@ -114,11 +114,12 @@ beforeEach(() => {
   // Default: loadApp succeeds, leaving viewer state pointing at the
   // requested app in the full-width `"app"` view (mirrors the real
   // `loadApp` action's contract, which sets `mainView` up front).
-  loadAppMock.mockImplementation(async (_assistantId, appId) => {
+  loadAppMock.mockImplementation(async (assistantId, appId) => {
     useViewerStore.setState({
       mainView: "app",
       activeAppId: appId,
       openedAppState: {
+        assistantId,
         appId,
         dirName: "",
         name: "",
@@ -190,6 +191,65 @@ describe("useOpenAppFromChat", () => {
     expect(loadAppMock).not.toHaveBeenCalled();
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+  });
+
+  // Browser Back and a cold route load commit the URL before
+  // `activeConversationId` catches up, so the route is what the user is on.
+  test("opens under the conversation the route names, not the selected one", async () => {
+    // GIVEN the store still names the conversation the route has left
+    useConversationStore.setState({ activeConversationId: OTHER_CONV_ID });
+    const { result } = renderOpenApp(CHAT_PATH);
+
+    // WHEN the user opens an app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the app hangs off the conversation the URL names
+    expect(currentLocation().pathname).toBe(APP_PATH);
+  });
+
+  test("opens under the route's conversation with nothing selected", async () => {
+    // GIVEN a conversation route the store has not caught up with
+    const { result } = renderOpenApp(CHAT_PATH);
+
+    // WHEN the user opens an app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the route answers for the conversation, so no draft is minted
+    expect(currentLocation().pathname).toBe(APP_PATH);
+    expect(useConversationStore.getState().activeConversationId).toBeNull();
+    expect(useConversationStore.getState().draftConversationIds.size).toBe(0);
+  });
+
+  test("carries another app to the conversation the route names", async () => {
+    // GIVEN a route naming a conversation and an app, with the store behind it
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    const { result } = renderOpenApp(OTHER_APP_PATH);
+
+    // WHEN the user opens a different app with no conversation of its own
+    await act(async () => {
+      await result.current.openApp(OTHER_APP_ID);
+    });
+
+    // THEN the app segment is swapped on the conversation the route names
+    expect(currentLocation().pathname).toBe(OTHER_CONV_OTHER_APP_PATH);
+  });
+
+  test("takes the selected conversation on the assistant index", async () => {
+    // GIVEN the index, the one chat route that names no conversation
+    useConversationStore.setState({ activeConversationId: CONV_ID });
+    const { result } = renderOpenApp(routes.assistant);
+
+    // WHEN the user opens an app
+    await act(async () => {
+      await result.current.openApp(APP_ID);
+    });
+
+    // THEN the draft the store holds carries it, since the URL has no id yet
+    expect(currentLocation().pathname).toBe(APP_PATH);
   });
 
   test("mints a draft conversation to carry the app when none is on screen", async () => {
@@ -345,7 +405,13 @@ describe("useOpenAppFromChat", () => {
     useViewerStore.setState({
       mainView: "app",
       activeAppId: APP_ID,
-      openedAppState: { appId: APP_ID, dirName: "", name: "", html: "" },
+      openedAppState: {
+        assistantId: ASSISTANT_ID,
+        appId: APP_ID,
+        dirName: "",
+        name: "",
+        html: "",
+      },
     });
     const { result } = renderOpenApp(NON_CHAT_PATH);
 

@@ -41,6 +41,7 @@ const minimizeAppMock = mock(() => undefined);
 const setEditingConversationIdMock = mock((_id: string | null) => undefined);
 
 const APP: OpenedAppState = {
+  assistantId: "asst-1",
   appId: "app-42",
   dirName: "support-monitor",
   name: "Support Monitor",
