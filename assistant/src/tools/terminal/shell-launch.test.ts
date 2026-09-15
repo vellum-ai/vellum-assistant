@@ -113,6 +113,7 @@ describe("bash launch failures are not success", () => {
   });
 
   afterEach(() => {
+    spawnImpl = originalSpawn as SpawnImpl;
     rmSync(workingDir, { recursive: true, force: true });
   });
 
