@@ -145,7 +145,6 @@ function Stage({
           assistantName="Ziggy"
           accentHex={call.accentHex}
           character={CHARACTER}
-          watchEnabled
           prompt={prompt}
           promptsDeferred={promptsDeferred}
         />

@@ -732,6 +732,7 @@ export const InCallWithPrompt: Story = {
   args: {
     phase: "call",
     call: DEMO_CALL,
+    watchEnabled: false,
     prompt: (
       <CompanionPromptRow
         popover={{
@@ -750,7 +751,12 @@ export const InCallWithPrompt: Story = {
 
 /** The same approvals put off: counted on the bar, a press away. */
 export const InCallWithPromptsDeferred: Story = {
-  args: { phase: "call", call: DEMO_CALL, promptsDeferred: 3 },
+  args: {
+    phase: "call",
+    call: DEMO_CALL,
+    watchEnabled: false,
+    promptsDeferred: 3,
+  },
 };
 
 /**
