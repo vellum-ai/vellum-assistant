@@ -26,6 +26,7 @@ import { useEffect } from "react";
 import { assistantDisplayName } from "@/utils/assistant-display-name";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import {
+  clearCompanionPopover,
   clearCompanionWorking,
   setCompanionContext,
   setCompanionDictation,
@@ -45,6 +46,12 @@ import { liveVoiceCanBeShownTheScreen } from "@/domains/chat/voice/live-voice/sc
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useDictationOfferStore } from "@/domains/chat/voice/dictation-offer-store";
 import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
+import {
+  currentCompanionPopover,
+  samePopover,
+  useCompanionPopoverStore,
+} from "@/domains/chat/companion-popover";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { COMPANION_DICTATION_TAIL } from "@vellumai/ipc-contract";
 import type {
   CompanionContext,
@@ -145,6 +152,10 @@ function currentContext(): CompanionContext {
     // Published from here for the reason `watchRetro` is: the words and the
     // way into the application they would go to are both this window's.
     dictationOffer: currentOffer(),
+    // The approval the turn is blocked on, or the surface the assistant put
+    // up, for the popover beside the companion. Both live in this window's
+    // stores. See `companion-popover.ts`.
+    popover: currentCompanionPopover(),
   };
 }
 
@@ -279,7 +290,8 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.dictationOffer?.id === b.dictationOffer?.id &&
     a.dictationOffer?.reason === b.dictationOffer?.reason &&
     offerApp(a.dictationOffer) === offerApp(b.dictationOffer) &&
-    a.dictationOffer?.text === b.dictationOffer?.text
+    a.dictationOffer?.text === b.dictationOffer?.text &&
+    samePopover(a.popover, b.popover)
   );
 }
 
@@ -305,12 +317,16 @@ export function useCompanionMirror(): void {
     // The words that came with it. Declared beside the phase because `sync`
     // writes both, and `sync` runs before the subscriptions are set up.
     let dictationText = dictationTail();
+    // The popover, so a transcript write can be told apart from one that
+    // completes or replaces the surface it shows.
+    let popover = currentCompanionPopover();
 
     const sync = (): void => {
       const context = currentContext();
       working = context.working;
       dictating = context.dictating;
       dictationText = context.dictationText ?? "";
+      popover = context.popover;
       if (pushed !== null && sameContext(pushed, context)) {
         return;
       }
@@ -327,7 +343,10 @@ export function useCompanionMirror(): void {
     // flag flipping rather than on the store being written, since almost none
     // of those writes move anything the surface draws.
     const onMaybeFlipped = (): void => {
-      if (isWorking() === working) {
+      if (
+        isWorking() === working &&
+        samePopover(currentCompanionPopover(), popover)
+      ) {
         return;
       }
       sync();
@@ -366,6 +385,10 @@ export function useCompanionMirror(): void {
     };
     const unsubscribeShare = useLiveVoiceStore.subscribe(onShareMaybeFlipped);
     const unsubscribeOffer = useDictationOfferStore.subscribe(sync);
+    // The approval and the offered surface. Both stores move only on the edges
+    // the popover draws, so neither needs a gate.
+    const unsubscribeInteraction = useInteractionStore.subscribe(sync);
+    const unsubscribePopover = useCompanionPopoverStore.subscribe(sync);
     // The microphone a held key opened. Nothing above reports it: the
     // recording is this window's, it starts and stops from the keyboard rather
     // than from anything the conversation knows about, and while it runs the
@@ -414,11 +437,15 @@ export function useCompanionMirror(): void {
       unsubscribeWatchRetro();
       unsubscribeShare();
       unsubscribeOffer();
+      unsubscribeInteraction();
+      unsubscribePopover();
       unsubscribeDictation();
       // Nothing is left to report a turn ending, so the last thing this does is
       // stop claiming one is running. The name is left standing: it is a record
       // of whose surface this is, and the surface is still on screen.
       clearCompanionWorking();
+      // Nor is anything left to answer the popover.
+      clearCompanionPopover();
     };
   }, []);
 }

@@ -15,6 +15,7 @@
  */
 
 import { client } from "@/generated/api/client.gen";
+import { t } from "@/i18n";
 import { getLocalGatewayUrl } from "@/lib/local-mode";
 import type { LockfileAssistant } from "@/runtime/local-mode-host";
 import { fetchGuardianTokenHost } from "@/runtime/local-mode-host";
@@ -123,6 +124,39 @@ export async function importLocalBundle(
     throw new TeleportError(
       "import_failed",
       json.error ?? "Import reported failure",
+    );
+  }
+}
+
+/**
+ * Take a gateway backup snapshot of a local assistant now:
+ * `POST /v1/backups/create`. The gateway exports a fresh `.vbundle` and
+ * writes it to its local backup pool plus any configured offsite
+ * destinations, so this call blocks for the full export. Throws on a non-2xx
+ * status or a `{success:false}` body.
+ */
+export async function createLocalBackup(
+  assistant: LockfileAssistant,
+): Promise<void> {
+  const base = localGatewayBase(assistant);
+  const token = await mintLocalGatewayToken(assistant, base);
+  const response = await fetch(`${base}/v1/backups/create`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new TeleportError(
+      "backup_failed",
+      t("settings:teleportCard.backupLocalFailed", {
+        status: response.status,
+      }),
+    );
+  }
+  const json = (await safeJson(response)) as { success?: boolean } | null;
+  if (json && json.success === false) {
+    throw new TeleportError(
+      "backup_failed",
+      t("settings:teleportCard.backupLocalReportedFailure"),
     );
   }
 }

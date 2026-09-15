@@ -53,6 +53,7 @@ import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOverlayEscape } from "../hooks/use-overlay-escape";
 import { useAppViewerRouteHandlers } from "../hooks/use-app-viewer-route-handlers";
+import { autoSendPromptState } from "@/utils/auto-send-prompt";
 import { exitAppSplit } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
@@ -280,6 +281,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           opened.conversationId,
           getDocumentFeedbackPrompt(snapshot.title),
         ),
+        { state: autoSendPromptState() },
       );
     });
   }, [navigate, runDocumentFeedback]);

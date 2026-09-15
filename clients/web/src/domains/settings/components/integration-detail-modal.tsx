@@ -22,6 +22,10 @@ import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 import { useManagedOAuthConnect } from "@/hooks/use-managed-oauth-connect";
+import {
+  type TenantHostWire,
+  useTenantHostRequirement,
+} from "@/hooks/use-tenant-host-requirement";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -40,6 +44,11 @@ interface IntegrationDetailModalProps {
   description: string | null;
   logoUrl: string | null;
   platformGate: PlatformGateState;
+  /**
+   * The provider summary's `tenant_host`, as received. `undefined` when the
+   * assistant predates the field; see `useTenantHostRequirement`.
+   */
+  tenantHost: TenantHostWire | undefined;
   onClose: () => void;
 }
 
@@ -56,6 +65,7 @@ export function IntegrationDetailModal({
   description,
   logoUrl,
   platformGate,
+  tenantHost,
   onClose,
 }: IntegrationDetailModalProps) {
   const { t } = useTranslation("settings");
@@ -107,11 +117,15 @@ export function IntegrationDetailModal({
     providerKey,
     providerLabel: displayName,
   });
-  const handleConnect = (requestedScopes?: string[]) => {
+  const tenantHostRequirement = useTenantHostRequirement(
+    providerKey,
+    tenantHost,
+  );
+  const handleConnect = (requestedScopes?: string[], host?: string) => {
     if (!managedAvailable) {
       return;
     }
-    managedConnect.connect(requestedScopes);
+    managedConnect.connect(requestedScopes, host);
   };
 
   // The connections list this modal renders is the same query the connect
@@ -281,6 +295,7 @@ export function IntegrationDetailModal({
                 onConnect={handleConnect}
                 onDisconnect={handleDisconnect}
                 connectPresets={getConnectPresets(providerKey)}
+                tenantHost={tenantHostRequirement}
               />
             )
           ) : yourOwnAvailable ? (

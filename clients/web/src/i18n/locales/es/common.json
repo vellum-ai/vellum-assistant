@@ -155,8 +155,23 @@
       "title": "Talk"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "Permitir",
+    "confirm": "Confirmar",
+    "credentialLabel": "Credencial",
+    "deny": "Denegar",
+    "dismiss": "Descartar",
+    "enter": "Introducir",
+    "needsCredentials": "Necesito una credencial",
+    "needsCredentialsFor": "Necesito credenciales para {service}",
+    "needsOkCount": "{count, plural, one {Necesito tu aprobación para # cosa} other {Necesito tu aprobación para # cosas}}",
+    "notNow": "Ahora no",
+    "openApp": "Abrir Vellum",
+    "pendingBadge": "{count, plural, one {# cosa necesita tu aprobación} other {# cosas necesitan tu aprobación}}",
+    "review": "Revisar",
+    "surfaceFallback": "Algo para ver"
+  },
+  "companionSurface": {
     "calling": "Llamando…",
     "callingNamed": "Llamando a {name}…",
     "captureKind": "Tipo de fuente",
@@ -166,7 +181,6 @@
     "captureScreens": "Pantallas",
     "captureTabs": "Pestañas de Chrome",
     "captureWindows": "Ventanas",
-    "deny": "Denegar",
     "draw": "Dibujar",
     "clearMarks": "Borrar marcas",
     "drawTools": "Herramienta de dibujo",
@@ -665,6 +679,7 @@
     "copied": "¡Copiado!",
     "copyName": "Copiar nombre",
     "displayNameHint": "Para el nombre visible, <strong>{suggestedName}</strong> mantiene este bot alineado con tu asistente. El nombre de usuario es independiente y no tiene que coincidir.",
+    "dmOnlyNotice": "Los chats privados sí están admitidos. Los mensajes y las pulsaciones de botones en grupos, supergrupos y canales aún no están admitidos.",
     "inBotFather": "En BotFather:",
     "intro": "Los bots de Telegram se crean enviando un mensaje a <strong>@BotFather</strong>. Ábrelo, sigue las indicaciones y vuelve con el token que te dé.",
     "next": "Siguiente",
@@ -679,6 +694,10 @@
     "copyError": "No se pudo copiar el nombre. Escríbelo en BotFather en su lugar.",
     "stepConnect": "Conectar",
     "stepCreate": "Crear bot"
+  },
+  "tenantHost": {
+    "shopifyLabel": "Dominio de la tienda",
+    "shopifyPlaceholder": "tu-tienda.myshopify.com"
   },
   "terminalPanel": {
     "recoveryModeBanner": "Modo de recuperación activo: esta sesión está conectada al terminal de depuración."

@@ -53,9 +53,9 @@ export function ActivationListRoute() {
   const tasks = useMemo(() => [...starters, ...items], [starters, items]);
 
   // The page is the point of the launch, so the user stays on it and the row
-  // flips to Working; the conversation runs in the background. Success and
-  // failure both toast, and a linked conversation is offered so the user can
-  // open the thread without leaving first.
+  // flips to Working; the conversation runs in the background. A failure
+  // toasts, and a linked conversation is offered so the user can open the
+  // thread without leaving first.
   const handleLaunch = useCallback(
     async (taskId: string) => {
       const result = await launch(taskId);

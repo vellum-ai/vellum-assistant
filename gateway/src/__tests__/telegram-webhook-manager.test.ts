@@ -44,6 +44,8 @@ mock.module("../feature-flag-resolver.js", () => ({
 
 const { reconcileTelegramWebhook } =
   await import("../telegram/webhook-manager.js");
+const { applyPlatformIdentityIds, _resetPlatformIdentityForTests } =
+  await import("../platform-identity.js");
 
 afterEach(() => {
   fetchMock = mock(async () => new Response());
@@ -54,6 +56,7 @@ afterEach(() => {
   delete process.env.IS_PLATFORM;
   delete process.env.VELLUM_PLATFORM_URL;
   delete process.env.ASSISTANT_API_KEY;
+  _resetPlatformIdentityForTests();
 });
 
 function makeTelegramResponse(result: unknown) {
@@ -105,6 +108,13 @@ function makeCaches(
     get: async (key: string) => credentialMap[key],
     invalidate: () => {},
   } as unknown as CredentialCache;
+  if (platformAssistantId) {
+    applyPlatformIdentityIds({
+      assistantId: platformAssistantId,
+      organizationId: "",
+      userId: "",
+    });
+  }
   const configFile = {
     getString: (section: string, key: string) => {
       if (section === "ingress" && key === "publicBaseUrl") return ingressUrl;
@@ -1015,6 +1025,11 @@ function makeLivePlatformCaches(readIngressUrl: () => string | undefined) {
     [credentialKey("vellum", "assistant_api_key")]: "ast-managed-key",
     [credentialKey("vellum", "platform_assistant_id")]: PLATFORM_ASSISTANT_ID,
   };
+  applyPlatformIdentityIds({
+    assistantId: PLATFORM_ASSISTANT_ID,
+    organizationId: "",
+    userId: "",
+  });
   const credentials = {
     get: async (key: string) => credentialMap[key],
     invalidate: () => {},

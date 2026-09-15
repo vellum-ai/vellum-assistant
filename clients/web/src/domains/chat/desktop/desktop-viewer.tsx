@@ -8,6 +8,7 @@ import type { DesktopEndReason } from "./desktop-connection";
 import {
   openDesktopSession,
   type DesktopSessionState,
+  type DesktopSession,
 } from "./desktop-session";
 
 // Spelled out rather than templated so the catalog-usage guard sees each key.
@@ -26,16 +27,24 @@ const RETRYABLE_END_REASONS: ReadonlySet<DesktopEndReason> = new Set([
 
 interface DesktopViewerProps {
   assistantId: string;
+  viewOnly?: boolean;
+  onExpand?: () => void;
 }
 
 /**
  * The interactive view of an assistant desktop. Opens a session on mount and
- * closes it on unmount; noVNC resizes the remote display to fit the viewport.
+ * closes it on unmount; noVNC scales the whole desktop to fit the viewport.
  * A status overlay covers the viewport until the picture is live, and again
  * once the session ends, with a Reconnect button where retrying can help.
  */
-export function DesktopViewer({ assistantId }: DesktopViewerProps) {
+export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: DesktopViewerProps) {
   const { t } = useTranslation("chat");
+  const sessionRef = useRef<DesktopSession | null>(null);
+  const viewOnlyRef = useRef(viewOnly);
+  useEffect(() => {
+    viewOnlyRef.current = viewOnly;
+    sessionRef.current?.setViewOnly(viewOnly);
+  }, [viewOnly]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<DesktopSessionState>({
     kind: "connecting",
@@ -52,8 +61,13 @@ export function DesktopViewer({ assistantId }: DesktopViewerProps) {
       assistantId,
       container,
       onState: setState,
+      viewOnly: viewOnlyRef.current,
     });
-    return () => session.close();
+    sessionRef.current = session;
+    return () => {
+      sessionRef.current = null;
+      session.close();
+    };
   }, [assistantId, attempt]);
 
   const reconnect = (): void => {
@@ -65,9 +79,17 @@ export function DesktopViewer({ assistantId }: DesktopViewerProps) {
     <div className="relative h-full w-full" data-testid="desktop-panel">
       <div
         ref={containerRef}
-        className="h-full w-full overflow-hidden bg-black"
+        className="h-full w-full overflow-hidden [&_canvas]:rounded-lg"
         data-testid="desktop-panel-viewport"
       />
+      {state.kind === "connected" && viewOnly && onExpand ? (
+        <Button
+          variant="ghost"
+          aria-label={t("assistantDesktop.expandAria")}
+          onClick={onExpand}
+          className="absolute inset-0 h-full w-full cursor-zoom-in rounded-none bg-transparent hover:bg-transparent"
+        />
+      ) : null}
       {state.kind === "connected" ? null : (
         <div
           className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[var(--surface-base)] text-[var(--content-default)]"

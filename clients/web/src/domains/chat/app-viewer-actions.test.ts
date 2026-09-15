@@ -10,6 +10,7 @@ import {
   showOpenAppRoute,
   showPath,
 } from "@/stores/open-app.test-helper";
+import { hasAutoSendPromptState } from "@/utils/auto-send-prompt";
 import { navigateDouble } from "@/utils/conversation-navigation.test-helper";
 
 function makeCtx(isMobile = false, state?: unknown) {
@@ -44,9 +45,11 @@ describe("handleAppViewerAction — relay_prompt", () => {
     handleAppViewerAction(ctx, "relay_prompt", { prompt: "hello" });
 
     expect(useViewerStore.getState().mainView).toBe("app-editing");
-    const [url] = ctx.navigate.mock.calls[0];
+    const [url, options] = ctx.navigate.mock.calls[0];
     expect(url).toContain("/assistant/conversations/conv-1/app/app-1?");
     expect(url).toContain("prompt=hello");
+    // The relay is in-app, so it may send; a bare URL would only pre-fill.
+    expect(hasAutoSendPromptState(options?.state)).toBe(true);
   });
 
   it("conversation 'new' starts a fresh draft and relays into it", () => {

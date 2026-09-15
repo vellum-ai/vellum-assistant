@@ -17,7 +17,7 @@
           },
           "include_screenshot": {
             "type": "boolean",
-            "description": "Force a screenshot with this observation. The accessibility tree is returned every step; ask for pixels whenever the tree is not enough to act on, such as a canvas, a game, a custom-drawn view, a window with few or unlabeled controls, or a question about layout."
+            "description": "Force a screenshot with this observation. The accessibility tree is returned every step and actions always return a screenshot of their result; ask for pixels on an observation whenever the tree is not enough to act on, such as a canvas, a game, a custom-drawn view, a window with few or unlabeled controls, or a question about layout."
           },
           "full_tree": {
             "type": "boolean",

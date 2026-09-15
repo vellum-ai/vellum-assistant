@@ -6,7 +6,10 @@ import {
   HOLD_VERDICT_TOKEN,
   isIncompleteControlMarkerTail,
   MINIMIZE_ROOM_MARKER,
+  parseTerminalSessionControl,
+  type SessionControlRequest,
   stripInternalSpeechMarkers,
+  terminalControlMarkerLength,
 } from "../voice-control-protocol.js";
 
 describe("front-door verdict tokens", () => {
@@ -134,5 +137,64 @@ describe("createControlMarkerHoldback", () => {
     const { flush, chunks } = collect();
     flush("[END_CALL]");
     expect(chunks).toEqual([]);
+  });
+});
+
+describe("session control markers", () => {
+  test("strips untimed and timed mute markers", () => {
+    expect(stripInternalSpeechMarkers("Muted. [MUTE]").trim()).toBe("Muted.");
+    expect(stripInternalSpeechMarkers("Muted. [MUTE:30]").trim()).toBe(
+      "Muted.",
+    );
+  });
+
+  test("holds a streaming timed mute until its bracket arrives", () => {
+    expect(isIncompleteControlMarkerTail("[MU")).toBe(true);
+    expect(isIncompleteControlMarkerTail("[MUTE:3")).toBe(true);
+    expect(isIncompleteControlMarkerTail("[MUTE:30]")).toBe(false);
+    expect(isIncompleteControlMarkerTail("[UPDATES:FEW")).toBe(true);
+    expect(isIncompleteControlMarkerTail("[UPDATES:FEWER]")).toBe(false);
+  });
+
+  test.each([
+    ["Okay, talk soon. [END_CALL]", { action: "end" }],
+    ["Muted. [MUTE]", { action: "mute" }],
+    [
+      "I'll check in less. [UPDATES:FEWER]",
+      { action: "updates", cadence: "fewer" },
+    ],
+    [
+      "Updates are back on. [UPDATES:NORMAL]",
+      { action: "updates", cadence: "normal" },
+    ],
+    [
+      "Muting for half a minute. [MUTE:30]  ",
+      { action: "mute", durationMs: 30_000 },
+    ],
+    ["Muted. [MUTE: 1.5]", { action: "mute", durationMs: 1_500 }],
+    // A garbled or oversized duration still mutes, just until unmuted.
+    ["Muted. [MUTE:soon]", { action: "mute" }],
+    ["Muted. [MUTE:0]", { action: "mute" }],
+    ["Muted. [MUTE:99999]", { action: "mute" }],
+  ] as Array<[string, SessionControlRequest]>)(
+    "parses the terminal control in %j",
+    (text, expected) => {
+      expect(parseTerminalSessionControl(text)).toEqual(expected);
+    },
+  );
+
+  test("a marker anywhere but the end controls nothing", () => {
+    expect(
+      parseTerminalSessionControl("Say [END_CALL] and I would hang up."),
+    ).toBeNull();
+    expect(parseTerminalSessionControl("No markers here.")).toBeNull();
+  });
+
+  test("measures the terminal marker the transcript pass strips", () => {
+    expect(terminalControlMarkerLength("Done [-1]")).toBe(4);
+    expect(terminalControlMarkerLength("Bye [END_CALL] ")).toBe(10);
+    expect(terminalControlMarkerLength("Muted [MUTE:30]")).toBe(9);
+    expect(terminalControlMarkerLength("Okay [UPDATES:FEWER]")).toBe(15);
+    expect(terminalControlMarkerLength("The array [-1] sorts")).toBe(0);
   });
 });

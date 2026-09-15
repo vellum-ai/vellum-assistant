@@ -155,8 +155,23 @@
       "title": "交談"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "允許",
+    "confirm": "確認",
+    "credentialLabel": "憑證",
+    "deny": "拒絕",
+    "dismiss": "關閉",
+    "enter": "輸入",
+    "needsCredentials": "需要憑證",
+    "needsCredentialsFor": "需要 {service} 的憑證",
+    "needsOkCount": "{count, plural, other {有 # 項需要你的同意}}",
+    "notNow": "暫不",
+    "openApp": "開啟 Vellum",
+    "pendingBadge": "{count, plural, other {有 # 項需要你的同意}}",
+    "review": "檢視",
+    "surfaceFallback": "有內容要給你看"
+  },
+  "companionSurface": {
     "calling": "正在呼叫…",
     "callingNamed": "正在呼叫 {name}…",
     "captureKind": "來源類型",
@@ -166,7 +181,6 @@
     "captureScreens": "螢幕",
     "captureTabs": "Chrome 分頁",
     "captureWindows": "視窗",
-    "deny": "拒絕",
     "endSession": "結束會話",
     "muteAssistant": "將助理靜音",
     "muteMicrophone": "將麥克風靜音",
@@ -667,6 +681,7 @@
     "copied": "已複製！",
     "copyName": "複製名稱",
     "displayNameHint": "對於顯示名稱，<strong>{suggestedName}</strong> 可讓此機器人與您的助理相符。使用者名稱是獨立的，不一定要相符。",
+    "dmOnlyNotice": "目前僅支援私人聊天。群組、超級群組與頻道中的訊息與按鈕點擊尚不支援。",
     "inBotFather": "在 BotFather 中：",
     "intro": "Telegram 機器人是透過傳送訊息給 <strong>@BotFather</strong> 來建立的。開啟它，按照提示操作，然後帶著它給您的權杖回來。",
     "next": "下一步",
@@ -681,6 +696,10 @@
     "copyError": "無法複製名稱。請改為在 BotFather 中輸入。",
     "stepConnect": "連接",
     "stepCreate": "建立機器人"
+  },
+  "tenantHost": {
+    "shopifyLabel": "商店網域",
+    "shopifyPlaceholder": "your-store.myshopify.com"
   },
   "terminalPanel": {
     "recoveryModeBanner": "復原模式已啟用：此工作階段已連接到偵錯終端機。"

@@ -8,6 +8,10 @@ import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { getLogger } from "../logger.js";
+import {
+  ensurePlatformIdentityIds,
+  peekPlatformAssistantId,
+} from "../platform-identity.js";
 import { ExponentialBackoff } from "../util/exponential-backoff.js";
 import { listWebhookIngressRoutes } from "../db/webhook-ingress-route-store.js";
 import {
@@ -287,7 +291,9 @@ export class VelayTunnelClient {
   }
 
   private async connect(): Promise<void> {
-    if (!this.running || this.connecting) return;
+    if (!this.running || this.connecting) {
+      return;
+    }
     this.connecting = true;
 
     if (this.isPublicIngressDisabled()) {
@@ -299,16 +305,10 @@ export class VelayTunnelClient {
     }
 
     let apiKeyRaw: string | undefined;
-    let platformAssistantIdRaw: string | undefined;
     try {
-      [apiKeyRaw, platformAssistantIdRaw] = await Promise.all([
-        this.options.credentials.get(
-          credentialKey("vellum", "assistant_api_key"),
-        ),
-        this.options.credentials.get(
-          credentialKey("vellum", "platform_assistant_id"),
-        ),
-      ]);
+      apiKeyRaw = await this.options.credentials.get(
+        credentialKey("vellum", "assistant_api_key"),
+      );
     } catch (err) {
       this.connecting = false;
       log.warn({ err }, "Failed to read Velay tunnel credentials");
@@ -325,7 +325,6 @@ export class VelayTunnelClient {
     }
 
     const apiKey = apiKeyRaw?.trim();
-    const platformAssistantId = platformAssistantIdRaw?.trim() || undefined;
     if (!apiKey) {
       this.connecting = false;
       if (this.consumePendingCredentialRefresh("assistant API key missing")) {
@@ -335,7 +334,8 @@ export class VelayTunnelClient {
       this.scheduleReconnect();
       return;
     }
-    const expectedAssistantId = platformAssistantId;
+    await ensurePlatformIdentityIds();
+    const expectedAssistantId = peekPlatformAssistantId();
 
     let registerUrl: string;
     try {

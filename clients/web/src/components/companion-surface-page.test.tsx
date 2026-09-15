@@ -52,6 +52,9 @@ const answerOfferMock = mock((_answer: string, _offerId: string) => undefined);
 const advanceIntroMock = mock((_action: string) => undefined);
 const contextMenuMock = mock(() => undefined);
 const sendControlMock = mock((_control: { action: string }) => undefined);
+const answerPopoverMock = mock((_answer: unknown, _popoverId: string) => undefined);
+const setPopoverViewMock = mock((_popoverId: string, _view: string) => undefined);
+const attachedHeightMock = mock((_popoverId: string, _height: number) => undefined);
 
 const STATE: CompanionSurfaceState = {
   growth: "right",
@@ -98,6 +101,9 @@ const resetState = () => {
   STATE.assistantName = "Ziggy";
   delete STATE.character;
   delete STATE.dictationOffer;
+  delete STATE.popover;
+  delete STATE.popoverView;
+  delete STATE.dock;
 };
 
 /**
@@ -151,6 +157,10 @@ mock.module("@/runtime/companion-surface", () => ({
   // missing export is a load-time failure for the whole file.
   answerCompanionWatchRetro: answerRetroMock,
   answerCompanionDictationOffer: answerOfferMock,
+  answerCompanionPopover: answerPopoverMock,
+  setCompanionPopoverView: setPopoverViewMock,
+  setCompanionAttachedPopoverHeight: attachedHeightMock,
+  openCompanionLink: () => undefined,
   setCompanionContext: () => undefined,
   advanceCompanionIntro: advanceIntroMock,
   showCompanionContextMenu: contextMenuMock,
@@ -181,6 +191,9 @@ afterEach(() => {
   advanceIntroMock.mockClear();
   contextMenuMock.mockClear();
   sendControlMock.mockClear();
+  answerPopoverMock.mockClear();
+  setPopoverViewMock.mockClear();
+  attachedHeightMock.mockClear();
 });
 
 /** The canvas the page fills, which is where the pointer handlers live. */
@@ -2197,32 +2210,6 @@ describe("the picker behind Share", () => {
         expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
       });
 
-      /**
-       * The mode stays on while an approval takes the row, and the strip
-       * goes with the row. What matters is the strip leaving, whatever took
-       * it.
-       */
-      test("give the desktop back when an approval takes the strip under a still pointer", async () => {
-        drawing();
-        const { container } = render(<CompanionSurfacePage />);
-        await pinSurface(container);
-        const canvas = canvasOf(container);
-        const strip = stripOf(container);
-        if (strip === null) {
-          throw new Error("Expected the tools to render");
-        }
-        pin(strip, { left: 250, right: 370, top: 40, bottom: 72 });
-        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 56 });
-        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
-
-        pushState({
-          ...STATE,
-          call: { ...LISTENING_CALL, approvalRequestId: "req-1" },
-        });
-        expect(stripOf(container)).toBeNull();
-        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
-      });
-
       /** A press on Draw leaves the pointer on the pill, which is still there. */
       test("keep the window clickable when the mode ends under a pointer on the pill", async () => {
         drawing();
@@ -2236,5 +2223,204 @@ describe("the picker behind Share", () => {
         expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
       });
     });
+  });
+});
+
+/**
+ * The popover's short form on a call's bar: a row joined to the bar while it
+ * docks to the top or bottom, and a count of what was put off.
+ */
+describe("prompts on the call's bar", () => {
+  const APPROVALS = {
+    kind: "approvals" as const,
+    id: "req-1,req-2,req-3",
+    items: [
+      { id: "req-1", title: "Read the Downloads folder", detail: "" },
+      { id: "req-2", title: "Open Safari", detail: "" },
+      { id: "req-3", title: "Send an email", detail: "" },
+    ],
+  };
+
+  /** The row the bar carries, not the copy kept out of sight to measure. */
+  const promptRowOf = (container: HTMLElement): HTMLElement | null =>
+    Array.from(
+      container.querySelectorAll<HTMLElement>("[data-companion-prompt-row]"),
+    ).find((row) => row.closest("[inert]") === null) ?? null;
+
+  const buttonIn = (root: HTMLElement, name: string) =>
+    Array.from(root.querySelectorAll("button")).find(
+      (button) =>
+        button.textContent === name ||
+        button.getAttribute("aria-label") === name,
+    ) ?? null;
+
+  test("carries the short form as a row and passes its presses on", async () => {
+    Object.assign(STATE, {
+      call: LISTENING_CALL,
+      popover: APPROVALS,
+      popoverView: "row",
+    });
+    const { container } = render(<CompanionSurfacePage />);
+
+    const row = await waitFor(() => {
+      const found = promptRowOf(container);
+      if (found === null) {
+        throw new Error("Expected the prompt row");
+      }
+      return found;
+    });
+    expect(row.textContent).toContain("Need your OK on 3 things");
+    fireEvent.click(buttonIn(row, "Review")!);
+    fireEvent.click(buttonIn(row, "Not Now")!);
+
+    expect(setPopoverViewMock.mock.calls).toEqual([
+      ["req-1,req-2,req-3", "expanded"],
+      ["req-1,req-2,req-3", "deferred"],
+    ]);
+  });
+
+  /** Reviewed, the list joins the bar too: one shape, not a window above it. */
+  test("carries the reviewed list on the bar and reports how tall it stands", async () => {
+    Object.assign(STATE, {
+      call: LISTENING_CALL,
+      popover: APPROVALS,
+      popoverView: "expanded",
+    });
+    const { container } = render(<CompanionSurfacePage />);
+
+    await waitFor(() => {
+      const rows = Array.from(container.querySelectorAll("li")).filter(
+        (row) => row.closest("[inert]") === null,
+      );
+      if (rows.length !== 3) {
+        throw new Error("Expected the list on the bar");
+      }
+    });
+    expect(promptRowOf(container)).toBeNull();
+    expect(attachedHeightMock.mock.calls.at(-1)?.[0]).toBe(
+      "req-1,req-2,req-3",
+    );
+  });
+
+  test("answers a single approval from the row", async () => {
+    Object.assign(STATE, {
+      call: LISTENING_CALL,
+      popover: { ...APPROVALS, id: "req-1", items: [APPROVALS.items[0]] },
+      popoverView: "row",
+    });
+    const { container } = render(<CompanionSurfacePage />);
+
+    const row = await waitFor(() => {
+      const found = promptRowOf(container);
+      if (found === null) {
+        throw new Error("Expected the prompt row");
+      }
+      return found;
+    });
+    fireEvent.click(buttonIn(row, "Allow")!);
+
+    expect(answerPopoverMock.mock.calls).toEqual([
+      [{ kind: "allow", itemId: "req-1" }, "req-1"],
+    ]);
+  });
+
+  /** A column has no edge for a line of words; the popover's window has it. */
+  test("carries no row on a bar docked to a side", async () => {
+    Object.assign(STATE, {
+      dock: "left",
+      call: LISTENING_CALL,
+      popover: APPROVALS,
+      popoverView: "row",
+    });
+    const { container } = render(<CompanionSurfacePage />);
+    // The call's own controls, so the state is known to have landed.
+    await waitFor(() => {
+      if (container.querySelector(".flex-col") === null) {
+        throw new Error("Expected the column");
+      }
+    });
+
+    expect(promptRowOf(container)).toBeNull();
+  });
+
+  test("carries no row off a call", async () => {
+    Object.assign(STATE, { popover: APPROVALS, popoverView: "row" });
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+
+    expect(promptRowOf(container)).toBeNull();
+  });
+
+  test("counts what was put off, and a press lists it again", async () => {
+    Object.assign(STATE, {
+      call: LISTENING_CALL,
+      popover: APPROVALS,
+      popoverView: "deferred",
+    });
+    const { container } = render(<CompanionSurfacePage />);
+
+    const badge = await waitFor(() => {
+      const found = buttonIn(container, "3 things need your OK");
+      if (found === null) {
+        throw new Error("Expected the count");
+      }
+      return found;
+    });
+    expect(promptRowOf(container)).toBeNull();
+    expect(badge.textContent).toBe("3");
+    fireEvent.click(badge);
+
+    expect(setPopoverViewMock.mock.calls).toEqual([
+      ["req-1,req-2,req-3", "expanded"],
+    ]);
+  });
+
+  test("counts nothing while nothing is put off", async () => {
+    Object.assign(STATE, {
+      call: LISTENING_CALL,
+      popover: APPROVALS,
+      popoverView: "row",
+    });
+    const { container } = render(<CompanionSurfacePage />);
+    await waitFor(() => {
+      if (promptRowOf(container) === null) {
+        throw new Error("Expected the prompt row");
+      }
+    });
+
+    expect(buttonIn(container, "3 things need your OK")).toBeNull();
+  });
+
+  /**
+   * The row goes under a hand that has not moved when it is answered, and no
+   * mouse-move arrives to say the pointer is now over the desktop.
+   */
+  test("gives the desktop back when the row goes under a still pointer", async () => {
+    Object.assign(STATE, {
+      call: LISTENING_CALL,
+      popover: APPROVALS,
+      popoverView: "row",
+    });
+    const { container } = render(<CompanionSurfacePage />);
+    await pinSurface(container);
+    const shelf = await waitFor(() => {
+      const found = promptRowOf(container)?.parentElement?.parentElement;
+      if (!(found instanceof HTMLElement)) {
+        throw new Error("Expected the shelf");
+      }
+      return found;
+    });
+    pin(shelf, { left: 400, right: 700, top: 10, bottom: 60 });
+    fireEvent.mouseMove(canvasOf(container), { clientX: 500, clientY: 30 });
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+    pushState({
+      ...STATE,
+      call: LISTENING_CALL,
+      popover: APPROVALS,
+      popoverView: "deferred",
+    });
+
+    expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
   });
 });

@@ -57,8 +57,8 @@ export function LibraryAppCard({
   const deleteAction = readOnly ? undefined : onDelete;
   const deployAction = readOnly ? undefined : onDeploy;
   const loadHtml = useCallback(
-    () => getCachedAppHtml(assistantId, app.id),
-    [assistantId, app.id],
+    () => getCachedAppHtml(assistantId, app.id, app.updatedAt),
+    [assistantId, app.id, app.updatedAt],
   );
   const share = useShareApp(assistantId, app, {
     exported: t("libraryAppCard.exported"),

@@ -21,10 +21,16 @@ type ConversationNavigationModule =
 
 /**
  * A `PathNavigate` spy. Both of its overloads are recorded, so a suite can
- * tell a pop (`-1`) from a path navigation by the argument it was called with.
+ * tell a pop (`-1`) from a path navigation by the argument it was called with,
+ * and the options carry history state as well as `replace`.
  */
 export function navigateDouble() {
-  return mock((_to: string | number, _options?: { replace?: boolean }) => {});
+  return mock(
+    (
+      _to: string | number,
+      _options?: { replace?: boolean; state?: unknown },
+    ) => {},
+  );
 }
 
 /** The id the draft-minting stubs hand back when a suite doesn't read it. */

@@ -25,15 +25,24 @@ desktop client and is never handled locally by the assistant.
 
 ## Observations
 
-Every computer-use step returns the accessibility tree. A screenshot comes with
-a desktop's first look, with window-scoped observations, or when you call
-`computer_use_observe` with `include_screenshot: true`. Ask for one whenever the
-tree is not enough to act on: a canvas, a game, a custom-drawn view, few or
+Every computer-use step returns the accessibility tree. Every action also
+returns a screenshot taken after it ran (one at the end of a
+`computer_use_sequence`), so check it to see what your action did. An
+observation comes with a screenshot on a desktop's first look, when it is
+window-scoped, or when you pass `include_screenshot: true`. Ask for one whenever
+the tree is not enough to act on: a canvas, a game, a custom-drawn view, few or
 unlabeled controls, or a layout question.
 
 The tree is walked to a limited depth to keep steps fast, and says when it was
 cut off. If the element you need is not in it, call `computer_use_observe` with
 `full_tree: true`.
+
+## Typing is not sending
+
+Pressing enter in a chat, email or form usually sends or submits it, and that
+cannot be taken back. Send only when the user asked you to send, post or
+submit. When they asked you to type, write or draft something, type it and stop
+before pressing enter; tell them it is ready to send.
 
 ## Batching known steps (macOS)
 

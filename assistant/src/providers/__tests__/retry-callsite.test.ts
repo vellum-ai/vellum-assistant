@@ -149,6 +149,47 @@ describe("RetryProvider — callSite resolution", () => {
     expect(headers).not.toHaveProperty("session_id");
   });
 
+  test("stamps a stable fallback session on OpenCode calls with no conversation", async () => {
+    setLlmConfig({
+      callSites: {
+        memoryRetrieval: {
+          provider: "opencode",
+          model: "mimo-v2.5-free",
+        },
+      },
+    });
+
+    const seen: SendMessageOptions[] = [];
+    const wrapped = new RetryProvider(
+      makeProvider("opencode", (options) => {
+        seen.push(options!);
+      }),
+    );
+
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval" },
+    });
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval", conversationId: "   " },
+    });
+
+    const sessions = seen.map(
+      (options) =>
+        (options.config?.requestHeaders as Record<string, string>)[
+          "x-opencode-session"
+        ],
+    );
+    expect(sessions[0]).toMatch(/\S/);
+    expect(sessions[1]).toBe(sessions[0]!);
+    for (const options of seen) {
+      const config = options.config as Record<string, unknown>;
+      const headers = config.requestHeaders as Record<string, string>;
+      expect(headers["x-opencode-request"]).toMatch(/\S/);
+      expect(headers).not.toHaveProperty("session_id");
+      expect(config.conversationId).toBeUndefined();
+    }
+  });
+
   test("does not stamp OpenCode headers on openai-compatible", async () => {
     setLlmConfig({
       callSites: {

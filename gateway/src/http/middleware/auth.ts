@@ -42,10 +42,9 @@ type GetClientIp = () => string;
 // flag gets set on a non-platform deployment (e.g. a leaked dev env var on a
 // public host). When the bypass IS active, the platform vembda sidecar is
 // expected to forward `X-Vellum-User-Id`; the gateway cross-checks that
-// against the locally-stored `vellum:platform_user_id` credential. This means
-// reaching the gateway sidecar's port directly (without going through vembda)
-// still requires knowing the bound user id — the platform header alone is
-// not a free-pass.
+// against the bound platform user id. This means reaching the gateway
+// sidecar's port directly (without going through vembda) still requires
+// knowing the bound user id. The platform header alone is not a free-pass.
 
 /** True when DISABLE_HTTP_AUTH=true. */
 export function isHttpAuthDisabled(): boolean {
@@ -71,11 +70,13 @@ function isPlatformAuthBypassActive(): boolean {
  * initialized.
  */
 export function logAuthBypassState(): void {
-  if (!isHttpAuthDisabled()) return;
+  if (!isHttpAuthDisabled()) {
+    return;
+  }
   if (isPlatformManaged()) {
     log.info(
-      "DISABLE_HTTP_AUTH + IS_PLATFORM both set — JWT validation bypassed; " +
-        "X-Vellum-User-Id is cross-checked against stored platform_user_id",
+      "DISABLE_HTTP_AUTH + IS_PLATFORM both set: JWT validation bypassed; " +
+        "X-Vellum-User-Id is cross-checked against the bound platform user id",
     );
   } else {
     log.warn(
@@ -98,7 +99,7 @@ export function logAuthBypassState(): void {
  *
  *   - `requireEdgeAuth` — validates a JWT bearer token (aud=vellum-gateway)
  *     OR (when bypass is active) cross-checks X-Vellum-User-Id against the
- *     stored platform_user_id credential.
+ *     bound platform user id.
  *   - `requireEdgeAuthWithScope` — same, plus a scope-profile check on the
  *     decoded JWT. Under the platform bypass, scope is enforced upstream by
  *     vembda; the gateway only verifies the cross-checked user id.
@@ -115,9 +116,9 @@ export function createAuthMiddleware(
   trustProxy = false,
 ) {
   /**
-   * Cross-check `X-Vellum-User-Id` against the stored
-   * `vellum:platform_user_id` credential. Used by all three guards under the
-   * platform-managed bypass. Returns null on success, or a 4xx/5xx Response.
+   * Cross-check `X-Vellum-User-Id` against the bound platform user id.
+   * Used by all three guards under the platform-managed bypass. Returns
+   * null on success, or a 4xx/5xx Response.
    */
   async function requirePlatformUserHeader(
     req: Request,
@@ -139,28 +140,28 @@ export function createAuthMiddleware(
     } catch (err) {
       log.error(
         { path: new URL(req.url).pathname, err },
-        "Edge auth: platform_user_id credential lookup failed",
+        "Edge auth: platform user id lookup failed",
       );
       return Response.json({ error: "Service Unavailable" }, { status: 503 });
     }
     if (unreachable) {
       log.warn(
         { path: new URL(req.url).pathname },
-        "Edge auth: platform_user_id credential store unreachable",
+        "Edge auth: platform identity prerequisites unreachable",
       );
       return Response.json({ error: "Service Unavailable" }, { status: 503 });
     }
     if (!storedUserId) {
       log.warn(
         { path: new URL(req.url).pathname },
-        "Edge auth rejected: no platform_user_id stored on this assistant",
+        "Edge auth rejected: no platform user id bound on this assistant",
       );
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
     if (storedUserId !== headerUserId) {
       log.warn(
         { path: new URL(req.url).pathname },
-        "Edge auth rejected: X-Vellum-User-Id does not match stored platform_user_id",
+        "Edge auth rejected: X-Vellum-User-Id does not match bound platform user id",
       );
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
@@ -233,8 +234,8 @@ export function createAuthMiddleware(
    * Two auth modes:
    *
    *   1. Platform-managed (DISABLE_HTTP_AUTH + IS_PLATFORM): caller's identity
-   *      is asserted via X-Vellum-User-Id cross-checked against the stored
-   *      `vellum:platform_user_id` credential.
+   *      is asserted via X-Vellum-User-Id cross-checked against the bound
+   *      platform user id.
    *   2. Default: validate the edge JWT, require an actor principal, assert it
    *      matches the bound guardian's principal id.
    *

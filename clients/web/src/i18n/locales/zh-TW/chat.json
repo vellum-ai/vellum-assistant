@@ -94,6 +94,9 @@
     "earlierActivity": "較早的活動"
   },
   "assistantDesktop": {
+    "resizeAria": "調整桌面側欄寬度",
+    "collapseAria": "收合桌面側欄",
+    "expandAria": "展開桌面",
     "busy": "桌面正由其他使用者使用中。",
     "connecting": "正在連線至桌面…",
     "failed": "桌面無法啟動。",
@@ -1272,6 +1275,7 @@
     "defaultDescription": "連線 {name}，以便我能將其用於此任務。",
     "dismiss": "關閉",
     "missingDetails": "缺少助理或供應商詳細資訊。",
+    "tenantHostInvalid": "請輸入有效的{label}，例如 {placeholder}",
     "thisAccount": "此帳號",
     "waiting": "等待中...",
     "yourAssistant": "您的助理"
@@ -1593,10 +1597,6 @@
   },
   "singleActivity": {
     "webSearch": "網路搜尋"
-  },
-  "skillCreatedCard": {
-    "view": "檢視",
-    "viewAria": "檢視 {name}"
   },
   "skillDetailPanel": {
     "actionsAria": "技能動作",

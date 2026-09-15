@@ -155,8 +155,23 @@
       "title": "Talk"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "Allow",
+    "confirm": "Confirm",
+    "credentialLabel": "Credential",
+    "deny": "Deny",
+    "dismiss": "Dismiss",
+    "enter": "Enter",
+    "needsCredentials": "Need a credential",
+    "needsCredentialsFor": "Need credentials for {service}",
+    "needsOkCount": "{count, plural, one {Need your OK on # thing} other {Need your OK on # things}}",
+    "notNow": "Not Now",
+    "openApp": "Open Vellum",
+    "pendingBadge": "{count, plural, one {# thing needs your OK} other {# things need your OK}}",
+    "review": "Review",
+    "surfaceFallback": "Something to look at"
+  },
+  "companionSurface": {
     "calling": "Calling…",
     "callingNamed": "Calling {name}…",
     "captureKind": "Source kind",
@@ -166,7 +181,6 @@
     "captureScreens": "Screens",
     "captureTabs": "Chrome tabs",
     "captureWindows": "Windows",
-    "deny": "Deny",
     "dictating": "Listening",
     "draw": "Draw",
     "clearMarks": "Clear marks",
@@ -667,6 +681,7 @@
     "copied": "Copied!",
     "copyName": "Copy name",
     "displayNameHint": "For the display name, <strong>{suggestedName}</strong> keeps this bot matching your assistant. The username is separate and does not have to match.",
+    "dmOnlyNotice": "Private chats are supported. Group, supergroup, and channel messages and button taps are not supported yet.",
     "inBotFather": "In BotFather:",
     "intro": "Telegram bots are created by messaging <strong>@BotFather</strong>. Open it, run through the prompts, then come back with the token it gives you.",
     "next": "Next",
@@ -681,6 +696,10 @@
     "copyError": "Could not copy the name. Type it into BotFather instead.",
     "stepConnect": "Connect",
     "stepCreate": "Create bot"
+  },
+  "tenantHost": {
+    "shopifyLabel": "Shop domain",
+    "shopifyPlaceholder": "your-store.myshopify.com"
   },
   "terminalPanel": {
     "recoveryModeBanner": "Recovery Mode active: this session is connected to the debug terminal."

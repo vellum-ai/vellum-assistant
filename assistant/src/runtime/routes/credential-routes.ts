@@ -34,7 +34,6 @@ import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
   getActiveBackendInfoAsync,
-  getSecureKeyAsync,
   getSecureKeyResultAsync,
 } from "../../security/secure-keys.js";
 import {
@@ -561,9 +560,7 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
 
   const key = credentialKey(service, field);
   const affectedConnections = assertCredentialNotInUse(key, force === true);
-  const existing = await getSecureKeyAsync(key);
-  const deleteResult =
-    existing != null ? await deleteSecureKeyAsync(key) : "not-found";
+  const deleteResult = await deleteSecureKeyAsync(key);
 
   if (deleteResult === "error") {
     throw new InternalError(

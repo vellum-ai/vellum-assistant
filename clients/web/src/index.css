@@ -437,41 +437,68 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * of the screen must not take the one line that says the screen is shared.
  * Takes no presses whatever it is over, since it inherits the page's
  * `pointer-events: none`, so sitting above the drawing layer costs it
- * nothing. */
+ * nothing.
+ *
+ * Sized and ringed to be read at a glance rather than found: body-size type,
+ * a near-opaque ground, a solid accent rim with a white hairline outside it
+ * so it holds on a dark wallpaper as well as a white page, and a few rings
+ * pulsing out from it as it arrives, so the moment sharing starts is one the
+ * eye is pulled to. The pulse is outer shadow only, so it moves nothing and
+ * is not clipped by the label's own overflow. */
+@keyframes companion-watch-frame-label-pulse {
+  0% {
+    box-shadow:
+      inset 0 0 0 2px var(--companion-ring-accent, #5eead4),
+      0 0 0 1px color-mix(in srgb, white 55%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 80%, transparent),
+      0 4px 18px color-mix(in srgb, black 45%, transparent);
+  }
+  100% {
+    box-shadow:
+      inset 0 0 0 2px var(--companion-ring-accent, #5eead4),
+      0 0 0 1px color-mix(in srgb, white 55%, transparent),
+      0 0 0 14px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 0%, transparent),
+      0 4px 18px color-mix(in srgb, black 45%, transparent);
+  }
+}
+
 .companion-watch-frame-label {
   position: fixed;
   z-index: 1;
-  top: calc(10px + var(--companion-frame-inset, 0px));
+  top: calc(12px + var(--companion-frame-inset, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 10px;
   max-width: calc(100% - 40px);
-  padding: 5px 12px 5px 10px;
+  padding: 9px 20px 9px 16px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: #fff;
-  background: color-mix(in srgb, black 78%, transparent);
+  background: color-mix(in srgb, black 88%, transparent);
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent),
-    0 1px 6px color-mix(in srgb, black 35%, transparent);
-  animation: companion-watch-frame-in 300ms ease-out 1;
+    inset 0 0 0 2px var(--companion-ring-accent, #5eead4),
+    0 0 0 1px color-mix(in srgb, white 55%, transparent),
+    0 4px 18px color-mix(in srgb, black 45%, transparent);
+  animation:
+    companion-watch-frame-in 300ms ease-out 1,
+    companion-watch-frame-label-pulse 1.2s ease-out 3;
 }
 
 /* The live dot beside the words, breathing in time with the edge. */
 .companion-watch-frame-label-dot {
   flex: none;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--companion-ring-accent, #5eead4);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 30%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 30%, transparent);
   animation: companion-call-breathe 3s ease-in-out infinite;
 }
 

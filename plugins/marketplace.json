@@ -136,6 +136,19 @@
       "icon": "\ud83d\udd78\ufe0f"
     },
     {
+      "name": "contractor-voice-invoicer",
+      "description": "Converts 20-second truck voice memos and job photos into itemized client invoices with custom labor rates, material markups, and one-click accounting staging.",
+      "category": "commerce",
+      "icon": "🔧",
+      "license": "MIT",
+      "homepage": "https://github.com/ZeebBoyBlue/contractor-voice-invoicer",
+      "source": {
+        "source": "github",
+        "repo": "ZeebBoyBlue/contractor-voice-invoicer",
+        "ref": "31e21ea1aa90b3ba462ed7208988931411226daa"
+      }
+    },
+    {
       "name": "creatorland",
       "source": {
         "source": "github",

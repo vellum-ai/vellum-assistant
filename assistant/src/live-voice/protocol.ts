@@ -30,6 +30,7 @@ const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "tts_done",
   "turn_cancelled",
   "minimize_room",
+  "session_control",
   "metrics",
   "archived",
   "error",
@@ -152,6 +153,40 @@ export interface LiveVoiceClientStartFrame {
    * malformed value costs a chart facet and never the session.
    */
   readonly entry?: string;
+  /**
+   * The session controls this client can carry out when a reply asks for one
+   * (see {@link LiveVoiceSessionControlServerFrame}). The session teaches the
+   * model only the controls listed here, so a client that cannot hang up or
+   * mute is never told it can.
+   *
+   * Absent means none: a client that predates the field would ignore the
+   * frame, and a spoken "okay, ending the call" that ends nothing is worse
+   * than the model not offering. Values this daemon does not know are dropped
+   * rather than rejected, so a newer client can list controls an older daemon
+   * has never heard of.
+   */
+  readonly sessionControls?: readonly LiveVoiceSessionControl[];
+}
+
+const LIVE_VOICE_SESSION_CONTROLS = ["end", "mute"] as const;
+
+/** A session control a client can carry out on the assistant's behalf. */
+export type LiveVoiceSessionControl =
+  (typeof LIVE_VOICE_SESSION_CONTROLS)[number];
+
+/**
+ * A start frame's `sessionControls`, reduced to the known values with
+ * duplicates removed; empty when the field is absent or not an array.
+ */
+export function parseLiveVoiceSessionControls(
+  value: unknown,
+): LiveVoiceSessionControl[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return LIVE_VOICE_SESSION_CONTROLS.filter((control) =>
+    value.includes(control),
+  );
 }
 
 /**
@@ -586,6 +621,26 @@ export interface LiveVoiceMinimizeRoomServerFrame extends LiveVoiceServerFrameBa
   readonly turnId: string;
 }
 
+/**
+ * A session control the just-completed reply asked for with a terminal marker
+ * (`[END_CALL]`, `[MUTE]`, `[MUTE:<seconds>]`). Sent only after the turn's TTS
+ * has fully drained, so the spoken acknowledgement is heard first, never for a
+ * turn the user barged in on, at most once per turn, and only for a control
+ * the client listed in the start frame's `sessionControls`.
+ *
+ * - `end`: end the session the way the client's own end control does.
+ * - `mute`: mute the microphone. With `durationMs`, unmute again once it
+ *   elapses; without, stay muted until the user unmutes. The timer is the
+ *   client's: a muted microphone sends silence, so the daemon cannot hear an
+ *   "unmute".
+ */
+export interface LiveVoiceSessionControlServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "session_control";
+  readonly turnId: string;
+  readonly action: LiveVoiceSessionControl;
+  readonly durationMs?: number;
+}
+
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
   readonly event?: string;
@@ -707,6 +762,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceTtsDoneServerFrame
   | LiveVoiceTurnCancelledServerFrame
   | LiveVoiceMinimizeRoomServerFrame
+  | LiveVoiceSessionControlServerFrame
   | LiveVoiceMetricsServerFrame
   | LiveVoiceArchivedServerFrame
   | LiveVoiceErrorServerFrame;
@@ -728,6 +784,7 @@ export type LiveVoiceServerFramePayload =
   | WithoutSeq<LiveVoiceTtsDoneServerFrame>
   | WithoutSeq<LiveVoiceTurnCancelledServerFrame>
   | WithoutSeq<LiveVoiceMinimizeRoomServerFrame>
+  | WithoutSeq<LiveVoiceSessionControlServerFrame>
   | WithoutSeq<LiveVoiceMetricsServerFrame>
   | WithoutSeq<LiveVoiceArchivedServerFrame>
   | WithoutSeq<LiveVoiceErrorServerFrame>;
@@ -1218,6 +1275,8 @@ function validateStartFrame(
   const client = parseClientOs(value.client);
   // Same policy for the same reason: a dimension, not a capability.
   const entry = parseLiveVoiceEntry(value.entry);
+  // Same policy again: an unknown control is a newer client, not a bad frame.
+  const sessionControls = parseLiveVoiceSessionControls(value.sessionControls);
 
   return {
     ok: true,
@@ -1239,6 +1298,7 @@ function validateStartFrame(
         ? { bargeInMinSpeechMs: value.bargeInMinSpeechMs }
         : {}),
       ...(value.textInput === true ? { textInput: true } : {}),
+      ...(sessionControls.length > 0 ? { sessionControls } : {}),
     },
   };
 }

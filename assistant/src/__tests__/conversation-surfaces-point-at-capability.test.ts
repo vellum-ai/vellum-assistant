@@ -30,6 +30,7 @@ function proxyDouble() {
       recordAction: () => {},
       request,
       reset: () => {},
+      endTask: () => {},
       stepCount: 0,
     },
   };

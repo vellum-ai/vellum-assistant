@@ -3,12 +3,14 @@
  * `window.vellum.sendAction(actionId, data)`. Three independent actions:
  *
  * - `relay_prompt` ({ prompt, conversation }) — sends `prompt` to a conversation
- *   via the `?prompt=` auto-send pathway (see `use-auto-send-effects.ts`).
- *   `conversation` is `"active"` (default, the open conversation) or `"new"` (a
- *   fresh draft). It never touches the layout, so the app the viewer keeps on
- *   screen rides along in the URL's app segment. Each relay carries a unique
- *   token so the auto-send dedupe re-fires even when the same prompt is relayed
- *   repeatedly. No-op for `"active"` when no conversation is open.
+ *   via the `?prompt=` auto-send pathway (see `use-auto-send-effects.ts`),
+ *   with the in-app `autoSendPromptState` marker that distinguishes it from a
+ *   clicked link. `conversation` is `"active"` (default, the open
+ *   conversation) or `"new"` (a fresh draft). It never touches the layout, so
+ *   the app the viewer keeps on screen rides along in the URL's app segment.
+ *   Each relay carries a unique token so the auto-send dedupe re-fires even
+ *   when the same prompt is relayed repeatedly. No-op for `"active"` when no
+ *   conversation is open.
  *
  * - `open_conversation` ({ conversationId }) — navigates to an existing
  *   conversation by ID without sending a message. On a wide viewport the
@@ -31,6 +33,7 @@
 
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
+import { autoSendPromptState } from "@/utils/auto-send-prompt";
 import {
   closeAppRoute,
   exitAppSplit,
@@ -76,6 +79,7 @@ function relayPrompt(
       crypto.randomUUID(),
       keptAppId(),
     ),
+    { state: autoSendPromptState() },
   );
 }
 

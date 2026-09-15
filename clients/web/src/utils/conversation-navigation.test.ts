@@ -39,6 +39,7 @@ import {
   showPath,
 } from "@/stores/open-app.test-helper";
 import { carriedAppEntryState } from "@/utils/app-navigation";
+import { hasAutoSendPromptState } from "@/utils/auto-send-prompt";
 import { navigateDouble } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 
@@ -327,15 +328,37 @@ describe("navigateToNewConversation", () => {
 
   test("a kept app sits in the path and the prompt stays in the query", () => {
     openAppViewer();
-    const navigate = mock((_to: string) => {});
+    const navigate = mock((_to: string, _options?: { state?: unknown }) => {});
     navigateToNewConversation(navigate as unknown as NavigateFunction, {
       prompt: "hi there",
     });
 
     const newId = useConversationStore.getState().activeConversationId;
-    expect(navigate).toHaveBeenCalledWith(
-      `/assistant/conversations/${newId}/app/app-1?prompt=hi+there`,
+    const [to] = navigate.mock.calls[0];
+    expect(to).toBe(
+      routes.conversationWithPrompt(newId!, "hi there", undefined, "app-1"),
     );
+    expect(to).toContain(`/assistant/conversations/${newId}/app/app-1?`);
+  });
+
+  test("a prompt rides the URL with the in-app auto-send marker in history state", () => {
+    const navigate = mock((_to: string, _options?: { state?: unknown }) => {});
+    const draftId = navigateToNewConversation(
+      navigate as unknown as NavigateFunction,
+      { prompt: "hello there" },
+    );
+
+    const [to, options] = navigate.mock.calls[0];
+    expect(to).toBe(routes.conversationWithPrompt(draftId, "hello there"));
+    expect(hasAutoSendPromptState(options?.state)).toBe(true);
+  });
+
+  test("without a prompt the navigation carries no auto-send marker", () => {
+    const navigate = mock((_to: string, _options?: { state?: unknown }) => {});
+    navigateToNewConversation(navigate as unknown as NavigateFunction);
+
+    const [, options] = navigate.mock.calls[0];
+    expect(hasAutoSendPromptState(options?.state)).toBe(false);
   });
 });
 
