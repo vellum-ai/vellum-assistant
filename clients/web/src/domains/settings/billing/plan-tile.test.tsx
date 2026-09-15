@@ -1,11 +1,10 @@
 /**
  * Tests for PlanTile: the shared tile of the billing "Plan" section. Verifies
  * it renders the tag, the 48px avatar slot, the name (forwarding `nameTestId`),
- * the spec chips and the footer slot; splits the chips into the wrapping row
- * and the ones that asked for a row of their own; drops the chip stack for
- * null and empty `specs` and the footer wrapper when no footer is passed;
- * stamps a nested `data-theme` scope only when `theme` is set; and forwards
- * `testId` and `className` to the root.
+ * the spec chips and the footer slot; lays every chip out in the one wrapping
+ * row; drops the chip row for null and empty `specs` and the footer wrapper
+ * when no footer is passed; stamps a nested `data-theme` scope only when
+ * `theme` is set; and forwards `testId` and `className` to the root.
  *
  * The lazy `PlanTierAvatar` compositor bundle is mocked away so the avatar
  * renders its deterministic same-size placeholder (mirrors
@@ -33,12 +32,12 @@ const SPECS: PlanSpec[] = [
   { icon: Coins, label: "Pay as you go credits" },
 ];
 
-/** The production shape: two short chips, two own-row chips. */
-const OWN_ROW_SPECS: PlanSpec[] = [
+/** The production shape: two short chips, two wrap-capable ones. */
+const PACKAGE_SPECS: PlanSpec[] = [
   { icon: Computer, label: "Small Machine" },
   { icon: HardDrive, label: "10 GB Storage" },
-  { icon: Coins, label: "Mighty usage, reset monthly", ownRow: true },
-  { icon: Mail, label: "Assistant email and subdomain", ownRow: true },
+  { icon: Coins, label: "Mighty usage, reset monthly", multiline: true },
+  { icon: Mail, label: "Assistant email and subdomain", multiline: true },
 ];
 
 const TILE_TEST_ID = "plan-tile";
@@ -155,62 +154,39 @@ describe("PlanTile", () => {
       />,
     );
 
-    // No spec asks for its own row, so the whole set flows in the one wrap
-    // row. Child 0 is the header row; child 1 is the chip container.
-    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
-    expect(container.className).toContain("flex-col");
-    expect(container.childElementCount).toBe(1);
-    const wrapRow = container.firstElementChild as HTMLElement;
+    // Child 0 is the header row; child 1 is the wrap row itself.
+    const wrapRow = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
     expect(wrapRow.className).toContain("flex-row");
     expect(wrapRow.className).toContain("flex-wrap");
     expect(wrapRow.childElementCount).toBe(SPECS.length);
   });
 
-  test("gives an ownRow spec a full row below the wrapping group", () => {
+  test("keeps every chip in the one wrapping row", () => {
     const { getByTestId, getByText } = render(
       <PlanTile
         testId={TILE_TEST_ID}
         tierKey="mighty"
         name="Mighty"
         tag={<span>Current</span>}
-        specs={OWN_ROW_SPECS}
+        specs={PACKAGE_SPECS}
       />,
     );
 
-    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
-    // The wrap row, then one block per own-row spec.
-    expect(container.childElementCount).toBe(3);
-    const wrapRow = container.firstElementChild as HTMLElement;
-    expect(wrapRow.className).toContain("flex-wrap");
-    expect(wrapRow.childElementCount).toBe(2);
-    expect(wrapRow.textContent).toContain("Small Machine");
-    expect(wrapRow.textContent).toContain("10 GB Storage");
-    expect(container.children[1]?.textContent).toBe(
+    const wrapRow = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
+    expect(wrapRow.childElementCount).toBe(PACKAGE_SPECS.length);
+    expect(wrapRow.children[0]?.textContent).toBe("Small Machine");
+    expect(wrapRow.children[1]?.textContent).toBe("10 GB Storage");
+    expect(wrapRow.children[2]?.textContent).toBe(
       "Mighty usage, reset monthly",
     );
-    expect(container.children[2]?.textContent).toBe(
+    expect(wrapRow.children[3]?.textContent).toBe(
       "Assistant email and subdomain",
     );
-    // A full-width row can afford to wrap a long label inside the pill.
+    // A sentence-length chip may wrap inside its pill; a short one never does.
     expect(getByText("Mighty usage, reset monthly").className).toContain(
       "whitespace-normal",
     );
-  });
-
-  test("renders no empty wrap group when every spec takes its own row", () => {
-    const { getByTestId } = render(
-      <PlanTile
-        testId={TILE_TEST_ID}
-        tierKey="mighty"
-        name="Mighty"
-        tag={<span>Current</span>}
-        specs={OWN_ROW_SPECS.filter((spec) => spec.ownRow)}
-      />,
-    );
-
-    const container = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
-    expect(container.childElementCount).toBe(2);
-    expect(container.firstElementChild?.className).not.toContain("flex-wrap");
+    expect(getByText("Small Machine").className).toContain("whitespace-nowrap");
   });
 
   test("stamps a nested data-theme scope when theme is set", () => {
