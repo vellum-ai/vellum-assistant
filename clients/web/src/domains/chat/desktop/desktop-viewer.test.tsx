@@ -189,13 +189,12 @@ afterEach(() => {
 });
 
 describe("DesktopViewer", () => {
-  test("hands noVNC the open socket, scaled and driving the remote size", async () => {
+  test("hands noVNC the open socket and scales the whole desktop", async () => {
     await mountPanel();
 
     expect(socket().binaryType).toBe("arraybuffer");
     expect(rfb().channel).toBe(socket());
     expect(rfb().scaleViewport).toBe(true);
-    expect(rfb().resizeSession).toBe(true);
     expect(rfb().clipViewport).toBe(false);
     expect(status()).toBe("connecting");
   });

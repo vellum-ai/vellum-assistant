@@ -56,7 +56,6 @@ export function openDesktopSession({
   const updateViewOnly = (): void => {
     if (rfb) {
       rfb.viewOnly = currentViewOnly;
-      rfb.resizeSession = !currentViewOnly;
       rfb.focusOnClick = !currentViewOnly;
     }
   };
@@ -103,6 +102,8 @@ export function openDesktopSession({
     }
     rfb = client;
     client.scaleViewport = true;
+    // Scale the whole desktop without changing its resolution or window layout.
+    client.resizeSession = false;
     updateViewOnly();
     client.clipViewport = false;
 

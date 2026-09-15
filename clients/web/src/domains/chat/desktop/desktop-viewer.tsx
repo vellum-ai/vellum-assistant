@@ -33,7 +33,7 @@ interface DesktopViewerProps {
 
 /**
  * The interactive view of an assistant desktop. Opens a session on mount and
- * closes it on unmount; noVNC resizes the remote display to fit the viewport.
+ * closes it on unmount; noVNC scales the whole desktop to fit the viewport.
  * A status overlay covers the viewport until the picture is live, and again
  * once the session ends, with a Reconnect button where retrying can help.
  */
