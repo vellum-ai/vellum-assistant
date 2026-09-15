@@ -230,8 +230,6 @@ describe("appIdForPath (the app a path keeps on screen, if any)", () => {
   });
 
   test("decodes the segment, so it equals the id the viewer holds", () => {
-    // A plugin app takes its id from the author's directory name, so a space
-    // reaches the URL encoded and the store decoded.
     expect(appIdForPath(ENCODED_APP_PATH)).toBe("plugins~p~My App");
   });
 });

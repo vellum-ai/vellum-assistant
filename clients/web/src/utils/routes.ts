@@ -400,9 +400,6 @@ function isAssistantIndexPath(pathname: string): boolean {
  * the context of a conversation" semantics (e.g. the sidebar's active-row
  * highlight). For "is the chat composer on screen" semantics use
  * {@link isConversationChatPath} — the inspector has no composer.
- *
- * The prefix is read off the decoded path, the way the router reads it, so an
- * escaped spelling of it names the area too.
  */
 export function isConversationPath(pathname: string): boolean {
   return (
