@@ -44,6 +44,7 @@ export function conversationNavigationMock(
     prepareFreshConversation: () => DRAFT_CONVERSATION_ID,
     navigateToNewConversation: () => DRAFT_CONVERSATION_ID,
     navigateFromApp: () => {},
+    closeAppRoute: () => {},
     ...overrides,
   };
 }

@@ -8,7 +8,30 @@ import { useViewerStore } from "@/stores/viewer-store";
 const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
 
 function makeCtx(isMobile = false) {
-  return { navigate: mock((_to: string) => {}), isMobile };
+  return {
+    navigate: mock((_to: string, _options?: { replace?: boolean }) => {}),
+    isMobile,
+  };
+}
+
+/** The route an action reads: which conversation it is on, and which app. */
+function showPath(path: string): void {
+  window.history.replaceState(null, "", path);
+}
+
+/** The app on screen, as the route that put it there names it. */
+function openApp(
+  conversationId: string,
+  mainView: "app" | "app-editing" = "app",
+): void {
+  useViewerStore.setState({
+    mainView,
+    activeAppId: SAMPLE_APP.appId,
+    openedAppState: SAMPLE_APP,
+  });
+  showPath(
+    `/assistant/conversations/${conversationId}/app/${SAMPLE_APP.appId}`,
+  );
 }
 
 let restoreViewport: (() => void) | undefined;
@@ -18,6 +41,7 @@ beforeEach(() => {
     narrow: false,
     coarsePointer: false,
   });
+  showPath("/assistant");
 });
 
 afterEach(() => {
@@ -32,11 +56,7 @@ afterEach(() => {
 describe("handleAppViewerAction — relay_prompt", () => {
   it("relays to the active conversation without touching the view", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
-    useViewerStore.setState({
-      mainView: "app-editing",
-      activeAppId: SAMPLE_APP.appId,
-      openedAppState: SAMPLE_APP,
-    });
+    openApp("conv-1", "app-editing");
     const ctx = makeCtx();
 
     handleAppViewerAction(ctx, "relay_prompt", { prompt: "hello" });
@@ -66,11 +86,7 @@ describe("handleAppViewerAction — relay_prompt", () => {
   });
 
   it("keeps a full-width app in the URL of the draft it relays into", () => {
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: SAMPLE_APP.appId,
-      openedAppState: SAMPLE_APP,
-    });
+    openApp("conv-1");
     const ctx = makeCtx();
 
     handleAppViewerAction(ctx, "relay_prompt", {
@@ -108,18 +124,15 @@ describe("handleAppViewerAction — relay_prompt", () => {
 });
 
 describe("handleAppViewerAction — set_view", () => {
-  // The close itself belongs to `useAppRouteSync`, which is not mounted here.
-  it("'chat' lands on the conversation URL, which names no app", () => {
+  it("'chat' closes the viewer and lands on the conversation URL", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: SAMPLE_APP.appId,
-      openedAppState: SAMPLE_APP,
-    });
+    openApp("conv-1");
     const ctx = makeCtx();
 
     handleAppViewerAction(ctx, "set_view", { view: "chat" });
 
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(useViewerStore.getState().activeAppId).toBeNull();
     expect(ctx.navigate.mock.calls[0][0]).toBe(
       "/assistant/conversations/conv-1",
     );
@@ -138,6 +151,7 @@ describe("handleAppViewerAction — set_view", () => {
 
     const newId = useConversationStore.getState().activeConversationId;
     expect(newId).toBeTruthy();
+    expect(useViewerStore.getState().mainView).toBe("chat");
     expect(ctx.navigate.mock.calls[0][0]).toBe(
       `/assistant/conversations/${newId}`,
     );
@@ -213,11 +227,7 @@ describe("handleAppViewerAction — open_conversation", () => {
   });
 
   it("enters the side-by-side so the conversation is visible beside the app", () => {
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: SAMPLE_APP.appId,
-      openedAppState: SAMPLE_APP,
-    });
+    openApp("conv-1");
     const ctx = makeCtx();
 
     handleAppViewerAction(ctx, "open_conversation", {

@@ -292,6 +292,7 @@ describe("handleOpenConversation", () => {
     useViewerStore.getState().reset();
     useConversationStore.getState().reset();
     useSubagentStore.getState().reset();
+    window.history.replaceState(null, "", "/assistant");
   });
 
   it("switches to and focuses the target conversation by default", () => {
@@ -323,6 +324,12 @@ describe("handleOpenConversation", () => {
       activeAppId: "app-1",
       openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
     });
+    // The app rides along only from a route that names it.
+    window.history.replaceState(
+      null,
+      "",
+      "/assistant/conversations/conv-origin/app/app-1",
+    );
     const push = mock((_url: string) => {});
     const ctx = { router: { push } } as unknown as StreamHandlerContext;
 
@@ -359,6 +366,12 @@ describe("handleOpenConversation", () => {
       activeAppId: "app-1",
       openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
     });
+    // The app rides along only from a route that names it.
+    window.history.replaceState(
+      null,
+      "",
+      "/assistant/conversations/conv-origin/app/app-1",
+    );
     const push = mock((_url: string) => {});
     const ctx = { router: { push } } as unknown as StreamHandlerContext;
 

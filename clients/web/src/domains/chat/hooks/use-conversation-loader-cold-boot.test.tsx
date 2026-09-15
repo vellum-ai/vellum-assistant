@@ -651,6 +651,11 @@ describe("startNewConversation carries the app the viewer keeps", () => {
       activeAppId: SAMPLE_APP.appId,
       openedAppState: SAMPLE_APP,
     });
+    window.history.replaceState(
+      {},
+      "",
+      routes.conversation("c1", SAMPLE_APP.appId),
+    );
 
     const { draftId, path } = await startFreshChat();
 

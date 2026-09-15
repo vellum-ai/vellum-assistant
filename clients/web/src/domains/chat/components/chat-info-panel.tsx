@@ -12,6 +12,7 @@
 import { ChevronLeft, Layers } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router";
 
 import { Button } from "@vellumai/design-library";
 
@@ -44,12 +45,15 @@ import {
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useTranslation } from "@/i18n";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   type ChatInfoCategory,
   type ChatInfoPayload,
   useViewerStore,
 } from "@/stores/viewer-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
+import { haptic } from "@/utils/haptics";
+import { routes } from "@/utils/routes";
 
 interface ChatInfoPanelProps {
   payload: ChatInfoPayload;
@@ -64,6 +68,7 @@ export function ChatInfoPanel({
   onSelectCategory,
 }: ChatInfoPanelProps) {
   const { t } = useTranslation("chat");
+  const navigate = useNavigate();
   const { assistantId, conversationId } = payload;
   const openDocument = useOpenDocumentFromChat(
     assistantId,
@@ -122,14 +127,23 @@ export function ChatInfoPanel({
   }, [clearConversation, conversationId, unseenDocuments]);
 
   // Closing first returns the viewer to whatever the panel was opened from,
-  // so the asset lands there rather than behind the panel. The app opens
-  // under the panel's own assistant, which need not be the active one.
+  // so the asset lands there rather than behind the panel. An app under the
+  // active assistant opens as a navigation, like every other app open. The
+  // panel's own assistant need not be the active one, and another assistant's
+  // app has no conversation URL to name it, so that one opens in the viewer.
   const handleOpenApp = useCallback(
     (appId: string) => {
       useViewerStore.getState().closeChatInfo();
+      if (
+        assistantId === useResolvedAssistantsStore.getState().activeAssistantId
+      ) {
+        haptic.light();
+        void navigate(routes.conversation(conversationId, appId));
+        return;
+      }
       void openAppFromChat(assistantId, appId);
     },
-    [assistantId],
+    [assistantId, conversationId, navigate],
   );
 
   const handleOpenFile = useCallback(

@@ -53,8 +53,8 @@ import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOverlayEscape } from "../hooks/use-overlay-escape";
 import {
+  closeAppRoute,
   navigateFromApp,
-  prepareFreshConversation,
 } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
@@ -232,10 +232,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // -------------------------------------------------------------------------
 
   const handleCloseApp = useCallback(() => {
-    const conversationId =
-      useConversationStore.getState().activeConversationId ??
-      prepareFreshConversation();
-    void navigate(routes.conversation(conversationId));
+    closeAppRoute(navigate);
   }, [navigate]);
 
   const handleNavigateAppRoute = useCallback(
