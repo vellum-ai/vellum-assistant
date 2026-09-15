@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -7,6 +8,8 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { useEffect, useState } from "react";
+
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 let desktopEnabled: boolean | undefined = true;
 let assistantId = "asst-1";
@@ -65,13 +68,16 @@ function DesktopHarness() {
 
 const openDesktop = async () => {
   render(<DesktopHarness />);
-  fireEvent.click(screen.getByRole("button", { name: "Open Alice's Computer" }));
+  fireEvent.click(
+    screen.getByRole("button", { name: "Open Alice's Computer" }),
+  );
   await waitFor(() =>
     expect(screen.getByTestId("desktop-panel")).not.toBeNull(),
   );
 };
 
 beforeEach(() => {
+  useAssistantIdentityStore.getState().clearIdentity();
   touch = false;
   useDesktopPreviewStore.setState({ position: null });
   panelUnmounts = 0;
@@ -80,9 +86,29 @@ beforeEach(() => {
   useDesktopPreviewStore.getState().close();
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  useAssistantIdentityStore.getState().clearIdentity();
+});
 
 describe("AssistantDesktopAffordance", () => {
+  test("updates the name after a rename and ignores another assistant's identity", () => {
+    const { rerender } = render(<DesktopHarness />);
+    act(() => {
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity("Example Assistant", null, "asst-1");
+    });
+    expect(
+      screen.getByRole("button", { name: "Open Example Assistant's Computer" }),
+    ).not.toBeNull();
+    assistantId = "asst-2";
+    rerender(<DesktopHarness />);
+    expect(
+      screen.getByRole("button", { name: "Open Bob's Computer" }),
+    ).not.toBeNull();
+  });
+
   test("opening from navigation dismisses the menu and keeps fullscreen open", async () => {
     touch = true;
     function MenuHarness() {
@@ -99,8 +125,12 @@ describe("AssistantDesktopAffordance", () => {
       );
     }
     render(<MenuHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Open Alice's Computer" }));
-    await waitFor(() => expect(screen.getByTestId("desktop-panel")).toBeTruthy());
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Alice's Computer" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("desktop-panel")).toBeTruthy(),
+    );
     expect(screen.queryByRole("navigation") === null).toBe(true);
     expect(screen.getByRole("dialog")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
@@ -128,15 +158,17 @@ describe("AssistantDesktopAffordance", () => {
       desktopEnabled = flag;
       render(<DesktopHarness />);
       expect(
-      screen.queryByRole("button", { name: "Open Alice's Computer" }),
-    ).toBeNull();
+        screen.queryByRole("button", { name: "Open Alice's Computer" }),
+      ).toBeNull();
       expect(screen.queryByTestId("desktop-panel") === null).toBe(true);
     });
   }
 
   test("unmounts an open desktop when the flag is disabled", async () => {
     const { rerender } = render(<DesktopHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Open Alice's Computer" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Alice's Computer" }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("desktop-panel")).not.toBeNull(),
     );
@@ -276,7 +308,9 @@ describe("AssistantDesktopAffordance", () => {
 
   test("switching assistants closes the previous session", async () => {
     const { rerender } = render(<DesktopHarness />);
-    fireEvent.click(screen.getByRole("button", { name: "Open Alice's Computer" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open Alice's Computer" }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("desktop-panel")).not.toBeNull(),
     );
