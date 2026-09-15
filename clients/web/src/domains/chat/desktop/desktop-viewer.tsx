@@ -1,6 +1,6 @@
 import { Button } from "@vellumai/design-library";
 import { Loader2 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/i18n";
 
@@ -41,7 +41,7 @@ export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: Deskt
   const { t } = useTranslation("chat");
   const sessionRef = useRef<DesktopSession | null>(null);
   const viewOnlyRef = useRef(viewOnly);
-  useLayoutEffect(() => {
+  useEffect(() => {
     viewOnlyRef.current = viewOnly;
     sessionRef.current?.setViewOnly(viewOnly);
   }, [viewOnly]);

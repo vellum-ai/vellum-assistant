@@ -215,7 +215,7 @@ describe("DesktopSessionManager process tree", () => {
     expect(x).toContain("-localhost");
     expect(x[x.indexOf("-SecurityTypes") + 1]).toBe("None");
     expect(x[x.indexOf("-rfbport") + 1]).toBe(String(DESKTOP_VNC_PORT));
-    expect(x[x.indexOf("-geometry") + 1]).toBe("1440x900");
+    expect(x[x.indexOf("-geometry") + 1]).toBe("1600x900");
     for (const role of [
       "window-manager",
       "compositor",
@@ -250,10 +250,6 @@ describe("DesktopSessionManager process tree", () => {
     const browser = h.child("browser").request.cmd;
     expect(browser[0]).toBe("/fake/chromium");
     expect(browser).toContain(`--user-data-dir=${profileDir}`);
-    // Explicit geometry matching the X server, so the window does not depend
-    // on openbox being up to honor --start-maximized.
-    expect(browser).toContain("--window-position=0,0");
-    expect(browser).toContain("--window-size=1440,900");
 
     // A running tree is reused rather than started again.
     await h.manager.ensureDesktopRunning();

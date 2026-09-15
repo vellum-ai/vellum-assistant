@@ -53,7 +53,7 @@ export function DesktopSidebarContent({
     <>
       <div
         ref={attachPreview}
-        className="aspect-[16/10] w-full overflow-hidden rounded-lg border border-[var(--border-base)] bg-black"
+        className="aspect-video w-full overflow-hidden rounded-lg border border-[var(--border-base)] bg-black"
       />
       <Typography
         as="p"

@@ -30,7 +30,7 @@ const log = getLogger("desktop-session");
 
 const DESKTOP_DISPLAY = ":99";
 export const DESKTOP_VNC_PORT = 5999;
-const DESKTOP_WIDTH = 1440;
+const DESKTOP_WIDTH = 1600;
 const DESKTOP_HEIGHT = 900;
 const DESKTOP_GEOMETRY = `${DESKTOP_WIDTH}x${DESKTOP_HEIGHT}`;
 const DESKTOP_LINGER_MS = 5 * 60_000;
@@ -744,6 +744,8 @@ function xServerCommand(executable: string): string[] {
     String(DESKTOP_VNC_PORT),
     "-geometry",
     DESKTOP_GEOMETRY,
+    // Keep the dock and wallpaper anchored to a stable display.
+    "-AcceptSetDesktopSize=0",
     "-depth",
     "24",
     "-desktop",
@@ -752,7 +754,7 @@ function xServerCommand(executable: string): string[] {
 }
 
 function browserCommand(executable: string, profileDir: string): string[] {
-  // Root containers require --no-sandbox; set geometry before openbox maps it.
+  // Explicit window bounds override Chrome's maximized startup state.
   return [
     executable,
     "--no-sandbox",
@@ -763,8 +765,6 @@ function browserCommand(executable: string, profileDir: string): string[] {
       ? ["--restore-last-session", "--hide-crash-restore-bubble"]
       : []),
     "--start-maximized",
-    "--window-position=0,0",
-    `--window-size=${DESKTOP_WIDTH},${DESKTOP_HEIGHT}`,
     `--user-data-dir=${profileDir}`,
   ];
 }
