@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { PreviewModalHeader } from "@/domains/chat/components/preview-modal-header";
 import { useTranslation } from "@/i18n";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
+import { cn } from "@/utils/misc";
 
 import { DesktopPanel } from "./desktop-panel";
 import { useDesktopPreviewStore } from "./desktop-preview-store";
@@ -12,11 +13,13 @@ import { useDesktopPreviewStore } from "./desktop-preview-store";
 interface DesktopPreviewContentProps {
   assistantId: string;
   fullscreen: boolean;
+  fullscreenOnly: boolean;
 }
 
 export function DesktopPreviewContent({
   assistantId,
   fullscreen,
+  fullscreenOnly,
 }: DesktopPreviewContentProps) {
   const { t } = useTranslation("chat");
   const previewRef = useRef<HTMLDivElement>(null);
@@ -39,8 +42,14 @@ export function DesktopPreviewContent({
     },
     [host],
   );
-  const setFullscreen = (open: boolean) =>
-    useDesktopPreviewStore.getState().setFullscreen(open);
+  const setFullscreen = (open: boolean) => {
+    const store = useDesktopPreviewStore.getState();
+    if (!open && fullscreenOnly) {
+      store.close();
+    } else {
+      store.setFullscreen(open);
+    }
+  };
 
   useEffect(() => {
     if (!fullscreen) {
@@ -73,6 +82,7 @@ export function DesktopPreviewContent({
       )}
       <Modal.Root open={fullscreen} onOpenChange={setFullscreen}>
         <Modal.Content
+          id="assistant-desktop-modal"
           hideCloseButton
           aria-describedby={undefined}
           className="h-dvh max-h-none max-w-none rounded-none border-0 bg-transparent shadow-none"
@@ -85,6 +95,9 @@ export function DesktopPreviewContent({
             }
           }}
           onCloseAutoFocus={(event) => {
+            if (fullscreenOnly) {
+              return;
+            }
             event.preventDefault();
             previewRef.current?.parentElement
               ?.querySelector<HTMLButtonElement>("button")
@@ -105,7 +118,10 @@ export function DesktopPreviewContent({
           />
           <div
             ref={attachFullscreen}
-            className="pointer-events-auto mx-auto min-h-0 w-[90vw] flex-1 overflow-hidden rounded-lg"
+            className={cn(
+              "pointer-events-auto mx-auto min-h-0 flex-1 overflow-hidden",
+              fullscreenOnly ? "w-full" : "w-[90vw] rounded-lg",
+            )}
             style={{
               marginTop:
                 "calc(4rem + var(--safe-area-inset-top, env(safe-area-inset-top, 0px)))",

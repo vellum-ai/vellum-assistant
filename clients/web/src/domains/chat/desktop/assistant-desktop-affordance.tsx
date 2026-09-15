@@ -4,6 +4,7 @@ import { Monitor } from "lucide-react";
 import { useTranslation } from "@/i18n";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { usePointerCoarse } from "@/utils/pointer";
 
 import { useDesktopPreviewStore } from "./desktop-preview-store";
 
@@ -12,6 +13,7 @@ export function AssistantDesktopAffordance() {
   const enabled = useAssistantFeatureFlagStore.use.assistantDesktop();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const session = useDesktopPreviewStore.use.session();
+  const fullscreenOnly = usePointerCoarse();
 
   if (enabled !== true || assistantId === null) {
     return null;
@@ -30,7 +32,9 @@ export function AssistantDesktopAffordance() {
       aria-label={label}
       tooltip={label}
       aria-expanded={open}
-      aria-controls="assistant-desktop-preview"
+      aria-controls={
+        fullscreenOnly ? "assistant-desktop-modal" : "assistant-desktop-preview"
+      }
       onClick={() => useDesktopPreviewStore.getState().toggle(assistantId)}
     />
   );

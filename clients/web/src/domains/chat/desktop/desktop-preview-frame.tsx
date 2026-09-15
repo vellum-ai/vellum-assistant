@@ -10,11 +10,15 @@ import { useTranslation } from "@/i18n";
 import { useDesktopPreviewStore } from "./desktop-preview-store";
 import { useDesktopPreviewDrag } from "./use-desktop-preview-drag";
 
-export function DesktopPreviewFrame({ children }: { children: ReactNode }) {
+export function DesktopPreviewFrame({
+  children,
+  fullscreen,
+}: {
+  children: ReactNode;
+  fullscreen: boolean;
+}) {
   const { t } = useTranslation("chat");
   const close = useDesktopPreviewStore.use.close();
-  const fullscreen =
-    useDesktopPreviewStore.use.session()?.view === "fullscreen";
   const viewportStyle = useMobileOverlayViewportStyle();
   const reduce = useReducedMotion();
   const { boundsRef, frameRef, position, onMoveKeyDown, ...dragProps } =

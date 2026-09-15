@@ -10,6 +10,12 @@ import { useEffect } from "react";
 
 let desktopEnabled: boolean | undefined = true;
 let assistantId = "asst-1";
+let touch = false;
+
+mock.module("@/utils/pointer", () => ({
+  usePointerCoarse: () => touch,
+  isPointerCoarse: () => touch,
+}));
 
 mock.module("@/stores/assistant-feature-flag-store", () => ({
   useAssistantFeatureFlagStore: {
@@ -58,6 +64,7 @@ const openDesktop = async () => {
 };
 
 beforeEach(() => {
+  touch = false;
   useDesktopPreviewStore.setState({ position: null });
   panelUnmounts = 0;
   desktopEnabled = true;
@@ -68,6 +75,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("AssistantDesktopAffordance", () => {
+  test("touch opens directly in fullscreen and closing dismisses the desktop", async () => {
+    touch = true;
+    await openDesktop();
+    expect(screen.getByRole("dialog")).not.toBeNull();
+    expect(screen.getByTestId("desktop-panel").dataset.viewOnly).toBe("false");
+    expect(screen.queryByRole("button", { name: "Expand desktop" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+    );
+    expect(screen.getByRole("button", { name: "Open desktop" })).not.toBeNull();
+  });
   for (const flag of [false, undefined]) {
     test(`hides the desktop control and panel when the flag is ${flag}`, () => {
       desktopEnabled = flag;

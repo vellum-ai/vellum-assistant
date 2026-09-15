@@ -94,6 +94,10 @@
     "earlierActivity": "Actividad anterior"
   },
   "assistantDesktop": {
+    "fitView": "Ajustar",
+    "panView": "Desplazar",
+    "controlView": "Controlar",
+    "panHint": "Arrastra para desplazarte. Toca para hacer clic.",
     "hideAria": "Ocultar escritorio",
     "closeAria": "Cerrar vista previa del escritorio",
     "moveAria": "Mover vista previa del escritorio (teclas de flecha)",

@@ -94,6 +94,10 @@
     "earlierActivity": "更早的活动"
   },
   "assistantDesktop": {
+    "fitView": "适应屏幕",
+    "panView": "平移",
+    "controlView": "控制",
+    "panHint": "拖动以平移，轻点以单击。",
     "hideAria": "隐藏桌面",
     "closeAria": "关闭桌面预览",
     "moveAria": "移动桌面预览（方向键）",

@@ -94,6 +94,10 @@
     "earlierActivity": "Earlier activity"
   },
   "assistantDesktop": {
+    "fitView": "Fit",
+    "panView": "Pan",
+    "controlView": "Control",
+    "panHint": "Drag to pan. Tap to click.",
     "hideAria": "Hide desktop",
     "closeAria": "Close desktop preview",
     "moveAria": "Move desktop preview (arrow keys)",
