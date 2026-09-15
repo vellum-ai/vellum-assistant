@@ -33,7 +33,7 @@ function FloatingHydrateFallback() {
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
-import { routes } from "@/utils/routes";
+import { CONVERSATION_APP_SEGMENT, routes } from "@/utils/routes";
 
 /**
  * Redirects legacy `/account/oauth/desktop-complete` to the canonical
@@ -950,7 +950,7 @@ export const routeTree = [
                   // same lifecycle tolerance as the conversation route above;
                   // the extra segment only adds the `appId` param.
                   {
-                    path: "conversations/:conversationId/app/:appId",
+                    path: `conversations/:conversationId/${CONVERSATION_APP_SEGMENT}/:appId`,
                     Component: ChatPage,
                   },
                   {

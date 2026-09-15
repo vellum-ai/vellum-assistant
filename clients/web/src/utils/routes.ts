@@ -28,9 +28,9 @@ export const SCROLL_TO_MESSAGE_PARAM = "message";
 
 /**
  * Path segment introducing the app a conversation URL keeps on screen
- * (`/assistant/conversations/:conversationId/app/:appId`). Shared by the URL
- * producers ({@link routes.conversation} and friends) and the parser
- * ({@link appIdForPath}) so the spelling can't drift from `routes.tsx`.
+ * (`/assistant/conversations/:conversationId/app/:appId`). Shared by the route
+ * tree in `routes.tsx`, the URL producers ({@link routes.conversation} and
+ * friends), and the parser ({@link appIdForPath}) so the spelling can't drift.
  */
 export const CONVERSATION_APP_SEGMENT = "app";
 
