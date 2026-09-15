@@ -86,28 +86,48 @@ function isNarrowViewport(): boolean {
 }
 
 /**
- * If an app is already on screen on a wide viewport, bind `conversationId`
- * as the chat pane and keep the app in the side-by-side layout instead of
- * dismissing it. Returns true when the app was kept.
+ * The app on screen: the one the viewer holds in an app view and the URL
+ * already names. `null` for the chat, for an overlay, and for a viewer left
+ * holding an app by a route that unmounted the chat page, which shows nobody
+ * an app and must not put one back on screen.
+ */
+function appOnScreenId(): string | null {
+  const viewer = useViewerStore.getState();
+  if (!isAppMainView(viewer.mainView) || viewer.activeAppId === null) {
+    return null;
+  }
+  return appIdForPath(currentPathname()) === viewer.activeAppId
+    ? viewer.activeAppId
+    : null;
+}
+
+/**
+ * If an app is on screen on a wide viewport, bind `conversationId` as the
+ * chat pane and keep the app in the side-by-side layout instead of dismissing
+ * it. Returns true when the app was kept.
  *
- * Narrow viewports have no split layout, so those still fall through to
- * chat. Overlay views (document, tool detail, …) are not apps and are
- * dismissed as before.
+ * Narrow viewports have no split layout, so those still fall through to chat.
  */
 export function keepOpenAppBesideConversation(conversationId: string): boolean {
-  if (isNarrowViewport()) {
-    return false;
-  }
-  const viewer = useViewerStore.getState();
-  if (!isAppMainView(viewer.mainView)) {
-    return false;
-  }
-  if (!viewer.activeAppId && !viewer.openedAppState) {
+  if (isNarrowViewport() || appOnScreenId() === null) {
     return false;
   }
   useConversationStore.getState().setEditingConversationId(conversationId);
-  viewer.enterAppEditing();
+  useViewerStore.getState().enterAppEditing();
   return true;
+}
+
+/**
+ * Leave the side-by-side split: the app takes the full width back and lets go
+ * of the chat pane bound beside it. A no-op anywhere else.
+ */
+export function exitAppSplit(): void {
+  const viewer = useViewerStore.getState();
+  if (viewer.mainView !== "app-editing") {
+    return;
+  }
+  viewer.exitAppEditing();
+  useConversationStore.getState().setEditingConversationId(null);
 }
 
 /**
@@ -121,24 +141,13 @@ export function revealConversationView(conversationId: string): void {
 }
 
 /**
- * The app the viewer keeps on screen and the URL already names, to carry in
- * the next conversation URL. `null` when the viewer shows the chat or an
- * overlay, and `null` when the URL names no app: a route that unmounts the
- * chat page leaves the viewer holding the app it had, and a store left that
- * way must not put an app back on screen at the next conversation.
- *
- * Read it after `revealConversationView` / `prepareFreshConversation`, which
- * decide whether the app stays. Reads `activeAppId` rather than the loaded
+ * The app to carry in the next conversation URL: {@link appOnScreenId}, read
+ * after `revealConversationView` / `prepareFreshConversation`, which decide
+ * whether the app stays. Reads `activeAppId` rather than the loaded
  * `openedAppState`, so an app still loading is already named in the URL.
  */
 export function keptAppId(): string | null {
-  const viewer = useViewerStore.getState();
-  if (!isAppMainView(viewer.mainView) || viewer.activeAppId === null) {
-    return null;
-  }
-  return appIdForPath(currentPathname()) === viewer.activeAppId
-    ? viewer.activeAppId
-    : null;
+  return appOnScreenId();
 }
 
 /**
@@ -317,15 +326,21 @@ export function navigateFromApp(
 }
 
 /**
- * Drop an app that failed to load from the route, where reload and Forward
- * would retry it forever. An `activeAppId` still on the app means an overlay
- * holds it, so the URL stands.
+ * Take `appId`'s segment off the route, landing on the conversation the route
+ * names. A no-op once the URL has moved on to another app.
+ *
+ * `evenIfHeld` drops the segment while the viewer still holds the app, for a
+ * caller that means the app to stay in memory behind what is in front of it.
  */
-export function dropFailedAppFromRoute(
+export function dropAppFromRoute(
   navigate: PathNavigate,
   appId: string,
+  options?: { evenIfHeld?: boolean },
 ): void {
-  if (useViewerStore.getState().activeAppId === appId) {
+  if (
+    options?.evenIfHeld !== true &&
+    useViewerStore.getState().activeAppId === appId
+  ) {
     return;
   }
   const pathname = currentPathname();
@@ -337,4 +352,16 @@ export function dropFailedAppFromRoute(
     return;
   }
   void navigate(routes.conversation(conversationId), { replace: true });
+}
+
+/**
+ * Drop an app that failed to load from the route, where reload and Forward
+ * would retry it forever. An `activeAppId` still on the app means an overlay
+ * holds it, so the URL stands.
+ */
+export function dropFailedAppFromRoute(
+  navigate: PathNavigate,
+  appId: string,
+): void {
+  dropAppFromRoute(navigate, appId);
 }

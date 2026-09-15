@@ -124,22 +124,28 @@ export function isAppNotFoundError(err: unknown): boolean {
   return typeof message === "string" && message.startsWith("App not found");
 }
 
+/** Every overlay's restore target: the view it was opened over. */
+const VIEW_BEFORE_FIELDS = [
+  "viewBeforeDocument",
+  "viewBeforeSubagentDetail",
+  "viewBeforeToolDetail",
+  "viewBeforeActivitySteps",
+  "viewBeforeMessageFiles",
+  "viewBeforeWorkflowDetail",
+  "viewBeforeAcpRunDetail",
+  "viewBeforeBackgroundTaskDetail",
+  "viewBeforeSkillDetail",
+  "viewBeforeWakeDetail",
+  "viewBeforeChannelSetup",
+  "viewBeforeChannelTranscript",
+  "viewBeforeChatInfo",
+] as const;
+
+type ViewBeforeField = (typeof VIEW_BEFORE_FIELDS)[number];
+
 function resolveViewBefore(
   state: ViewerState,
-  field:
-    | "viewBeforeDocument"
-    | "viewBeforeSubagentDetail"
-    | "viewBeforeToolDetail"
-    | "viewBeforeActivitySteps"
-    | "viewBeforeMessageFiles"
-    | "viewBeforeWorkflowDetail"
-    | "viewBeforeAcpRunDetail"
-    | "viewBeforeBackgroundTaskDetail"
-    | "viewBeforeSkillDetail"
-    | "viewBeforeWakeDetail"
-    | "viewBeforeChannelSetup"
-    | "viewBeforeChannelTranscript"
-    | "viewBeforeChatInfo",
+  field: ViewBeforeField,
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
   if (
@@ -931,10 +937,20 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   },
 
   releaseApp: () => {
+    // An overlay opened over the app restores to it on close. With the app
+    // gone there is nothing to restore to, so those targets settle on chat.
+    const state = get();
+    const settled: Partial<Record<ViewBeforeField, "chat">> = {};
+    for (const field of VIEW_BEFORE_FIELDS) {
+      if (isAppMainView(state[field])) {
+        settled[field] = "chat";
+      }
+    }
     set({
       activeAppId: null,
       openedAppState: null,
       isAppMinimized: false,
+      ...settled,
     });
   },
 

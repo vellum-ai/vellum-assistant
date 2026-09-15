@@ -108,7 +108,9 @@ function setView(
   const viewer = useViewerStore.getState();
   switch (data?.view) {
     case "chat":
-      closeAppRoute(ctx.navigate);
+      // The mobile overlay's own close replaces, so this one does too: Back
+      // must not reopen an app the app itself dismissed.
+      closeAppRoute(ctx.navigate, { replace: ctx.isMobile });
       return;
     case "full":
       if (viewer.mainView === "app-editing") {

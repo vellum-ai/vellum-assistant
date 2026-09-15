@@ -57,7 +57,9 @@ mock.module("@/domains/chat/composer-focus", () => ({
 
 const {
   closeAppRoute,
+  dropAppFromRoute,
   dropFailedAppFromRoute,
+  exitAppSplit,
   navigateToConversation,
   navigateToNewConversation,
   keepOpenAppBesideConversation,
@@ -191,6 +193,7 @@ describe("navigateToConversation", () => {
         category: null,
       },
     });
+    showPath(routes.conversation("conv-1", SAMPLE_APP.appId));
     const navigate = mock((_to: string) => {});
     navigateToConversation(navigate as unknown as NavigateFunction, "conv-2");
 
@@ -500,6 +503,41 @@ describe("keepOpenAppBesideConversation", () => {
     expect(keepOpenAppBesideConversation("conv-4")).toBe(false);
     expect(useViewerStore.getState().mainView).toBe("document");
   });
+
+  test("is a no-op when the URL names no app, whatever the store holds", () => {
+    // A route that unmounted the chat page left the viewer on the app, and
+    // nobody is looking at it.
+    openAppViewer();
+    showPath(routes.library.root);
+
+    expect(keepOpenAppBesideConversation("conv-4")).toBe(false);
+    expect(useViewerStore.getState().mainView).toBe("app");
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
+  });
+});
+
+describe("exitAppSplit", () => {
+  test("gives the app the full width back and drops the bound pane", () => {
+    openAppViewer("app-editing");
+    useConversationStore.getState().setEditingConversationId("conv-4");
+
+    exitAppSplit();
+
+    expect(useViewerStore.getState().mainView).toBe("app");
+    expect(useConversationStore.getState().editingConversationId).toBeNull();
+  });
+
+  test("leaves a full-width app and its binding alone", () => {
+    openAppViewer();
+    useConversationStore.getState().setEditingConversationId("conv-4");
+
+    exitAppSplit();
+
+    expect(useViewerStore.getState().mainView).toBe("app");
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-4",
+    );
+  });
 });
 
 describe("revealConversationView", () => {
@@ -641,6 +679,35 @@ describe("dropFailedAppFromRoute", () => {
     );
 
     dropFailedAppFromRoute(navigate, SAMPLE_APP.appId);
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("dropAppFromRoute", () => {
+  test("evenIfHeld drops the segment while the viewer still holds the app", () => {
+    openOverlayOverApp();
+    showPath(routes.conversation(OPEN_CONVERSATION, SAMPLE_APP.appId));
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    dropAppFromRoute(navigate, SAMPLE_APP.appId, { evenIfHeld: true });
+
+    expect(navigate).toHaveBeenCalledWith(
+      routes.conversation(OPEN_CONVERSATION),
+      { replace: true },
+    );
+  });
+
+  test("still leaves a URL that moved on to another app alone", () => {
+    openOverlayOverApp();
+    showPath(routes.conversation(OPEN_CONVERSATION, "app-2"));
+    const navigate = mock(
+      (_to: string, _options?: { replace?: boolean }) => {},
+    );
+
+    dropAppFromRoute(navigate, SAMPLE_APP.appId, { evenIfHeld: true });
 
     expect(navigate).not.toHaveBeenCalled();
   });
