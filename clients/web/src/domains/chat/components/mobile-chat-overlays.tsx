@@ -20,10 +20,6 @@ import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { type ChatInfoCategory, useViewerStore } from "@/stores/viewer-store";
-import {
-  closeAppRoute,
-  navigateFromApp,
-} from "@/utils/conversation-navigation";
 
 import { MobileChannelTranscriptOverlay } from "@/domains/chat/channel-sidecar/mobile-channel-transcript-overlay";
 import { MobileAcpRunDetailOverlay } from "@/domains/chat/components/mobile-acp-run-detail-overlay";
@@ -37,6 +33,7 @@ import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-su
 import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
 import { MobileWakeDetailOverlay } from "@/domains/chat/components/mobile-wake-detail-overlay";
 import { MobileWorkflowDetailOverlay } from "@/domains/chat/components/mobile-workflow-detail-overlay";
+import { useAppViewerRouteHandlers } from "@/domains/chat/hooks/use-app-viewer-route-handlers";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 
@@ -65,16 +62,10 @@ export function MobileChatOverlays() {
   const backgroundTaskById = useBackgroundTaskStore.use.byId();
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
-  const handleCloseApp = useCallback(() => {
-    closeAppRoute(navigate);
-  }, [navigate]);
-
-  const handleNavigateAppRoute = useCallback(
-    (href: string) => {
-      navigateFromApp(navigate, href);
-    },
-    [navigate],
-  );
+  // A pushed close would let Android's Back re-open the dismissed app.
+  const { handleCloseApp, handleNavigateAppRoute } = useAppViewerRouteHandlers({
+    replaceOnClose: true,
+  });
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;

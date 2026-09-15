@@ -52,10 +52,7 @@ import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOverlayEscape } from "../hooks/use-overlay-escape";
-import {
-  closeAppRoute,
-  navigateFromApp,
-} from "@/utils/conversation-navigation";
+import { useAppViewerRouteHandlers } from "../hooks/use-app-viewer-route-handlers";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
 import { skillDetailBackState } from "@/utils/skills";
@@ -228,19 +225,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const editApp = useEditApp();
 
   // -------------------------------------------------------------------------
-  // Side-panel callbacks (store operations only — no hook-local state)
+  // Side-panel callbacks: navigation and store operations, no hook-local state
   // -------------------------------------------------------------------------
 
-  const handleCloseApp = useCallback(() => {
-    closeAppRoute(navigate);
-  }, [navigate]);
-
-  const handleNavigateAppRoute = useCallback(
-    (href: string) => {
-      navigateFromApp(navigate, href);
-    },
-    [navigate],
-  );
+  const { handleCloseApp, handleNavigateAppRoute } =
+    useAppViewerRouteHandlers();
 
   const handleCloseEditPanel = useCallback(() => {
     useConversationStore.getState().setEditingConversationId(null);
