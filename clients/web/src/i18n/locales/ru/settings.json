@@ -1904,7 +1904,7 @@
     "dockerDescriptionLinux": "Запустить ассистента в контейнере Docker на этом компьютере.",
     "dockerDescriptionMacos": "Запустить ассистента в контейнере Docker на этом Mac.",
     "dockerDescriptionWindows": "Запустить ассистента в контейнере Docker на этом ПК.",
-    "existingPlatformAssistant": "У вас уже есть ассистент на платформе '{id}'. Сначала отключите его, затем повторите Teleport.",
+    "existingPlatformAssistant": "У вас уже есть ассистент на платформе «{id}». Сначала отключите его, затем повторите Teleport.",
     "exportTimedOut": "Время ожидания экспорта истекло.",
     "importFailed": "Импорт не удался.",
     "importFailedHttp": "Импорт не удался (HTTP {status}).",

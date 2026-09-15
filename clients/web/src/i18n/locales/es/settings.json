@@ -1921,7 +1921,7 @@
     "dockerDescriptionLinux": "Ejecuta tu asistente en un contenedor Docker en este equipo.",
     "dockerDescriptionMacos": "Ejecuta tu asistente en un contenedor Docker en este Mac.",
     "dockerDescriptionWindows": "Ejecuta tu asistente en un contenedor Docker en este PC.",
-    "existingPlatformAssistant": "Ya tienes un asistente de plataforma '{id}'. Retíralo primero y luego reintenta la teleportación.",
+    "existingPlatformAssistant": "Ya tienes un asistente de plataforma «{id}». Retíralo primero y luego reintenta la teleportación.",
     "exportTimedOut": "La exportación agotó el tiempo de espera.",
     "importFailed": "La importación falló.",
     "importFailedHttp": "La importación falló (HTTP {status}).",

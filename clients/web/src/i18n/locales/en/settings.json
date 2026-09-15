@@ -1939,7 +1939,7 @@
     "dockerDescriptionLinux": "Run your assistant in a Docker container on this computer.",
     "dockerDescriptionMacos": "Run your assistant in a Docker container on this Mac.",
     "dockerDescriptionWindows": "Run your assistant in a Docker container on this PC.",
-    "existingPlatformAssistant": "You already have a platform assistant '{id}'. Retire it first, then retry the teleport.",
+    "existingPlatformAssistant": "You already have a platform assistant “{id}”. Retire it first, then retry the teleport.",
     "exportTimedOut": "Export timed out.",
     "importFailed": "Import failed.",
     "importFailedHttp": "Import failed (HTTP {status}).",
