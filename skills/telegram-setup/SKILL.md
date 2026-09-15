@@ -105,7 +105,6 @@ Triggered by the wizard-closed notification, `[User action on channel_setup surf
 
    Find the `webhook_delivery` check in `remoteChecks`. It has **three**
    outcomes, and the third is the one that matters:
-
    - **`passed: true`, no `indeterminate`** → confirmed. Telegram is
      registered at the address this assistant set. Continue to Step 4.
    - **`passed: false`** → the channel is not live. Its `message` already
