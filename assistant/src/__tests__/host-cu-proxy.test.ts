@@ -553,7 +553,7 @@ describe("HostCuProxy", () => {
       });
       const result2 = await p2;
       // First unchanged: simple warning
-      expect(result2.content).toContain("NO VISIBLE EFFECT");
+      expect(result2.content).toContain("tree did not change");
       expect(result2.content).not.toContain("2 consecutive");
 
       // Third request — still same AX tree, no diff (unchanged step 2)
@@ -571,7 +571,7 @@ describe("HostCuProxy", () => {
       const result3 = await p3;
       // Should now have the consecutive warning
       expect(result3.content).toContain(
-        "2 consecutive actions had NO VISIBLE EFFECT",
+        "did not change across 2 consecutive actions",
       );
     });
 
@@ -592,7 +592,56 @@ describe("HostCuProxy", () => {
         // No axDiff on first observation — this is normal, not unchanged
       });
       const result1 = await p1;
-      expect(result1.content).not.toContain("NO VISIBLE EFFECT");
+      expect(result1.content).not.toContain("tree did not change");
+    });
+
+    async function stepWithUnchangedTree(
+      toolName: string,
+      input: Record<string, unknown>,
+      step: number,
+    ) {
+      const pending = proxy.request(toolName, input, "session-1", step);
+      proxy.recordAction(toolName, input);
+      const sent = sentMessages[step - 1] as Record<string, unknown>;
+      proxy.processObservation(sent.requestId as string, {
+        axTree: "Button [1]",
+      });
+      return pending;
+    }
+
+    test("an AppleScript or an observation neither warns nor moves the streak", async () => {
+      for (const [toolName, input] of [
+        [
+          "computer_use_run_applescript",
+          { script: 'tell application "Finder" to activate' },
+        ],
+        ["computer_use_observe", {}],
+      ] as const) {
+        setup();
+        await stepWithUnchangedTree("computer_use_click", { element_id: 1 }, 1);
+
+        const result = await stepWithUnchangedTree(toolName, input, 2);
+
+        expect(result.content).not.toContain("tree did not change");
+        expect(proxy.consecutiveUnchangedSteps).toBe(0);
+      }
+    });
+
+    test("an observation between two unchanged clicks keeps the streak", async () => {
+      setup();
+      await stepWithUnchangedTree("computer_use_click", { element_id: 1 }, 1);
+      await stepWithUnchangedTree("computer_use_click", { element_id: 1 }, 2);
+      await stepWithUnchangedTree("computer_use_observe", {}, 3);
+
+      const result = await stepWithUnchangedTree(
+        "computer_use_click",
+        { element_id: 1 },
+        4,
+      );
+
+      expect(result.content).toContain(
+        "did not change across 2 consecutive actions",
+      );
     });
 
     test("skips unchanged warning after computer_use_wait", async () => {
@@ -626,7 +675,7 @@ describe("HostCuProxy", () => {
         // No axDiff — screen unchanged, but that's expected after wait
       });
       const result2 = await p2;
-      expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+      expect(result2.content).not.toContain("tree did not change");
     });
 
     test("skips unchanged warning and counter after a selection-only key (cmd+a)", async () => {
@@ -661,7 +710,7 @@ describe("HostCuProxy", () => {
         // No axDiff — selection change is invisible in the AX tree
       });
       const result2 = await p2;
-      expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+      expect(result2.content).not.toContain("tree did not change");
       expect(proxy.consecutiveUnchangedSteps).toBe(0);
     });
 
@@ -707,7 +756,7 @@ describe("HostCuProxy", () => {
           // No axDiff — invisible-by-design change
         });
         const result2 = await p2;
-        expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+        expect(result2.content).not.toContain("tree did not change");
         expect(proxy.consecutiveUnchangedSteps).toBe(0);
       }
     });
@@ -807,7 +856,7 @@ describe("HostCuProxy", () => {
         axTree: "Button [1]",
       });
       const result2 = await p2;
-      expect(result2.content).toContain("NO VISIBLE EFFECT");
+      expect(result2.content).toContain("tree did not change");
       expect(proxy.consecutiveUnchangedSteps).toBe(1);
     });
 
@@ -840,7 +889,7 @@ describe("HostCuProxy", () => {
         axTree: "Button [1]",
       });
       const result2 = await p2;
-      expect(result2.content).toContain("NO VISIBLE EFFECT");
+      expect(result2.content).toContain("tree did not change");
       expect(proxy.consecutiveUnchangedSteps).toBe(1);
     });
 
@@ -860,7 +909,7 @@ describe("HostCuProxy", () => {
       expect(result.content).toContain(
         "WARNING: You've repeated the same action (computer_use_key) 3 times",
       );
-      expect(result.content).not.toContain("NO VISIBLE EFFECT");
+      expect(result.content).not.toContain("tree did not change");
     });
 
     test("loop detection fires for the same exempt combo spelled differently", () => {
@@ -1706,8 +1755,11 @@ describe("HostCuProxy", () => {
     async function finish(
       input: Record<string, unknown>,
       observation: Record<string, string>,
+      // The step the unchanged streak is judged on. An observation leaves the
+      // streak alone, so a test of how snapshots reset it stands in an action.
+      recordedTool = "computer_use_observe",
     ) {
-      proxy.recordAction("computer_use_observe", input);
+      proxy.recordAction(recordedTool, input);
       const pending = observe(input);
       const sent = sentMessages.at(-1) as { requestId: string };
       proxy.processObservation(sent.requestId, observation);
@@ -1777,8 +1829,8 @@ describe("HostCuProxy", () => {
     test("targeted snapshots reset history without no-effect warnings or cross-window diffs", async () => {
       setup();
       connect();
-      await finish({}, { axTree: "Private desktop" });
-      await finish({}, { axTree: "Private desktop" });
+      await finish({}, { axTree: "Private desktop" }, "computer_use_click");
+      await finish({}, { axTree: "Private desktop" }, "computer_use_click");
       expect(proxy.consecutiveUnchangedSteps).toBe(1);
       for (const id of [12, 12, 13]) {
         const result = await finish(
@@ -1789,16 +1841,16 @@ describe("HostCuProxy", () => {
             secondaryWindows: "Private secondary window",
           },
         );
-        expect(result.content).not.toContain("NO VISIBLE EFFECT");
+        expect(result.content).not.toContain("tree did not change");
         expect(result.content).not.toContain("Private");
         expect(proxy.previousAXTree).toBeUndefined();
         expect(proxy.consecutiveUnchangedSteps).toBe(0);
       }
       const desktop = await finish({}, { axTree: "Returned desktop" });
-      expect(desktop.content).not.toContain("NO VISIBLE EFFECT");
+      expect(desktop.content).not.toContain("tree did not change");
       expect(proxy.previousAXTree).toBe("Returned desktop");
       expect(proxy.consecutiveUnchangedSteps).toBe(0);
-      await finish({}, { axTree: "Returned desktop" });
+      await finish({}, { axTree: "Returned desktop" }, "computer_use_click");
       expect(proxy.consecutiveUnchangedSteps).toBe(1);
     });
     test("failed targeted captures also break the desktop comparison baseline", async () => {
@@ -1815,7 +1867,7 @@ describe("HostCuProxy", () => {
       ).toBe(true);
       expect(proxy.previousAXTree).toBeUndefined();
       const result = await finish({}, { axTree: "Desktop" });
-      expect(result.content).not.toContain("NO VISIBLE EFFECT");
+      expect(result.content).not.toContain("tree did not change");
     });
     test("legacy camel-case companion targets also reset observation history", async () => {
       setup();
@@ -1825,7 +1877,7 @@ describe("HostCuProxy", () => {
         { captureDisplayId: 1 },
         { axTree: "Display" },
       );
-      expect(result.content).not.toContain("NO VISIBLE EFFECT");
+      expect(result.content).not.toContain("tree did not change");
       expect(proxy.previousAXTree).toBeUndefined();
     });
   });
