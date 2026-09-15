@@ -1299,7 +1299,7 @@ export function CompanionSurface({
           inert
           aria-hidden
           data-theme="dark"
-          className="pointer-events-none invisible absolute top-0 left-0 w-max"
+          className="pointer-events-none invisible absolute top-0 left-0 w-max max-w-[640px]"
         >
           {prompt}
         </div>

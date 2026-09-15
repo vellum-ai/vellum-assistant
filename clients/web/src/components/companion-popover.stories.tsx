@@ -66,6 +66,24 @@ export const SingleApproval: Story = {
   },
 };
 
+/** An ask long enough to need a second line, which it gets rather than an ellipsis. */
+export const LongApproval: Story = {
+  args: {
+    popover: {
+      kind: "approvals",
+      id: "req-9",
+      items: [
+        {
+          id: "req-9",
+          title:
+            "Need your permission to read every file in your Downloads folder and move the invoices into Documents/Taxes/2026",
+          detail: "",
+        },
+      ],
+    },
+  },
+};
+
 export const ApprovalsSummary: Story = {
   args: { popover: THREE },
 };

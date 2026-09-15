@@ -123,7 +123,10 @@ export function CompanionPopover({
         role="group"
         data-companion-popover={popover.kind}
         className={cn(
-          "w-max max-w-[496px] rounded-full",
+          // As wide as its words up to a cap, then wrapped: an ask cut short
+          // is one the user cannot judge. The radius is half a single row
+          // tall, so one line still reads as a pill.
+          "w-max max-w-[640px] rounded-[22px]",
           COMPANION_POPOVER_SURFACE_CLASS,
           className,
         )}
@@ -147,7 +150,7 @@ export function CompanionPopover({
       data-companion-popover={popover.kind}
       className={cn(
         "flex flex-col gap-4 rounded-[20px] border border-white/10 p-5 text-[var(--content-default)] shadow-2xl shadow-black/50",
-        popover.kind === "approvals" ? "w-max max-w-[496px]" : "w-[360px]",
+        popover.kind === "approvals" ? "w-max max-w-[640px]" : "w-[360px]",
         className,
       )}
       style={{ background: panelBackground(accentHex), ...style }}
@@ -199,7 +202,7 @@ export function CompanionPromptRow({
     <div
       data-companion-prompt-row={popover.kind}
       className={cn(
-        "flex h-11 min-w-0 items-center gap-1.5 pr-1.5 text-[var(--content-default)]",
+        "flex min-h-11 min-w-0 items-center gap-1.5 py-1.5 pr-1.5 text-[var(--content-default)]",
         popover.kind === "secret" ? "pl-2" : "pl-4",
         className,
       )}
@@ -212,8 +215,7 @@ export function CompanionPromptRow({
       ) : null}
       <span
         dir="auto"
-        className="min-w-0 flex-1 truncate text-body-medium-default"
-        title={single ? first?.title : undefined}
+        className="min-w-0 flex-1 text-body-medium-default"
       >
         {popover.kind === "secret"
           ? popover.service !== ""
@@ -298,7 +300,7 @@ function PopoverHeader({
       {icon}
       <p
         dir="auto"
-        className="min-w-0 flex-1 truncate text-body-medium-default text-[var(--content-tertiary)] select-none"
+        className="min-w-0 flex-1 text-body-medium-default text-[var(--content-tertiary)] select-none"
       >
         {title}
       </p>
@@ -339,8 +341,8 @@ function ApprovalList({
             </span>
             <span
               dir="auto"
-              className="min-w-0 flex-1 truncate pl-1 text-body-medium-default"
-              title={item.detail !== "" ? item.detail : item.title}
+              className="min-w-0 flex-1 pl-1 text-body-medium-default"
+              title={item.detail !== "" ? item.detail : undefined}
             >
               {item.title}
             </span>

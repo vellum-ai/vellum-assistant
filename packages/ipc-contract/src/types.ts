@@ -1663,7 +1663,7 @@ export interface CompanionPopoverAction {
 /** How wide a popover card is drawn, in points. A row is as wide as its words. */
 export const COMPANION_POPOVER_CARD_WIDTH = 360;
 /** The widest the popover's window is drawn, in points. */
-export const COMPANION_POPOVER_MAX_WIDTH = 520;
+export const COMPANION_POPOVER_MAX_WIDTH = 680;
 /**
  * The transparent room between the popover's window and its card, in points,
  * which holds the card's shadow.
