@@ -6,8 +6,8 @@
  * how much of the credit the org was granted (initial credit and Pro bundle
  * grants, net of refunds) is already used. Both callers already hold that
  * summary through `useBillingBalanceStatus()`, so the reading costs no usage
- * read at all. The Plan tile dates the subscription's renewal beside this
- * reading.
+ * read at all. The Plan tile dates the cycle end beside this reading; see
+ * `UsagePeriodEnd` for its wording.
  *
  * The two figures count only unexpired grants. A Pro sub whose grants total
  * nothing (every grant expired, or a plan that never carried one) has spent

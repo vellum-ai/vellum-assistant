@@ -7,8 +7,8 @@
  * the caller sets only once the wallet behind the grants is empty too.
  *
  * The date line under the title is a third independent reading: it appears
- * only when the caller hands over a `periodEnd`, and it dates the
- * subscription's renewal.
+ * only when the caller hands over a `periodEnd`, and its wording follows
+ * `periodEnd.kind`.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -42,16 +42,35 @@ describe("UsageBalancePanel", () => {
     );
   });
 
-  test("dates the subscription's renewal under the title", () => {
+  test("prints the reset date under the title for a bundled subscription", () => {
     const { getByRole, getByTestId } = render(
-      <UsageBalancePanel ratio={0.4} periodEnd={SEP_20} />,
+      <UsageBalancePanel
+        ratio={0.4}
+        periodEnd={{ at: SEP_20, kind: "resets" }}
+      />,
+    );
+
+    expect(getByTestId("plan-usage-period-end").textContent).toBe(
+      "Resets on Sep 20",
+    );
+    // The bar's accessible name is its own complete message, not the title and
+    // the date line stitched together.
+    expect(getByRole("progressbar").getAttribute("aria-label")).toBe(
+      "Current Usage, resets on Sep 20",
+    );
+  });
+
+  test("names the date a renewal for a subscription with no bundle", () => {
+    const { getByRole, getByTestId } = render(
+      <UsageBalancePanel
+        ratio={0.4}
+        periodEnd={{ at: SEP_20, kind: "renews" }}
+      />,
     );
 
     expect(getByTestId("plan-usage-period-end").textContent).toBe(
       "Renews on Sep 20",
     );
-    // The bar's accessible name is its own complete message, not the title and
-    // the date line stitched together.
     expect(getByRole("progressbar").getAttribute("aria-label")).toBe(
       "Current Usage, renews on Sep 20",
     );
@@ -59,7 +78,10 @@ describe("UsageBalancePanel", () => {
 
   test("prints no date line for an instant that will not parse", () => {
     const { getByRole, queryByTestId } = render(
-      <UsageBalancePanel ratio={0.4} periodEnd="not-a-date" />,
+      <UsageBalancePanel
+        ratio={0.4}
+        periodEnd={{ at: "not-a-date", kind: "resets" }}
+      />,
     );
 
     expect(queryByTestId("plan-usage-period-end")).toBeNull();

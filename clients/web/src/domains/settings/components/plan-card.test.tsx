@@ -463,7 +463,7 @@ describe("PlanCard", () => {
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Free");
     expect(html).toContain("Current");
-    expect(html).not.toContain("plan-card-renews");
+    expect(html).not.toContain("plan-card-period-end");
   });
 
   test("shows the plans button for a base plan", () => {
@@ -656,7 +656,7 @@ describe("PlanCard", () => {
     }
     expect(html).not.toContain("plan-card-price");
     // The renewal date is the subscription's own, so it survives the miss.
-    expect(html).toContain("plan-card-renews");
+    expect(html).toContain("plan-card-period-end");
   });
 
   test("a clean pin on an older package version shows no chips or price", () => {
@@ -678,8 +678,8 @@ describe("PlanCard", () => {
     expect(current.queryByTestId("plan-card-price")).toBeNull();
     // The renewal date is the subscription's own, so the footer keeps it even
     // with no price to quote beside it.
-    expect(current.getByTestId("plan-card-renews").textContent).toBe(
-      "Renews on Aug 10",
+    expect(current.getByTestId("plan-card-period-end").textContent).toBe(
+      "Resets on Aug 10",
     );
     // Super is still the next package up, but its CTA quotes no delta.
     const next = within(nextTile(host));
@@ -1156,12 +1156,12 @@ describe("PlanCard usage balance", () => {
     // $10 of the $25 the cycle granted is gone.
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("Current Usage");
-    expect(panel.textContent).toContain("Renews on Aug 10");
+    expect(panel.textContent).toContain("Resets on Aug 10");
     expect(panel.textContent).toContain("40% used");
     // The bar is the replacement, so the monthly price must not stand beside
     // it on the current tile, and the panel dates the renewal on its own.
     expect(queryByTestId("plan-card-price")).toBeNull();
-    expect(queryByTestId("plan-card-renews")).toBeNull();
+    expect(queryByTestId("plan-card-period-end")).toBeNull();
     expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
   });
 
@@ -1241,8 +1241,8 @@ describe("PlanCard usage balance", () => {
     expect(
       within(currentTile(container)).getByTestId("plan-card-price").textContent,
     ).toBe("$30/month");
-    expect(getByTestId("plan-card-renews").textContent).toBe(
-      "Renews on Aug 10",
+    expect(getByTestId("plan-card-period-end").textContent).toBe(
+      "Resets on Aug 10",
     );
   });
 
@@ -1261,7 +1261,7 @@ describe("PlanCard usage balance", () => {
     expect(
       within(currentTile(container)).getByTestId("plan-card-price").textContent,
     ).toBe("$30/month");
-    expect(queryByTestId("plan-card-renews")).toBeNull();
+    expect(queryByTestId("plan-card-period-end")).toBeNull();
     expect(getByTestId("plan-card-cancels")).toBeTruthy();
   });
 
@@ -1278,6 +1278,8 @@ describe("PlanCard usage balance", () => {
 
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("20% used");
+    // The Custom sub holds a bundle, so its cycle end is a reset.
+    expect(panel.textContent).toContain("Resets on Aug 10");
     // A Custom sub still enumerates nothing and still quotes no price.
     const current = within(currentTile(container));
     expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
@@ -1286,7 +1288,8 @@ describe("PlanCard usage balance", () => {
   });
 
   test("a Custom sub with no live grants reads as fully spent", async () => {
-    // Every grant is spent: a full bar, still dated the sub's renewal.
+    // Every grant is spent: a full bar. With no bundle to turn over, the date
+    // names a renewal rather than a reset (see `UsagePeriodEnd`).
     totalUsageBalance = "0.00";
     availableUsageBalance = "0.00";
     const { findByTestId, queryByTestId, queryByText } = renderCardInteractive(

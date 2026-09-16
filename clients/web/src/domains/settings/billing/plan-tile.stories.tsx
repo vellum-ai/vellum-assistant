@@ -32,7 +32,8 @@ import {
 } from "@/domains/settings/billing/billing-story-frame";
 import {
   UsageBalancePanel,
-  usageRenewalLabels,
+  type UsagePeriodEnd,
+  usagePeriodEndLabels,
 } from "@/domains/settings/billing/usage-balance-panel";
 import {
   makeProPackage,
@@ -78,18 +79,18 @@ const NEXT_PLAN_TAG = (
 /**
  * The current-plan tile's footer when there is no usage reading to chart, as
  * `plan-card.tsx` lays it out: a rule, the monthly price where the catalog
- * has one, and the renewal line for a sub that has one, worded by the panel's
- * own helper so the story reads exactly as the card does.
+ * has one, and the cycle-end line for a sub that has one, worded by the
+ * panel's own helper so the story reads exactly as the card does.
  */
 function PriceFooter({
   label,
   periodEnd,
 }: {
   label: string | null;
-  periodEnd?: string;
+  periodEnd?: UsagePeriodEnd;
 }) {
   const { t } = useTranslation("settings");
-  const renewal = usageRenewalLabels(periodEnd, t);
+  const renewal = usagePeriodEndLabels(periodEnd, t);
   return (
     <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
       {label ? (
@@ -235,7 +236,7 @@ export const CurrentPaid: Story = {
  * The paid tile with a usage reading. At a half-card tile this wide the usage
  * sentence drops to its own line below the machine and storage chips;
  * `SideBySideWide` shows the inline case. The price footer gives way to the
- * Current Usage bar, dated with the day the subscription renews. Props
+ * Current Usage bar, dated with the day the sub's bundle resets. Props
  * only, so the ratio here is a fixture rather than a live usage read.
  */
 export const CurrentPaidUsageBalance: Story = {
@@ -280,7 +281,8 @@ export const CurrentPaidExhausted: Story = {
  * `"custom"` is not in the creature trait table, so `PlanTierAvatar` falls back
  * to the Free creature. There is no package to enumerate and no catalog price
  * to quote, so the tile carries no chips, and until its usage reading arrives
- * the footer holds only the renewal date.
+ * the footer holds only the cycle-end line. This fixture picked no credit
+ * bundle, so that line names a renewal rather than a reset.
  */
 export const CurrentCustom: Story = {
   args: {
@@ -290,7 +292,12 @@ export const CurrentCustom: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: null,
-    footer: <PriceFooter label={null} periodEnd={STORY_PERIOD_END} />,
+    footer: (
+      <PriceFooter
+        label={null}
+        periodEnd={{ ...STORY_PERIOD_END, kind: "renews" }}
+      />
+    ),
   },
 };
 

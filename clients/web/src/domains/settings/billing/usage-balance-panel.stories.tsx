@@ -33,12 +33,21 @@ type Story = StoryObj<typeof meta>;
 export const MidCycle: Story = {};
 
 /**
- * A subscriber's panel: the title carries the date the subscription renews
- * beneath it. The free plan has nothing to renew, so its panel has no such
+ * A bundled subscriber's panel: the title carries the date the bundle resets
+ * beneath it. The free plan's grant is one-time, so its panel has no such
  * line.
  */
 export const Subscriber: Story = {
   args: { periodEnd: STORY_PERIOD_END },
+};
+
+/**
+ * A Custom sub that picked no credit bundle, so nothing turns over and the
+ * line names a renewal instead; see `UsagePeriodEnd`.
+ */
+export const SubscriberNoBundle: Story = {
+  name: "Subscriber without a bundle",
+  args: { periodEnd: { ...STORY_PERIOD_END, kind: "renews" } },
 };
 
 /**
@@ -72,8 +81,8 @@ export const ExhaustedWithoutCta: Story = {
 /**
  * The subscriber's panel at full card width, which is what a current plan with
  * no next tile beside it gets. The bar sits a fixed gap after the title, with
- * the slack to the right of the percentage, and the renewal line makes the
- * title block two lines that the bar centres against.
+ * the slack to the right of the percentage, and the reset line makes the title
+ * block two lines that the bar centres against.
  */
 export const WideTile: Story = {
   ...Subscriber,

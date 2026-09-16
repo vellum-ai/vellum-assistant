@@ -23,7 +23,8 @@ import {
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
 import {
   UsageBalancePanel,
-  usageRenewalLabels,
+  type UsagePeriodEnd,
+  usagePeriodEndLabels,
 } from "@/domains/settings/billing/usage-balance-panel";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
@@ -476,28 +477,32 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     : currentPackage
       ? priceLabelFromCents(currentPackage.total_price_cents)
       : null;
-  // The renewal is dated only where one is coming: not for the free plan,
+  // The cycle end is dated only where one is coming: not for the free plan,
   // whose grant is one-time, not for a sub that is ending rather than
   // renewing, which the header's cancellation line already dates, and not for
   // a status the platform bears no entitlement for (`unpaid`, `incomplete`,
   // `paused`, a null status), which keeps its last `current_period_end`
-  // without renewing on it.
-  const usagePeriodEnd: string | undefined =
+  // without renewing on it. A sub holding a credit bundle sees that bundle
+  // reset on the date; one holding none only renews (see `UsagePeriodEnd`).
+  const usagePeriodEnd: UsagePeriodEnd | undefined =
     !isFreePlan &&
     !isCancelling &&
     subscription.status != null &&
     TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status) &&
     subscription.current_period_end
-      ? subscription.current_period_end
+      ? {
+          at: subscription.current_period_end,
+          kind: subscription.selected_credit_tier != null ? "resets" : "renews",
+        }
       : undefined;
-  const renewal = usageRenewalLabels(usagePeriodEnd, t);
+  const periodEndLabels = usagePeriodEndLabels(usagePeriodEnd, t);
   // The footer while there is no reading to chart: the catalog price, with
-  // the renewal line beside it, worded by the panel's own helper, so a
+  // the cycle-end line beside it, worded by the panel's own helper, so a
   // renewing sub keeps its date rather than losing it to a summary that has
   // not loaded. Either alone still makes the row: a Custom or catalog-less
-  // sub has no price to quote but a renewal to date all the same.
+  // sub has no price to quote but a cycle end to date all the same.
   const footerRow =
-    priceLabel || renewal ? (
+    priceLabel || periodEndLabels ? (
       <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
         {priceLabel ? (
           <Typography
@@ -509,14 +514,14 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             {priceLabel}
           </Typography>
         ) : null}
-        {renewal ? (
+        {periodEndLabels ? (
           <Typography
             as="span"
             variant="body-small-default"
             className="whitespace-nowrap text-[var(--content-tertiary)]"
-            data-testid="plan-card-renews"
+            data-testid="plan-card-period-end"
           >
-            {renewal.line}
+            {periodEndLabels.line}
           </Typography>
         ) : null}
       </div>
