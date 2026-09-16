@@ -361,10 +361,22 @@ async function teleportToPlatform(
   setStep(t("settings:teleportCard.stepImportingToCloud"));
   const result = await importFromGcs(upload.bundleKey);
   if (result.status < 200 || result.status >= 300) {
-    const body = result.body as { error?: string } | null;
+    // Migration route errors are `{error: {code, message}}`; older shapes
+    // and DRF-style bodies carry a plain `error` / `detail` string.
+    const body = result.body as {
+      error?: string | { message?: string };
+      detail?: string;
+    } | null;
+    const error = body?.error;
+    const message =
+      typeof error === "string"
+        ? error
+        : typeof error?.message === "string"
+          ? error.message
+          : body?.detail;
     throw new TeleportError(
       "import_failed",
-      body?.error ??
+      message ??
         t("settings:teleportCard.importFailedHttp", { status: result.status }),
     );
   }

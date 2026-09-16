@@ -172,11 +172,32 @@ export function formatRuntimeCompatibilityMessage(
   return `Cannot import: bundle requires runtime ${range}, but this runtime is ${runtimeVersion}. Update your runtime before importing.`;
 }
 
+/**
+ * Whether `version` names a local development build of the runtime,
+ * the `<pkg.version>-local.<timestamp>.<sha>` stamp the CLI's local hatch
+ * and `vel up`'s minikube images carry. Such a build's version triple is
+ * whatever the checkout's package.json says, which lags every release cut
+ * since (main sits at 0.12.1 while 0.12.2-staging.N ships), so comparing
+ * it against a bundle's `min_runtime_version` says nothing about whether
+ * the code can read the bundle.
+ */
+export function isLocalDevRuntimeVersion(version: string): boolean {
+  return /^\d+\.\d+\.\d+-local\./.test(version);
+}
+
 export function evaluateRuntimeCompatibility(
   compat: RuntimeCompatibility,
   runtimeVersion: string,
 ): RuntimeCompatibilityResult {
   if (compat.min_runtime_version === LEGACY_RUNTIME_VERSION_SENTINEL) {
+    return { ok: true };
+  }
+  // A local dev build fails open, like an unparsable version below: its
+  // triple is not comparable to release versions (see
+  // isLocalDevRuntimeVersion), and blocking would make every teleport from
+  // a released desktop app into a `vel up` platform fail once a release is
+  // cut past the checkout's package.json.
+  if (isLocalDevRuntimeVersion(runtimeVersion)) {
     return { ok: true };
   }
   const minCmp = compareSemver(runtimeVersion, compat.min_runtime_version);
