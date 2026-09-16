@@ -53,7 +53,7 @@ export async function sendTelegramReply(
   opts?: {
     credentials?: CredentialCache;
     configFile?: ConfigFileCache;
-    /** Private-chat topic to send into; omitted → main chat. */
+    /** Topic (private-chat or forum) to send into; omitted → main chat. */
     messageThreadId?: string;
   },
 ): Promise<void> {

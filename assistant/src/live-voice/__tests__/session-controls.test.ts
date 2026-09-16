@@ -53,6 +53,12 @@ describe("requestedSessionControl", () => {
     });
   });
 
+  test("task stop needs no client declaration", () => {
+    expect(requestedSessionControl("Okay. [TASK:STOP]", [])).toEqual({
+      action: "task_stop",
+    });
+  });
+
   test("a client control needs the client's declaration", () => {
     expect(requestedSessionControl("Bye. [END_CALL]", [])).toBeNull();
     expect(requestedSessionControl("Bye. [END_CALL]", ["end"])).toEqual({
@@ -68,7 +74,19 @@ describe("sessionControlTeaching", () => {
     expect(teaching).toContain("[UPDATES:FEWER]");
     expect(teaching).toContain("[MUTE]");
     expect(teaching).not.toContain("[END_CALL]");
+    expect(teaching).not.toContain("[TASK:STOP]");
     expect(teaching).toContain("Never emit any other bracketed marker.");
+  });
+
+  test("teaches task stop only while an unfinished task is pending", () => {
+    const teaching = sessionControlTeaching(
+      [],
+      {},
+      { unfinishedTaskPending: true },
+    );
+
+    expect(teaching).toContain("[TASK:STOP]");
+    expect(teaching).toContain("not when they interrupt with a question");
   });
 
   test("a device that can show both asks which one a bare look means", () => {

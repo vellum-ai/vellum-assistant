@@ -17,6 +17,7 @@ let handleRequestResult: {
   body: unknown;
   bodyEncoding?: "base64";
   account?: string | null;
+  hint?: string;
 } = {
   ok: true,
   status: 200,
@@ -71,18 +72,71 @@ afterEach(() => {
   process.exitCode = 0;
 });
 
-async function runRequestCommand(args: string[]): Promise<{
+/**
+ * Runs the command with both streams captured and `process.exit` recorded.
+ * The stream stubs honour a write callback the way the real streams do, so an
+ * exit that rides the last write lands in `exitCalls`, and only after every
+ * chunk written before it has been captured. `holdStderr` keeps stderr
+ * callbacks back and returns them, for the case where stderr is still in
+ * flight when stdout has drained.
+ */
+async function runRequestCommand(
+  args: string[],
+  options: { holdStderr?: boolean } = {},
+): Promise<{
   stdout: Buffer;
+  stderr: string;
   exitCode: number;
+  exitCalls: number[];
+  heldStderrCallbacks: Array<() => void>;
 }> {
   const chunks: Buffer[] = [];
+  const stderrChunks: string[] = [];
+  const exitCalls: number[] = [];
+  const heldStderrCallbacks: Array<() => void> = [];
   const originalWrite = process.stdout.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => {
+  const originalStderrWrite = process.stderr.write;
+  const originalExit = process.exit;
+  const callbackOf = (rest: unknown[]): (() => void) | undefined =>
+    rest.find((arg) => typeof arg === "function") as (() => void) | undefined;
+  process.stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
     chunks.push(
       typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk),
     );
+    callbackOf(rest)?.();
     return true;
   }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    stderrChunks.push(String(chunk));
+    const callback = callbackOf(rest);
+    if (callback) {
+      if (options.holdStderr) {
+        heldStderrCallbacks.push(holdCallback(callback));
+      } else {
+        callback();
+      }
+    }
+    return true;
+  }) as typeof process.stderr.write;
+  const recordExit = ((code?: number) => {
+    exitCalls.push(code ?? Number(process.exitCode ?? 0));
+  }) as typeof process.exit;
+  process.exit = recordExit;
+  // A held callback runs after this function has restored the real
+  // `process.exit`, so it reinstalls the recorder for the duration of the
+  // call; the exit it triggers must land in `exitCalls`, never end the test
+  // process.
+  const holdCallback = (callback: () => void): (() => void) => {
+    return () => {
+      const current = process.exit;
+      process.exit = recordExit;
+      try {
+        callback();
+      } finally {
+        process.exit = current;
+      }
+    };
+  };
 
   try {
     const program = new Command();
@@ -101,11 +155,16 @@ async function runRequestCommand(args: string[]): Promise<{
     // Commander may throw under exitOverride for parse errors.
   } finally {
     process.stdout.write = originalWrite;
+    process.stderr.write = originalStderrWrite;
+    process.exit = originalExit;
   }
 
   return {
     stdout: Buffer.concat(chunks),
+    stderr: stderrChunks.join(""),
     exitCode: Number(process.exitCode ?? 0),
+    exitCalls,
+    heldStderrCallbacks,
   };
 }
 
@@ -306,6 +365,124 @@ describe("oauth request body output", () => {
     };
     expect(parsed.body).toBe(PNG_MAGIC.toString("base64"));
     expect(parsed.bodyEncoding).toBe("base64");
+  });
+
+  test("exits non-zero when the route reports failure inside a 2xx", async () => {
+    // The exit code follows the route's verdict, so a caller that only checks
+    // the exit code sees a refused call as a failure; the body still prints,
+    // since it carries the provider's own error code.
+    handleRequestResult = {
+      ok: false,
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "not_in_channel" },
+      account: "user@example.com",
+    };
+    const { stdout, exitCode } = await runRequestCommand([
+      "--provider",
+      "slack_channel",
+      "-s",
+      "/chat.postMessage",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stdout.toString("utf8")).toContain("not_in_channel");
+  });
+
+  test("exits itself once the whole body has drained", async () => {
+    // The in-process route leaves handles open, so the command has to exit;
+    // and it must do so on the write callback, because a bare exit after a
+    // large piped write drops everything past the first 64 KB.
+    const body = "x".repeat(200_000);
+    handleRequestResult = {
+      ok: true,
+      status: 200,
+      headers: { "content-type": "text/plain" },
+      body,
+      account: "user@example.com",
+    };
+    const { stdout, exitCode, exitCalls } = await runRequestCommand([
+      "--provider",
+      "google",
+      "-s",
+      "https://api.google.com/v1/big",
+    ]);
+
+    expect(stdout.toString("utf8")).toBe(body + "\n");
+    expect(exitCode).toBe(0);
+    expect(exitCalls).toEqual([0]);
+  });
+
+  test("exits after writing an empty body to a file", async () => {
+    const target = join(tempDir, "empty.bin");
+    handleRequestResult = {
+      ok: true,
+      status: 204,
+      headers: {},
+      body: null,
+      account: "user@example.com",
+    };
+    const { exitCalls } = await runRequestCommand([
+      "--provider",
+      "google",
+      "-s",
+      "-o",
+      target,
+      "https://api.google.com/v1/none",
+    ]);
+
+    expect(readFileSync(target)).toHaveLength(0);
+    expect(exitCalls).toEqual([0]);
+  });
+
+  test("waits for stderr to drain before exiting when stdout carried nothing", async () => {
+    // With `-o`, stdout carries nothing, so the exit cannot ride a stdout
+    // write, and the diagnostics on stderr (the account line, a hint) may
+    // still be in flight. The exit waits for the last of them.
+    const target = join(tempDir, "body.json");
+    handleRequestResult = {
+      ok: false,
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "not_in_channel" },
+      account: "user@example.com",
+      hint: "slack_channel answered HTTP 200 but reported ok: false",
+    };
+    const { stderr, exitCalls, heldStderrCallbacks } = await runRequestCommand(
+      ["--provider", "slack_channel", "-o", target, "/chat.postMessage"],
+      { holdStderr: true },
+    );
+
+    expect(stderr).toContain("Account: user@example.com");
+    expect(stderr).toContain("ok: false");
+    expect(heldStderrCallbacks).toHaveLength(2);
+    expect(exitCalls).toEqual([]);
+
+    heldStderrCallbacks[0]();
+    expect(exitCalls).toEqual([]);
+    heldStderrCallbacks[1]();
+    expect(exitCalls).toEqual([1]);
+  });
+
+  test("a stdout body waits for stderr diagnostics written before it", async () => {
+    handleRequestResult = {
+      ok: true,
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { hello: "world" },
+      account: "user@example.com",
+    };
+    const { stdout, exitCalls, heldStderrCallbacks } = await runRequestCommand(
+      ["--provider", "google", "https://api.google.com/v1/me"],
+      { holdStderr: true },
+    );
+
+    expect(stdout.toString("utf8")).toContain("hello");
+    expect(heldStderrCallbacks).toHaveLength(1);
+    expect(exitCalls).toEqual([]);
+
+    heldStderrCallbacks[0]();
+    expect(exitCalls).toEqual([0]);
   });
 
   test("writes text bodies as UTF-8 and appends a newline on stdout", async () => {

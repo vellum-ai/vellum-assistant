@@ -9,6 +9,7 @@ import {
   parseTerminalSessionControl,
   type SessionControlRequest,
   stripInternalSpeechMarkers,
+  TASK_STOP_MARKER,
   terminalControlMarkerLength,
 } from "../voice-control-protocol.js";
 
@@ -52,13 +53,26 @@ describe("minimize-room marker", () => {
 
 describe("isIncompleteControlMarkerTail", () => {
   test("strict prefixes of any marker are incomplete", () => {
-    for (const tail of ["[", "[-", "[-1", "[END_CAL", "[ASK_GUARDIAN_APPRO"]) {
+    for (const tail of [
+      "[",
+      "[-",
+      "[-1",
+      "[END_CAL",
+      "[TASK:ST",
+      "[ASK_GUARDIAN_APPRO",
+    ]) {
       expect(isIncompleteControlMarkerTail(tail)).toBe(true);
     }
   });
 
   test("complete literal markers are not held", () => {
-    for (const tail of ["[-1]", "[END_CALL]", "[0] answer", "[-1] look here"]) {
+    for (const tail of [
+      "[-1]",
+      "[END_CALL]",
+      TASK_STOP_MARKER,
+      "[0] answer",
+      "[-1] look here",
+    ]) {
       expect(isIncompleteControlMarkerTail(tail)).toBe(false);
     }
   });
@@ -148,6 +162,12 @@ describe("session control markers", () => {
     );
   });
 
+  test("strips the task-stop marker so it is never spoken", () => {
+    expect(stripInternalSpeechMarkers(`Okay. ${TASK_STOP_MARKER}`).trim()).toBe(
+      "Okay.",
+    );
+  });
+
   test("holds a streaming timed mute until its bracket arrives", () => {
     expect(isIncompleteControlMarkerTail("[MU")).toBe(true);
     expect(isIncompleteControlMarkerTail("[MUTE:3")).toBe(true);
@@ -162,6 +182,7 @@ describe("session control markers", () => {
 
   test.each([
     ["Okay, talk soon. [END_CALL]", { action: "end" }],
+    ["Okay, stopping. [TASK:STOP]", { action: "task_stop" }],
     ["Muted. [MUTE]", { action: "mute" }],
     ["Taking a look. [LOOK:SCREEN]", { action: "look_screen" }],
     ["Show me. [LOOK:CAMERA]", { action: "look_camera" }],
@@ -200,6 +221,7 @@ describe("session control markers", () => {
   test("measures the terminal marker the transcript pass strips", () => {
     expect(terminalControlMarkerLength("Done [-1]")).toBe(4);
     expect(terminalControlMarkerLength("Bye [END_CALL] ")).toBe(10);
+    expect(terminalControlMarkerLength("Stopping [TASK:STOP]")).toBe(11);
     expect(terminalControlMarkerLength("Muted [MUTE:30]")).toBe(9);
     expect(terminalControlMarkerLength("Okay [UPDATES:FEWER]")).toBe(15);
     expect(terminalControlMarkerLength("The array [-1] sorts")).toBe(0);

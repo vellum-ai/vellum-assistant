@@ -2,6 +2,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 import { useViewerStore } from "@/stores/viewer-store";
+import { exitAppSplit } from "@/utils/conversation-navigation";
 
 const OPEN_LAYER_SELECTOR = [
   '[data-slot="modal-content"][data-state="open"]',
@@ -96,7 +97,14 @@ async function dismissEscapeLayer(): Promise<boolean> {
   return true;
 }
 
-function dismissViewerLayer(): boolean {
+/**
+ * The viewer layer owns layout: minimizing an expanded app, leaving a
+ * minimized one, and leaving the split. Which app is open is the URL's
+ * business, so a minimized app leaves through the route close, which pops to
+ * the entry the app was opened from when there is one and replaces the app's
+ * entry otherwise.
+ */
+function dismissViewerLayer(closeAppRoute: () => void): boolean {
   if (!document.querySelector(ACTIVE_CHAT_SELECTOR)) {
     return false;
   }
@@ -104,13 +112,13 @@ function dismissViewerLayer(): boolean {
   switch (viewer.mainView) {
     case "app":
       if (viewer.isAppMinimized) {
-        viewer.closeApp();
-      } else {
-        viewer.minimizeApp();
+        closeAppRoute();
+        return true;
       }
+      viewer.minimizeApp();
       return true;
     case "app-editing":
-      viewer.exitAppEditing();
+      exitAppSplit();
       return true;
     default:
       return viewer.closeActiveOverlay();
@@ -118,9 +126,15 @@ function dismissViewerLayer(): boolean {
 }
 
 /**
- * Route Android system Back through the active web UI before leaving the app.
+ * Route Android system Back through the active web UI before leaving the app:
+ * an open Escape layer takes it first, then viewer layout, then WebView
+ * history.
  */
-export function subscribeAndroidBackButtonSource(): () => void {
+export function subscribeAndroidBackButtonSource({
+  closeAppRoute,
+}: {
+  closeAppRoute: () => void;
+}): () => void {
   if (!isNativeAndroid()) {
     return () => undefined;
   }
@@ -129,7 +143,7 @@ export function subscribeAndroidBackButtonSource(): () => void {
     const { App } = await import("@capacitor/app");
     let handlingBack = false;
     const handleBack = async (canGoBack: boolean): Promise<void> => {
-      if ((await dismissEscapeLayer()) || dismissViewerLayer()) {
+      if ((await dismissEscapeLayer()) || dismissViewerLayer(closeAppRoute)) {
         return;
       }
       if (canGoBack) {

@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { CacheBreakpointMapCard } from "@/domains/chat/inspector/components/cache-breakpoint-map-card";
 import { CacheDiffCard } from "@/domains/chat/inspector/components/cache-diff-card";
 import { CacheHealthCard } from "@/domains/chat/inspector/components/cache-health-card";
-import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
+import { CopyButton } from "@/components/copy-button";
 import { ToolDefinitionsContent } from "@/domains/chat/inspector/components/tool-definitions-content";
 import { parseToolDefinitions } from "@/domains/chat/inspector/tool-definitions";
 import { useTranslation } from "@/i18n";

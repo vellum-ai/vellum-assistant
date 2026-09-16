@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, Copy } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import type {
@@ -15,7 +15,7 @@ import type {
 } from "@vellumai/assistant-api";
 import { Card } from "@vellumai/design-library";
 
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 
 import { conceptPageQueryOptions } from "../../concept-page-api";
@@ -137,9 +137,7 @@ function MemoryRecallSection({
       <div className="p-4">
         <SectionCard
           title={t("memoryTab.memoryDisabledTitle")}
-          subtitle={
-            recall.reason ?? t("memoryTab.memoryDisabledDefaultReason")
-          }
+          subtitle={recall.reason ?? t("memoryTab.memoryDisabledDefaultReason")}
         />
       </div>
     );
@@ -192,24 +190,31 @@ function MemoryRecallSection({
             {
               label: t("memoryTab.semanticHitsLabel"),
               value:
-                recall.semanticHits != null ? fmt(recall.semanticHits) : missing,
+                recall.semanticHits != null
+                  ? fmt(recall.semanticHits)
+                  : missing,
             },
             {
               label: t("memoryTab.afterMergeLabel"),
-              value: recall.mergedCount != null ? fmt(recall.mergedCount) : missing,
+              value:
+                recall.mergedCount != null ? fmt(recall.mergedCount) : missing,
             },
             {
               label: t("memoryTab.tier1Label"),
-              value: recall.tier1Count != null ? fmt(recall.tier1Count) : missing,
+              value:
+                recall.tier1Count != null ? fmt(recall.tier1Count) : missing,
             },
             {
               label: t("memoryTab.tier2Label"),
-              value: recall.tier2Count != null ? fmt(recall.tier2Count) : missing,
+              value:
+                recall.tier2Count != null ? fmt(recall.tier2Count) : missing,
             },
             {
               label: t("memoryTab.selectedLabel"),
               value:
-                recall.selectedCount != null ? fmt(recall.selectedCount) : missing,
+                recall.selectedCount != null
+                  ? fmt(recall.selectedCount)
+                  : missing,
             },
             {
               label: t("memoryTab.injectedTokensLabel"),
@@ -229,7 +234,9 @@ function MemoryRecallSection({
               label: t("memoryTab.hybridSearchLabel"),
               value:
                 recall.hybridSearchLatencyMs != null
-                  ? t("memoryTab.latencyMs", { ms: recall.hybridSearchLatencyMs })
+                  ? t("memoryTab.latencyMs", {
+                      ms: recall.hybridSearchLatencyMs,
+                    })
                   : missing,
             },
             {
@@ -400,7 +407,9 @@ function MemoryV2Section({
           dotColor={v2StatusColor("injected")}
         />
         <CountPill
-          label={t("memoryTab.notInjectedPill", { count: fmt(notInjectedCount) })}
+          label={t("memoryTab.notInjectedPill", {
+            count: fmt(notInjectedCount),
+          })}
           dotColor={v2StatusColor("not_injected")}
         />
       </div>
@@ -1110,7 +1119,9 @@ function SectionCard({
               </span>
             )}
           </div>
-          {copyText != null && t != null && <CopyButton text={copyText} t={t} />}
+          {copyText != null && t != null && (
+            <CopyButton text={copyText} t={t} />
+          )}
         </div>
         {children}
       </div>
@@ -1207,33 +1218,20 @@ function CopyButton({
   text: string;
   t: MemoryTranslate;
 }): ReactNode {
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: t("memoryTab.copyErrorMessage"),
+  });
 
-  useEffect(
-    () => () => {
-      clearTimeout(timerRef.current!);
-    },
-    [],
-  );
-
-  const handleCopy = () => {
-    copyToClipboard(text, {
-      errorMessage: t("memoryTab.copyErrorMessage"),
-      onCopied: () => {
-        setCopied(true);
-        clearTimeout(timerRef.current!);
-        timerRef.current = setTimeout(() => setCopied(false), 1500);
-      },
-    });
-  };
+  const handleCopy = () => copy(text);
 
   return (
     <button
       onClick={handleCopy}
       title={copied ? t("memoryTab.copyTitleCopied") : t("memoryTab.copyTitle")}
       aria-label={
-        copied ? t("memoryTab.copyAriaLabelCopied") : t("memoryTab.copyAriaLabel")
+        copied
+          ? t("memoryTab.copyAriaLabelCopied")
+          : t("memoryTab.copyAriaLabel")
       }
       className="flex shrink-0 items-center gap-1 rounded px-2 py-1 text-label-medium-default transition-colors"
       style={{

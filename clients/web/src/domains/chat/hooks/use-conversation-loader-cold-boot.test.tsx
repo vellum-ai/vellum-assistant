@@ -10,15 +10,32 @@
  * The tests under "an assistant that predates foregroundOnly" flip the stub
  * to ignore the parameter, which is what an older assistant does, and cover
  * the paged search the loader falls back to when the answer proves that.
+ *
+ * The last blocks cover what the loader does to the URL once it holds a key:
+ * a URL that already names the resolved key is left alone, segments and all,
+ * so the app viewer sub-route survives a reload, a URL naming a draft the
+ * first send re-keyed is redirected onto the row that send created, and a new
+ * chat started while an app is kept beside it names that app in the URL it
+ * lands on.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode, createRef } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { useConversationStore } from "@/stores/conversation-store";
+import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
+import {
+  readStoredDraftReplacements,
+  useConversationStore,
+} from "@/stores/conversation-store";
+import { useViewerStore } from "@/stores/viewer-store";
+import {
+  SAMPLE_APP,
+  showOpenAppRoute,
+  showPath,
+} from "@/stores/open-app.test-helper";
 import {
   conversationListPrefix,
   conversationListQueryKey,
@@ -29,6 +46,7 @@ import {
   rawConversation,
 } from "@/utils/conversation-list.test-helper";
 import { saveLastViewedConversationId } from "@/utils/last-viewed-conversation-storage";
+import { routes } from "@/utils/routes";
 import type { Conversation } from "@/types/conversation-types";
 
 const ASSISTANT_ID = "asst-1";
@@ -191,14 +209,17 @@ function stubDaemon() {
 
 const originalGet = daemonClient.get;
 
-function renderColdBoot(queryClient: QueryClient) {
+function renderColdBoot(
+  queryClient: QueryClient,
+  urlConversationId: string | null = null,
+) {
   return renderHook(
     () =>
       useConversationLoader({
         assistantId: ASSISTANT_ID,
         assistantStateKind: "active",
         activeConversationId: null,
-        urlConversationId: null,
+        urlConversationId,
         searchParams: new URLSearchParams(),
         activeConversation: undefined,
         refreshEpoch: 0,
@@ -235,8 +256,12 @@ beforeEach(() => {
   podIsServing = true;
   orgIsReady = true;
   navigateMock.mockClear();
-  useConversationStore.setState({ activeConversationId: null });
+  useConversationStore.setState({
+    activeConversationId: null,
+    draftReplacements: new Map(),
+  });
   localStorage.clear();
+  sessionStorage.clear();
   stubDaemon();
 });
 
@@ -560,5 +585,154 @@ describe("useConversationLoader cold-boot landing", () => {
     renderColdBoot(new QueryClient());
 
     expect(await landedOn()).toContain(ASSISTANT_ID);
+  });
+});
+
+describe("URL path is kept when it already names the key", () => {
+  test("leaves an app viewer URL that already names the resolved key alone", async () => {
+    showPath(routes.conversation("c1", SAMPLE_APP.appId));
+
+    renderColdBoot(new QueryClient(), "c1");
+
+    await waitFor(() => {
+      expect(useConversationStore.getState().activeConversationId).toBe("c1");
+    });
+    /* A rewrite here would drop the app segment on every reload. */
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  test("rewrites an index landing to the conversation it resolved", async () => {
+    showPath(routes.assistant);
+    saveLastViewedConversationId(ASSISTANT_ID, "stored-chat");
+    byIdRow = { id: "stored-chat" };
+
+    renderColdBoot(new QueryClient());
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        routes.conversation("stored-chat"),
+        { replace: true },
+      );
+    });
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "stored-chat",
+    );
+  });
+});
+
+describe("a URL naming a retired draft", () => {
+  /* The entries the open pushed still name the draft; the row is under the id
+     the send came back with, and nothing else resolves one to the other. */
+  beforeEach(() => {
+    useConversationStore
+      .getState()
+      .recordDraftReplacement("draft-1", "conv-server-1");
+  });
+
+  test("redirects onto the row the send created", async () => {
+    showPath(routes.conversation("draft-1"));
+
+    renderColdBoot(new QueryClient(), "draft-1");
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        routes.conversation("conv-server-1"),
+        { replace: true },
+      );
+    });
+  });
+
+  test("keeps the app segment, so the redirect does not close the app", async () => {
+    showPath(routes.conversation("draft-1", SAMPLE_APP.appId));
+
+    renderColdBoot(new QueryClient(), "draft-1");
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        routes.conversation("conv-server-1", SAMPLE_APP.appId),
+        { replace: true },
+      );
+    });
+  });
+
+  test("redirects after a reload, which keeps the entry but not the store", async () => {
+    /* The reload's store is seeded from the tab's storage alone: an empty key
+       would leave this assignment with nothing to redirect. */
+    useConversationStore.setState({
+      draftReplacements: readStoredDraftReplacements(),
+    });
+    showPath(routes.conversation("draft-1"));
+
+    renderColdBoot(new QueryClient(), "draft-1");
+
+    await waitFor(() => {
+      expect(navigateMock).toHaveBeenCalledWith(
+        routes.conversation("conv-server-1"),
+        { replace: true },
+      );
+    });
+  });
+
+  test("leaves the row itself alone, so the redirect cannot loop", async () => {
+    showPath(routes.conversation("conv-server-1"));
+
+    renderColdBoot(new QueryClient(), "conv-server-1");
+
+    await waitFor(() => {
+      expect(useConversationStore.getState().activeConversationId).toBe(
+        "conv-server-1",
+      );
+    });
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("startNewConversation carries the app the viewer keeps", () => {
+  let restoreViewport: (() => void) | undefined;
+
+  beforeEach(() => {
+    /* A wide viewport, the only shape with a side-by-side app layout. */
+    restoreViewport = stubViewportAxes({ narrow: false, coarsePointer: false });
+    showPath(routes.conversation("c1"));
+  });
+
+  afterEach(() => {
+    restoreViewport?.();
+    useViewerStore.getState().reset();
+  });
+
+  /** The path the loader navigated to for a fresh draft, and that draft's id. */
+  async function startFreshChat(): Promise<{ draftId: string; path: string }> {
+    const { result } = renderColdBoot(new QueryClient(), "c1");
+    await waitFor(() => {
+      expect(useConversationStore.getState().activeConversationId).toBe("c1");
+    });
+    navigateMock.mockClear();
+    act(() => {
+      result.current.startNewConversation();
+    });
+    const draftId = useConversationStore.getState().activeConversationId;
+    if (draftId === null || draftId === "c1") {
+      throw new Error("expected a fresh draft to be selected");
+    }
+    return {
+      draftId,
+      path: (navigateMock.mock.calls[0] as unknown as [string])[0],
+    };
+  }
+
+  test("names the open app, so the new chat opens beside it", async () => {
+    showOpenAppRoute({ conversationId: "c1" });
+
+    const { draftId, path } = await startFreshChat();
+
+    expect(path).toBe(routes.conversation(draftId, SAMPLE_APP.appId));
+    expect(path).toEndWith(`/app/${SAMPLE_APP.appId}`);
+  });
+
+  test("names no app when the viewer is on the chat", async () => {
+    const { draftId, path } = await startFreshChat();
+
+    expect(path).toBe(routes.conversation(draftId));
   });
 });

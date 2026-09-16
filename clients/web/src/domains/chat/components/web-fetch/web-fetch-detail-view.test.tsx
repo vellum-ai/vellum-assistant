@@ -1,5 +1,5 @@
 /**
- * Tests for `WebFetchDetailView` and its `parseWebFetchResult` parser — the
+ * Tests for `WebFetchDetailView` and its `parseWebFetchResult` parser, the
  * nested detail shown when a subagent `web_fetch` pill is clicked. Covers
  * header parsing (url/status/notices), `<external_content>` stripping, the
  * source card + notices + content render, the "View raw" toggle, and the
@@ -160,7 +160,7 @@ describe("WebFetchDetailView", () => {
 
   test("'View raw' toggles to the unparsed result", () => {
     const { getByText, queryByTestId, container } = renderView(payload({}));
-    // Parsed view first — the raw HTTP header is hidden.
+    // Parsed view first: the raw HTTP header is hidden.
     expect(queryByTestId("markdown")).not.toBeNull();
 
     fireEvent.click(getByText("View raw"));
@@ -176,6 +176,28 @@ describe("WebFetchDetailView", () => {
       payload({ status: "error", result: "fetch failed: 403" }),
     );
     expect(getByText("fetch failed: 403")).toBeDefined();
+    expect(queryByText("cnbc.com")).toBeNull();
+  });
+
+  test("a refused fetch says it was not approved, not that it failed", () => {
+    // The daemon answers a refusal with an error result addressed to the model.
+    const refusal =
+      'Permission denied. The "web_fetch" tool was not allowed. Do NOT retry this tool call immediately.';
+    const { getByText, queryByText } = render(
+      <WebFetchDetailView
+        detail={payload({ status: "denied", result: refusal })}
+        result={refusal}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError
+        isDenied
+      />,
+    );
+
+    expect(
+      getByText("This tool call was not approved, so it did not run."),
+    ).toBeDefined();
+    expect(queryByText(/Do NOT retry/)).toBeNull();
     expect(queryByText("cnbc.com")).toBeNull();
   });
 

@@ -49,6 +49,7 @@ interface SerializedProvider {
   identityResponsePaths?: string[] | null;
   identityFormat?: string | null;
   identityOkField?: string | null;
+  responseOkField?: string | null;
   availableScopes?: unknown;
   setupNotes?: string[] | unknown;
   featureFlag?: string | null;
@@ -216,6 +217,9 @@ function formatProviderDetail(p: SerializedProvider): string {
   }
   if (p.identityOkField) {
     lines.push(`  Identity ok field: ${p.identityOkField}`);
+  }
+  if (p.responseOkField) {
+    lines.push(`  Response ok field: ${p.responseOkField}`);
   }
   if (p.setupNotes) {
     if (Array.isArray(p.setupNotes)) {
@@ -403,6 +407,7 @@ export function registerProviderCommands(oauth: Command): void {
         identityResponsePaths?: string;
         identityFormat?: string;
         identityOkField?: string;
+        responseOkField?: string;
         setupNotes?: string;
         availableScopes?: string;
       },
@@ -505,6 +510,9 @@ export function registerProviderCommands(oauth: Command): void {
         if (opts.identityOkField !== undefined) {
           body.identity_ok_field = opts.identityOkField;
         }
+        if (opts.responseOkField !== undefined) {
+          body.response_ok_field = opts.responseOkField;
+        }
         if (opts.setupNotes !== undefined) {
           body.setup_notes = JSON.parse(opts.setupNotes);
         }
@@ -578,6 +586,7 @@ export function registerProviderCommands(oauth: Command): void {
         identityResponsePaths?: string;
         identityFormat?: string;
         identityOkField?: string;
+        responseOkField?: string;
         setupNotes?: string;
         availableScopes?: string;
       },
@@ -685,6 +694,9 @@ export function registerProviderCommands(oauth: Command): void {
         }
         if (opts.identityOkField !== undefined) {
           body.identity_ok_field = opts.identityOkField;
+        }
+        if (opts.responseOkField !== undefined) {
+          body.response_ok_field = opts.responseOkField;
         }
         if (opts.setupNotes !== undefined) {
           body.setup_notes = JSON.parse(opts.setupNotes);

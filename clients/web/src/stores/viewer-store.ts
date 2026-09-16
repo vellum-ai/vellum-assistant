@@ -7,6 +7,7 @@
  * **State managed:**
  * - `mainView` — which top-level panel is displayed
  * - `activeAppId` / `openedAppState` — app viewer
+ * - `appLoad`: the app request in flight, owning which settlement may write
  * - `activeDocumentTarget` / `openedDocumentState` — document viewer, holding
  *   a document surface or a read-only preview of a workspace file
  * - `isAppMinimized` — mobile-only: app viewer minimized
@@ -124,22 +125,33 @@ export function isAppNotFoundError(err: unknown): boolean {
   return typeof message === "string" && message.startsWith("App not found");
 }
 
+/** Whether `token` still names the request the store is waiting on. */
+function isCurrentAppLoad(state: ViewerState, token: number): boolean {
+  return state.appLoad?.token === token;
+}
+
+/** Every overlay's restore target: the view it was opened over. */
+const VIEW_BEFORE_FIELDS = [
+  "viewBeforeDocument",
+  "viewBeforeSubagentDetail",
+  "viewBeforeToolDetail",
+  "viewBeforeActivitySteps",
+  "viewBeforeMessageFiles",
+  "viewBeforeWorkflowDetail",
+  "viewBeforeAcpRunDetail",
+  "viewBeforeBackgroundTaskDetail",
+  "viewBeforeSkillDetail",
+  "viewBeforeWakeDetail",
+  "viewBeforeChannelSetup",
+  "viewBeforeChannelTranscript",
+  "viewBeforeChatInfo",
+] as const;
+
+type ViewBeforeField = (typeof VIEW_BEFORE_FIELDS)[number];
+
 function resolveViewBefore(
   state: ViewerState,
-  field:
-    | "viewBeforeDocument"
-    | "viewBeforeSubagentDetail"
-    | "viewBeforeToolDetail"
-    | "viewBeforeActivitySteps"
-    | "viewBeforeMessageFiles"
-    | "viewBeforeWorkflowDetail"
-    | "viewBeforeAcpRunDetail"
-    | "viewBeforeBackgroundTaskDetail"
-    | "viewBeforeSkillDetail"
-    | "viewBeforeWakeDetail"
-    | "viewBeforeChannelSetup"
-    | "viewBeforeChannelTranscript"
-    | "viewBeforeChatInfo",
+  field: ViewBeforeField,
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
   if (
@@ -187,10 +199,20 @@ export type MainView =
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
 export interface OpenedAppState {
+  /** The assistant the app was loaded from: an app id is assistant-scoped. */
+  assistantId: string;
   appId: string;
   dirName?: string;
   name: string;
   html: string;
+}
+
+/** One app request in flight. See {@link ViewerState.appLoad} for the rules. */
+export interface AppLoadRequest {
+  assistantId: string;
+  appId: string;
+  token: number;
+  promise: Promise<boolean>;
 }
 
 /**
@@ -558,6 +580,17 @@ export interface ViewerState {
   mainView: MainView;
   activeAppId: string | null;
   openedAppState: OpenedAppState | null;
+  /**
+   * The app load in flight, shared by every caller asking for the same
+   * assistant and app so a surface that mounts mid-load observes the request
+   * already running instead of starting a second one. `token` is what a
+   * settlement checks: a load whose token is not the current one has been
+   * abandoned and must not touch the viewer. A pending request always names
+   * the app the viewer holds.
+   */
+  appLoad: AppLoadRequest | null;
+  /** Monotonic source of {@link AppLoadRequest.token}. */
+  appLoadSeq: number;
   activeDocumentTarget: DocumentTarget | null;
   openedDocumentState: OpenedDocumentState | null;
   isAppMinimized: boolean;
@@ -610,9 +643,18 @@ export interface ViewerActions {
 
   // --- App viewer ---
   openApp: (appId: string) => void;
-  loadApp: (assistantId: string, appId: string) => Promise<void>;
+  /**
+   * Resolves to whether this app ended up on screen: false when the load
+   * failed, or when the viewer left the app view while the request was in
+   * flight. Callers asking for the same assistant and app share one request.
+   */
+  loadApp: (assistantId: string, appId: string) => Promise<boolean>;
   setLoadedApp: (app: OpenedAppState) => void;
-  handleAppLoadFailed: () => void;
+  /**
+   * Let go of the app without touching `mainView`, so a view that opened over
+   * it (a document, a subagent detail) stays in front.
+   */
+  releaseApp: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
   minimizeApp: () => void;
@@ -807,6 +849,8 @@ const INITIAL_STATE: ViewerState = {
   mainView: "chat",
   activeAppId: null,
   openedAppState: null,
+  appLoad: null,
+  appLoadSeq: 0,
   activeDocumentTarget: null,
   openedDocumentState: null,
   isAppMinimized: false,
@@ -871,67 +915,102 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       activeAppId: appId,
       openedAppState: null,
       isAppMinimized: false,
+      appLoad: null,
     });
   },
 
-  loadApp: async (assistantId, appId) => {
+  loadApp: (assistantId, appId) => {
+    const pending = get().appLoad;
+    if (
+      pending &&
+      pending.assistantId === assistantId &&
+      pending.appId === appId
+    ) {
+      // One request per app: a mount that lands mid-load (Back onto the app
+      // URL) waits on the result the first caller is already waiting on.
+      return pending.promise;
+    }
+    const token = get().appLoadSeq + 1;
     set({
+      appLoadSeq: token,
       mainView: "app",
       activeAppId: appId,
       openedAppState: null,
       isAppMinimized: false,
     });
-    try {
-      const { data: result } = await appsByIdOpenPost({
-        path: { assistant_id: assistantId, id: appId },
-        throwOnError: true,
-      });
-      if (get().activeAppId !== appId) {
-        return;
+    const promise = (async (): Promise<boolean> => {
+      // The request waits one microtask for the registration below, so every
+      // settlement has a token to compare against.
+      await Promise.resolve();
+      try {
+        const { data: result } = await appsByIdOpenPost({
+          path: { assistant_id: assistantId, id: appId },
+          throwOnError: true,
+        });
+        if (!isCurrentAppLoad(get(), token)) {
+          return false;
+        }
+        set({
+          appLoad: null,
+          openedAppState: {
+            assistantId,
+            appId: result.appId,
+            dirName: result.dirName,
+            name: result.name,
+            html: result.html,
+          },
+        });
+        primeAppHtmlCache(assistantId, result.appId, result.html);
+        // The viewer can leave the app view without dropping activeAppId, so the
+        // id match alone does not mean the app is what the reader sees.
+        return isAppMainView(get().mainView);
+      } catch (err) {
+        if (!isCurrentAppLoad(get(), token)) {
+          return false;
+        }
+        set({ appLoad: null });
+        // 404s here are an expected condition (app was deleted on the
+        // server but the client still has a reference). Skip the Sentry
+        // capture for those, since the daemon already returns a structured
+        // `{ code: "NOT_FOUND", message }` body, and let the UI fall back to
+        // chat as below. Unexpected failures still report.
+        if (!isAppNotFoundError(err)) {
+          captureError(err, { context: "openApp" });
+        }
+        get().closeApp();
+        return false;
       }
-      const app = {
-        appId: result.appId,
-        dirName: result.dirName,
-        name: result.name,
-        html: result.html,
-      };
-      set({ openedAppState: app });
-      primeAppHtmlCache(assistantId, result.appId, result.html);
-    } catch (err) {
-      if (get().activeAppId !== appId) {
-        return;
-      }
-      // 404s here are an expected condition (app was deleted on the
-      // server but the client still has a reference). Skip the Sentry
-      // capture for those — the daemon already returns a structured
-      // `{ code: "NOT_FOUND", message }` body — and let the UI fall
-      // back to chat as below. Unexpected failures still report.
-      if (!isAppNotFoundError(err)) {
-        captureError(err, { context: "openApp" });
-      }
-      set({ mainView: "chat", activeAppId: null, openedAppState: null });
-    }
+    })();
+    set({ appLoad: { assistantId, appId, token, promise } });
+    return promise;
   },
 
   setLoadedApp: (app) => {
     set({ openedAppState: app });
   },
 
-  handleAppLoadFailed: () => {
+  releaseApp: () => {
+    // An overlay opened over the app restores to it on close. With the app
+    // gone there is nothing to restore to, so those targets settle on chat.
+    const state = get();
+    const settled: Partial<Record<ViewBeforeField, "chat">> = {};
+    for (const field of VIEW_BEFORE_FIELDS) {
+      if (isAppMainView(state[field])) {
+        settled[field] = "chat";
+      }
+    }
     set({
-      mainView: "chat",
       activeAppId: null,
       openedAppState: null,
+      isAppMinimized: false,
+      appLoad: null,
+      ...settled,
     });
   },
 
   closeApp: () => {
-    set({
-      mainView: "chat",
-      activeAppId: null,
-      openedAppState: null,
-      isAppMinimized: false,
-    });
+    get().releaseApp();
+    set({ mainView: "chat" });
   },
 
   toggleAppMinimized: () => {

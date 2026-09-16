@@ -51,6 +51,7 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "identity_changed",
   "avatar_updated",
   "sync_changed",
+  "desktop_activity_changed",
   "disk_pressure_status_changed",
   // Workspace-wide resource-pressure broadcast, no `conversationId`.
   "resource_pressure_status_changed",

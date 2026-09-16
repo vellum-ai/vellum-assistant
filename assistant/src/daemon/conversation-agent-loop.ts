@@ -38,6 +38,7 @@ import {
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { isSendUserMessageActiveForTurn } from "../config/send-user-message-gate.js";
+import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import type { UserPromptSubmitInputContext } from "../hooks/types.js";
 import {
@@ -913,6 +914,7 @@ export async function runAgentLoopImpl(
     if (ctx.pendingReactionRecords?.length) {
       ownedReactionRecords.push(...ctx.pendingReactionRecords.splice(0));
     }
+    desktopAutomationLease.releaseForConversation(ctx.conversationId);
     ctx.abortController = null;
     ctx.setProcessing(false);
     unregisterInflightTurn(ctx.conversationId, state);

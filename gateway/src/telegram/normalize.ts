@@ -1,25 +1,14 @@
-import { z } from "zod";
-
 import type { ChannelConversationType } from "@vellumai/gateway-client";
 
-import type {
-  Audio,
-  CallbackQuery,
-  Chat,
-  Document as TelegramApiDocument,
-  Message,
-  PhotoSize,
-  Update,
-  User,
-  Voice,
-} from "@grammyjs/types";
-
+import type { RoomAdmissionDropReason } from "../channels/room-admission.js";
 import type { GatewayInboundEvent } from "../types.js";
-import type {
-  Expect,
-  ModeledKeysAreOfficial,
-  OfficialValueSatisfiesOurs,
-} from "../webhook-crosscheck.js";
+import { admitTelegramMessage, toAdmissionCandidate } from "./admit.js";
+import type { TelegramBotIdentity } from "./bot-identity.js";
+import {
+  type TelegramMessage,
+  type TelegramMessageEntity,
+  TelegramUpdateSchema,
+} from "./schemas.js";
 
 /**
  * How visible a Telegram chat is, on the permission matrix's axis.
@@ -45,119 +34,149 @@ export function telegramConversationType(
   }
 }
 
-// Telegram webhook payloads are untrusted external input (Telegram Bot API).
-// These schemas validate the *types* of the nested fields the normalizer reads
-// while staying tolerant: a malformed field collapses to `undefined` (or an
-// empty string for required ids) rather than rejecting the whole update, so the
-// downstream null-checks drop an unsupported message instead of forwarding a
-// malformed value. Unknown keys are stripped from the parsed working copy; the
-// original payload is preserved verbatim as `raw`.
-const optionalNumber = () => z.number().optional().catch(undefined);
-const optionalString = () => z.string().optional().catch(undefined);
-const optionalBoolean = () => z.boolean().optional().catch(undefined);
-/** A required id string: a missing/non-string value collapses to `""`. */
-const idString = () => z.string().catch("");
-
-const TelegramPhotoSizeSchema = z.object({
-  file_id: idString(),
-  file_unique_id: optionalString(),
-  width: optionalNumber(),
-  height: optionalNumber(),
-  file_size: optionalNumber(),
-});
-
-const TelegramDocumentSchema = z.object({
-  file_id: idString(),
-  file_unique_id: optionalString(),
-  file_name: optionalString(),
-  mime_type: optionalString(),
-  file_size: optionalNumber(),
-});
-
-const TelegramVoiceSchema = z.object({
-  file_id: idString(),
-  file_unique_id: optionalString(),
-  duration: optionalNumber(),
-  mime_type: optionalString(),
-  file_size: optionalNumber(),
-});
-
-const TelegramAudioSchema = z.object({
-  file_id: idString(),
-  file_unique_id: optionalString(),
-  duration: optionalNumber(),
-  performer: optionalString(),
-  title: optionalString(),
-  file_name: optionalString(),
-  mime_type: optionalString(),
-  file_size: optionalNumber(),
-});
-
-const TelegramFromSchema = z
-  .object({
-    id: optionalNumber(),
-    is_bot: optionalBoolean(),
-    username: optionalString(),
-    first_name: optionalString(),
-    last_name: optionalString(),
-    language_code: optionalString(),
-  })
-  .optional()
-  .catch(undefined);
-
-const TelegramMessageSchema = z.object({
-  message_id: optionalNumber(),
-  message_thread_id: optionalNumber(),
-  text: optionalString(),
-  caption: optionalString(),
-  chat: z
-    .object({ id: optionalNumber(), type: optionalString() })
-    .optional()
-    .catch(undefined),
-  from: TelegramFromSchema,
-  photo: z.array(TelegramPhotoSizeSchema).optional().catch(undefined),
-  document: TelegramDocumentSchema.optional().catch(undefined),
-  voice: TelegramVoiceSchema.optional().catch(undefined),
-  audio: TelegramAudioSchema.optional().catch(undefined),
-});
-type TelegramMessage = z.infer<typeof TelegramMessageSchema>;
-
 /**
- * Topic thread id of a private-chat message, as a string, or undefined for
- * messages outside a topic. Callers run after the DM-only guard, so a thread
- * id here always identifies a private-chat topic.
+ * Topic thread id of a message, as a string, or undefined for messages
+ * outside a topic.
+ *
+ * In a private chat a `message_thread_id` is always a topic, because that is
+ * the only thread a private chat has. In a supergroup the same field also
+ * names a reply chain, which is one conversation rather than many, so a room
+ * message forks a conversation only when Telegram says it is a topic
+ * (`is_topic_message`, set for forum topics and for private-chat topics
+ * alike).
  */
 function threadIdFromMessage(message: TelegramMessage): string | undefined {
-  return message.message_thread_id != null
-    ? String(message.message_thread_id)
-    : undefined;
+  if (message.message_thread_id == null) {
+    return undefined;
+  }
+  const inTopic =
+    message.chat?.type === "private" || message.is_topic_message === true;
+  return inTopic ? String(message.message_thread_id) : undefined;
 }
 
-const TelegramCallbackQuerySchema = z.object({
-  id: idString(),
-  from: TelegramFromSchema,
-  message: TelegramMessageSchema.optional().catch(undefined),
-  data: optionalString(),
-});
-
-const TelegramUpdateSchema = z.object({
-  update_id: optionalNumber(),
-  message: TelegramMessageSchema.optional().catch(undefined),
-  edited_message: TelegramMessageSchema.optional().catch(undefined),
-  callback_query: TelegramCallbackQuerySchema.optional().catch(undefined),
-});
+/**
+ * The text with a leading `/command@username` addressed to this bot reduced
+ * to `/command`, so the route's command parsers see the same spelling a
+ * private chat sends. Telegram appends the username in groups to say which
+ * bot a command is for; it is addressing, not content, the way a leading
+ * Slack mention is. Any other text is returned as is.
+ */
+function withoutOwnCommandSuffix(
+  text: string,
+  entities: TelegramMessageEntity[],
+  botUsername: string | undefined,
+): string {
+  if (botUsername === undefined) {
+    return text;
+  }
+  const command = entities.find(
+    (entity) => entity.type === "bot_command" && entity.offset === 0,
+  );
+  if (command?.length == null) {
+    return text;
+  }
+  const span = text.slice(0, command.length);
+  const at = span.indexOf("@");
+  if (at === -1) {
+    return text;
+  }
+  if (span.slice(at + 1).toLowerCase() !== botUsername.toLowerCase()) {
+    return text;
+  }
+  return span.slice(0, at) + text.slice(command.length);
+}
 
 /**
- * Normalize a Telegram webhook payload into a GatewayInboundEvent.
- * Returns null if the payload is unsupported (non-text, non-private, etc.)
- * or if the sender identity cannot be determined.
+ * Why an update produced no event. Each names the check that failed, so one
+ * logged drop is the whole diagnosis.
+ *
+ * The admission reasons are the gate's (`admit.ts`): a room message that
+ * did not address the bot, a chat kind nothing in the product serves, a bot
+ * that does not yet know its own name. Every other reason is a shape the
+ * normalizer cannot read.
+ */
+export type TelegramDropReason =
+  | RoomAdmissionDropReason
+  | "malformed_update"
+  | "missing_update_id"
+  | "missing_chat"
+  | "missing_sender"
+  | "no_supported_content"
+  | "callback_without_message"
+  | "callback_without_data";
+
+export type TelegramNormalization =
+  | { dropped: false; event: GatewayInboundEvent }
+  | {
+      dropped: true;
+      reason: TelegramDropReason;
+      /** Telegram's own word for the chat, when the update named one. */
+      chatType: string | undefined;
+      /** The chat the update belongs to, when it named one. */
+      chatId: string | undefined;
+    };
+
+function drop(
+  reason: TelegramDropReason,
+  chat?: { id?: number; type?: string },
+): TelegramNormalization {
+  return {
+    dropped: true,
+    reason,
+    chatType: chat?.type,
+    chatId: chat?.id != null ? String(chat.id) : undefined,
+  };
+}
+
+/**
+ * The chat kind an update belongs to, read before normalization so the
+ * route can decide whether it needs the bot's identity at all: only a group
+ * or supergroup is admitted on a mention, so a private-only deployment never
+ * pays the `getMe` call.
+ */
+export function telegramUpdateChatType(
+  payload: Record<string, unknown>,
+): string | undefined {
+  const parsed = TelegramUpdateSchema.safeParse(payload);
+  if (!parsed.success) {
+    return undefined;
+  }
+  const update = parsed.data;
+  return (
+    update.callback_query?.message?.chat?.type ??
+    update.message?.chat?.type ??
+    update.edited_message?.chat?.type
+  );
+}
+
+export interface TelegramNormalizeOptions {
+  /**
+   * Who the bot is, for the admission gate to recognise a room message that
+   * addresses it. Absent, every room message drops as `bot_identity_unknown`
+   * and private chats are unaffected.
+   */
+  bot?: TelegramBotIdentity;
+}
+
+/**
+ * Normalize a Telegram webhook payload into a GatewayInboundEvent, or say
+ * why it could not be. A drop is never silent: the route logs the reason
+ * before acknowledging the update.
+ *
+ * Admission runs here too, between parsing and building: the gate reads the
+ * parsed entities, and a denied message is a drop like any other.
  */
 export function normalizeTelegramUpdate(
   payload: Record<string, unknown>,
-): GatewayInboundEvent | null {
+  options: TelegramNormalizeOptions = {},
+): TelegramNormalization {
+  const policy = {
+    ...(options.bot ? { botUserId: options.bot.userId } : {}),
+    ...(options.bot?.username ? { botUsername: options.bot.username } : {}),
+  };
   const parsed = TelegramUpdateSchema.safeParse(payload);
   if (!parsed.success) {
-    return null;
+    return drop("malformed_update");
   }
   const update = parsed.data;
   const updateId = update.update_id;
@@ -166,27 +185,36 @@ export function normalizeTelegramUpdate(
   if (update.callback_query) {
     const cbq = update.callback_query;
 
-    // Skip if callback_query has no message (edge case, e.g. inline mode)
-    if (!cbq.message?.chat?.id || updateId == null) {
-      return null;
+    // A callback_query with no message is an inline-mode edge case.
+    if (!cbq.message?.chat?.id) {
+      return drop("callback_without_message", cbq.message?.chat);
     }
-
-    // Skip if there is no callback data to forward
-    if (!cbq.data) {
-      return null;
+    if (updateId == null) {
+      return drop("missing_update_id", cbq.message.chat);
     }
 
     const chatId = String(cbq.message.chat.id);
     const chatType = cbq.message.chat.type;
 
-    // v1 is DM-only — reject callback queries from groups/channels
-    if (chatType !== "private") {
-      return null;
+    // A button press needs no mention: the bot posted the keyboard, so a tap
+    // on it is addressed to the bot by construction. Who may press it is the
+    // runtime's decision, keyed on the actor. Only the chat kind is gated.
+    if (
+      chatType !== "private" &&
+      chatType !== "group" &&
+      chatType !== "supergroup"
+    ) {
+      return drop("chat_not_supported", cbq.message.chat);
+    }
+
+    // Skip if there is no callback data to forward
+    if (!cbq.data) {
+      return drop("callback_without_data", cbq.message.chat);
     }
 
     // Drop the update if the sender identity cannot be determined
     if (!cbq.from?.id) {
-      return null;
+      return drop("missing_sender", cbq.message.chat);
     }
 
     const actorExternalId = String(cbq.from.id);
@@ -197,7 +225,7 @@ export function normalizeTelegramUpdate(
       .join(" ")
       .trim();
 
-    return {
+    const event: GatewayInboundEvent = {
       version: "v1",
       sourceChannel: "telegram",
       receivedAt: new Date().toISOString(),
@@ -225,8 +253,9 @@ export function normalizeTelegramUpdate(
             ? String(cbq.message.message_id)
             : undefined,
         chatType: cbq.message.chat.type,
-        // Non-private chats were rejected above, so one human reader is proven.
-        isDirectMessage: true,
+        // Readership is proven either way: a private chat has one human
+        // reader and a group has more.
+        isDirectMessage: chatType === "private",
         ...(telegramConversationType(cbq.message.chat.type)
           ? {
               conversationType: telegramConversationType(cbq.message.chat.type),
@@ -236,30 +265,40 @@ export function normalizeTelegramUpdate(
       },
       raw: payload,
     };
+    return { dropped: false, event };
   }
 
   const isEdit = !update.message && !!update.edited_message;
   const message = update.message ?? update.edited_message;
 
-  const hasContent = !!(
-    message?.text ||
-    message?.photo ||
-    message?.document ||
-    message?.voice ||
-    message?.audio
-  );
-  if (!hasContent || !message?.chat?.id || updateId == null) {
-    return null;
+  if (!message?.chat?.id) {
+    return drop("missing_chat", message?.chat);
   }
-
-  // v1 is DM-only
-  if (message.chat.type !== "private") {
-    return null;
+  if (updateId == null) {
+    return drop("missing_update_id", message.chat);
   }
 
   // Drop the update if the sender identity cannot be determined
   if (!message.from?.id) {
-    return null;
+    return drop("missing_sender", message.chat);
+  }
+
+  // Admission before content, so a room message that did not address the
+  // bot reports that, not the shape of what it carried.
+  const verdict = admitTelegramMessage(toAdmissionCandidate(message), policy);
+  if (!verdict.admitted) {
+    return drop(verdict.reason, message.chat);
+  }
+
+  const hasContent = !!(
+    message.text ||
+    message.photo ||
+    message.document ||
+    message.voice ||
+    message.audio
+  );
+  if (!hasContent) {
+    return drop("no_supported_content", message.chat);
   }
 
   const actorExternalId = String(message.from.id);
@@ -271,7 +310,13 @@ export function normalizeTelegramUpdate(
 
   const topicThreadId = threadIdFromMessage(message);
 
-  const content = message.text || message.caption || "";
+  const content = message.text
+    ? withoutOwnCommandSuffix(
+        message.text,
+        message.entities ?? [],
+        options.bot?.username,
+      )
+    : message.caption || "";
 
   const attachments: {
     type: "photo" | "document" | "audio";
@@ -316,7 +361,7 @@ export function normalizeTelegramUpdate(
     });
   }
 
-  return {
+  const event: GatewayInboundEvent = {
     version: "v1",
     sourceChannel: "telegram",
     receivedAt: new Date().toISOString(),
@@ -341,8 +386,10 @@ export function normalizeTelegramUpdate(
       messageId:
         message.message_id != null ? String(message.message_id) : undefined,
       chatType: message.chat.type,
-      // Non-private chats were rejected above, so one human reader is proven.
-      isDirectMessage: true,
+      // Readership is proven either way: a private chat has one human reader
+      // and a group has more.
+      isDirectMessage: message.chat.type === "private",
+      botMentioned: verdict.botMentioned,
       ...(telegramConversationType(message.chat.type)
         ? { conversationType: telegramConversationType(message.chat.type) }
         : {}),
@@ -350,52 +397,5 @@ export function normalizeTelegramUpdate(
     },
     raw: payload,
   };
+  return { dropped: false, event };
 }
-
-// ---------------------------------------------------------------------------
-// Compile-time cross-check against the official Telegram Bot API types.
-//
-// `@grammyjs/types` is a types-only dev dependency: it contributes nothing at
-// runtime (the `import type` above is erased from the build) and the schemas
-// above stay the sole runtime validators. Its only job is to make TypeScript
-// prove, via the shared `webhook-crosscheck` helpers, that a drift from the
-// real Bot API shape fails `tsc` instead of silently mis-parsing a live
-// webhook — e.g. a field-name typo like `messsage_thread_id` (which would
-// otherwise always parse to `undefined`) or a wrong primitive (`chat.id` as a
-// string).
-type TelegramFrom = NonNullable<z.infer<typeof TelegramFromSchema>>;
-type TelegramChat = NonNullable<TelegramMessage["chat"]>;
-
-type _TelegramApiCrossChecks = [
-  Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramUpdateSchema>, Update>>,
-  Expect<
-    OfficialValueSatisfiesOurs<z.infer<typeof TelegramUpdateSchema>, Update>
-  >,
-  Expect<ModeledKeysAreOfficial<TelegramMessage, Message>>,
-  Expect<OfficialValueSatisfiesOurs<TelegramMessage, Message>>,
-  Expect<
-    ModeledKeysAreOfficial<
-      z.infer<typeof TelegramCallbackQuerySchema>,
-      CallbackQuery
-    >
-  >,
-  Expect<
-    OfficialValueSatisfiesOurs<
-      z.infer<typeof TelegramCallbackQuerySchema>,
-      CallbackQuery
-    >
-  >,
-  Expect<ModeledKeysAreOfficial<TelegramChat, Chat>>,
-  Expect<ModeledKeysAreOfficial<TelegramFrom, User>>,
-  Expect<
-    ModeledKeysAreOfficial<z.infer<typeof TelegramPhotoSizeSchema>, PhotoSize>
-  >,
-  Expect<
-    ModeledKeysAreOfficial<
-      z.infer<typeof TelegramDocumentSchema>,
-      TelegramApiDocument
-    >
-  >,
-  Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramVoiceSchema>, Voice>>,
-  Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramAudioSchema>, Audio>>,
-];

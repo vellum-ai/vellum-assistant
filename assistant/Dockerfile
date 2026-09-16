@@ -130,13 +130,13 @@ RUN bun run scripts/smoke-container-workspace-dependencies.ts
 # The repo-root .dockerignore decides which skills (and files) ship.
 COPY skills /app/skills
 
-# Materialize the git-ignored offline plugin manifest from its canonical source.
-# `assistant/src/cli/lib/plugin-catalog-local.ts` statically imports this JSON
-# (loaded even when platform features are enabled), so it must exist in the image
-# — the build installs with --ignore-scripts, so the postinstall sync that
-# regenerates it in dev never runs here. Mirrors how CI materializes the
-# feature-flag registry before building.
-COPY plugins/marketplace.json /app/assistant/src/cli/lib/bundled-marketplace.json
+# Materialize the git-ignored offline marketplace and reviewed local packages.
+# The build installs with --ignore-scripts, so the postinstall sync that creates
+# these static imports in development never runs here.
+COPY plugins /app/plugins
+COPY meta/sync-bundled-copies.ts /app/meta/
+RUN cd /app && bun run meta/sync-bundled-copies.ts --plugins-only && \
+    bun run assistant/scripts/generate-bundled-plugin-packages.ts
 
 # Install assistant CLI launcher backed by the bundled assistant package
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \

@@ -107,6 +107,7 @@ import {
   persistWakeTriggerMessage,
   scopeWakeAllowedTools,
 } from "../daemon/wake-conversation-ops.js";
+import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
 import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
@@ -1421,6 +1422,7 @@ export async function wakeAgentForOpportunity(
      * is one function rather than a rebuild bolted onto either half.
      */
     const restoreWakeTurnScope = (): void => {
+      desktopAutomationLease.releaseForConversation(conversationId);
       restoreWakeAllowedTools();
       clearWakePersonaOverride();
       syncWakeLoopSystemPrompt();
