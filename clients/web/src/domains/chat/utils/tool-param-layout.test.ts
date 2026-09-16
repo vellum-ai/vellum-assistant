@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { layoutToolParams } from "@/domains/chat/utils/tool-param-layout";
-import { toToolParams } from "@/domains/chat/utils/tool-params";
-
-const layout = (input: Record<string, unknown>) =>
-  layoutToolParams(toToolParams(input));
+import {
+  layoutToolParams as layout,
+  toolCallParams,
+  type ToolParamField,
+} from "@/domains/chat/utils/tool-param-layout";
 
 describe("layoutToolParams", () => {
   test("shows short values as text and long text as a code block", () => {
@@ -74,6 +74,40 @@ describe("layoutToolParams", () => {
     });
   });
 
+  test("writes literals, empty lists and empty objects as-is", () => {
+    expect(
+      layout({ public: false, cursor: null, tags: [], options: {} }).fields,
+    ).toEqual([
+      { kind: "text", label: "public", text: "false" },
+      { kind: "text", label: "cursor", text: "null" },
+      { kind: "text", label: "tags", text: "[]" },
+      { kind: "text", label: "options", text: "{}" },
+    ]);
+  });
+
+  test("shows structure nested past the depth limit as JSON", () => {
+    const wide = (inner: unknown) => ({
+      a: "x".repeat(40),
+      b: "y".repeat(40),
+      inner,
+    });
+    let field: ToolParamField | undefined = layout({
+      top: wide(wide(wide(wide({ f: 1 })))),
+    }).fields[0];
+    for (let depth = 0; depth < 4; depth += 1) {
+      expect(field?.kind).toBe("nested");
+      field =
+        field?.kind === "nested"
+          ? field.fields.fields.find((child) => child.label === "inner")
+          : undefined;
+    }
+    expect(field).toEqual({
+      kind: "code",
+      label: "inner",
+      text: JSON.stringify({ f: 1 }, null, 2),
+    });
+  });
+
   test("counts what is past the first twenty children", () => {
     const ids = Array.from({ length: 23 }, (_, index) => `id-${index + 1}`);
     const [field] = layout({ ids }).fields;
@@ -87,5 +121,19 @@ describe("layoutToolParams", () => {
       Array.from({ length: 22 }, (_, index) => [`field_${index + 1}`, index]),
     );
     expect(layout(wide).more).toBe(2);
+  });
+});
+
+describe("toolCallParams", () => {
+  test("leaves out the activity sentence and keeps every other key", () => {
+    expect(
+      Object.keys(
+        toolCallParams({
+          activity: "Listing the components folder",
+          reason: "a parameter that happens to share the legacy spelling",
+          path: "src",
+        }),
+      ),
+    ).toEqual(["reason", "path"]);
   });
 });

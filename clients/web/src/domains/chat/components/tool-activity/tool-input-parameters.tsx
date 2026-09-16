@@ -12,7 +12,6 @@ import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { DetailDisclosure } from "@/domains/chat/components/tool-activity/detail-disclosure";
 import { ToolParamFields } from "@/domains/chat/components/tool-activity/tool-param-fields";
 import { layoutToolParams } from "@/domains/chat/utils/tool-param-layout";
-import type { ToolParamEntry } from "@/domains/chat/utils/tool-params";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -24,8 +23,8 @@ function RawInputJson({ input }: { input: Record<string, unknown> }) {
 }
 
 interface ToolInputParametersProps {
-  /** Parameters to show, in order. */
-  params: ToolParamEntry[];
+  /** Parameters to show, in insertion order. */
+  params: Record<string, unknown>;
   /** The input exactly as the call carried it, shown as JSON on request. */
   rawInput: Record<string, unknown>;
 }
@@ -38,7 +37,7 @@ export function ToolInputParameters({
 
   return (
     <>
-      {params.length > 0 && (
+      {Object.keys(params).length > 0 && (
         <div>
           <SectionLabel>{t("toolInputParameters.parameters")}</SectionLabel>
           <div className="rounded-lg border border-[var(--border-base)] p-4">

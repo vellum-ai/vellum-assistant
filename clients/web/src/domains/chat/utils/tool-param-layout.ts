@@ -5,13 +5,14 @@
  * Every parameter is a field: a label above its value. A short value is text,
  * and long or multi-line text is a code block. A list of a few short values
  * reads as one line, as does an object of a few short fields; anything larger
- * nests as fields of its own, each list item labelled by its position.
+ * nests as fields of its own, each list item labelled by its position, down to
+ * a depth past which the rest is shown as JSON.
  */
 
-import type {
-  ToolParamEntry,
-  ToolParamValue,
-} from "@/domains/chat/utils/tool-params";
+import { ACTIVITY_KEY } from "@/domains/chat/utils/tool-input";
+
+/** Nesting depth at which a list or object is shown as JSON instead. */
+const MAX_DEPTH = 4;
 
 /** Text longer than this, or with a line break, is a code block. */
 const LONG_TEXT_CHARS = 80;
@@ -55,12 +56,40 @@ function isShortText(text: string, max: number): boolean {
   return text.length <= max && !text.includes("\n");
 }
 
-/** The text of a string, number, boolean or null value, or `null` otherwise. */
-function scalarText(value: ToolParamValue): string | null {
-  return value.kind === "text" || value.kind === "literal" ? value.text : null;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function oneLineList(items: ToolParamValue[]): string[] | null {
+/**
+ * The text of a value written as-is: a string, number, boolean or null, or an
+ * empty list or object. `null` for anything with contents to lay out.
+ */
+function scalarText(value: unknown): string | null {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "[]" : null;
+  }
+  if (isRecord(value)) {
+    return Object.keys(value).length === 0 ? "{}" : null;
+  }
+  return String(value);
+}
+
+/**
+ * Pretty-printed JSON for a value past the depth limit. A value that can't be
+ * serialised (a cycle) degrades to its `String()` form rather than throwing.
+ */
+function jsonText(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function oneLineList(items: unknown[]): string[] | null {
   if (items.length > MAX_CHILDREN) {
     return null;
   }
@@ -76,17 +105,17 @@ function oneLineList(items: ToolParamValue[]): string[] | null {
   return length <= ONE_LINE_CHARS ? texts : null;
 }
 
-function oneLinePairs(entries: ToolParamEntry[]): ToolParamPair[] | null {
+function oneLinePairs(entries: [string, unknown][]): ToolParamPair[] | null {
   if (entries.length > ONE_LINE_FIELDS) {
     return null;
   }
   const pairs: ToolParamPair[] = [];
-  for (const entry of entries) {
-    const text = scalarText(entry.value);
+  for (const [key, value] of entries) {
+    const text = scalarText(value);
     if (text === null || !isShortText(text, LIST_ITEM_CHARS)) {
       return null;
     }
-    pairs.push({ key: entry.key, text });
+    pairs.push({ key, text });
   }
   const length = pairs.reduce(
     (sum, pair) => sum + pair.key.length + pair.text.length + 3,
@@ -105,46 +134,71 @@ function capped<T>(
   };
 }
 
-function fieldFor(label: string, value: ToolParamValue): ToolParamField {
-  switch (value.kind) {
-    case "literal":
-      return { kind: "text", label, text: value.text };
-    case "text":
-      return isShortText(value.text, LONG_TEXT_CHARS)
-        ? { kind: "text", label, text: value.text }
-        : { kind: "code", label, text: value.text };
-    case "json":
-      return { kind: "code", label, text: value.json };
-    case "list": {
-      const items = oneLineList(value.items);
-      if (items) {
-        return { kind: "list", label, items };
-      }
-      return {
-        kind: "nested",
-        label,
-        fields: capped(value.items, (item, index) =>
-          fieldFor(String(index + 1), item),
-        ),
-      };
-    }
-    case "object": {
-      const pairs = oneLinePairs(value.entries);
-      if (pairs) {
-        return { kind: "pairs", label, pairs };
-      }
-      return {
-        kind: "nested",
-        label,
-        fields: capped(value.entries, (entry) =>
-          fieldFor(entry.key, entry.value),
-        ),
-      };
-    }
+function fieldFor(
+  label: string,
+  value: unknown,
+  depth: number,
+): ToolParamField {
+  const scalar = scalarText(value);
+  if (scalar !== null) {
+    return typeof value === "string" && !isShortText(scalar, LONG_TEXT_CHARS)
+      ? { kind: "code", label, text: scalar }
+      : { kind: "text", label, text: scalar };
   }
+  if (depth >= MAX_DEPTH) {
+    return { kind: "code", label, text: jsonText(value) };
+  }
+  if (Array.isArray(value)) {
+    const items = oneLineList(value);
+    if (items) {
+      return { kind: "list", label, items };
+    }
+    return {
+      kind: "nested",
+      label,
+      fields: capped(value, (item, index) =>
+        fieldFor(String(index + 1), item, depth + 1),
+      ),
+    };
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value);
+    const pairs = oneLinePairs(entries);
+    if (pairs) {
+      return { kind: "pairs", label, pairs };
+    }
+    return {
+      kind: "nested",
+      label,
+      fields: capped(entries, ([key, entryValue]) =>
+        fieldFor(key, entryValue, depth + 1),
+      ),
+    };
+  }
+  return { kind: "text", label, text: String(value) };
 }
 
-/** The fields that lay out `params`, in order. */
-export function layoutToolParams(params: ToolParamEntry[]): ToolParamFieldList {
-  return capped(params, (param) => fieldFor(param.key, param.value));
+/** The fields that lay out `params`, in insertion order. */
+export function layoutToolParams(
+  params: Record<string, unknown>,
+): ToolParamFieldList {
+  return capped(Object.entries(params), ([key, value]) =>
+    fieldFor(key, value, 0),
+  );
+}
+
+/**
+ * The parameters a tool call was given, without its `activity` sentence.
+ *
+ * The daemon adds `activity` to every tool's input schema as a status line for
+ * the user (`assistant/src/tools/schema-transforms.ts`), and the detail panel's
+ * header already shows it, so a field for it would say the same thing twice. The
+ * raw input still carries it.
+ */
+export function toolCallParams(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(input).filter(([key]) => key !== ACTIVITY_KEY),
+  );
 }
