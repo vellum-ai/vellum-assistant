@@ -102,6 +102,7 @@
     "hideAria": "Ocultar escritorio",
     "closeAria": "Cerrar vista previa del escritorio",
     "moveAria": "Mover vista previa del escritorio (teclas de flecha)",
+    "resizeAria": "Cambiar tamaño de la vista previa del escritorio (teclas de flecha)",
     "expandAria": "Ampliar escritorio",
     "busy": "Otro usuario está usando el escritorio.",
     "connecting": "Conectando con el escritorio…",

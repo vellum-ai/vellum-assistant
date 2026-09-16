@@ -102,6 +102,7 @@
     "hideAria": "Hide desktop",
     "closeAria": "Close desktop preview",
     "moveAria": "Move desktop preview (arrow keys)",
+    "resizeAria": "Resize desktop preview (arrow keys)",
     "expandAria": "Expand desktop",
     "busy": "The desktop is in use by another viewer.",
     "connecting": "Connecting to the desktop…",
