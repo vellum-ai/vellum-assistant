@@ -27,6 +27,7 @@ import {
   uploadAttachment,
 } from "../../runtime/client.js";
 import { callTelegramApi } from "../../telegram/api.js";
+import { createTelegramBotIdentityResolver } from "../../telegram/bot-identity.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
 import { createTelegramDropLog } from "../../telegram/drop-log.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
@@ -64,6 +65,7 @@ export function createTelegramWebhookHandler(
 ) {
   const dedupCache = new DedupCache();
   const dropLog = createTelegramDropLog();
+  const resolveBotIdentity = createTelegramBotIdentityResolver(caches);
 
   const handler = async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -285,8 +287,13 @@ export function createTelegramWebhookHandler(
       return callbackData.startsWith("apr:");
     };
 
-    // Normalize the update
-    const normalization = normalizeTelegramUpdate(payload);
+    // Normalize the update. The bot's own identity is what lets the
+    // admission gate recognise a room message that addresses it; resolved
+    // once per token and cached, so this costs a call only on the first
+    // update after start or a token rotation.
+    const normalization = normalizeTelegramUpdate(payload, {
+      bot: await resolveBotIdentity(),
+    });
     if (normalization.dropped) {
       // Telegram sees a 200 either way, so this line is the only place the
       // drop exists. Severity splits by reason and volume is capped at the
@@ -334,11 +341,12 @@ export function createTelegramWebhookHandler(
       "Webhook received",
     );
 
-    // Private-chat topic scoping: when the inbound message belongs to a topic,
-    // the reply callback URL carries the thread id (the Telegram analog of
-    // Slack's `?threadTs=`) so the runtime's transport echoes it on outbound
-    // sends, and the gateway's own direct replies target the same topic.
-    // Messages outside a topic keep the bare URL and thread-less sends.
+    // Topic scoping: when the inbound message belongs to a topic (a private
+    // chat's or a forum supergroup's), the reply callback URL carries the
+    // thread id (the Telegram analog of Slack's `?threadTs=`) so the
+    // runtime's transport echoes it on outbound sends, and the gateway's own
+    // direct replies target the same topic. Messages outside a topic keep the
+    // bare URL and thread-less sends.
     const topicThreadId = normalized.source.threadId;
     const threadOpts = topicThreadId
       ? { messageThreadId: topicThreadId }

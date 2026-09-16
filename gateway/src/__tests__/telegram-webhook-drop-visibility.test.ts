@@ -15,15 +15,33 @@ import "./test-preload.js";
  * gateway stream is built at `level: "info"`, so a `debug` line reaches no
  * sink, and a spy would record a call no configured stream ever writes.
  *
- * This is the LUM-3623 shape. A group message used to be acknowledged with a
- * 200 and nothing else, so from Telegram's side and the operator's it looked
- * like it was never sent.
+ * This is the LUM-3623 shape. A group message the bot could not act on used
+ * to be acknowledged with a 200 and nothing else, so from Telegram's side and
+ * the operator's it looked like it was never sent.
  *
  * `initLogger` sets module-global logger state, so this file keeps to itself.
  */
 
 mock.module("../fetch.js", () => ({
-  fetchImpl: async () => new Response("Not found", { status: 404 }),
+  // The only call the drop path makes is getMe, so the gate knows who it is.
+  fetchImpl: async (input: string | URL | Request) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    if (url.endsWith("/getMe")) {
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          result: { id: 123456789, username: "vellum_bot" },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    return new Response("Not found", { status: 404 });
+  },
 }));
 
 const { createTelegramWebhookHandler } =
@@ -84,7 +102,8 @@ function makeCaches() {
   const credentials = {
     get: async (key: string) => {
       if (key === credentialKey("telegram", "webhook_secret")) return SECRET;
-      if (key === credentialKey("telegram", "bot_token")) return "bot-token";
+      if (key === credentialKey("telegram", "bot_token"))
+        return "123456789:test-secret";
       return undefined;
     },
     invalidate: () => {},
@@ -116,7 +135,7 @@ function webhookRequest(payload: unknown): Request {
 }
 
 describe("telegram webhook: dropped updates are visible", () => {
-  test("a group message is acknowledged and its drop is written at a level the streams keep", async () => {
+  test("an unaddressed group message is acknowledged and its drop is written at a level the streams keep", async () => {
     const { handler } = createTelegramWebhookHandler(
       makeConfig(),
       makeCaches(),
@@ -129,7 +148,7 @@ describe("telegram webhook: dropped updates are visible", () => {
 
     const dropped = readLogRecords().filter((r) => r["updateId"] === 9001);
     expect(dropped).toHaveLength(1);
-    expect(dropped[0]?.["reason"]).toBe("chat_not_private");
+    expect(dropped[0]?.["reason"]).toBe("bot_not_mentioned");
     expect(dropped[0]?.["chatType"]).toBe("supergroup");
     expect(dropped[0]?.["chatId"]).toBe(String(GROUP_CHAT_ID));
     // pino: info is 30, debug is 20. The file streams start at info, so a

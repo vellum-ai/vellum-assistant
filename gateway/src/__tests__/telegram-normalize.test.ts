@@ -188,12 +188,12 @@ describe("normalizeTelegramUpdate", () => {
     expect(result.message.attachments).toBeUndefined();
   });
 
-  test("drops group messages", () => {
+  test("drops group messages when the bot's identity is unknown", () => {
     const payload = {
       ...validPayload,
       message: { ...validPayload.message, chat: { id: 99001, type: "group" } },
     };
-    expectDrop(normalizeTelegramUpdate(payload), "chat_not_private");
+    expectDrop(normalizeTelegramUpdate(payload), "bot_identity_unknown");
   });
 
   test("drops payloads without update_id", () => {
@@ -300,7 +300,7 @@ describe("normalizeTelegramUpdate", () => {
     expect(result.message.attachments).toHaveLength(1);
   });
 
-  test("drops edited_message in group chat", () => {
+  test("drops edited_message in a group when the bot's identity is unknown", () => {
     const payload = {
       update_id: 500,
       edited_message: {
@@ -310,7 +310,7 @@ describe("normalizeTelegramUpdate", () => {
         from: { id: 55001, is_bot: false },
       },
     };
-    expectDrop(normalizeTelegramUpdate(payload), "chat_not_private");
+    expectDrop(normalizeTelegramUpdate(payload), "bot_identity_unknown");
   });
 });
 

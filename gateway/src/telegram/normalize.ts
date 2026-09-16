@@ -8,6 +8,7 @@ import type {
   Chat,
   Document as TelegramApiDocument,
   Message,
+  MessageEntity,
   PhotoSize,
   Update,
   User,
@@ -20,6 +21,12 @@ import type {
   ModeledKeysAreOfficial,
   OfficialValueSatisfiesOurs,
 } from "../webhook-crosscheck.js";
+import {
+  admitTelegramMessage,
+  type TelegramAdmissionCandidate,
+  type TelegramAdmissionDropReason,
+} from "./admit.js";
+import type { TelegramBotIdentity } from "./bot-identity.js";
 
 /**
  * How visible a Telegram chat is, on the permission matrix's axis.
@@ -105,11 +112,41 @@ const TelegramFromSchema = z
   .optional()
   .catch(undefined);
 
+/**
+ * One special span of a message's text. Only the kinds the admission gate
+ * reads are modeled: `mention` and `bot_command` name the bot by username in
+ * the text itself, `text_mention` names it by user id.
+ */
+const TelegramMessageEntitySchema = z.object({
+  type: optionalString(),
+  offset: optionalNumber(),
+  length: optionalNumber(),
+  user: z.object({ id: optionalNumber() }).optional().catch(undefined),
+});
+type TelegramMessageEntity = z.infer<typeof TelegramMessageEntitySchema>;
+
+/**
+ * The message this one replies to. Telegram never nests a reply inside a
+ * reply, so only the author is modeled: a reply to the bot's own post is one
+ * of the ways a room message addresses it.
+ */
+const TelegramReplyToMessageSchema = z
+  .object({ message_id: optionalNumber(), from: TelegramFromSchema })
+  .optional()
+  .catch(undefined);
+
 const TelegramMessageSchema = z.object({
   message_id: optionalNumber(),
   message_thread_id: optionalNumber(),
+  is_topic_message: optionalBoolean(),
   text: optionalString(),
   caption: optionalString(),
+  entities: z.array(TelegramMessageEntitySchema).optional().catch(undefined),
+  caption_entities: z
+    .array(TelegramMessageEntitySchema)
+    .optional()
+    .catch(undefined),
+  reply_to_message: TelegramReplyToMessageSchema,
   chat: z
     .object({ id: optionalNumber(), type: optionalString() })
     .optional()
@@ -123,14 +160,77 @@ const TelegramMessageSchema = z.object({
 type TelegramMessage = z.infer<typeof TelegramMessageSchema>;
 
 /**
- * Topic thread id of a private-chat message, as a string, or undefined for
- * messages outside a topic. Callers run after the DM-only guard, so a thread
- * id here always identifies a private-chat topic.
+ * Topic thread id of a message, as a string, or undefined for messages
+ * outside a topic.
+ *
+ * In a private chat a `message_thread_id` is always a topic, because that is
+ * the only thread a private chat has. In a supergroup the same field also
+ * names a reply chain, which is one conversation rather than many, so a room
+ * message forks a conversation only when Telegram says it is a topic
+ * (`is_topic_message`, set for forum topics and for private-chat topics
+ * alike).
  */
 function threadIdFromMessage(message: TelegramMessage): string | undefined {
-  return message.message_thread_id != null
-    ? String(message.message_thread_id)
-    : undefined;
+  if (message.message_thread_id == null) {
+    return undefined;
+  }
+  const inTopic =
+    message.chat?.type === "private" || message.is_topic_message === true;
+  return inTopic ? String(message.message_thread_id) : undefined;
+}
+
+/** Who a message names, read off its entities the way the gate wants them. */
+function admissionCandidate(
+  message: TelegramMessage,
+): TelegramAdmissionCandidate {
+  const mentionedUsernames: string[] = [];
+  const mentionedUserIds: string[] = [];
+  const read = (
+    text: string | undefined,
+    entities: TelegramMessageEntity[],
+  ) => {
+    for (const entity of entities) {
+      if (entity.type === "text_mention" && entity.user?.id != null) {
+        mentionedUserIds.push(String(entity.user.id));
+        continue;
+      }
+      if (
+        (entity.type !== "mention" && entity.type !== "bot_command") ||
+        text === undefined ||
+        entity.offset == null ||
+        entity.length == null
+      ) {
+        continue;
+      }
+      // Offsets and lengths are in UTF-16 code units, which is what a
+      // JavaScript string indexes by.
+      const span = text.slice(entity.offset, entity.offset + entity.length);
+      const at = span.indexOf("@");
+      if (at === -1) {
+        continue;
+      }
+      const username = span
+        .slice(at + 1)
+        .trim()
+        .toLowerCase();
+      if (username) {
+        mentionedUsernames.push(username);
+      }
+    }
+  };
+  read(message.text, message.entities ?? []);
+  read(message.caption, message.caption_entities ?? []);
+  return {
+    chatType: message.chat?.type,
+    authorId: message.from?.id != null ? String(message.from.id) : undefined,
+    authorIsBot: message.from?.is_bot,
+    mentionedUsernames,
+    mentionedUserIds,
+    repliedToAuthorId:
+      message.reply_to_message?.from?.id != null
+        ? String(message.reply_to_message.from.id)
+        : undefined,
+  };
 }
 
 const TelegramCallbackQuerySchema = z.object({
@@ -151,15 +251,16 @@ const TelegramUpdateSchema = z.object({
  * Why an update produced no event. Each names the check that failed, so one
  * logged drop is the whole diagnosis.
  *
- * `chat_not_private` is the deliberate scope of this integration: private
- * chats only, with groups and supergroups a future explicit opt-in. Every
- * other reason is a shape the normalizer cannot read.
+ * The admission reasons are the gate's (`admit.ts`): a room message that
+ * did not address the bot, a chat kind nothing in the product serves, a bot
+ * that does not yet know its own name. Every other reason is a shape the
+ * normalizer cannot read.
  */
 export type TelegramDropReason =
+  | TelegramAdmissionDropReason
   | "malformed_update"
   | "missing_update_id"
   | "missing_chat"
-  | "chat_not_private"
   | "missing_sender"
   | "no_supported_content"
   | "callback_without_message"
@@ -188,14 +289,31 @@ function drop(
   };
 }
 
+export interface TelegramNormalizeOptions {
+  /**
+   * Who the bot is, for the admission gate to recognise a room message that
+   * addresses it. Absent, every room message drops as `bot_identity_unknown`
+   * and private chats are unaffected.
+   */
+  bot?: TelegramBotIdentity;
+}
+
 /**
  * Normalize a Telegram webhook payload into a GatewayInboundEvent, or say
  * why it could not be. A drop is never silent: the route logs the reason
  * before acknowledging the update.
+ *
+ * Admission runs here too, between parsing and building: the gate reads the
+ * parsed entities, and a denied message is a drop like any other.
  */
 export function normalizeTelegramUpdate(
   payload: Record<string, unknown>,
+  options: TelegramNormalizeOptions = {},
 ): TelegramNormalization {
+  const policy = {
+    ...(options.bot ? { botUserId: options.bot.userId } : {}),
+    ...(options.bot?.username ? { botUsername: options.bot.username } : {}),
+  };
   const parsed = TelegramUpdateSchema.safeParse(payload);
   if (!parsed.success) {
     return drop("malformed_update");
@@ -218,9 +336,15 @@ export function normalizeTelegramUpdate(
     const chatId = String(cbq.message.chat.id);
     const chatType = cbq.message.chat.type;
 
-    // v1 is DM-only: reject callback queries from groups/channels
-    if (chatType !== "private") {
-      return drop("chat_not_private", cbq.message.chat);
+    // A button press needs no mention: the bot posted the keyboard, so a tap
+    // on it is addressed to the bot by construction. Who may press it is the
+    // runtime's decision, keyed on the actor. Only the chat kind is gated.
+    if (
+      chatType !== "private" &&
+      chatType !== "group" &&
+      chatType !== "supergroup"
+    ) {
+      return drop("chat_not_supported", cbq.message.chat);
     }
 
     // Skip if there is no callback data to forward
@@ -269,8 +393,9 @@ export function normalizeTelegramUpdate(
             ? String(cbq.message.message_id)
             : undefined,
         chatType: cbq.message.chat.type,
-        // Non-private chats were rejected above, so one human reader is proven.
-        isDirectMessage: true,
+        // Readership is proven either way: a private chat has one human
+        // reader and a group has more.
+        isDirectMessage: chatType === "private",
         ...(telegramConversationType(cbq.message.chat.type)
           ? {
               conversationType: telegramConversationType(cbq.message.chat.type),
@@ -293,15 +418,16 @@ export function normalizeTelegramUpdate(
     return drop("missing_update_id", message.chat);
   }
 
-  // v1 is DM-only. Checked before content so a group message reports the
-  // scope it fell outside of, not the shape of what it carried.
-  if (message.chat.type !== "private") {
-    return drop("chat_not_private", message.chat);
-  }
-
   // Drop the update if the sender identity cannot be determined
   if (!message.from?.id) {
     return drop("missing_sender", message.chat);
+  }
+
+  // Admission before content, so a room message that did not address the
+  // bot reports that, not the shape of what it carried.
+  const verdict = admitTelegramMessage(admissionCandidate(message), policy);
+  if (!verdict.admitted) {
+    return drop(verdict.reason, message.chat);
   }
 
   const hasContent = !!(
@@ -394,8 +520,10 @@ export function normalizeTelegramUpdate(
       messageId:
         message.message_id != null ? String(message.message_id) : undefined,
       chatType: message.chat.type,
-      // Non-private chats were rejected above, so one human reader is proven.
-      isDirectMessage: true,
+      // Readership is proven either way: a private chat has one human reader
+      // and a group has more.
+      isDirectMessage: message.chat.type === "private",
+      botMentioned: verdict.botMentioned,
       ...(telegramConversationType(message.chat.type)
         ? { conversationType: telegramConversationType(message.chat.type) }
         : {}),
@@ -419,8 +547,31 @@ export function normalizeTelegramUpdate(
 // string).
 type TelegramFrom = NonNullable<z.infer<typeof TelegramFromSchema>>;
 type TelegramChat = NonNullable<TelegramMessage["chat"]>;
+/** The official reply shape is not exported by name; it is what `Message` carries. */
+type OfficialReplyMessage = NonNullable<Message["reply_to_message"]>;
 
 type _TelegramApiCrossChecks = [
+  // `user` exists only on the text_mention member of the entity union, so the
+  // key check runs against that member and the value check against the union.
+  Expect<
+    ModeledKeysAreOfficial<
+      TelegramMessageEntity,
+      MessageEntity.TextMentionMessageEntity
+    >
+  >,
+  Expect<OfficialValueSatisfiesOurs<TelegramMessageEntity, MessageEntity>>,
+  Expect<
+    ModeledKeysAreOfficial<
+      NonNullable<TelegramMessage["reply_to_message"]>,
+      OfficialReplyMessage
+    >
+  >,
+  Expect<
+    OfficialValueSatisfiesOurs<
+      NonNullable<TelegramMessage["reply_to_message"]>,
+      OfficialReplyMessage
+    >
+  >,
   Expect<ModeledKeysAreOfficial<z.infer<typeof TelegramUpdateSchema>, Update>>,
   Expect<
     OfficialValueSatisfiesOurs<z.infer<typeof TelegramUpdateSchema>, Update>

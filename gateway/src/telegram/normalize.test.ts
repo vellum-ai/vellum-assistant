@@ -103,7 +103,7 @@ describe("normalizeTelegramUpdate — private-chat topics", () => {
     expect(result.source.threadId).toBe("777");
   });
 
-  it("still rejects group messages even when they carry message_thread_id", () => {
+  it("drops a room message when the bot does not know its own identity, thread id or not", () => {
     const result = normalizeTelegramUpdate({
       update_id: 503,
       message: {
@@ -115,7 +115,7 @@ describe("normalizeTelegramUpdate — private-chat topics", () => {
       },
     });
 
-    expectDrop(result, "chat_not_private");
+    expectDrop(result, "bot_identity_unknown");
   });
 });
 
@@ -154,7 +154,7 @@ describe("normalizeTelegramUpdate: event kinds", () => {
   });
 });
 
-describe("normalizeTelegramUpdate — callback_query DM-only guard", () => {
+describe("normalizeTelegramUpdate: callback_query chat scope", () => {
   it("accepts callback_query from private chat", () => {
     const result = eventOf(
       normalizeTelegramUpdate(
@@ -177,32 +177,38 @@ describe("normalizeTelegramUpdate — callback_query DM-only guard", () => {
     expect(result.message.eventKind).toBe("button");
   });
 
-  it("rejects callback_query from group chat", () => {
-    const result = normalizeTelegramUpdate(
-      makeCallbackQueryPayload({ chatType: "group" }),
+  it("admits callback_query from a group and states the room has other readers", () => {
+    // A tap on a keyboard the bot posted is addressed to the bot by
+    // construction; who may press it is the runtime's decision.
+    const result = eventOf(
+      normalizeTelegramUpdate(makeCallbackQueryPayload({ chatType: "group" })),
     );
-    expectDrop(result, "chat_not_private");
+    expect(result.message.eventKind).toBe("button");
+    expect(result.source.isDirectMessage).toBe(false);
+    expect(result.source.conversationType).toBe("private");
   });
 
-  it("rejects callback_query from supergroup chat", () => {
-    const result = normalizeTelegramUpdate(
-      makeCallbackQueryPayload({ chatType: "supergroup" }),
+  it("admits callback_query from a supergroup", () => {
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeCallbackQueryPayload({ chatType: "supergroup" }),
+      ),
     );
-    expectDrop(result, "chat_not_private");
+    expect(result.source.isDirectMessage).toBe(false);
   });
 
   it("rejects callback_query from channel chat", () => {
     const result = normalizeTelegramUpdate(
       makeCallbackQueryPayload({ chatType: "channel" }),
     );
-    expectDrop(result, "chat_not_private");
+    expectDrop(result, "chat_not_supported");
   });
 
   it("rejects callback_query when chat type is undefined", () => {
     const result = normalizeTelegramUpdate(
       makeCallbackQueryPayload({ chatType: undefined as unknown as string }),
     );
-    expectDrop(result, "chat_not_private");
+    expectDrop(result, "chat_not_supported");
   });
 });
 
@@ -275,11 +281,11 @@ describe("normalizeTelegramUpdate — voice messages", () => {
     ]);
   });
 
-  it("voice message from non-private chat is rejected", () => {
+  it("voice message from a room drops without the bot's identity", () => {
     const result = normalizeTelegramUpdate(
       makeVoicePayload({ chatType: "group" }),
     );
-    expectDrop(result, "chat_not_private");
+    expectDrop(result, "bot_identity_unknown");
   });
 
   it("voice message with missing sender is rejected", () => {
@@ -314,11 +320,11 @@ describe("normalizeTelegramUpdate — audio messages", () => {
     expect(result.message.attachments![0].type).toBe("audio");
   });
 
-  it("audio message from non-private chat is rejected", () => {
+  it("audio message from a room drops without the bot's identity", () => {
     const result = normalizeTelegramUpdate(
       makeAudioPayload({ chatType: "supergroup" }),
     );
-    expectDrop(result, "chat_not_private");
+    expectDrop(result, "bot_identity_unknown");
   });
 
   it("audio message with missing sender is rejected", () => {
@@ -392,5 +398,158 @@ describe("normalizeTelegramUpdate — malformed input is validated, not trusted"
     };
     const result = eventOf(normalizeTelegramUpdate(payload));
     expect(result.raw).toEqual(payload);
+  });
+});
+
+const BOT = { userId: "123456789", username: "Vellum_Bot" };
+const GROUP_CHAT = { id: -1001234567890, type: "supergroup" };
+
+function makeGroupMessage(overrides: Record<string, unknown> = {}) {
+  return {
+    update_id: 700,
+    message: {
+      message_id: 70,
+      chat: GROUP_CHAT,
+      from: { id: 42, first_name: "Alice" },
+      text: "hello",
+      ...overrides,
+    },
+  };
+}
+
+describe("normalizeTelegramUpdate: rooms", () => {
+  it("admits a supergroup message that mentions the bot and states the room facts", () => {
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeGroupMessage({
+          text: "@vellum_bot what is the plan",
+          entities: [{ type: "mention", offset: 0, length: 11 }],
+        }),
+        { bot: BOT },
+      ),
+    );
+    expect(result.message.conversationExternalId).toBe("-1001234567890");
+    expect(result.source.chatType).toBe("supergroup");
+    expect(result.source.isDirectMessage).toBe(false);
+    expect(result.source.botMentioned).toBe(true);
+    expect(result.source.conversationType).toBe("private");
+    expect(result.source.threadId).toBeUndefined();
+  });
+
+  it("drops a supergroup message that does not address the bot", () => {
+    expectDrop(
+      normalizeTelegramUpdate(makeGroupMessage(), { bot: BOT }),
+      "bot_not_mentioned",
+    );
+  });
+
+  it("a command addressed to the bot counts as a mention", () => {
+    const result = normalizeTelegramUpdate(
+      makeGroupMessage({
+        text: "/summary@Vellum_Bot",
+        entities: [{ type: "bot_command", offset: 0, length: 19 }],
+      }),
+      { bot: BOT },
+    );
+    expect(result.dropped).toBe(false);
+  });
+
+  it("a mention inside a photo caption counts", () => {
+    const result = normalizeTelegramUpdate(
+      makeGroupMessage({
+        text: undefined,
+        caption: "look @vellum_bot",
+        caption_entities: [{ type: "mention", offset: 5, length: 11 }],
+        photo: [{ file_id: "p1", file_unique_id: "u1", width: 1, height: 1 }],
+      }),
+      { bot: BOT },
+    );
+    expect(result.dropped).toBe(false);
+  });
+
+  it("a text_mention names the bot by id when it has no username in the text", () => {
+    const result = normalizeTelegramUpdate(
+      makeGroupMessage({
+        text: "Vellum, thoughts?",
+        entities: [
+          {
+            type: "text_mention",
+            offset: 0,
+            length: 6,
+            user: { id: 123456789 },
+          },
+        ],
+      }),
+      { bot: BOT },
+    );
+    expect(result.dropped).toBe(false);
+  });
+
+  it("a reply to one of the bot's posts is addressed to it", () => {
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeGroupMessage({
+          reply_to_message: {
+            message_id: 69,
+            from: { id: 123456789, is_bot: true, first_name: "Vellum" },
+          },
+        }),
+        { bot: BOT },
+      ),
+    );
+    expect(result.source.botMentioned).toBe(true);
+  });
+
+  it("a forum topic message keys on its topic", () => {
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeGroupMessage({
+          text: "@vellum_bot hi",
+          entities: [{ type: "mention", offset: 0, length: 11 }],
+          message_thread_id: 555,
+          is_topic_message: true,
+        }),
+        { bot: BOT },
+      ),
+    );
+    expect(result.source.threadId).toBe("555");
+  });
+
+  it("a reply chain in a supergroup is not a topic and does not fork the conversation", () => {
+    // Telegram sets message_thread_id on reply chains in supergroups too; only
+    // is_topic_message says it is a forum topic.
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeGroupMessage({
+          text: "@vellum_bot hi",
+          entities: [{ type: "mention", offset: 0, length: 11 }],
+          message_thread_id: 12,
+        }),
+        { bot: BOT },
+      ),
+    );
+    expect(result.source.threadId).toBeUndefined();
+  });
+
+  it("a private-chat message states it was not named and has one reader", () => {
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeGroupMessage({ chat: { id: 42, type: "private" } }),
+        { bot: BOT },
+      ),
+    );
+    expect(result.source.isDirectMessage).toBe(true);
+    expect(result.source.botMentioned).toBe(false);
+    expect(result.source.conversationType).toBe("dm");
+  });
+
+  it("refuses a channel post", () => {
+    expectDrop(
+      normalizeTelegramUpdate(
+        makeGroupMessage({ chat: { id: -100999, type: "channel" } }),
+        { bot: BOT },
+      ),
+      "chat_not_supported",
+    );
   });
 });
