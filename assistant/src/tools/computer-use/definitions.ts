@@ -352,7 +352,7 @@ export const computerUseOpenAppTool = {
 export const computerUseRunAppleScriptTool = {
   name: "computer_use_run_applescript",
   description:
-    "Run an AppleScript on the Mac: menu items, an app's scripting dictionary, windows. Prefer this over click and type when the app supports it; it does not move the cursor. The result is the script's return value, and the accessibility tree may not change even when the script worked. Never use 'do shell script' inside AppleScript (blocked for security).",
+    "Run an AppleScript on the Mac. Try the target app's own scripting dictionary first, asking it for the state you want rather than for the clicks that would produce it; fall back to System Events menu clicking for apps with no dictionary entry for what you need. Prefer this over click and type when the app supports it; it does not move the cursor. The result is the script's return value, and the accessibility tree may not change even when the script worked. Never use 'do shell script' inside AppleScript (blocked for security).",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",

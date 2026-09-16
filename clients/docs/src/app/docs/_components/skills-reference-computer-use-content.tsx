@@ -156,9 +156,10 @@ export function SkillsReferenceComputerUseContent() {
             </li>
             <li>
               <strong>Scripting first on macOS.</strong> When an app can be driven by AppleScript,
-              such as a menu item or the app&apos;s own scripting commands, the assistant runs a
-              script instead of moving your pointer. It clicks and types only for what a script
-              cannot reach.
+              the assistant runs a script instead of moving your pointer. It asks the app&apos;s
+              own scripting commands for what it wants where the app has them, falls back to
+              clicking menus by script where it does not, and clicks and types only for what a
+              script cannot reach.
             </li>
             <li>
               <strong>Typing is not sending.</strong> Asked to type or draft a message, the
