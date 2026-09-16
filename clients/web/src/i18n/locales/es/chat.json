@@ -1930,6 +1930,7 @@
     "timeUnavailable": "Hora no disponible"
   },
   "desktopHelpCard": {
+    "needsHelp": "El escritorio virtual necesita tu ayuda.",
     "stepIn": "Intervenir",
     "done": "Listo",
     "skip": "Omitir",

@@ -1608,6 +1608,7 @@ export function ChatMainPanel({
           />
         ) : undefined
       }
+      onViewConversation={documentRoute.viewConversation}
       documentPresentation={
         documentRoute.showingDocument ? "document" : "conversation"
       }

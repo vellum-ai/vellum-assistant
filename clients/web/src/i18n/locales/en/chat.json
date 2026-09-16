@@ -1996,6 +1996,7 @@
     "timeUnavailable": "Time unavailable"
   },
   "desktopHelpCard": {
+    "needsHelp": "The virtual desktop needs your help.",
     "stepIn": "Step In",
     "done": "Done",
     "skip": "Skip",
