@@ -26,7 +26,9 @@ const FULL_SHA = "63a91ecadbf4c4719a4602a5abb00883f9966034";
 
 /** A synthetic catalog match with an overridable source. */
 function match(
-  source: Partial<PluginSearchMatch["source"]> = {},
+  source: Partial<
+    Extract<PluginSearchMatch["source"], { kind: "github" }>
+  > = {},
 ): PluginSearchMatch {
   return {
     name: "example",
@@ -37,12 +39,32 @@ function match(
 }
 
 describe("resolveSourceFromMatch", () => {
+  test("returns an exact bundled package path and version", () => {
+    expect(
+      resolveSourceFromMatch({
+        name: "fathom",
+        path: "local:plugins/mcp-catalog/fathom@1.0.0",
+        category: null,
+        source: {
+          kind: "local",
+          path: "plugins/mcp-catalog/fathom",
+          version: "1.0.0",
+        },
+      }),
+    ).toEqual({
+      kind: "local",
+      path: "plugins/mcp-catalog/fathom",
+      version: "1.0.0",
+    });
+  });
+
   test("returns owner/repo/path/ref for a full-SHA match", () => {
     expect(
       resolveSourceFromMatch(
         match({ repo: "acme/widget", path: "pkg/plugin" }),
       ),
     ).toEqual({
+      kind: "github",
       owner: "acme",
       repo: "widget",
       path: "pkg/plugin",
@@ -52,6 +74,7 @@ describe("resolveSourceFromMatch", () => {
 
   test('defaults path to "" when the source declares none', () => {
     expect(resolveSourceFromMatch(match())).toEqual({
+      kind: "github",
       owner: "acme",
       repo: "example",
       path: "",
@@ -66,6 +89,7 @@ describe("resolveSourceFromMatch", () => {
     // A repo-root entry (`path: ""` or absent) is valid — the clean-path gate
     // only applies to a non-empty path, so it must not be rejected.
     expect(resolveSourceFromMatch(match({ path }))).toEqual({
+      kind: "github",
       owner: "acme",
       repo: "example",
       path: "",
@@ -94,6 +118,7 @@ describe("resolveSourceFromMatch", () => {
 
   test("resolves a clean nested path", () => {
     expect(resolveSourceFromMatch(match({ path: "packages/plugin" }))).toEqual({
+      kind: "github",
       owner: "acme",
       repo: "example",
       path: "packages/plugin",
@@ -157,6 +182,7 @@ describe("catalog-backed resolvers (bundled, offline)", () => {
     expect(
       await resolvePluginSourceFromCatalog("caveman", rejectingDeps),
     ).toEqual({
+      kind: "github",
       owner: "JuliusBrussee",
       repo: "caveman",
       path: "",

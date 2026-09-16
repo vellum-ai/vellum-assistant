@@ -1,37 +1,47 @@
 /**
- * useDeepLinkApp — consumes the `?app=<id>` URL search parameter on initial
- * load, opens the app in the viewer, and strips the param from the URL.
- *
- * Fires once per mount (guarded by a consumed ref) so navigating back to
- * the same URL doesn't re-trigger the viewer.
+ * Legacy `?app=<id>` links redirect onto the app route
+ * `/assistant/conversations/:conversationId/app/:appId`, which `useAppRouteSync`
+ * turns into an open app. The pending id is held in a ref because an index
+ * landing (`/assistant?app=x`) is rewritten to a conversation URL by the loader
+ * before the conversation id is known.
  */
 
 import { useEffect, useRef } from "react";
-import { useViewerStore } from "@/stores/viewer-store";
+import { useNavigate } from "react-router";
+
+import { useConversationStore } from "@/stores/conversation-store";
+import { routes } from "@/utils/routes";
+
+const LEGACY_APP_PARAM = "app";
 
 export function useDeepLinkApp(
-  assistantId: string | null,
+  urlConversationId: string | null,
   searchParams: URLSearchParams,
 ): void {
-  const consumedRef = useRef(false);
+  const navigate = useNavigate();
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const pendingAppIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (consumedRef.current) {
+    const appId = searchParams.get(LEGACY_APP_PARAM) ?? pendingAppIdRef.current;
+    if (!appId) {
       return;
     }
-    const appId = searchParams.get("app");
-    if (!appId || !assistantId) {
+    const conversationId = urlConversationId ?? activeConversationId;
+    if (!conversationId) {
+      pendingAppIdRef.current = appId;
       return;
     }
-    consumedRef.current = true;
-    void useViewerStore.getState().loadApp(assistantId, appId);
+    pendingAppIdRef.current = null;
     const params = new URLSearchParams(searchParams.toString());
-    params.delete("app");
-    const query = params.toString();
-    window.history.replaceState(
-      null,
-      "",
-      query ? `${window.location.pathname}?${query}` : window.location.pathname,
+    params.delete(LEGACY_APP_PARAM);
+    const rest = params.toString();
+    void navigate(
+      {
+        pathname: routes.conversation(conversationId, appId),
+        search: rest ? `?${rest}` : "",
+      },
+      { replace: true },
     );
-  }, [searchParams, assistantId]);
+  }, [searchParams, urlConversationId, activeConversationId, navigate]);
 }

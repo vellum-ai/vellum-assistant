@@ -22,26 +22,49 @@ export interface SearchPluginsDeps {
 }
 
 /** Where a catalog match comes from. */
-export type PluginMatchSource = {
-  readonly kind: "github";
-  /** `owner/repo` of the external plugin repository. */
-  readonly repo: string;
-  /** Directory within the repo, when the plugin is not at the root. */
-  readonly path?: string;
-  /** Pinned git ref the plugin is fetched from. */
-  readonly ref: string;
-};
+export type PluginMatchSource =
+  | {
+      readonly kind: "github";
+      /** `owner/repo` of the external plugin repository. */
+      readonly repo: string;
+      /** Directory within the repo, when the plugin is not at the root. */
+      readonly path?: string;
+      /** Pinned git ref the plugin is fetched from. */
+      readonly ref: string;
+    }
+  | {
+      readonly kind: "local";
+      /** Exact package key in the assistant's embedded plugin bundle. */
+      readonly path: string;
+      readonly version: string;
+      readonly repo?: undefined;
+      readonly ref?: undefined;
+    };
+
+export interface McpPluginIntegration {
+  readonly kind: "mcp";
+  readonly displayName: string;
+  readonly documentationUrl: string;
+  readonly verifiedAt: string;
+  readonly verification: "documentation-only";
+  readonly setup: {
+    readonly mode: "oauth" | "manual";
+    readonly instructions: string;
+  };
+  readonly logo: string;
+  readonly oauthProvider?: string;
+}
 
 /** One matching catalog entry. */
 export interface PluginSearchMatch {
   /** Install name — `assistant plugins install <name>` resolves to it. */
   readonly name: string;
   /**
-   * Human-readable origin of the entry: a `github:owner/repo[/path]@ref`
-   * locator for the external plugin source.
+   * Human-readable origin: either `github:owner/repo[/path]@ref` or
+   * `local:plugins/path@version`.
    */
   readonly path: string;
-  /** Short description, when known (external entries only today). */
+  /** Short description, when known. */
   readonly description?: string;
   /**
    * Plugin icon: a curated emoji from the marketplace entry, or an icon URL
@@ -57,6 +80,7 @@ export interface PluginSearchMatch {
   readonly homepage?: string;
   /** License identifier, from the curated marketplace entry when present. */
   readonly license?: string;
+  readonly integration?: McpPluginIntegration;
   /** Discriminated origin, so callers can render/install accordingly. */
   readonly source: PluginMatchSource;
 }
@@ -121,14 +145,31 @@ export interface PluginCatalog {
 
 /**
  * Project a marketplace entry onto the catalog match shape, building a
- * `github:owner/repo[/path]@ref` locator for display.
+ * a source-specific locator for display.
  *
  * Shared by the platform fetcher and bundled reader so all catalog sources
  * project entries identically.
  */
 export function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
-  const { repo, path, ref } = entry.source;
-  const locator = `github:${repo}${path ? `/${path}` : ""}@${ref}`;
+  const source: PluginMatchSource =
+    entry.source.source === "github"
+      ? {
+          kind: "github",
+          repo: entry.source.repo,
+          path: entry.source.path,
+          ref: entry.source.ref,
+        }
+      : {
+          kind: "local",
+          path: entry.source.path,
+          version: entry.source.version,
+        };
+  const locator =
+    source.kind === "github"
+      ? `github:${source.repo}${source.path ? `/${source.path}` : ""}@${
+          source.ref
+        }`
+      : `local:${source.path}@${source.version}`;
   return {
     name: entry.name,
     path: locator,
@@ -137,7 +178,8 @@ export function marketplaceMatch(entry: MarketplaceEntry): PluginSearchMatch {
     category: entry.category ?? null,
     homepage: entry.homepage,
     license: entry.license,
-    source: { kind: "github", repo, path, ref },
+    integration: entry.integration,
+    source,
   };
 }
 

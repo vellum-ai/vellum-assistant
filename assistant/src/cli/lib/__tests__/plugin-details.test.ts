@@ -108,12 +108,19 @@ function splitOnce(s: string, sep: string): [string, string] {
 }
 
 /** The bundled catalog entry for {@link name} — the source under test. */
-function bundledMatch(name: string): PluginSearchMatch {
+function bundledMatch(name: string): PluginSearchMatch & {
+  source: Extract<PluginSearchMatch["source"], { kind: "github" }>;
+} {
   const match = readBundledPluginCatalog().matches.find((m) => m.name === name);
   if (!match) {
     throw new Error(`bundled catalog has no entry for "${name}"`);
   }
-  return match;
+  if (match.source.kind !== "github") {
+    throw new Error(`bundled catalog entry "${name}" is not GitHub-backed`);
+  }
+  return match as PluginSearchMatch & {
+    source: Extract<PluginSearchMatch["source"], { kind: "github" }>;
+  };
 }
 
 const PNG_SIGNATURE = Buffer.from([

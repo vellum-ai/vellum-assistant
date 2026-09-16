@@ -683,10 +683,6 @@
     "copied": "已複製",
     "copy": "複製"
   },
-  "copyButton": {
-    "copied": "已複製",
-    "copyFailed": "無法複製到剪貼簿。"
-  },
   "copyIdToClipboard": {
     "conversationCopied": "對話 ID 已複製到剪貼簿。",
     "conversationFailed": "無法複製對話 ID。",
@@ -1622,8 +1618,12 @@
     "view": "檢視"
   },
   "skillLoadDetail": {
+    "failed": "載入失敗",
+    "loading": "正在載入技能…",
     "loadingAria": "正在載入技能",
+    "notApproved": "未獲核准",
     "provides": "提供",
+    "unnamedSkill": "技能",
     "usedSkill": "已使用技能"
   },
   "skillLoadOutput": {

@@ -171,6 +171,94 @@ describe("scaffold_managed_skill tool", () => {
     });
   });
 
+  test("an overwrite through the tool keeps frontmatter it does not restate", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "edited",
+        name: "Edited",
+        description: "V1",
+        body_markdown: "Old body.",
+        activation_hints: HINTS,
+        emoji: "📊",
+        category: "productivity",
+        includes: ["csv-basics"],
+        avoid_when: ["the report is monthly"],
+      },
+      makeContext(),
+    );
+
+    // The usual "change step 3" edit: body and hints, nothing else restated.
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "edited",
+        name: "Edited",
+        description: "V2",
+        body_markdown: "New body.",
+        activation_hints: HINTS,
+        overwrite: true,
+      },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+
+    const skill = loadSkillCatalog().find((s) => s.id === "edited")!;
+    expect(skill.emoji).toBe("📊");
+    expect(skill.category).toBe("productivity");
+    expect(skill.includes).toEqual(["csv-basics"]);
+    expect(skill.avoidWhen).toEqual(["the report is monthly"]);
+    expect(skill.description).toBe("V2");
+  });
+
+  test("an overwrite through the tool clears a field passed empty, and hints stay required", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "cleared",
+        name: "Cleared",
+        description: "V1",
+        body_markdown: "Body.",
+        activation_hints: HINTS,
+        category: "productivity",
+        avoid_when: ["the report is monthly"],
+      },
+      makeContext(),
+    );
+
+    const noHints = await executeScaffoldManagedSkill(
+      {
+        skill_id: "cleared",
+        name: "Cleared",
+        description: "V2",
+        body_markdown: "Body.",
+        activation_hints: [],
+        overwrite: true,
+      },
+      makeContext(),
+    );
+    // An explicit empty list clears other fields, but hints must track the
+    // body, so an overwrite still has to state them.
+    expect(noHints.isError).toBe(true);
+    expect(noHints.content).toContain("activation_hints is required");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "cleared",
+        name: "Cleared",
+        description: "V2",
+        body_markdown: "Body.",
+        activation_hints: HINTS,
+        overwrite: true,
+        category: "  ",
+        avoid_when: [],
+      },
+      makeContext(),
+    );
+    expect(result.isError).toBe(false);
+
+    const skill = loadSkillCatalog().find((s) => s.id === "cleared")!;
+    expect(skill.category).toBeUndefined();
+    expect(skill.avoidWhen).toBeUndefined();
+  });
+
   test("the registered tool's schema rejects an omitted activation_hints before the executor runs", () => {
     // A call through the registered tool is validated against TOOLS.json
     // first (skill-tool-factory), so the requirement has to live in the

@@ -153,12 +153,6 @@ export interface GuardianReplyResult {
 // Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
-const LEGACY_CALLBACK_MAP: Record<string, string> = {
-  approve_10m: "approve_once",
-  approve_conversation: "approve_once",
-  approve_always: "approve_once",
-};
-
 interface ParsedCallback {
   requestId: string;
   action: ApprovalAction;
@@ -170,8 +164,7 @@ function parseCallbackAction(data: string): ParsedCallback | null {
     return null;
   }
   const requestId = parts[1];
-  const rawAction = parts.slice(2).join(":");
-  const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
+  const action = parts.slice(2).join(":");
   if (!requestId || !isApprovalAction(action)) {
     return null;
   }

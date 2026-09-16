@@ -25,7 +25,16 @@ import {
   packageSpecs,
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
-import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
+import {
+  frameWidthDecorator,
+  PLAN_TILE_WIDTH_PX,
+  STORY_PERIOD_END,
+} from "@/domains/settings/billing/billing-story-frame";
+import {
+  UsageBalancePanel,
+  type UsagePeriodEnd,
+  usagePeriodEndLabels,
+} from "@/domains/settings/billing/usage-balance-panel";
 import {
   makeProPackage,
   makeSuperPackage,
@@ -35,6 +44,7 @@ import {
   priceLabelFromCents,
 } from "@/domains/settings/components/tier-pricing";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
+import { useTranslation } from "@/i18n";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 // Every story here draws a creature avatar, so warm the bundled-component
@@ -45,10 +55,8 @@ preloadBundledAvatarComponents();
 const MIGHTY = makeProPackage();
 const SUPER = makeSuperPackage();
 
-/** The width the settings row gives a single tile (roughly half a card). */
-const TILE_WIDTH_PX = 420;
-/** Two tiles plus the row's `gap-2`. */
-const ROW_WIDTH_PX = TILE_WIDTH_PX * 2 + 8;
+/** Two tiles plus the row's `gap-4`. */
+const ROW_WIDTH_PX = PLAN_TILE_WIDTH_PX * 2 + 16;
 
 /** The upgrade CTA quotes the price difference, as `plan-card.tsx` composes it. */
 const UPGRADE_LABEL = `Power Up for +${formatDollars(
@@ -68,17 +76,41 @@ const NEXT_PLAN_TAG = (
   </Tag>
 );
 
-/** The current-plan tile's footer: a rule and the monthly price. */
-function priceFooter(label: string) {
+/**
+ * The current-plan tile's footer when there is no usage reading to chart, as
+ * `plan-card.tsx` lays it out: a rule, the monthly price where the catalog
+ * has one, and the cycle-end line for a sub that has one, worded by the
+ * panel's own helper so the story reads exactly as the card does.
+ */
+function PriceFooter({
+  label,
+  periodEnd,
+}: {
+  label: string | null;
+  periodEnd?: UsagePeriodEnd;
+}) {
+  const { t } = useTranslation("settings");
+  const renewal = usagePeriodEndLabels(periodEnd, t);
   return (
-    <div className="flex h-10 items-center border-t border-[var(--border-base)]">
-      <Typography
-        as="span"
-        variant="body-large-default"
-        className="text-[var(--content-tertiary)]"
-      >
-        {label}
-      </Typography>
+    <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
+      {label ? (
+        <Typography
+          as="span"
+          variant="body-large-default"
+          className="text-[var(--content-tertiary)]"
+        >
+          {label}
+        </Typography>
+      ) : null}
+      {renewal ? (
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="whitespace-nowrap text-[var(--content-tertiary)]"
+        >
+          {renewal.line}
+        </Typography>
+      ) : null}
     </div>
   );
 }
@@ -102,28 +134,43 @@ function upgradeCta(pending = false) {
   );
 }
 
+/** The row `plan-card.tsx` renders, which two stories mount at two widths. */
+function PlanRow() {
+  const inverted = useDocumentTheme() === "light" ? "dark" : "light";
+  return (
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+      <PlanTile
+        testId="plan-tile-current"
+        tierKey={MIGHTY.key}
+        name={MIGHTY.name}
+        nameTestId="plan-card-name"
+        tag={CURRENT_TAG}
+        specs={packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`)}
+        footer={<UsageBalancePanel ratio={0.42} periodEnd={STORY_PERIOD_END} />}
+      />
+      <PlanTile
+        theme={inverted}
+        testId="plan-tile-next"
+        tierKey={SUPER.key}
+        name={SUPER.name}
+        tag={NEXT_PLAN_TAG}
+        specs={packageSpecs(SUPER, `${SUPER.name} usage, reset monthly`)}
+        footer={upgradeCta()}
+      />
+    </div>
+  );
+}
+
 const meta: Meta<typeof PlanTile> = {
   title: "Settings/Billing/PlanTile",
   component: PlanTile,
-  parameters: {
-    layout: "centered",
-    // Read by the decorator below; the pair story widens it for two tiles.
-    frameWidth: TILE_WIDTH_PX,
-  },
+  parameters: { layout: "centered" },
   args: {
     tierKey: "free",
     name: "Free",
     tag: CURRENT_TAG,
   },
-  decorators: [
-    (Story, context) => (
-      // The tile fills whatever column the settings row gives it, so pin that
-      // width here rather than letting the centered layout shrink-wrap it.
-      <div style={{ width: context.parameters["frameWidth"] as number }}>
-        <Story />
-      </div>
-    ),
-  ],
+  decorators: [frameWidthDecorator],
 };
 
 export default meta;
@@ -142,15 +189,16 @@ export const CurrentFree: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: freePlanSpecs(),
-    footer: priceFooter("Free Forever"),
+    footer: <PriceFooter label="Free Forever" />,
   },
 };
 
 /**
- * The same free tile with a usage grant to chart: the Usage Balance bar takes
+ * The same free tile with a usage grant to chart: the Current Usage bar takes
  * the footer over from "Free Forever", so the tile never states its allowance
  * twice. A free account that was never granted any usage has no bar, and
- * keeps the price row above.
+ * keeps the price row above. The grant is one-time, so the title carries no
+ * date line.
  */
 export const CurrentFreeUsageBalance: Story = {
   args: {
@@ -161,8 +209,9 @@ export const CurrentFreeUsageBalance: Story = {
 
 /**
  * A subscriber's current-plan tile, on the catalog's Mighty package, when the
- * platform reports no grant figures to chart: with no Usage Balance reading
- * the footer keeps the price row. The price is the fixture's own
+ * platform reports no grant figures to chart: with no Current Usage reading
+ * the footer keeps the price row, dated with the renewal the subscription
+ * itself carries. The price is the fixture's own
  * `total_price_cents` run through the shared `priceLabelFromCents` formatter,
  * so it stays honest if the package is repriced.
  */
@@ -174,22 +223,37 @@ export const CurrentPaid: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`),
-    footer: priceFooter(priceLabelFromCents(MIGHTY.total_price_cents)),
+    footer: (
+      <PriceFooter
+        label={priceLabelFromCents(MIGHTY.total_price_cents)}
+        periodEnd={STORY_PERIOD_END}
+      />
+    ),
   },
 };
 
 /**
- * The paid tile with a usage reading: the credits chip names the package's
- * usage allowance, the machine and storage chips wrap into a row with that
- * longer chip on its own beneath them, and the price footer gives way to the
- * Usage Balance bar. Props only, so the ratio here is a fixture rather than a
- * live usage read.
+ * The paid tile with a usage reading. At a half-card tile this wide the usage
+ * sentence drops to its own line below the machine and storage chips;
+ * `SideBySideWide` shows the inline case. The price footer gives way to the
+ * Current Usage bar, dated with the day the sub's bundle resets. Props
+ * only, so the ratio here is a fixture rather than a live usage read.
  */
 export const CurrentPaidUsageBalance: Story = {
   args: {
     ...CurrentPaid.args,
-    footer: <UsageBalancePanel ratio={0.42} />,
+    footer: <UsageBalancePanel ratio={0.42} periodEnd={STORY_PERIOD_END} />,
   },
+};
+
+/**
+ * The same tile at 260px, where every chip takes a line of its own and the
+ * usage pill is free to wrap its label inside itself, the tile being narrower
+ * than that label. Nothing overflows the tile.
+ */
+export const CurrentPaidNarrow: Story = {
+  parameters: { frameWidth: 260 },
+  args: CurrentPaidUsageBalance.args,
 };
 
 /**
@@ -201,7 +265,14 @@ export const CurrentPaidUsageBalance: Story = {
 export const CurrentPaidExhausted: Story = {
   args: {
     ...CurrentPaid.args,
-    footer: <UsageBalancePanel ratio={1} exhausted onAddCredits={() => {}} />,
+    footer: (
+      <UsageBalancePanel
+        ratio={1}
+        periodEnd={STORY_PERIOD_END}
+        exhausted
+        onAddCredits={() => {}}
+      />
+    ),
   },
 };
 
@@ -209,7 +280,9 @@ export const CurrentPaidExhausted: Story = {
  * A Custom subscriber, whose tier configuration matches no catalog package.
  * `"custom"` is not in the creature trait table, so `PlanTierAvatar` falls back
  * to the Free creature. There is no package to enumerate and no catalog price
- * to quote, so the tile carries neither chips nor a footer.
+ * to quote, so the tile carries no chips, and until its usage reading arrives
+ * the footer holds only the cycle-end line. This fixture picked no credit
+ * bundle, so that line names a renewal rather than a reset.
  */
 export const CurrentCustom: Story = {
   args: {
@@ -219,6 +292,12 @@ export const CurrentCustom: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: null,
+    footer: (
+      <PriceFooter
+        label={null}
+        periodEnd={{ ...STORY_PERIOD_END, kind: "renews" }}
+      />
+    ),
   },
 };
 
@@ -271,29 +350,19 @@ export const SideBySide: Story = {
     controls: { disable: true },
     frameWidth: ROW_WIDTH_PX,
   },
-  render: function SideBySideRender() {
-    const inverted = useDocumentTheme() === "light" ? "dark" : "light";
-    return (
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-stretch">
-        <PlanTile
-          testId="plan-tile-current"
-          tierKey={MIGHTY.key}
-          name={MIGHTY.name}
-          nameTestId="plan-card-name"
-          tag={CURRENT_TAG}
-          specs={packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`)}
-          footer={<UsageBalancePanel ratio={0.42} />}
-        />
-        <PlanTile
-          theme={inverted}
-          testId="plan-tile-next"
-          tierKey={SUPER.key}
-          name={SUPER.name}
-          tag={NEXT_PLAN_TAG}
-          specs={packageSpecs(SUPER, `${SUPER.name} usage, reset monthly`)}
-          footer={upgradeCta()}
-        />
-      </div>
-    );
+  render: PlanRow,
+};
+
+/**
+ * The same row on a wide monitor, where each tile is around 940px and all
+ * three chips sit inline. The 856px `SideBySide` above still wraps the usage
+ * chip onto its own line, which is what the settings page gives two tiles at
+ * desktop width.
+ */
+export const SideBySideWide: Story = {
+  parameters: {
+    controls: { disable: true },
+    frameWidth: 1900,
   },
+  render: PlanRow,
 };

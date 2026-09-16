@@ -32,6 +32,11 @@ import {
 } from "@/stores/pending-deep-link-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import {
+  appEntryStateFor,
+  showOpenAppRoute,
+  showPath,
+} from "@/stores/open-app.test-helper";
 import type { ShareInboxItem } from "@/runtime/share-inbox-parse";
 import { routes } from "@/utils/routes";
 import * as toastModule from "@vellumai/design-library/components/toast";
@@ -50,6 +55,8 @@ import {
  */
 let mockPathname: string = routes.assistant;
 let mockSearch = "";
+/** What the entry on screen records, which a same-entry replace carries. */
+let mockState: unknown = null;
 const navigateMock = mock((to: To | number, _options?: NavigateOptions) => {
   // A history delta names no path, so the location stays where it is.
   const path =
@@ -69,7 +76,7 @@ stubModule("react-router", await import("react-router"), {
     pathname: mockPathname,
     search: mockSearch,
     hash: "",
-    state: null,
+    state: mockState,
     key: "default",
   }),
 });
@@ -163,6 +170,7 @@ const resetStores = () => {
   useLiveVoiceStore.getState().setStarter(null);
   useAssistantIdentityStore.setState({ assistantId: null, version: null });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  showPath(routes.assistant);
 };
 
 /**
@@ -180,6 +188,7 @@ beforeEach(() => {
   __resetConnectDialogForTesting();
   mockPathname = routes.assistant;
   mockSearch = "";
+  mockState = null;
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -244,11 +253,7 @@ describe("deeplink.openThread", () => {
       narrow: false,
       coarsePointer: false,
     });
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: "app-1",
-      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
-    });
+    showOpenAppRoute({ conversationId: "conv-with-app" });
     renderConsumer();
 
     try {
@@ -260,6 +265,51 @@ describe("deeplink.openThread", () => {
       expect(useConversationStore.getState().editingConversationId).toBe(
         "abc-123",
       );
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/assistant/conversations/abc-123/app/app-1",
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  test("a same-thread tap beside an open app keeps the app in the URL", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: false,
+      coarsePointer: false,
+    });
+    useConversationStore.setState({ activeConversationId: "abc-123" });
+    showOpenAppRoute({ conversationId: "conv-with-app" });
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openThread", { threadId: "abc-123" });
+      });
+
+      expect(useViewerStore.getState().mainView).toBe("app-editing");
+      expect(navigateMock).toHaveBeenCalledWith(
+        "/assistant/conversations/abc-123/app/app-1",
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  test("drops the app from the URL on a narrow viewport, which has no split", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: true,
+      coarsePointer: true,
+    });
+    showOpenAppRoute({ conversationId: "conv-with-app" });
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openThread", { threadId: "abc-123" });
+      });
+
+      expect(useViewerStore.getState().mainView).toBe("chat");
       expect(navigateMock).toHaveBeenCalledWith(
         "/assistant/conversations/abc-123",
       );
@@ -1262,7 +1312,7 @@ describe("deeplink.openCamera", () => {
     // transition away from the conversation the park is addressed to.
     expect(navigateMock).toHaveBeenCalledWith(
       { pathname: routes.conversation("conv-1"), search: "", hash: "" },
-      { replace: true },
+      { replace: true, state: null },
     );
   });
 
@@ -1281,7 +1331,7 @@ describe("deeplink.openCamera", () => {
     ).toBe("conv-1");
     expect(navigateMock).toHaveBeenCalledWith(
       { pathname: routes.conversation("conv-1"), search: "", hash: "" },
-      { replace: true },
+      { replace: true, state: null },
     );
   });
 
@@ -1291,11 +1341,8 @@ describe("deeplink.openCamera", () => {
       coarsePointer: false,
     });
     mockPathname = routes.conversation("conv-1");
-    useViewerStore.setState({
-      mainView: "app",
-      activeAppId: "app-1",
-      openedAppState: { appId: "app-1", name: "My App", html: "<h1>hi</h1>" },
-    });
+    mockSearch = "?prompt=hello";
+    showOpenAppRoute({ conversationId: "conv-with-app" });
     renderConsumer();
 
     try {
@@ -1311,8 +1358,40 @@ describe("deeplink.openCamera", () => {
         usePendingDeepLinkStore.getState().pendingCamera?.targetConversationId,
       ).toBe("conv-1");
       expect(navigateMock).toHaveBeenCalledWith(
-        { pathname: routes.conversation("conv-1"), search: "", hash: "" },
-        { replace: true },
+        {
+          pathname: routes.conversation("conv-1", "app-1"),
+          search: "?prompt=hello",
+          hash: "",
+        },
+        { replace: true, state: null },
+      );
+    } finally {
+      restoreViewport();
+    }
+  });
+
+  test("carries what the entry records, so closing the app still pops to it", () => {
+    const restoreViewport = stubViewportAxes({
+      narrow: false,
+      coarsePointer: false,
+    });
+    mockPathname = routes.conversation("conv-1");
+    mockState = appEntryStateFor("conv-1");
+    showOpenAppRoute({ conversationId: "conv-1" });
+    renderConsumer();
+
+    try {
+      act(() => {
+        publish("deeplink.openCamera", { provenance: null });
+      });
+
+      expect(navigateMock).toHaveBeenCalledWith(
+        {
+          pathname: routes.conversation("conv-1", "app-1"),
+          search: "",
+          hash: "",
+        },
+        { replace: true, state: appEntryStateFor("conv-1") },
       );
     } finally {
       restoreViewport();
@@ -1353,7 +1432,7 @@ describe("deeplink.openCamera", () => {
     for (const call of navigateMock.mock.calls) {
       expect(call).toEqual([
         { pathname: routes.conversation("conv-1"), search: "", hash: "" },
-        { replace: true },
+        { replace: true, state: null },
       ]);
     }
   });
@@ -1373,7 +1452,7 @@ describe("deeplink.openCamera", () => {
         search: "?prompt=hello",
         hash: "",
       },
-      { replace: true },
+      { replace: true, state: null },
     );
   });
 });

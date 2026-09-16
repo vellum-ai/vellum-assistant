@@ -119,6 +119,12 @@ import {
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
+import { getPermissionsService } from "./permissions-service";
+import {
+  answerScreenRecordingRefusal,
+  isScreenRecordingRefusal,
+  screenRecordingGranted,
+} from "./screen-recording-permission";
 import {
   current as currentMainWindow,
   dispatchToMain,
@@ -1590,6 +1596,12 @@ const framesTheShare = (): boolean =>
 let frameScrolling = false;
 
 /**
+ * The frame window that has not painted yet, so nothing shows it before its
+ * first paint does. See `showWhenReady` in {@link placeWatchFrame}.
+ */
+let frameAwaitingPaint: BrowserWindow | null = null;
+
+/**
  * Give the frame the mouse, or give it back to the desktop.
  *
  * Forwarded mouse-move only while the frame has stepped aside for a scroll:
@@ -1626,7 +1638,11 @@ const applyFrameMouse = (): void => {
   }
   frame.setIgnoreMouseEvents(false);
   frame.setFocusable(true);
-  frame.focus();
+  // `focus` puts a window on screen, and a frame still waiting on its first
+  // paint must stay off it. The paint runs this again.
+  if (frame !== frameAwaitingPaint) {
+    frame.focus();
+  }
 };
 
 /**
@@ -2215,7 +2231,9 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       // frame, so the presses are measured out again on the new bounds.
       armCoachmarkPressWatch();
     }
-    if (!existing.isVisible()) {
+    // A frame still waiting on its first paint is shown by that paint.
+    // Shown any earlier, it is the frame that never reaches the screen.
+    if (!existing.isVisible() && existing !== frameAwaitingPaint) {
       existing.showInactive();
     }
     return;
@@ -2225,6 +2243,13 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     route: WATCH_FRAME_ROUTE,
     width: bounds.width,
     height: bounds.height,
+    // **Shown once its page has painted, never before.** A frame put on
+    // screen while its page is still loading stays blank on a whole display:
+    // the page draws the border and the label, and the screen keeps showing
+    // the empty window until something makes macOS take it again (Mission
+    // Control, or showing the window a second time). Moving it, resizing it
+    // and repainting the page do not.
+    showWhenReady: true,
     ignoreMouseEvents: true,
     position: { x: bounds.x, y: bounds.y },
     browserWindow: {
@@ -2246,6 +2271,15 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
+  frameAwaitingPaint = win;
+  win.once("ready-to-show", () => {
+    if (frameAwaitingPaint === win) {
+      frameAwaitingPaint = null;
+    }
+    // Key status is lent with a `focus` that would have shown the window
+    // early, so a mode that was on when this frame opened takes it now.
+    applyFrameMouse();
+  });
   // A frame opened while the mode is already on is one the user is expecting
   // to draw on: the mode outlives the window, which is replaced whenever the
   // share moves to another target. A scroll the old window stepped aside for
@@ -2879,6 +2913,30 @@ export const companionContextMenuTemplate = (
   },
 ];
 
+/**
+ * Whether a share may start, as far as the grant goes. A read that fails
+ * says yes: the capture itself is the final word, and a check that cannot
+ * run is no reason to refuse a share that might work.
+ */
+const screenRecordingAllowed = (): Promise<boolean> =>
+  screenRecordingGranted().catch((err: unknown) => {
+    log.warn("[companion] could not read the Screen Recording grant:", err);
+    return true;
+  });
+
+/**
+ * Send the user to Screen Recording in System Settings, with the helper
+ * listed there to turn on. Settings opening is itself the message: the share
+ * cannot happen until that row is on.
+ */
+const askForScreenRecording = async (): Promise<void> => {
+  try {
+    await getPermissionsService()?.openSettings("screen");
+  } catch (err) {
+    log.warn("[companion] could not open Screen Recording settings:", err);
+  }
+};
+
 export const installCompanionWindow = (): void => {
   if (installed) {
     return;
@@ -3017,11 +3075,17 @@ export const installCompanionWindow = (): void => {
    * on demand: the desktop changes under every push, and the list is only
    * worth anything at the moment it is drawn.
    */
-  handle("vellum:companion:listCaptureSources", z.tuple([]), () => {
+  handle("vellum:companion:listCaptureSources", z.tuple([]), async () => {
     // A picker opening again is the user starting over: whatever pick was
     // still resolving belonged to the choice they just left.
     pickGeneration += 1;
-    return listCaptureSources();
+    // Read beside the list so the picker can ask for the grant in place of
+    // tiles nothing could be shown from.
+    const [sources, granted] = await Promise.all([
+      listCaptureSources(),
+      screenRecordingAllowed(),
+    ]);
+    return { ...sources, screenRecordingGranted: granted };
   });
 
   /**
@@ -3045,12 +3109,29 @@ export const installCompanionWindow = (): void => {
         return;
       }
       const generation = ++pickGeneration;
-      void resolveCapturePick(pick).then((target) => {
-        if (target === null || generation !== pickGeneration) {
-          return;
-        }
-        dispatchWithoutRaising({ kind: "setScreenShare", target });
-      });
+      // The grant first, before a tab is raised for a share that cannot
+      // start. Without it every frame would be refused and the share would
+      // stop itself a moment after it began, so the press sends the user to
+      // the grant instead. The keyboard's share reaches here with no picker
+      // to have asked, which is why this is not left to the picker.
+      void screenRecordingAllowed()
+        .then(async (granted) => {
+          if (generation !== pickGeneration) {
+            return;
+          }
+          if (!granted) {
+            await askForScreenRecording();
+            return;
+          }
+          const target = await resolveCapturePick(pick);
+          if (target === null || generation !== pickGeneration) {
+            return;
+          }
+          dispatchWithoutRaising({ kind: "setScreenShare", target });
+        })
+        .catch((err: unknown) => {
+          log.warn("[companion] could not start the share:", err);
+        });
     },
   );
 
@@ -3173,7 +3254,15 @@ export const installCompanionWindow = (): void => {
   handle(
     "vellum:companion:captureScreen",
     z.tuple([watchCaptureTargetSchema]),
-    ([target]) => captureTargetFrame(target),
+    ([target]) =>
+      // A refusal for want of the grant is the one miss the user must hear
+      // about: every frame after it would be refused too. The renderer still
+      // gets its null and stops the share.
+      captureTargetFrame(target, (err) => {
+        if (isScreenRecordingRefusal(err)) {
+          void answerScreenRecordingRefusal(askForScreenRecording);
+        }
+      }),
   );
 
   /**

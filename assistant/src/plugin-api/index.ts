@@ -445,6 +445,7 @@ export type {
   RunConversationTurnResult,
 } from "./conversation-turn.js";
 export { runConversationTurn } from "./conversation-turn.js";
+export { PluginTurnNotAdmittedError } from "./plugin-channel-turn-trust.js";
 // Live voice — drive a single client's real-time voice session (STT → agent
 // turn → TTS, with server-VAD turn-taking, pauses, and barge-in) over a
 // transport the plugin owns. The plugin brings only a `send` callback (e.g.

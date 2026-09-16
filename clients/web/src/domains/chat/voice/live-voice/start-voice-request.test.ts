@@ -15,7 +15,9 @@
  * about: the gate it feeds is owner-scoped.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 const utils = await import("@/lib/backwards-compat/utils");
 
@@ -85,6 +87,8 @@ const { __resetPendingDeepLinkForTesting, usePendingDeepLinkStore } =
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
+const { SAMPLE_APP, showOpenAppRoute, showPath } =
+  await import("@/stores/open-app.test-helper");
 const { routes } = await import("@/utils/routes");
 
 // ---------------------------------------------------------------------------
@@ -183,7 +187,11 @@ function expectStartedOnFreshDraft(
   });
 }
 
+const viewport = viewportAxesStub();
+
 beforeEach(() => {
+  /* A wide viewport, the only shape with a side-by-side app layout. */
+  viewport.set({ narrow: false, coarsePointer: false });
   sendText.mockClear();
   toastError.mockClear();
   useLiveVoiceStore.getState().reset();
@@ -213,6 +221,11 @@ beforeEach(() => {
   // has never opened voice gets the preferences card instead of a session, and
   // that interception has its own tests below.
   useVoicePrefsStore.setState({ firstRunSeen: true });
+});
+
+afterEach(() => {
+  viewport.restore();
+  showPath(routes.assistant);
 });
 
 // ---------------------------------------------------------------------------
@@ -300,6 +313,23 @@ describe("starting a session", () => {
     await flushDrain();
 
     expect(useViewerStore.getState().mainView).toBe("chat");
+  });
+
+  test("names the app it keeps beside the draft in the URL it lands on", async () => {
+    // A wide viewport keeps an open app in the side-by-side layout rather than
+    // dismissing it, so the URL the call lands on has to say the app is there:
+    // a plain conversation path would close it on the next reload.
+    identityHydrated();
+    registerStarter();
+    showOpenAppRoute({ conversationId: PRIOR_CONVERSATION_ID });
+
+    requestVoiceStart(navigate, { entry: "deep_link" });
+    await flushDrain();
+
+    expect(navigate).toHaveBeenCalledWith(
+      routes.conversation(mintedConversationId(), SAMPLE_APP.appId),
+      { replace: true },
+    );
   });
 
   test("leaves no side panel from the previous conversation on the fresh draft", async () => {
