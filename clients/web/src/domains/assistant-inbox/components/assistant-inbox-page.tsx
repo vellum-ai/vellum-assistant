@@ -135,8 +135,16 @@ export function AssistantInboxPage({
 
   const folderItems = useMemo(
     () => [
-      { value: "inbox" as const, label: t("assistantInboxPage.inboxTab") },
-      { value: "sent" as const, label: t("assistantInboxPage.sentTab") },
+      {
+        value: "inbox" as const,
+        label: t("assistantInboxPage.inboxTab"),
+        icon: <Inbox className="size-3.5 shrink-0" aria-hidden="true" />,
+      },
+      {
+        value: "sent" as const,
+        label: t("assistantInboxPage.sentTab"),
+        icon: <Send className="size-3.5 shrink-0" aria-hidden="true" />,
+      },
     ],
     [t],
   );
