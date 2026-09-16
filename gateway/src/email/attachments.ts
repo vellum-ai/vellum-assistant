@@ -5,13 +5,14 @@ import {
   uploadAttachment,
 } from "../runtime/client.js";
 import type { EmailAttachment } from "./normalize.js";
+import {
+  type AttachmentIngestResult,
+  type OversizedAttachment,
+  oversizedAttachmentNotice,
+} from "../attachments/ingest.js";
 
-export interface EmailAttachmentIngestResult {
-  /** Attachment store ids for successfully uploaded attachments. */
-  attachmentIds: string[];
-  /** Display names of attachments that were skipped (oversized or rejected). */
-  failedAttachmentNames: string[];
-}
+/** The same accounting as the other channels' ingest: uploaded, rejected, or too large. */
+export type EmailAttachmentIngestResult = AttachmentIngestResult;
 
 /**
  * Estimate the decoded byte size of a base64 string without allocating the
@@ -32,9 +33,9 @@ function estimateBase64Bytes(base64: string): number {
  * and return the resulting ids for forwarding to the runtime, which stores
  * them in the conversation workspace.
  *
- * Attachments larger than the email per-file cap are skipped. Validation
- * failures (unsupported MIME type, dangerous extension) are skipped so a
- * single bad attachment never drops the user's email; transient failures
+ * Attachments larger than the email per-file cap are reported as oversized.
+ * Validation failures (unsupported MIME type, dangerous extension) are
+ * skipped so a single bad attachment never drops the user's email; transient failures
  * (upload 5xx, network) are propagated so the caller can surface an error and
  * let the upstream retry the delivery.
  */
@@ -45,9 +46,10 @@ export async function ingestEmailAttachments(
 ): Promise<EmailAttachmentIngestResult> {
   const attachmentIds: string[] = [];
   const failedAttachmentNames: string[] = [];
+  const oversizedAttachments: OversizedAttachment[] = [];
 
   if (!attachments || attachments.length === 0) {
-    return { attachmentIds, failedAttachmentNames };
+    return { attachmentIds, failedAttachmentNames, oversizedAttachments };
   }
 
   const maxBytes =
@@ -60,7 +62,11 @@ export async function ingestEmailAttachments(
         { filename: att.filename, bytes, limit: maxBytes },
         "Skipping oversized email attachment",
       );
-      failedAttachmentNames.push(att.filename);
+      oversizedAttachments.push({
+        name: att.filename,
+        fileSize: bytes,
+        limit: maxBytes,
+      });
       return false;
     }
     return true;
@@ -97,22 +103,39 @@ export async function ingestEmailAttachments(
     }
   }
 
-  return { attachmentIds, failedAttachmentNames };
+  return { attachmentIds, failedAttachmentNames, oversizedAttachments };
 }
 
 /**
- * Append a note to the message content listing attachments that could not be
- * ingested so the assistant can tell the user to re-send if the content
- * mattered. Returns the content unchanged when nothing failed.
+ * Append the notices for attachments the assistant did not receive. A
+ * rejected attachment asks for a re-send; an oversized one names its size
+ * and the cap in the same words every other channel uses, since re-sending
+ * the same file cannot help. Returns the content unchanged when everything
+ * arrived.
  */
 export function appendFailedEmailAttachmentNotice(
   content: string,
-  failedAttachmentNames: string[],
+  result: Pick<
+    EmailAttachmentIngestResult,
+    "failedAttachmentNames" | "oversizedAttachments"
+  >,
 ): string {
-  if (failedAttachmentNames.length === 0) {
+  const notices: string[] = [];
+  if (result.failedAttachmentNames.length > 0) {
+    const nameList = result.failedAttachmentNames
+      .map((n) => `"${n}"`)
+      .join(", ");
+    notices.push(
+      `[The user attached file(s) that could not be processed: ${nameList}. Ask them to re-send if the content is important.]`,
+    );
+  }
+  const oversized = oversizedAttachmentNotice(result.oversizedAttachments);
+  if (oversized !== undefined) {
+    notices.push(oversized);
+  }
+  if (notices.length === 0) {
     return content;
   }
-  const nameList = failedAttachmentNames.map((n) => `"${n}"`).join(", ");
-  const notice = `[The user attached file(s) that could not be processed: ${nameList}. Ask them to re-send if the content is important.]`;
+  const notice = notices.join("\n");
   return content.length > 0 ? `${content}\n\n${notice}` : notice;
 }

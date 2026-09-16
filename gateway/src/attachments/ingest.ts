@@ -183,13 +183,9 @@ export function appendFailedAttachmentNotice(
       `[The user attached file(s) that could not be retrieved: ${nameList}. Ask them to re-send if the content is important.]`,
     );
   }
-  if (result.oversizedAttachments.length > 0) {
-    const fileList = result.oversizedAttachments
-      .map((file) => `"${file.name}" (${describeOversize(file)})`)
-      .join(", ");
-    notices.push(
-      `[The user attached file(s) too large to receive: ${fileList}. Re-sending the same file will not help; if the content is important, ask for a smaller version or a link.]`,
-    );
+  const oversized = oversizedAttachmentNotice(result.oversizedAttachments);
+  if (oversized !== undefined) {
+    notices.push(oversized);
   }
   if (notices.length === 0) {
     return content;
@@ -199,22 +195,52 @@ export function appendFailedAttachmentNotice(
 }
 
 /**
- * "60 MB, over the 20 MB limit", or "over the 20 MB limit" when only the
- * overflow is known. The file's size rounds up and the cap rounds to the
- * nearest tenth, so a file one byte over a whole-megabyte cap reads as
- * larger than the cap rather than equal to it.
+ * The one line every channel's notice uses for files too large to receive,
+ * so email's separate ingester says the same thing with the same numbers.
+ * Undefined when there is nothing to say.
  */
-function describeOversize(file: OversizedAttachment): string {
-  const limit = `over the ${formatMegabytes(file.limit, "nearest")} limit`;
-  return file.fileSize === undefined
-    ? limit
-    : `${formatMegabytes(file.fileSize, "up")}, ${limit}`;
+export function oversizedAttachmentNotice(
+  files: readonly OversizedAttachment[],
+): string | undefined {
+  if (files.length === 0) {
+    return undefined;
+  }
+  const fileList = files
+    .map((file) => `"${file.name}" (${describeOversize(file)})`)
+    .join(", ");
+  return `[The user attached file(s) too large to receive: ${fileList}. Re-sending the same file will not help; if the content is important, ask for a smaller version or a link.]`;
 }
 
-/** Bytes as megabytes with at most one decimal, the unit every cap is set in. */
-function formatMegabytes(bytes: number, rounding: "nearest" | "up"): string {
-  const tenths = (bytes / (1024 * 1024)) * 10;
-  const rounded =
-    (rounding === "up" ? Math.ceil(tenths) : Math.round(tenths)) / 10;
-  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)} MB`;
+/**
+ * "60 MB, over the 20 MB limit", or "over the 20 MB limit" when only the
+ * overflow is known. The size rounds up and the cap rounds to the nearest
+ * tenth, so a file one byte over a whole-megabyte cap reads as larger than
+ * the cap rather than equal to it; every cap is a whole number of megabytes
+ * (`maxAttachmentBytes` in config.ts), so the cap never rounds away from
+ * itself.
+ */
+function describeOversize(file: OversizedAttachment): string {
+  const limit = `over the ${formatCap(file.limit)} limit`;
+  return file.fileSize === undefined
+    ? limit
+    : `${formatSize(file.fileSize)}, ${limit}`;
+}
+
+/** A file's size in megabytes, rounded up to a tenth. */
+function formatSize(bytes: number): string {
+  return formatMegabytes(Math.ceil(tenthsOfMegabytes(bytes)));
+}
+
+/** A cap in megabytes, rounded to the nearest tenth. */
+function formatCap(bytes: number): string {
+  return formatMegabytes(Math.round(tenthsOfMegabytes(bytes)));
+}
+
+function tenthsOfMegabytes(bytes: number): number {
+  return (bytes / (1024 * 1024)) * 10;
+}
+
+function formatMegabytes(tenths: number): string {
+  const megabytes = tenths / 10;
+  return `${Number.isInteger(megabytes) ? megabytes.toFixed(0) : megabytes.toFixed(1)} MB`;
 }
