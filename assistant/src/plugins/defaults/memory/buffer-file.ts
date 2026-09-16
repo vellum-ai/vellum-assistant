@@ -254,7 +254,14 @@ export async function consumeBufferEntries(
           const out = openSync(bufferPath, "a");
           try {
             while (written < bytes.length) {
-              written += writeSync(out, bytes, written, bytes.length - written);
+              const n = writeSync(out, bytes, written, bytes.length - written);
+              if (n <= 0) {
+                // A regular file never returns a zero-byte write without an
+                // error, but a spin here would wedge the worker with the
+                // consolidation lock held; treat it as a failed attempt.
+                throw new Error("writeSync made no progress");
+              }
+              written += n;
             }
           } finally {
             closeSync(out);
@@ -324,7 +331,17 @@ export async function consumeBufferEntries(
       lateAppendDrainFailed,
     };
   } finally {
-    closeSync(fd);
+    // After the rename, a failing close must not surface as a failure of
+    // the consume: the pass is consumed and the drain has reported. Before
+    // the rename, the original error is already propagating.
+    try {
+      closeSync(fd);
+    } catch (err) {
+      log.error(
+        { err, bufferPath },
+        "buffer consume: closing the replaced buffer inode failed",
+      );
+    }
   }
 }
 
