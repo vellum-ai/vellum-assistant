@@ -228,3 +228,55 @@ test("activity follows the browser lease and clears before failed cleanup", asyn
   await f.lease.runBrowser(context, operation, true);
   expect(f.notify).toHaveBeenCalledTimes(2);
 });
+
+test("turn completion releases only its own desktop before cleanup finishes", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  f.lease.releaseForConversation("conv-456");
+  expect(f.lease.isActive).toBe(true);
+  expect(f.notify).toHaveBeenCalledTimes(1);
+
+  const cleanup = Promise.withResolvers<void>();
+  f.releaseBrowser.mockImplementationOnce(() => cleanup.promise);
+  f.lease.releaseForConversation(context.conversationId);
+  expect(f.lease.isActive).toBe(false);
+  expect(f.notify).toHaveBeenCalledTimes(2);
+  await Bun.sleep(0);
+  expect(f.released).not.toHaveBeenCalled();
+
+  const callback = mock(operation);
+  const next = f.lease.runBrowser(context, callback);
+  await Bun.sleep(0);
+  expect(callback).not.toHaveBeenCalled();
+  cleanup.resolve();
+  expect((await next).isError).toBe(false);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  expect(f.started).toHaveBeenCalledTimes(2);
+  expect(f.lease.isActive).toBe(true);
+});
+
+test("turn completion cancels running and queued desktop work", async () => {
+  const f = fixture();
+  const started = Promise.withResolvers<void>();
+  const running = f.lease
+    .runBrowser(context, async (signal) => {
+      started.resolve();
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        });
+      });
+      return operation();
+    })
+    .catch((error: unknown) => error);
+  await started.promise;
+  const callback = mock(operation);
+  const queued = f.lease.runBrowser(context, callback);
+  f.lease.releaseForConversation(context.conversationId);
+  expect(f.lease.isActive).toBe(false);
+  expect(await running).toBeInstanceOf(Error);
+  expect((await queued).isError).toBe(true);
+  expect(callback).not.toHaveBeenCalled();
+  await f.lease.runBrowser(context, callback);
+  expect(callback).toHaveBeenCalledTimes(1);
+});

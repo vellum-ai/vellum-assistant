@@ -105,6 +105,12 @@ export class DesktopAutomationLease {
     );
   }
 
+  releaseForConversation(conversationId: string): void {
+    if (this.owner?.conversationId === conversationId) {
+      this.cancel(this.owner);
+    }
+  }
+
   private bindCancellation(owner: Owner, signal?: AbortSignal): void {
     owner.removeAbortListener();
     const cancel = () => this.cancel(owner);
