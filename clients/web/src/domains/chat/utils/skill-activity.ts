@@ -7,8 +7,8 @@
  * multi-thousand-line instruction body into a monospace `<pre>`, and
  * `skill_execute` shows its `{ tool, input, activity }` envelope as raw JSON so
  * the tool that actually ran is buried one level down. These parsers pull out
- * the parts a reader wants — which skill, what it provides, which inner tool
- * ran, with what parameters — so the components can render them directly.
+ * the parts a reader wants (which skill, what it provides, which inner tool
+ * ran, with what parameters) so the components can render them directly.
  *
  * Intentionally pure: no React, no store access, no I/O. The daemon-side
  * producers are `assistant/src/tools/skills/load.ts` (whose `formatToolSchemas`
@@ -64,7 +64,7 @@ export interface SkillLoadActivity {
   /**
    * The skill's instruction markdown, with the `Skill:`/`ID:`/`Description:`/
    * `Path:` header, the machine-facing "## Available Tools" section, and the
-   * trailing include bookkeeping all removed — each is surfaced structurally
+   * trailing include bookkeeping all removed. Each is surfaced structurally
    * (or dropped) rather than rendered as prose.
    */
   instructions: string;
@@ -76,7 +76,7 @@ export interface SkillLoadActivity {
 
 /** Readable projection of a `skill_execute` envelope. */
 export interface SkillExecuteActivity {
-  /** Inner tool from `input.tool` — the thing that actually ran. */
+  /** Inner tool from `input.tool`: the thing that actually ran. */
   innerToolName: string;
   /** Operator-facing sentence from `input.activity`. Empty when absent. */
   activity: string;
@@ -93,7 +93,7 @@ const CHILD_SKILL_HEADING = /^###\s+Tools from\s+(.+?)\s*$/;
 /** A tool heading: `### name` (parent skill) or `#### name` (child skill). */
 const TOOL_HEADING = /^#{3,4}\s+(\S+)\s*$/;
 
-/** `- name (type, required): description` — description optional. */
+/** `- name (type, required): description`, with the description optional. */
 const PARAM_LINE =
   /^[-*]\s+(\S+?)\s*\(([^,()]+),\s*(required|optional)\)\s*(?::\s*(.*))?$/;
 
@@ -106,7 +106,7 @@ const PARAMS_LABEL = /^Parameters:\s*$/;
 /**
  * Lines that mark the end of the human-relevant part of a `skill_load` body.
  *
- * After the tool manifest the daemon appends pure bookkeeping — the immediate
+ * After the tool manifest the daemon appends pure bookkeeping: the immediate
  * include listing, the not-installed suggestions, and `<loaded_skill … />`
  * projection markers (`assistant/src/tools/skills/load.ts:617-620`). None of it
  * is for a reader, and because the manifest parser treats any non-heading line
@@ -161,8 +161,8 @@ function splitAtToolsSection(body: string): {
  * Drop the machine-only trailer the daemon appends after the manifest. Cuts at
  * the first {@link MANIFEST_TERMINATORS} match; a body without one is returned
  * unchanged. Applied before any other split so the trailer can't leak into the
- * tool descriptions OR — for a manifest-less skill, which has no
- * "## Available Tools" heading to split on — into the rendered instructions.
+ * tool descriptions or (for a manifest-less skill, which has no
+ * "## Available Tools" heading to split on) into the rendered instructions.
  */
 function stripMachineTrailer(body: string): string {
   const lines = body.split("\n");
@@ -179,7 +179,7 @@ function stripMachineTrailer(body: string): string {
  * The daemon emits these four lines ahead of the skill body
  * (`assistant/src/tools/skills/load.ts:598-601`). They're the source of the
  * human-readable name, but rendered as markdown they read as four stray
- * key-value lines above the real content — so they're lifted out here and shown
+ * key-value lines above the real content, so they're lifted out here and shown
  * structurally instead.
  */
 function splitHeader(body: string): {
@@ -198,7 +198,7 @@ function splitHeader(body: string): {
     fields[match[1]!] = match[2]!.trim();
     index++;
   }
-  // Nothing recognised — leave the body untouched rather than eating a line
+  // Nothing recognised: leave the body untouched rather than eating a line
   // that merely happened to start with a colon-suffixed word.
   if (index === 0) {
     return { displayName: "", description: "", rest: body };
@@ -367,14 +367,16 @@ export function parseSkillLoadActivity({
  * Project a `skill_execute` envelope into its readable parts.
  *
  * The documented envelope is `{ tool, input: {...}, activity }`. Weaker models
- * routinely misplace the inner parameters — the daemon's
+ * routinely misplace the inner parameters. The daemon's
  * `resolveSkillExecuteParams` rescues several of those shapes before dispatch,
  * and we mirror the two that reach the client: `input` arriving as a
  * JSON-encoded string, and parameters spread as top-level siblings of
  * `tool`/`activity`. Matching that leniency keeps the drawer readable for
  * exactly the calls that most need explaining.
  */
-export function parseSkillExecuteActivity(input: unknown): SkillExecuteActivity {
+export function parseSkillExecuteActivity(
+  input: unknown,
+): SkillExecuteActivity {
   const bag = toBag(input);
   const innerToolName = readToolInputString(bag, "tool");
   const activity = readToolInputString(bag, "activity");
@@ -387,7 +389,7 @@ export function parseSkillExecuteActivity(input: unknown): SkillExecuteActivity 
     try {
       inner = JSON.parse(raw) as unknown;
     } catch {
-      // Not JSON — surface the raw string under its own key so it's not lost.
+      // Not JSON: surface the raw string under its own key so it's not lost.
       return {
         innerToolName,
         activity,
