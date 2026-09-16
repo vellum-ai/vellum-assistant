@@ -48,6 +48,7 @@ export const QuestionEntrySchema = z.object({
   description: z.string().optional(),
   options: z.array(QuestionOptionSchema),
   freeTextPlaceholder: z.string().optional(),
+  presentation: z.literal("virtual_desktop").optional(),
 });
 
 export type QuestionEntry = z.infer<typeof QuestionEntrySchema>;

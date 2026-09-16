@@ -19,6 +19,7 @@ export function AssistantDesktopPreview() {
   const enabled = useVirtualDesktopEnabled();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const session = useDesktopPreviewStore.use.session();
+  const inlinePreview = useDesktopPreviewStore.use.inlinePreview();
   const fullscreenOnly = usePointerCoarse();
 
   useEffect(() => {
@@ -29,18 +30,25 @@ export function AssistantDesktopPreview() {
     return null;
   }
 
+  const inlineContainer =
+    inlinePreview?.assistantId === assistantId ? inlinePreview.container : null;
+  const fullscreen =
+    session?.assistantId === assistantId &&
+    (session.view === "fullscreen" || (!inlineContainer && fullscreenOnly));
+
   return (
     <AnimatePresence initial={false} key={assistantId}>
-      {session?.assistantId === assistantId && (
+      {(session?.assistantId === assistantId || inlineContainer) && (
         <DesktopPreviewFrame
           key={assistantId}
-          fullscreen={fullscreenOnly || session.view === "fullscreen"}
+          fullscreen={Boolean(inlineContainer) || fullscreen}
         >
           <LazyBoundary>
             <DesktopPreviewContent
-              assistantId={session.assistantId}
-              fullscreen={fullscreenOnly || session.view === "fullscreen"}
+              assistantId={assistantId}
+              fullscreen={fullscreen}
               fullscreenOnly={fullscreenOnly}
+              previewContainer={inlineContainer}
             />
           </LazyBoundary>
         </DesktopPreviewFrame>

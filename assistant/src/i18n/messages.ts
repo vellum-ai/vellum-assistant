@@ -14,6 +14,9 @@
 import { DEFAULT_LOCALE, type SupportedLocale } from "./locales.js";
 
 export const MESSAGE_KEYS = {
+  DESKTOP_HELP_DONE: "desktop.help.done",
+  DESKTOP_HELP_SKIP: "desktop.help.skip",
+  DESKTOP_HELP_DESCRIPTION: "desktop.help.description",
   CONVERSATION_TITLE_GENERATING: "conversation.title.generating",
   CONVERSATION_TITLE_UNTITLED: "conversation.title.untitled",
   PLUGIN_MCP_OAUTH_CREDENTIALS_UNCHECKED:
@@ -27,30 +30,50 @@ export const MESSAGE_CATALOGS: Record<
   Record<MessageKey, string>
 > = {
   en: {
+    "desktop.help.done": "Done",
+    "desktop.help.skip": "Skip",
+    "desktop.help.description":
+      "Open the virtual desktop to help, then choose Done. Choose Skip to continue without completing this step.",
     "conversation.title.generating": "Generating title...",
     "conversation.title.untitled": "Untitled Conversation",
     "plugin.uninstall.mcp_oauth_credentials_unchecked":
       "Credential storage is unavailable, so historical plugin MCP OAuth credentials could not be checked.",
   },
   es: {
+    "desktop.help.done": "Listo",
+    "desktop.help.skip": "Omitir",
+    "desktop.help.description":
+      "Abre el escritorio virtual para ayudar y elige Listo. Elige Omitir para continuar sin completar este paso.",
     "conversation.title.generating": "Generando título...",
     "conversation.title.untitled": "Sin título",
     "plugin.uninstall.mcp_oauth_credentials_unchecked":
       "El almacenamiento de credenciales no está disponible, por lo que no se pudieron comprobar las credenciales históricas de OAuth de MCP del plugin.",
   },
   ru: {
+    "desktop.help.done": "Готово",
+    "desktop.help.skip": "Пропустить",
+    "desktop.help.description":
+      "Откройте виртуальный рабочий стол, помогите и нажмите «Готово». Нажмите «Пропустить», чтобы продолжить без выполнения этого шага.",
     "conversation.title.generating": "Создание названия...",
     "conversation.title.untitled": "Без названия",
     "plugin.uninstall.mcp_oauth_credentials_unchecked":
       "Хранилище учетных данных недоступно, поэтому не удалось проверить сохраненные учетные данные OAuth MCP плагина.",
   },
   zh: {
+    "desktop.help.done": "完成",
+    "desktop.help.skip": "跳过",
+    "desktop.help.description":
+      "打开虚拟桌面完成操作后选择“完成”。选择“跳过”可不完成此步骤并继续。",
     "conversation.title.generating": "标题生成中...",
     "conversation.title.untitled": "无标题",
     "plugin.uninstall.mcp_oauth_credentials_unchecked":
       "凭据存储不可用，因此无法检查该插件之前的 MCP OAuth 凭据。",
   },
   "zh-TW": {
+    "desktop.help.done": "完成",
+    "desktop.help.skip": "略過",
+    "desktop.help.description":
+      "開啟虛擬桌面完成操作後選擇「完成」。選擇「略過」可不完成此步驟並繼續。",
     "conversation.title.generating": "標題產生中...",
     "conversation.title.untitled": "未命名",
     "plugin.uninstall.mcp_oauth_credentials_unchecked":

@@ -367,3 +367,105 @@ test("switching to a self-hosted assistant closes the virtual desktop preview", 
   await waitFor(() => expect(screen.queryByTestId("desktop-panel")).toBeNull());
   expect(useDesktopPreviewStore.getState().session).toBeNull();
 });
+
+const { DesktopHelpCard } = await import("./desktop-help-card");
+const { normalizeQuestionRequest } =
+  await import("@/domains/chat/api/event-types");
+
+const helpEntry = normalizeQuestionRequest({
+  type: "question_request",
+  requestId: "req-help",
+  question: "Please complete the CAPTCHA.",
+  options: [],
+  questions: [
+    {
+      id: "q1",
+      question: "Please complete the CAPTCHA.",
+      presentation: "virtual_desktop",
+      options: [
+        { id: "done", label: "Done" },
+        { id: "skip", label: "Skip" },
+      ],
+    },
+  ],
+})[0]!;
+
+test.each([false, true])(
+  "desktop help keeps one viewer through Step In and returns to the card (touch=%s)",
+  async (isTouch) => {
+    touch = isTouch;
+    const submit = mock(() => {});
+    render(
+      <>
+        <DesktopHelpCard
+          entry={helpEntry}
+          isSubmitting={false}
+          onSubmit={submit}
+        />
+        <AssistantDesktopPreview />
+      </>,
+    );
+    const panel = await screen.findByTestId("desktop-panel");
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    await waitFor(() =>
+      expect(panel.getAttribute("data-view-only")).toBe("false"),
+    );
+    expect(screen.getAllByTestId("desktop-panel")).toHaveLength(1);
+    expect(panelUnmounts).toBe(0);
+    expect(submit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    await waitFor(() =>
+      expect(panel.getAttribute("data-view-only")).toBe("true"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(submit).toHaveBeenCalledWith([
+      { questionId: "q1", kind: "option", optionId: "done" },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(submit).toHaveBeenLastCalledWith([
+      { questionId: "q1", kind: "skip" },
+    ]);
+  },
+);
+
+test("desktop help disables all actions while its response is submitting", () => {
+  render(
+    <DesktopHelpCard entry={helpEntry} isSubmitting onSubmit={() => {}} />,
+  );
+  for (const name of ["Step In", "Done", "Skip"]) {
+    expect(
+      (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  }
+});
+
+test("moving an open desktop into a help card preserves the live connection", async () => {
+  function Harness({ help }: { help: boolean }) {
+    return (
+      <>
+        {help && (
+          <DesktopHelpCard
+            entry={helpEntry}
+            isSubmitting={false}
+            onSubmit={() => {}}
+          />
+        )}
+        <DesktopHarness />
+      </>
+    );
+  }
+  const { rerender } = render(<Harness help={false} />);
+  fireEvent.click(
+    screen.getByRole("button", { name: "Open Alice's virtual desktop" }),
+  );
+  const panel = await screen.findByTestId("desktop-panel");
+  rerender(<Harness help />);
+  expect(screen.getByTestId("desktop-panel")).toBe(panel);
+  expect(panelUnmounts).toBe(0);
+  fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+  rerender(<Harness help={false} />);
+  expect(screen.getByTestId("desktop-panel")).toBe(panel);
+  expect(panelUnmounts).toBe(0);
+  expect(panel.getAttribute("data-view-only")).toBe("false");
+});

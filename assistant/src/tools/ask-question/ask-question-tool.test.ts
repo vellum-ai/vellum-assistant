@@ -15,6 +15,9 @@ import type { ToolContext } from "../types.js";
 // `mock.module` is hoisted by bun before any static import of the tool
 // runs, so the import below sees the stubbed prompter even though
 // `askQuestionTool` captures the symbol at module-eval time.
+const prepareDesktopHelp = mock(async (_context: ToolContext) => undefined);
+mock.module("../../desktop/desktop-help.js", () => ({ prepareDesktopHelp }));
+
 const calls: QuestionPromptParams[] = [];
 let nextResult: QuestionPromptResult = {
   entries: [{ questionId: "q1", decision: "skipped" }],
@@ -61,6 +64,7 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 // `setNextResult()` before invoking `askQuestionTool.execute(...)`.
 beforeEach(() => {
   calls.length = 0;
+  prepareDesktopHelp.mockClear();
   nextResult = {
     entries: [{ questionId: "q1", decision: "skipped" }],
     overall: "completed",
@@ -670,7 +674,7 @@ describe("AskQuestionTool batched input", () => {
 });
 
 describe("askQuestionTool definition (batched schema)", () => {
-  test("exposes `questions[]` shape, requires it, and drops the flat fields", () => {
+  test("exposes batched questions and a desktop help alternative", () => {
     const def = askQuestionTool;
     const schema = def.input_schema as unknown as {
       properties: Record<
@@ -708,9 +712,7 @@ describe("askQuestionTool definition (batched schema)", () => {
 
     expect(questions?.items?.required).toEqual(["question", "options"]);
 
-    // `questions` is the only top-level input now.
-    expect(schema.required).toEqual(["questions"]);
-    expect(Object.keys(schema.properties)).toEqual(["questions"]);
+    expect(schema.properties.desktopHelp?.type).toBe("string");
 
     // The legacy flat fields are gone.
     expect(schema.properties.question).toBeUndefined();
@@ -823,5 +825,54 @@ describe("answered-question record", () => {
         overall: "timed_out",
       }),
     ).toBeUndefined();
+  });
+});
+
+describe("virtual desktop help", () => {
+  test("releases control before waiting and records Done in the transcript", async () => {
+    setNextResult(singleCompleted({ decision: "option", optionId: "done" }));
+    const result = await askQuestionTool.execute(
+      { desktopHelp: "Please complete the CAPTCHA." },
+      makeContext(),
+    );
+    expect(prepareDesktopHelp).toHaveBeenCalledTimes(1);
+    expect(calls[0]?.questions[0]?.presentation).toBe("virtual_desktop");
+    expect(result.content).toContain("fresh browser snapshot");
+    expect(result.answeredQuestion?.responses[0]).toEqual({
+      questionId: "q1",
+      decision: "option",
+      optionId: "done",
+    });
+  });
+
+  test.each([
+    { decision: "skipped" as const },
+    { decision: "option" as const, optionId: "skip" },
+  ])("does not claim the obstacle was solved after Skip: %j", async (entry) => {
+    setNextResult(singleCompleted(entry));
+    const result = await askQuestionTool.execute(
+      { desktopHelp: "Please complete the CAPTCHA." },
+      makeContext(),
+    );
+    expect(result.content).toContain("obstacle may still be present");
+    expect(result.isError).toBe(false);
+  });
+
+  test("does not wait for a user in a background turn", async () => {
+    await askQuestionTool.execute(
+      { desktopHelp: "Please complete the CAPTCHA." },
+      makeContext({ isInteractive: false }),
+    );
+    expect(prepareDesktopHelp).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(0);
+  });
+
+  test("rejects mixing desktop help with a question batch", async () => {
+    const result = await askQuestionTool.execute(
+      { ...validInput, desktopHelp: "Please complete the CAPTCHA." },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    expect(calls).toHaveLength(0);
   });
 });

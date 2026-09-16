@@ -1928,5 +1928,11 @@
     "savedTime": "Guardado: {time}",
     "pendingAria": "Fotograma de cámara, la imagen aún se está cargando. {time}",
     "timeUnavailable": "Hora no disponible"
+  },
+  "desktopHelpCard": {
+    "stepIn": "Intervenir",
+    "done": "Listo",
+    "skip": "Omitir",
+    "description": "Ayuda en el escritorio virtual y elige Listo para que el asistente pueda continuar."
   }
 }

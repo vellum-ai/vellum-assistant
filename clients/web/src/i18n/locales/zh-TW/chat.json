@@ -1994,5 +1994,11 @@
     "savedTime": "儲存於 {time}",
     "pendingAria": "攝影機畫面，影像仍在載入。{time}",
     "timeUnavailable": "時間無法取得"
+  },
+  "desktopHelpCard": {
+    "stepIn": "接管",
+    "done": "完成",
+    "skip": "略過",
+    "description": "請在虛擬桌面中完成操作，然後選擇「完成」，讓助理繼續。"
   }
 }

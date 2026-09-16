@@ -4,9 +4,11 @@ import type {
   AnsweredQuestion,
   AnsweredQuestionResponse,
 } from "../../api/events/question-answered.js";
+import { t } from "../../i18n/index.js";
 import {
   QuestionPrompter,
   type QuestionPromptOutcome,
+  type QuestionPromptParamsEntry,
 } from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
 import {
@@ -74,17 +76,29 @@ const MAX_QUESTIONS_PER_BATCH = 5;
 // Callers pass a (possibly single-element) batch of questions. `execute()`
 // forwards them straight to the prompter. Loose so injected fields (e.g.
 // `activity`) never fail validation.
-export const askQuestionInputSchema = z.looseObject({
-  questions: z
-    .array(SingleQuestionSchema)
-    .min(1)
-    .max(MAX_QUESTIONS_PER_BATCH, {
-      message: `At most ${MAX_QUESTIONS_PER_BATCH} questions per batch; split into multiple turns if you need more.`,
-    })
-    .describe(
-      `1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
-    ),
-});
+export const askQuestionInputSchema = z
+  .looseObject({
+    desktopHelp: z
+      .string()
+      .min(1)
+      .describe(
+        "Request human interaction in the virtual desktop, such as a CAPTCHA, sign-in or native dialog. Explain what the user should do. Shows a live preview with Step In, Done and Skip. Pass this instead of questions.",
+      )
+      .optional(),
+    questions: z
+      .array(SingleQuestionSchema)
+      .min(1)
+      .max(MAX_QUESTIONS_PER_BATCH, {
+        message: `At most ${MAX_QUESTIONS_PER_BATCH} questions per batch; split into multiple turns if you need more.`,
+      })
+      .describe(
+        `1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
+      )
+      .optional(),
+  })
+  .refine((input) => Boolean(input.questions) !== Boolean(input.desktopHelp), {
+    message: "Provide either questions or desktopHelp, not both.",
+  });
 
 export type SingleQuestion = z.infer<typeof SingleQuestionSchema>;
 export type AskQuestionInput = z.infer<typeof askQuestionInputSchema>;
@@ -92,6 +106,12 @@ export type AskQuestionInput = z.infer<typeof askQuestionInputSchema>;
 // ── Tool description ────────────────────────────────────────────────
 
 const DESCRIPTION = [
+  "When virtual desktop browsing needs human interaction (CAPTCHA, sign-in,",
+  "or a native dialog), call this tool with desktopHelp explaining the task",
+  "instead of questions. It releases browser control and waits for Done or Skip.",
+  "After Done, inspect a fresh browser snapshot before continuing. Skip does",
+  "not mean the obstacle was resolved; use another approach or explain the blocker.",
+  "",
   "Use this tool whenever a request is ambiguous and can be resolved",
   "by 2–4 plausible interpretations or discrete choices. Prefer it over",
   "plain-text clarification — structured options are faster to answer and",
@@ -234,7 +254,20 @@ export const askQuestionTool = {
       return invalidToolInputResult("ask_question", parsed.error);
     }
 
-    const questions: SingleQuestion[] = parsed.data.questions;
+    const { desktopHelp } = parsed.data;
+    const questions: QuestionPromptParamsEntry[] = desktopHelp
+      ? [
+          {
+            question: desktopHelp,
+            description: t("desktop.help.description"),
+            options: [
+              { id: "done", label: t("desktop.help.done") },
+              { id: "skip", label: t("desktop.help.skip") },
+            ],
+            presentation: "virtual_desktop",
+          },
+        ]
+      : parsed.data.questions!;
 
     // No interactive user is present to answer (scheduled/headless/background
     // turn). Don't park the turn on a prompt no one can resolve — proceed with
@@ -243,8 +276,9 @@ export const askQuestionTool = {
     // model asks anyway, so it doesn't wait out the full response timeout.
     if (context.isInteractive === false) {
       return {
-        content:
-          "No interactive user is present to answer; proceeding with reasonable defaults.",
+        content: desktopHelp
+          ? "No interactive user is present to help in the virtual desktop. The obstacle remains unresolved."
+          : "No interactive user is present to answer; proceeding with reasonable defaults.",
         isError: false,
       };
     }
@@ -275,6 +309,15 @@ export const askQuestionTool = {
         content: formatQuestionsAsTextFallback(questions),
         isError: false,
       };
+    }
+
+    if (desktopHelp) {
+      const { prepareDesktopHelp } =
+        await import("../../desktop/desktop-help.js");
+      const unavailable = await prepareDesktopHelp(context);
+      if (unavailable) {
+        return unavailable;
+      }
     }
 
     const prompter = new QuestionPrompter();
@@ -308,8 +351,26 @@ export const askQuestionTool = {
     const answeredQuestion = toAnsweredQuestion(result);
 
     switch (result.overall) {
-      case "completed":
-        return { content: lines.join("\n"), isError: false, answeredQuestion };
+      case "completed": {
+        let content = lines.join("\n");
+        if (desktopHelp) {
+          const entry = result.entries[0];
+          if (entry?.decision === "free_text") {
+            content +=
+              "\nTake a fresh browser snapshot before continuing; do not assume the obstacle was resolved.";
+          } else if (
+            entry?.decision === "option" &&
+            entry.optionId === "done"
+          ) {
+            content =
+              "The user finished interacting with the virtual desktop. Take a fresh browser snapshot and verify the result before continuing.";
+          } else {
+            content =
+              "The user skipped helping in the virtual desktop. The obstacle may still be present. Use another approach or explain what remains blocked.";
+          }
+        }
+        return { content, isError: false, answeredQuestion };
+      }
       case "closed": {
         const summary =
           "User closed the question card without answering. All questions skipped.";

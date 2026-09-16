@@ -158,7 +158,12 @@ or --use-active-tab. Download waiting is unavailable on this target.
 Users can interact directly with the expanded desktop. If they ask you to pause,
 stop and wait. Take a fresh snapshot before resuming. Closing the viewer does not
 end automation. Run assistant browser --virtual-desktop detach when finished or
-blocked, including before asking a question. Chrome stays running.
+blocked. Chrome stays running.
+When a CAPTCHA, sign-in or other step needs human interaction, call ask_question
+with desktopHelp explaining what the user should do. This releases browser control
+and shows a chat card with a desktop preview, Step In, Done and Skip.
+Wait for the response. After Done, take a fresh snapshot and verify the result.
+Skip leaves the obstacle unresolved; use another approach or explain the blocker.
 Each subcommand maps to a browser operation and communicates
 with the assistant process.
 
