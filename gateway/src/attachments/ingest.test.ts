@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import pino from "pino";
 import type { GatewayConfig } from "../config.js";
-import { appendFailedAttachmentNotice, ingestAttachments } from "./ingest.js";
+import {
+  appendFailedAttachmentNotice,
+  AttachmentTooLargeError,
+  ingestAttachments,
+} from "./ingest.js";
 
 const log = pino({ level: "silent" });
 
@@ -70,6 +74,69 @@ describe("ingestAttachments", () => {
       { name: "large.txt", fileSize: 21, limit: 20 },
     ]);
     expect(result.failedAttachmentNames).toEqual([]);
+  });
+
+  test("a size the download layer rejects is oversized, not a retrieval failure, under either policy", async () => {
+    // The provider omitted or understated the size, so the pre-download
+    // filter let the file through and the byte reader threw. Too large is
+    // never transient, so the rethrow policy does not see it either.
+    const download = async () => {
+      throw new AttachmentTooLargeError("too big", {
+        limit: 20,
+        fileSize: 25,
+      });
+    };
+    const upload = async () => ({ id: "unused" });
+
+    const rethrowing = await ingestAttachments(
+      config(),
+      "telegram",
+      [attachment("unsized")],
+      log,
+      {
+        download,
+        upload,
+        failurePolicy: {
+          mode: "rethrow-unless-skippable",
+          isSkippableError: () => false,
+        },
+      },
+    );
+    expect(rethrowing.oversizedAttachments).toEqual([
+      { name: "unsized.txt", fileSize: 25, limit: 20 },
+    ]);
+    expect(rethrowing.failedAttachmentNames).toEqual([]);
+
+    const skipping = await ingestAttachments(
+      config(),
+      "slack",
+      [attachment("unsized")],
+      log,
+      { download, upload, failurePolicy: { mode: "skip" } },
+    );
+    expect(skipping.oversizedAttachments).toEqual([
+      { name: "unsized.txt", fileSize: 25, limit: 20 },
+    ]);
+    expect(skipping.failedAttachmentNames).toEqual([]);
+  });
+
+  test("a stream that overflowed without a stated size is oversized with the size unknown", async () => {
+    const result = await ingestAttachments(
+      config(),
+      "discord",
+      [attachment("stream")],
+      log,
+      {
+        download: async () => {
+          throw new AttachmentTooLargeError("too big", { limit: 100 });
+        },
+        upload: async () => ({ id: "unused" }),
+        failurePolicy: { mode: "skip" },
+      },
+    );
+    expect(result.oversizedAttachments).toEqual([
+      { name: "stream.txt", limit: 100 },
+    ]);
   });
 
   test("bounds concurrent downloads", async () => {
@@ -199,6 +266,30 @@ describe("appendFailedAttachmentNotice", () => {
         ],
       }),
     ).toContain('"a.bin" (20.5 MB, over the 20 MB limit)');
+  });
+
+  test("a file one byte over a whole-megabyte cap reads as larger than the cap", () => {
+    expect(
+      appendFailedAttachmentNotice("", {
+        ...nothing,
+        oversizedAttachments: [
+          {
+            name: "edge.bin",
+            fileSize: 20 * 1024 * 1024 + 1,
+            limit: 20 * 1024 * 1024,
+          },
+        ],
+      }),
+    ).toContain('"edge.bin" (20.1 MB, over the 20 MB limit)');
+  });
+
+  test("a file whose size is unknown names only the cap", () => {
+    expect(
+      appendFailedAttachmentNotice("", {
+        ...nothing,
+        oversizedAttachments: [{ name: "stream.bin", limit: 16 * 1024 * 1024 }],
+      }),
+    ).toContain('"stream.bin" (over the 16 MB limit)');
   });
 
   test("a retrieval failure and an oversized file each get their own line", () => {

@@ -21,8 +21,18 @@ export async function readLimitedAttachmentResponse(
 ): Promise<ArrayBuffer> {
   const result = await readLimitedBodyBytes(response, maxBytes);
   if (result.status === "too_large") {
+    // The declared length is the file's size when the provider stated one;
+    // a stream that ran past the cap without one leaves the size unknown.
+    const declared = Number(response.headers.get("content-length"));
     throw new AttachmentTooLargeError(
       `Attachment ${attachmentId} exceeds the ${maxBytes}-byte limit`,
+      {
+        limit: maxBytes,
+        fileSize:
+          Number.isFinite(declared) && declared > maxBytes
+            ? declared
+            : undefined,
+      },
     );
   }
   if (result.status === "unreadable") {

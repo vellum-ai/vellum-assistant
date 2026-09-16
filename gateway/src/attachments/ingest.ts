@@ -20,14 +20,31 @@ export type IngestibleAttachment = Omit<GatewayInboundAttachment, "type">;
 
 export type DownloadedAttachment = Omit<UploadAttachmentInput, "trustedSource">;
 
+/**
+ * The bytes exceeded the channel's cap. Carries the cap and, when the
+ * provider or the response stated one, the file's size, so the notice can
+ * name both. Absent when the stream simply ran past the cap.
+ */
 export class AttachmentTooLargeError extends Error {
   override name = "AttachmentTooLargeError";
+  readonly limit: number;
+  readonly fileSize: number | undefined;
+
+  constructor(
+    message: string,
+    size: { limit: number; fileSize?: number | undefined },
+  ) {
+    super(message);
+    this.limit = size.limit;
+    this.fileSize = size.fileSize;
+  }
 }
 
-/** A file the platform reported as larger than the channel's cap. */
+/** A file larger than the channel's cap, whether the provider said so before the download or the bytes said so during it. */
 export type OversizedAttachment = {
   name: string;
-  fileSize: number;
+  /** Absent when only the stream's overflow is known, not the true size. */
+  fileSize?: number;
   limit: number;
 };
 
@@ -99,12 +116,37 @@ export async function ingestAttachments(
       }
 
       const attachment = batch[j];
+      const name = attachment.fileName || attachment.fileId;
+
+      // A provider that omitted or understated the size is caught by the
+      // download layer instead. Too large is never transient, so it is
+      // accounted for before the failure policy is consulted, under either
+      // policy.
+      if (result.reason instanceof AttachmentTooLargeError) {
+        oversizedAttachments.push({
+          name,
+          ...(result.reason.fileSize !== undefined
+            ? { fileSize: result.reason.fileSize }
+            : {}),
+          limit: result.reason.limit,
+        });
+        log.warn(
+          {
+            fileId: attachment.fileId,
+            fileSize: result.reason.fileSize,
+            limit: result.reason.limit,
+          },
+          `Skipping oversized ${channel} attachment`,
+        );
+        continue;
+      }
+
       const shouldSkip =
         options.failurePolicy.mode === "skip" ||
         (options.failurePolicy.mode === "rethrow-unless-skippable" &&
           options.failurePolicy.isSkippableError(result.reason));
       if (shouldSkip) {
-        failedAttachmentNames.push(attachment.fileName || attachment.fileId);
+        failedAttachmentNames.push(name);
         log.warn(
           { err: result.reason, fileId: attachment.fileId },
           `Skipping ${channel} attachment`,
@@ -143,10 +185,7 @@ export function appendFailedAttachmentNotice(
   }
   if (result.oversizedAttachments.length > 0) {
     const fileList = result.oversizedAttachments
-      .map(
-        (file) =>
-          `"${file.name}" (${formatMegabytes(file.fileSize)}, over the ${formatMegabytes(file.limit)} limit)`,
-      )
+      .map((file) => `"${file.name}" (${describeOversize(file)})`)
       .join(", ");
     notices.push(
       `[The user attached file(s) too large to receive: ${fileList}. Re-sending the same file will not help; if the content is important, ask for a smaller version or a link.]`,
@@ -159,9 +198,23 @@ export function appendFailedAttachmentNotice(
   return content.length > 0 ? `${content}\n\n${notice}` : notice;
 }
 
+/**
+ * "60 MB, over the 20 MB limit", or "over the 20 MB limit" when only the
+ * overflow is known. The file's size rounds up and the cap rounds to the
+ * nearest tenth, so a file one byte over a whole-megabyte cap reads as
+ * larger than the cap rather than equal to it.
+ */
+function describeOversize(file: OversizedAttachment): string {
+  const limit = `over the ${formatMegabytes(file.limit, "nearest")} limit`;
+  return file.fileSize === undefined
+    ? limit
+    : `${formatMegabytes(file.fileSize, "up")}, ${limit}`;
+}
+
 /** Bytes as megabytes with at most one decimal, the unit every cap is set in. */
-function formatMegabytes(bytes: number): string {
-  const megabytes = bytes / (1024 * 1024);
-  const rounded = Math.round(megabytes * 10) / 10;
+function formatMegabytes(bytes: number, rounding: "nearest" | "up"): string {
+  const tenths = (bytes / (1024 * 1024)) * 10;
+  const rounded =
+    (rounding === "up" ? Math.ceil(tenths) : Math.round(tenths)) / 10;
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)} MB`;
 }
