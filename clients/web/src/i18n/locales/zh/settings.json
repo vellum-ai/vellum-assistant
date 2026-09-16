@@ -1,11 +1,14 @@
 {
   "accessConsentSetting": {
     "description": "启用后，Vellum 员工将能够访问您的助手及其数据以进行调试。建议您保持此功能关闭，仅在需要 Vellum 支持团队协助调查问题时暂时开启。",
+    "expiresAt": "员工访问将于{when}结束。",
+    "extend": "延长 24 小时",
     "loadError": "未能加载同意设置。",
     "loginNotice": "登录 Vellum 平台以管理管理员数据访问权限。",
     "title": "允许员工访问",
     "toastDisabled": "管理员数据访问已禁用。",
     "toastEnabled": "管理员数据访问已启用。",
+    "toastExtended": "管理员数据访问已延长。",
     "toastUpdateFailed": "未能更新日志访问同意。"
   },
   "adjustPlanModal": {

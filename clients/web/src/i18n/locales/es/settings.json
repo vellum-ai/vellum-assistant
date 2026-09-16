@@ -1,11 +1,14 @@
 {
   "accessConsentSetting": {
     "description": "Cuando está activado, el personal de Vellum podrá acceder a tu asistente y a sus datos con fines de depuración. Se recomienda dejarlo desactivado y activarlo solo temporalmente si necesitas ayuda de Soporte de Vellum para investigar un problema.",
+    "expiresAt": "El acceso del personal termina {when}.",
+    "extend": "Extender 24 horas",
     "loadError": "No se pudo cargar la configuración de consentimiento.",
     "loginNotice": "Inicia sesión en la plataforma de Vellum para gestionar el acceso de administración a los datos.",
     "title": "Permitir acceso del personal",
     "toastDisabled": "Acceso de administración a los datos desactivado.",
     "toastEnabled": "Acceso de administración a los datos activado.",
+    "toastExtended": "Acceso de administración a los datos extendido.",
     "toastUpdateFailed": "No se pudo actualizar el consentimiento de acceso a los registros."
   },
   "adjustPlanModal": {

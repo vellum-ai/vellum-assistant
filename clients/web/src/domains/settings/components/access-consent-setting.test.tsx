@@ -29,6 +29,14 @@ interface RequestArgs {
 }
 
 let consented = false;
+// Set by tests that start with an active grant; PATCH true restarts it.
+let expiresAt: string | null = null;
+function consentPayload() {
+  return {
+    access_consented: consented,
+    access_consent_expires_at: consented ? expiresAt : null,
+  };
+}
 const getCalls: RequestArgs[] = [];
 const patchCalls: RequestArgs[] = [];
 // When `release` is null, PATCH responses wait until the test releases
@@ -45,10 +53,7 @@ mock.module("@/generated/api/client.gen", () => ({
   client: {
     get: async (args: RequestArgs) => {
       getCalls.push(args);
-      return {
-        data: { access_consented: consented },
-        response: new Response(),
-      };
+      return { data: consentPayload(), response: new Response() };
     },
     patch: async (args: RequestArgs) => {
       patchCalls.push(args);
@@ -58,10 +63,10 @@ mock.module("@/generated/api/client.gen", () => ({
         });
       }
       consented = args.body?.access_consented ?? consented;
-      return {
-        data: { access_consented: consented },
-        response: new Response(),
-      };
+      if (consented) {
+        expiresAt = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+      }
+      return { data: consentPayload(), response: new Response() };
     },
     getConfig: () => ({ baseUrl: "http://test.local" }),
   },
@@ -102,6 +107,7 @@ function renderSetting() {
 describe("AccessConsentSetting", () => {
   beforeEach(() => {
     consented = false;
+    expiresAt = null;
     getCalls.length = 0;
     patchCalls.length = 0;
     patchGate.release = () => {};
@@ -163,6 +169,20 @@ describe("AccessConsentSetting", () => {
     await waitFor(() =>
       expect(toggle.getAttribute("aria-checked")).toBe("false"),
     );
+  });
+
+  test("an active grant shows when it ends and can be extended", async () => {
+    consented = true;
+    expiresAt = new Date(Date.now() + 3 * 60 * 60_000).toISOString();
+    renderSetting();
+
+    await screen.findByText("Staff access ends in 3 hours.");
+    fireEvent.click(screen.getByRole("button", { name: "Extend 24 hours" }));
+
+    await waitFor(() => expect(patchCalls).toHaveLength(1));
+    expect(patchCalls[0].path?.id).toBe(ASSISTANT_ID);
+    expect(patchCalls[0].body).toEqual({ access_consented: true });
+    await screen.findByText("Staff access ends in 24 hours.");
   });
 
   test("with no active assistant the toggle is disabled and nothing is requested", async () => {
