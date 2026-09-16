@@ -98,7 +98,9 @@ interface CatalogPluginSource {
   description?: string;
   path: string;
   icon?: string;
-  source: { repo: string };
+  source:
+    | { kind: "github"; repo: string }
+    | { kind: "local"; path: string; version: string };
 }
 
 type _InstalledCompat = AssertAssignable<

@@ -22,12 +22,19 @@ import {
 import { Command } from "commander";
 
 import type { InstallPluginOptions } from "../install-from-github.js";
+import type { PluginMatchSource } from "../search-plugins.js";
 
 const installPluginCalls: InstallPluginOptions[] = [];
 const platformInstallCalls: Array<{ name: string; force?: boolean }> = [];
 
 const realGithub = await import("../install-from-github.js");
 const realPlatform = await import("../install-from-platform.js");
+const realCatalogCache = await import("../plugin-catalog-cache.js");
+let platformCatalogSource: PluginMatchSource = {
+  kind: "github",
+  repo: "JuliusBrussee/caveman",
+  ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+};
 
 mock.module("../install-from-github.js", () => ({
   ...realGithub,
@@ -57,6 +64,21 @@ mock.module("../install-from-platform.js", () => ({
       committedAt: null,
     };
   },
+}));
+
+mock.module("../plugin-catalog-cache.js", () => ({
+  ...realCatalogCache,
+  getPluginCatalog: async () => ({
+    ref: "main",
+    matches: [
+      {
+        name: BUNDLED_PLUGIN,
+        path: "fixture",
+        category: null,
+        source: platformCatalogSource,
+      },
+    ],
+  }),
 }));
 
 const { registerPluginsCommand } = await import("../../commands/plugins.js");
@@ -90,6 +112,11 @@ describe("plugins install by name — disable-platform mode", () => {
     installPluginCalls.length = 0;
     platformInstallCalls.length = 0;
     process.exitCode = undefined;
+    platformCatalogSource = {
+      kind: "github",
+      repo: "JuliusBrussee/caveman",
+      ref: "63a91ecadbf4c4719a4602a5abb00883f9966034",
+    };
     spyOn(console, "log").mockImplementation(() => {});
     spyOn(console, "error").mockImplementation(() => {});
   });
@@ -155,5 +182,21 @@ describe("plugins install by name — disable-platform mode", () => {
     expect(platformInstallCalls.length).toBe(1);
     expect(platformInstallCalls[0]!.name).toBe(BUNDLED_PLUGIN);
     expect(process.exitCode).not.toBe(1);
+  });
+
+  test("installs a platform-visible local package without the platform tar endpoint", async () => {
+    delete process.env.VELLUM_DISABLE_PLATFORM;
+    delete process.env.IS_PLATFORM;
+    platformCatalogSource = {
+      kind: "local",
+      path: "plugins/mcp-catalog/fathom",
+      version: "1.0.0",
+    };
+
+    await runInstall(BUNDLED_PLUGIN);
+
+    expect(platformInstallCalls).toHaveLength(0);
+    expect(installPluginCalls).toHaveLength(1);
+    expect(installPluginCalls[0]?.trustedSource).toEqual(platformCatalogSource);
   });
 });
