@@ -21,6 +21,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 
 import { WorkspaceTree } from "@/domains/workspace/components/workspace-tree";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { workspaceTreeQueryOptions } from "@/lib/workspace-tree-query";
 
 const WORKSPACE_DEPTH = 4;
 
@@ -124,14 +125,33 @@ interface TreeState {
   search: string;
 }
 
+const ASSISTANT_ID = "assistant-1";
+
+/** CI runs every test file in its own subprocess under load; give waits room. */
+const WAIT = { timeout: 5_000 };
+const TEST_TIMEOUT_MS = 20_000;
+
 function renderTree(initial: TreeState) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  /** Resolves once a listing is in the cache, whether or not anything renders it. */
+  const whenListed = (path: string, recursive = false) =>
+    waitFor(() => {
+      expect(
+        queryClient.getQueryData(
+          workspaceTreeQueryOptions({
+            assistantId: ASSISTANT_ID,
+            path,
+            recursive,
+          }).queryKey,
+        ),
+      ).toBeDefined();
+    }, WAIT);
   const tree = ({ expandedPaths, search }: TreeState) => (
     <QueryClientProvider client={queryClient}>
       <WorkspaceTree
-        assistantId="assistant-1"
+        assistantId={ASSISTANT_ID}
         expandedPaths={expandedPaths}
         selectedPath={null}
         showHidden={false}
@@ -149,7 +169,10 @@ function renderTree(initial: TreeState) {
     </QueryClientProvider>
   );
   const result = render(tree(initial));
-  return { rerender: (next: TreeState) => result.rerender(tree(next)) };
+  return {
+    rerender: (next: TreeState) => result.rerender(tree(next)),
+    whenListed,
+  };
 }
 
 /** Past the search debounce, with room for any fetches it would start. */
@@ -164,52 +187,68 @@ function uniqueSorted(paths: string[]) {
 }
 
 describe("WorkspaceTree listing requests", () => {
-  test("typing a search requests nothing when no folder is open", async () => {
-    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
-    await screen.findByText("d0");
+  test(
+    "typing a search requests nothing when no folder is open",
+    async () => {
+      const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
+      await screen.findByText("d0");
 
-    rerender({ expandedPaths: new Set(), search: "theme" });
-    await settle();
+      rerender({ expandedPaths: new Set(), search: "theme" });
+      await settle();
 
-    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)"]);
-  });
+      expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)"]);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  test("a search reads only the folders that are open", async () => {
-    const expandedPaths = new Set(["d0"]);
-    const { rerender } = renderTree({ expandedPaths, search: "" });
-    await screen.findByText("theme-1.md");
+  test(
+    "a search reads only the folders that are open",
+    async () => {
+      const expandedPaths = new Set(["d0"]);
+      const { rerender } = renderTree({ expandedPaths, search: "" });
+      await screen.findByText("theme-1.md");
 
-    rerender({ expandedPaths, search: "theme" });
-    await settle();
+      rerender({ expandedPaths, search: "theme" });
+      await settle();
 
-    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)", "d0"]);
-    expect(screen.getByText("theme-0.md")).toBeTruthy();
-    // d1 holds a theme-1.md too, but d1 is closed.
-    expect(screen.getAllByText("theme-1.md")).toHaveLength(1);
-  });
+      expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)", "d0"]);
+      expect(screen.getByText("theme-0.md")).toBeTruthy();
+      // d1 holds a theme-1.md too, but d1 is closed.
+      expect(screen.getAllByText("theme-1.md")).toHaveLength(1);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  test("opening a folder requests that folder alone", async () => {
-    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
-    await screen.findByText("d1");
+  test(
+    "opening a folder requests that folder alone",
+    async () => {
+      const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
+      await screen.findByText("d1");
 
-    rerender({ expandedPaths: new Set(["d1"]), search: "" });
-    await screen.findByText("theme-1.md");
-    await settle();
+      rerender({ expandedPaths: new Set(["d1"]), search: "" });
+      await screen.findByText("theme-1.md");
+      await settle();
 
-    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)", "d1"]);
-  });
+      expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)", "d1"]);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  test("a search with no match in open folders says so", async () => {
-    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
-    await screen.findByText("d0");
+  test(
+    "a search with no match in open folders says so",
+    async () => {
+      const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
+      await screen.findByText("d0");
 
-    rerender({ expandedPaths: new Set(), search: "nothing-matches" });
+      rerender({ expandedPaths: new Set(), search: "nothing-matches" });
 
-    await waitFor(() => {
-      expect(screen.getByText("No matches in open folders")).toBeTruthy();
-    });
-    expect(screen.getByText("Searching open folders")).toBeTruthy();
-  });
+      await waitFor(() => {
+        expect(screen.getByText("No matches in open folders")).toBeTruthy();
+      }, WAIT);
+      expect(screen.getByText("Searching open folders")).toBeTruthy();
+    },
+    TEST_TIMEOUT_MS,
+  );
 
   test("folder rows report whether they are open; file rows do not", async () => {
     renderTree({ expandedPaths: new Set(["d0"]), search: "" });
@@ -232,93 +271,124 @@ describe("WorkspaceTree listing requests", () => {
 describe("WorkspaceTree against an assistant with recursive listings", () => {
   beforeEach(() => {
     supportsRecursive = true;
-  });
+  }, TEST_TIMEOUT_MS);
 
-  test("a search finds a file in a closed folder with no extra request", async () => {
-    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
-    await screen.findByText("d0");
-    await settle();
+  test(
+    "a search finds a file in a closed folder with no extra request",
+    async () => {
+      const { rerender, whenListed } = renderTree({
+        expandedPaths: new Set(),
+        search: "",
+      });
+      await whenListed("", true);
 
-    rerender({ expandedPaths: new Set(), search: "theme-3" });
-    await waitFor(() => {
-      expect(screen.getAllByText("theme-3.md").length).toBeGreaterThan(0);
-    });
-    await settle();
+      rerender({ expandedPaths: new Set(), search: "theme-3" });
+      await waitFor(() => {
+        expect(screen.getAllByText("theme-3.md").length).toBeGreaterThan(0);
+      }, WAIT);
+      await settle();
 
-    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)"]);
-    // The folders holding the matches show as open, so the matches are visible.
-    expect(
-      screen
-        .getAllByRole("button", { name: "d0" })[0]
-        ?.getAttribute("aria-expanded"),
-    ).toBe("true");
-    expect(screen.queryByText("Searching open folders")).toBeNull();
-  });
-
-  test("opening a folder shows its contents at once and refreshes them with one request", async () => {
-    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
-    await screen.findByText("d1");
-    await settle();
-
-    rerender({ expandedPaths: new Set(["d1"]), search: "" });
-    // Synchronously: the recursive listing already holds d1's contents.
-    expect(screen.getByText("theme-1.md")).toBeTruthy();
-    await settle();
-
-    expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)", "d1"]);
-  });
-
-  test("a folder the walk did not enter makes the search say so until it is opened", async () => {
-    skipRecursive = new Set(["d1"]);
-    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
-    await screen.findByText("d1");
-    await settle();
-
-    rerender({ expandedPaths: new Set(), search: "theme" });
-    await waitFor(() => {
+      expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)"]);
+      // The folders holding the matches show as open, so the matches are visible.
       expect(
-        screen.getByText(
-          "Some folders are not searched. Open a folder to search inside it.",
-        ),
-      ).toBeTruthy();
-    });
+        screen
+          .getAllByRole("button", { name: "d0" })[0]
+          ?.getAttribute("aria-expanded"),
+      ).toBe("true");
+      expect(screen.queryByText("Searching open folders")).toBeNull();
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-    rerender({ expandedPaths: new Set(["d1"]), search: "theme" });
-    await waitFor(() => {
-      expect(
-        screen.queryByText(
-          "Some folders are not searched. Open a folder to search inside it.",
-        ),
-      ).toBeNull();
-    });
-    expect(screen.getAllByText("theme-1.md").length).toBeGreaterThan(0);
-  });
+  test(
+    "opening a folder shows its contents at once and refreshes them with one request",
+    async () => {
+      const { rerender, whenListed } = renderTree({
+        expandedPaths: new Set(),
+        search: "",
+      });
+      await whenListed("", true);
 
-  test("a search with no match anywhere says so, with no scope note", async () => {
-    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
-    await screen.findByText("d0");
-    await settle();
+      rerender({ expandedPaths: new Set(["d1"]), search: "" });
+      // Synchronously: the recursive listing already holds d1's contents.
+      expect(screen.getByText("theme-1.md")).toBeTruthy();
+      await whenListed("d1");
 
-    rerender({ expandedPaths: new Set(), search: "nothing-matches" });
-    await waitFor(() => {
-      expect(screen.getByText("No matches")).toBeTruthy();
-    });
-    expect(screen.queryByText("Searching open folders")).toBeNull();
-  });
+      expect(uniqueSorted(requestedPaths)).toEqual(["", " (recursive)", "d1"]);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
-  test("a truncated workspace listing says the search is incomplete", async () => {
-    truncateRecursive = true;
-    const { rerender } = renderTree({ expandedPaths: new Set(), search: "" });
-    await screen.findByText("d0");
-    await settle();
+  test(
+    "a folder the walk did not enter makes the search say so until it is opened",
+    async () => {
+      skipRecursive = new Set(["d1"]);
+      const { rerender, whenListed } = renderTree({
+        expandedPaths: new Set(),
+        search: "",
+      });
+      await whenListed("", true);
 
-    rerender({ expandedPaths: new Set(), search: "theme" });
-    await waitFor(() => {
-      expect(
-        screen.getByText(
-          "Some folders are not searched. Open a folder to search inside it.",
-        ),
-      ).toBeTruthy();
-    });
-  });
+      rerender({ expandedPaths: new Set(), search: "theme" });
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            "Some folders are not searched. Open a folder to search inside it.",
+          ),
+        ).toBeTruthy();
+      }, WAIT);
+
+      rerender({ expandedPaths: new Set(["d1"]), search: "theme" });
+      await whenListed("d1");
+      await waitFor(() => {
+        expect(
+          screen.queryByText(
+            "Some folders are not searched. Open a folder to search inside it.",
+          ),
+        ).toBeNull();
+      }, WAIT);
+      expect(screen.getAllByText("theme-1.md").length).toBeGreaterThan(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a search with no match anywhere says so, with no scope note",
+    async () => {
+      const { rerender, whenListed } = renderTree({
+        expandedPaths: new Set(),
+        search: "",
+      });
+      await whenListed("", true);
+
+      rerender({ expandedPaths: new Set(), search: "nothing-matches" });
+      await waitFor(() => {
+        expect(screen.getByText("No matches")).toBeTruthy();
+      }, WAIT);
+      expect(screen.queryByText("Searching open folders")).toBeNull();
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "a truncated workspace listing says the search is incomplete",
+    async () => {
+      truncateRecursive = true;
+      const { rerender, whenListed } = renderTree({
+        expandedPaths: new Set(),
+        search: "",
+      });
+      await whenListed("", true);
+
+      rerender({ expandedPaths: new Set(), search: "theme" });
+      await waitFor(() => {
+        expect(
+          screen.getByText(
+            "Some folders are not searched. Open a folder to search inside it.",
+          ),
+        ).toBeTruthy();
+      }, WAIT);
+    },
+    TEST_TIMEOUT_MS,
+  );
 });
