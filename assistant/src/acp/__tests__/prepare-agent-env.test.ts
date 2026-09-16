@@ -38,7 +38,17 @@ import {
   getCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
-import { ACP_OAUTH_TOKEN_FIELD, ACP_SERVICE } from "../acp-credentials.js";
+import {
+  ACP_OAUTH_EXPIRES_AT_FIELD,
+  ACP_OAUTH_REFRESH_TOKEN_FIELD,
+  ACP_OAUTH_TOKEN_FIELD,
+  ACP_SERVICE,
+} from "../acp-credentials.js";
+
+const ensureFreshAcpClaudeToken = mock(async () => {});
+mock.module("../claude-token-refresh.js", () => ({
+  ensureFreshAcpClaudeToken,
+}));
 
 const mockLogWarn = mock((_fields: unknown, _msg: string) => {});
 
@@ -76,6 +86,7 @@ beforeEach(() => {
   _resetBackend();
   _setMetadataPath(join(TEST_DIR, "metadata.json"));
   mockLogWarn.mockClear();
+  ensureFreshAcpClaudeToken.mockClear();
 });
 
 afterEach(() => {
@@ -127,6 +138,54 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     });
 
     expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-AAA");
+    expect(ensureFreshAcpClaudeToken).toHaveBeenCalledTimes(1);
+  });
+
+  test("renews the vault token before a spawn, not when a config override supplies one", async () => {
+    await seedVaultToken("vault-unused");
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+      env: { CLAUDE_CODE_OAUTH_TOKEN: "config-override" },
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("config-override");
+    expect(ensureFreshAcpClaudeToken).not.toHaveBeenCalled();
+  });
+
+  test("injects only the access token; refresh material never reaches the child env", async () => {
+    const refreshToken = "refresh-must-not-cross-the-child-boundary";
+    await seedVaultToken("sk-ant-oat-access");
+    await seedVaultValue(ACP_OAUTH_REFRESH_TOKEN_FIELD, refreshToken);
+    await seedVaultValue(
+      ACP_OAUTH_EXPIRES_AT_FIELD,
+      String(Date.now() + 60 * 60 * 1000),
+    );
+
+    const prepared = await prepareAgentEnv({
+      command: "claude-agent-acp",
+      args: [],
+    });
+
+    expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("sk-ant-oat-access");
+    expect(JSON.stringify(prepared.env)).not.toContain(refreshToken);
+    expect(prepared.env).not.toHaveProperty("CLAUDE_CODE_OAUTH_REFRESH_TOKEN");
+
+    let leaked: string | undefined;
+    const brokerResult = await credentialBroker.serverUse({
+      service: ACP_SERVICE,
+      field: ACP_OAUTH_REFRESH_TOKEN_FIELD,
+      toolName: ACP_SPAWN_TOOL,
+      execute: async (value) => {
+        leaked = value;
+      },
+    });
+    expect(brokerResult.success).toBe(false);
+    expect(leaked).toBeUndefined();
+    expect(brokerResult.success ? undefined : brokerResult.reason).toContain(
+      "No credential found for acp/claude_oauth_refresh_token",
+    );
   });
 
   test("auto-registers metadata with acp_spawn in allowedTools when none exists", async () => {

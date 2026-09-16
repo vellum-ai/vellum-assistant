@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { channelForBotProvider } from "@vellumai/service-contracts/channels";
+
 import type { HeartbeatAlertEvent } from "../api/events/heartbeat-alert.js";
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
@@ -54,6 +56,19 @@ const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still ac
 
 const EARLY_HEARTBEAT_THRESHOLD = 3;
 const REENGAGEMENT_COOLDOWN_MS = 18 * 60 * 60 * 1000; // 18 hours
+
+/**
+ * A provider key named by the identity it carries. The keys alone do not say
+ * which is which (`slack` is the integration acting as the connected person,
+ * `slack_channel` is the assistant's own bot), and a heartbeat told to avoid
+ * "slack" would otherwise stop posting through a bot whose credential is fine.
+ */
+function describeUnhealthyProvider(providerKey: string): string {
+  const channel = channelForBotProvider(providerKey);
+  return channel
+    ? `${providerKey} (the ${channel} channel bot)`
+    : `${providerKey} (integration, acts as the connected person)`;
+}
 
 // Stripped-comment form of the guardian persona scaffold. Computed
 // once at module load because stripping comment lines is deterministic
@@ -945,10 +960,13 @@ ${checklist}
 </heartbeat-checklist>`;
 
     if (unhealthyProviders.length > 0) {
-      const providers = unhealthyProviders.join(", ");
+      const providers = unhealthyProviders
+        .map(describeUnhealthyProvider)
+        .join(", ");
       prompt += `\n\n<credential-status>
-The following providers have broken or expired credentials: ${providers}.
-Do NOT attempt to use tools for these providers — they will fail. Skip any checklist items that depend on them and note the outage in your summary.
+The following credentials are broken or expired: ${providers}.
+Do NOT attempt to use tools for these providers, they will fail. Skip any checklist items that depend on them and note the outage in your summary.
+A channel bot is the assistant's own identity on a channel and a separate credential from the integration of the same name; it is affected only when listed here as a channel bot.
 </credential-status>`;
     }
 

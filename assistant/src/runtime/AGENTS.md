@@ -97,7 +97,7 @@ Host CU allows the assistant to proxy computer-use actions (screenshots, mouse/k
 
 - **Discovery**: Clients discover pending host CU requests via SSE events (`host_cu_request`) which include a `requestId`.
 - **Resolution**: Clients execute the CU action on the host and respond via:
-  - `POST /v1/host-cu-result` — `{ requestId, axTree?, axDiff?, screenshot?, screenshotWidthPx?, screenshotHeightPx?, screenWidthPt?, screenHeightPt?, executionResult?, executionError?, secondaryWindows?, userGuidance? }`
+  - `POST /v1/host-cu-result`: `{ requestId, axTree?, axDiff?, screenshot?, screenshotWidthPx?, screenshotHeightPx?, screenWidthPt?, screenHeightPt?, executionResult?, executionError?, secondaryWindows?, userGuidance?, timings? }`, where `timings` is optional per-phase helper timings in milliseconds
 - **Tracking**: Uses the same `pending-interactions` tracker as the other host proxy types, with `kind: "host_cu"`. Registration happens in `conversation-routes.ts` and the route handler is in `host-cu-routes.ts`.
 - **Conversation-agnostic observation**: `observeHostScreen()` in `host-observe.ts` issues a `computer_use_observe` request with no conversation, for callers outside an agent turn (`HostCuProxy` only exists inside one). It takes the initiating actor's principal id and reaches only that actor's own `host_cu` clients: `pickSameUserAutoResolve` picks the default target and `enforceSameActorOrErrorResult` gates an explicitly named one, both before the request is registered or broadcast. Its pending interaction carries no `conversationId`, so `host-cu-routes.ts` hands the raw observation fields straight to the waiting caller instead of routing through a conversation's CU proxy. On the desktop side the ordinary `host_cu` executor services the request.
 
@@ -160,6 +160,10 @@ In the CDP factory the bridge is the internal `"host-bridge"` candidate kind (`I
 - The cooldown only applies to desktop-auto candidates (reason starts with `"desktopAuto:"`). Explicitly configured cdp-inspect (`enabled: true`) is never cooldown-suppressed.
 
 **After the first successful CDP command**, the selected backend becomes **sticky** for the remainder of the tool invocation. Subsequent commands always route through the same backend so multi-command tool flows do not hop transports mid-step.
+
+### Browser CLI surface defaults
+
+The browser execute and tab routes share `browser/virtual-desktop-target.ts`. Platform-hosted web guardian conversations use installed, enabled virtual desktop Chrome by default. The shared `isVirtualDesktopEnabled` gate requires both `IS_PLATFORM` and `IS_CONTAINERIZED` alongside the `assistant-desktop` flag. Native renderer turns also use the `web` transport, so the frozen turn `clientOs` excludes native apps from automatic streamed-browser selection. Native apps retain their existing backend selection and fallback behavior. Explicit desktop/backend/client targets and existing personal-browser sessions override the surface default. Disabled or uninstalled desktop support retains the existing browser path; selection never triggers installation.
 
 ### Per-tool `browser_mode` override
 

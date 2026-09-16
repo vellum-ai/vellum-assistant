@@ -21,6 +21,7 @@ import {
   updateProcessingStage,
 } from "../../../../persistence/media-store.js";
 import { computeRetryDelay, sleep } from "../../../../util/retry.js";
+import { safeStringSlice } from "../../../../util/unicode.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -224,7 +225,7 @@ export async function runPipeline(
         onProgress?.(`Completed stage: ${stageName}`);
         break;
       } catch (err) {
-        const errorMsg = (err as Error).message.slice(0, 500);
+        const errorMsg = safeStringSlice((err as Error).message, 0, 500);
         onProgress?.(
           `Stage ${stageName} failed (attempt ${attempt + 1}/${maxRetries + 1}): ${errorMsg}`,
         );

@@ -140,6 +140,11 @@ const MondayOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
+export const ShopifyOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type ShopifyOAuthService = z.infer<typeof ShopifyOAuthServiceSchema>;
+
 export const StripeLinkOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
@@ -151,6 +156,13 @@ export const FigmaOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 export type FigmaOAuthService = z.infer<typeof FigmaOAuthServiceSchema>;
+
+export const QuickBooksOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type QuickBooksOAuthService = z.infer<
+  typeof QuickBooksOAuthServiceSchema
+>;
 
 export const EventbriteOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
@@ -214,11 +226,17 @@ export const ServicesSchema = z.object({
   "monday-oauth": MondayOAuthServiceSchema.default(
     MondayOAuthServiceSchema.parse({}),
   ),
+  "shopify-oauth": ShopifyOAuthServiceSchema.default(
+    ShopifyOAuthServiceSchema.parse({}),
+  ),
   "stripe-link-oauth": StripeLinkOAuthServiceSchema.default(
     StripeLinkOAuthServiceSchema.parse({}),
   ),
   "figma-oauth": FigmaOAuthServiceSchema.default(
     FigmaOAuthServiceSchema.parse({}),
+  ),
+  "quickbooks-oauth": QuickBooksOAuthServiceSchema.default(
+    QuickBooksOAuthServiceSchema.parse({}),
   ),
   "eventbrite-oauth": EventbriteOAuthServiceSchema.default(
     EventbriteOAuthServiceSchema.parse({}),

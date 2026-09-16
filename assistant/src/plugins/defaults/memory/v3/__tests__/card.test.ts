@@ -6,6 +6,8 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { stripOrphanedSurrogates } from "../../../../../util/unicode.js";
+import { LINK_SEPARATOR } from "../../substrate/page-links.js";
 import { renderCard } from "../card.js";
 
 const PAGE = `---
@@ -71,6 +73,28 @@ Lead paragraph for page a.
     expect(line.startsWith("[current: a line with breaks x")).toBe(true);
     expect(line.endsWith("…]")).toBe(true);
     expect(line.length).toBeLessThan(300);
+  });
+
+  test("capping a `current:` value never splits an emoji at the cap", () => {
+    // 279 BMP characters put the 280-character cap inside the emoji's pair.
+    const current = `${"x".repeat(279)}🎉 trailing`;
+    const card = renderCard(
+      "page-a",
+      `---\ncurrent: "${current}"\n---\n\nLead.\n`,
+    );
+    const line = card.split("\n")[1]!;
+    expect(stripOrphanedSurrogates(line)).toBe(line);
+    expect(line).toBe(`[current: ${"x".repeat(279)}…]`);
+  });
+
+  test("capping a link note never splits an emoji at the cap", () => {
+    const note = `${"n".repeat(79)}🎉 trailing`;
+    const card = renderCard(
+      "page-a",
+      `---\nkind: index\nlinks:\n  - "other${LINK_SEPARATOR}${note}"\n---\n\nLead.\n`,
+    );
+    expect(stripOrphanedSurrogates(card)).toBe(card);
+    expect(card).toContain(`other${LINK_SEPARATOR}${"n".repeat(79)}…`);
   });
 
   test("the `status:` draft marker does NOT render as a card line", () => {

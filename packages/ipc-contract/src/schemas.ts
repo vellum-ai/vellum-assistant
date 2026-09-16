@@ -24,9 +24,23 @@ import {
   NOTIFICATION_AVATAR_BASE64_MAX_CHARS,
   NOTIFICATION_AVATAR_HASH_PATTERN,
   NOTIFICATION_CATEGORIES,
+  NOTIFICATION_DELIVERY_KEY_MAX_CHARS,
+  NOTIFICATION_IDENTITY_MAX_CHARS,
+  NOTIFICATION_NAME_PROVENANCES,
+  NOTIFICATION_PRESENTATIONS,
+  NOTIFICATION_SENDER_NAME_MAX_CHARS,
+  VERIFIED_NOTIFICATION_NAME_PROVENANCES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
   COMPANION_DICTATION_OFFER_MAX,
+  COMPANION_POPOVER_ACTIONS_MAX,
+  COMPANION_PICKER_MICROPHONES,
+  COMPANION_PICKER_OPTIONS_MAX,
+  COMPANION_PICKER_VOICES,
+  COMPANION_POPOVER_APPROVALS_MAX,
+  COMPANION_POPOVER_BODY_MAX,
+  COMPANION_POPOVER_PERMISSIONS,
+  COMPANION_POPOVER_SECRET_MAX,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -41,6 +55,31 @@ export const assistantStatusSchema = z.enum(ASSISTANT_STATUSES);
 
 export const notificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
 
+const boundedIdentityString = z
+  .string()
+  .trim()
+  .min(1)
+  .max(NOTIFICATION_IDENTITY_MAX_CHARS);
+const boundedDeliveryString = z
+  .string()
+  .max(NOTIFICATION_DELIVERY_KEY_MAX_CHARS);
+const notificationAvatarBase64Schema = z
+  .string()
+  .min(4)
+  .max(NOTIFICATION_AVATAR_BASE64_MAX_CHARS)
+  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/);
+
+export const notificationIdentitySchema = z.object({
+  scopeId: boundedIdentityString,
+  assistantId: boundedIdentityString,
+  nativeSenderId: boundedIdentityString,
+});
+
+const notificationAvatarSchema = z.object({
+  avatarBase64: notificationAvatarBase64Schema,
+  avatarHash: z.string().regex(NOTIFICATION_AVATAR_HASH_PATTERN),
+});
+
 /**
  * The hash names the file a host writes the avatar to, so the boundary that
  * accepts it is where "64 lowercase hex characters" has to be true: anything
@@ -48,27 +87,114 @@ export const notificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
  * main decodes it and writes it to disk.
  */
 const notificationSenderSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  avatarBase64: z.string().max(NOTIFICATION_AVATAR_BASE64_MAX_CHARS),
+  id: boundedIdentityString,
+  name: z.string().trim().min(1).max(NOTIFICATION_SENDER_NAME_MAX_CHARS),
+  avatarBase64: notificationAvatarBase64Schema,
   avatarHash: z.string().regex(NOTIFICATION_AVATAR_HASH_PATTERN),
 });
 
-export const showNotificationPayloadSchema = z.object({
-  category: notificationCategorySchema,
-  title: z.string(),
-  body: z.string(),
-  deliveryId: z.string().optional(),
-  conversationId: z.string().optional(),
-  toolCallId: z.string().optional(),
-  deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
-  /**
-   * A malformed decoration degrades to no decoration. `handle()` parses this
-   * payload and a throw rejects the renderer's `invoke`, so a strict field
-   * here would cost the user the banner itself rather than its avatar.
-   */
-  sender: notificationSenderSchema.optional().catch(undefined),
+export const prepareNotificationIdentityPayloadSchema = z
+  .object({
+    identity: notificationIdentitySchema,
+    scopeEpoch: z.number().int().nonnegative().safe(),
+    identityRevision: z.number().int().nonnegative().safe(),
+    publisherSessionId: boundedIdentityString.optional(),
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(NOTIFICATION_SENDER_NAME_MAX_CHARS)
+      .optional(),
+    nameProvenance: z.enum(VERIFIED_NOTIFICATION_NAME_PROVENANCES).optional(),
+    avatar: notificationAvatarSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    if (!value.name && !value.avatar) {
+      context.addIssue({
+        code: "custom",
+        message: "A prepared identity requires a name or avatar",
+      });
+    }
+    if (Boolean(value.name) !== Boolean(value.nameProvenance)) {
+      context.addIssue({
+        code: "custom",
+        message: "Prepared names require verified provenance",
+        path: ["nameProvenance"],
+      });
+    }
+  });
+
+export const resetNotificationIdentitiesPayloadSchema = z
+  .object({
+    scopeId: boundedIdentityString,
+    scopeEpoch: z.number().int().nonnegative().safe(),
+    publisherSessionId: boundedIdentityString.optional(),
+    assistantId: boundedIdentityString.optional(),
+    identityRevision: z.number().int().nonnegative().safe().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.identityRevision !== undefined && !value.assistantId) {
+      context.addIssue({
+        code: "custom",
+        message: "An identity revision requires a targeted assistant reset",
+        path: ["identityRevision"],
+      });
+    }
+  });
+
+export const registerNotificationIdentityPublisherPayloadSchema = z.object({
+  publisherSessionId: boundedIdentityString,
 });
+
+export const showNotificationPayloadSchema = z
+  .object({
+    category: notificationCategorySchema,
+    title: z.string(),
+    body: z.string(),
+    deliveryId: boundedDeliveryString.optional(),
+    conversationId: z.string().max(NOTIFICATION_IDENTITY_MAX_CHARS).optional(),
+    toolCallId: z.string().max(NOTIFICATION_IDENTITY_MAX_CHARS).optional(),
+    deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
+    correlationId: boundedDeliveryString.optional(),
+    requestKey: boundedDeliveryString.optional(),
+    presentation: z.enum(NOTIFICATION_PRESENTATIONS).optional(),
+    identity: notificationIdentitySchema.optional(),
+    nameProvenance: z.enum(NOTIFICATION_NAME_PROVENANCES).optional(),
+    suppressGroupTitle: z.boolean().optional(),
+    /**
+     * A malformed decoration degrades to no decoration. `handle()` parses this
+     * payload and a throw rejects the renderer's `invoke`, so a strict field
+     * here would cost the user the banner itself rather than its avatar.
+     */
+    sender: notificationSenderSchema.optional().catch(undefined),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.identity &&
+      value.sender &&
+      value.identity.nativeSenderId !== value.sender.id
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Sender and routing identity must match",
+        path: ["sender", "id"],
+      });
+    }
+    if (value.nameProvenance && value.presentation !== "assistant") {
+      context.addIssue({
+        code: "custom",
+        message: "Name provenance requires assistant presentation",
+        path: ["nameProvenance"],
+      });
+    }
+    if (value.suppressGroupTitle && value.nameProvenance !== "title") {
+      context.addIssue({
+        code: "custom",
+        message: "Group title suppression requires title provenance",
+        path: ["suppressGroupTitle"],
+      });
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // Window attention
@@ -232,6 +358,113 @@ export const companionCoachmarkSchema = z.discriminatedUnion("kind", [
   companionCoachmarkPointSchema,
 ]);
 
+/**
+ * What the assistant is putting in front of the user beside the surface. Every
+ * string is model output or derived from it, so each is bounded here rather
+ * than trusted to the publisher. See `CompanionPopover`.
+ */
+export const companionPopoverSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("approvals"),
+    id: z.string().min(1).max(4096),
+    items: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(128),
+          title: z.string().max(300),
+          detail: z.string().max(1000),
+          permission: z.enum(COMPANION_POPOVER_PERMISSIONS).optional(),
+        }),
+      )
+      .min(1)
+      .max(COMPANION_POPOVER_APPROVALS_MAX),
+  }),
+  z.object({
+    kind: z.literal("secret"),
+    id: z.string().min(1).max(128),
+    service: z.string().max(120),
+    providerKey: z.string().max(80).optional(),
+    detail: z.string().max(1000),
+    label: z.string().max(120),
+    placeholder: z.string().max(200),
+  }),
+  z.object({
+    kind: z.literal("card"),
+    id: z.string().min(1).max(128),
+    title: z.string().max(300),
+    subtitle: z.string().max(300),
+    body: z.string().max(COMPANION_POPOVER_BODY_MAX),
+    actions: z
+      .array(
+        z.object({
+          id: z.string().max(128),
+          label: z.string().max(80),
+          style: z.enum(["primary", "secondary", "destructive"]),
+        }),
+      )
+      .max(COMPANION_POPOVER_ACTIONS_MAX),
+  }),
+  z.object({
+    kind: z.literal("surface"),
+    id: z.string().min(1).max(128),
+    title: z.string().max(300),
+  }),
+  z.object({
+    kind: z.literal("microphones"),
+    id: z.literal(COMPANION_PICKER_MICROPHONES),
+    options: z
+      .array(
+        z.object({ id: z.string().max(512), label: z.string().max(200) }),
+      )
+      .max(COMPANION_PICKER_OPTIONS_MAX),
+    selected: z.string().max(512),
+    needsPermission: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal("voices"),
+    id: z.literal(COMPANION_PICKER_VOICES),
+    groups: z
+      .array(
+        z.object({
+          accent: z.string().max(120),
+          voices: z
+            .array(
+              z.object({
+                id: z.string().min(1).max(256),
+                label: z.string().max(200),
+                sampleUrl: z.string().max(2048),
+                isDefault: z.boolean(),
+              }),
+            )
+            .max(COMPANION_PICKER_OPTIONS_MAX),
+        }),
+      )
+      .max(COMPANION_PICKER_OPTIONS_MAX),
+    selected: z.string().max(256),
+  }),
+]);
+
+/** The pickers the call bar can open. */
+export const companionPickerSchema = z.enum([
+  COMPANION_PICKER_MICROPHONES,
+  COMPANION_PICKER_VOICES,
+]);
+
+/** What the user pressed on the popover. See `CompanionPopoverAnswer`. */
+export const companionPopoverAnswerSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("allow"), itemId: z.string().max(128) }),
+  z.object({ kind: z.literal("deny"), itemId: z.string().max(128) }),
+  z.object({ kind: z.literal("settings"), itemId: z.string().max(128) }),
+  z.object({
+    kind: z.literal("secret"),
+    value: z.string().min(1).max(COMPANION_POPOVER_SECRET_MAX),
+  }),
+  z.object({ kind: z.literal("action"), actionId: z.string().max(128) }),
+  z.object({ kind: z.literal("open") }),
+  z.object({ kind: z.literal("dismiss") }),
+  z.object({ kind: z.literal("pick"), optionId: z.string().max(512) }),
+]);
+
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({
   assistantName: z.string(),
@@ -299,6 +532,11 @@ export const companionContextSchema = z.object({
       }),
     ])
     .optional(),
+  // Optional for the reason `dictationOffer` is. Caught rather than refused:
+  // a popover that fails its bounds is one the surface does not draw, which
+  // must not cost the rest of the context.
+  popover: companionPopoverSchema.optional().catch(undefined),
+  voicesPickable: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------

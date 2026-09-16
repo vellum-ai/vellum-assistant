@@ -5,7 +5,7 @@
  * implementations unless this file's tests are running.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -32,6 +32,9 @@ afterAll(() => {
 const realCompiler = { ...(await import("../../../bundler/app-compiler.js")) };
 const realNotify = {
   ...(await import("../../../daemon/app-change-notify.js")),
+};
+const realPinStore = {
+  ...(await import("../../../apps/app-pin-store.js")),
 };
 
 const compileApp = mock(
@@ -70,6 +73,16 @@ mock.module("../../../daemon/app-change-notify.js", () => ({
   },
 }));
 
+mock.module("../../../apps/app-pin-store.js", () => ({
+  ...realPinStore,
+  listAppPins: () => {
+    if (!mockActive) {
+      return realPinStore.listAppPins();
+    }
+    return [];
+  },
+}));
+
 const { createApp } = await import("../../../apps/app-store.js");
 const { getWorkspacePluginsDir } = await import("../../../util/platform.js");
 const { ROUTES } = await import("../app-management-routes.js");
@@ -83,6 +96,7 @@ function findHandler(operationId: string) {
 }
 
 const handleRefreshApp = findHandler("apps_refresh");
+const handleListApps = findHandler("apps_list");
 
 let workspaceDir: string;
 let previousWorkspaceDir: string | undefined;
@@ -142,6 +156,30 @@ describe("apps_refresh route", () => {
     });
   });
 
+  test("advances the workspace app list revision when compiled output changes", async () => {
+    const created = createApp({
+      name: "Budget",
+      schemaJson: "{}",
+      htmlDefinition: "<h1>Budget</h1>",
+    });
+    const builtAt = Math.ceil(created.updatedAt) + 1_000;
+    compileApp.mockImplementationOnce(async (appDir) => {
+      const distDir = join(appDir, "dist");
+      mkdirSync(distDir, { recursive: true });
+      utimesSync(distDir, new Date(builtAt), new Date(builtAt));
+      return { ok: true, errors: [], warnings: [], durationMs: 11 };
+    });
+
+    await handleRefreshApp({ pathParams: { id: created.id } });
+    const listed = (await handleListApps({})) as {
+      apps: Array<{ id: string; updatedAt: number }>;
+    };
+
+    expect(listed.apps.find((app) => app.id === created.id)?.updatedAt).toBe(
+      builtAt,
+    );
+  });
+
   test("compiles a plugin app in place", async () => {
     const pluginName = `charts-${Math.random().toString(36).slice(2, 8)}`;
     const pluginDir = join(getWorkspacePluginsDir(), pluginName);
@@ -157,9 +195,7 @@ describe("apps_refresh route", () => {
       pathParams: { id: pluginAppId },
     });
 
-    expect(compileApp).toHaveBeenCalledWith(
-      join(pluginDir, "apps", "viewer"),
-    );
+    expect(compileApp).toHaveBeenCalledWith(join(pluginDir, "apps", "viewer"));
     expect(notifyAppSurfacesChanged).toHaveBeenCalledWith(pluginAppId, {
       fileChange: true,
     });
@@ -169,6 +205,40 @@ describe("apps_refresh route", () => {
       name: "viewer",
       compiled: true,
     });
+  });
+
+  test("advances the plugin app list revision when compiled output changes", async () => {
+    const pluginName = `charts-${Math.random().toString(36).slice(2, 8)}`;
+    const appDir = join(getWorkspacePluginsDir(), pluginName, "apps", "viewer");
+    mkdirSync(appDir, { recursive: true });
+    writeFileSync(
+      join(getWorkspacePluginsDir(), pluginName, "package.json"),
+      JSON.stringify({ name: pluginName, version: "1.0.0" }),
+    );
+    const pluginAppId = `plugins~${pluginName}~viewer`;
+    const before = (await handleListApps({})) as {
+      apps: Array<{ id: string; updatedAt: number }>;
+    };
+    const previousRevision = before.apps.find(
+      (app) => app.id === pluginAppId,
+    )?.updatedAt;
+    expect(previousRevision).toBeDefined();
+    const builtAt = Math.ceil(previousRevision!) + 1_000;
+    compileApp.mockImplementationOnce(async (sourceDir) => {
+      const distDir = join(sourceDir, "dist");
+      mkdirSync(distDir, { recursive: true });
+      utimesSync(distDir, new Date(builtAt), new Date(builtAt));
+      return { ok: true, errors: [], warnings: [], durationMs: 11 };
+    });
+
+    await handleRefreshApp({ pathParams: { id: pluginAppId } });
+    const after = (await handleListApps({})) as {
+      apps: Array<{ id: string; updatedAt: number }>;
+    };
+
+    expect(after.apps.find((app) => app.id === pluginAppId)?.updatedAt).toBe(
+      builtAt,
+    );
   });
 
   test("returns compile errors without throwing", async () => {

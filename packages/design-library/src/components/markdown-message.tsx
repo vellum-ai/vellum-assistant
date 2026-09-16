@@ -4,6 +4,7 @@ import {
   Children,
   type ClipboardEvent,
   isValidElement,
+  memo,
   type ReactNode,
   useCallback,
   useEffect,
@@ -17,9 +18,14 @@ import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { Components } from "react-markdown";
+import type { Pluggable, PluggableList } from "unified";
 
 import { asyncOnce } from "../utils/async-once";
 import { cn } from "../utils/cn";
+import {
+  splitMarkdownBlocks,
+  type MarkdownBlockSplit,
+} from "../utils/markdown-blocks";
 import { writeSelectionClipboard } from "../utils/selection-clipboard";
 
 type RehypeKatexPlugin = typeof import("rehype-katex").default;
@@ -208,6 +214,7 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
       )}
       <pre
         ref={preRef}
+        data-owns-horizontal-scroll=""
         className="overflow-auto p-3"
         style={{ maxHeight: MAX_CODE_BLOCK_HEIGHT }}
       >
@@ -435,7 +442,10 @@ function buildMarkdownComponents(
       </blockquote>
     ),
     table: ({ children }) => (
-      <div className="mb-2 overflow-x-auto last:mb-0">
+      <div
+        data-owns-horizontal-scroll=""
+        className="mb-2 overflow-x-auto last:mb-0"
+      >
         <table className="min-w-full border-collapse text-body-small-lighter">
           {children}
         </table>
@@ -1048,6 +1058,88 @@ export interface MarkdownMessageProps {
   extraComponents?: Readonly<
     Record<string, import("react").ComponentType<never>>
   >;
+  /**
+   * Parse and render `content` one top-level block at a time, reusing every
+   * block whose text is unchanged. For a document that grows by appends while
+   * it is displayed (a streamed reply, a reasoning trace) this keeps the work
+   * per update proportional to the open tail instead of the whole document,
+   * which otherwise re-parses in full on every delta and grows quadratic.
+   *
+   * The rendered tree is the same as a single parse: blocks are cut only at
+   * blank lines outside fences (see `splitMarkdownBlocks`), and each renders
+   * as a fragment under the one wrapper, so margins and `first`/`last` rules
+   * see the same siblings. The one difference is that link reference
+   * definitions and footnotes resolve only within the block that defines them,
+   * so leave this off for settled content that may rely on them.
+   */
+  incremental?: boolean;
+}
+
+const REMARK_PLUGINS: PluggableList = [
+  remarkGfm,
+  remarkMath,
+  remarkPreserveOrderedListNumbers,
+  remarkDisplayMathBlocks,
+];
+
+interface MarkdownBlockProps {
+  content: string;
+  hardLineBreaks: boolean | undefined;
+  components: Components;
+  rehypePlugins: Pluggable[];
+  urlTransform: ((url: string) => string) | undefined;
+}
+
+/**
+ * One parse-and-render unit: the source rewrites and the react-markdown
+ * pipeline for a single string. Rendered through {@link MemoizedMarkdownBlock}
+ * so that, in incremental mode, a block whose text and pipeline are unchanged
+ * is skipped entirely, its parsed tree and React subtree both intact.
+ */
+function MarkdownBlock({
+  content,
+  hardLineBreaks,
+  components,
+  rehypePlugins,
+  urlTransform,
+}: MarkdownBlockProps) {
+  const processed = useMemo(() => {
+    const escaped = escapeCurrencyDollars(content);
+    const broken = hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
+    // Last: currency escaping would otherwise read a converted `\(5\)` as an
+    // amount and escape the `$` it just introduced.
+    return convertLatexDelimiters(broken);
+  }, [content, hardLineBreaks]);
+  return (
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={rehypePlugins}
+      components={components}
+      urlTransform={urlTransform}
+    >
+      {processed}
+    </ReactMarkdown>
+  );
+}
+
+const MemoizedMarkdownBlock = memo(MarkdownBlock);
+
+/**
+ * The blocks of `content` for incremental rendering, rescanning only the open
+ * tail when `content` extends what this instance last saw. Held per component
+ * instance so two messages never share or thrash one cache.
+ */
+function useIncrementalMarkdownBlocks(content: string): readonly string[] {
+  const splitRef = useRef<MarkdownBlockSplit | null>(null);
+  // Intentional render-phase ref usage: the split is a per-instance cache
+  // like `useMemo` with a prefix-aware equality, and it must fold in the
+  // current content on every render to hand back the settled blocks as the
+  // same strings.
+  /* eslint-disable react-hooks/refs -- per-instance incremental split cache (see above) */
+  const split = splitMarkdownBlocks(content, splitRef.current ?? undefined);
+  splitRef.current = split;
+  /* eslint-enable react-hooks/refs */
+  return split.blocks;
 }
 
 export function MarkdownMessage({
@@ -1059,14 +1151,9 @@ export function MarkdownMessage({
   urlTransform,
   extraRehypePlugins,
   extraComponents,
+  incremental = false,
 }: MarkdownMessageProps) {
-  const processed = useMemo(() => {
-    const escaped = escapeCurrencyDollars(content);
-    const broken = hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
-    // Last: currency escaping would otherwise read a converted `\(5\)` as an
-    // amount and escape the `$` it just introduced.
-    return convertLatexDelimiters(broken);
-  }, [content, hardLineBreaks]);
+  const blocks = useIncrementalMarkdownBlocks(incremental ? content : "");
   const Link = linkComponent ?? DefaultLink;
   const components = useMemo(
     () =>
@@ -1079,12 +1166,13 @@ export function MarkdownMessage({
     [Link, imageComponent, extraComponents],
   );
   // Loosest possible trigger on purpose: every construct remark-math can
-  // treat as math contains a dollar sign after `convertLatexDelimiters`
-  // (which rewrites `\(..\)` / `\[..\]` to the `$` forms), so testing for
-  // the character can over-load KaTeX but can never leave real math
+  // treat as math contains a dollar sign, or one of the `\(` / `\[` openers
+  // that `convertLatexDelimiters` rewrites to the `$` forms, so testing for
+  // those characters can over-load KaTeX but can never leave real math
   // unformatted. Anything cleverer (e.g. skipping escaped `\$`) risks the
   // reverse, and the only cost of a false positive is a lazy chunk load.
-  const needsMath = processed.includes("$");
+  const needsMath =
+    content.includes("$") || content.includes("\\(") || content.includes("\\[");
   const katexPlugin = useRehypeKatex(needsMath);
   const rehypePlugins = useMemo(
     () => [
@@ -1099,19 +1187,29 @@ export function MarkdownMessage({
       className={cn("text-chat text-[var(--content-default)]", className)}
       onCopy={handleSelectionCopy}
     >
-      <ReactMarkdown
-        remarkPlugins={[
-          remarkGfm,
-          remarkMath,
-          remarkPreserveOrderedListNumbers,
-          remarkDisplayMathBlocks,
-        ]}
-        rehypePlugins={rehypePlugins}
-        components={components}
-        urlTransform={urlTransform}
-      >
-        {processed}
-      </ReactMarkdown>
+      {incremental ? (
+        // Keyed by position: a settled block never moves, and when an append
+        // cuts the tail, the part that settles keeps its key while only the
+        // new tail mounts.
+        blocks.map((block, index) => (
+          <MemoizedMarkdownBlock
+            key={index}
+            content={block}
+            hardLineBreaks={hardLineBreaks}
+            components={components}
+            rehypePlugins={rehypePlugins}
+            urlTransform={urlTransform}
+          />
+        ))
+      ) : (
+        <MemoizedMarkdownBlock
+          content={content}
+          hardLineBreaks={hardLineBreaks}
+          components={components}
+          rehypePlugins={rehypePlugins}
+          urlTransform={urlTransform}
+        />
+      )}
     </div>
   );
 }

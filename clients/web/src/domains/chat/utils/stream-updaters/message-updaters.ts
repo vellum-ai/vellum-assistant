@@ -494,7 +494,12 @@ function findOptimisticUserEchoIdx(
  */
 export function applyUserMessageEcho(
   prev: DisplayMessage[],
-  event: { text: string; messageId?: string; clientMessageId?: string },
+  event: {
+    text: string;
+    messageId?: string;
+    clientMessageId?: string;
+    cameraFrame?: true;
+  },
   at: number = Date.now(),
 ): DisplayMessage[] {
   const serverId = event.messageId;
@@ -510,7 +515,10 @@ export function applyUserMessageEcho(
     }
   }
 
-  const optimisticIdx = findOptimisticUserEchoIdx(prev, event.clientMessageId);
+  // Ambient camera frames never confirm a typed send.
+  const optimisticIdx = event.cameraFrame
+    ? -1
+    : findOptimisticUserEchoIdx(prev, event.clientMessageId);
   if (optimisticIdx !== -1) {
     if (serverId === undefined) {
       return prev;
@@ -531,13 +539,13 @@ export function applyUserMessageEcho(
     {
       id: serverId ?? crypto.randomUUID(),
       ...(serverId === undefined ? { isOptimistic: true } : {}),
-      // Carry the nonce so the folded row shares the persisted server row's
-      // identity keys — the transcript overlay and the reseed prune both
-      // correlate on it (see `messageMatchKeys`).
-      ...(event.clientMessageId
+      // Only ordinary sends share the optimistic row's identity. Camera
+      // frames remain distinct in the transcript overlay and reseed prune.
+      ...(!event.cameraFrame && event.clientMessageId
         ? { clientMessageId: event.clientMessageId }
         : {}),
       role: "user",
+      ...(event.cameraFrame ? { isCameraFrame: true } : {}),
       textSegments: [event.text],
       contentOrder: [{ type: "text", id: "0" }],
       contentBlocks: [{ type: "text", text: event.text }],

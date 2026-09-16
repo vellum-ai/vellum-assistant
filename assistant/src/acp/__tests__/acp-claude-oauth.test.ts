@@ -22,11 +22,38 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 let storeReturn = true;
+let deleteReturn: "deleted" | "not-found" | "error" = "not-found";
 let getReturn: string | undefined = undefined;
-const setSecureKeyAsync = mock(
-  async (_account: string, _value: string) => storeReturn,
-);
-const getSecureKeyAsync = mock(async (_account: string) => getReturn);
+const vault = new Map<string, string>();
+const ACCESS_KEY = "credential/acp/claude_oauth_token";
+const REFRESH_KEY = "credential/acp/claude_oauth_refresh_token";
+const EXPIRES_KEY = "credential/acp/claude_oauth_expires_at";
+const DIGEST_KEY = "credential/acp/claude_oauth_access_digest";
+
+const setSecureKeyAsync = mock(async (account: string, value: string) => {
+  if (!storeReturn) {
+    return false;
+  }
+  vault.set(account, value);
+  return true;
+});
+const getSecureKeyAsync = mock(async (account: string) => {
+  if (vault.has(account)) {
+    return vault.get(account);
+  }
+  // Existing cases that only seed the access token keep using getReturn.
+  if (account === ACCESS_KEY) {
+    return getReturn;
+  }
+  return undefined;
+});
+const deleteSecureKeyAsync = mock(async (account: string) => {
+  if (deleteReturn === "error") {
+    return "error";
+  }
+  const existed = vault.delete(account);
+  return existed ? "deleted" : "not-found";
+});
 
 // Spread the real module rather than listing two exports. These cases reach
 // the marker tables, which pulls persistence into the graph, and anything in
@@ -37,6 +64,7 @@ mock.module("../../security/secure-keys.js", () => ({
   ...realSecureKeys,
   setSecureKeyAsync,
   getSecureKeyAsync,
+  deleteSecureKeyAsync,
 }));
 
 const { _setMetadataPath, getCredentialMetadata, upsertCredentialMetadata } =
@@ -69,6 +97,10 @@ const {
   parseManualClaudeCode,
   storeAcpClaudeToken,
   hasAcpClaudeToken,
+  persistRefreshedAcpClaudeTokens,
+  forgetAcpClaudeRenewalStateIfUnbound,
+  clearAcpClaudeRefreshToken,
+  isAcpClaudeTokenExpiring,
 } = await import("../acp-claude-oauth.js");
 
 /**
@@ -95,9 +127,12 @@ beforeEach(() => {
   mkdirSync(TEST_DIR, { recursive: true });
   _setMetadataPath(join(TEST_DIR, "metadata.json"));
   storeReturn = true;
+  deleteReturn = "not-found";
   getReturn = undefined;
+  vault.clear();
   setSecureKeyAsync.mockClear();
   getSecureKeyAsync.mockClear();
+  deleteSecureKeyAsync.mockClear();
 });
 
 afterEach(() => {
@@ -204,11 +239,43 @@ describe("storeAcpClaudeToken", () => {
   test("writes the token to the acp/claude_oauth_token vault field", async () => {
     await storeAcpClaudeToken("sk-ant-oat-token");
 
-    expect(setSecureKeyAsync).toHaveBeenCalledTimes(1);
     expect(setSecureKeyAsync).toHaveBeenCalledWith(
-      "credential/acp/claude_oauth_token",
+      ACCESS_KEY,
       "sk-ant-oat-token",
     );
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-token");
+  });
+
+  test("persists refresh token and expiry from a Connect exchange", async () => {
+    const before = Date.now();
+    await storeAcpClaudeToken({
+      accessToken: "sk-ant-oat-connected",
+      refreshToken: "refresh-from-exchange",
+      expiresIn: 28800,
+    });
+    const after = Date.now();
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-connected");
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-from-exchange");
+    expect(vault.get(DIGEST_KEY)).toBe(
+      claudeTokenDigest("sk-ant-oat-connected"),
+    );
+    const expiresAt = Number(vault.get(EXPIRES_KEY));
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 28800 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(after + 28800 * 1000);
+  });
+
+  test("clears companion fields when the exchange returns only an access token", async () => {
+    vault.set(REFRESH_KEY, "stale-refresh");
+    vault.set(EXPIRES_KEY, "1");
+    vault.set(DIGEST_KEY, "stale-digest");
+
+    await storeAcpClaudeToken({ accessToken: "sk-ant-oat-access-only" });
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-access-only");
+    expect(vault.has(REFRESH_KEY)).toBe(false);
+    expect(vault.has(EXPIRES_KEY)).toBe(false);
+    expect(vault.has(DIGEST_KEY)).toBe(false);
   });
 
   test("takes a domain-restricted credential from not-connected to connected", async () => {
@@ -308,6 +375,190 @@ describe("hasAcpClaudeToken", () => {
     await hasAcpClaudeToken();
 
     expect(oauthMetadata()).toBeUndefined();
+  });
+
+  test("reports true for an expired token that still has a refresh token", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-expired-renewable");
+    vault.set(REFRESH_KEY, "refresh-still-good");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+  });
+
+  test("reports false for an expired token with no refresh token", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-expired-dead");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports true for a token with no recorded expiry (legacy access-token-only)", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-legacy");
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+    expect(await isAcpClaudeTokenExpiring()).toBe(false);
+  });
+
+  test("reports false when only leftover refresh material remains", async () => {
+    vault.set(REFRESH_KEY, "refresh-leftover");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+
+    expect(await hasAcpClaudeToken()).toBe(false);
+  });
+
+  test("reports true for a pasted token whose leftover expiry describes a previous token", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-pasted");
+    vault.set(REFRESH_KEY, "refresh-previous");
+    vault.set(EXPIRES_KEY, String(Date.now() - 1000));
+    vault.set(DIGEST_KEY, claudeTokenDigest("sk-ant-oat-previous"));
+
+    expect(await hasAcpClaudeToken()).toBe(true);
+  });
+});
+
+describe("persistRefreshedAcpClaudeTokens", () => {
+  test("writes a rotated refresh token and new expiry without touching policy", async () => {
+    upsertCredentialMetadata(ACP_SERVICE, OAUTH_FIELD, {
+      allowedTools: ["some_other_tool"],
+    });
+    vault.set(ACCESS_KEY, "sk-ant-oat-current");
+    vault.set(REFRESH_KEY, "refresh-expected");
+    vault.set(DIGEST_KEY, claudeTokenDigest("sk-ant-oat-current"));
+    const before = Date.now();
+
+    await persistRefreshedAcpClaudeTokens(
+      {
+        accessToken: "sk-ant-oat-refreshed",
+        refreshToken: "refresh-rotated",
+        expiresIn: 3600,
+      },
+      "refresh-expected",
+    );
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-refreshed");
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-rotated");
+    expect(vault.get(DIGEST_KEY)).toBe(
+      claudeTokenDigest("sk-ant-oat-refreshed"),
+    );
+    const expiresAt = Number(vault.get(EXPIRES_KEY));
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000);
+    expect(oauthMetadata()?.allowedTools).toEqual(["some_other_tool"]);
+  });
+
+  test("keeps the stored refresh token when the response omits a new one", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-current");
+    vault.set(REFRESH_KEY, "refresh-kept");
+    vault.set(DIGEST_KEY, claudeTokenDigest("sk-ant-oat-current"));
+
+    await persistRefreshedAcpClaudeTokens(
+      {
+        accessToken: "sk-ant-oat-refreshed",
+        expiresIn: 3600,
+      },
+      "refresh-kept",
+    );
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-refreshed");
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-kept");
+  });
+
+  test("refuses to persist when the stored refresh token no longer matches", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-current");
+    vault.set(REFRESH_KEY, "refresh-current");
+    vault.set(EXPIRES_KEY, "999");
+
+    const persisted = await persistRefreshedAcpClaudeTokens(
+      {
+        accessToken: "sk-ant-oat-stale",
+        refreshToken: "refresh-stale-rotated",
+        expiresIn: 3600,
+      },
+      "refresh-old",
+    );
+
+    expect(persisted).toBe(false);
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-current");
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-current");
+    expect(vault.get(EXPIRES_KEY)).toBe("999");
+  });
+
+  test("refuses to persist when the access token is no longer stored", async () => {
+    vault.set(REFRESH_KEY, "refresh-leftover");
+    vault.set(EXPIRES_KEY, "111");
+
+    const persisted = await persistRefreshedAcpClaudeTokens(
+      {
+        accessToken: "sk-ant-oat-resurrected",
+        refreshToken: "refresh-rotated",
+        expiresIn: 3600,
+      },
+      "refresh-leftover",
+    );
+
+    expect(persisted).toBe(false);
+    expect(vault.has(ACCESS_KEY)).toBe(false);
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-leftover");
+    expect(vault.get(EXPIRES_KEY)).toBe("111");
+  });
+
+  test("refuses to persist when the access token is not the one the refresh material was written with", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-pasted");
+    vault.set(REFRESH_KEY, "refresh-previous");
+    vault.set(EXPIRES_KEY, "111");
+    vault.set(DIGEST_KEY, claudeTokenDigest("sk-ant-oat-previous"));
+
+    const persisted = await persistRefreshedAcpClaudeTokens(
+      {
+        accessToken: "sk-ant-oat-overwritten",
+        refreshToken: "refresh-rotated",
+        expiresIn: 3600,
+      },
+      "refresh-previous",
+    );
+
+    expect(persisted).toBe(false);
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-pasted");
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-previous");
+    expect(vault.get(EXPIRES_KEY)).toBe("111");
+  });
+});
+
+describe("clearAcpClaudeRefreshToken", () => {
+  test("leaves the stored refresh token when it no longer matches the rejected one", async () => {
+    vault.set(REFRESH_KEY, "refresh-current");
+
+    await clearAcpClaudeRefreshToken("refresh-old");
+
+    expect(vault.get(REFRESH_KEY)).toBe("refresh-current");
+  });
+});
+
+describe("forgetAcpClaudeRenewalStateIfUnbound", () => {
+  test("clears leftover renewal fields after the access token was replaced", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-pasted");
+    vault.set(REFRESH_KEY, "stale-refresh");
+    vault.set(EXPIRES_KEY, "111");
+    vault.set(DIGEST_KEY, claudeTokenDigest("sk-ant-oat-previous"));
+
+    await forgetAcpClaudeRenewalStateIfUnbound();
+
+    expect(vault.get(ACCESS_KEY)).toBe("sk-ant-oat-pasted");
+    expect(vault.has(REFRESH_KEY)).toBe(false);
+    expect(vault.has(EXPIRES_KEY)).toBe(false);
+    expect(vault.has(DIGEST_KEY)).toBe(false);
+  });
+
+  test("keeps renewal fields when they still describe the stored access token", async () => {
+    vault.set(ACCESS_KEY, "sk-ant-oat-current");
+    vault.set(REFRESH_KEY, "keep-refresh");
+    vault.set(EXPIRES_KEY, "222");
+    vault.set(DIGEST_KEY, claudeTokenDigest("sk-ant-oat-current"));
+
+    await forgetAcpClaudeRenewalStateIfUnbound();
+
+    expect(vault.get(REFRESH_KEY)).toBe("keep-refresh");
+    expect(vault.get(EXPIRES_KEY)).toBe("222");
+    expect(vault.get(DIGEST_KEY)).toBe(claudeTokenDigest("sk-ant-oat-current"));
   });
 });
 

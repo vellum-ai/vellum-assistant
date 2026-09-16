@@ -25,14 +25,20 @@ public final class PushTapIntents {
 
     @Nullable
     public static Intent launchIntent(Context context, RemoteMessage remoteMessage) {
+        return launchIntent(context, remoteMessage.getData(), remoteMessage.getMessageId());
+    }
+
+    @Nullable
+    public static Intent launchIntent(
+        Context context,
+        @Nullable Map<String, String> data,
+        @Nullable String messageId
+    ) {
         Intent intent = launcherIntent(context);
         if (intent == null) {
             return null;
         }
-        for (Map.Entry<String, String> extra : tapExtras(
-            remoteMessage.getData(),
-            remoteMessage.getMessageId()
-        ).entrySet()) {
+        for (Map.Entry<String, String> extra : tapExtras(data, messageId).entrySet()) {
             intent.putExtra(extra.getKey(), extra.getValue());
         }
         return intent;

@@ -17,6 +17,7 @@ import {
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
 import { getLogger } from "../util/logger.js";
+import { safeStringSlice } from "../util/unicode.js";
 import { isLexicalBackfillComplete } from "./checkpoints.js";
 import { unseenAttentionStateConditions } from "./conversation-attention-store.js";
 import type { ConversationRow } from "./conversation-crud.js";
@@ -1443,8 +1444,7 @@ function buildExcerptFromText(
   if (!match) {
     // Neither the query nor any of its tokens is present (e.g. the lexical
     // index matched JSON structure instead); fall back to the text start.
-    return text
-      .slice(0, EXCERPT_WINDOW * 2)
+    return safeStringSlice(text, 0, EXCERPT_WINDOW * 2)
       .replace(/\s+/g, " ")
       .trim();
   }

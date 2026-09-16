@@ -14,7 +14,7 @@ metadata:
 
 You are a unified messaging assistant with access to multiple platforms (Gmail, Outlook, Telegram, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.
 
-**Slack is not handled by this skill.** Slack messaging (send, read, search) is handled by the **slack** skill, which uses the Slack Web API directly via CLI. Do not use messaging tools with `platform: "slack"`.
+**On a channel, `messaging_send` posts through the channel's own transport.** Slack, Telegram, Discord, and WhatsApp all go out that way: threaded where you name a `thread_id`, rendered the way a reply is, and recorded in the chat's conversation once the channel acknowledges the post. Reading and searching Slack are not part of this skill; load the **slack** skill, which uses the Slack Web API for those.
 
 ## External Identity
 
@@ -34,7 +34,7 @@ When a platform is connected (auth test succeeds), always use the messaging API 
 
 On Gmail and Outlook, `messaging_send` creates a real mailbox draft for review. It does not send. Recipients are optional on Outlook: if the user has not named a To address, still create the draft (use a non-email `conversation_id` such as `drafts`) and tell them only after the tool returns a draft ID. If draft creation fails or is interrupted, say so and offer the email copy in chat. Do not claim a draft exists until the tool succeeds.
 
-**Exception: Slack.** Slack messaging should use the Slack Web API directly via CLI, not messaging tools. See the **slack** skill for details.
+**On a channel, the send goes out as the assistant's own bot**, so `account` does not apply and is refused. It carries text only: attachments stay on Gmail and Outlook. The post is recorded in the chat's conversation, which is what lets `recall` find it later.
 
 ## Connection Setup
 
@@ -64,7 +64,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 ### Slack
 
-Slack is **not** handled by this skill. For Slack setup, load the **slack-app-setup** skill directly. For Slack messaging, use the **slack** skill which accesses the Slack Web API via CLI.
+For Slack setup, load the **slack-app-setup** skill directly. `messaging_send` posts to a Slack chat through the channel's transport. Reading, searching, reactions, and file upload live in the **slack** skill, which uses the Slack Web API.
 
 ### Telegram
 

@@ -33,6 +33,45 @@ public class PushTapIntentsTest {
     }
 
     @Test
+    public void trimsTheFirebaseMessageId() {
+        assertEquals(
+            "message-1",
+            PushTapIntents.tapExtras(data(), "  message-1  ").get(
+                PushTapIntents.MESSAGE_ID_EXTRA
+            )
+        );
+    }
+
+    @Test
+    public void trimsTheFallbackDeliveryId() {
+        Map<String, String> data = data();
+        data.put("delivery_id", "  delivery-1  ");
+
+        assertEquals(
+            "delivery-1",
+            PushTapIntents.tapExtras(data, null).get(PushTapIntents.MESSAGE_ID_EXTRA)
+        );
+    }
+
+    @Test
+    public void carriesAStableSyntheticIdForAnIdlessLocalRequest() {
+        Map<String, String> data = data();
+        data.remove("delivery_id");
+        PushDataMessage message = PushDataMessage.fromLocalData(
+            data,
+            null,
+            null,
+            "request-1"
+        );
+
+        Map<String, String> first = PushTapIntents.tapExtras(data, message.tapMessageId());
+        Map<String, String> retry = PushTapIntents.tapExtras(data, message.tapMessageId());
+
+        assertEquals("vellum-local:request-1", first.get(PushTapIntents.MESSAGE_ID_EXTRA));
+        assertEquals(first, retry);
+    }
+
+    @Test
     public void omitsTheMessageIdWhenThereIsNothingToRouteWith() {
         Map<String, String> data = data();
         data.remove("delivery_id");

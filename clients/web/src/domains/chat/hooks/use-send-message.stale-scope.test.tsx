@@ -532,6 +532,206 @@ describe("useSendMessage: a switch during the POST", () => {
     expect(draftFor(SEND_CONVERSATION)).toBe("the one that got away");
   });
 
+  test("a failed send from before logout cannot write into the same IDs after login", async () => {
+    let finishPost!: (value: {
+      data: null;
+      error: { detail: string };
+      response: Response;
+    }) => void;
+    daemonClient.post = mock(
+      () =>
+        new Promise((resolve) => {
+          finishPost = resolve;
+        }),
+    ) as typeof daemonClient.post;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    let pendingSend!: Promise<void>;
+    act(() => {
+      pendingSend = result.current.sendMessage("private failed send");
+    });
+    for (let i = 0; i < 100 && !finishPost; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    act(() => {
+      useChatSessionStore.getState().resetForLogout();
+      useResolvedAssistantsStore
+        .getState()
+        .setActiveAssistantId("assistant-1");
+      useConversationStore
+        .getState()
+        .setActiveConversationId(SEND_CONVERSATION);
+      useChatSessionStore.getState().switchToConversation({
+        assistantId: "assistant-1",
+        activeConversationId: SEND_CONVERSATION,
+      });
+      useComposerStore.getState().setInput("new session draft");
+    });
+
+    finishPost({
+      data: null,
+      error: { detail: "nope" },
+      response: new Response(null, { status: 500 }),
+    });
+    await act(async () => {
+      await pendingSend;
+    });
+
+    expect(useComposerStore.getState().input).toBe("new session draft");
+    expect(useChatSessionStore.getState().error).toBeNull();
+    expect(useChatSessionStore.getState().optimisticSends).toEqual([]);
+    expect(turnState()).toEqual({ phase: "idle", activeTurnId: null });
+    expect(draftFor(SEND_CONVERSATION)).toBe("");
+  });
+
+  test("a successful send from before logout cannot mutate the same IDs after login", async () => {
+    let finishPost!: (value: {
+      data: typeof ACCEPTED_DIRECTLY;
+      error: null;
+      response: Response;
+    }) => void;
+    daemonClient.post = mock(
+      () =>
+        new Promise((resolve) => {
+          finishPost = resolve;
+        }),
+    ) as typeof daemonClient.post;
+    useTurnStore.setState({ phase: "streaming", activeTurnId: "old-turn" });
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    let pendingSend!: Promise<void>;
+    act(() => {
+      pendingSend = result.current.sendMessage("private successful send");
+    });
+    for (let i = 0; i < 100 && !finishPost; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    act(() => {
+      useChatSessionStore.getState().resetForLogout();
+      useResolvedAssistantsStore
+        .getState()
+        .setActiveAssistantId("assistant-1");
+      useConversationStore
+        .getState()
+        .setActiveConversationId(SEND_CONVERSATION);
+      useConversationStore
+        .getState()
+        .setPendingDraftProfile(SEND_CONVERSATION, "new-profile");
+      useConversationStore
+        .getState()
+        .setPendingDraftPlugins(SEND_CONVERSATION, new Set(["new-plugin"]));
+      useChatSessionStore.getState().switchToConversation({
+        assistantId: "assistant-1",
+        activeConversationId: SEND_CONVERSATION,
+      });
+      useComposerStore.getState().setInput("new session draft");
+    });
+
+    finishPost({
+      data: ACCEPTED_DIRECTLY,
+      error: null,
+      response: new Response(null, { status: 200 }),
+    });
+    await act(async () => {
+      await pendingSend;
+    });
+
+    expect(useComposerStore.getState().input).toBe("new session draft");
+    expect(useChatSessionStore.getState().optimisticSends).toEqual([]);
+    expect(useConversationStore.getState().processingConversationIds.size).toBe(
+      0,
+    );
+    expect(
+      useConversationStore.getState().pendingDraftProfiles.get(SEND_CONVERSATION),
+    ).toBe("new-profile");
+    expect(
+      useConversationStore.getState().pendingDraftPlugins.get(SEND_CONVERSATION),
+    ).toEqual(new Set(["new-plugin"]));
+    expect(currentLocation).toBe(START_LOCATION);
+  });
+
+  test("an active draft success from before logout cannot clear the same new-session profile", async () => {
+    let finishPost!: (value: {
+      data: typeof ACCEPTED_DIRECTLY;
+      error: null;
+      response: Response;
+    }) => void;
+    daemonClient.post = mock(
+      () =>
+        new Promise((resolve) => {
+          finishPost = resolve;
+        }),
+    ) as typeof daemonClient.post;
+    useConversationStore
+      .getState()
+      .registerDraftConversationId(SEND_CONVERSATION);
+    useConversationStore
+      .getState()
+      .setPendingDraftProfile(SEND_CONVERSATION, "shared-profile");
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    let pendingSend!: Promise<void>;
+    act(() => {
+      pendingSend = result.current.sendMessage("private successful send");
+    });
+    for (let i = 0; i < 100 && !finishPost; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    act(() => {
+      useChatSessionStore.getState().resetForLogout();
+      useResolvedAssistantsStore
+        .getState()
+        .setActiveAssistantId("assistant-1");
+      useConversationStore
+        .getState()
+        .setActiveConversationId(SEND_CONVERSATION);
+      useConversationStore
+        .getState()
+        .registerDraftConversationId(SEND_CONVERSATION);
+      useConversationStore
+        .getState()
+        .setPendingDraftProfile(SEND_CONVERSATION, "shared-profile");
+      useConversationStore
+        .getState()
+        .setPendingDraftPlugins(
+          SEND_CONVERSATION,
+          new Set(["shared-plugin"]),
+        );
+      useChatSessionStore.getState().switchToConversation({
+        assistantId: "assistant-1",
+        activeConversationId: SEND_CONVERSATION,
+      });
+      useComposerStore.getState().setInput("new session draft");
+    });
+
+    finishPost({
+      data: ACCEPTED_DIRECTLY,
+      error: null,
+      response: new Response(null, { status: 200 }),
+    });
+    await act(async () => {
+      await pendingSend;
+    });
+
+    expect(useComposerStore.getState().input).toBe("new session draft");
+    expect(
+      useConversationStore.getState().draftConversationIds.has(SEND_CONVERSATION),
+    ).toBe(true);
+    expect(
+      useConversationStore.getState().pendingDraftProfiles.get(SEND_CONVERSATION),
+    ).toBe("shared-profile");
+    expect(
+      useConversationStore.getState().pendingDraftPlugins.get(SEND_CONVERSATION),
+    ).toEqual(new Set(["shared-plugin"]));
+    expect(useConversationStore.getState().processingConversationIds.size).toBe(
+      0,
+    );
+    expect(currentLocation).toBe(START_LOCATION);
+  });
+
   test("a queue-branch failure banners nowhere and parks the text", async () => {
     // The same window on the path that posts for itself: `willQueue` was read
     // before the POST, so this send is on the queue branch when the switch
@@ -613,6 +813,29 @@ describe("useSendMessage: a local command answering after a switch", () => {
  * its own conversation otherwise.
  */
 describe("useSendMessage: a send whose POST throws", () => {
+  test.todo("restores off-screen attachment payloads with their failed draft", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    useComposerStore.getState().resetAttachments();
+    throwWhileAnswering({ switchFirst: true });
+    const { result } = renderSendFor(SEND_CONVERSATION);
+    const attachment = {
+      id: "attachment-1",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      previewUrl: null,
+    };
+
+    await act(async () => {
+      await result.current.sendMessage("read these notes", [attachment]);
+    });
+
+    expect(draftFor(SEND_CONVERSATION)).toBe("read these notes");
+    expect(useComposerStore.getState().attachments).toEqual([
+      expect.objectContaining(attachment),
+    ]);
+  });
+
   test("off screen it idles no turn, banners nothing, and parks the text", async () => {
     useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
     throwWhileAnswering({ switchFirst: true });

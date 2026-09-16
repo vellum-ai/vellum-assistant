@@ -37,6 +37,41 @@ export const ESCALATE_VERDICT_TOKEN = "[1]";
  */
 export const MINIMIZE_ROOM_MARKER = "[-1]";
 
+/**
+ * Mic-mute session control for live voice: `[MUTE]` mutes until the user
+ * unmutes, `[MUTE:<seconds>]` mutes for that long. Like {@link END_CALL_MARKER}
+ * on a live-voice session, it is acted on only at the very end of a reply
+ * (see {@link parseTerminalSessionControl}), after the acknowledgement that
+ * precedes it has been spoken.
+ */
+export const MUTE_MARKER = "[MUTE]";
+const MUTE_MARKER_PREFIX = "[MUTE:";
+
+/** Longest timed mute a marker can ask for; longer asks mute until unmuted. */
+export const MAX_TIMED_MUTE_SECONDS = 3600;
+
+/**
+ * Progress-update cadence for the rest of a live-voice session:
+ * {@link FEWER_UPDATES_MARKER} after "don't give me updates so often",
+ * {@link NORMAL_UPDATES_MARKER} to go back. Terminal like the other session
+ * controls, but carried out by the session itself: narration is the daemon's.
+ */
+export const FEWER_UPDATES_MARKER = "[UPDATES:FEWER]";
+export const NORMAL_UPDATES_MARKER = "[UPDATES:NORMAL]";
+const UPDATES_MARKER_PREFIX = "[UPDATES:";
+
+/**
+ * Look session controls for live voice: turn on a screen share
+ * ({@link LOOK_SCREEN_MARKER}) or the camera ({@link LOOK_CAMERA_MARKER}) so
+ * the call can see what the user means by "take a look". Carried out by the
+ * client, like mute and end.
+ */
+export const LOOK_SCREEN_MARKER = "[LOOK:SCREEN]";
+export const LOOK_CAMERA_MARKER = "[LOOK:CAMERA]";
+/** Stop showing the call the screen and the camera, whichever is on. */
+export const LOOK_STOP_MARKER = "[LOOK:STOP]";
+const LOOK_MARKER_PREFIX = "[LOOK:";
+
 // ---------------------------------------------------------------------------
 // Regexes
 // ---------------------------------------------------------------------------
@@ -57,6 +92,9 @@ const END_CALL_MARKER_REGEX = /\[END_CALL\]/g;
 const HOLD_VERDICT_TOKEN_REGEX = /\[0\]/g;
 const ESCALATE_VERDICT_TOKEN_REGEX = /\[1\]/g;
 const MINIMIZE_ROOM_MARKER_REGEX = /\[-1\]/g;
+const MUTE_MARKER_REGEX = /\[MUTE(?::\s*[^\]]*)?\]/g;
+const UPDATES_MARKER_REGEX = /\[UPDATES:\s*[^\]]*\]/g;
+const LOOK_MARKER_REGEX = /\[LOOK:\s*[^\]]*\]/g;
 const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
 const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
 
@@ -182,6 +220,9 @@ export function stripInternalSpeechMarkers(text: string): string {
     .replace(HOLD_VERDICT_TOKEN_REGEX, "")
     .replace(ESCALATE_VERDICT_TOKEN_REGEX, "")
     .replace(MINIMIZE_ROOM_MARKER_REGEX, "")
+    .replace(MUTE_MARKER_REGEX, "")
+    .replace(UPDATES_MARKER_REGEX, "")
+    .replace(LOOK_MARKER_REGEX, "")
     .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, "")
     .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, "");
   return result;
@@ -207,6 +248,10 @@ const CONTROL_MARKER_STRINGS = [
   "[0]",
   "[1]",
   "[-1]",
+  MUTE_MARKER,
+  MUTE_MARKER_PREFIX,
+  UPDATES_MARKER_PREFIX,
+  LOOK_MARKER_PREFIX,
   "[GUARDIAN_TIMEOUT]",
   "[GUARDIAN_UNAVAILABLE]",
 ];
@@ -220,6 +265,9 @@ const FIRST_BRACKET_TERMINATED_PREFIXES = [
   "[ASK_GUARDIAN:",
   "[USER_ANSWERED:",
   "[USER_INSTRUCTION:",
+  MUTE_MARKER_PREFIX,
+  UPDATES_MARKER_PREFIX,
+  LOOK_MARKER_PREFIX,
 ];
 
 const GUARDIAN_APPROVAL_PREFIX = "[ASK_GUARDIAN_APPROVAL:";
@@ -298,4 +346,88 @@ export function createControlMarkerHoldback(
       }
     }
   };
+}
+
+// ---------------------------------------------------------------------------
+// Live-voice session controls
+// ---------------------------------------------------------------------------
+
+/**
+ * A session control a live-voice reply asked for with a terminal marker:
+ * `end` from {@link END_CALL_MARKER}, `mute` from {@link MUTE_MARKER} or its
+ * timed form, `updates` from the progress-cadence markers, `look_screen` and
+ * `look_camera` and `look_stop` from the look markers.
+ */
+export type SessionControlRequest =
+  | { readonly action: "end" }
+  | { readonly action: "mute"; readonly durationMs?: number }
+  | { readonly action: "updates"; readonly cadence: "fewer" | "normal" }
+  | { readonly action: "look_screen" }
+  | { readonly action: "look_camera" }
+  | { readonly action: "look_stop" };
+
+const TERMINAL_SESSION_CONTROL_REGEX =
+  /(\[END_CALL\]|\[UPDATES:(FEWER|NORMAL)\]|\[LOOK:(SCREEN|CAMERA|STOP)\]|\[MUTE\]|\[MUTE:\s*([^\]]*)\])\s*$/;
+
+/**
+ * The session control a reply ends with, or null.
+ *
+ * **Terminal position only.** The marker follows the spoken acknowledgement
+ * ("Okay, talk soon."), so a reply that merely mentions a marker mid-text, or
+ * parrots one from history before carrying on, controls nothing. This is the
+ * same rule the minimize marker's transcript hygiene applies.
+ *
+ * A timed mute whose body is not a positive number of seconds degrades to an
+ * untimed mute rather than to nothing: the user asked to be muted, and muting
+ * until they unmute is the conservative reading of a garbled duration. Asks
+ * past {@link MAX_TIMED_MUTE_SECONDS} degrade the same way.
+ */
+export function parseTerminalSessionControl(
+  text: string,
+): SessionControlRequest | null {
+  const match = TERMINAL_SESSION_CONTROL_REGEX.exec(text);
+  if (!match) {
+    return null;
+  }
+  if (match[1] === END_CALL_MARKER) {
+    return { action: "end" };
+  }
+  if (match[2] !== undefined) {
+    return {
+      action: "updates",
+      cadence: match[2] === "FEWER" ? "fewer" : "normal",
+    };
+  }
+  if (match[3] !== undefined) {
+    return {
+      action:
+        match[3] === "SCREEN"
+          ? "look_screen"
+          : match[3] === "CAMERA"
+            ? "look_camera"
+            : "look_stop",
+    };
+  }
+  const seconds = match[4] === undefined ? NaN : Number(match[4].trim());
+  if (
+    Number.isFinite(seconds) &&
+    seconds > 0 &&
+    seconds <= MAX_TIMED_MUTE_SECONDS
+  ) {
+    return { action: "mute", durationMs: Math.round(seconds * 1000) };
+  }
+  return { action: "mute" };
+}
+
+/**
+ * Length of the marker a row's text ends with, ignoring trailing whitespace,
+ * when it is one the transcript hygiene pass strips from the persisted row
+ * (the minimize marker or a session control); 0 otherwise.
+ */
+export function terminalControlMarkerLength(text: string): number {
+  const trimmed = text.trimEnd();
+  if (trimmed.endsWith(MINIMIZE_ROOM_MARKER)) {
+    return MINIMIZE_ROOM_MARKER.length;
+  }
+  return TERMINAL_SESSION_CONTROL_REGEX.exec(trimmed)?.[1]?.length ?? 0;
 }

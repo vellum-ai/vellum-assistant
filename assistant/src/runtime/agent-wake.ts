@@ -126,6 +126,7 @@ import {
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import { createKeyedSingleFlight } from "../util/single-flight.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 const log = getLogger("agent-wake");
 
@@ -139,7 +140,7 @@ const WAKE_POSTAMBLE =
 
 /** Sanitize a value for use as an XML attribute (no quotes/brackets/newlines). */
 function sanitizeEventAttr(value: string): string {
-  return value.replace(/[<>"&\r\n]/g, "").slice(0, 200);
+  return safeStringSlice(value.replace(/[<>"&\r\n]/g, ""), 0, 200);
 }
 
 /**

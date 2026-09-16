@@ -591,8 +591,8 @@ export function resolvePublicBaseWssUrl(
  *    these links no longer break on a tunnel flap.
  *
  * The platform assistant ID is read through a lazy getter so callers that
- * resolve from the config value (self-hosted / manual URL) never touch the
- * credential store — a transient CES outage must not fail those callers.
+ * resolve from the config value (self-hosted / manual URL) never load
+ * identity. A transient credential-store outage must not fail those callers.
  *
  * Returns `undefined` when no source provides a value.
  */

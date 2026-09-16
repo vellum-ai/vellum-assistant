@@ -358,7 +358,11 @@ export function useConversationLoader({
 
     const apply = (key: string) => {
       useConversationStore.getState().setActiveConversationId(key);
-      void navigate(routes.conversation(key), { replace: true });
+      // Explicit routes already name the selected chat. Their search params
+      // belong to the document and prompt handlers, not bootstrap routing.
+      if (key !== explicitConversationId) {
+        void navigate(routes.conversation(key), { replace: true });
+      }
     };
     const preselected = {
       queryParamKey: explicitConversationId,

@@ -1,7 +1,10 @@
 // Persist the sidebar conversation group expand/collapse state to localStorage
 // so that the user's last-known toggle state for each collapsible group
 // (per-channel sections and custom groups) survives
-// page reloads.
+// page reloads. The same file keeps a fourth bucket, the sections the user
+// has expanded from their mid height to their full height (see
+// `expandable` on `ConversationRowList`), so that choice survives a reload
+// too.
 //
 // Primary sections (Pinned / Chats), built-in sections (the per-channel
 // sections), and custom groups are stored under SEPARATE keys, chiefly
@@ -101,6 +104,17 @@ const primaryStorage = createKeyedStorageAccessor<string[]>({
   fallback: [...PRIMARY_SECTION_KEYS],
 });
 
+/* Sections expanded past their mid height. Defaults to none: a section rests
+   at its cap until the user asks for the rest. Keys are section keys from the
+   same namespace as the buckets above (`recents`, `channel:slack`, ...). */
+const expandedStorage = createKeyedStorageAccessor<string[]>({
+  keyFn: (assistantId) => `vellum:sidebar-expanded-sections:${assistantId}`,
+  scope: "user",
+  parse: parseStringArray,
+  serialize: JSON.stringify,
+  fallback: [],
+});
+
 /** Load open built-in sidebar category keys, filtering stale values. */
 export function loadOpenCategories(assistantId: string): string[] {
   return categoriesStorage.load(assistantId).filter(isKnownCategoryKey);
@@ -134,4 +148,27 @@ export function saveOpenPrimary(
   openPrimary: string[],
 ): void {
   primaryStorage.save(assistantId, openPrimary);
+}
+
+/**
+ * Subscribe to the sections one assistant has expanded past their mid
+ * height.
+ *
+ * Storage is the source of truth here, as it is for the view mode, rather
+ * than a value the layout store snapshots in an effect after mount: the
+ * first paint already carries the choice, so a section the user expanded
+ * does not paint at its cap and then grow once the effect runs, and a
+ * change made in one window reaches every other window on the same
+ * assistant. With no assistant there is nothing stored, and the empty key
+ * reads the fallback.
+ */
+export function useExpandedSections(assistantId: string | null): string[] {
+  return expandedStorage.useValue(assistantId ?? "");
+}
+
+export function saveExpandedSections(
+  assistantId: string,
+  expandedSections: string[],
+): void {
+  expandedStorage.save(assistantId, expandedSections);
 }

@@ -42,7 +42,9 @@ mock.module("@/hooks/use-platform-gate", () => ({
 
 let nativeAndroid = false;
 
+const platformDetection = await import("@/runtime/platform-detection");
 mock.module("@/runtime/platform-detection", () => ({
+  ...platformDetection,
   detectElectronHostOS: () => null,
   isNativeAndroid: () => nativeAndroid,
   useIsNativeAndroid: () => nativeAndroid,

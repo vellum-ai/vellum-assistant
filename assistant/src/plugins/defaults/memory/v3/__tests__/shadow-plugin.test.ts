@@ -38,6 +38,7 @@ import { ESCALATION_CONTINUATION_CONTENT } from "../../../../../calls/voice-tria
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import { stripOrphanedSurrogates } from "../../../../../util/unicode.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
 import {
@@ -1081,6 +1082,35 @@ describe("memory-v3 engine", () => {
       orchestrateSpy.mock.calls as unknown as unknown[][]
     )[0]![0] as MemoryRoutingTurn;
     expect(turn.previousAssistantMessage).toBeUndefined();
+  });
+
+  test("the reply tail never starts inside a surrogate pair", async () => {
+    // 1300 emoji then one BMP character: the 2500-code-unit tail would start
+    // on a low surrogate, an orphan the embedding request's parser rejects.
+    const reply = `${"😀".repeat(1300)}a`;
+    messages = [
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "first question" }]),
+      },
+      {
+        role: "assistant",
+        content: JSON.stringify([{ type: "text", text: reply }]),
+      },
+      {
+        role: "user",
+        content: JSON.stringify([{ type: "text", text: "and now this" }]),
+      },
+    ];
+    await observeTurn("conv-1", 1);
+
+    const turn = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![0] as MemoryRoutingTurn;
+    const tail = turn.previousAssistantMessage!;
+    expect(stripOrphanedSurrogates(tail)).toBe(tail);
+    expect(tail.length).toBeLessThanOrEqual(2500);
+    expect(reply.endsWith(tail)).toBe(true);
   });
 
   test("a page with lines from two lanes is attributed the lane of the line whose section was selected", () => {

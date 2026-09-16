@@ -152,6 +152,12 @@ export const CONNECTIVITY_RETRY = "vellum:connectivity:retry";
 // Notifications
 export const NOTIFICATIONS_SHOW = "vellum:notifications:show";
 export const NOTIFICATIONS_ACTION = "vellum:notifications:action";
+export const NOTIFICATIONS_REGISTER_IDENTITY_PUBLISHER =
+  "vellum:notifications:registerIdentityPublisher";
+export const NOTIFICATIONS_PREPARE_IDENTITY =
+  "vellum:notifications:prepareIdentity";
+export const NOTIFICATIONS_RESET_IDENTITIES =
+  "vellum:notifications:resetIdentities";
 
 // Window attention
 export const WINDOW_ATTENTION = "vellum:window:attention";
@@ -214,6 +220,14 @@ export const COMPANION_SHARED_FRAME = "vellum:companion:sharedFrame";
 export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";
 export const COMPANION_ANSWER_DICTATION_OFFER =
   "vellum:companion:answerDictationOffer";
+export const COMPANION_ANSWER_POPOVER = "vellum:companion:answerPopover";
+export const COMPANION_SET_POPOVER_SIZE = "vellum:companion:setPopoverSize";
+export const COMPANION_SET_POPOVER_VIEW = "vellum:companion:setPopoverView";
+export const COMPANION_SET_ATTACHED_POPOVER_HEIGHT =
+  "vellum:companion:setAttachedPopoverHeight";
+export const COMPANION_TOGGLE_PICKER = "vellum:companion:togglePicker";
+export const COMPANION_OPEN_LINK = "vellum:companion:openLink";
+export const COMPANION_TAKES_PROMPTS = "vellum:companion:takesPrompts";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";
 export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
 export const COMPANION_ADVANCE_INTRO = "vellum:companion:advanceIntro";

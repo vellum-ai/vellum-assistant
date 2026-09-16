@@ -9,6 +9,8 @@
  *   - `daemon/process-message.ts` (create path, prepareConversationForMessage)
  *   - `daemon/conversation-process.ts` `drainSingleMessage` (re-add after dequeue)
  *   - `daemon/conversation-process.ts` `drainBatch` (re-add after dequeue)
+ *   - `calls/voice-session-bridge.ts` (tool-capable legs of a live-voice
+ *     session opened from the macOS desktop client)
  *
  * The create paths additionally instantiate the proxy itself; that
  * instantiation logic is per-proxy-class and stays inline at each create
@@ -105,12 +107,13 @@ export const HOST_PROXY_SKILL_PREACTIVATIONS: ReadonlyArray<{
  */
 /**
  * Capabilities a client asks for on its connection rather than getting from
- * what it is. Both ride the host_cu transport and are answered only by a
+ * what it is. Each rides the host_cu transport and is answered only by a
  * macOS build new enough to send the header (`events-routes.ts`), so the
  * interface alone cannot say whether one is really there.
  */
 const NEGOTIATED_CAPABILITIES: ReadonlySet<HostProxyCapability> = new Set([
   "host_cu_window_capture",
+  "host_cu_sequence",
   "host_cu_annotate",
 ]);
 

@@ -26,6 +26,7 @@ import {
   FFMPEG_PREPROCESS_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../../../util/spawn.js";
+import { safeStringSlice } from "../../../../util/unicode.js";
 import { transcribeSegmentAudio } from "./audio-transcribe.js";
 
 // ---------------------------------------------------------------------------
@@ -691,7 +692,7 @@ export async function preprocessForAsset(
     const msg = (err as Error).message;
     updateProcessingStage(stage.id, {
       status: "failed",
-      lastError: msg.slice(0, 500),
+      lastError: safeStringSlice(msg, 0, 500),
     });
     throw err;
   }

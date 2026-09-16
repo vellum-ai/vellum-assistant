@@ -60,6 +60,26 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
       );
     }
 
+    // `folders:read` is documented too, but the app's scope picker only
+    // offers `folder_metadata:read` under Folders, so Figma answers
+    // "Invalid scopes for app" whenever it is requested.
+    expect(figma.defaultScopes).not.toContain("folders:read");
+    if (Array.isArray(availableScopes)) {
+      expect(availableScopes.map(({ scope }) => scope)).toContain(
+        "folders:read",
+      );
+    }
+
+    // `file_code_connect:write` is only offered to apps owned by an
+    // Organization-plan team. Managed apps in other environments are not,
+    // so requesting it fails the whole authorization there.
+    expect(figma.defaultScopes).not.toContain("file_code_connect:write");
+    if (Array.isArray(availableScopes)) {
+      expect(availableScopes.map(({ scope }) => scope)).toContain(
+        "file_code_connect:write",
+      );
+    }
+
     // GET /v1/me backs both the ping and the identity label.
     expect(figma.defaultScopes).toContain("current_user:read");
   });
@@ -125,6 +145,135 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     const figma = PROVIDER_SEED_DATA.figma;
     expect(figma).toBeDefined();
     expect(figma.featureFlag).toBe("figma-oauth");
+  });
+
+  test("shopify keeps its per-tenant URL templates", () => {
+    // Shopify has no global OAuth host: every endpoint lives on the
+    // merchant's own domain. Hardcoding any host here would send every
+    // merchant's authorization to the wrong store, so the {tenant_host}
+    // placeholder the platform substitutes must survive.
+    const shopify = PROVIDER_SEED_DATA.shopify;
+    expect(shopify).toBeDefined();
+    for (const url of [
+      shopify.authorizeUrl,
+      shopify.tokenExchangeUrl,
+      shopify.refreshUrl,
+      shopify.baseUrl,
+      shopify.identityUrl,
+    ]) {
+      expect(url).toContain("{tenant_host}");
+    }
+  });
+
+  test("shopify requests comma-separated scopes", () => {
+    // Shopify parses `scope` as a comma-separated list; the OAuth2 default
+    // space separator is read as one malformed scope and the whole
+    // authorization request is rejected.
+    expect(PROVIDER_SEED_DATA.shopify.scopeSeparator).toBe(",");
+  });
+
+  test("shopify does not request approval-gated scopes", () => {
+    // Shopify rejects the entire authorization request when the app cannot
+    // grant a requested scope -- the same failure that broke monday and
+    // Figma. These scopes all require Shopify's prior approval.
+    const gated = [
+      "read_all_orders",
+      "read_customer_payment_methods",
+      "read_own_subscription_contracts",
+      "write_own_subscription_contracts",
+      "read_shopify_payments_dispute_evidences",
+      "write_shopify_payments_dispute_evidences",
+    ];
+    for (const scope of gated) {
+      expect(PROVIDER_SEED_DATA.shopify.defaultScopes).not.toContain(scope);
+    }
+  });
+
+  test("shopify injects the Admin API's own auth header", () => {
+    // The Admin API reads X-Shopify-Access-Token and ignores an
+    // Authorization: Bearer header entirely, so a Bearer template here would
+    // make every proxied request unauthenticated.
+    const templates = PROVIDER_SEED_DATA.shopify.injectionTemplates;
+    expect(templates).toBeDefined();
+    const [template] = templates ?? [];
+    expect(template?.headerName).toBe("X-Shopify-Access-Token");
+    expect(template?.valuePrefix).toBe("");
+    expect(template?.hostPattern).toBe("*.myshopify.com");
+  });
+
+  test("quickbooks is wired up for managed mode behind its flag", () => {
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    expect(quickbooks).toBeDefined();
+    expect(quickbooks.managedServiceConfigKey).toBe("quickbooks-oauth");
+    expect("quickbooks-oauth" in ServicesSchema.shape).toBe(true);
+    // Hidden until the platform side and client ids are live, like Figma
+    // and Shopify.
+    expect(quickbooks.featureFlag).toBe("quickbooks-oauth");
+  });
+
+  test("quickbooks uses Intuit's OAuth endpoints with HTTP Basic", () => {
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    expect(quickbooks.authorizeUrl).toBe(
+      "https://appcenter.intuit.com/connect/oauth2",
+    );
+    expect(quickbooks.tokenExchangeUrl).toBe(
+      "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    );
+    expect(quickbooks.refreshUrl).toBe(quickbooks.tokenExchangeUrl);
+    expect(quickbooks.tokenEndpointAuthMethod).toBe("client_secret_basic");
+  });
+
+  test("quickbooks keeps its per-company URL templates", () => {
+    // Every Accounting API path is scoped to the realm the user picked on
+    // Intuit's consent screen. The platform fills {realm_id} from the
+    // connection; a hardcoded realm here would send every company's calls
+    // to the wrong books.
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    for (const url of [quickbooks.baseUrl, quickbooks.identityUrl]) {
+      expect(url).toContain("/v3/company/{realm_id}");
+    }
+  });
+
+  test("quickbooks seeds no ping or revoke URL", () => {
+    // The ping route sends the URL's origin as a base override and cannot
+    // fill {realm_id}; the daemon's revoke helper posts an unauthenticated
+    // form body that Intuit's JSON + Basic-auth endpoint rejects. Either
+    // would fail silently on every your-own connection.
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    expect(quickbooks.pingUrl).toBeUndefined();
+    expect(quickbooks.revokeUrl).toBeUndefined();
+  });
+
+  test("quickbooks requests only the accounting scope by default", () => {
+    // Payments needs a Payments-enabled app and the OpenID scopes only add
+    // the user's profile; requesting either widens the consent screen for
+    // nothing the Accounting API needs.
+    const quickbooks = PROVIDER_SEED_DATA.quickbooks;
+    expect(quickbooks.defaultScopes).toEqual([
+      "com.intuit.quickbooks.accounting",
+    ]);
+    const available = quickbooks.availableScopes;
+    expect(Array.isArray(available)).toBe(true);
+    if (Array.isArray(available)) {
+      expect(available.map(({ scope }) => scope)).toContain(
+        "com.intuit.quickbooks.payment",
+      );
+    }
+  });
+
+  test("quickbooks allows the credential on both Intuit API hosts", () => {
+    // Development keys only work against sandbox companies, which live on
+    // the sandbox host. Both hosts belong to Intuit and take the same
+    // bearer token.
+    const templates = PROVIDER_SEED_DATA.quickbooks.injectionTemplates ?? [];
+    expect(templates.map((t) => t.hostPattern).sort()).toEqual([
+      "quickbooks.api.intuit.com",
+      "sandbox-quickbooks.api.intuit.com",
+    ]);
+    for (const template of templates) {
+      expect(template.headerName).toBe("Authorization");
+      expect(template.valuePrefix).toBe("Bearer ");
+    }
   });
 
   test("every managedServiceConfigKey resolves to a ServicesSchema key", () => {

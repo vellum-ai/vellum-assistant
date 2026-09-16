@@ -70,6 +70,21 @@ function renderWizard(ui: React.ReactElement) {
 }
 
 describe("TelegramSetupWizard step flow", () => {
+  test("create step states the private-chat limitation", () => {
+    renderWizard(
+      <TelegramSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
+
+    expect(
+      screen.queryByText(
+        /Private chats are supported\. Group, supergroup, and channel messages and button taps are not supported yet\./i,
+      ),
+    ).not.toBeNull();
+  });
+
   test("copying the suggested name does not navigate", () => {
     renderWizard(
       <TelegramSetupWizard

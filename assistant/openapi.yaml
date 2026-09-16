@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.12.0
+  version: 0.12.1
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -4146,6 +4146,8 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
               required:
                 - operation
       responses:
@@ -4181,7 +4183,7 @@ paths:
     post:
       operationId: browser_tabs_post
       summary: Manage browser tabs
-      description: List, create, select, or close browser tabs via the Chrome extension backend.
+      description: List, create, select, or close browser tabs in the Chrome extension or streamed desktop browser.
       tags:
         - browser
       requestBody:
@@ -4205,6 +4207,10 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
+                browserMode:
+                  type: string
                 tabId:
                   type: number
                 url:
@@ -11710,54 +11716,6 @@ paths:
                   - schedules
                   - timestamp
                 additionalProperties: false
-  /v1/debug/bash:
-    post:
-      operationId: debug_bash_post
-      summary: Execute a shell command in the assistant process
-      description: Developer debugging tool. Requires the assistant to be running with VELLUM_DEBUG=1.
-      tags:
-        - debug
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                command:
-                  type: string
-                  description: Shell command to execute via bash -c
-                timeoutMs:
-                  description: "Execution timeout in milliseconds (default: 30000)"
-                  type: number
-              required:
-                - command
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  stdout:
-                    type: string
-                  stderr:
-                    type: string
-                  exitCode:
-                    anyOf:
-                      - type: number
-                      - type: "null"
-                  timedOut:
-                    type: boolean
-                  error:
-                    type: string
-                required:
-                  - stdout
-                  - stderr
-                  - exitCode
-                  - timedOut
-                additionalProperties: false
   /v1/debug/database:
     get:
       operationId: debug_database_get
@@ -11964,7 +11922,7 @@ paths:
   /v1/desktop/setup:
     get:
       operationId: desktop_setup_get
-      summary: Get desktop setup status
+      summary: Get virtual desktop setup status
       tags:
         - desktop
       responses:
@@ -11994,7 +11952,7 @@ paths:
                 additionalProperties: false
     post:
       operationId: desktop_setup_post
-      summary: Install desktop components
+      summary: Install virtual desktop components
       tags:
         - desktop
       responses:
@@ -16029,6 +15987,13 @@ paths:
                   type: string
                 userGuidance:
                   type: string
+                timings:
+                  type: object
+                  propertyNames:
+                    type: string
+                  additionalProperties:
+                    type: number
+                  description: Per-phase helper timings in milliseconds
               required:
                 - requestId
       responses:
@@ -18467,7 +18432,7 @@ paths:
     get:
       operationId: internal_mcp_list_get
       summary: List MCP servers with health status
-      description: Returns configured MCP servers with live health-check results (connected, needs auth, error).
+      description: Returns configured MCP servers with recorded runtime status without opening new connections.
       tags:
         - internal
       responses:
@@ -22116,6 +22081,9 @@ paths:
                           type: boolean
                         noResponse:
                           type: boolean
+                        cameraFrame:
+                          type: boolean
+                          const: true
                         assistantTextVisibility:
                           type: string
                           enum:
@@ -24519,6 +24487,22 @@ paths:
                             anyOf:
                               - type: string
                               - type: "null"
+                          tenant_host:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  pattern:
+                                    type: string
+                                  label:
+                                    type: string
+                                  placeholder:
+                                    type: string
+                                required:
+                                  - pattern
+                                  - label
+                                  - placeholder
+                                additionalProperties: false
+                              - type: "null"
                           acts_as:
                             type: string
                             enum:
@@ -24535,6 +24519,7 @@ paths:
                           - supports_managed_mode
                           - managed_service_is_paid
                           - feature_flag
+                          - tenant_host
                           - acts_as
                         additionalProperties: false
                       - type: "null"
@@ -25053,6 +25038,22 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        tenant_host:
+                          anyOf:
+                            - type: object
+                              properties:
+                                pattern:
+                                  type: string
+                                label:
+                                  type: string
+                                placeholder:
+                                  type: string
+                              required:
+                                - pattern
+                                - label
+                                - placeholder
+                              additionalProperties: false
+                            - type: "null"
                         acts_as:
                           type: string
                           enum:
@@ -25069,6 +25070,7 @@ paths:
                         - supports_managed_mode
                         - managed_service_is_paid
                         - feature_flag
+                        - tenant_host
                         - acts_as
                       additionalProperties: false
                 required:
@@ -26548,6 +26550,12 @@ paths:
                   target:
                     type: string
                     description: Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.
+                  warnings:
+                    description: Stable keys for non-fatal cleanup limitations that should be localized at the presentation edge.
+                    type: array
+                    items:
+                      type: string
+                      const: plugin.uninstall.mcp_oauth_credentials_unchecked
                 required:
                   - name
                   - target
@@ -37095,8 +37103,18 @@ paths:
           schema:
             type: string
           description:
-            "Compute recursive byte size for each directory entry (true/false). Budget-bounded — large subtrees may
-            return size: null."
+            "Compute recursive byte size for each directory entry (true/false). Budget-bounded: large subtrees may
+            return size: null. Not applied to a recursive listing, which carries every file for the client to sum."
+        - name: recursive
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            "List the whole subtree in one response (true/false). Depth-first, each directory's entries in listing
+            order, so grouping by parent path recovers per-directory listings. Bounded: sets truncated when the entry
+            cap or deadline stops the walk, and does not enter directories the workspace gitignore rules exclude, which
+            are named in skipped."
       responses:
         "200":
           description: Successful response
@@ -37140,6 +37158,19 @@ paths:
                         - modifiedAt
                       additionalProperties: false
                     description: Directory entry objects
+                  truncated:
+                    description:
+                      A recursive walk stopped at its entry cap or deadline, so deeper entries are missing. Absent from
+                      assistants that predate recursive listings.
+                    type: boolean
+                  skipped:
+                    description:
+                      Directories a recursive walk listed but did not enter, whether because a workspace gitignore rule excludes
+                      them, they are symlinks, or they could not be read. Each can still be listed on its own. Absent
+                      from assistants that predate recursive listings.
+                    type: array
+                    items:
+                      type: string
                 required:
                   - path
                   - entries

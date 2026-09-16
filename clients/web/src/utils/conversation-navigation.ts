@@ -1,5 +1,6 @@
 import type { NavigateFunction } from "react-router";
 
+import { autoSendPromptState } from "@/utils/auto-send-prompt";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 
@@ -14,6 +15,11 @@ import { getSoundManager } from "@/lib/sounds/sound-manager";
 import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
 
 export interface NavigateToConversationOptions {
+  /** An explicit presentation URL for the same conversation. */
+  destination?: string;
+  replace?: boolean;
+  /** History state for an explicit presentation of this conversation. */
+  state?: unknown;
   /** Anchor the transcript to a specific message on load. */
   messageId?: string;
   /**
@@ -97,11 +103,19 @@ export function navigateToConversation(
   }
   revealConversationView(conversationId);
   useConversationStore.getState().setActiveConversationId(conversationId);
-  void navigate(
-    options?.messageId
+  const destination =
+    options?.destination ??
+    (options?.messageId
       ? routes.conversationAtMessage(conversationId, options.messageId)
-      : routes.conversation(conversationId),
-  );
+      : routes.conversation(conversationId));
+  if (options?.replace || options?.state !== undefined) {
+    void navigate(destination, {
+      ...(options.replace ? { replace: true } : {}),
+      ...(options.state !== undefined ? { state: options.state } : {}),
+    });
+  } else {
+    void navigate(destination);
+  }
 }
 
 /**
@@ -150,9 +164,11 @@ export interface NavigateToNewConversationOptions {
  * (e.g. fallback after archiving the active conversation), the haptic tap
  * is suppressed.
  *
- * When `prompt` is provided, the URL includes a `?prompt=` search param that
- * `useAutoSendEffects` picks up to fire the message once the conversation is
- * mounted.
+ * When `prompt` is provided, the URL includes a `?prompt=` search param and
+ * the navigation carries `autoSendPromptState`, so `useAutoSendEffects` fires
+ * the message once the conversation is mounted. The state is what makes it
+ * a send rather than a pre-fill: the same URL opened from outside the app
+ * only stages the text (see `utils/auto-send-prompt.ts`).
  *
  * Returns the draft's id, for callers that have to address something at the
  * conversation being navigated to before its route mounts (the camera deep
@@ -170,12 +186,13 @@ export function navigateToNewConversation(
   }
   const draftId = prepareFreshConversation();
 
-  let path: string = routes.conversation(draftId);
   if (options?.prompt) {
-    const params = new URLSearchParams({ prompt: options.prompt });
-    path = `${path}?${params.toString()}`;
+    void navigate(routes.conversationWithPrompt(draftId, options.prompt), {
+      state: autoSendPromptState(),
+    });
+  } else {
+    void navigate(routes.conversation(draftId));
   }
-  void navigate(path);
   requestComposerFocus();
   return draftId;
 }

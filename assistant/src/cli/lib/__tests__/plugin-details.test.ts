@@ -302,6 +302,32 @@ describe("getPluginDetails (bundled catalog, offline)", () => {
     expect(details.icon).toBeNull();
   });
 
+  test("reads metadata from an installed standard-only plugin.json", async () => {
+    const target = join(workspace, "caveman");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(
+      join(target, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "caveman",
+        version: "4.0.0",
+        description: "Installed standard plugin",
+        homepage: "https://example.com/plugin",
+        license: "MIT",
+      }),
+    );
+
+    const details = await getPluginDetails(
+      { name: "caveman" },
+      { fetch: makeFetch({}), workspacePluginsDir: workspace },
+    );
+
+    expect(details.version).toBe("4.0.0");
+    expect(details.description).toBe("Installed standard plugin");
+    expect(details.homepage).toBe("https://example.com/plugin");
+    expect(details.license).toBe("MIT");
+  });
+
   test("surfaces the installed copy's vellum.icon", async () => {
     // GIVEN an installed copy whose package.json declares vellum.icon
     const target = join(workspace, "caveman");

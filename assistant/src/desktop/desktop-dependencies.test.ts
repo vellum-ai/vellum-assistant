@@ -100,3 +100,32 @@ describe("desktop dependency installation", () => {
     expect(f.install).not.toHaveBeenCalled();
   });
 });
+
+test("browser and viewer share installation while a cancelled waiter stops immediately", async () => {
+  const f = setup();
+  const abort = new AbortController();
+  const browser = f.installer
+    .ensureReady(abort.signal)
+    .catch((error: unknown) => error);
+  const viewer = f.installer.ensureReady();
+  await flush();
+  expect(f.install).toHaveBeenCalledTimes(1);
+  abort.abort();
+  expect(await browser).toBeInstanceOf(Error);
+  expect(f.installer.getStatus().state).toBe("installing");
+  f.finish();
+  await viewer;
+  expect(f.installer.getStatus().state).toBe("ready");
+});
+
+test("failed setup reports the stage without running an automatic retry", async () => {
+  const f = setup();
+  const result = f.installer.ensureReady().catch((error: Error) => error);
+  await flush();
+  f.progress();
+  f.fail();
+  const error = await result;
+  expect(error).toBeInstanceOf(Error);
+  expect((error as Error).message).toContain("failed during chrome");
+  expect(f.install).toHaveBeenCalledTimes(1);
+});

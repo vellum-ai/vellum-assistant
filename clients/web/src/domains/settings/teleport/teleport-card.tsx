@@ -4,31 +4,48 @@
  * hosting environments (local / Docker / cloud), preserving the source until
  * the new one is confirmed working.
  *
- * Rendered only when the `teleport` client feature flag is on AND the client is
- * the Electron host (gated by the caller in `general-page.tsx`).
+ * Only the Electron host renders it (gated by the caller in `general-page.tsx`).
+ * Platform-to-local teleport is GA; local-to-platform stays behind the
+ * `teleport` client feature flag.
  */
 
 import { CheckCircle2, Loader2 } from "lucide-react";
 
 import { DetailCard } from "@/components/detail-card";
+import { PlatformLoginNotice } from "@/components/platform-login-notice";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
 import { resolveDesktopHostOS } from "@/runtime/platform-detection";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 
-import { destinationDescriptionKey, destinationLabel } from "./teleport-types";
+import {
+  destinationDescriptionKey,
+  destinationLabelKey,
+} from "./teleport-types";
 import { useTeleport } from "./use-teleport";
 
 export function TeleportCard() {
   const { t } = useTranslation("settings");
   const teleport = useTeleport();
   const { destination, phase } = teleport;
+  const teleportEnabled = useClientFeatureFlagStore.use.teleport();
+  // Both directions go through the platform API (export/import signed URLs,
+  // managed hatch), so the card needs a platform session either way.
+  const platformGate = usePlatformGate();
 
   // No eligible destination for this assistant — leave teleport hidden, matching
   // the Swift picker which renders nothing for out-of-scope assistants.
-  if (!destination) {
+  if (!destination || platformGate === "gated") {
+    return null;
+  }
+  // Only gate the idle offer. Mid-transfer the selected assistant can flip to
+  // the freshly hatched local target (which reads as local-to-platform), and
+  // hiding the card then would strand the progress, verify, and error controls.
+  if (phase.kind === "idle" && destination === "platform" && !teleportEnabled) {
     return null;
   }
 
@@ -37,7 +54,13 @@ export function TeleportCard() {
       title={t("teleportCard.title")}
       subtitle={t("teleportCard.subtitle")}
     >
-      {phase.kind === "idle" && (
+      {phase.kind === "idle" && platformGate === "disabled" && (
+        <PlatformLoginNotice>
+          {t("teleportCard.loginNotice")}
+        </PlatformLoginNotice>
+      )}
+
+      {phase.kind === "idle" && platformGate === "full" && (
         <div className="flex flex-col gap-2">
           <p className="text-body-medium-default text-[var(--content-tertiary)]">
             {t(destinationDescriptionKey(destination, resolveDesktopHostOS()))}
@@ -47,7 +70,7 @@ export function TeleportCard() {
             className="self-start"
             onClick={teleport.requestTeleport}
           >
-            {destinationLabel(destination)}
+            {t(destinationLabelKey(destination))}
           </Button>
         </div>
       )}
@@ -104,7 +127,7 @@ export function TeleportCard() {
 
       <ConfirmDialog
         open={teleport.confirmOpen}
-        title={destinationLabel(destination)}
+        title={t(destinationLabelKey(destination))}
         message={t("teleportCard.confirmMessage")}
         confirmLabel={t("teleportCard.confirmLabel")}
         onConfirm={teleport.confirm}

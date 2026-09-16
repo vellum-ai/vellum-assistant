@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { StrictMode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -11,9 +12,15 @@ import {
 
 import { client } from "@/generated/daemon/client.gen";
 
-const open = mock(() => ({ close: mock(() => {}) }));
+const open = mock(() => ({
+  close: mock(() => {}),
+  setViewOnly: mock(() => {}),
+}));
 mock.module("./desktop-session", () => ({ openDesktopSession: open }));
-mock.module("@/hooks/use-is-org-ready", () => ({ useIsOrgReady: () => true }));
+let orgReady = true;
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => orgReady,
+}));
 const listeners = new Map<string, (event: unknown) => void>();
 mock.module("@/hooks/use-bus-subscription", () => ({
   useBusSubscription: (name: string, listener: (event: unknown) => void) => {
@@ -31,6 +38,7 @@ let queryClient: QueryClient;
 
 beforeEach(() => {
   state = "required";
+  orgReady = true;
   missingRoute = false;
   postCalls = 0;
   open.mockClear();
@@ -71,15 +79,9 @@ function notify() {
   );
 }
 
-test("opening only checks setup; installing shows progress and opens the desktop when ready", async () => {
+test("opening automatically installs, shows progress and opens the desktop when ready", async () => {
   mount();
-  const install = await screen.findByRole("button", {
-    name: "Install desktop",
-  });
-  expect(postCalls).toBe(0);
-  expect(open).not.toHaveBeenCalled();
-  fireEvent.click(install);
-  await screen.findByText("Installing desktop components…");
+  await screen.findByText("Installing virtual desktop components…");
   expect(postCalls).toBe(1);
   expect(open).not.toHaveBeenCalled();
   state = "ready";
@@ -90,14 +92,14 @@ test("opening only checks setup; installing shows progress and opens the desktop
 test("reopening observes an existing install and offers retry after failure", async () => {
   state = "installing";
   mount();
-  await screen.findByText("Installing desktop components…");
+  await screen.findByText("Installing virtual desktop components…");
   expect(postCalls).toBe(0);
   state = "failed";
   notify();
   fireEvent.click(
-    await screen.findByRole("button", { name: "Install desktop" }),
+    await screen.findByRole("button", { name: "Install virtual desktop" }),
   );
-  await screen.findByText("Installing desktop components…");
+  await screen.findByText("Installing virtual desktop components…");
   expect(postCalls).toBe(1);
 });
 
@@ -106,4 +108,63 @@ test("older assistants keep their existing streaming flow without an install req
   mount();
   await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
   expect(postCalls).toBe(0);
+});
+
+test("an automatic install request failure offers retry without a retry loop", async () => {
+  client.post = mock(async () => {
+    postCalls++;
+    throw new Error("request failed");
+  }) as unknown as typeof client.post;
+  mount();
+  const retry = await screen.findByRole("button", {
+    name: "Install virtual desktop",
+  });
+  notify();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  expect(postCalls).toBe(1);
+  expect(open).not.toHaveBeenCalled();
+  client.post = mock(async () => {
+    postCalls++;
+    state = "installing";
+    return { data: { state }, response: new Response() };
+  }) as unknown as typeof client.post;
+  fireEvent.click(retry);
+  await screen.findByText("Installing virtual desktop components…");
+  expect(postCalls).toBe(2);
+});
+
+test("strict-mode mounting starts installation only once", async () => {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <StrictMode>
+        <DesktopPanel assistantId="assistant-123" />
+      </StrictMode>
+    </QueryClientProvider>,
+  );
+  await screen.findByText("Installing virtual desktop components…");
+  notify();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  expect(postCalls).toBe(1);
+});
+
+test("setup waits for organization readiness", async () => {
+  orgReady = false;
+  const panel = mount();
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  expect(client.get).not.toHaveBeenCalled();
+  expect(postCalls).toBe(0);
+  orgReady = true;
+  panel.rerender(
+    <QueryClientProvider client={queryClient}>
+      <DesktopPanel assistantId="assistant-123" />
+    </QueryClientProvider>,
+  );
+  await screen.findByText("Installing virtual desktop components…");
+  expect(postCalls).toBe(1);
 });

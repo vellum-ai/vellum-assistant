@@ -366,8 +366,8 @@ export function appendNarration(
  * timeline of a session where observation stalled is simply a sparser one.
  *
  * The screenshot is stored only when `attachScreenshot` asks for it, and
- * carrying one is not asking. The host captures a screenshot on every observe
- * with no opt-out, so an observation always has pixels available and a policy
+ * carrying one is not asking. Watch requests a screenshot on every observe, so
+ * an observation normally has pixels available and a policy
  * of "store what arrives" is a policy of storing every frame. Which frames are
  * worth an image is a cadence decision, and it belongs to the caller driving
  * the session rather than to the row writer.

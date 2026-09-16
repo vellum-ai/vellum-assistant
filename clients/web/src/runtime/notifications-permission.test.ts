@@ -22,10 +22,12 @@ mock.module("@/runtime/native-auth", () => ({
 }));
 mock.module("@/runtime/platform-detection", () => ({
   isNativeAndroid: () => false,
+  isNativeIOS: () => false,
 }));
 mock.module("@/runtime/push-registration", () => ({
   hasSessionConfirmedRemotePushRegistration: () => false,
   extractPushConversationId: () => undefined,
+  extractScopedPushTapPayload: () => null,
 }));
 mock.module("@/runtime/android-notification-channels", () => ({
   ANDROID_ALERTS_CHANNEL_ID: "vellum-alerts",

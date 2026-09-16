@@ -1,4 +1,9 @@
 {
+  "documentChat": {
+    "saveFailed": "無法儲存文件。你的訊息仍在這裡。請重新傳送。",
+    "viewConversation": "查看對話",
+    "reopenDocument": "重新開啟文件"
+  },
   "acpChatPlanBlock": {
     "plan": "計畫"
   },
@@ -18,6 +23,7 @@
   },
   "acpConnectAffordance": {
     "connectButton": "連線",
+    "dismissButton": "關閉",
     "errorFallback": "連線 Claude 失敗。請再試一次。",
     "pastePlaceholder": "貼上您的金鑰",
     "saveButton": "儲存",
@@ -89,24 +95,31 @@
     "earlierActivity": "較早的活動"
   },
   "assistantDesktop": {
-    "busy": "桌面正由其他使用者使用中。",
-    "connecting": "正在連線至桌面…",
-    "failed": "桌面無法啟動。",
-    "lost": "與桌面的連線已中斷。",
-    "openAria": "開啟桌面",
+    "fitView": "符合螢幕",
+    "panView": "平移",
+    "controlView": "控制",
+    "panHint": "拖曳以平移，輕點以按一下。",
+    "hideAria": "隱藏虛擬桌面",
+    "closeAria": "關閉虛擬桌面預覽",
+    "moveAria": "移動虛擬桌面預覽（方向鍵）",
+    "expandAria": "展開虛擬桌面",
+    "busy": "虛擬桌面正由其他使用者使用中。",
+    "connecting": "正在連線至虛擬桌面…",
+    "failed": "虛擬桌面無法啟動。",
+    "lost": "與虛擬桌面的連線已中斷。",
+    "openAria": "開啟 {name} 的虛擬桌面",
+    "openUnnamedAria": "開啟虛擬桌面",
     "reconnectButton": "重新連線",
     "title": "桌面",
-    "unavailable": "此助理不支援桌面。",
-    "installButton": "安裝桌面",
-    "installDescription": "安裝 Google Chrome 和助理桌面所需的元件。這可能需要幾分鐘。",
-    "checkingSetup": "正在檢查桌面設定…",
-    "installingPackages": "正在安裝桌面元件…",
+    "unavailable": "此助理不支援虛擬桌面。",
+    "installButton": "安裝虛擬桌面",
+    "checkingSetup": "正在檢查虛擬桌面設定…",
+    "installingPackages": "正在安裝虛擬桌面元件…",
     "installingChrome": "正在安裝 Google Chrome…",
     "checkingInstall": "正在檢查安裝…",
-    "installBackground": "關閉此視窗後，安裝仍會繼續。",
     "installFailed": "安裝失敗。請重試以完成設定。",
-    "setupRequestFailed": "無法檢查桌面設定。請重新連線後再試。",
-    "setupUnsupported": "桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
+    "setupRequestFailed": "無法檢查虛擬桌面設定。請重新連線後再試。",
+    "setupUnsupported": "虛擬桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
   },
   "assistantNavItem": {
     "newChat": "新增聊天"
@@ -759,6 +772,16 @@
     "saving": "正在儲存…",
     "wordCount": "{count, plural, other {# 個字}}"
   },
+  "documentConversation": {
+    "unavailable": "無法開啟文件對話。請再試一次。",
+    "updateRequired": "請更新助理以開始連結對話。",
+    "prepareFailed": "無法準備文件對話。你的編輯仍然保留。",
+    "feedbackPrompt": "請查看並處理我對「{title}」的評論。",
+    "missing": "此文件的對話無法使用。你可以繼續編輯或開始新的連結對話。",
+    "start": "開始連結對話",
+    "retry": "再試一次",
+    "back": "返回"
+  },
   "documentViewerPage": {
     "exportFailed": "匯出 PDF 失敗",
     "notFound": "找不到文件。"
@@ -1257,6 +1280,7 @@
     "defaultDescription": "連線 {name}，以便我能將其用於此任務。",
     "dismiss": "關閉",
     "missingDetails": "缺少助理或供應商詳細資訊。",
+    "tenantHostInvalid": "請輸入有效的{label}，例如 {placeholder}",
     "thisAccount": "此帳號",
     "waiting": "等待中...",
     "yourAssistant": "您的助理"
@@ -1339,6 +1363,7 @@
   },
   "preferencesMenu": {
     "admin": "管理員",
+    "earnCredits": "賺取免費點數",
     "preferences": "偏好設定",
     "settings": "設定",
     "shareFeedback": "分享意見回饋"
@@ -1578,10 +1603,6 @@
   },
   "singleActivity": {
     "webSearch": "網路搜尋"
-  },
-  "skillCreatedCard": {
-    "view": "檢視",
-    "viewAria": "檢視 {name}"
   },
   "skillDetailPanel": {
     "actionsAria": "技能動作",
@@ -1956,11 +1977,22 @@
     "emptyBody": "我隨時都在思考。當有值得您關注的事情時，我會在這裡發起對話。",
     "emptyTitle": "目前還沒有任何想法。"
   },
+  "sidebarExpandRow": {
+    "expand": "展開",
+    "collapse": "收合"
+  },
   "assistantSectionToggle": {
     "hide": "隱藏來自 {name} 的對話",
     "show": "顯示來自 {name} 的對話"
   },
   "coachmarkPress": {
     "turn": "我點擊了 {label}。接下來呢？"
+  },
+  "cameraFrameGrid": {
+    "count": "{count, plural, other {# 個攝影機畫面}}",
+    "timeRange": "儲存時間：{first} 至 {last}",
+    "savedTime": "儲存於 {time}",
+    "pendingAria": "攝影機畫面，影像仍在載入。{time}",
+    "timeUnavailable": "時間無法取得"
   }
 }

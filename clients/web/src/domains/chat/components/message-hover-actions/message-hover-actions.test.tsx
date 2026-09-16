@@ -6,6 +6,25 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
 describe("MessageHoverActions", () => {
+  test("hides text actions without changing the backing message or other actions", () => {
+    const message: DisplayMessage = {
+      id: "frame-123",
+      role: "user",
+      ...textBody("(camera frame)"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions
+        message={message}
+        showTextActions={false}
+        onInspect={() => {}}
+        onFork={() => {}}
+      />,
+    );
+    expect(html).not.toContain('title="Copy"');
+    expect(html).not.toContain('title="Read aloud"');
+    expect(html).toContain('title="Inspect"');
+    expect(html).toContain('title="Fork from here"');
+  });
   test("renders the timestamp even when no actions are available", () => {
     const message: DisplayMessage = {
       id: "m1",

@@ -72,9 +72,11 @@ import { setConfig } from "../__tests__/helpers/set-config.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import {
   formatNoConnectionError,
+  platformProxyBaseUrl,
   resolveEffectiveBaseUrl,
   resolveOAuthConnection,
   resolveOAuthConnectionWithMeta,
+  resolveTokenHeader,
 } from "./connection-resolver.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
@@ -751,5 +753,103 @@ describe("resolveEffectiveBaseUrl", () => {
         metadata,
       ),
     ).toBe("https://gmail.googleapis.com/gmail/v1/users/me");
+  });
+});
+
+describe("platformProxyBaseUrl", () => {
+  test("forwards a concrete seed base URL", () => {
+    expect(platformProxyBaseUrl("https://api.figma.com")).toBe(
+      "https://api.figma.com",
+    );
+  });
+
+  test("withholds a templated base URL so the platform fills it", () => {
+    // Shopify's host and QuickBooks' realm are pinned to the connection on
+    // the platform. Forwarding the unfilled template would fail the proxy's
+    // allowlist check and shadow the platform's own default.
+    expect(platformProxyBaseUrl("https://{tenant_host}")).toBeUndefined();
+    expect(
+      platformProxyBaseUrl(
+        "https://quickbooks.api.intuit.com/v3/company/{realm_id}",
+      ),
+    ).toBeUndefined();
+  });
+
+  test("treats a missing base URL as no override", () => {
+    expect(platformProxyBaseUrl(undefined)).toBeUndefined();
+    expect(platformProxyBaseUrl(null)).toBeUndefined();
+    expect(platformProxyBaseUrl("")).toBeUndefined();
+  });
+});
+
+describe("resolveTokenHeader", () => {
+  const shopify = JSON.stringify([
+    {
+      hostPattern: "*.myshopify.com",
+      injectionType: "header",
+      headerName: "X-Shopify-Access-Token",
+      valuePrefix: "",
+    },
+  ]);
+
+  test("returns null when the provider declares no templates", () => {
+    expect(resolveTokenHeader(undefined, "https://api.example.com")).toBeNull();
+    expect(resolveTokenHeader(null, "https://api.example.com")).toBeNull();
+    expect(resolveTokenHeader("[]", "https://api.example.com")).toBeNull();
+  });
+
+  test("returns null for malformed JSON", () => {
+    expect(
+      resolveTokenHeader("{not json", "https://api.example.com"),
+    ).toBeNull();
+  });
+
+  test("ignores non-header injection templates", () => {
+    const query = JSON.stringify([
+      {
+        hostPattern: "api.example.com",
+        injectionType: "query",
+        headerName: "",
+      },
+    ]);
+    expect(resolveTokenHeader(query, "https://api.example.com")).toBeNull();
+  });
+
+  test("picks the template whose wildcard host pattern matches the base URL", () => {
+    const templates = JSON.stringify([
+      {
+        hostPattern: "api.other.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      ...JSON.parse(shopify),
+    ]);
+    expect(
+      resolveTokenHeader(templates, "https://example-store.myshopify.com"),
+    ).toEqual({ name: "X-Shopify-Access-Token", valuePrefix: "" });
+  });
+
+  test("falls back to the first header template when the host cannot be matched", () => {
+    // A still-templated base URL is not a parseable URL.
+    expect(resolveTokenHeader(shopify, "https://{tenant_host}")).toEqual({
+      name: "X-Shopify-Access-Token",
+      valuePrefix: "",
+    });
+  });
+
+  test("preserves the Bot prefix for discord_channel", () => {
+    const discord = JSON.stringify([
+      {
+        hostPattern: "discord.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bot ",
+      },
+    ]);
+    expect(resolveTokenHeader(discord, "https://discord.com/api")).toEqual({
+      name: "Authorization",
+      valuePrefix: "Bot ",
+    });
   });
 });

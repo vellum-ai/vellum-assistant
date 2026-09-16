@@ -291,8 +291,30 @@ describe("serializeProviderSummary", () => {
       supports_managed_mode: true,
       managed_service_is_paid: false,
       feature_flag: null,
+      tenant_host: null,
       acts_as: "user",
     });
+  });
+
+  test("exposes the tenant host a per-tenant provider needs at connect", () => {
+    // Shopify's OAuth endpoints live on the merchant's own host, so a client
+    // has to collect it before the managed flow can start. The summary is the
+    // only provider metadata the web client reads, so it carries the ask.
+    const shopify = serializeProviderSummary(makeRow({ provider: "shopify" }))!;
+    expect(shopify.tenant_host).toEqual({
+      pattern: "^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$",
+      label: "Shop domain",
+      placeholder: "your-store.myshopify.com",
+    });
+    expect(
+      new RegExp(shopify.tenant_host!.pattern).test("my-store.myshopify.com"),
+    ).toBe(true);
+    expect(new RegExp(shopify.tenant_host!.pattern).test("evil.com")).toBe(
+      false,
+    );
+    expect(
+      serializeProviderSummary(makeRow({ provider: "github" }))!.tenant_host,
+    ).toBeNull();
   });
 
   test("names which sense of connected a provider represents", () => {

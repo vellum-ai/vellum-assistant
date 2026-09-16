@@ -72,7 +72,7 @@ export interface ClickHouseLlmRequestLogSinkDeps {
   resolveUrl?: () => Promise<string | null>;
   /** Override the credential read for `clickhouse:password`. */
   resolvePassword?: () => Promise<string | null>;
-  /** Override the platform assistant id (in-memory identity, then vault). */
+  /** Override the in-memory platform assistant id. */
   resolveAssistantId?: () => Promise<string | null>;
   /** Override fetch for testing. */
   fetchImpl?: ClickHouseSinkFetch;

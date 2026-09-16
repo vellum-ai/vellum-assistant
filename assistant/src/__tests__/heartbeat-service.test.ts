@@ -557,52 +557,52 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls).toHaveLength(1);
   });
 
-    test("active hours handles overnight window", async () => {
-      setHeartbeatConfig({ activeHoursStart: 22, activeHoursEnd: 6 });
+  test("active hours handles overnight window", async () => {
+    setHeartbeatConfig({ activeHoursStart: 22, activeHoursEnd: 6 });
 
-      // 23:00 should be within the window
-      const service = createService({ getCurrentHour: () => 23 });
-      await service.runOnce();
-      expect(processMessageCalls).toHaveLength(1);
+    // 23:00 should be within the window
+    const service = createService({ getCurrentHour: () => 23 });
+    await service.runOnce();
+    expect(processMessageCalls).toHaveLength(1);
 
-      // 10:00 should be outside the window
-      processMessageCalls.length = 0;
-      createdConversations.length = 0;
-      const service2 = createService({ getCurrentHour: () => 10 });
-      await service2.runOnce();
-      expect(processMessageCalls).toHaveLength(0);
+    // 10:00 should be outside the window
+    processMessageCalls.length = 0;
+    createdConversations.length = 0;
+    const service2 = createService({ getCurrentHour: () => 10 });
+    await service2.runOnce();
+    expect(processMessageCalls).toHaveLength(0);
+  });
+
+  test("active hours guard uses user timezone in interval mode", async () => {
+    setConfig("ui", { detectedTimezone: "America/Los_Angeles" });
+    setHeartbeatConfig({
+      cronExpression: null,
+      timezone: null,
+      activeHoursStart: 8,
+      activeHoursEnd: 22,
     });
 
-    test("active hours guard uses user timezone in interval mode", async () => {
-      setConfig("ui", { detectedTimezone: "America/Los_Angeles" });
-      setHeartbeatConfig({
-        cronExpression: null,
-        timezone: null,
-        activeHoursStart: 8,
-        activeHoursEnd: 22,
-      });
-
-      // 23:00 UTC is 16:00 Pacific (inside 8-22) and 23:00 host-local
-      // (outside 8-22). If the guard still used the host clock this would skip.
-      const inside = createService({
-        now: () => new Date("2026-09-08T23:00:00Z"),
-        getCurrentHour: () => 23,
-      });
-      expect(await inside.runOnce()).toBe(true);
-      expect(processMessageCalls).toHaveLength(1);
-
-      processMessageCalls.length = 0;
-      createdConversations.length = 0;
-
-      // 06:00 UTC is 23:00 Pacific, outside 8-22, even though 6 is inside
-      // a naive UTC 8-22 window.
-      const outside = createService({
-        now: () => new Date("2026-09-09T06:00:00Z"),
-        getCurrentHour: () => 6,
-      });
-      expect(await outside.runOnce()).toBe(false);
-      expect(processMessageCalls).toHaveLength(0);
+    // 23:00 UTC is 16:00 Pacific (inside 8-22) and 23:00 host-local
+    // (outside 8-22). If the guard still used the host clock this would skip.
+    const inside = createService({
+      now: () => new Date("2026-09-08T23:00:00Z"),
+      getCurrentHour: () => 23,
     });
+    expect(await inside.runOnce()).toBe(true);
+    expect(processMessageCalls).toHaveLength(1);
+
+    processMessageCalls.length = 0;
+    createdConversations.length = 0;
+
+    // 06:00 UTC is 23:00 Pacific, outside 8-22, even though 6 is inside
+    // a naive UTC 8-22 window.
+    const outside = createService({
+      now: () => new Date("2026-09-09T06:00:00Z"),
+      getCurrentHour: () => 6,
+    });
+    expect(await outside.runOnce()).toBe(false);
+    expect(processMessageCalls).toHaveLength(0);
+  });
 
   test("overlap prevention works", async () => {
     let resolveFirst: () => void;
@@ -1004,7 +1004,23 @@ describe("HeartbeatService", () => {
         "slack",
       ]);
 
-      expect(prompt).toContain("google, slack");
+      expect(prompt).toContain(
+        "google (integration, acts as the connected person), slack (integration, acts as the connected person)",
+      );
+    });
+
+    test("prompt tells an integration apart from the channel bot of the same name", () => {
+      const service = createService();
+      const { prompt } = service.buildPrompt("- Check things", ["slack"]);
+
+      expect(prompt).toContain(
+        "slack (integration, acts as the connected person)",
+      );
+      expect(prompt).not.toContain("slack_channel");
+      expect(prompt).toContain("A channel bot is the assistant's own identity");
+
+      const bot = service.buildPrompt("- Check things", ["slack_channel"]);
+      expect(bot.prompt).toContain("slack_channel (the slack channel bot)");
     });
   });
 

@@ -356,6 +356,7 @@ export function createHostCuExecutor(
     createCuHelperProxyExecutor({
       logger: log,
       supportsWindowCapture: true,
+      supportsSequence: true,
       resolveHelper: helper ? () => helper : getSharedCuHelper,
     }),
     showCoachmarks,

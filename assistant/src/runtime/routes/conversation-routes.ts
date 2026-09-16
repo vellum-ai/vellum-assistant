@@ -140,7 +140,10 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
-import { isNoResponseMetadata } from "../../persistence/conversation-types.js";
+import {
+  isNoResponseMetadata,
+  messageMetadataIsAmbientSightKeep,
+} from "../../persistence/conversation-types.js";
 import { linkRequestLogsToMessage } from "../../persistence/llm-request-log-store.js";
 import { assistantTextVisibilityOf } from "../../persistence/user-facing-content.js";
 import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
@@ -159,6 +162,7 @@ import {
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../../util/platform.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { getCurrentSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -1037,6 +1041,9 @@ export async function handleListMessages({
     let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     let systemCard: boolean | undefined;
     let noResponse: boolean | undefined;
+    const cameraFrame = messageMetadataIsAmbientSightKeep(msg.metadata)
+      ? true
+      : undefined;
     let reaction: ConversationMessage["reaction"];
     let providerError: ConversationMessage["providerError"];
     let deletedAt: number | undefined;
@@ -1136,6 +1143,7 @@ export async function handleListMessages({
       backgroundToolCompletion,
       systemCard,
       noResponse,
+      cameraFrame,
       reaction,
       providerError,
       slackMessage,
@@ -1353,6 +1361,7 @@ export async function handleListMessages({
           : {}),
         ...(m.systemCard ? { systemCard: true } : {}),
         ...(m.noResponse ? { noResponse: true } : {}),
+        ...(m.cameraFrame ? { cameraFrame: true as const } : {}),
         // The row's own marker, so a client gates per-row presentation on what
         // this row was written with rather than on the live flag.
         ...(m.assistantTextVisibility
@@ -3289,11 +3298,15 @@ async function generateLlmSuggestion(
 ): Promise<string | null> {
   const log = (await import("../../util/logger.js")).getLogger("runtime-http");
   const truncatedAssistant = escapeXmlContent(
-    assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText,
+    assistantText.length > 2000
+      ? safeStringSlice(assistantText, assistantText.length - 2000)
+      : assistantText,
   );
   const truncatedUser =
     priorUserText && priorUserText.length > 500
-      ? escapeXmlContent(priorUserText.slice(-500))
+      ? escapeXmlContent(
+          safeStringSlice(priorUserText, priorUserText.length - 500),
+        )
       : priorUserText
         ? escapeXmlContent(priorUserText)
         : priorUserText;

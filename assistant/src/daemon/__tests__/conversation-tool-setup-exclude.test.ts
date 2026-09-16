@@ -6,6 +6,7 @@
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
 import * as configLoader from "../../config/loader.js";
 import type { AssistantConfig } from "../../config/schema.js";
 import * as disabledState from "../../plugins/disabled-state.js";
@@ -244,4 +245,50 @@ describe("createResolveToolsCallback — config.tools.exclude", () => {
     expect(result.map((d) => d.name)).not.toContain("bash");
     expect(ctx.allowedToolNames?.has("bash")).toBe(false);
   });
+});
+
+test("managed browser guidance follows each turn without changing native or shared tool definitions", () => {
+  const platform = process.env.IS_PLATFORM;
+  const containerized = process.env.IS_CONTAINERIZED;
+  process.env.IS_PLATFORM = "true";
+  process.env.IS_CONTAINERIZED = "true";
+  setOverridesForTesting({ "assistant-desktop": true });
+  const bash = def("bash");
+  const ctx = makeCtx({
+    conversationId: "conv-browser-guidance",
+    transportInterface: "web",
+    currentTurnClientOs: "web",
+    trustContext: { trustClass: "guardian" } as Conversation["trustContext"],
+    getTurnActorPrincipalId: () => "user-123",
+  });
+  const resolve = createResolveToolsCallback([bash], ctx)!;
+  try {
+    expect(
+      resolve([]).find((tool) => tool.name === "bash")?.description,
+    ).toContain("assistant browser navigate");
+    expect(bash.description).toBe("bash");
+    for (const clientOs of ["macos", "windows", "linux"] as const) {
+      ctx.currentTurnClientOs = clientOs;
+      expect(
+        resolve([]).find((tool) => tool.name === "bash")?.description,
+      ).toBe("bash");
+    }
+    ctx.currentTurnClientOs = "web";
+    setOverridesForTesting({ "assistant-desktop": false });
+    expect(resolve([]).find((tool) => tool.name === "bash")?.description).toBe(
+      "bash",
+    );
+  } finally {
+    setOverridesForTesting({});
+    if (platform === undefined) {
+      delete process.env.IS_PLATFORM;
+    } else {
+      process.env.IS_PLATFORM = platform;
+    }
+    if (containerized === undefined) {
+      delete process.env.IS_CONTAINERIZED;
+    } else {
+      process.env.IS_CONTAINERIZED = containerized;
+    }
+  }
 });

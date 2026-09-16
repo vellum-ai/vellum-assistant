@@ -41,11 +41,15 @@ import {
   clearRebuildSentinel,
   initQdrantClient,
 } from "../../../persistence/embeddings/qdrant-client.js";
-import { createQdrantManager } from "../../../persistence/embeddings/qdrant-manager.js";
+import {
+  createQdrantManager,
+  describeQdrantStartFailure,
+} from "../../../persistence/embeddings/qdrant-manager.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
 } from "../../../persistence/jobs-store.js";
+import { recordWatchdogEvent } from "../../../telemetry/watchdog-events-store.js";
 import { resolveQdrantUrl } from "./embeddings.js";
 import { startMemoryJobsWorker } from "./jobs-worker.js";
 import { getLogger } from "./logging.js";
@@ -92,6 +96,23 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
           { err },
           "Qdrant failed to start after all attempts — memory features will be unavailable",
         );
+        // Fleet-wide record of the failure: the step, the exit code and
+        // Qdrant's own reason line, bounded to telemetry-safe metadata by
+        // `describeQdrantStartFailure`. Observational only: the outbox insert
+        // can throw on a locked or half-migrated telemetry DB, and this path
+        // must still reach the worker start below.
+        try {
+          recordWatchdogEvent({
+            checkName: "qdrant_start_failed",
+            value: attempt,
+            detail: { attempts: attempt, ...describeQdrantStartFailure(err) },
+          });
+        } catch (telemetryErr) {
+          log.warn(
+            { err: telemetryErr },
+            "Qdrant start failure could not be recorded to telemetry",
+          );
+        }
       }
     }
   }

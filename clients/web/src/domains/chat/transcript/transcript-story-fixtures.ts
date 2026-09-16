@@ -18,3 +18,26 @@ export function message(
   const msg: DisplayMessage = { id, role, ...textBody(text) };
   return { kind: "message", key: id, message: msg };
 }
+
+export function cameraFrame(
+  id: string,
+  { timestamp, previewUrl }: { timestamp: number; previewUrl?: string },
+): DisplayMessage {
+  return {
+    id,
+    role: "user",
+    timestamp,
+    ...textBody("(camera frame)"),
+    attachments: previewUrl
+      ? [
+          {
+            id: `att-${id}`,
+            filename: `${id}.png`,
+            mimeType: "image/png",
+            sizeBytes: 128,
+            previewUrl,
+          },
+        ]
+      : undefined,
+  };
+}

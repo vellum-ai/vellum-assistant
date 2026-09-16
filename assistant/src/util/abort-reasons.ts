@@ -21,7 +21,18 @@ export type AbortReasonKind =
   /** A signal-file cancel was written by an out-of-process caller (CLI, hook). */
   | "signal_cancel"
   /** Voice session bridge aborted the conversation (turn supersession, call end). */
-  | "voice_session_aborted";
+  | "voice_session_aborted"
+  /**
+   * One spoken progress update ran out of its generation budget.
+   *
+   * Distinct from {@link "voice_session_aborted"} because nothing was aborted
+   * but the update itself: the call is still up, the turn is still running,
+   * and the only consequence is that this beat goes unspoken. Sharing the
+   * session-abort kind made a narrator that had gone fail-open read in the
+   * logs as a session dying over and over, which is the opposite of what the
+   * line means.
+   */
+  | "voice_progress_narration_timeout";
 
 const ABORT_REASON_TAG = "__vellumAbortReason" as const;
 

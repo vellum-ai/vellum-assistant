@@ -126,6 +126,15 @@ export interface DeepSanitizeResult<T> {
   fixedStringCount: number;
 }
 
+export interface DeepSanitizeOptions {
+  /**
+   * Skip a plain-object property entirely: its value is neither scanned nor
+   * copied. For fields known to hold ASCII (base64 payloads), scanning is
+   * pure cost.
+   */
+  skipKey?: (key: string, parent: Record<string, unknown>) => boolean;
+}
+
 /**
  * Recursively walk arrays and plain objects, replacing orphaned surrogates in
  * every string value. Non-plain objects (class instances, Date, Buffer, Map,
@@ -136,8 +145,10 @@ export interface DeepSanitizeResult<T> {
  */
 export function stripOrphanedSurrogatesDeep<T>(
   input: T,
+  options: DeepSanitizeOptions = {},
 ): DeepSanitizeResult<T> {
   let fixedStringCount = 0;
+  const { skipKey } = options;
 
   const walk = (value: unknown): { value: unknown; changed: boolean } => {
     if (typeof value === "string") {
@@ -178,7 +189,10 @@ export function stripOrphanedSurrogatesDeep<T>(
       let next: Record<string, unknown> | null = null;
       for (let i = 0; i < keys.length; i++) {
         const key = keys[i]!;
-        const result = walk(source[key]);
+        const result =
+          skipKey?.(key, source) === true
+            ? { value: source[key], changed: false }
+            : walk(source[key]);
         if (result.changed && next === null) {
           next = {};
           for (let j = 0; j < i; j++) {

@@ -265,7 +265,7 @@ export function ActivationWelcomeModal({
       <Modal.Content
         size="sm"
         hideCloseButton
-        className="max-w-[440px] overflow-hidden"
+        className="max-h-[min(720px,calc(100vh-2rem))] max-w-[440px] overflow-hidden"
       >
         <ActivationWelcomeHeader sheet={false} variant={variant} />
         <div className={cn("min-h-0 flex-1 overflow-y-auto pt-6", PANEL_INSET)}>

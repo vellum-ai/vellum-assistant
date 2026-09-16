@@ -1,6 +1,7 @@
 import CoreGraphics
 import AppKit
 import ApplicationServices
+import MacHelperCore
 import os
 
 enum ExecutorError: LocalizedError {
@@ -42,6 +43,155 @@ final class ActionExecutor {
         eventSource = CGEventSource(stateID: .hidSystemState)
     }
 
+    // MARK: - Yielding to the user
+
+    /// What the runner reports when it stands down. Reaches the model verbatim
+    /// as `executionError`, so it has to say what happened and what to do next.
+    static let userIsActiveMessage = "The user is using the keyboard or mouse right now. Nothing was done. Wait for them to finish, then retry."
+
+    /// When we last posted an event of our own. Static because a fresh
+    /// `ActionExecutor` is built for every computer-use step, and the post this
+    /// has to recognize is usually the previous step's, not this one's. Locked
+    /// because posts happen inside the nonisolated `execute` while the runner
+    /// reads it from the main actor, and two steps can interleave.
+    private static let lastSyntheticPostAt = OSAllocatedUnfairLock<Date?>(initialState: nil)
+    /// When the latest synthetic span began. A posted event is an instant, so
+    /// it leaves this nil; an input-driving AppleScript emits its events at
+    /// unknown points while it runs, so its whole run is the span.
+    private static let syntheticSpanStart = OSAllocatedUnfairLock<Date?>(initialState: nil)
+
+    /// Every synthetic event goes through here so the last-post clock can never
+    /// drift out of sync with what we actually put on the wire.
+    private func postSynthetic(_ event: CGEvent, tap: CGEventTapLocation = .cghidEventTap) {
+        event.post(tap: tap)
+        Self.syntheticSpanStart.withLock { $0 = nil }
+        Self.lastSyntheticPostAt.withLock { $0 = Date() }
+    }
+
+    /// `kCGAnyInputEventType`, which no Swift overlay constant exposes. Asking
+    /// about one event type at a time misses whichever kinds are left off the
+    /// list: a drag past the quiet window reports `.leftMouseDragged` and not
+    /// `.mouseMoved`, so watching moves and clicks alone would call a person
+    /// who is mid-gesture idle and inject into the gesture.
+    private static let anyInputEventType = CGEventType(rawValue: ~UInt32(0))!
+
+    /// The modifiers a person holds as part of a gesture. Caps Lock stays out
+    /// because it latches for whole sessions.
+    private static let heldModifierMask: CGEventFlags = [.maskCommand, .maskShift, .maskAlternate, .maskControl]
+
+    /// True when the person at the machine is typing, moving the mouse, or
+    /// holding a button or modifier right now, which is when we should stand
+    /// down rather than fight them for it. Our own posts pair every button
+    /// down with an up, but steps overlap, and a synthetic shortcut's flags may
+    /// still read as held after it returns, so both are judged by
+    /// `UserActivityGate.heldByUser` against our last post.
+    static func userIsCurrentlyActive() -> Bool {
+        let state = CGEventSourceStateID.combinedSessionState
+        let now = Date()
+        let lastPost = lastSyntheticPostAt.withLock { $0 }
+        let secondsSinceLastInput = CGEventSource.secondsSinceLastEventType(
+            state,
+            eventType: anyInputEventType
+        )
+        let buttonHeld = UserActivityGate.heldByUser(
+            now: now,
+            inputDown: [CGMouseButton.left, .right, .center].contains {
+                CGEventSource.buttonState(state, button: $0)
+            },
+            secondsSinceLastChange: [CGEventType.leftMouseDown, .rightMouseDown, .otherMouseDown]
+                .map { CGEventSource.secondsSinceLastEventType(state, eventType: $0) }
+                .min() ?? .greatestFiniteMagnitude,
+            lastSyntheticPostAt: lastPost
+        )
+        let modifierHeld = UserActivityGate.heldByUser(
+            now: now,
+            inputDown: !CGEventSource.flagsState(state).intersection(heldModifierMask).isEmpty,
+            secondsSinceLastChange: CGEventSource.secondsSinceLastEventType(state, eventType: .flagsChanged),
+            lastSyntheticPostAt: lastPost
+        )
+        return UserActivityGate.userIsActive(
+            now: now,
+            lastSyntheticPostAt: lastPost,
+            secondsSinceLastInput: secondsSinceLastInput,
+            buttonHeld: buttonHeld,
+            modifierHeld: modifierHeld,
+            syntheticSpanStart: syntheticSpanStart.withLock { $0 }
+        )
+    }
+
+    /// Whether running `action` takes the machine away from whoever is using
+    /// it. Posting to the global tap does, and so does activating an app: it
+    /// moves keyboard focus, so the next thing the user types lands somewhere
+    /// they were not looking. `runAppleScript` is gated only when the script
+    /// drives System Events or activates an app. Otherwise it asks an app to do
+    /// something instead of seizing the input devices, and gating it would
+    /// leave the polite route as blocked as the rude one.
+    static func takesOverFromUser(_ action: AgentAction) -> Bool {
+        switch action.type {
+        case .click, .doubleClick, .rightClick, .type, .key, .scroll, .drag, .openApp:
+            return true
+        case .runAppleScript:
+            return action.script.map(AppleScriptInputTakeover.takesOver(script:)) ?? false
+        case .wait, .done, .respond:
+            return false
+        }
+    }
+
+    // MARK: - Giving the pointer back
+
+    /// Where the person's pointer was before this task first moved it, and
+    /// where the task last put it. The pointer stays where an action leaves it
+    /// while the task runs, because hover-revealed controls (Slack's message
+    /// actions, most web toolbars) disappear the moment it leaves. It goes
+    /// home when the task says it is done, or once no pointer action has come
+    /// for `pointerReturnDelay`.
+    private struct PointerHome {
+        var home: CGPoint
+        var placed: CGPoint
+        var generation: Int
+    }
+
+    private static let pointerHome = OSAllocatedUnfairLock<PointerHome?>(initialState: nil)
+    static let pointerReturnDelay: TimeInterval = 10
+
+    /// Records that the task is putting the pointer at `point`, saving the
+    /// person's position on the first move, and schedules the return.
+    private static func notePointerPlaced(at point: CGPoint) {
+        let current = CGEvent(source: nil)?.location
+        let generation = pointerHome.withLock { state -> Int? in
+            if var existing = state {
+                existing.placed = point
+                existing.generation += 1
+                state = existing
+                return existing.generation
+            }
+            guard let current else { return nil }
+            state = PointerHome(home: current, placed: point, generation: 0)
+            return 0
+        }
+        guard let generation else { return }
+        DispatchQueue.global().asyncAfter(deadline: .now() + pointerReturnDelay) {
+            returnPointerHome(ifGeneration: generation)
+        }
+    }
+
+    /// Puts the pointer back where the person left it. With a generation, only
+    /// if no pointer action has happened since that one was scheduled. If the
+    /// pointer is no longer where the task put it, the person has taken the
+    /// mouse back, so it is theirs and stays put.
+    static func returnPointerHome(ifGeneration generation: Int? = nil) {
+        let state = pointerHome.withLock { state -> PointerHome? in
+            guard let existing = state, generation == nil || existing.generation == generation else { return nil }
+            state = nil
+            return existing
+        }
+        guard let state, let current = CGEvent(source: nil)?.location else { return }
+        guard abs(current.x - state.placed.x) <= 2, abs(current.y - state.placed.y) <= 2 else { return }
+        CGWarpMouseCursorPosition(state.home)
+        CGAssociateMouseAndMouseCursorPosition(1)
+        lastSyntheticPostAt.withLock { $0 = Date() }
+    }
+
     static func checkAccessibilityPermission(prompt: Bool = false) -> Bool {
         let promptKey = "AXTrustedCheckOptionPrompt" as CFString
         let options = [promptKey: prompt] as CFDictionary
@@ -57,13 +207,13 @@ final class ActionExecutor {
         guard let mouseDown = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left) else {
             throw ExecutorError.eventCreationFailed
         }
-        mouseDown.post(tap: .cghidEventTap)
+        postSynthetic(mouseDown)
         usleep(50_000)
 
         guard let mouseUp = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else {
             throw ExecutorError.eventCreationFailed
         }
-        mouseUp.post(tap: .cghidEventTap)
+        postSynthetic(mouseUp)
     }
 
     func doubleClick(at point: CGPoint) throws {
@@ -74,14 +224,14 @@ final class ActionExecutor {
             throw ExecutorError.eventCreationFailed
         }
         mouseDown.setIntegerValueField(.mouseEventClickState, value: 2)
-        mouseDown.post(tap: .cghidEventTap)
+        postSynthetic(mouseDown)
         usleep(50_000)
 
         guard let mouseUp = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else {
             throw ExecutorError.eventCreationFailed
         }
         mouseUp.setIntegerValueField(.mouseEventClickState, value: 2)
-        mouseUp.post(tap: .cghidEventTap)
+        postSynthetic(mouseUp)
     }
 
     func rightClick(at point: CGPoint) throws {
@@ -91,20 +241,21 @@ final class ActionExecutor {
         guard let mouseDown = CGEvent(mouseEventSource: eventSource, mouseType: .rightMouseDown, mouseCursorPosition: point, mouseButton: .right) else {
             throw ExecutorError.eventCreationFailed
         }
-        mouseDown.post(tap: .cghidEventTap)
+        postSynthetic(mouseDown)
         usleep(50_000)
 
         guard let mouseUp = CGEvent(mouseEventSource: eventSource, mouseType: .rightMouseUp, mouseCursorPosition: point, mouseButton: .right) else {
             throw ExecutorError.eventCreationFailed
         }
-        mouseUp.post(tap: .cghidEventTap)
+        postSynthetic(mouseUp)
     }
 
     private func mouseMove(to point: CGPoint) throws {
+        Self.notePointerPlaced(at: point)
         guard let moveEvent = CGEvent(mouseEventSource: eventSource, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else {
             throw ExecutorError.eventCreationFailed
         }
-        moveEvent.post(tap: .cghidEventTap)
+        postSynthetic(moveEvent)
     }
 
     // MARK: - Keyboard Actions
@@ -189,21 +340,25 @@ final class ActionExecutor {
             throw ExecutorError.eventCreationFailed
         }
         keyDown.flags = modifiers
-        keyDown.post(tap: .cghidEventTap)
+        postSynthetic(keyDown)
         usleep(50_000)
 
         guard let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCode, keyDown: false) else {
             throw ExecutorError.eventCreationFailed
         }
         keyUp.flags = modifiers
-        keyUp.post(tap: .cghidEventTap)
+        postSynthetic(keyUp)
     }
 
     // MARK: - Scroll
 
-    func scroll(at point: CGPoint, direction: String, amount: Int) throws {
-        try mouseMove(to: point)
-        usleep(30_000)
+    /// Scrolls at `point`, or wherever the pointer already is when `point` is
+    /// nil, which leaves the pointer alone.
+    func scroll(at point: CGPoint?, direction: String, amount: Int) throws {
+        if let point {
+            try mouseMove(to: point)
+            usleep(30_000)
+        }
 
         let multiplier = amount * 5
         var dy: Int32 = 0
@@ -220,7 +375,7 @@ final class ActionExecutor {
         guard let scrollEvent = CGEvent(scrollWheelEvent2Source: eventSource, units: .pixel, wheelCount: 2, wheel1: dy, wheel2: dx, wheel3: 0) else {
             throw ExecutorError.eventCreationFailed
         }
-        scrollEvent.post(tap: .cgSessionEventTap)
+        postSynthetic(scrollEvent, tap: .cgSessionEventTap)
     }
 
     // MARK: - Dispatch
@@ -244,11 +399,10 @@ final class ActionExecutor {
             guard let key = action.key else { throw ExecutorError.missingKey }
             try pressKey(key)
         case .scroll:
-            let x = action.x ?? 0
-            let y = action.y ?? 0
+            let point = action.x.flatMap { x in action.y.map { CGPoint(x: x, y: $0) } }
             let direction = action.scrollDirection ?? "down"
             let amount = action.scrollAmount ?? 3
-            try scroll(at: CGPoint(x: x, y: y), direction: direction, amount: amount)
+            try scroll(at: point, direction: direction, amount: amount)
         case .drag:
             guard let fromX = action.x, let fromY = action.y else { throw ExecutorError.missingCoordinates }
             guard let endX = action.toX, let endY = action.toY else { throw ExecutorError.missingCoordinates }
@@ -258,6 +412,17 @@ final class ActionExecutor {
             try await openApp(name: appName)
         case .runAppleScript:
             guard let source = action.script else { throw ExecutorError.appleScriptMissingScript }
+            // A script that drives System Events posts real input the helper
+            // never sees, which would read as the person using the machine and
+            // refuse the next step. Its run becomes a synthetic span.
+            guard AppleScriptInputTakeover.takesOver(script: source) else {
+                return try await runAppleScript(source)
+            }
+            let start = Date()
+            defer {
+                Self.syntheticSpanStart.withLock { $0 = start }
+                Self.lastSyntheticPostAt.withLock { $0 = Date() }
+            }
             return try await runAppleScript(source)
         case .wait:
             let ms = action.waitDuration ?? 500
@@ -329,7 +494,7 @@ final class ActionExecutor {
         guard let mouseDown = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseDown, mouseCursorPosition: startPoint, mouseButton: .left) else {
             throw ExecutorError.eventCreationFailed
         }
-        mouseDown.post(tap: .cghidEventTap)
+        postSynthetic(mouseDown)
         usleep(50_000)
 
         // Interpolate drag path for smooth movement
@@ -343,14 +508,15 @@ final class ActionExecutor {
             guard let dragEvent = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseDragged, mouseCursorPosition: point, mouseButton: .left) else {
                 throw ExecutorError.eventCreationFailed
             }
-            dragEvent.post(tap: .cghidEventTap)
+            postSynthetic(dragEvent)
             usleep(10_000)
         }
 
+        Self.notePointerPlaced(at: endPoint)
         guard let mouseUp = CGEvent(mouseEventSource: eventSource, mouseType: .leftMouseUp, mouseCursorPosition: endPoint, mouseButton: .left) else {
             throw ExecutorError.eventCreationFailed
         }
-        mouseUp.post(tap: .cghidEventTap)
+        postSynthetic(mouseUp)
     }
 
     // MARK: - Open App

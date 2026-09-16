@@ -37,8 +37,10 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   monday: publicAsset("/images/integrations/monday.svg"),
   notion: publicAsset("/images/integrations/notion.svg"),
   outlook: publicAsset("/images/integrations/outlook.png"),
+  quickbooks: publicAsset("/images/integrations/quickbooks.svg"),
   salesforce: publicAsset("/images/integrations/salesforce.svg"),
   sanity: publicAsset("/images/integrations/sanity.svg"),
+  shopify: publicAsset("/images/integrations/shopify.svg"),
   slack: publicAsset("/images/integrations/slack.svg"),
   slack_channel: publicAsset("/images/integrations/slack.svg"),
   spotify: publicAsset("/images/integrations/spotify.svg"),
@@ -46,6 +48,16 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   telegram: publicAsset("/images/integrations/telegram.svg"),
   todoist: publicAsset("/images/integrations/todoist.svg"),
   twitter: publicAsset("/images/integrations/x.svg"),
+};
+
+/**
+ * Whether a logo ships for a provider key, as opposed to the initials avatar
+ * drawn for one that has none. For a surface that names a service it cannot
+ * be sure is an integration, where initials would read as someone's avatar.
+ */
+export const hasBundledIntegrationLogo = (providerKey: string): boolean => {
+  const key = providerKey.toLowerCase();
+  return key === "google" || Object.hasOwn(BUNDLED_LOGO_URLS, key);
 };
 
 // Deterministic avatar palette. Each slot is a distinct hue so adjacent

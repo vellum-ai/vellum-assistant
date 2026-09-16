@@ -532,6 +532,28 @@ describe("credentials routes", () => {
       );
     });
 
+    test("stores a pasted Claude token without touching leftover refresh material", async () => {
+      secureStore.set("acp:claude_oauth_refresh_token", "stale-refresh");
+      secureStore.set("acp:claude_oauth_expires_at", "111");
+
+      await setRoute!.handler({
+        body: {
+          service: "acp",
+          field: "claude_oauth_token",
+          value: "sk-ant-oat01-pasted-token",
+        },
+      });
+
+      expect(secureStore.get("acp:claude_oauth_token")).toBe(
+        "sk-ant-oat01-pasted-token",
+      );
+      expect(secureStore.get("acp:claude_oauth_refresh_token")).toBe(
+        "stale-refresh",
+      );
+      expect(secureStore.get("acp:claude_oauth_expires_at")).toBe("111");
+    });
+
+
     test("a successful set scrubs the normalized value from transcripts exactly once", async () => {
       /**
        * The pasted plaintext may already sit in recent transcripts, so a
@@ -1300,6 +1322,22 @@ describe("credentials routes", () => {
 
       // THEN it rejects with a BadRequestError
       await expect(call).rejects.toBeInstanceOf(BadRequestError);
+    });
+
+    test("deletes only the requested Claude access-token field", async () => {
+      secureStore.set("acp:claude_oauth_token", "sk-ant-oat01-connected");
+      secureStore.set("acp:claude_oauth_refresh_token", "refresh-leftover");
+      secureStore.set("acp:claude_oauth_expires_at", "111");
+
+      await deleteRoute!.handler({
+        body: { service: "acp", field: "claude_oauth_token" },
+      });
+
+      expect(secureStore.has("acp:claude_oauth_token")).toBe(false);
+      expect(secureStore.get("acp:claude_oauth_refresh_token")).toBe(
+        "refresh-leftover",
+      );
+      expect(secureStore.get("acp:claude_oauth_expires_at")).toBe("111");
     });
   });
 });

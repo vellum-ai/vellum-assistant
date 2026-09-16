@@ -110,8 +110,7 @@ describe("platform callback registration", () => {
   test("resolves managed callback context from stored credentials", async () => {
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      "11111111-2222-4333-8444-555555555555";
+    mockPlatformAssistantId = "11111111-2222-4333-8444-555555555555";
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "ast-managed-key";
 
@@ -129,8 +128,7 @@ describe("platform callback registration", () => {
     mockIsPlatform = false;
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      "22222222-3333-4444-8555-666666666666";
+    mockPlatformAssistantId = "22222222-3333-4444-8555-666666666666";
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "ast-self-hosted-key";
 
@@ -161,8 +159,7 @@ describe("platform callback registration", () => {
   test("registerCallbackRoute falls back to assistant API key auth", async () => {
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      "11111111-2222-4333-8444-555555555555";
+    mockPlatformAssistantId = "11111111-2222-4333-8444-555555555555";
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "ast-managed-key";
 
@@ -209,8 +206,7 @@ describe("platform callback registration", () => {
     };
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      "22222222-3333-4444-8555-666666666666";
+    mockPlatformAssistantId = "22222222-3333-4444-8555-666666666666";
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "ast-self-hosted-key";
 
@@ -251,8 +247,7 @@ describe("platform callback registration", () => {
     setIngressPublicBaseUrl("https://detected.example.com/");
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      "22222222-3333-4444-8555-666666666666";
+    mockPlatformAssistantId = "22222222-3333-4444-8555-666666666666";
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "ast-self-hosted-key";
 
@@ -292,8 +287,7 @@ describe("platform callback registration", () => {
     mockConfig = {};
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      "22222222-3333-4444-8555-666666666666";
+    mockPlatformAssistantId = "22222222-3333-4444-8555-666666666666";
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "ast-self-hosted-key";
 
@@ -334,8 +328,7 @@ describe("platform callback registration", () => {
     mockConfig = { ingress: { publicBaseUrl: "https://velay.example.com" } };
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      "11111111-2222-4333-8444-555555555555";
+    mockPlatformAssistantId = "11111111-2222-4333-8444-555555555555";
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "ast-managed-key";
 
@@ -396,8 +389,7 @@ describe("resolveCallbackUrl resolution order", () => {
   function seedPlatformCredentials(): void {
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       "https://platform.example.com";
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      "11111111-2222-4333-8444-555555555555";
+    mockPlatformAssistantId = "11111111-2222-4333-8444-555555555555";
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "ast-managed-key";
   }

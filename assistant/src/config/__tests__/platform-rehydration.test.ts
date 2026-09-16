@@ -27,6 +27,8 @@ const {
   setPlatformOrganizationId,
   setPlatformUserId,
 } = await import("../env.js");
+const { _resetPlatformIdentityEnsureForTests } =
+  await import("../platform-identity.js");
 const { rehydratePlatformCredentials } =
   await import("../platform-rehydration.js");
 
@@ -72,6 +74,7 @@ describe("rehydratePlatformCredentials", () => {
     setPlatformAssistantId(undefined);
     setPlatformOrganizationId(undefined);
     setPlatformUserId(undefined);
+    _resetPlatformIdentityEnsureForTests();
   });
 
   afterEach(() => {
@@ -102,7 +105,7 @@ describe("rehydratePlatformCredentials", () => {
     setPlatformUserId(undefined);
   });
 
-  test("rehydrates base URL and all platform IDs from the credential store", async () => {
+  test("rehydrates the platform base URL from the credential store", async () => {
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] = PROD_URL;
     mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
       ASSISTANT_ID;
@@ -113,21 +116,18 @@ describe("rehydratePlatformCredentials", () => {
     await rehydratePlatformCredentials();
 
     expect(getPlatformBaseUrl()).toBe(PROD_URL);
-    expect(getPlatformAssistantId()).toBe(ASSISTANT_ID);
-    expect(getPlatformOrganizationId()).toBe(ORG_ID);
-    expect(getPlatformUserId()).toBe(USER_ID);
+    expect(getPlatformAssistantId()).toBe("");
+    expect(getPlatformOrganizationId()).toBe("");
+    expect(getPlatformUserId()).toBe("");
   });
 
   test("trims stored values before applying them", async () => {
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] =
       `  ${PROD_URL}  `;
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      `\n${ASSISTANT_ID}\n`;
 
     await rehydratePlatformCredentials();
 
     expect(getPlatformBaseUrl()).toBe(PROD_URL);
-    expect(getPlatformAssistantId()).toBe(ASSISTANT_ID);
   });
 
   test("leaves overrides untouched when nothing is stored", async () => {
@@ -138,14 +138,11 @@ describe("rehydratePlatformCredentials", () => {
     expect(getPlatformUserId()).toBe("");
   });
 
-  test("a per-field read failure does not block the remaining fields", async () => {
+  test("a credential-store read failure does not throw", async () => {
     throwForKey = credentialKey("vellum", "platform_base_url");
-    mockSecureKeys[credentialKey("vellum", "platform_assistant_id")] =
-      ASSISTANT_ID;
 
-    await rehydratePlatformCredentials();
-
-    expect(getPlatformAssistantId()).toBe(ASSISTANT_ID);
+    await expect(rehydratePlatformCredentials()).resolves.toBeUndefined();
+    expect(getPlatformAssistantId()).toBe("");
   });
 
   test("trades the assistant API key for ids via platform validate", async () => {
@@ -175,7 +172,7 @@ describe("rehydratePlatformCredentials", () => {
     expect(getPlatformUserId()).toBe(USER_ID);
   });
 
-  test("validate ids win over vault leftovers", async () => {
+  test("validate ids are used when the vault also has a copy", async () => {
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] = PROD_URL;
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "assistant-key";
@@ -196,7 +193,7 @@ describe("rehydratePlatformCredentials", () => {
     expect(getPlatformAssistantId()).toBe(ASSISTANT_ID);
   });
 
-  test("falls back to the credential store when validate is unreachable", async () => {
+  test("does not populate ids from the vault when validate is unreachable", async () => {
     mockSecureKeys[credentialKey("vellum", "platform_base_url")] = PROD_URL;
     mockSecureKeys[credentialKey("vellum", "assistant_api_key")] =
       "assistant-key";
@@ -211,8 +208,8 @@ describe("rehydratePlatformCredentials", () => {
 
     await rehydratePlatformCredentials();
 
-    expect(getPlatformAssistantId()).toBe(ASSISTANT_ID);
-    expect(getPlatformOrganizationId()).toBe(ORG_ID);
-    expect(getPlatformUserId()).toBe(USER_ID);
+    expect(getPlatformAssistantId()).toBe("");
+    expect(getPlatformOrganizationId()).toBe("");
+    expect(getPlatformUserId()).toBe("");
   });
 });

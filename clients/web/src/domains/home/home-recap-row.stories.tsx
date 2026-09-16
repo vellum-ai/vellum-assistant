@@ -84,7 +84,7 @@ export const SkillUpdated: Story = {
       id: "feed-skill-updated",
       title: "Skill updated: Weekly Report Export",
       summary:
-        'Updated the skill "Weekly Report Export" from something learned in an earlier conversation.',
+        "Added the retry after an expired session and the export endpoint that held steady.",
       category: "background",
       urgency: "low",
       conversationId: FIXTURE_CONVERSATION_ID,

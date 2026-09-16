@@ -24,11 +24,16 @@ export function formatFriendlyDate(
   });
 }
 
-/** Hour and minute, the shape every inline timestamp here shows. */
-function formatTimeOfDay(date: Date, locale: string = formatLocale()): string {
+/** Local time, with optional seconds for closely spaced events. */
+function formatTimeOfDay(
+  date: Date,
+  locale: string = formatLocale(),
+  includeSeconds = false,
+): string {
   return date.toLocaleTimeString(locale, {
     hour: "numeric",
     minute: "2-digit",
+    ...(includeSeconds ? { second: "2-digit" as const } : {}),
   });
 }
 
@@ -111,12 +116,13 @@ export function formatRelativeDate(dateStr: string | null | undefined): string {
  */
 export function formatCompactLocalDate(
   dateStr: string | null | undefined,
+  options?: { includeSeconds?: boolean },
 ): string {
   if (!dateStr) {
     return "";
   }
   const date = new Date(dateStr);
-  return `${formatFriendlyDate(date)}, ${formatTimeOfDay(date)}`;
+  return `${formatFriendlyDate(date)}, ${formatTimeOfDay(date, formatLocale(), options?.includeSeconds)}`;
 }
 
 /**
@@ -136,5 +142,18 @@ export function formatFullLocalDate(
     hour: "numeric",
     minute: "2-digit",
     timeZoneName: "short",
+  });
+}
+
+/** Compact 24-hour labels keep seconds visible in narrow attachment tiles. */
+export function formatLocalTimeWithSeconds(
+  timestamp: number,
+  locale: string = formatLocale(),
+): string {
+  return new Date(timestamp).toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
   });
 }
