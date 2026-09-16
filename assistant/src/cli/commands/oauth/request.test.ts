@@ -111,16 +111,32 @@ async function runRequestCommand(
     const callback = callbackOf(rest);
     if (callback) {
       if (options.holdStderr) {
-        heldStderrCallbacks.push(callback);
+        heldStderrCallbacks.push(holdCallback(callback));
       } else {
         callback();
       }
     }
     return true;
   }) as typeof process.stderr.write;
-  process.exit = ((code?: number) => {
+  const recordExit = ((code?: number) => {
     exitCalls.push(code ?? Number(process.exitCode ?? 0));
   }) as typeof process.exit;
+  process.exit = recordExit;
+  // A held callback runs after this function has restored the real
+  // `process.exit`, so it reinstalls the recorder for the duration of the
+  // call; the exit it triggers must land in `exitCalls`, never end the test
+  // process.
+  const holdCallback = (callback: () => void): (() => void) => {
+    return () => {
+      const current = process.exit;
+      process.exit = recordExit;
+      try {
+        callback();
+      } finally {
+        process.exit = current;
+      }
+    };
+  };
 
   try {
     const program = new Command();
