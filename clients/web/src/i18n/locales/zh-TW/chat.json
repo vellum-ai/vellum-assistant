@@ -683,10 +683,6 @@
     "copied": "已複製",
     "copy": "複製"
   },
-  "copyButton": {
-    "copied": "已複製",
-    "copyFailed": "無法複製到剪貼簿。"
-  },
   "copyIdToClipboard": {
     "conversationCopied": "對話 ID 已複製到剪貼簿。",
     "conversationFailed": "無法複製對話 ID。",
