@@ -291,9 +291,9 @@ function drop(
 
 /**
  * The chat kind an update belongs to, read before normalization so the
- * route can decide whether it needs the bot's identity at all: a private
- * chat is admitted without one, so a private-only deployment never pays the
- * `getMe` call.
+ * route can decide whether it needs the bot's identity at all: only a group
+ * or supergroup is admitted on a mention, so a private-only deployment never
+ * pays the `getMe` call.
  */
 export function telegramUpdateChatType(
   payload: Record<string, unknown>,
