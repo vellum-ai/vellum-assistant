@@ -5,70 +5,18 @@
  * JSON dump buried the thing the reader actually cares about (which tool ran,
  * with which parameters) one level down, wrapped in machine plumbing. This
  * renderer unwraps it: the inner tool leads, the activity sentence explains it,
- * and the inner parameters render as a labelled list instead of JSON.
+ * and the inner parameters render as labelled fields instead of JSON.
  */
 
 import { Plug } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
-import { DetailDisclosure } from "@/domains/chat/components/tool-activity/detail-disclosure";
+import { ToolInputParameters } from "@/domains/chat/components/tool-activity/tool-input-parameters";
 import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
 import { parseSkillExecuteActivity } from "@/domains/chat/utils/skill-activity";
-import type { SkillExecuteParam } from "@/domains/chat/utils/skill-activity";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import { useTranslation } from "@/i18n";
-
-/**
- * Scalar strings longer than this render in their own wrapped block rather
- * than inline beside the key, so a long prompt or file body stays readable
- * instead of squeezing the label column.
- */
-const INLINE_SCALAR_MAX_CHARS = 48;
-
-function ParamRow({ param }: { param: SkillExecuteParam }) {
-  const inline =
-    param.scalar !== null &&
-    param.scalar.length <= INLINE_SCALAR_MAX_CHARS &&
-    !param.scalar.includes("\n");
-
-  return (
-    <div
-      className={
-        inline ? "flex items-baseline justify-between gap-4" : "flex flex-col"
-      }
-    >
-      {/* `leading-5` is deliberate: the `body-small-default` token ships
-          `line-height: 1`, which clips the descenders on keys like `template`
-          and `config`. */}
-      <Typography
-        variant="body-small-default"
-        as="div"
-        className="shrink-0 font-mono leading-5 text-[var(--content-tertiary)]"
-      >
-        {param.key}
-      </Typography>
-      {param.scalar !== null ? (
-        <Typography
-          variant="body-medium-default"
-          as="div"
-          className={
-            inline
-              ? "min-w-0 truncate text-right text-[var(--content-default)]"
-              : "mt-1.5 whitespace-pre-wrap break-words rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3 leading-relaxed text-[var(--content-default)]"
-          }
-        >
-          {param.scalar}
-        </Typography>
-      ) : (
-        <div className="mt-1.5">
-          <CodeBlock text={param.json ?? ""} />
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function SkillExecuteDetail({
   detail,
@@ -120,20 +68,7 @@ export function SkillExecuteDetail({
         </Typography>
       )}
 
-      {params.length > 0 && (
-        <div>
-          <SectionLabel>{t("skillExecuteDetail.parameters")}</SectionLabel>
-          <div className="flex flex-col gap-4 rounded-lg border border-[var(--border-base)] p-4">
-            {params.map((param) => (
-              <ParamRow key={param.key} param={param} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <DetailDisclosure label={t("skillExecuteDetail.rawInput")}>
-        <CodeBlock text={JSON.stringify(detail.input, null, 2)} />
-      </DetailDisclosure>
+      <ToolInputParameters params={params} rawInput={detail.input} />
     </div>
   );
 }

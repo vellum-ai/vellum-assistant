@@ -702,6 +702,77 @@ describe("POST oauth/request", () => {
   // bot's token is stored by the channel's setup, so the OAuth status and
   // connect commands cannot repair it; the hint must name the channel's own
   // diagnostics, through whichever door the request came.
+  // A 403 carrying an HTML page is a resource refusing this identity, not the
+  // credential failing: an API refuses with JSON, and the same token serves
+  // it. The hint names the resource's access and never tells the caller to
+  // reconnect; a JSON 403 from any host keeps the credential reading.
+  test("an HTML 403 names the resource's access, not the credential", async () => {
+    mockProviders.slack_channel = seededProvider("slack_channel");
+    mockResolveResponse = {
+      status: 403,
+      headers: { "content-type": "text/html; charset=utf-8" },
+      body: "<html><title>Slack</title></html>",
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "https://files.slack.com/files-pri/T0123-F0456/download/shot.png",
+        },
+      }),
+    )) as { ok: boolean; status: number; hint?: string };
+    expect(result.ok).toBe(false);
+    expect(result.hint).toContain("HTML page from files.slack.com");
+    expect(result.hint).toContain("cannot see this resource");
+    expect(result.hint).not.toContain("was rejected");
+    expect(result.hint).not.toContain("setup skill");
+
+    // A JSON 403 is an API refusal and keeps the credential reading, on the
+    // API host and on a provider's other API hosts alike.
+    mockResolveResponse = {
+      status: 403,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "missing_scope" },
+    };
+    const apiResult = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: { provider: "slack_channel", url: "/conversations.history" },
+      }),
+    )) as { hint?: string };
+    expect(apiResult.hint).toContain("slack bot credential was rejected");
+
+    mockProviders.google = {
+      ...baseProvider,
+      injectionTemplates: JSON.stringify([
+        {
+          hostPattern: "gmail.googleapis.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+        {
+          hostPattern: "calendar.googleapis.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ]),
+      baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+    };
+    const otherApi = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://calendar.googleapis.com/calendar/v3/calendars/primary",
+        },
+      }),
+    )) as { hint?: string };
+    expect(otherApi.hint).toContain(
+      "The OAuth token may be expired or revoked",
+    );
+    expect(otherApi.hint).not.toContain("cannot see this resource");
+  });
+
   test("401 as a channel bot points at the channel's diagnostics, never the OAuth commands", async () => {
     mockProviders.slack_channel = {
       ...baseProvider,

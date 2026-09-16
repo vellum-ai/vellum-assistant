@@ -443,7 +443,7 @@ Runtime detects needs_confirmation
 | `assistant/src/channels/gateway-guardian-requests.ts`   | Typed daemon client for the gateway-owned `guardian_requests` lifecycle (`guardian_requests_create` / `_decide` / `_list_expired_pending` / `_expire`)                  |
 | `assistant/src/runtime/gateway-client.ts`               | `deliverApprovalPrompt()` — sends approval payload to gateway                                                                                                           |
 | `gateway/src/telegram/send.ts`                          | `buildInlineKeyboard()` — renders approval actions as Telegram inline buttons                                                                                           |
-| `gateway/src/telegram/normalize.ts`                     | `callback_query` normalization into `GatewayInboundEvent` (DM-only, drops callbacks without data)                                                                       |
+| `gateway/src/telegram/normalize.ts`                     | `callback_query` normalization into `GatewayInboundEvent` (private chats, groups, and supergroups; drops callbacks without data)                                        |
 
 ### Approval Message Composer
 

@@ -1620,8 +1620,6 @@
     "titleFallback": "技能"
   },
   "skillExecuteDetail": {
-    "parameters": "参数",
-    "rawInput": "原始输入",
     "runningSuffix": " · 正在运行"
   },
   "skillLoadCard": {
@@ -1756,10 +1754,16 @@
     "command": "命令",
     "denied": "此工具调用未获批准，因此没有运行。",
     "emptyOutput": "该工具没有返回任何输出。",
-    "input": "输入",
     "output": "输出",
     "requestedChanges": "请求的更改",
     "running": "正在运行…"
+  },
+  "toolInputParameters": {
+    "parameters": "参数",
+    "rawInput": "原始输入"
+  },
+  "toolParamFields": {
+    "moreCount": "{count, plural, other {另有 # 项，见“原始输入”}}"
   },
   "toolStepPill": {
     "openAria": "打开 {label}",

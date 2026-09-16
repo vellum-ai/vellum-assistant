@@ -61,7 +61,6 @@ describe("secure-keys", () => {
     delete process.env.VELLUM_DESKTOP_APP;
     delete process.env.IS_CONTAINERIZED;
     delete process.env.CES_CREDENTIAL_URL;
-    delete process.env.CES_LOCAL_SOCKET;
   });
 
   afterAll(() => {
@@ -77,6 +76,13 @@ describe("secure-keys", () => {
     test("set and get a key", async () => {
       await setSecureKeyAsync("openai", "sk-openai-789");
       expect(await getSecureKeyAsync("openai")).toBe("sk-openai-789");
+    });
+
+    test("does not poll for a CES socket when none is present", async () => {
+      const start = Date.now();
+      await getSecureKeyAsync("openai");
+      expect(Date.now() - start).toBeLessThan(1_000);
+      expect(getActiveBackendName()).toBe("encrypted-store");
     });
 
     test("get returns undefined for nonexistent key", async () => {
@@ -552,7 +558,6 @@ describe("secure-keys", () => {
     test("reads report unreachable (indeterminate), never absent", async () => {
       process.env.IS_CONTAINERIZED = "1";
       delete process.env.CES_CREDENTIAL_URL;
-      delete process.env.CES_LOCAL_SOCKET;
       _resetBackend();
 
       const result = await getSecureKeyResultAsync("openai");
@@ -564,7 +569,6 @@ describe("secure-keys", () => {
     test("does not pin the unreachable result: a ready CES client wins the next read", async () => {
       process.env.IS_CONTAINERIZED = "1";
       delete process.env.CES_CREDENTIAL_URL;
-      delete process.env.CES_LOCAL_SOCKET;
       _resetBackend();
 
       expect((await getSecureKeyResultAsync("openai")).unreachable).toBe(true);

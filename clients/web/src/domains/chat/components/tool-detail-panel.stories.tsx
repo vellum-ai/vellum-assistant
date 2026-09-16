@@ -44,8 +44,9 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  *
  * `ToolDetailBody` looks the tool name up in `tool-activity-renderers.ts`.
  * Shell, file edits, the two skill tools and the two web tools have bodies of
- * their own; everything else, native or third-party, falls back to the raw
- * JSON input and a clamped result.
+ * their own; everything else, native or third-party, falls back to its
+ * parameters as labelled fields, the raw JSON input behind a disclosure, and a
+ * clamped result.
  *
  * ## What the header owns
  *
@@ -54,6 +55,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * its risk pill. Nothing in the body repeats any of that. The activity does
  * appear once more inside the raw JSON, because `activity` is a real input key
  * the tools send alongside `command` / `path`, and that block is the raw input.
+ * The parameter fields leave it out, since the header already shows it.
  *
  * The sentence wraps to two lines rather than truncating on one: most activity
  * sentences are longer than a single line at the drawer's 400px default, and
@@ -73,7 +75,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A failed search falls through to the generic body by design. |
  * | Skills (`skill_load`, `skill_execute`) | purpose-built | 5 | SkillLoad, SkillLoadLongBody, SkillLoadError, SkillLoadRunning, SkillExecute | The only tools with native treatment, and `skill_execute` is close to unused, so most of this investment sits on the rarer of the pair. |
  * | MCP (`mcp__*`) | generic | 6 | McpTool, McpToolHighRisk | The wire name goes through `titleCaseToolName`, so `mcp__analytics__exec` is titled "Mcp Analytics Exec": server and tool are not separated and the transport prefix is shown as a word. |
- * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | Nested-object inputs are the worst case for the raw JSON block. |
+ * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | An object parameter nests its fields in a bordered group, each label above its value, with short lists and small objects on one line; only a value nested past four levels falls back to JSON. |
  * | Unenumerable third-party | generic | mixed | UnknownThirdPartyTool | The fallback that has to stay good, since we cannot write a renderer per vendor. |
  * | Reasoning (`kind: "thinking"`) | purpose-built | n/a | Thinking | Renders markdown properly. No gap. |
  *
@@ -88,7 +90,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Denied or timed out | BashDenied | Output says the call was not approved and did not run. Both a declined confirmation and one that timed out land here. |
  * | Empty output | FileReadEmptyOutput | Output reports that the tool returned nothing, rather than disappearing. |
  * | Very large output | LargeOutput | `CodeBlock` clamps behind Show more; the daemon's cap is 400,000 characters. |
- * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | |
+ * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | Structure nests as labelled fields, short lists and small objects read on one line, and the raw JSON sits behind a disclosure. |
  * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | A pill in the header, with the tolerance sentence on hover, or beside the pill as text where the pointer cannot hover. Levels with no tolerance tier carry neither. The neutral pills read faintly against the panel ground, which is unresolved. |
  * | Narrow or mobile | MobileWidth | Same panel inside the drawer at 390px. |
  *
@@ -223,7 +225,10 @@ export const SubagentSpawn: Story = { args: { detail: subagentSpawnDetail } };
 // Managed workspace, MCP, and the unenumerable tail
 // ---------------------------------------------------------------------------
 
-/** A managed workspace tool. Nested-object input is the worst case for raw JSON. */
+/**
+ * A managed workspace tool. Its nested-object parameter renders as labelled
+ * fields, with its short lists on one line.
+ */
 export const ManagedWorkspaceTool: Story = {
   args: { detail: managedWorkspaceDetail },
 };

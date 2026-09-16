@@ -1582,8 +1582,6 @@
     "titleFallback": "Habilidad"
   },
   "skillExecuteDetail": {
-    "parameters": "Parámetros",
-    "rawInput": "Entrada sin procesar",
     "runningSuffix": " · en ejecución"
   },
   "skillLoadCard": {
@@ -1718,10 +1716,16 @@
     "command": "Comando",
     "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
     "emptyOutput": "La herramienta no devolvió ninguna salida.",
-    "input": "Entrada",
     "output": "Salida",
     "requestedChanges": "Cambios solicitados",
     "running": "Ejecutando…"
+  },
+  "toolInputParameters": {
+    "parameters": "Parámetros",
+    "rawInput": "Entrada sin procesar"
+  },
+  "toolParamFields": {
+    "moreCount": "{count, plural, one {# más en Entrada sin procesar} other {# más en Entrada sin procesar}}"
   },
   "toolStepPill": {
     "openAria": "Abrir {label}",

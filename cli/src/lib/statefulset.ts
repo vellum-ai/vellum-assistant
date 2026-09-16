@@ -187,6 +187,7 @@ export const DOCKER_STATEFUL_SET_SPEC: DockerStatefulSetSpec = {
         { kind: "static", name: "VELLUM_BACKUP_DIR",         value: "/workspace/.backups" },
         { kind: "static", name: "VELLUM_BACKUP_KEY_PATH",    value: "/workspace/.backup.key" },
         { kind: "static", name: "CES_CREDENTIAL_URL",        value: "http://localhost:8090" },
+        { kind: "static", name: "CES_BOOTSTRAP_SOCKET_DIR",  value: "/run/ces-bootstrap" },
         { kind: "static", name: "GATEWAY_IPC_SOCKET_DIR",    value: "/run/gateway-ipc" },
         { kind: "static", name: "ASSISTANT_IPC_SOCKET_DIR",  value: "/run/assistant-ipc" },
         { kind: "secret", name: "CES_SERVICE_TOKEN",         secret: "cesServiceToken" },

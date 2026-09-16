@@ -359,6 +359,7 @@
   --system-mid-weak: #FCF3DD;
   --system-info-strong: #467CC8;
   --system-info-weak: #CEDAEC;
+  --notification-attention: #E5484D;
 
   /* Feed identifier */
   --feed-nudge-strong: #DB4B77;
@@ -456,6 +457,7 @@
   --system-mid-weak: #4B3D1E;
   --system-info-strong: #467CC8;
   --system-info-weak: #2A3A50;
+  --notification-attention: #E5484D;
 
   /* Feed identifier */
   --feed-nudge-strong: #DB4B77;
@@ -554,6 +556,7 @@
   --system-mid-weak: #42321C;
   --system-info-strong: #467CC8;
   --system-info-weak: #2A3A50;
+  --notification-attention: #E5484D;
 
   /* Feed identifier — reuses the dark palette; velvet's accent colors
    * apply at the chrome level (primary, surface) rather than swapping

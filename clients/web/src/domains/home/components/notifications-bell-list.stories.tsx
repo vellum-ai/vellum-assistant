@@ -12,7 +12,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NotificationsBellList } from "@/domains/home/components/notifications-bell-list";
 import { feedItem } from "@/domains/home/feed-test-fixtures";
 
-import { PANEL_CONTENT_HEIGHT } from "./notifications-bell";
+import { PANEL_LIST_CONTENT_HEIGHT } from "./notifications-bell";
 
 const UPDATES = [
   feedItem({
@@ -73,7 +73,7 @@ const meta = {
   component: NotificationsBellList,
   parameters: { layout: "padded" },
   args: {
-    maxHeight: PANEL_CONTENT_HEIGHT,
+    maxHeight: PANEL_LIST_CONTENT_HEIGHT,
     conversationTitles: new Map([
       ["conv-inbox", "Inbox triage"],
       ["conv-wedding", "Wedding planning"],

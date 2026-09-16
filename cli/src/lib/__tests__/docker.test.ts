@@ -83,6 +83,7 @@ describe("buildServiceRunArgs — assistant", () => {
     const args = buildAssistantArgs();
     expect(args).toContain("IS_CONTAINERIZED=true");
     expect(args).toContain("VELLUM_WORKSPACE_DIR=/workspace");
+    expect(args).toContain("CES_BOOTSTRAP_SOCKET_DIR=/run/ces-bootstrap");
     expect(args).toContain(`VELLUM_ASSISTANT_NAME=${instanceName}`);
   });
 
