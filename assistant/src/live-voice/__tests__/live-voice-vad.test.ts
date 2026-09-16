@@ -211,9 +211,9 @@ function createHarness(options: {
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
   detachTeardownSettleTimeoutMs?: number;
   continuationAnnounceSilenceMs?: number;
-  hostTaskResumeSilenceMs?: number;
-  hostTaskMaxSuspendedMs?: number;
-  hostTaskMaxInterveningTurns?: number;
+  foregroundTaskResumeSilenceMs?: number;
+  foregroundTaskMaxSuspendedMs?: number;
+  foregroundTaskMaxInterveningTurns?: number;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -302,15 +302,16 @@ function createHarness(options: {
           continuationAnnounceSilenceMs: options.continuationAnnounceSilenceMs,
         }
       : {}),
-    ...(options.hostTaskResumeSilenceMs !== undefined
-      ? { hostTaskResumeSilenceMs: options.hostTaskResumeSilenceMs }
+    ...(options.foregroundTaskResumeSilenceMs !== undefined
+      ? { foregroundTaskResumeSilenceMs: options.foregroundTaskResumeSilenceMs }
       : {}),
-    ...(options.hostTaskMaxSuspendedMs !== undefined
-      ? { hostTaskMaxSuspendedMs: options.hostTaskMaxSuspendedMs }
+    ...(options.foregroundTaskMaxSuspendedMs !== undefined
+      ? { foregroundTaskMaxSuspendedMs: options.foregroundTaskMaxSuspendedMs }
       : {}),
-    ...(options.hostTaskMaxInterveningTurns !== undefined
+    ...(options.foregroundTaskMaxInterveningTurns !== undefined
       ? {
-          hostTaskMaxInterveningTurns: options.hostTaskMaxInterveningTurns,
+          foregroundTaskMaxInterveningTurns:
+            options.foregroundTaskMaxInterveningTurns,
         }
       : {}),
   };
@@ -333,20 +334,22 @@ function countType(frames: LiveVoiceServerFrame[], type: string): number {
   return frames.filter((frame) => frame.type === type).length;
 }
 
-function hostTaskStateOf(session: LiveVoiceSession): {
+function foregroundTaskStateOf(session: LiveVoiceSession): {
   phase: string;
   interveningTurns?: number;
   resumePending?: boolean;
+  hostToolStarted?: boolean;
 } | null {
   return (
     session as unknown as {
-      hostTaskState: {
+      foregroundTaskState: {
         phase: string;
         interveningTurns?: number;
         resumePending?: boolean;
+        hostToolStarted?: boolean;
       } | null;
     }
-  ).hostTaskState;
+  ).foregroundTaskState;
 }
 
 function makeTtsChunk(text: string): LiveVoiceTtsAudioChunk {
@@ -502,12 +505,13 @@ async function startForegroundWinsScenario(): Promise<{
   };
 }
 
-async function startHostTaskBargeInScenario(options?: {
-  hostTaskMaxInterveningTurns?: number;
-  hostTaskMaxSuspendedMs?: number;
-  hostTaskResumeSilenceMs?: number;
+async function startForegroundTaskBargeInScenario(options?: {
+  foregroundTaskMaxInterveningTurns?: number;
+  foregroundTaskMaxSuspendedMs?: number;
+  foregroundTaskResumeSilenceMs?: number;
   skillExecuteInput?: Record<string, unknown>;
   skillExecuteAllowedToolNames?: ReadonlySet<string>;
+  startHostTool?: boolean;
 }): Promise<{
   calls: VoiceTurnOptions[];
   frames: LiveVoiceServerFrame[];
@@ -532,14 +536,15 @@ async function startHostTaskBargeInScenario(options?: {
       return makeTtsResult("assistant audio");
     }),
     spawnBackgroundContinuation,
-    hostTaskResumeSilenceMs: options?.hostTaskResumeSilenceMs ?? 20,
-    ...(options?.hostTaskMaxInterveningTurns !== undefined
+    foregroundTaskResumeSilenceMs: options?.foregroundTaskResumeSilenceMs ?? 20,
+    ...(options?.foregroundTaskMaxInterveningTurns !== undefined
       ? {
-          hostTaskMaxInterveningTurns: options.hostTaskMaxInterveningTurns,
+          foregroundTaskMaxInterveningTurns:
+            options.foregroundTaskMaxInterveningTurns,
         }
       : {}),
-    ...(options?.hostTaskMaxSuspendedMs !== undefined
-      ? { hostTaskMaxSuspendedMs: options.hostTaskMaxSuspendedMs }
+    ...(options?.foregroundTaskMaxSuspendedMs !== undefined
+      ? { foregroundTaskMaxSuspendedMs: options.foregroundTaskMaxSuspendedMs }
       : {}),
   });
 
@@ -551,16 +556,18 @@ async function startHostTaskBargeInScenario(options?: {
   calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
   await waitFor(() => calls.length === 2);
 
-  calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
-    toolUseId: "tool-1",
-    input: options?.skillExecuteInput ?? {
-      tool: "computer_use_observe",
-      input: {},
-    },
-    ...(options?.skillExecuteAllowedToolNames !== undefined
-      ? { allowedToolNames: options.skillExecuteAllowedToolNames }
-      : {}),
-  });
+  if (options?.startHostTool !== false) {
+    calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-1",
+      input: options?.skillExecuteInput ?? {
+        tool: "computer_use_observe",
+        input: {},
+      },
+      ...(options?.skillExecuteAllowedToolNames !== undefined
+        ? { allowedToolNames: options.skillExecuteAllowedToolNames }
+        : {}),
+    });
+  }
   await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
   await waitFor(() => calls.length === 3);
 
@@ -692,9 +699,92 @@ describe("LiveVoiceSession server VAD", () => {
     expect(countType(frames, "utterance_end")).toBe(2);
   });
 
+  test("an escalated task interrupted before its first tool stays on the parent", async () => {
+    const { calls, session, spawnBackgroundContinuation } =
+      await startForegroundTaskBargeInScenario({ startHostTool: false });
+
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "suspended",
+      hostToolStarted: false,
+    });
+
+    const frontDoorAnswer = calls[2];
+    frontDoorAnswer?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("The title is Project Theta."),
+    );
+    frontDoorAnswer?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 4);
+
+    const resume = calls[3];
+    expect(resume).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    expect(resume?.content).toContain("change the title");
+    resume?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-2",
+      input: { tool: "computer_use_observe", input: {} },
+    });
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "owned",
+      hostToolStarted: true,
+    });
+
+    resume?.callbacks?.assistant_text_delta?.(makeTextDelta("Done."));
+    resume?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+  });
+
+  test("an escalated task retries when its first tool-capable leg fails", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (turn: VoiceTurnOptions) => {
+      calls.push(turn);
+      return {
+        turnId: `bridge-turn-${calls.length}`,
+        abort: mock(),
+        discard: mock(async () => {}),
+      };
+    });
+    const { session } = createHarness({
+      finals: ["change the title"],
+      startVoiceTurn,
+      streamTtsAudio: mock(async (tts: LiveVoiceTtsOptions) => {
+        tts.onAudioChunk(makeTtsChunk("assistant audio"));
+        return makeTtsResult("assistant audio");
+      }),
+      foregroundTaskResumeSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    calls[0]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] One moment."),
+    );
+    calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 2);
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "owned",
+      hostToolStarted: false,
+    });
+
+    calls[1]?.onError?.("strong leg failed");
+    await waitFor(() => calls.length === 3);
+    expect(calls[2]).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => foregroundTaskStateOf(session) === null);
+  });
+
   test("a barged-in skill host tool stays on the parent and resumes after the front door answers", async () => {
     const { calls, frames, session, spawnBackgroundContinuation } =
-      await startHostTaskBargeInScenario();
+      await startForegroundTaskBargeInScenario();
     expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
 
     const frontDoorAnswer = calls[2];
@@ -728,7 +818,7 @@ describe("LiveVoiceSession server VAD", () => {
     resume?.callbacks?.message_complete?.(makeMessageComplete());
     await flushAsyncCallbacks();
     expect(countType(frames, "assistant_text_delta")).toBe(spokenBeforeStop);
-    expect(hostTaskStateOf(session)).toBeNull();
+    expect(foregroundTaskStateOf(session)).toBeNull();
   });
 
   test.each([
@@ -750,22 +840,26 @@ describe("LiveVoiceSession server VAD", () => {
     ],
   ])("recognizes host ownership for %s", async (_label, skillExecuteInput) => {
     const { session, spawnBackgroundContinuation } =
-      await startHostTaskBargeInScenario({ skillExecuteInput });
+      await startForegroundTaskBargeInScenario({ skillExecuteInput });
 
     expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
-    expect(hostTaskStateOf(session)).toMatchObject({ phase: "suspended" });
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "suspended",
+    });
     await session.close("client_end");
   });
 
   test("preserves an allowed host tool whose name is also an alias", async () => {
     const { session, spawnBackgroundContinuation } =
-      await startHostTaskBargeInScenario({
+      await startForegroundTaskBargeInScenario({
         skillExecuteInput: { tool: "read_file", input: {} },
         skillExecuteAllowedToolNames: new Set(["read_file"]),
       });
 
     expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
-    expect(hostTaskStateOf(session)).toMatchObject({ phase: "suspended" });
+    expect(foregroundTaskStateOf(session)).toMatchObject({
+      phase: "suspended",
+    });
     await session.close("client_end");
   });
 
@@ -789,7 +883,7 @@ describe("LiveVoiceSession server VAD", () => {
         tts.onAudioChunk(makeTtsChunk("assistant audio"));
         return makeTtsResult("assistant audio");
       }),
-      hostTaskResumeSilenceMs: 20,
+      foregroundTaskResumeSilenceMs: 20,
     });
 
     await session.start();
@@ -821,18 +915,18 @@ describe("LiveVoiceSession server VAD", () => {
     });
     calls[4]?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
     calls[4]?.callbacks?.message_complete?.(makeMessageComplete());
-    await waitFor(() => hostTaskStateOf(session) === null);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
   });
 
   test("retries suspended host work when the handed-off leg fails asynchronously", async () => {
-    const { calls, session } = await startHostTaskBargeInScenario();
+    const { calls, session } = await startForegroundTaskBargeInScenario();
 
     calls[2]?.callbacks?.assistant_text_delta?.(
       makeTextDelta("[1] I will continue."),
     );
     calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
     await waitFor(() => calls.length === 4);
-    await waitFor(() => hostTaskStateOf(session)?.phase === "owned");
+    await waitFor(() => foregroundTaskStateOf(session)?.phase === "owned");
 
     calls[3]?.onError?.("strong leg failed");
     await waitFor(() => calls.length === 5);
@@ -844,11 +938,12 @@ describe("LiveVoiceSession server VAD", () => {
     });
     calls[4]?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
     calls[4]?.callbacks?.message_complete?.(makeMessageComplete());
-    await waitFor(() => hostTaskStateOf(session) === null);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
   });
 
-  test("a front-door task-stop answer abandons the suspended host task", async () => {
-    const { calls, frames, session } = await startHostTaskBargeInScenario();
+  test("a front-door task-stop answer abandons the suspended foreground task", async () => {
+    const { calls, frames, session } =
+      await startForegroundTaskBargeInScenario();
 
     const frontDoorAnswer = calls[2];
     frontDoorAnswer?.callbacks?.assistant_text_delta?.(
@@ -859,7 +954,7 @@ describe("LiveVoiceSession server VAD", () => {
     await new Promise((resolve) => setTimeout(resolve, 80));
 
     expect(calls).toHaveLength(3);
-    expect(hostTaskStateOf(session)).toBeNull();
+    expect(foregroundTaskStateOf(session)).toBeNull();
     expect(
       frames.filter((frame) => frame.type === "assistant_text_delta").at(-1),
     ).toMatchObject({ text: "Okay, stopping. " });
@@ -885,7 +980,7 @@ describe("LiveVoiceSession server VAD", () => {
       finals: ["change the title", "one more thing"],
       startVoiceTurn,
       streamTtsAudio,
-      hostTaskResumeSilenceMs: 20,
+      foregroundTaskResumeSilenceMs: 20,
     });
 
     await session.start();
@@ -906,7 +1001,7 @@ describe("LiveVoiceSession server VAD", () => {
 
     await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
     await waitFor(() => calls.length === 3);
-    await waitFor(() => hostTaskStateOf(session) === null);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
     calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("Sure."));
     calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
     releaseDoneTts?.();
@@ -915,15 +1010,15 @@ describe("LiveVoiceSession server VAD", () => {
     expect(calls).toHaveLength(3);
   });
 
-  test("too many intervening answers abandon a suspended host task", async () => {
-    const { calls, session } = await startHostTaskBargeInScenario({
-      hostTaskMaxInterveningTurns: 1,
-      hostTaskResumeSilenceMs: 60_000,
+  test("too many intervening answers abandon a suspended foreground task", async () => {
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      foregroundTaskMaxInterveningTurns: 1,
+      foregroundTaskResumeSilenceMs: 60_000,
     });
 
     calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("First answer."));
     calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
-    await waitFor(() => hostTaskStateOf(session)?.interveningTurns === 1);
+    await waitFor(() => foregroundTaskStateOf(session)?.interveningTurns === 1);
 
     await session.handleBinaryAudio(LOUD_CHUNK);
     await waitFor(() => calls.length === 4);
@@ -931,22 +1026,22 @@ describe("LiveVoiceSession server VAD", () => {
       makeTextDelta("Second answer."),
     );
     calls[3]?.callbacks?.message_complete?.(makeMessageComplete());
-    await waitFor(() => hostTaskStateOf(session) === null);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
 
     expect(calls).toHaveLength(4);
     await session.close("client_end");
   });
 
-  test("an old suspended host task is not revived", async () => {
-    const { calls, session } = await startHostTaskBargeInScenario({
-      hostTaskMaxSuspendedMs: 1,
-      hostTaskResumeSilenceMs: 20,
+  test("an old suspended foreground task is not revived", async () => {
+    const { calls, session } = await startForegroundTaskBargeInScenario({
+      foregroundTaskMaxSuspendedMs: 1,
+      foregroundTaskResumeSilenceMs: 20,
     });
     await new Promise((resolve) => setTimeout(resolve, 5));
 
     calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("Answer."));
     calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
-    await waitFor(() => hostTaskStateOf(session) === null);
+    await waitFor(() => foregroundTaskStateOf(session) === null);
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     expect(calls).toHaveLength(3);
@@ -987,7 +1082,7 @@ describe("LiveVoiceSession server VAD", () => {
         spawnBackgroundContinuation,
         holdStopEventsFor: [1],
         turnDetectorConfig: { silenceThresholdMs: 120 },
-        hostTaskResumeSilenceMs: 60_000,
+        foregroundTaskResumeSilenceMs: 60_000,
       });
 
       await session.start();
@@ -1015,7 +1110,7 @@ describe("LiveVoiceSession server VAD", () => {
       await waitFor(() => (discards[2]?.mock.calls.length ?? 0) === 1);
 
       expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
-      expect(hostTaskStateOf(session)).toMatchObject({
+      expect(foregroundTaskStateOf(session)).toMatchObject({
         phase: "suspended",
         interveningTurns: 0,
         resumePending: false,
