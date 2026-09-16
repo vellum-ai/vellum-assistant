@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
 import {
   CES_PROTOCOL_VERSION,
   type HandshakeAck,
@@ -172,7 +173,9 @@ describe("managed CES reconnection (real entrypoint)", () => {
     tmpDir = mkdtempSync(join(tmpdir(), "ces-reconnect-"));
     const dataDir = join(tmpDir, "ces-data");
     const socketDir = join(tmpDir, "bootstrap");
-    const socketPath = join(socketDir, "ces.sock");
+    const socketPath = resolveIpcEndpoint("ces", {
+      workspaceDir: socketDir,
+    }).path;
     const assistantDataMount = join(tmpDir, "assistant-data-ro");
     mkdirSync(dataDir, { recursive: true });
     mkdirSync(socketDir, { recursive: true });
@@ -187,7 +190,7 @@ describe("managed CES reconnection (real entrypoint)", () => {
         ...process.env,
         CES_MODE: "managed",
         CES_DATA_DIR: dataDir,
-        CES_BOOTSTRAP_SOCKET: socketPath,
+        CES_BOOTSTRAP_SOCKET_DIR: socketDir,
         CES_HEALTH_PORT: String(healthPort),
         CES_ASSISTANT_DATA_MOUNT: assistantDataMount,
       },

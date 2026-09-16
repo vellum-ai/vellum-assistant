@@ -6,9 +6,9 @@
  * own material or still in the buffer afterwards, never destroyed. The
  * cross-process case is the reason to believe it: a child process appends
  * as fast as it can while this process consumes in a loop, and every tagged
- * entry must end up consumed or present. The same harness run against a
- * naive read-modify-write consume loses entries, which is what the
- * mechanism is measured against.
+ * entry must end up consumed or present. The harness's accounting is proven
+ * against a naive read-modify-write consume with the losing interleaving
+ * forced, not raced, so the proof does not depend on scheduling.
  */
 
 import {
@@ -256,6 +256,24 @@ async function lostUnder(
     passes += 1;
   }
   await child.exited;
+  return { ...accountFor(count, tag, consumed), passes };
+}
+
+/** A tagged entry as the appender writes it. */
+function taggedEntry(tag: string, i: number): string {
+  return `- [Apr 27, 9:00 AM] ${tag}-${i}`;
+}
+
+/**
+ * The harness's verdict: of `count` tagged entries, which were neither
+ * consumed by a pass nor left in the buffer (lost), and which were both
+ * (duplicated).
+ */
+function accountFor(
+  count: number,
+  tag: string,
+  consumed: readonly string[],
+): { lost: string[]; duplicated: string[] } {
   const seen = new Map<string, number>();
   for (const text of [...consumed, ...texts()]) {
     seen.set(text, (seen.get(text) ?? 0) + 1);
@@ -263,7 +281,7 @@ async function lostUnder(
   const lost: string[] = [];
   const duplicated: string[] = [];
   for (let i = 0; i < count; i++) {
-    const text = `- [Apr 27, 9:00 AM] ${tag}-${i}`;
+    const text = taggedEntry(tag, i);
     const n = seen.get(text) ?? 0;
     if (n === 0) {
       lost.push(text);
@@ -271,13 +289,18 @@ async function lostUnder(
       duplicated.push(text);
     }
   }
-  return { lost, duplicated, passes };
+  return { lost, duplicated };
 }
 
-/** The read-modify-write the production consume replaces. */
+/**
+ * A read-modify-write consume, the shape the production consume is measured
+ * against: an append that lands between its read and its write is destroyed.
+ * `betweenReadAndWrite` runs in exactly that window.
+ */
 async function naiveConsume(
   path: string,
   pass: BufferEntryLines[],
+  betweenReadAndWrite?: () => void,
 ): Promise<void> {
   const pending = pass.map(bufferEntryText);
   const remaining = entries(readFileSync(path, "utf-8")).filter((entry) => {
@@ -288,6 +311,7 @@ async function naiveConsume(
     pending.splice(index, 1);
     return false;
   });
+  betweenReadAndWrite?.();
   writeFileSync(path, joinBufferEntries(remaining), "utf-8");
 }
 
@@ -310,11 +334,32 @@ describe("consumeBufferEntries under a concurrent appender in another process", 
     expect(outcome.duplicated).toEqual([]);
   }, 60_000);
 
-  test("the naive read-modify-write consume loses entries under the same load", async () => {
-    // Sensitivity check for the harness: the mechanism above is only
-    // evidence if this shape, run identically, fails.
-    const outcome = await lostUnder(naiveConsume, APPENDS, 500);
-    expect(outcome.passes).toBeGreaterThan(0);
-    expect(outcome.lost.length).toBeGreaterThan(0);
-  }, 60_000);
+  test("the accounting reports an entry the naive consume destroys, and one a pass duplicates", async () => {
+    // Sensitivity check for the harness: the case above is only evidence if
+    // the accounting can see a loss. The losing interleaving is forced (an
+    // append lands between the naive consume's read and its write) rather
+    // than raced against another process, so whether it happens never
+    // depends on scheduling.
+    const tag = "sens";
+    writeFileSync(bufferPath, file(taggedEntry(tag, 0)));
+    const pass = entries(readFileSync(bufferPath, "utf-8"));
+
+    await naiveConsume(bufferPath, pass, () => {
+      appendFileSync(bufferPath, `${taggedEntry(tag, 1)}\n`, "utf-8");
+    });
+
+    expect(texts()).toEqual([]);
+    const consumed = pass.map(bufferEntryText);
+    expect(accountFor(2, tag, consumed)).toEqual({
+      lost: [taggedEntry(tag, 1)],
+      duplicated: [],
+    });
+
+    // A pass that consumed an entry the buffer still holds is a duplicate.
+    appendFileSync(bufferPath, `${taggedEntry(tag, 0)}\n`, "utf-8");
+    expect(accountFor(2, tag, consumed)).toEqual({
+      lost: [taggedEntry(tag, 1)],
+      duplicated: [taggedEntry(tag, 0)],
+    });
+  });
 });

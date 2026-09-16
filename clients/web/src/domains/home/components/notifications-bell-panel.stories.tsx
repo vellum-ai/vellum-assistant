@@ -1,6 +1,6 @@
 /**
  * `NotificationsBellPanel` is the bell's list view as the user sees it: the
- * header with its count, the rows, and the bulk footer, inside the popover
+ * header with its count, unread filter, overflow actions, and rows inside the popover
  * box the bell draws it in. These stories are where every kind of
  * notification and every state of a guardian request is seen together at the
  * panel's real width, so a change to one row is checked against the rest.
@@ -11,17 +11,19 @@
  * `guardianRequest` from the gateway's projection.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import type { ReactNode } from "react";
+import { type CSSProperties, type ReactNode, useState } from "react";
+import { userEvent, within } from "storybook/test";
 
 import { NotificationsBellEmptyState } from "@/domains/home/components/notifications-bell-empty-state";
 import { NotificationsBellList } from "@/domains/home/components/notifications-bell-list";
 import { NotificationsBellPanel } from "@/domains/home/components/notifications-bell-panel";
 import { feedItem } from "@/domains/home/feed-test-fixtures";
+import { clearAllArgs, markAllReadArgs } from "@/domains/home/utils";
 import { useTranslation } from "@/i18n";
 import type { FeedItem } from "@vellumai/assistant-api";
 import { Typography } from "@vellumai/design-library";
 
-import { PANEL_CONTENT_HEIGHT } from "./notifications-bell";
+import { PANEL_LIST_CONTENT_HEIGHT } from "./notifications-bell";
 
 /** The threads the fixtures below came from, as the conversation lists name them. */
 const CONVERSATION_TITLES: ReadonlyMap<string, string> = new Map([
@@ -294,9 +296,25 @@ const DESIGN_FEED = [
  * The popover box the bell renders the panel into, so the stories are seen
  * at the panel's real width and on its real surface.
  */
-function PopoverFrame({ children }: { children: ReactNode }) {
+function PopoverFrame({
+  children,
+  accent = "#6366f1",
+  accentGlyph = "#ffffff",
+}: {
+  children: ReactNode;
+  accent?: string;
+  accentGlyph?: string;
+}) {
   return (
-    <div className="flex w-[435px] min-w-0 flex-col rounded-[var(--radius-xl)] bg-[var(--surface-lift)] shadow-[var(--shadow-popover)]">
+    <div
+      style={
+        {
+          "--avatar-accent": accent,
+          "--avatar-accent-glyph": accentGlyph,
+        } as CSSProperties
+      }
+      className="flex w-[435px] max-w-full min-w-0 flex-col rounded-[var(--radius-xl)] bg-[var(--surface-lift)] shadow-[var(--shadow-popover)]"
+    >
       {children}
     </div>
   );
@@ -317,10 +335,66 @@ function LoadFailed() {
 
 interface PanelStoryArgs {
   items: FeedItem[];
-  /** Whether the daemon supports the bulk footer. */
+  /** Whether the assistant supports the bulk status actions. */
   supportsBulkStatus: boolean;
   isBulkPending: boolean;
   isDecisionPending: boolean;
+  initialUnreadOnly: boolean;
+  accent: string;
+  accentGlyph: string;
+}
+
+function PanelPreview({
+  items,
+  supportsBulkStatus,
+  isBulkPending,
+  isDecisionPending,
+  initialUnreadOnly,
+  accent,
+  accentGlyph,
+}: PanelStoryArgs) {
+  const { t } = useTranslation("home");
+  const [unreadOnly, setUnreadOnly] = useState(initialUnreadOnly);
+  const displayedItems = unreadOnly
+    ? items.filter((item) => item.status === "new")
+    : items;
+  const canMarkAllRead = markAllReadArgs(items).ids.length > 0;
+  const canClearAll = clearAllArgs(items).ids.length > 0;
+
+  return (
+    <PopoverFrame accent={accent} accentGlyph={accentGlyph}>
+      <NotificationsBellPanel
+        count={displayedItems.length}
+        canMarkAllRead={canMarkAllRead}
+        unreadOnly={unreadOnly}
+        onUnreadOnlyChange={setUnreadOnly}
+        showsBulkActions={supportsBulkStatus && (canMarkAllRead || canClearAll)}
+        isBulkPending={isBulkPending}
+        onMarkAllRead={() => {}}
+        onClearAll={() => {}}
+      >
+        {displayedItems.length > 0 ? (
+          <NotificationsBellList
+            items={displayedItems}
+            maxHeight={PANEL_LIST_CONTENT_HEIGHT}
+            conversationTitles={CONVERSATION_TITLES}
+            onSelect={() => {}}
+            onDismiss={() => {}}
+            onToggleRead={() => {}}
+            onDecide={() => {}}
+            isDecisionPending={isDecisionPending}
+          />
+        ) : (
+          <Typography
+            variant="body-medium-lighter"
+            className="px-[var(--app-spacing-lg)] py-[var(--app-spacing-xl)] text-center text-[var(--content-tertiary)]"
+          >
+            {t("notificationsBell.noUnread")}
+          </Typography>
+        )}
+      </NotificationsBellPanel>
+    </PopoverFrame>
+  );
 }
 
 // No `component`: the stories are driven by the feed rather than by the
@@ -333,30 +407,11 @@ const meta = {
     supportsBulkStatus: true,
     isBulkPending: false,
     isDecisionPending: false,
+    initialUnreadOnly: true,
+    accent: "#6366f1",
+    accentGlyph: "#ffffff",
   },
-  render: ({ items, supportsBulkStatus, isBulkPending, isDecisionPending }) => (
-    <PopoverFrame>
-      <NotificationsBellPanel
-        count={items.length}
-        hasUnread={items.some((item) => item.status === "new")}
-        showsBulkActions={supportsBulkStatus && items.length > 0}
-        isBulkPending={isBulkPending}
-        onMarkAllRead={() => {}}
-        onClearAll={() => {}}
-      >
-        <NotificationsBellList
-          items={items}
-          maxHeight={PANEL_CONTENT_HEIGHT}
-          conversationTitles={CONVERSATION_TITLES}
-          onSelect={() => {}}
-          onDismiss={() => {}}
-          onToggleRead={() => {}}
-          onDecide={() => {}}
-          isDecisionPending={isDecisionPending}
-        />
-      </NotificationsBellPanel>
-    </PopoverFrame>
-  ),
+  render: (args) => <PanelPreview {...args} />,
 } satisfies Meta<PanelStoryArgs>;
 
 export default meta;
@@ -369,6 +424,14 @@ type Story = StoryObj<typeof meta>;
  */
 export const Default: Story = {};
 
+/** A light assistant accent uses dark contrast ink for the checked knob. */
+export const LightAccent: Story = {
+  args: {
+    accent: "#E9C91A",
+    accentGlyph: "#111214",
+  },
+};
+
 /**
  * Every shape a row that reports can take: unread and read, named by its
  * conversation, by its schedule, by nothing, with a title that has to yield
@@ -376,6 +439,7 @@ export const Default: Story = {};
  */
 export const Reports: Story = {
   args: {
+    initialUnreadOnly: false,
     items: [
       EMAIL_RECAP,
       WEDDING_SCHEDULE,
@@ -397,6 +461,7 @@ export const Reports: Story = {
  */
 export const GuardianRequests: Story = {
   args: {
+    initialUnreadOnly: false,
     items: [
       TOOL_APPROVAL,
       SKILL_GRANT,
@@ -421,23 +486,30 @@ export const DecisionPending: Story = {
   },
 };
 
-/** Everything read: "Mark all as read" drops out of the footer. */
+/** Everything read: the default filter explains that there is nothing unread. */
 export const AllRead: Story = {
   args: {
     items: [BOSCH_APP, MEMORY_SWEEP, MORNING_BRIEFING, APPROVED],
   },
 };
 
-/** A bulk action in flight: both footer buttons held inert. */
+/** A bulk action in flight: both overflow actions are held inert. */
 export const BulkPending: Story = {
   args: {
     items: [EMAIL_RECAP, BOSCH_APP],
     isBulkPending: true,
   },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      within(canvasElement).getByRole("button", {
+        name: "Notification actions",
+      }),
+    );
+  },
 };
 
 /**
- * A daemon without the bulk status route: the footer is withheld and the
+ * An assistant without the bulk status route: the overflow menu is withheld and the
  * rows' own controls are the only way to clear anything.
  */
 export const WithoutBulkActions: Story = {
@@ -473,7 +545,9 @@ export const Empty: Story = {
     <PopoverFrame>
       <NotificationsBellPanel
         count={0}
-        hasUnread={false}
+        canMarkAllRead={false}
+        unreadOnly
+        onUnreadOnlyChange={() => {}}
         showsBulkActions={false}
         onMarkAllRead={() => {}}
         onClearAll={() => {}}
@@ -492,7 +566,9 @@ export const EmptyWithoutRecipe: Story = {
     <PopoverFrame>
       <NotificationsBellPanel
         count={0}
-        hasUnread={false}
+        canMarkAllRead={false}
+        unreadOnly
+        onUnreadOnlyChange={() => {}}
         showsBulkActions={false}
         onMarkAllRead={() => {}}
         onClearAll={() => {}}
@@ -511,7 +587,9 @@ export const LoadFailedState: Story = {
     <PopoverFrame>
       <NotificationsBellPanel
         count={0}
-        hasUnread={false}
+        canMarkAllRead={false}
+        unreadOnly
+        onUnreadOnlyChange={() => {}}
         showsBulkActions={false}
         onMarkAllRead={() => {}}
         onClearAll={() => {}}

@@ -392,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-01T17:54:05.000Z"
+      "updatedAt": "2026-09-16T18:43:29.000Z"
     },
     {
       "id": "headless-claude-code",
@@ -880,7 +880,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-14T20:20:30.000Z"
+      "updatedAt": "2026-09-16T18:43:29.000Z"
     },
     {
       "id": "slack-app-setup",
