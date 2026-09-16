@@ -324,7 +324,8 @@ export interface SubagentActions {
    * Drop the fetched histories of a parent conversation's subagents after its
    * stream proved a gap: events the histories never folded are missing, and
    * the next `loadHistoryIfNeeded` reseeds them from the child conversations.
-   * A history no fetch can reseed (no child conversation) is kept.
+   * A fetch already in flight is marked stale and refetches instead of
+   * seeding. A history no fetch can reseed (no child conversation) is kept.
    */
   invalidateHistories: (parentConversationId: string) => void;
 
@@ -697,8 +698,18 @@ function subagentEnvelopesSince(
   return inner;
 }
 
+/**
+ * An in-flight history fetch. `stale` is set when a stream gap invalidates the
+ * subagent's history while the fetch is out: its snapshot may predate events
+ * the gap dropped, so it must not seed.
+ */
+interface HistoryLoad {
+  promise: Promise<void>;
+  stale: boolean;
+}
+
 /** In-flight history fetches by subagent id, so concurrent loads share one. */
-const historyLoads = new Map<string, Promise<void>>();
+const historyLoads = new Map<string, HistoryLoad>();
 
 let timelineEventCounter = 0;
 
@@ -1222,21 +1233,33 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   loadHistoryIfNeeded: (assistantId, subagentId) => {
     const inFlight = historyLoads.get(subagentId);
     if (inFlight) {
-      return inFlight;
+      return inFlight.promise;
     }
     const entry = get().byId[subagentId];
     const conversationId = entry?.conversationId;
     if (!entry || entry.history !== null || !conversationId) {
       return Promise.resolve();
     }
-    const load = fetchSubagentHistory(assistantId, conversationId)
-      .then((snapshot) => get().seedHistory(subagentId, snapshot))
+    const load: HistoryLoad = { promise: Promise.resolve(), stale: false };
+    load.promise = fetchSubagentHistory(assistantId, conversationId)
+      .then((snapshot) => {
+        if (load.stale) {
+          // Invalidated mid-flight, which also released this load's slot, so
+          // this starts a fresh fetch rather than seeding the old snapshot.
+          return get().loadHistoryIfNeeded(assistantId, subagentId);
+        }
+        get().seedHistory(subagentId, snapshot);
+      })
       .catch((err: unknown) => {
         captureError(err, { context: "loadHistoryIfNeeded", bestEffort: true });
       })
-      .finally(() => historyLoads.delete(subagentId));
+      .finally(() => {
+        if (historyLoads.get(subagentId) === load) {
+          historyLoads.delete(subagentId);
+        }
+      });
     historyLoads.set(subagentId, load);
-    return load;
+    return load.promise;
   },
 
   invalidateHistories: (parentConversationId) => {
@@ -1244,10 +1267,17 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     let next: typeof byId | null = null;
     for (const entry of Object.values(byId)) {
       if (
-        entry.parentConversationId === parentConversationId &&
-        entry.conversationId &&
-        entry.history !== null
+        entry.parentConversationId !== parentConversationId ||
+        !entry.conversationId
       ) {
+        continue;
+      }
+      const inFlight = historyLoads.get(entry.subagentId);
+      if (inFlight) {
+        inFlight.stale = true;
+        historyLoads.delete(entry.subagentId);
+      }
+      if (entry.history !== null) {
         next ??= { ...byId };
         next[entry.subagentId] = { ...entry, history: null };
       }

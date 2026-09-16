@@ -3389,6 +3389,27 @@ describe("history", () => {
     expect(toolCalls()).toHaveLength(1);
   });
 
+  it("a stream gap during a fetch discards that fetch and refetches", async () => {
+    spawn("completed");
+    let resolveFirst: (snapshot: PaginatedHistoryResult) => void = () => {};
+    fetchSubagentHistory.mockImplementationOnce(
+      () =>
+        new Promise<PaginatedHistoryResult>((resolve) => {
+          resolveFirst = resolve;
+        }),
+    );
+    const load = getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    getState().invalidateHistories(PARENT);
+    // The refetch carries the call; the pre-gap snapshot is empty.
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    resolveFirst(emptyHistory());
+    await load;
+
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(2);
+    expect(toolCalls()).toHaveLength(1);
+  });
+
   it("a stream gap drops fetched histories so the next load refetches", async () => {
     spawn();
     getState().spawnSubagent({
