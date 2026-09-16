@@ -10,7 +10,8 @@
  *
  *   1. While a turn runs, every shell-style tool command is scanned for
  *      `credentials reveal` invocations and the referenced credentials
- *      (`--service`/`--field` flags or a positional UUID) are recorded as
+ *      (`--service`/`--field` flags, a positional UUID, or a legacy
+ *      `service/field` path) are recorded as
  *      *candidates* ({@link collectRevealRefsFromCommand}).
  *   2. At persist time, only those candidates' plaintexts are fetched from
  *      the credential store — a scoped read of secrets that were already in
@@ -106,6 +107,13 @@ const SERVICE_FLAG_RE = new RegExp(String.raw`--service(?:=|\s+)${FLAG_VALUE}`);
 const FIELD_FLAG_RE = new RegExp(String.raw`--field(?:=|\s+)${FLAG_VALUE}`);
 const UUID_RE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
+// Legacy `credentials reveal <service>/<field>` form. The CLI passes it as
+// the positional id, which the route rejects today, so no plaintext prints;
+// staging the ref is defense in depth so a future lookup that does succeed
+// is already proof-gated instead of unparsed. Only the path directly after
+// `reveal` is recognized; flag-prefixed positionals take the flag branch.
+const LEGACY_PATH_RE =
+  /\breveal\s+([^\s"'\\()<>`/-][^\s"'\\()<>`/]*)\/([^\s"'\\()<>`/]+)/;
 
 /**
  * Extract a flag's value from a segment, undoing the shell quoting the
@@ -265,6 +273,11 @@ export function collectRevealRefsFromCommand(
       const id = UUID_RE.exec(invocation)?.[0];
       if (id) {
         refs.push({ id });
+        continue;
+      }
+      const path = LEGACY_PATH_RE.exec(invocation);
+      if (path) {
+        refs.push({ service: path[1]!, field: path[2]! });
       }
       // No parseable identity → no ref. The span still gets redacted at
       // persist; it just won't be revealable.

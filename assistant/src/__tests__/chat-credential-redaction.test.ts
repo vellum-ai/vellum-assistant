@@ -204,6 +204,22 @@ describe("collectRevealRefsFromCommand", () => {
     );
   });
 
+  test("parses a legacy service/field path", () => {
+    expect(
+      collectRevealRefsFromCommand(
+        "assistant credentials reveal resend/api_key",
+      ),
+    ).toEqual([{ service: "resend", field: "api_key" }]);
+  });
+
+  test("legacy path survives malformed extra arguments", () => {
+    expect(
+      collectRevealRefsFromCommand(
+        "assistant credentials reveal resend/api_key --json extra",
+      ),
+    ).toEqual([{ service: "resend", field: "api_key" }]);
+  });
+
   test("unparseable invocation yields no ref (fails safe)", () => {
     expect(
       collectRevealRefsFromCommand("assistant credentials reveal --service x"),
@@ -435,6 +451,13 @@ describe("redactSecretsForChat", () => {
       "key: \u3014redacted:OpenAI Project Key:integration%3Agoogle:api_key\u3015",
     );
     expect(out).not.toContain(SYNTHETIC_OPENAI_PROJECT_KEY);
+  });
+
+  test("Resend key in persisted assistant text is redacted without a candidate", () => {
+    const key = `re_${"a".repeat(8)}_${"b".repeat(24)}`;
+    const out = redactSecretsForChat(`the key is ${key} and it failed`, []);
+    expect(out).not.toContain(key);
+    expect(out).toContain("\u3014redacted:Resend API Key\u3015");
   });
 
   test("no candidate match produces the plain sentinel — never a guess", () => {
