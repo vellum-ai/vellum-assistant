@@ -17,7 +17,10 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import { computerUseObserveTool } from "../../tools/computer-use/definitions.js";
+import {
+  computerUseKeyTool,
+  computerUseObserveTool,
+} from "../../tools/computer-use/definitions.js";
 import {
   __resetRegistryForTesting,
   registerSkillTools,
@@ -503,6 +506,7 @@ async function startHostTaskBargeInScenario(options?: {
   hostTaskMaxInterveningTurns?: number;
   hostTaskMaxSuspendedMs?: number;
   hostTaskResumeSilenceMs?: number;
+  skillExecuteInput?: Record<string, unknown>;
 }): Promise<{
   calls: VoiceTurnOptions[];
   frames: LiveVoiceServerFrame[];
@@ -548,7 +552,10 @@ async function startHostTaskBargeInScenario(options?: {
 
   calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
     toolUseId: "tool-1",
-    input: { tool: "computer_use_observe", input: {} },
+    input: options?.skillExecuteInput ?? {
+      tool: "computer_use_observe",
+      input: {},
+    },
   });
   await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
   await waitFor(() => calls.length === 3);
@@ -563,6 +570,7 @@ describe("LiveVoiceSession server VAD", () => {
   beforeAll(() => {
     __resetRegistryForTesting();
     registerSkillTools("computer-use-test", [
+      finalizeTool(computerUseKeyTool),
       finalizeTool(computerUseObserveTool),
     ]);
   });
@@ -716,6 +724,87 @@ describe("LiveVoiceSession server VAD", () => {
     await flushAsyncCallbacks();
     expect(countType(frames, "assistant_text_delta")).toBe(spokenBeforeStop);
     expect(hostTaskStateOf(session)).toBeNull();
+  });
+
+  test.each([
+    [
+      "a provider-wrapped inner tool",
+      {
+        _raw: JSON.stringify({
+          tool: "computer_use_observe",
+          input: {},
+        }),
+      },
+    ],
+    [
+      "an aliased inner tool",
+      {
+        tool: "computer_use_press_key",
+        input: { key: "Enter", reasoning: "Continue the task" },
+      },
+    ],
+  ])("recognizes host ownership for %s", async (_label, skillExecuteInput) => {
+    const { session, spawnBackgroundContinuation } =
+      await startHostTaskBargeInScenario({ skillExecuteInput });
+
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    expect(hostTaskStateOf(session)).toMatchObject({ phase: "suspended" });
+    await session.close("client_end");
+  });
+
+  test("retries suspended host work when the handed-off leg fails to start", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      if (calls.length === 4) {
+        throw new Error("strong leg unavailable");
+      }
+      return {
+        turnId: `bridge-turn-${calls.length}`,
+        abort: mock(),
+        discard: mock(async () => {}),
+      };
+    });
+    const { session } = createHarness({
+      finals: ["change the title", "make it shorter"],
+      startVoiceTurn,
+      streamTtsAudio: mock(async (tts: LiveVoiceTtsOptions) => {
+        tts.onAudioChunk(makeTtsChunk("assistant audio"));
+        return makeTtsResult("assistant audio");
+      }),
+      hostTaskResumeSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    calls[0]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] One moment."),
+    );
+    calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 2);
+    calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-1",
+      input: { tool: "computer_use_observe", input: {} },
+    });
+
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.length === 3);
+    calls[2]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] I will continue."),
+    );
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 5);
+
+    expect(calls[3]).toMatchObject({ routingLeg: "escalated" });
+    expect(calls[4]).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    calls[4]?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
+    calls[4]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => hostTaskStateOf(session) === null);
   });
 
   test("a front-door task-stop answer abandons the suspended host task", async () => {

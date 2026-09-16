@@ -101,6 +101,7 @@ import {
   liveVoiceStartScreen,
 } from "../telemetry/live-voice-funnel.js";
 import { getTool, getToolOwner } from "../tools/registry.js";
+import { resolveSkillExecuteInvocation } from "../tools/skills/resolve-execute-invocation.js";
 import {
   createReasoningTagFilter,
   type ReasoningTagFilter,
@@ -1121,8 +1122,8 @@ function hostInteractiveToolName(
   input?: Record<string, unknown>,
 ): string | null {
   const effectiveToolName =
-    toolName === "skill_execute" && typeof input?.tool === "string"
-      ? input.tool
+    toolName === "skill_execute"
+      ? resolveSkillExecuteInvocation(input ?? {}).name
       : toolName;
   return getTool(effectiveToolName)?.executionTarget === "host"
     ? effectiveToolName
@@ -3427,6 +3428,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
   }
 
+  private markHostTaskResumePending(epoch: number): boolean {
+    const current = this.hostTaskState;
+    if (current?.phase !== "suspended" || current.epoch !== epoch) {
+      return false;
+    }
+    this.hostTaskState = { ...current, resumePending: true };
+    return true;
+  }
+
   private clearHostTaskResumeTimer(): void {
     if (this.hostTaskResumeTimer !== null) {
       clearTimeout(this.hostTaskResumeTimer);
@@ -3523,9 +3533,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (started) {
       return;
     }
-    const after = this.hostTaskState;
-    if (after?.phase === "suspended" && after.epoch === current.epoch) {
-      this.hostTaskState = { ...after, resumePending: true };
+    if (this.markHostTaskResumePending(current.epoch)) {
       this.scheduleHostTaskResume();
     }
   }
@@ -6208,8 +6216,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         return false;
       }
 
+      const hostTaskResumeRearmed =
+        !leg.frontDoor &&
+        leg.directEscalated !== true &&
+        activeTurn.hostTaskEpoch !== null &&
+        !activeTurn.discardRequested &&
+        !activeTurn.abortController.signal.aborted &&
+        this.markHostTaskResumePending(activeTurn.hostTaskEpoch);
       this.clearFillerTimers(activeTurn);
       this.clearActiveAssistantTurn(token);
+      if (hostTaskResumeRearmed) {
+        this.scheduleHostTaskResume();
+      }
       await this.sendFrame({
         type: "error",
         code: LiveVoiceProtocolErrorCode.InvalidField,
