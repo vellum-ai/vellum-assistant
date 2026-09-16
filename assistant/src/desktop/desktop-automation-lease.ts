@@ -98,8 +98,10 @@ export class DesktopAutomationLease {
     if (this.owner !== owner) {
       return;
     }
-    this.generation += 1;
-    owner.abort.abort();
+    if (!owner.abort.signal.aborted) {
+      this.generation += 1;
+      owner.abort.abort();
+    }
     void this.exclusive(async () => {
       if (this.owner === owner) {
         await this.release();

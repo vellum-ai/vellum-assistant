@@ -311,3 +311,23 @@ test("a delayed cleanup retry cannot release a replacement owner", async () => {
   expect(f.released).toHaveBeenCalledTimes(1);
   await f.lease.runBrowser(nextContext, operation, true);
 });
+
+test("cleanup retries preserve commands queued behind an explicit handoff", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  f.releaseBrowser.mockRejectedValueOnce(new Error("Chrome cleanup timed out"));
+  f.lease.releaseForConversation(context.conversationId);
+  await Bun.sleep(0);
+  const cleanup = Promise.withResolvers<void>();
+  f.releaseBrowser.mockImplementationOnce(() => cleanup.promise);
+  const detached = f.lease.runBrowser(context, operation, true);
+  await Bun.sleep(0);
+  const callback = mock(operation);
+  const next = f.lease.runBrowser(context, callback);
+  await Bun.sleep(1_100);
+  cleanup.resolve();
+  await detached;
+  expect((await next).isError).toBe(false);
+  expect(callback).toHaveBeenCalledTimes(1);
+  expect(f.lease.isActive).toBe(true);
+});
