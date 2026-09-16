@@ -229,6 +229,7 @@ const UNCONNECTED_PROVIDER_LABELS = [
   "OpenCode",
   "Baseten",
   "Poolside",
+  "Jev",
 ];
 
 /** The create-mode Provider dropdown is labelled via `aria-labelledby`. */
