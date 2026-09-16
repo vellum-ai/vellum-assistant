@@ -141,7 +141,7 @@ export function AssistantInboxPage({
 
       <Tabs.Root value={folder} onValueChange={handleFolderChange}>
         {/* The tab list's own rule is the divider between the masthead and
-            the mail; the search rides on the same line, on the far edge. */}
+            the mail. */}
         <Tabs.List
           className="px-6"
           aria-label={t("assistantInboxPage.folderAriaLabel")}
@@ -152,37 +152,42 @@ export function AssistantInboxPage({
           <Tabs.Trigger value="sent">
             {t("assistantInboxPage.sentTab")}
           </Tabs.Trigger>
-          <div className="ml-auto w-full max-w-[260px] pb-1.5">
-            <Input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("assistantInboxPage.searchPlaceholder")}
-              aria-label={t("assistantInboxPage.searchAriaLabel")}
-              leftIcon={<Search aria-hidden="true" />}
-            />
-          </div>
         </Tabs.List>
       </Tabs.Root>
 
-      {emails.length === 0 ? (
-        <FolderEmptyState
-          folder={folder}
-          address={address}
-          searching={trimmedQuery.length > 0}
-        />
+      {folderEmails.length === 0 ? (
+        <FolderEmptyState folder={folder} address={address} searching={false} />
       ) : (
         <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(280px,360px)_1fr]">
-          <EmailList
-            emails={emails}
-            selectedId={selectedId}
-            now={clock}
-            onSelect={setSelectedId}
+          {/* The list column owns the search: it filters this folder and
+              nothing else, so it sits at the head of the rows it narrows. */}
+          <div
             className={cn(
-              "md:border-r md:border-[var(--border-subtle)]",
+              "flex min-h-0 flex-col md:border-r md:border-[var(--border-subtle)]",
               selected && "max-md:hidden",
             )}
-          />
+          >
+            <div className="border-b border-[var(--border-subtle)] px-4 py-3">
+              <Input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("assistantInboxPage.searchPlaceholder")}
+                aria-label={t("assistantInboxPage.searchAriaLabel")}
+                leftIcon={<Search aria-hidden="true" />}
+              />
+            </div>
+            {emails.length === 0 ? (
+              <FolderEmptyState folder={folder} address={address} searching />
+            ) : (
+              <EmailList
+                emails={emails}
+                selectedId={selectedId}
+                now={clock}
+                onSelect={setSelectedId}
+              />
+            )}
+          </div>
           {selected ? (
             <EmailDetail
               key={selected.id}
