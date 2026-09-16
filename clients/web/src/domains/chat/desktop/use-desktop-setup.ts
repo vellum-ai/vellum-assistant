@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 
 import {
   desktopSetupGetOptions,
@@ -56,5 +57,17 @@ export function useDesktopSetup(assistantId: string) {
     void refresh();
   });
   const install = useDesktopSetupPostMutation({ onSettled: refresh });
+  const { mutate } = install;
+  const autoInstallFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      orgReady &&
+      query.data?.state === "required" &&
+      autoInstallFor.current !== assistantId
+    ) {
+      autoInstallFor.current = assistantId;
+      mutate({ path: { assistant_id: assistantId } });
+    }
+  }, [assistantId, orgReady, query.data?.state, mutate]);
   return { query, install };
 }

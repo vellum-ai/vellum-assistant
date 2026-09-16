@@ -60,9 +60,8 @@ export interface CliIpcCallResult<T = unknown> {
   errorDetails?: unknown;
   /**
    * Set when the call was abandoned because `timeoutMs` elapsed with no
-   * response. Distinct from every other `ok: false` shape: the request WAS
-   * delivered and the daemon may still be executing it — closing the client
-   * socket does not abort the handler. Callers that would otherwise retry a
+   * response. The request was delivered and may still be executing unless
+   * `cancelOnDisconnect` was requested. Callers that would otherwise retry a
    * transport failure must not retry this one until the original can no
    * longer be in flight.
    */
@@ -79,7 +78,11 @@ export interface CliIpcCallResult<T = unknown> {
 export async function cliIpcCall<T = unknown>(
   method: string,
   params?: Record<string, unknown>,
-  options?: { timeoutMs?: number; signal?: AbortSignal },
+  options?: {
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    cancelOnDisconnect?: boolean;
+  },
 ): Promise<CliIpcCallResult<T>> {
   if (options?.signal?.aborted) {
     throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
@@ -180,7 +183,12 @@ export async function cliIpcCall<T = unknown>(
 
     socket.on("connect", () => {
       clearTimeout(connectTimer);
-      writeMessage(socket, { id: reqId, method, params });
+      writeMessage(socket, {
+        id: reqId,
+        method,
+        params,
+        ...(opts?.cancelOnDisconnect ? { cancelOnDisconnect: true } : {}),
+      });
 
       callTimer = setTimeout(() => {
         log.debug(

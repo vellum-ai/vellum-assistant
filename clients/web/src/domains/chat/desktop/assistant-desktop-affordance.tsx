@@ -3,11 +3,11 @@ import { Monitor } from "lucide-react";
 
 import { useAssistantName } from "@/hooks/use-assistant-name";
 import { useTranslation } from "@/i18n";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { usePointerCoarse } from "@/utils/pointer";
 
 import { useDesktopPreviewStore } from "./desktop-preview-store";
+import { useVirtualDesktopEnabled } from "./use-virtual-desktop-enabled";
 
 export function AssistantDesktopAffordance({
   onToggle,
@@ -15,7 +15,7 @@ export function AssistantDesktopAffordance({
   onToggle?: () => void;
 }) {
   const { t } = useTranslation("chat");
-  const enabled = useAssistantFeatureFlagStore.use.assistantDesktop();
+  const enabled = useVirtualDesktopEnabled();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantName = useAssistantName(assistantId);
   const session = useDesktopPreviewStore.use.session();

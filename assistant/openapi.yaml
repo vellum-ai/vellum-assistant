@@ -4146,6 +4146,8 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
               required:
                 - operation
       responses:
@@ -4181,7 +4183,7 @@ paths:
     post:
       operationId: browser_tabs_post
       summary: Manage browser tabs
-      description: List, create, select, or close browser tabs via the Chrome extension backend.
+      description: List, create, select, or close browser tabs in the Chrome extension or streamed desktop browser.
       tags:
         - browser
       requestBody:
@@ -4205,6 +4207,10 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
+                browserMode:
+                  type: string
                 tabId:
                   type: number
                 url:
@@ -11916,7 +11922,7 @@ paths:
   /v1/desktop/setup:
     get:
       operationId: desktop_setup_get
-      summary: Get desktop setup status
+      summary: Get virtual desktop setup status
       tags:
         - desktop
       responses:
@@ -11946,7 +11952,7 @@ paths:
                 additionalProperties: false
     post:
       operationId: desktop_setup_post
-      summary: Install desktop components
+      summary: Install virtual desktop components
       tags:
         - desktop
       responses:

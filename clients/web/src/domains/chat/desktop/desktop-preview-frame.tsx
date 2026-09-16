@@ -1,5 +1,5 @@
 import { Button } from "@vellumai/design-library";
-import { GripHorizontal, Monitor, MoveDiagonal2, X } from "lucide-react";
+import { Monitor, MoveDiagonal2, X } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -59,17 +59,25 @@ export function DesktopPreviewFrame({
           exit={{ opacity: 0 }}
           transition={{ duration: reduce ? 0 : 0.15 }}
         >
-          <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border-base)] pl-6 pr-1 transition-colors hover:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]">
+          <div className="grid h-10 shrink-0 grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-1 border-b border-[var(--border-base)] px-1 transition-colors hover:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]">
+            <Button
+              variant="ghost"
+              size="compact"
+              expandOnMobile={false}
+              iconOnly={<MoveDiagonal2 className="size-3" />}
+              aria-label={t("assistantDesktop.resizeAria")}
+              title={t("assistantDesktop.resizeAria")}
+              data-desktop-resize
+              className="size-6 cursor-nwse-resize justify-self-center active:scale-100"
+              onKeyDown={onResizeKeyDown}
+            />
             <Button
               variant="ghost"
               size="regular"
               expandOnMobile={false}
               leftIcon={<Monitor className="size-4" />}
-              rightIcon={
-                <GripHorizontal className="ml-auto size-4 text-[var(--content-tertiary)]" />
-              }
               aria-label={t("assistantDesktop.moveAria")}
-              className="min-w-0 flex-1 cursor-grab hover:bg-transparent active:cursor-grabbing active:scale-100 active:bg-transparent"
+              className="min-w-0 cursor-grab justify-center hover:bg-transparent active:cursor-grabbing active:scale-100 active:bg-transparent"
               onKeyDown={onMoveKeyDown}
               onClick={() =>
                 useDesktopPreviewStore.getState().setFullscreen(true)
@@ -87,17 +95,6 @@ export function DesktopPreviewFrame({
               onClick={close}
             />
           </div>
-          <Button
-            variant="ghost"
-            size="compact"
-            expandOnMobile={false}
-            iconOnly={<MoveDiagonal2 className="size-3" />}
-            aria-label={t("assistantDesktop.resizeAria")}
-            title={t("assistantDesktop.resizeAria")}
-            data-desktop-resize
-            className="absolute left-0 top-0 z-10 size-6 cursor-nwse-resize rounded-none active:scale-100"
-            onKeyDown={onResizeKeyDown}
-          />
           {children}
         </motion.aside>
       </div>
