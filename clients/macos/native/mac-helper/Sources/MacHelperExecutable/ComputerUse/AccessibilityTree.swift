@@ -56,6 +56,16 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// How deep the next focused or targeted window walk goes. Callers that do
     /// not set it get the full depth.
     var depthLimit = AXDepthPolicy.fullDepth
+    /// Whether the walk skips subtrees a scrolling ancestor is not showing.
+    ///
+    /// Off by default, and deliberately so. `ax.locate` needs a scrolled-away
+    /// element to be *in* the tree so it can answer "it exists, it is not on
+    /// screen" — dropping it during the walk would make that answer "not
+    /// found", which sends a coachmark somewhere else. Only the CU observation
+    /// path, whose tree is a list of things to act on right now, turns this on.
+    var skipClippedSubtrees = false
+    /// How many elements the last walk skipped as scrolled out of view.
+    private(set) var lastWalkClippedCount = 0
     /// Whether the last window walk skipped elements below `depthLimit`.
     private(set) var lastWalkTruncated = false
     /// How many elements the last window walk visited.
@@ -221,6 +231,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         nextId = 1
         totalElementsEnumerated = 0
         lastWalkTruncated = false
+        lastWalkClippedCount = 0
         let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
         lastWalkElementCount = totalElementsEnumerated
 
@@ -310,6 +321,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         nextId = 1
         totalElementsEnumerated = 0
         lastWalkTruncated = false
+        lastWalkClippedCount = 0
         let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
         lastWalkElementCount = totalElementsEnumerated
 
@@ -441,6 +453,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         nextId = 1
         totalElementsEnumerated = 0
         lastWalkTruncated = false
+        lastWalkClippedCount = 0
         let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: depthLimit)
         lastWalkElementCount = totalElementsEnumerated
 
@@ -454,7 +467,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
     /// Safe wrapper around enumerateElement that prevents infinite loops.
     /// File save dialogs (especially with Downloads) can have corrupted AX trees or circular references.
-    private func enumerateElementSafely(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
+    private func enumerateElementSafely(element: AXUIElement, depth: Int, maxDepth: Int, clip: CGRect? = nil) -> [AXElement] {
         // Bail out if we've processed too many elements (circular reference protection)
         guard totalElementsEnumerated < maxElementsPerEnumeration else {
             log.warning("Hit max element limit (\(self.maxElementsPerEnumeration)) during enumeration — stopping to prevent infinite loop")
@@ -462,10 +475,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         }
 
         totalElementsEnumerated += 1
-        return enumerateElement(element: element, depth: depth, maxDepth: maxDepth)
+        return enumerateElement(element: element, depth: depth, maxDepth: maxDepth, clip: clip)
     }
 
-    private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
+    private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int, clip: CGRect? = nil) -> [AXElement] {
         guard depth < maxDepth else {
             lastWalkTruncated = true
             return []
@@ -501,6 +514,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         let hasTextContent = (title != nil && !title!.isEmpty) || (value != nil && !value!.isEmpty)
         let isStaticText = Self.textRoles.contains(role)
 
+        // What this element leaves of everything under it: its own frame when
+        // it scrolls, otherwise whatever its ancestors already left.
+        let inner = AXClip.narrowed(clip, by: frame, clips: Self.clippingRoles.contains(role))
+
         // Enumerate children with safety checks
         var childElements: [AXElement] = []
         var childrenRef: CFTypeRef?
@@ -519,8 +536,26 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                         break
                     }
 
+                    // What this element leaves of its children. Read before
+                    // the child is walked, so a row a scroll view is not
+                    // showing costs one frame read rather than the nine
+                    // attribute reads and the whole subtree under it.
+                    // Note the test is not AXDisplayMatch's: there an element
+                    // with no area is on nothing, which is the right answer for
+                    // one being listed and the wrong one for one being walked.
+                    // Skipping here discards the entire subtree beneath the
+                    // child, so a wrapper that reports no frame - web content
+                    // does - must be descended into rather than judged.
+                    if self.skipClippedSubtrees, let childClip = inner {
+                        let childFrame = self.getFrameAttribute(child)
+                        if !childFrame.isEmpty && !childFrame.intersects(childClip) {
+                            self.lastWalkClippedCount += 1
+                            continue
+                        }
+                    }
+
                     // Recursively enumerate with the safe wrapper
-                    childElements.append(contentsOf: enumerateElementSafely(element: child, depth: depth + 1, maxDepth: maxDepth))
+                    childElements.append(contentsOf: enumerateElementSafely(element: child, depth: depth + 1, maxDepth: maxDepth, clip: inner))
                 }
             }
         }
@@ -631,14 +666,18 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
     // MARK: - Formatting
 
-    static func formatAXTree(elements: [AXElement], windowTitle: String, appName: String) -> String {
+    /// `clippedDuringWalk` is what the enumerator already dropped for being
+    /// scrolled away, which never reaches this list to be counted here. The two
+    /// are summed so the reported figure is what is missing from the window
+    /// rather than what this pass happened to see.
+    static func formatAXTree(elements: [AXElement], windowTitle: String, appName: String, clippedDuringWalk: Int = 0) -> String {
         var lines: [String] = []
         lines.append("Window: \"\(windowTitle)\" (\(appName))")
 
         var interactive: [String] = []
         var staticTexts: [String] = []
         var prunedCount = 0
-        var clippedCount = 0
+        var clippedCount = clippedDuringWalk
         collectFormatted(elements: elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount)
 
         if !interactive.isEmpty {

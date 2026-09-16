@@ -141,6 +141,12 @@ enum HostCuActionRunner {
         defer { cancelledRequests.removeValue(forKey: requestId) }
         touchSession(conversationId)
         let enumerator = AccessibilityTreeEnumerator()
+        // This tree is a list of things to act on right now, so a row its
+        // scroll view is not showing is not one of them. Walking them anyway
+        // is what made a Finder window of ~700 files a 7,497-element,
+        // 28-second observation. `ax.locate` leaves this off: it has to be
+        // able to say "scrolled away" rather than "not found".
+        enumerator.skipClippedSubtrees = true
         let screenCapture = ScreenCapture()
         let executor = ActionExecutor()
         let verifier = verifiers[conversationId] ?? {
@@ -807,7 +813,8 @@ enum HostCuActionRunner {
             axTreeText = AccessibilityTreeEnumerator.formatAXTree(
                 elements: result.elements,
                 windowTitle: result.windowTitle,
-                appName: result.appName
+                appName: result.appName,
+                clippedDuringWalk: enumerator.lastWalkClippedCount
             )
             if walkTruncated {
                 axTreeText? += depth < AXDepthPolicy.fullDepth
