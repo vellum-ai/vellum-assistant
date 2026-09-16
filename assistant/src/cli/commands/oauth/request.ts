@@ -149,6 +149,17 @@ export async function runAuthenticatedRequest(params: {
     }
   };
 
+  // The command exits itself, once its last write has drained. Running the
+  // route in-process leaves handles open that the event loop waits on (the
+  // lazy CES connection the credential resolves through is never closed by
+  // the CLI), so returning from the action would leave the process alive
+  // after a complete response. A bare `process.exit()` is not the answer
+  // either: with stdout on a pipe, Bun flushes 64 KB and drops the rest, so
+  // the exit rides the write callback, which fires when the bytes are out.
+  const exit = (): void => {
+    process.exit(Number(process.exitCode ?? 0));
+  };
+
   try {
     // Parse headers for verbose output (before sending to daemon)
     const parsedHeaders: Record<string, string> = {};
@@ -232,10 +243,10 @@ export async function runAuthenticatedRequest(params: {
         // reported the way every other failure here is, so `--json` gets its
         // envelope and the caller's diagnostics hint is not lost; only the
         // exit code comes from the route's status.
-        writeError(cmd, `${err.message}\n\n${params.diagnosticsHint}`);
         process.exitCode = exitCodeFromIpcResult({
           statusCode: err.statusCode,
         });
+        writeError(cmd, `${err.message}\n\n${params.diagnosticsHint}`, exit);
         return;
       }
       throw err;
@@ -262,7 +273,7 @@ export async function runAuthenticatedRequest(params: {
 
     // JSON output mode
     if (jsonMode) {
-      writeOutput(cmd, result);
+      writeOutput(cmd, result, exit);
       return;
     }
 
@@ -283,20 +294,23 @@ export async function runAuthenticatedRequest(params: {
       if (output) {
         if (opts.output) {
           writeFileSync(opts.output, output.bytes);
+        } else if (output.isBinary) {
+          process.stdout.write(output.bytes, exit);
+          return;
         } else {
           process.stdout.write(output.bytes);
-          if (!output.isBinary) {
-            process.stdout.write("\n");
-          }
+          process.stdout.write("\n", exit);
+          return;
         }
       }
     } else if (opts.output) {
       writeFileSync(opts.output, Buffer.alloc(0));
     }
+    exit();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    writeError(cmd, `${message}\n\n${params.diagnosticsHint}`);
     process.exitCode = 1;
+    writeError(cmd, `${message}\n\n${params.diagnosticsHint}`, exit);
   }
 }
 

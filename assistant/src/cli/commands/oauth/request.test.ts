@@ -71,18 +71,34 @@ afterEach(() => {
   process.exitCode = 0;
 });
 
+/**
+ * Runs the command with stdout captured and `process.exit` recorded. The
+ * stdout stub honours a write callback the way the real stream does, so an
+ * exit that rides the last write lands in `exitCalls`, and only after every
+ * chunk written before it has been captured.
+ */
 async function runRequestCommand(args: string[]): Promise<{
   stdout: Buffer;
   exitCode: number;
+  exitCalls: number[];
 }> {
   const chunks: Buffer[] = [];
+  const exitCalls: number[] = [];
   const originalWrite = process.stdout.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => {
+  const originalExit = process.exit;
+  process.stdout.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
     chunks.push(
       typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk),
     );
+    const callback = rest.find((arg) => typeof arg === "function");
+    if (callback) {
+      (callback as () => void)();
+    }
     return true;
   }) as typeof process.stdout.write;
+  process.exit = ((code?: number) => {
+    exitCalls.push(code ?? Number(process.exitCode ?? 0));
+  }) as typeof process.exit;
 
   try {
     const program = new Command();
@@ -101,11 +117,13 @@ async function runRequestCommand(args: string[]): Promise<{
     // Commander may throw under exitOverride for parse errors.
   } finally {
     process.stdout.write = originalWrite;
+    process.exit = originalExit;
   }
 
   return {
     stdout: Buffer.concat(chunks),
     exitCode: Number(process.exitCode ?? 0),
+    exitCalls,
   };
 }
 
@@ -328,6 +346,52 @@ describe("oauth request body output", () => {
 
     expect(exitCode).toBe(1);
     expect(stdout.toString("utf8")).toContain("not_in_channel");
+  });
+
+  test("exits itself once the whole body has drained", async () => {
+    // The in-process route leaves handles open, so the command has to exit;
+    // and it must do so on the write callback, because a bare exit after a
+    // large piped write drops everything past the first 64 KB.
+    const body = "x".repeat(200_000);
+    handleRequestResult = {
+      ok: true,
+      status: 200,
+      headers: { "content-type": "text/plain" },
+      body,
+      account: "user@example.com",
+    };
+    const { stdout, exitCode, exitCalls } = await runRequestCommand([
+      "--provider",
+      "google",
+      "-s",
+      "https://api.google.com/v1/big",
+    ]);
+
+    expect(stdout.toString("utf8")).toBe(body + "\n");
+    expect(exitCode).toBe(0);
+    expect(exitCalls).toEqual([0]);
+  });
+
+  test("exits after writing an empty body to a file", async () => {
+    const target = join(tempDir, "empty.bin");
+    handleRequestResult = {
+      ok: true,
+      status: 204,
+      headers: {},
+      body: null,
+      account: "user@example.com",
+    };
+    const { exitCalls } = await runRequestCommand([
+      "--provider",
+      "google",
+      "-s",
+      "-o",
+      target,
+      "https://api.google.com/v1/none",
+    ]);
+
+    expect(readFileSync(target)).toHaveLength(0);
+    expect(exitCalls).toEqual([0]);
   });
 
   test("writes text bodies as UTF-8 and appends a newline on stdout", async () => {
