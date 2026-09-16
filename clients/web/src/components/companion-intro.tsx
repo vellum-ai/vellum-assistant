@@ -6,6 +6,7 @@ import type {
   CompanionIntroAction,
   CompanionIntroBeat,
 } from "@vellumai/ipc-contract";
+import type { VoiceActivityState } from "@vellumai/ipc-contract";
 import type { CSSProperties, Ref } from "react";
 
 import { useTranslation } from "@/i18n";
@@ -79,6 +80,14 @@ const INTRO_COPY_KEYS = {
     title: "companionIntro.talk.title",
     body: "companionIntro.talk.body",
   },
+  try: {
+    title: "companionIntro.try.title",
+    body: "companionIntro.try.body",
+  },
+  controls: {
+    title: "companionIntro.controls.title",
+    body: "companionIntro.controls.body",
+  },
   menu: {
     title: "companionIntro.menu.title",
     body: "companionIntro.menu.body",
@@ -101,6 +110,42 @@ export const introSpotlight = (
 ): "talk" | undefined => (beat === "talk" ? beat : undefined);
 
 /**
+ * The session the `controls` beat draws the pill around: a call that is not
+ * happening.
+ *
+ * The controls worth pointing out are the call's, and they exist nowhere else
+ * on this surface. Asking the user to start a session to be shown the session
+ * controls is the wrong way round, so the beat borrows the shape: the pill is
+ * drawn as the bar a call builds, with nothing behind it and nothing it can be
+ * pressed to do.
+ *
+ * Listening rather than idle, because that is the state a call spends its time
+ * in and the one the bar is designed to read as. Nothing about it reaches a
+ * session: the caller passes it to the surface and withholds the handlers, so
+ * every control on it is drawn and inert (see `companion-surface-page.tsx`).
+ */
+export const introDemoCall = (label: string): VoiceActivityState => ({
+  phase: "listening",
+  // What the bar says it is doing. Passed in rather than fixed here because it
+  // is copy, and copy belongs in a catalog: the caller reads it from theirs.
+  label,
+  accentHex: "",
+  muted: false,
+  outputMuted: false,
+  detail: "",
+  approvalRequestId: "",
+  assistantName: "",
+});
+
+/** The keys the `controls` beat's captions name, as the host arms them. */
+export const INTRO_DEMO_SHORTCUTS = {
+  share: "⌥S",
+  draw: "⌥D",
+  muteMicrophone: "⌥M",
+  muteAssistant: "⌥A",
+} as const;
+
+/**
  * The phase the surface holds while a beat is on screen, or `null` to leave the
  * phase to whatever the surface would otherwise be in.
  *
@@ -116,6 +161,11 @@ export const introPhase = (
 ): CompanionSurfacePhase | null => {
   if (beat === null || beat === "meet") {
     return null;
+  }
+  // The beat about the call's controls is drawn as a call, which is the only
+  // state those controls exist in. See {@link INTRO_DEMO_CALL}.
+  if (beat === "controls") {
+    return "call";
   }
   return "hover";
 };
@@ -256,26 +306,50 @@ export function CompanionIntro({
           ))}
         </div>
         <div className="flex items-center gap-1">
-          {/* Skip is offered only while there is something left to skip. On the
-              last beat the primary control already ends the run, and two
-              buttons that do the same thing is a choice the user has to stop
-              and read. */}
-          {!isLast && (
-            <button
-              type="button"
-              className="h-7 rounded-full px-2.5 text-[12px] text-white/55 transition-colors hover:bg-white/10 hover:text-white/80"
-              onClick={() => onAdvance?.("dismiss")}
-            >
-              {t("companionIntro.skip")}
-            </button>
+          {/* The question beat answers itself: a real session or a look at
+              what one offers. Neither is Skip, and there is no Next to press
+              past a question, so this beat carries its own pair. */}
+          {beat === "try" ? (
+            <>
+              <button
+                type="button"
+                className="h-7 rounded-full px-2.5 text-[12px] text-white/55 transition-colors hover:bg-white/10 hover:text-white/80"
+                onClick={() => onAdvance?.("next")}
+              >
+                {t("companionIntro.try.later")}
+              </button>
+              <button
+                type="button"
+                className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+                onClick={() => onAdvance?.("call")}
+              >
+                {t("companionIntro.try.now")}
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Skip is offered only while there is something left to skip.
+                  On the last beat the primary control already ends the run,
+                  and two buttons that do the same thing is a choice the user
+                  has to stop and read. */}
+              {!isLast && (
+                <button
+                  type="button"
+                  className="h-7 rounded-full px-2.5 text-[12px] text-white/55 transition-colors hover:bg-white/10 hover:text-white/80"
+                  onClick={() => onAdvance?.("dismiss")}
+                >
+                  {t("companionIntro.skip")}
+                </button>
+              )}
+              <button
+                type="button"
+                className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+                onClick={() => onAdvance?.("next")}
+              >
+                {isLast ? t("companionIntro.done") : t("companionIntro.next")}
+              </button>
+            </>
           )}
-          <button
-            type="button"
-            className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
-            onClick={() => onAdvance?.("next")}
-          >
-            {isLast ? t("companionIntro.done") : t("companionIntro.next")}
-          </button>
         </div>
       </div>
     </div>

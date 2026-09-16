@@ -138,6 +138,11 @@
   },
   "companionIntro": {
     "ariaLabel": "Introducing your companion",
+    "controls": {
+      "body": "Show me your screen, or mute either of us.",
+      "line": "Listening",
+      "title": "This is a call"
+    },
     "done": "Got it",
     "meet": {
       "body": "I stay on your desktop, even when Vellum isn’t visible.",
@@ -153,6 +158,12 @@
     "talk": {
       "body": "Start a voice conversation.",
       "title": "Talk"
+    },
+    "try": {
+      "body": "I can talk it through with you, and see your screen if you want.",
+      "later": "Not now",
+      "now": "Try it now",
+      "title": "Want to try a call?"
     }
   },
   "companionSurface": {

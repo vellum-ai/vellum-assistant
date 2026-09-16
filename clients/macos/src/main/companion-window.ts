@@ -440,6 +440,40 @@ const INTRO_LANDING_GRACE_MS = 1_500;
 /** The timer that unstages the surface after it has landed, if one is set. */
 let introLanding: ReturnType<typeof setTimeout> | null = null;
 
+/**
+ * Tell the app's window whether a run is staged on it, so it can dim itself
+ * for the length of one.
+ *
+ * Sent on every change and never inferred from anything the renderer holds:
+ * the window can reload mid-run, and a dimmed window with nothing staged over
+ * it is an app nobody can use.
+ */
+const pushIntroStage = (staged: boolean): void => {
+  const win = currentMainWindow();
+  if (win === null || win.isDestroyed()) {
+    log.info(
+      `companion: intro stage ${staged ? "on" : "off"}, no app window to tell`,
+    );
+    return;
+  }
+  log.info(`companion: intro stage ${staged ? "on" : "off"} -> app window`);
+  win.webContents.send("vellum:companion:introStage", staged);
+};
+
+/**
+ * Take the surface out of the staged run, whether it ended by being watched,
+ * by being put away, or by the window going. The app's window is told either
+ * way, so nothing is left dimmed.
+ */
+const unstageIntro = (): void => {
+  cancelIntroLanding();
+  if (!introStaged) {
+    return;
+  }
+  introStaged = false;
+  pushIntroStage(false);
+};
+
 const cancelIntroLanding = (): void => {
   if (introLanding === null) {
     return;
@@ -451,8 +485,8 @@ const cancelIntroLanding = (): void => {
 /**
  * The introduction after a press, which is `null` once it is over.
  *
- * `dismiss` ends it wherever it is; `next` walks to the following beat and
- * falls off the end into `null`. Resolved against the beat main is actually on
+ * `dismiss` and `call` both end it wherever it is; `next` walks to the
+ * following beat and falls off the end into `null`. Resolved against the beat main is actually on
  * rather than one the renderer names, so a press from a renderer a beat behind
  * lands where the user could see that it would.
  *
@@ -462,7 +496,10 @@ export const introOnAdvance = (
   current: CompanionIntroBeat | null,
   action: CompanionIntroAction,
 ): CompanionIntroBeat | null => {
-  if (current === null || action === "dismiss") {
+  // `call` ends the run as `dismiss` does: the user asked for the real thing,
+  // and a card captioning a session over the top of one is the state the run
+  // gives way to everywhere else.
+  if (current === null || action === "dismiss" || action === "call") {
     return null;
   }
   const next =
@@ -1078,9 +1115,14 @@ const landIntroHome = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   cancelIntroLanding();
   if (win === null || win.isDestroyed()) {
-    introStaged = false;
+    unstageIntro();
     return;
   }
+  // The dimming goes as the flight begins, so the desktop the surface is
+  // heading for is the thing lit while it travels. The surface itself stays in
+  // front until it has landed, which is what `introStaged` still being set
+  // holds it there for.
+  pushIntroStage(false);
   const { workArea } = displayUnder(avatarCentre(win));
   glideAvatarTo(win, defaultAvatarCentre(workArea, geometry), workArea);
   introLanding = setTimeout(() => {
@@ -3081,6 +3123,17 @@ export const installCompanionWindow = (): void => {
         intro = next;
       }
       pushState();
+      // **A `call` answer is a press on Talk, made from the card.** The run is
+      // over either way, and `introOnAdvance` has already ended it; what is
+      // left is the session the user asked for, started the same way the
+      // creature's own press starts one so the dial is drawn in this beat
+      // rather than after a round trip.
+      if (action === "call") {
+        if (dialOnTalk(call)) {
+          setDialing(true);
+        }
+        dispatchWithoutRaising({ kind: "startVoice" });
+      }
     },
   );
 
@@ -3311,6 +3364,12 @@ export const installCompanionWindow = (): void => {
   // before its subscription registers is dropped. It pulls this once mounted.
   handle("vellum:companion:getState", z.tuple([]), () => currentState());
 
+  // The app's window is told when a run is staged on it, and a push that lands
+  // before its scrim has subscribed is dropped the same way a surface state
+  // is: the window can be mid-load when a run starts, and it reloads. It pulls
+  // this on mount.
+  handle("vellum:companion:getIntroStage", z.tuple([]), () => introStaged);
+
   // Registered once here rather than per window: `refreshGrowth` no-ops
   // while no surface exists, and the surface can be closed and reopened from
   // the tray, which must not stack duplicate listeners. A display added,
@@ -3399,11 +3458,22 @@ export const openCompanionWindow = (): void => {
   // window must not be sent to: it opens where every window opens. A glide
   // still in flight has nothing left to move.
   win.on("closed", () => {
+    // **Only if this was the last surface.** A replay closes the surface and
+    // opens another one at once, and `getFloatingWindow` reports a destroyed
+    // window as gone the moment it is destroyed, so the new surface is built
+    // and staged before the old one's `closed` lands. Tearing down from here
+    // then undoes the run that has just started: the beats play on, staged and
+    // centred, with the app's dimming pulled out from under them. A live
+    // surface here means this event belongs to a window that has already been
+    // replaced, and nothing about it is ours to end.
+    if (getFloatingWindow(COMPANION_KIND) !== null) {
+      return;
+    }
     cancelGlide();
     // A landing owed to a window that no longer exists is one nothing can
-    // land, and the staging it was going to lift must not outlive it.
-    cancelIntroLanding();
-    introStaged = false;
+    // land, and the staging it was going to lift must not outlive it: the
+    // app's window would be left dimmed with nothing staged over it.
+    unstageIntro();
     callHome = null;
     // A drag on a window that no longer exists has nothing left to drop.
     docking = null;
@@ -3414,6 +3484,11 @@ export const openCompanionWindow = (): void => {
   // off the screen: it is due when the user leaves.
   surfaceAway = false;
   syncFrontmost();
+  // Dim the app's window for the run, now that the surface it is staged over
+  // is actually on screen.
+  if (introStaged) {
+    pushIntroStage(true);
+  }
   // A surface shown mid-call is the call's from its first frame, and one
   // shown mid-session has the frame beside it rather than under the cursor.
   syncCallSurface();
@@ -3464,12 +3539,32 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
  */
 export const replayCompanionIntro = (): void => {
   clearCompanionIntroSeen();
-  closeCompanionWindow();
-  if (readCompanionHidden()) {
-    setCompanionSurfaceVisible(true);
+  // A replay during a run is a run ending: the window it was staged over stops
+  // being dimmed for it, and the one opened below dims it for the new run.
+  unstageIntro();
+  const bringBack = (): void => {
+    // A surface the user has hidden comes back through the tray's own path, so
+    // the preference is cleared as well as the window opened; anything else
+    // would open a window the next launch refuses to.
+    if (readCompanionHidden()) {
+      setCompanionSurfaceVisible(true);
+      return;
+    }
+    syncCompanionSurface();
+  };
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (win === null) {
+    bringBack();
     return;
   }
-  syncCompanionSurface();
+  // **Waited for, not fired and forgotten.** `close()` starts a close; the
+  // window is destroyed a tick later, and until it is, `getFloatingWindow`
+  // still reports it as alive, so an open in this tick sees a live surface and
+  // returns having done nothing. That is one press that only closes the
+  // surface and a second that opens it, which is exactly how this read from
+  // the tray before.
+  win.once("closed", bringBack);
+  win.close();
 };
 
 /**

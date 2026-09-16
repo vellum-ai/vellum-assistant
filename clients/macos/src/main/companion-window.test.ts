@@ -2220,7 +2220,9 @@ describe("the session main holds", () => {
 describe("introOnAdvance", () => {
   test("walks to the next beat", () => {
     expect(introOnAdvance("meet", "next")).toBe("talk");
-    expect(introOnAdvance("talk", "next")).toBe("menu");
+    expect(introOnAdvance("talk", "next")).toBe("try");
+    expect(introOnAdvance("try", "next")).toBe("controls");
+    expect(introOnAdvance("controls", "next")).toBe("menu");
   });
 
   // Past the last beat there is no next one, and `null` is what main reads as
@@ -2232,6 +2234,13 @@ describe("introOnAdvance", () => {
   test("dismiss ends the run from any beat", () => {
     expect(introOnAdvance("meet", "dismiss")).toBe(null);
     expect(introOnAdvance("talk", "dismiss")).toBe(null);
+  });
+
+  // The question beat's other answer. A real session is what the run was
+  // captioning, so asking for one ends it rather than walking past it.
+  test("asking for a call ends the run", () => {
+    expect(introOnAdvance("try", "call")).toBe(null);
+    expect(introOnAdvance("meet", "call")).toBe(null);
   });
 
   // A press that arrives after the run is already over. The renderer can be a

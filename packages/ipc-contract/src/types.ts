@@ -2097,19 +2097,29 @@ export const WATCH_FLAG = "teach";
  * to say where its own off switch is, and the right-click menu it points at is
  * the only part of this the user cannot find by looking at the pill.
  */
-export const COMPANION_INTRO_BEATS = ["meet", "talk", "menu"] as const;
+export const COMPANION_INTRO_BEATS = [
+  "meet",
+  "talk",
+  "try",
+  "controls",
+  "menu",
+] as const;
 
 export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
 
 /**
  * What a press on the introduction asks for.
  *
- * Two intents rather than a beat to jump to, because the renderer does not hold
+ * Intents rather than a beat to jump to, because the renderer does not hold
  * the running position: main does, so the renderer says which way to go and
  * main resolves it against the beat it is actually on. A stale press from a
  * renderer a beat behind then lands where the user could see it would.
+ *
+ * `call` is the `try` beat's own answer: the user asked for a real session
+ * rather than a demonstration of one, so the run ends and a call starts, which
+ * only main can do.
  */
-export const COMPANION_INTRO_ACTIONS = ["next", "dismiss"] as const;
+export const COMPANION_INTRO_ACTIONS = ["next", "dismiss", "call"] as const;
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 

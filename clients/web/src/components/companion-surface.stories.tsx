@@ -10,6 +10,8 @@ import {
 
 import {
   CompanionIntro,
+  INTRO_DEMO_SHORTCUTS,
+  introDemoCall,
   introPhase,
   introSpotlight,
 } from "@/components/companion-intro";
@@ -1226,11 +1228,18 @@ function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
     setBeat(introBeat ?? COMPANION_INTRO_BEATS[0]);
   }, [introBeat]);
 
+  // The `controls` beat is drawn around a call that is not happening, with
+  // every handler withheld, exactly as the surface's own page does it.
+  const demoing = beat === "controls";
+
   return (
     <CompanionSurface
       {...args}
       phase={introPhase(beat) ?? args.phase}
       spotlight={introSpotlight(beat)}
+      call={demoing ? introDemoCall("Listening") : args.call}
+      shareEnabled={demoing || args.shareEnabled}
+      shortcuts={demoing ? INTRO_DEMO_SHORTCUTS : args.shortcuts}
       intro={
         beat === null ? null : (
           <CompanionIntro
@@ -1243,8 +1252,10 @@ function IntroWalkthrough({ introBeat, ...args }: StoryArgs) {
             optionsBox={args.optionsBox}
             accentHex={args.accentHex}
             onAdvance={(action) => {
+              // `call` asks main for a real session, which a story has none of
+              // to start: it ends the run here, the way main does.
               const next =
-                action === "dismiss"
+                action === "dismiss" || action === "call"
                   ? null
                   : (COMPANION_INTRO_BEATS[
                       COMPANION_INTRO_BEATS.indexOf(beat) + 1

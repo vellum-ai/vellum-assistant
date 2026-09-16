@@ -11,6 +11,8 @@ import { CompanionCapturePicker } from "@/components/companion-capture-picker";
 import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
 import {
   CompanionIntro,
+  INTRO_DEMO_SHORTCUTS,
+  introDemoCall,
   introPhase,
   introSpotlight,
 } from "@/components/companion-intro";
@@ -529,6 +531,18 @@ export function CompanionSurfacePage() {
   // still going when a call starts must give way, because the call is the
   // user's own business and this is a caption.
   const introHeld = introPhase(intro);
+  /**
+   * The call the `controls` beat borrows the pill's shape from, or null.
+   *
+   * Only while the card is actually on screen: a beat main still holds behind
+   * a real call must not put a second, fictional bar over the real one.
+   */
+  const demoCall =
+    introShown && intro === "controls"
+      ? introDemoCall(t("companionIntro.controls.line"))
+      : null;
+  /** Whether what the pill is drawing is that demonstration. */
+  const demoing = demoCall !== null;
   const phase: CompanionSurfacePhase =
     call !== null || dialing
       ? "call"
@@ -753,7 +767,11 @@ export function CompanionSurfacePage() {
         // The creature notices the hand, in every state including mid-call.
         hovered={hovered}
         accentHex={accentHex}
-        call={call ?? undefined}
+        // The demonstrated session on the `controls` beat, which is not a
+        // session: every handler is withheld while it is drawn, so the bar is
+        // a picture of one. A real call always wins, since one arriving
+        // withdraws the card anyway.
+        call={call ?? demoCall ?? undefined}
         // For the dial, which names who is being called. The call itself
         // carries its own name once it arrives.
         assistantName={assistantName}
@@ -893,7 +911,7 @@ export function CompanionSurfacePage() {
         // forward on the conversation the call is in, which is where the room
         // and the transcript are; main decides what that means.
         onAvatarClick={() => {
-          if (draggedRef.current) {
+          if (draggedRef.current || demoing) {
             return;
           }
           if (call !== null || dialing) {
@@ -907,46 +925,71 @@ export function CompanionSurfacePage() {
         // and this page only asks for it. What comes back is `watching`.
         // Wrapped so the click's event never rides along as a pick.
         onWatch={() => {
+          if (demoing) {
+            return;
+          }
           toggleCompanionWatch();
         }}
         // The way in, when there is a choice to make first. The stop stays on
         // `onWatch`; this is only ever the press with no session running.
-        onTeach={onTeach}
+        onTeach={demoing ? undefined : onTeach}
         picking={picking && pickingFor === "teach"}
         // The share, from main, and the two presses that move it. The stop
         // leaves this window the way a pick does, carrying nothing.
         sharing={sharing}
-        shareEnabled={shareEnabled}
+        // Armed for the demonstration whatever the desktop can actually do:
+        // the beat is about what a call offers, and a Share that is not drawn
+        // is a sentence about a control the user cannot see.
+        shareEnabled={demoing || shareEnabled}
         sharePicking={picking && pickingFor === "share"}
-        onShare={onShare}
-        onStopShare={() => {
-          setCompanionScreenShare();
-        }}
+        onShare={demoing ? undefined : onShare}
+        onStopShare={
+          demoing
+            ? undefined
+            : () => {
+                setCompanionScreenShare();
+              }
+        }
         // Drawing on what is shared. Main's both ways: the press asks, and
         // `annotating` above is what main did with the ask. Nothing is kept
         // here, so a press main refuses (the share ended between the two)
         // leaves the control drawn exactly as the desktop actually is.
         annotating={annotating}
-        onAnnotate={(next) => {
-          setCompanionAnnotating(next);
-        }}
+        onAnnotate={
+          demoing
+            ? undefined
+            : (next) => {
+                setCompanionAnnotating(next);
+              }
+        }
         // Clear, offered while there is something on the shared surface to
         // take down: the assistant's marks, or the mode the user's own ink is
         // drawn under, and only from a shell with a Clear to answer it.
         // Main's both ways, like Draw: the press asks, and the marks going
         // from the pushed state is what happened.
         marked={clearable && (pointedAt || annotating)}
-        onClearMarks={() => {
-          clearCompanionMarks();
-        }}
+        onClearMarks={
+          demoing
+            ? undefined
+            : () => {
+                clearCompanionMarks();
+              }
+        }
         // The tool, main's the same way: the press asks, and `annotationTool`
         // above is what main did with the ask.
         annotationTool={annotationTool}
-        onAnnotationTool={(tool) => {
-          setCompanionAnnotationTool(tool);
-        }}
+        onAnnotationTool={
+          demoing
+            ? undefined
+            : (tool) => {
+                setCompanionAnnotationTool(tool);
+              }
+        }
         drawToolsRef={drawToolsRef}
-        shortcuts={shortcuts}
+        // The demonstration names the keys itself: the captions are what the
+        // beat is pointing at, and on a desktop with no session armed there
+        // would otherwise be nothing beside the controls to read.
+        shortcuts={demoing ? INTRO_DEMO_SHORTCUTS : shortcuts}
         // Beside the bar while the choice is open, on the canvas main
         // reserves for a card. The pick leaves this window the way every
         // press does; the frame that answers it is main's.
@@ -974,11 +1017,15 @@ export function CompanionSurfacePage() {
         }
         // Out through main and back down into whichever renderer holds the
         // session. This page has no session to act on: it draws one.
-        onControl={(action, requestId) => {
-          sendVoiceActivityControl(
-            requestId === undefined ? { action } : { action, requestId },
-          );
-        }}
+        onControl={
+          demoing
+            ? undefined
+            : (action, requestId) => {
+                sendVoiceActivityControl(
+                  requestId === undefined ? { action } : { action, requestId },
+                );
+              }
+        }
       />
     </div>
   );
