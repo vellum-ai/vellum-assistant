@@ -104,7 +104,7 @@ describe("askQuestionTool definition", () => {
     expect(def.description).toContain("up to 5");
     expect(def.description).toContain("Skip button");
 
-    const schema = def.input_schema as {
+    const schema = def.input_schema as unknown as {
       properties: Record<
         string,
         {
