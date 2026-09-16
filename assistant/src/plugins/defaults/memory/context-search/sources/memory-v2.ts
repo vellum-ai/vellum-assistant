@@ -26,8 +26,9 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 
+import { safeStringSlice } from "@vellumai/plugin-api";
+
 import { embedWithRetry } from "../../../../../persistence/embeddings/embed.js";
-import { safeStringSlice } from "../../host-utils.js";
 import { getLogger } from "../../logging.js";
 import { isPathInsideRoot } from "../../path-containment.js";
 import { getEdgeIndex } from "../../substrate/edge-index.js";

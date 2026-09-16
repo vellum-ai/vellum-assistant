@@ -166,6 +166,16 @@ export interface LiveVoiceClientStartFrame {
    * has never heard of.
    */
   readonly sessionControls?: readonly LiveVoiceSessionControl[];
+  /**
+   * This client sends a fresh `sight_frame` right after it carries out a look
+   * control, with timing reason `look`, whether or not a share or the camera
+   * was already running. The session answers the look from that frame on a
+   * turn of its own, so the reply that asked for the look only acknowledges it.
+   *
+   * Absent means false: a client that predates the field sends no such frame,
+   * and a session waiting on one would promise a look that never comes.
+   */
+  readonly lookFrames?: boolean;
 }
 
 const LIVE_VOICE_SESSION_CONTROLS = [
@@ -1269,6 +1279,15 @@ function validateStartFrame(
     );
   }
 
+  if ("lookFrames" in value && typeof value.lookFrames !== "boolean") {
+    return protocolError(
+      "invalid_field",
+      "start frame field lookFrames must be a boolean",
+      "lookFrames",
+      "start",
+    );
+  }
+
   if ("textInput" in value && typeof value.textInput !== "boolean") {
     return protocolError(
       "invalid_field",
@@ -1308,6 +1327,7 @@ function validateStartFrame(
         : {}),
       ...(value.textInput === true ? { textInput: true } : {}),
       ...(sessionControls.length > 0 ? { sessionControls } : {}),
+      ...(value.lookFrames === true ? { lookFrames: true } : {}),
     },
   };
 }

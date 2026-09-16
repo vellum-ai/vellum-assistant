@@ -1,5 +1,6 @@
+import { safeStringSlice } from "@vellumai/plugin-api";
+
 import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
-import { safeStringSlice } from "../host-utils.js";
 import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
 import { LINK_SEPARATOR, parseLinkEntry } from "../substrate/page-links.js";
 import type { Slug } from "./types.js";

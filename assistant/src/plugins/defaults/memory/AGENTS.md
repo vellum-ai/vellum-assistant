@@ -407,8 +407,13 @@ per distinct matched section, at most `memory.v3.finderSectionsPerPage` in
 surfacing order (needle, dense, reply, span) plus its entity and rare-term
 lines, and selecting a line selects that section; the selection log keeps
 one row per slug, so the pool row is where the per-section verdicts live. A
-turn whose selector never judged a pool (the injection gate hard-skipped it,
-or nothing was pooled) persists an empty pool with `selector_ran = 0`, and a
+turn whose selector never judged a pool persists it with `selector_ran = 0`:
+an empty pool when the injection gate hard-skipped it or nothing was pooled,
+and the pool as the selector was given it, stable-prefix cards chosen and
+finder lines not, when the selector's provider failed and the orchestrator
+kept that prefix unjudged. That turn writes no `memory_v3_selections` rows:
+the hot set's frecency and the learned-edge graph read that table as
+judgments, and an unjudged page is not one. A
 turn that logged no selections is still reachable by its stamped
 `message_id`, so the inspector shows negative verdicts too. The pool row and
 the turn's `memory_v3_selections` rows are
