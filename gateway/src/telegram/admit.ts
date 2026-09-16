@@ -24,6 +24,7 @@ import {
   admitRoomMessage,
   type RoomAdmissionVerdict,
 } from "../channels/room-admission.js";
+import type { TelegramMessage, TelegramMessageEntity } from "./schemas.js";
 
 /** The facts of a Telegram message this gate reads. */
 export interface TelegramAdmissionCandidate {
@@ -91,4 +92,58 @@ function isBotAddressed(
     candidate.mentionedUserIds.includes(policy.botUserId) ||
     candidate.repliedToAuthorId === policy.botUserId
   );
+}
+
+/** Who a message names, read off its entities the way the verdict wants them. */
+export function toAdmissionCandidate(
+  message: TelegramMessage,
+): TelegramAdmissionCandidate {
+  const mentionedUsernames: string[] = [];
+  const mentionedUserIds: string[] = [];
+  const read = (
+    text: string | undefined,
+    entities: TelegramMessageEntity[],
+  ) => {
+    for (const entity of entities) {
+      if (entity.type === "text_mention" && entity.user?.id != null) {
+        mentionedUserIds.push(String(entity.user.id));
+        continue;
+      }
+      if (
+        (entity.type !== "mention" && entity.type !== "bot_command") ||
+        text === undefined ||
+        entity.offset == null ||
+        entity.length == null
+      ) {
+        continue;
+      }
+      // Offsets and lengths are in UTF-16 code units, which is what a
+      // JavaScript string indexes by.
+      const span = text.slice(entity.offset, entity.offset + entity.length);
+      const at = span.indexOf("@");
+      if (at === -1) {
+        continue;
+      }
+      const username = span
+        .slice(at + 1)
+        .trim()
+        .toLowerCase();
+      if (username) {
+        mentionedUsernames.push(username);
+      }
+    }
+  };
+  read(message.text, message.entities ?? []);
+  read(message.caption, message.caption_entities ?? []);
+  return {
+    chatType: message.chat?.type,
+    authorId: message.from?.id != null ? String(message.from.id) : undefined,
+    authorIsBot: message.from?.is_bot,
+    mentionedUsernames,
+    mentionedUserIds,
+    repliedToAuthorId:
+      message.reply_to_message?.from?.id != null
+        ? String(message.reply_to_message.from.id)
+        : undefined,
+  };
 }
