@@ -90,26 +90,6 @@ export function SkillLoadDetail({
         ? t("skillLoadDetail.failed")
         : "";
 
-  if (isDenied) {
-    return (
-      <div className="flex flex-col gap-5">
-        <div>
-          <SectionLabel>{t("skillLoadDetail.usedSkill")}</SectionLabel>
-          <SkillLoadCard
-            skillId={skillId}
-            name={displayName || skillId || t("skillLoadDetail.unnamedSkill")}
-            secondary={status}
-            assistantId={assistantId}
-          />
-        </div>
-        <div>
-          <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
-          <ToolOutputBody text="" isDenied isRunning={false} isError={false} />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-5">
       <div>
@@ -117,38 +97,47 @@ export function SkillLoadDetail({
         <SkillLoadCard
           skillId={skillId}
           name={displayName || skillId || t("skillLoadDetail.unnamedSkill")}
-          secondary={description || status}
+          secondary={isDenied ? status : description || status}
           assistantId={assistantId}
         />
       </div>
 
-      {errorMessage && (
-        <Notice tone="error">
-          <span className="whitespace-pre-wrap break-words">
-            {errorMessage}
-          </span>
-        </Notice>
-      )}
-
-      {tools.length > 0 && (
+      {isDenied ? (
         <div>
-          <SectionLabel>{t("skillLoadDetail.provides")}</SectionLabel>
-          <SkillToolList tools={tools} />
+          <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
+          <ToolOutputBody text="" isDenied isRunning={false} isError={false} />
         </div>
-      )}
+      ) : (
+        <>
+          {errorMessage && (
+            <Notice tone="error">
+              <span className="whitespace-pre-wrap break-words">
+                {errorMessage}
+              </span>
+            </Notice>
+          )}
 
-      {/* A failed load's "output" is the error text, which the notice above
-          already shows in full; rendering it again as Output would say the
-          same thing twice. */}
-      {!errorMessage && (
-        <SkillLoadOutput
-          instructions={instructions}
-          raw={typeof result === "string" ? result : ""}
-          assistantId={assistantId}
-        />
-      )}
+          {tools.length > 0 && (
+            <div>
+              <SectionLabel>{t("skillLoadDetail.provides")}</SectionLabel>
+              <SkillToolList tools={tools} />
+            </div>
+          )}
 
-      {isRunning && !instructions && !errorMessage && <SkillLoadSkeleton />}
+          {/* A failed load's "output" is the error text, which the notice
+              above already shows in full; rendering it again as Output would
+              say the same thing twice. */}
+          {!errorMessage && (
+            <SkillLoadOutput
+              instructions={instructions}
+              raw={typeof result === "string" ? result : ""}
+              assistantId={assistantId}
+            />
+          )}
+
+          {isRunning && !instructions && !errorMessage && <SkillLoadSkeleton />}
+        </>
+      )}
     </div>
   );
 }
