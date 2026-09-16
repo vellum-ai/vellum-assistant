@@ -287,7 +287,7 @@ export function createWhatsAppWebhookHandler(
           attachmentIds = result.attachmentIds;
           event.message.content = appendFailedAttachmentNotice(
             event.message.content,
-            result.failedAttachmentNames,
+            result,
           );
         } catch (err) {
           // Transient attachment failure — return 500 so Meta retries.

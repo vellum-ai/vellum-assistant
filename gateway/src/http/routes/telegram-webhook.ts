@@ -668,7 +668,7 @@ export function createTelegramWebhookHandler(
         attachmentIds = result.attachmentIds;
         normalized.message.content = appendFailedAttachmentNotice(
           normalized.message.content,
-          result.failedAttachmentNames,
+          result,
         );
       } catch (err) {
         // Transient attachment failure — return 500 so Telegram retries.

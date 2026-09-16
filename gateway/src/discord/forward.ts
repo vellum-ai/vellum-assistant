@@ -90,7 +90,7 @@ export function createDiscordInboundEventHandler(options: {
           attachmentIds = result.attachmentIds;
           event.message.content = appendFailedAttachmentNotice(
             event.message.content,
-            result.failedAttachmentNames,
+            result,
           );
         }
 
