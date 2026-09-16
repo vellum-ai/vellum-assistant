@@ -1,4 +1,7 @@
+import { join, resolve } from "node:path";
+
 import type { SkillToolEntry } from "../../config/skills.js";
+import { getBundledSkillsDir } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
 import {
   coerceArrayShapes,
@@ -6,6 +9,7 @@ import {
   coerceStringNumbers,
   validateInputAgainstSchema,
 } from "../../skills/validate-input.js";
+import { computerUseExecutionTarget } from "../computer-use/target.js";
 import { withActivityProperty } from "../schema-transforms.js";
 import { bundledToolInputMisuseMessage } from "../shared/input-misuse.js";
 import { bundledToolInputRepairs } from "../shared/input-repairs.js";
@@ -33,12 +37,18 @@ export function createSkillTool(
   versionHash: string,
   bundled?: boolean,
 ): Tool {
+  const isComputerUse =
+    bundled &&
+    resolve(skillDir) === resolve(join(getBundledSkillsDir(), "computer-use"));
   return {
     name: entry.name,
     description: entry.description,
     category: entry.category,
     defaultRiskLevel: riskMap[entry.risk],
     executionTarget: entry.execution_target as ExecutionTarget,
+    ...(isComputerUse
+      ? { getExecutionTarget: computerUseExecutionTarget }
+      : {}),
     supportedClientOs: entry.supported_client_os,
 
     input_schema: entry.input_schema as object,
@@ -79,12 +89,18 @@ export function createSkillTool(
         const misuse = bundled
           ? bundledToolInputMisuseMessage(entry.name, coercedInput)
           : undefined;
-        return {
-          content:
-            misuse ??
-            `Invalid input for tool "${entry.name}": ${validation.errors.join("; ")}. Fix the arguments and retry.`,
-          isError: true,
-        };
+        const content =
+          misuse ??
+          `Invalid input for tool "${entry.name}": ${validation.errors.join("; ")}. Fix the arguments and retry.`;
+        if (
+          isComputerUse &&
+          computerUseExecutionTarget(coercedInput) === "sandbox"
+        ) {
+          const { rejectAssistantDesktopInput } =
+            await import("../computer-use/assistant-desktop-backend.js");
+          return rejectAssistantDesktopInput(content, context);
+        }
+        return { content, isError: true };
       }
 
       return runSkillToolScript(

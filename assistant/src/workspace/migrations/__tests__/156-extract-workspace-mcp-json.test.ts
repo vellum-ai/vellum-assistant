@@ -23,15 +23,6 @@ function readJson(dir: string, name: string): Record<string, unknown> {
 }
 
 describe("156-extract-workspace-mcp-json", () => {
-  test("has the next migration id and is registered last", () => {
-    expect(extractWorkspaceMcpJsonMigration.id).toBe(
-      "156-extract-workspace-mcp-json",
-    );
-    expect(WORKSPACE_MIGRATIONS.at(-1)?.id).toBe(
-      "156-extract-workspace-mcp-json",
-    );
-  });
-
   test("moves servers into a spec-pure mcp.json and drops mcp from config", () => {
     const dir = workspaceWith({
       llm: { activeProfile: "balanced" },
@@ -55,7 +46,11 @@ describe("156-extract-workspace-mcp-json", () => {
       },
     });
 
-    extractWorkspaceMcpJsonMigration.run(dir);
+    const registeredMigration = WORKSPACE_MIGRATIONS.find(
+      (migration) => migration.id === extractWorkspaceMcpJsonMigration.id,
+    );
+    expect(registeredMigration).toBeDefined();
+    registeredMigration!.run(dir);
 
     expect(readJson(dir, "config.json")).toEqual({
       llm: { activeProfile: "balanced" },

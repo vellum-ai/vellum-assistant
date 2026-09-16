@@ -837,7 +837,7 @@ export class ToolApprovalHandler {
     // sandbox/host routing reflects the tool actually registered under this
     // name at execution time.
     const tool = getTool(name);
-    const executionTarget = resolveExecutionTarget(tool ?? { name });
+    const executionTarget = resolveExecutionTarget(tool ?? { name }, input);
 
     // Determine whether this invocation requires a scoped grant. Capture
     // the consume params now but defer the actual atomic consumption until

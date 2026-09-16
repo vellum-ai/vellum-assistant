@@ -18,6 +18,9 @@ type Owner = {
   abort: AbortController;
   holder: DesktopViewer;
   removeAbortListener: () => void;
+  id: string;
+  sequence: number;
+  cleanups: Set<() => Promise<void>>;
   actions: number;
   lastActivity: number;
   desktopLost: boolean;
@@ -62,6 +65,16 @@ export class DesktopAutomationLease {
     }
   }
 
+  private async releaseInput(): Promise<void> {
+    try {
+      await this.deps.manager().browser?.release();
+    } finally {
+      await Promise.all(
+        [...(this.owner?.cleanups ?? [])].map((cleanup) => cleanup()),
+      );
+    }
+  }
+
   private async release(): Promise<void> {
     const owner = this.owner;
     if (!owner) {
@@ -72,7 +85,7 @@ export class DesktopAutomationLease {
     clearInterval(this.watchdog);
     this.watchdog = undefined;
     if (!owner.desktopLost) {
-      await this.deps.manager().browser.release();
+      await this.releaseInput();
     }
     this.deps.manager().releaseAutomationSlot(owner.holder);
     this.owner = null;
@@ -85,7 +98,7 @@ export class DesktopAutomationLease {
     this.generation += 1;
     owner.abort.abort();
     void this.exclusive(() => this.release()).catch((err) =>
-      log.warn({ err }, "Desktop browser session cleanup failed"),
+      log.warn({ err }, "Desktop automation session cleanup failed"),
     );
   }
 
@@ -115,6 +128,9 @@ export class DesktopAutomationLease {
       actions: 0,
       lastActivity: Date.now(),
       desktopLost: false,
+      id: crypto.randomUUID(),
+      sequence: 0,
+      cleanups: new Set(),
       removeAbortListener: () => {},
     };
     const slot = this.deps.manager().acquireAutomationSlot(holder);
@@ -134,7 +150,10 @@ export class DesktopAutomationLease {
           cancel();
         }
       } catch (err) {
-        log.warn({ err }, "Desktop browser session availability check failed");
+        log.warn(
+          { err },
+          "Desktop automation session availability check failed",
+        );
         cancel();
       }
     }, 1_000);
@@ -143,13 +162,13 @@ export class DesktopAutomationLease {
       await this.deps.manager().ensureDesktopRunning();
       owner.abort.signal.throwIfAborted();
       this.assertAvailable();
-      await this.deps.manager().browser.release();
+      await this.releaseInput();
       return owner;
     } catch (err) {
       await this.release().catch((cleanupError) =>
         log.warn(
           { err: cleanupError },
-          "Desktop browser session cleanup failed",
+          "Desktop automation session cleanup failed",
         ),
       );
       throw err;
@@ -161,6 +180,28 @@ export class DesktopAutomationLease {
     operation: (signal: AbortSignal) => Promise<ToolExecutionResult>,
     done = false,
   ): Promise<ToolExecutionResult> {
+    return this.run(context, ({ signal }) => operation(signal), {
+      done,
+      autoInstall: true,
+    });
+  }
+
+  run(
+    context: ToolContext,
+    operation: (session: {
+      signal: AbortSignal;
+      leaseId: string;
+      sequence: number;
+      assertAvailable: () => void;
+    }) => Promise<ToolExecutionResult>,
+    options: {
+      done?: boolean;
+      autoInstall?: boolean;
+      requiresLease?: boolean;
+      countAction?: boolean;
+      cleanup?: () => Promise<void>;
+    } = {},
+  ): Promise<ToolExecutionResult> {
     const generation = this.generation;
     return this.exclusive(async () => {
       if (
@@ -169,7 +210,7 @@ export class DesktopAutomationLease {
         !context.conversationId
       ) {
         throw new Error(
-          "Desktop browser session requires an identified guardian conversation",
+          "Desktop automation session requires an identified guardian conversation",
         );
       }
       if (
@@ -179,13 +220,17 @@ export class DesktopAutomationLease {
       ) {
         throw new Error("Another conversation is controlling the desktop");
       }
-      if (done) {
+      if (options.done) {
         await this.release();
-        return { content: "Desktop browser session released.", isError: false };
+        return {
+          content: "Desktop automation session released.",
+          isError: false,
+        };
       }
       context.signal?.throwIfAborted();
       try {
         if (
+          options.autoInstall &&
           !this.owner &&
           generation === this.generation &&
           this.deps.enabled() &&
@@ -228,9 +273,12 @@ export class DesktopAutomationLease {
       if (generation !== this.generation) {
         return {
           content:
-            "Desktop browser session was interrupted. Take a fresh snapshot before continuing.",
+            "Desktop automation session was interrupted. Observe again before continuing.",
           isError: true,
         };
+      }
+      if (!this.owner && options.requiresLease) {
+        throw new Error("Observe the desktop before acting");
       }
       if (this.owner) {
         this.bindCancellation(this.owner, context.signal);
@@ -243,12 +291,23 @@ export class DesktopAutomationLease {
       signal.throwIfAborted();
       try {
         this.assertAvailable();
-        if (++owner.actions > MAX_ACTIONS) {
+        if (options.cleanup && !owner.cleanups.has(options.cleanup)) {
+          owner.cleanups.add(options.cleanup);
+          await options.cleanup();
+          signal.throwIfAborted();
+          this.assertAvailable();
+        }
+        if (options.countAction !== false && ++owner.actions > MAX_ACTIONS) {
           throw new Error(
             "Desktop action limit reached. Finish this session before continuing.",
           );
         }
-        const result = await operation(signal);
+        const result = await operation({
+          signal,
+          leaseId: owner.id,
+          sequence: ++owner.sequence,
+          assertAvailable: () => this.assertAvailable(),
+        });
         signal.throwIfAborted();
         if (result.isError) {
           await this.release();
@@ -258,7 +317,7 @@ export class DesktopAutomationLease {
         await this.release().catch((cleanupError) =>
           log.warn(
             { err: cleanupError },
-            "Desktop browser session cleanup failed",
+            "Desktop automation session cleanup failed",
           ),
         );
         throw err;
