@@ -145,6 +145,14 @@ export interface LiveVoiceClientStartFrame {
    * An older assistant ignores the field and never sends the frame.
    */
   readonly sessionControls?: readonly LiveVoiceSessionControl[];
+  /**
+   * This client sends a fresh `sight_frame` with reason `look` right after it
+   * carries out a look control, whether or not a share or the camera was
+   * already running, and the assistant answers the look from that frame
+   * without waiting for the user to speak again. An older assistant ignores
+   * the field and the frame is only a frame.
+   */
+  readonly lookFrames?: boolean;
 }
 
 /** A session control this client carries out on the assistant's behalf. */
