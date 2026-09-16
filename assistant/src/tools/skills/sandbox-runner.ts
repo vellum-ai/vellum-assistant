@@ -3,11 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { PLUGIN_SKILL_INVOCATION_ENV } from "../../plugin-api/plugin-skill-grant.js";
-import {
-  issuePluginSkillGrant,
-  revokePluginSkillGrant,
-} from "../../plugins/plugin-skill-invocation.js";
+import { PLUGIN_NAME_ENV } from "../../plugin-api/plugin-name-env.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import {
@@ -77,7 +73,6 @@ export async function runSkillToolScriptSandbox(
     expectedSkillVersionHash?: string;
     skillDirHashResolver?: (skillDir: string) => string;
     pluginOwner?: string;
-    skillId?: string;
   },
 ): Promise<ToolExecutionResult> {
   const scriptPath = resolve(join(skillDir, executorPath));
@@ -123,7 +118,6 @@ export async function runSkillToolScriptSandbox(
 
     return await spawnRunner(runDir, input, context, timeoutMs, executorPath, {
       pluginOwner: options?.pluginOwner,
-      skillId: options?.skillId,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -146,13 +140,12 @@ function spawnRunner(
   context: ToolContext,
   timeoutMs: number,
   executorPath: string,
-  pluginContext?: { pluginOwner?: string; skillId?: string },
+  pluginContext?: { pluginOwner?: string },
 ): Promise<ToolExecutionResult> {
   return new Promise<ToolExecutionResult>((resolve) => {
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let timedOut = false;
-    let grantToken: string | undefined;
 
     const bunRunCmd = "bun run __skill_runner.ts";
     const wrapped = buildShellInvocation(bunRunCmd);
@@ -168,26 +161,9 @@ function spawnRunner(
     // Secret binding for reveal-derived chat authority. See reveal-nonce.ts.
     env.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
 
-    if (
-      pluginContext?.pluginOwner &&
-      pluginContext.skillId &&
-      context.conversationId
-    ) {
-      const issued = issuePluginSkillGrant({
-        conversationId: context.conversationId,
-        pluginName: pluginContext.pluginOwner,
-        skillId: pluginContext.skillId,
-      });
-      grantToken = issued.token;
-      env[PLUGIN_SKILL_INVOCATION_ENV] = issued.token;
+    if (pluginContext?.pluginOwner) {
+      env[PLUGIN_NAME_ENV] = pluginContext.pluginOwner;
     }
-
-    const revokeGrant = () => {
-      if (grantToken) {
-        revokePluginSkillGrant(grantToken);
-        grantToken = undefined;
-      }
-    };
 
     const child = spawn(wrapped.command, wrapped.args, {
       cwd: runDir,
@@ -220,7 +196,6 @@ function spawnRunner(
     child.on("close", (code) => {
       clearTimeout(timer);
       context.signal?.removeEventListener("abort", onAbort);
-      revokeGrant();
 
       if (timedOut) {
         resolve({
@@ -266,7 +241,6 @@ function spawnRunner(
     child.on("error", (err) => {
       clearTimeout(timer);
       context.signal?.removeEventListener("abort", onAbort);
-      revokeGrant();
       resolve({
         content: `Failed to spawn skill tool script "${executorPath}": ${err.message}`,
         isError: true,

@@ -532,14 +532,12 @@ tools in plugin skills must declare `execution_target: "sandbox"` (host
 execution is reserved for first-party bundled skills) and a tool name may be
 owned by only one skill, so share a single carrier skill via the parents'
 `includes` rather than duplicating the entry. A plugin-resident skill tool
-runs with a daemon-issued invocation grant so `resolveCredential()` from
-`@vellumai/plugin-api` can read credentials under that plugin's service
-only. Companion scripts that are not TOOLS.json executors should be launched
-with `assistant plugin-skill run <skill-id> scripts/<file> [args...]` while
-the skill is active. Raw `bun` or `bash` children do not receive plugin
-identity or credential authority. See the `plugin-builder` skill's
-`references/skills.md` for the manifest shape; `admin-copilot` is the
-reference implementation.
+and a bash child inherit `VELLUM_PLUGIN_NAME` so `resolveCredential()` from
+`@vellumai/plugin-api` can read credentials under that plugin's service.
+Companion scripts under `skills/<skill>/{scripts,tools}/` also recover the
+plugin name from their path, so raw `bun` works. See the `plugin-builder`
+skill's `references/skills.md` for the manifest shape; `admin-copilot` is
+the reference implementation.
 
 ```ts
 // tools/my_tool.ts

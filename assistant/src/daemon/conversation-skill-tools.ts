@@ -464,7 +464,6 @@ export function projectSkillTools(
       currentHash,
       skill.bundled,
       skill.owner?.kind === "plugin" ? skill.owner.id : undefined,
-      skillId,
     );
 
     if (tools.length > 0) {

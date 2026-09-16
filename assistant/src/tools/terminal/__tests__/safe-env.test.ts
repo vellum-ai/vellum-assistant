@@ -50,14 +50,14 @@ describe("safe-env Qdrant forwarding", () => {
   });
 });
 
-describe("safe-env plugin skill grant stripping", () => {
-  test("does not forward a parent-supplied plugin skill invocation grant", () => {
-    expect(SAFE_ENV_VARS).not.toContain("VELLUM_PLUGIN_SKILL_INVOCATION");
+describe("safe-env plugin name stripping", () => {
+  test("does not forward a parent-supplied VELLUM_PLUGIN_NAME", () => {
+    expect(SAFE_ENV_VARS).not.toContain("VELLUM_PLUGIN_NAME");
 
     const env = buildSanitizedEnv("linux", {
-      VELLUM_PLUGIN_SKILL_INVOCATION: "psk1.deadbeef.forgedsecret",
+      VELLUM_PLUGIN_NAME: "forged-plugin",
     });
-    expect(env.VELLUM_PLUGIN_SKILL_INVOCATION).toBeUndefined();
+    expect(env.VELLUM_PLUGIN_NAME).toBeUndefined();
   });
 });
 

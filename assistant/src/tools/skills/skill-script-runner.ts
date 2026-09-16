@@ -26,12 +26,10 @@ export interface RunSkillToolScriptOptions {
   bundled?: boolean;
   /**
    * Catalog owner id when this skill is plugin-resident. The sandbox runner
-   * issues a conversation-bound grant so the child can resolve credentials
-   * under that plugin's service. Never taken from the child or TOOLS.json.
+   * sets VELLUM_PLUGIN_NAME so the child can resolve credentials under
+   * that plugin's service.
    */
   pluginOwner?: string;
-  /** Skill id that projected this tool, recorded on the grant. */
-  skillId?: string;
 }
 
 /**
@@ -51,7 +49,6 @@ export async function runSkillToolScript(
       expectedSkillVersionHash: options.expectedSkillVersionHash,
       skillDirHashResolver: options.skillDirHashResolver,
       pluginOwner: options.pluginOwner,
-      skillId: options.skillId,
     });
   }
 

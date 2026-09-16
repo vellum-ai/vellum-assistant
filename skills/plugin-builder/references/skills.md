@@ -87,7 +87,7 @@ Keep each section to a few short bullet points.
 
 The `scripts/` and `references/` directories are optional companions to `SKILL.md`. The body invokes them by relative path:
 
-- **Scripts:** Reference a script by its path relative to the skill directory. If the script needs `@vellumai/plugin-api` credentials (`resolveCredential`), tell the assistant to run it with `assistant plugin-skill run <skill-id> scripts/<file> [args...]`. That launcher is a child of the assistant: it copies the plugin owner from catalog install metadata and lets the script resolve only that plugin's credentials. Do not invoke those scripts with raw `bun` or `bash`. Those children have no plugin identity and cannot read the credential vault. Scripts that do not touch credentials may still use `bun` from the skill directory.
+- **Scripts:** Reference a script by its path relative to the skill directory. Scripts that call `resolveCredential` should live under `scripts/` or `tools/` so the path itself identifies the plugin: `plugins/<service>/skills/<skill>/{scripts,tools}/<file>`. The assistant's bash tool also injects `VELLUM_PLUGIN_NAME` when exactly one plugin skill is active. Raw `bun` is fine for those scripts.
 - **References:** Cite a reference file by relative path when the body needs to defer detail. For example, "See `references/api-fields.md` for the full field contract" tells the assistant to read that file when it needs the details, rather than inlining them in the body. This keeps the body short and loads the detail only when relevant.
 
 ## Skill-scoped tools (`TOOLS.json`)
