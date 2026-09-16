@@ -198,11 +198,11 @@ export const CurrentPaid: Story = {
 };
 
 /**
- * The paid tile with a usage reading: the credits chip names the package's
- * usage allowance and shares the wrapping row with the machine and storage
- * chips, and the price footer gives way to the Current Usage bar, dated with
- * the day the sub's bundle turns over. Props only, so the ratio here is a
- * fixture rather than a live usage read.
+ * The paid tile with a usage reading. At a half-card tile this wide the usage
+ * sentence drops to its own line below the machine and storage chips;
+ * `SideBySideWide` shows the inline case. The price footer gives way to the
+ * Current Usage bar, dated with the day the sub's bundle turns over. Props
+ * only, so the ratio here is a fixture rather than a live usage read.
  */
 export const CurrentPaidUsageBalance: Story = {
   args: {
@@ -212,9 +212,9 @@ export const CurrentPaidUsageBalance: Story = {
 };
 
 /**
- * The same tile in a narrow column, documenting the fallback: the usage chip
- * drops to its own line, and narrower still it wraps inside its pill. Nothing
- * overflows the tile.
+ * The same tile at 260px, where every chip takes a line of its own and the
+ * usage pill is free to wrap its label inside itself, the tile being narrower
+ * than that label. Nothing overflows the tile.
  */
 export const CurrentPaidNarrow: Story = {
   parameters: { frameWidth: 260 },

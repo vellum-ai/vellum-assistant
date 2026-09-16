@@ -71,7 +71,7 @@ describe("PlanTile", () => {
     expect(placeholder?.style.height).toBe("48px");
   });
 
-  test("omits the chip stack when specs is null", () => {
+  test("omits the chip row when specs is null", () => {
     const { getByTestId, queryByText } = render(
       <PlanTile
         testId={TILE_TEST_ID}
@@ -86,11 +86,11 @@ describe("PlanTile", () => {
     for (const spec of SPECS) {
       expect(queryByText(spec.label)).toBeNull();
     }
-    // Header row and footer only: no chip-stack wrapper in between.
+    // Header row and footer only: no chip row in between.
     expect(getByTestId(TILE_TEST_ID).childElementCount).toBe(2);
   });
 
-  test("omits the chip stack when specs is empty", () => {
+  test("omits the chip row when specs is empty", () => {
     const { getByTestId, queryByText } = render(
       <PlanTile
         testId={TILE_TEST_ID}
@@ -120,7 +120,7 @@ describe("PlanTile", () => {
     );
 
     const root = getByTestId(TILE_TEST_ID);
-    // Header row and chip stack only, and the last child is the chip stack
+    // Header row and chip row only, and the last child is the chip row
     // rather than an empty footer slot.
     expect(root.childElementCount).toBe(2);
     expect(root.lastElementChild?.textContent).toContain("Small Machine");

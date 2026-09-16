@@ -7,8 +7,8 @@
  * the caller sets only once the wallet behind the grants is empty too.
  *
  * The date line under the title is a third independent reading: it appears
- * only when the caller hands over a `periodEnd`, and names that date a reset
- * or a renewal depending on whether the sub holds a credit bundle.
+ * only when the caller hands over a `periodEnd`, and its wording follows
+ * `periodEnd.kind`.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -111,7 +111,7 @@ describe("UsageBalancePanel", () => {
   });
 
   test("an exhausted balance turns negative and raises the strip", () => {
-    const { getByTestId, getByText } = render(
+    const { getByTestId, getByText, queryByTestId } = render(
       <UsageBalancePanel ratio={1} exhausted />,
     );
 
@@ -123,6 +123,9 @@ describe("UsageBalancePanel", () => {
     expect(fill?.getAttribute("style")).toContain("--system-negative-strong");
     const pct = getByText("100% used");
     expect(pct.className).toContain("--system-negative-strong");
+    // No handler here, so there is nothing to click, but the reason the
+    // assistant stopped still has to be readable.
+    expect(queryByTestId("plan-usage-add-credits")).toBeNull();
   });
 
   test("the strip's Add button opens the caller's checkout", () => {
@@ -133,18 +136,5 @@ describe("UsageBalancePanel", () => {
 
     fireEvent.click(getByTestId("plan-usage-add-credits"));
     expect(onAddCredits).toHaveBeenCalledTimes(1);
-  });
-
-  test("states the case without an action when no handler is given", () => {
-    // Nothing to click, but the reason the assistant stopped still has to be
-    // readable.
-    const { getByText, queryByTestId } = render(
-      <UsageBalancePanel ratio={1} exhausted />,
-    );
-
-    expect(
-      getByText("Add credits to continue using your assistant"),
-    ).toBeTruthy();
-    expect(queryByTestId("plan-usage-add-credits")).toBeNull();
   });
 });

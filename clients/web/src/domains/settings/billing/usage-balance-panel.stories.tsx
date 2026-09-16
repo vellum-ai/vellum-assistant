@@ -42,9 +42,8 @@ export const Subscriber: Story = {
 };
 
 /**
- * A Custom sub that picked no credit bundle. The subscription still renews on
- * that date, but nothing turns over, so the line names a renewal instead of a
- * reset.
+ * A Custom sub that picked no credit bundle, so the line names a renewal for
+ * this fixture; see `UsagePeriodEnd`.
  */
 export const SubscriberNoBundle: Story = {
   name: "Subscriber without a bundle",
