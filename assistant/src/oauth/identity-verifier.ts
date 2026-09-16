@@ -29,7 +29,7 @@ function getNestedValue(obj: unknown, dotPath: string): unknown {
 
 /**
  * Whether a response body says the call failed, read through the ok field the
- * provider declares (`identityOkField`).
+ * provider declares (`responseOkField`).
  *
  * Some APIs report failure inside a successful HTTP exchange: Slack documents
  * that every Web API response is a JSON object with a top-level boolean `ok`,
@@ -39,16 +39,16 @@ function getNestedValue(obj: unknown, dotPath: string): unknown {
  * and the authenticated-request doors). Only an explicit `false` counts: a
  * body without the field, such as a file download or an endpoint outside the
  * envelope, says nothing, and the status stays the verdict. The identity
- * verifier is stricter on its own call, where the field is required.
+ * verifier reads its own field, `identityOkField`, for the one call it makes.
  */
 export function providerReportsFailure(
-  providerRow: Pick<OAuthProviderRow, "identityOkField">,
+  providerRow: Pick<OAuthProviderRow, "responseOkField">,
   body: unknown,
 ): boolean {
-  if (!providerRow.identityOkField) {
+  if (!providerRow.responseOkField) {
     return false;
   }
-  return getNestedValue(body, providerRow.identityOkField) === false;
+  return getNestedValue(body, providerRow.responseOkField) === false;
 }
 
 /** Safely parse a JSON string, returning a fallback on failure or null/undefined input. */

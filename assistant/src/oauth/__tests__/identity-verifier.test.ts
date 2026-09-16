@@ -69,6 +69,7 @@ function makeProviderRow(
     identityResponsePaths: null,
     identityFormat: null,
     identityOkField: null,
+    responseOkField: null,
     featureFlag: null,
     createdAt: now,
     updatedAt: now,
@@ -477,29 +478,29 @@ describe("providerReportsFailure", () => {
   test("reads an explicit false in the declared field as failure", () => {
     expect(
       providerReportsFailure(
-        { identityOkField: "ok" },
+        { responseOkField: "ok" },
         { ok: false, error: "invalid_auth" },
       ),
     ).toBe(true);
     expect(
-      providerReportsFailure({ identityOkField: "ok" }, { ok: true }),
+      providerReportsFailure({ responseOkField: "ok" }, { ok: true }),
     ).toBe(false);
   });
 
   test("a body without the field says nothing", () => {
     // A download or an endpoint outside the envelope; the status decides.
-    expect(providerReportsFailure({ identityOkField: "ok" }, null)).toBe(false);
+    expect(providerReportsFailure({ responseOkField: "ok" }, null)).toBe(false);
     expect(
-      providerReportsFailure({ identityOkField: "ok" }, Buffer.from("png")),
+      providerReportsFailure({ responseOkField: "ok" }, Buffer.from("png")),
     ).toBe(false);
     expect(
-      providerReportsFailure({ identityOkField: "ok" }, { data: {} }),
+      providerReportsFailure({ responseOkField: "ok" }, { data: {} }),
     ).toBe(false);
   });
 
   test("a provider that declares no field never reports failure", () => {
     expect(
-      providerReportsFailure({ identityOkField: null }, { ok: false }),
+      providerReportsFailure({ responseOkField: null }, { ok: false }),
     ).toBe(false);
   });
 });

@@ -691,7 +691,8 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
   });
 
   const httpOk = response.status >= 200 && response.status < 300;
-  const reportedFailure = providerReportsFailure(providerRow, response.body);
+  const reportedFailure =
+    httpOk && providerReportsFailure(providerRow, response.body);
   if (httpOk && !reportedFailure) {
     return { ok: true, provider: b.provider, status: response.status };
   }
@@ -701,7 +702,7 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     provider: b.provider,
     status: response.status,
     error: reportedFailure
-      ? `Ping failed: ${b.provider} answered HTTP ${response.status} but reported ${providerRow.identityOkField}: false`
+      ? `Ping failed: ${b.provider} answered HTTP ${response.status} but reported ${providerRow.responseOkField}: false`
       : `Ping failed with HTTP ${response.status}`,
   };
   if (reportedFailure) {
@@ -1018,7 +1019,7 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   if (reportedFailure) {
     // The body carries the provider's own error code, so the hint says only
     // why a 2xx is being reported as a failure.
-    result.hint = `${b.provider} answered HTTP ${response.status} but reported ${providerRow.identityOkField}: false in the response body. The body names the error.`;
+    result.hint = `${b.provider} answered HTTP ${response.status} but reported ${providerRow.responseOkField}: false in the response body. The body names the error.`;
   } else if (response.status === 401 || response.status === 403) {
     // The recovery steps follow the credential's kind, not the door the
     // request came through: a channel bot's token was stored by the channel's

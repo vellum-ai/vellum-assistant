@@ -32,7 +32,7 @@ interface MockProviderRow {
   pingMethod: string | null;
   pingHeaders: string | null;
   pingBody: string | null;
-  identityOkField: string | null;
+  responseOkField: string | null;
 }
 
 const baseProvider: MockProviderRow = {
@@ -45,7 +45,7 @@ const baseProvider: MockProviderRow = {
   pingMethod: null,
   pingHeaders: null,
   pingBody: null,
-  identityOkField: null,
+  responseOkField: null,
 };
 
 let mockProviders: Record<string, MockProviderRow> = {};
@@ -597,7 +597,7 @@ describe("POST oauth/ping", () => {
       ...baseProvider,
       provider: "slack_channel",
       pingUrl: seed.pingUrl ?? null,
-      identityOkField: seed.identityOkField ?? null,
+      responseOkField: seed.responseOkField ?? null,
     };
     mockResolveResponse = {
       status: 200,
@@ -950,7 +950,7 @@ describe("POST oauth/request", () => {
       managedServiceConfigKey: null,
       baseUrl: seed.baseUrl ?? null,
       injectionTemplates: JSON.stringify(seed.injectionTemplates),
-      identityOkField: seed.identityOkField ?? null,
+      responseOkField: seed.responseOkField ?? null,
     };
   }
 

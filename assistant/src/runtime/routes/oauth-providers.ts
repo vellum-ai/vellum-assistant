@@ -176,6 +176,7 @@ function handleRegisterProvider({ body = {} }: RouteHandlerArgs) {
         (b.identity_response_paths as string[]) ?? undefined,
       identityFormat: (b.identity_format as string) ?? undefined,
       identityOkField: (b.identity_ok_field as string) ?? undefined,
+      responseOkField: (b.response_ok_field as string) ?? undefined,
       setupNotes: (b.setup_notes as string[]) ?? undefined,
     });
 
@@ -311,6 +312,9 @@ function handleUpdateProvider({
   }
   if (b.identity_ok_field !== undefined) {
     params.identityOkField = b.identity_ok_field;
+  }
+  if (b.response_ok_field !== undefined) {
+    params.responseOkField = b.response_ok_field;
   }
   if (b.setup_notes !== undefined) {
     params.setupNotes = b.setup_notes;

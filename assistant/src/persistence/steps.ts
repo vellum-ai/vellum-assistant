@@ -486,6 +486,7 @@ import { migrateCreateChannelOutboundPosts } from "./migrations/375-create-chann
 import { migrateNotificationDeliveriesCanonicalMessageId } from "./migrations/376-notification-deliveries-canonical-message-id.js";
 import { migrateAddSubagentBudgetStopReason } from "./migrations/377-add-subagent-budget-stop-reason.js";
 import { migrateCreateConversationToolSurfaces } from "./migrations/378-create-conversation-tool-surfaces.js";
+import { migrateOAuthProvidersResponseOkField } from "./migrations/379-oauth-providers-response-ok-field.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1613,4 +1614,5 @@ export const migrationSteps: MigrationStep[] = [
     dependsOn: ["migrateCreateSubagentsTable"],
   },
   migrateCreateConversationToolSurfaces,
+  migrateOAuthProvidersResponseOkField,
 ];
