@@ -1,0 +1,135 @@
+/**
+ * Tests for `AccessConsentSetting`.
+ *
+ * The toggle must address the assistant this settings page is showing. The
+ * id-less `/assistants/access-consent/` endpoint lets the server pick "the
+ * user's presumably unique assistant", which for a user with several can be
+ * a different one from the one on screen. So: read and write go through
+ * `/v1/assistants/{id}/access-consent/` with the active assistant id, and
+ * with no active id the toggle stays disabled and nothing is requested.
+ */
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+
+const ASSISTANT_ID = "019d3011-97c7-7541-b49a-ef11aaedfe79";
+
+interface RequestArgs {
+  url: string;
+  path?: { id?: string };
+  body?: { access_consented?: boolean };
+}
+
+let consented = false;
+const getCalls: RequestArgs[] = [];
+const patchCalls: RequestArgs[] = [];
+
+mock.module("@/generated/api/client.gen", () => ({
+  client: {
+    get: async (args: RequestArgs) => {
+      getCalls.push(args);
+      return {
+        data: { access_consented: consented },
+        response: new Response(),
+      };
+    },
+    patch: async (args: RequestArgs) => {
+      patchCalls.push(args);
+      consented = args.body?.access_consented ?? consented;
+      return {
+        data: { access_consented: consented },
+        response: new Response(),
+      };
+    },
+    getConfig: () => ({ baseUrl: "http://test.local" }),
+  },
+}));
+
+mock.module("@/hooks/use-platform-gate", () => ({
+  usePlatformGate: () => "full",
+  useActiveAssistantIsPlatformHosted: () => true,
+  useActiveAssistantLifecycleIsLoading: () => false,
+}));
+
+mock.module("@vellumai/design-library/components/toast", () => ({
+  toast: { success: () => {}, error: () => {} },
+}));
+
+import { AccessConsentSetting } from "@/domains/settings/components/access-consent-setting";
+
+// This repo's bun tests do not load jest-dom matchers, so read the DOM
+// directly. The Toggle is a button; either the attribute or aria form counts.
+function isDisabled(element: HTMLElement): boolean {
+  return (
+    element.hasAttribute("disabled") ||
+    element.getAttribute("aria-disabled") === "true"
+  );
+}
+
+function renderSetting() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <AccessConsentSetting />
+    </QueryClientProvider>,
+  );
+}
+
+describe("AccessConsentSetting", () => {
+  beforeEach(() => {
+    consented = false;
+    getCalls.length = 0;
+    patchCalls.length = 0;
+    useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
+  });
+
+  afterEach(() => {
+    cleanup();
+    useResolvedAssistantsStore.getState().setActiveAssistantId(null);
+  });
+
+  test("reads consent for the active assistant by id", async () => {
+    renderSetting();
+
+    await waitFor(() => expect(getCalls).toHaveLength(1));
+    expect(getCalls[0].url).toBe("/v1/assistants/{id}/access-consent/");
+    expect(getCalls[0].path?.id).toBe(ASSISTANT_ID);
+  });
+
+  test("writes consent for the active assistant by id", async () => {
+    renderSetting();
+
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(isDisabled(toggle)).toBe(false));
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(patchCalls).toHaveLength(1));
+    expect(patchCalls[0].url).toBe("/v1/assistants/{id}/access-consent/");
+    expect(patchCalls[0].path?.id).toBe(ASSISTANT_ID);
+    expect(patchCalls[0].body).toEqual({ access_consented: true });
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
+  });
+
+  test("with no active assistant the toggle is disabled and nothing is requested", async () => {
+    useResolvedAssistantsStore.getState().setActiveAssistantId(null);
+    renderSetting();
+
+    const toggle = await screen.findByRole("switch");
+    expect(isDisabled(toggle)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(getCalls).toHaveLength(0);
+    expect(patchCalls).toHaveLength(0);
+  });
+});

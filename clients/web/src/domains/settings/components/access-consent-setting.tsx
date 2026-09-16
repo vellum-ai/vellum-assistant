@@ -3,16 +3,17 @@ import { Loader2 } from "lucide-react";
 
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import {
-  assistantsAccessConsentRetrieveOptions,
-  assistantsAccessConsentRetrieveSetQueryData,
+  assistantsAccessConsentDetailReadOptions,
+  assistantsAccessConsentDetailReadSetQueryData,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
+import { assistantsAccessConsentDetailPartialUpdate } from "@/generated/api/sdk.gen";
 import {
   useActiveAssistantIsPlatformHosted,
   useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
@@ -39,24 +40,43 @@ export function AccessConsentSetting() {
   // empty state below.
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const queryClient = useQueryClient();
+  // Address the assistant this settings page is showing. The id-less
+  // `/assistants/access-consent/` endpoint lets the server pick "the user's
+  // presumably unique assistant", which for a user with several can be a
+  // different one from the one on screen, so staff would see the wrong
+  // assistant unlocked. The privacy page is not under `ActiveAssistantGate`,
+  // so read the raw store and wait for a non-null id.
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const canQuery =
+    platformGate === "full" && isPlatformHosted && assistantId !== null;
 
   const { data, isLoading, isError } = useQuery({
-    ...assistantsAccessConsentRetrieveOptions(),
-    enabled: platformGate === "full" && isPlatformHosted,
+    ...assistantsAccessConsentDetailReadOptions({
+      path: { id: assistantId ?? "" },
+    }),
+    enabled: canQuery,
   });
 
   const updateConsent = useMutation({
     mutationFn: async (next: boolean) => {
-      const { data: updated } = await assistantsAccessConsentPartialUpdate({
-        body: { access_consented: next },
-        throwOnError: true,
-      });
+      if (!assistantId) {
+        throw new Error("No active assistant");
+      }
+      const { data: updated } =
+        await assistantsAccessConsentDetailPartialUpdate({
+          path: { id: assistantId },
+          body: { access_consented: next },
+          throwOnError: true,
+        });
       return updated;
     },
     onSuccess: (updated) => {
-      assistantsAccessConsentRetrieveSetQueryData(
+      if (!assistantId) {
+        return;
+      }
+      assistantsAccessConsentDetailReadSetQueryData(
         queryClient,
-        undefined,
+        { path: { id: assistantId } },
         updated,
       );
       toast.success(
@@ -93,6 +113,7 @@ export function AccessConsentSetting() {
   const disabled =
     platformGate !== "full" ||
     !isPlatformHosted ||
+    assistantId === null ||
     isLoading ||
     isError ||
     updateConsent.isPending;
