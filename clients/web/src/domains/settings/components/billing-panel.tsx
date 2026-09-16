@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { AddCreditsModal } from "@/components/add-credits-modal";
+import { ReferralModal } from "@/components/referral-modal";
 import { AutoTopUpCard } from "@/domains/settings/components/auto-top-up-card";
 import {
   organizationsBillingSummaryRetrieveOptions,
@@ -23,7 +24,6 @@ import {
   DailyCreditLimitCard,
 } from "./daily-credit-limit-card";
 import { LowBalanceAlertCard } from "./low-balance-alert-card";
-import { ReferralModal } from "./referral-modal";
 
 export const BOOTSTRAP_MAX_RETRIES = 3;
 export const BOOTSTRAP_RETRY_DELAY_MS = 2000;

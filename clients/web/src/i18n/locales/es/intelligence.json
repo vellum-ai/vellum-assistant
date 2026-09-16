@@ -264,7 +264,9 @@
   },
   "pluginToast": {
     "alreadyUpToDate": "{name} ya está actualizado",
+    "cleanupWarning": "La limpieza del plugin se completó con una advertencia.",
     "installed": "Se instaló {name}",
+    "mcpOAuthCredentialsUnchecked": "El almacenamiento de credenciales no está disponible, por lo que no se pudieron comprobar las credenciales históricas de OAuth de MCP del plugin.",
     "pluginFallback": "el plugin",
     "pluginFallbackCapitalized": "El plugin",
     "removed": "Se quitó {name}",

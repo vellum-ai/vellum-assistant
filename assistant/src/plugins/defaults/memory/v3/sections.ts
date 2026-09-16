@@ -1,3 +1,4 @@
+import { safeStringSlice } from "../host-utils.js";
 import type { Section, SectionIndex, Slug } from "./types.js";
 
 /**
@@ -44,7 +45,7 @@ function lastSlugSegment(slug: Slug): string {
  * {@link sectionBody}.
  */
 export function sectionHeadLine(article: Slug, title: string): string {
-  return `${lastSlugSegment(article)} - ${title.slice(0, SECTION_HEAD_TITLE_CHARS)}`;
+  return `${lastSlugSegment(article)} - ${safeStringSlice(title, 0, SECTION_HEAD_TITLE_CHARS)}`;
 }
 
 /**
@@ -95,7 +96,9 @@ export function splitIntoRawSections(body: string): RawSection[] {
 /**
  * Split `text` into chunks no longer than `limit`, preferring to break on
  * newlines so chunks stay readable. A single line longer than the limit is
- * hard-split at the limit. Order is preserved.
+ * hard-split at the limit, backed off one code unit when the limit would cut
+ * a surrogate pair (an orphaned half is invalid UTF-16 that strict provider
+ * parsers reject). Order is preserved.
  */
 function chunkText(text: string, limit: number): string[] {
   if (text.length <= limit) {
@@ -109,7 +112,10 @@ function chunkText(text: string, limit: number): string[] {
     const newlineBreak = window.lastIndexOf("\n");
     // Only break on a newline if it leaves a non-trivial chunk; otherwise hard
     // split at the window boundary to guarantee forward progress.
-    const breakAt = newlineBreak > 0 ? newlineBreak : limit;
+    const breakAt =
+      newlineBreak > 0
+        ? newlineBreak
+        : Math.max(1, safeStringSlice(remaining, 0, limit).length);
     chunks.push(remaining.slice(0, breakAt));
     remaining = remaining.slice(breakAt).replace(/^\n/, "");
   }

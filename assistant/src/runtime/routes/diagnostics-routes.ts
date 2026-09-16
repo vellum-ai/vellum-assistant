@@ -24,6 +24,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { isMaxTokensStopReason } from "../../providers/stop-reasons.js";
 import { getLogger } from "../../util/logger.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -49,7 +50,11 @@ function sanitizeWindowTitle(title: string | undefined): string {
   if (!title) {
     return "";
   }
-  return title.replace(/[<>]/g, "").slice(0, MAX_WINDOW_TITLE_LENGTH);
+  return safeStringSlice(
+    title.replace(/[<>]/g, ""),
+    0,
+    MAX_WINDOW_TITLE_LENGTH,
+  );
 }
 
 interface DictationBody {

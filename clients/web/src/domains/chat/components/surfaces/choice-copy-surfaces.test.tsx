@@ -264,7 +264,7 @@ describe("OAuthConnectSurface", () => {
     },
   };
 
-  test("starts the connect flow with the surface's provider and scopes", () => {
+  test("starts the connect flow with the surface's provider and scopes", async () => {
     const stub = stubConnect();
     const { getByRole } = renderWithQueryClient(
       <OAuthConnectSurface
@@ -277,6 +277,15 @@ describe("OAuthConnectSurface", () => {
       />,
     );
 
+    // Connect waits for the provider summary, which says whether the
+    // provider needs a host collected first; a click before it settles
+    // would start a request the platform may reject.
+    await waitFor(() =>
+      expect(
+        (getByRole("button", { name: "Connect" }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
     fireEvent.click(getByRole("button", { name: "Connect" }));
 
     expect(stub.connect).toHaveBeenCalled();

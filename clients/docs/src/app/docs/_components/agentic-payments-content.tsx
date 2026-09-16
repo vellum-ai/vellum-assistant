@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
+import { DocsVideo } from "@/app/docs/_components/docs-video";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 
@@ -118,6 +119,7 @@ export function AgenticPaymentsContent() {
           <SectionHeading id="connecting" level={2}>
             Connecting your Link account
           </SectionHeading>
+          <DocsVideo video="agentic-payments-link-wallet" />
           <p className="mb-4 text-stone-600 dark:text-stone-400">
             You need two things first: a Link account with at least one saved
             payment method, and the Link app on your phone, which is where you

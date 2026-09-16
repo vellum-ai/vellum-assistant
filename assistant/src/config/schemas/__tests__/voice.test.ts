@@ -9,7 +9,7 @@ const PROGRESS_DEFAULTS = {
   maxSilenceMs: 35_000,
   longOpMs: 15_000,
   minGapMs: 6_000,
-  generationTimeoutMs: 1_500,
+  generationTimeoutMs: 5_000,
 };
 
 const FRONT_MODEL_DEFAULTS = {
@@ -75,7 +75,7 @@ describe("VoiceFrontModelConfigSchema", () => {
     expect(parsed.progress.maxSilenceMs).toBe(35_000);
     expect(parsed.progress.longOpMs).toBe(15_000);
     expect(parsed.progress.minGapMs).toBe(6_000);
-    expect(parsed.progress.generationTimeoutMs).toBe(1_500);
+    expect(parsed.progress.generationTimeoutMs).toBe(5_000);
   });
 
   test("a stale maxPerTurn key is stripped, not rejected", () => {

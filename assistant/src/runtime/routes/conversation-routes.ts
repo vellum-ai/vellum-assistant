@@ -162,6 +162,7 @@ import {
   getWorkspaceDir,
   getWorkspacePromptPath,
 } from "../../util/platform.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { getCurrentSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -3297,11 +3298,15 @@ async function generateLlmSuggestion(
 ): Promise<string | null> {
   const log = (await import("../../util/logger.js")).getLogger("runtime-http");
   const truncatedAssistant = escapeXmlContent(
-    assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText,
+    assistantText.length > 2000
+      ? safeStringSlice(assistantText, assistantText.length - 2000)
+      : assistantText,
   );
   const truncatedUser =
     priorUserText && priorUserText.length > 500
-      ? escapeXmlContent(priorUserText.slice(-500))
+      ? escapeXmlContent(
+          safeStringSlice(priorUserText, priorUserText.length - 500),
+        )
       : priorUserText
         ? escapeXmlContent(priorUserText)
         : priorUserText;

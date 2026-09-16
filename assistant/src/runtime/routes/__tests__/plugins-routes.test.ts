@@ -1239,8 +1239,12 @@ describe("GET /v1/plugins/search", () => {
 
 async function invokeUninstall(
   args: RouteHandlerArgs = {},
-): Promise<{ name: string; target: string }> {
-  return (await uninstallHandler(args)) as { name: string; target: string };
+): Promise<{ name: string; target: string; warnings?: string[] }> {
+  return (await uninstallHandler(args)) as {
+    name: string;
+    target: string;
+    warnings?: string[];
+  };
 }
 
 describe("DELETE /v1/plugins/:name", () => {
@@ -1276,6 +1280,22 @@ describe("DELETE /v1/plugins/:name", () => {
     await invokeUninstall({ pathParams: { name: "simple-memory" } });
 
     expectPluginsListBroadcast();
+  });
+
+  test("returns non-fatal cleanup warnings from the shared uninstall", async () => {
+    uninstallSpy.mockImplementation(async (opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+      warnings: ["plugin.uninstall.mcp_oauth_credentials_unchecked"],
+    }));
+
+    const result = await invokeUninstall({
+      pathParams: { name: "simple-memory" },
+    });
+
+    expect(result.warnings).toEqual([
+      "plugin.uninstall.mcp_oauth_credentials_unchecked",
+    ]);
   });
 
   test("threads x-vellum-client-id into the published event's originClientId", async () => {
@@ -2759,7 +2779,9 @@ describe("POST /v1/plugins/:name/disable", () => {
       toggleResult(name, "disable"),
     );
 
-    const result = await invokeDisable({ pathParams: { name: "simple-memory" } });
+    const result = await invokeDisable({
+      pathParams: { name: "simple-memory" },
+    });
 
     expect(result).toEqual({ ok: true });
     expect(disablePluginSpy.mock.calls[0]?.[0]).toBe("simple-memory");

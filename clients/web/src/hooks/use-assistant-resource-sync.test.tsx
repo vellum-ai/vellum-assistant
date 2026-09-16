@@ -11,6 +11,7 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { memoryGraphOptions } from "@/domains/intelligence/memory-graph/get-memory-graph";
 import { memoryStatsOptions } from "@/domains/intelligence/memory-graph/get-memory-stats";
+import { mcpQueryKeys } from "@/domains/settings/mcp/mcp-query-keys";
 import {
   activationProgressGetQueryKey,
   appsGetQueryKey,
@@ -225,6 +226,8 @@ describe("useAssistantResourceSync", () => {
           configGetQueryKey(pathOpts),
           inferenceProfilesGetQueryKey(pathOpts),
           configLlmCallsitesGetQueryKey(pathOpts),
+          mcpQueryKeys.list("asst-1"),
+          mcpQueryKeys.details("asst-1"),
           soundsConfigGetQueryKey(pathOpts),
           schedulesGetQueryKey(pathOpts),
           [
@@ -235,6 +238,22 @@ describe("useAssistantResourceSync", () => {
           ],
         ]) as never,
       );
+    });
+  });
+
+  test("invalidates MCP queries on the mcp:list sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const calls: InvalidateCall[] = [];
+    queryClient.invalidateQueries = recordInvalidations(calls) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.mcpList]) as unknown as AssistantEvent);
+
+    await waitFor(() => {
+      expect(sweepsFor(calls, mcpQueryKeys.list("asst-1"))).toHaveLength(1);
+      expect(sweepsFor(calls, mcpQueryKeys.details("asst-1"))).toHaveLength(1);
     });
   });
 
@@ -410,6 +429,8 @@ describe("useAssistantResourceSync", () => {
         expect.arrayContaining([
           pluginsGetQueryKey(pathOpts),
           pluginsSearchGetQueryKey(pathOpts),
+          mcpQueryKeys.list("asst-1"),
+          mcpQueryKeys.details("asst-1"),
           // The broad sync carries no name, so every open plugin detail + drift
           // inspect is invalidated via partial key (see invalidatePluginQueries).
           [{ _id: "pluginsByNameGet", path: { assistant_id: "asst-1" } }],
@@ -445,6 +466,8 @@ describe("useAssistantResourceSync", () => {
         expect.arrayContaining([
           pluginsGetQueryKey(pathOpts),
           pluginsSearchGetQueryKey(pathOpts),
+          mcpQueryKeys.list("asst-1"),
+          mcpQueryKeys.details("asst-1"),
           // Reconnect reconcile is name-agnostic too — open details invalidate.
           [{ _id: "pluginsByNameGet", path: { assistant_id: "asst-1" } }],
           [

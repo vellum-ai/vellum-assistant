@@ -82,6 +82,7 @@ import {
   searchSkillsRegistry,
 } from "../../skills/skillssh-registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
+import { safeStringSlice } from "../../util/unicode.js";
 import { getConfigWatcher } from "../config-watcher.js";
 import type {
   SkillDetailResponse,
@@ -237,9 +238,11 @@ function heuristicDraft(body: string): {
   const lines = body.split("\n").filter((l) => l.trim());
   const firstLine = lines[0]?.trim() ?? "";
   const name =
-    firstLine.replace(/^#+\s*/, "").slice(0, 100) || "Untitled Skill";
+    safeStringSlice(firstLine.replace(/^#+\s*/, ""), 0, 100) ||
+    "Untitled Skill";
   const skillId = toSkillSlug(name) || "untitled-skill";
-  const description = body.trim().slice(0, 200) || "No description provided";
+  const description =
+    safeStringSlice(body.trim(), 0, 200) || "No description provided";
   return { skillId, name, description, emoji: "\u{1F4DD}" };
 }
 
@@ -1732,7 +1735,7 @@ export async function draftSkill(params: {
               "- emoji: a single emoji character representing the skill",
               "",
               "Skill body:",
-              body.slice(0, 2000),
+              safeStringSlice(body, 0, 2000),
             ].join("\n");
 
             const response = await provider.sendMessage([userMessage(prompt)], {

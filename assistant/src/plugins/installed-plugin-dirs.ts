@@ -1,8 +1,9 @@
 /**
  * Enumerate installed plugin directories under the workspace plugins dir.
  *
- * An installed plugin is a non-hidden directory carrying a `package.json`,
- * whose realpath stays under the realpath of the plugins directory. This walk
+ * An installed plugin is a non-hidden directory carrying a `package.json` or
+ * root `plugin.json` whose realpath stays under the realpath of the plugins
+ * directory. This walk
  * is shared by the plugin source-version collector
  * (`./collect-source-versions.ts`) and the schedule reconciler
  * (`../schedule/plugin-schedule-reconciler.ts`) so both agree on what counts
@@ -17,10 +18,11 @@
  * declaration is available to run.
  */
 
-import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
 import { getWorkspacePluginsDir } from "../util/platform.js";
+import { hasPluginManifest } from "../util/plugin-manifest.js";
 
 export interface InstalledPluginDir {
   /** Directory basename: the plugin's install identity. */
@@ -92,7 +94,7 @@ export function listInstalledPluginDirs(): InstalledPluginDir[] {
     if (!isInsidePluginRoot(dir, pluginsDir)) {
       continue;
     }
-    if (!existsSync(join(dir, "package.json"))) {
+    if (!hasPluginManifest(dir)) {
       continue;
     }
     out.push({ name: entry, dir });

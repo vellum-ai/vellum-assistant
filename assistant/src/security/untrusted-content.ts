@@ -11,6 +11,8 @@
  * 3. Enforces per-source character budgets to prevent context flooding.
  */
 
+import { safeStringSlice } from "../util/unicode.js";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -156,7 +158,7 @@ export function escapeContentBoundaries(content: string): string {
 
 /** Sanitize a value for use as an XML attribute (no quotes, angle brackets, newlines). */
 function sanitizeAttr(value: string): string {
-  return value.replace(/[<>"&\r\n]/g, "").slice(0, 200);
+  return safeStringSlice(value.replace(/[<>"&\r\n]/g, ""), 0, 200);
 }
 
 function parseExternalContentAttributes(

@@ -24,17 +24,27 @@ import {
 function makePluginsDir(
   plugins: Record<
     string,
-    { mcpJson?: string; packageJson?: string; disabled?: boolean }
+    {
+      mcpJson?: string;
+      packageJson?: string | null;
+      pluginJson?: string;
+      disabled?: boolean;
+    }
   >,
 ): string {
   const root = mkdtempSync(join(tmpdir(), "vellum-plugin-mcp-"));
   for (const [name, spec] of Object.entries(plugins)) {
     const dir = join(root, name);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      join(dir, "package.json"),
-      spec.packageJson ?? JSON.stringify({ name, version: "1.0.0" }),
-    );
+    if (spec.packageJson !== null) {
+      writeFileSync(
+        join(dir, "package.json"),
+        spec.packageJson ?? JSON.stringify({ name, version: "1.0.0" }),
+      );
+    }
+    if (spec.pluginJson !== undefined) {
+      writeFileSync(join(dir, "plugin.json"), spec.pluginJson);
+    }
     if (spec.mcpJson !== undefined) {
       writeFileSync(join(dir, "mcp.json"), spec.mcpJson);
     }
@@ -137,6 +147,26 @@ describe("readPluginMcpServers", () => {
     });
   });
 
+  test("reads MCP servers from a standard-only plugin", () => {
+    const dir = makePluginsDir({
+      unabyss: {
+        packageJson: null,
+        pluginJson: JSON.stringify({
+          $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+          name: "unabyss",
+        }),
+        mcpJson: VALID_MANIFEST,
+      },
+    });
+
+    const { servers, issues } = readPluginMcpServers({
+      workspacePluginsDir: dir,
+    });
+
+    expect(issues).toEqual([]);
+    expect(servers.map((server) => server.id)).toEqual(["unabyss"]);
+  });
+
   test("defaults an omitted type to streamable-http", () => {
     const dir = makePluginsDir({
       openseo: {
@@ -205,7 +235,7 @@ describe("readPluginMcpServers", () => {
       workspacePluginsDir: root,
     });
     expect(servers).toEqual([]);
-    expect(issues[0].message).toContain("package.json");
+    expect(issues[0].message).toContain("selected plugin manifest");
   });
 
   test("ignores a directory whose package.json is unparseable", () => {
@@ -216,7 +246,7 @@ describe("readPluginMcpServers", () => {
       workspacePluginsDir: dir,
     });
     expect(servers).toEqual([]);
-    expect(issues[0].message).toContain("package.json");
+    expect(issues[0].message).toContain("selected plugin manifest");
   });
 
   test("ignores a directory whose package.json has no name", () => {
@@ -230,7 +260,7 @@ describe("readPluginMcpServers", () => {
       workspacePluginsDir: dir,
     });
     expect(servers).toEqual([]);
-    expect(issues[0].message).toContain("package.json");
+    expect(issues[0].message).toContain("selected plugin manifest");
   });
 
   test("skips plugins with no mcp.json without complaining", () => {

@@ -66,6 +66,7 @@ interface PlatformConnectionEntry {
   id: string;
   account_label?: string;
   scopes_granted?: string[];
+  provider_params?: Record<string, string> | null;
   status?: string;
 }
 
@@ -574,6 +575,9 @@ async function handleStatus({ queryParams = {} }: RouteHandlerArgs) {
       account: c.account_label ?? null,
       grantedScopes: c.scopes_granted ?? [],
       status: c.status ?? "ACTIVE",
+      // Values the provider scopes the connection by (QuickBooks' realm id),
+      // so a caller can address resources the proxy's base URL does not.
+      providerParams: c.provider_params ?? {},
     }));
 
     return {
@@ -1060,6 +1064,8 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
     provider: string;
     scopes?: string[];
     redirect_after_connect?: string;
+    /** Per-tenant providers (Shopify): the customer's own host. */
+    tenant_host?: string;
   };
 
   if (!b.provider) {
@@ -1076,6 +1082,13 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
   }
   reqBody.redirect_after_connect =
     b.redirect_after_connect ?? "/account/oauth/complete";
+  // Only forwarded when present: the platform validates it against the
+  // provider's pattern and rejects per-tenant providers that omit it.
+  const tenantHost =
+    typeof b.tenant_host === "string" ? b.tenant_host.trim() : "";
+  if (tenantHost) {
+    reqBody.tenant_host = tenantHost;
+  }
 
   const response = await client.fetch(startPath, {
     method: "POST",
@@ -1122,6 +1135,7 @@ async function handleManagedConnectPoll({
       id: e.id,
       account_label: e.account_label ?? null,
       scopes_granted: e.scopes_granted ?? [],
+      provider_params: e.provider_params ?? {},
     })),
   };
 }

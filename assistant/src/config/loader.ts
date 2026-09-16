@@ -183,6 +183,7 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
       "shopify-oauth": managed,
       "stripe-link-oauth": managed,
       "figma-oauth": managed,
+      "quickbooks-oauth": managed,
       "eventbrite-oauth": managed,
       "calendly-oauth": managed,
     },

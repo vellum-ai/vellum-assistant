@@ -1103,6 +1103,7 @@ describe("scaffold_managed_skill tool", () => {
         activation_hints: HINTS,
         overwrite: true,
         files: [{ path: "references/failure-modes.md", content: "gotchas" }],
+        change_summary: "Added the failure modes reference.",
       },
       makeRetrospectiveContext(),
     );
@@ -1550,6 +1551,7 @@ describe("scaffold_managed_skill tool", () => {
         body_markdown: "V2 procedure.",
         activation_hints: HINTS,
         overwrite: true,
+        change_summary: "Refined the procedure.",
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
       lineageSeam(),
@@ -1702,6 +1704,7 @@ describe("background skill update notification", () => {
         body_markdown: "1. Refined steps.",
         activation_hints: HINTS,
         overwrite: true,
+        change_summary: "Refined the steps.",
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
       lineage(),
@@ -1715,9 +1718,7 @@ describe("background skill update notification", () => {
     // must be the conversation the work came from, not the hidden fork.
     expect(signal.sourceContextId).toBe("source-conv");
     expect(signal.contextPayload?.skillId).toBe("weekly-export");
-    expect(String(signal.contextPayload?.summary)).toContain(
-      "Weekly Report Export",
-    );
+    expect(signal.contextPayload?.summary).toBe("Refined the steps.");
     // The home feed falls back to `title`/`body` when no channel copy was
     // rendered, which is the intended quiet shape for this signal. Without
     // them a suppressed delivery would leave the feed item unwritten.
@@ -1725,13 +1726,234 @@ describe("background skill update notification", () => {
     expect(signal.contextPayload?.title).toBe(
       "Skill updated: Weekly Report Export",
     );
-    expect(String(signal.contextPayload?.body)).toContain(
-      "Weekly Report Export",
-    );
+    expect(signal.contextPayload?.body).toBe("Refined the steps.");
     // Deduped per skill per day so repeated refinements cannot flood the feed.
     expect(signal.dedupeKey).toBe(
       `skill-updated:weekly-export:${new Date().toISOString().slice(0, 10)}`,
     );
+  });
+
+  test("the notice body is the pass's change_summary, so the feed says what changed", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+        overwrite: true,
+        change_summary:
+          "Added the retry after an expired session and the export endpoint that held steady.",
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(emittedSignals).toHaveLength(1);
+    const payload = emittedSignals[0]!.contextPayload;
+    // The title still names the skill; the body is the change itself.
+    expect(payload?.title).toBe("Skill updated: Weekly Report Export");
+    expect(payload?.body).toBe(
+      "Added the retry after an expired session and the export endpoint that held steady.",
+    );
+    expect(payload?.summary).toBe(payload?.body);
+  });
+
+  test("a background overwrite without a change_summary is refused before the write", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+    const skillFile = join(TEST_DIR, "skills", "weekly-export", "SKILL.md");
+    const before = readFileSync(skillFile, "utf-8");
+
+    for (const input of [
+      {},
+      // Whitespace-only reads as missing, not as an empty notice.
+      { change_summary: "   \n " },
+    ]) {
+      const result = await executeScaffoldManagedSkill(
+        {
+          skill_id: "weekly-export",
+          name: "Weekly Report Export",
+          description: "export the weekly usage report",
+          body_markdown: "1. Refined steps.",
+          activation_hints: HINTS,
+          overwrite: true,
+          ...input,
+        },
+        makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+        lineage(),
+      );
+
+      // Self-correcting: the error returns to the pass in the same turn, so
+      // the retry carries the field and nothing was lost meanwhile.
+      expect(result.isError).toBe(true);
+      expect(result.content).toBe(
+        'Error: change_summary is required when updating an existing skill: pass one or two short sentences (under 200 characters) for the person who reads the "Skill updated" notice, naming what you changed and what in the trace prompted it (for example "Added the retry after an expired session and the export endpoint that held steady.").',
+      );
+      expect(readFileSync(skillFile, "utf-8")).toBe(before);
+      expect(emittedSignals).toHaveLength(0);
+    }
+  });
+
+  test("a background call on an existing skill without overwrite hears the overwrite error, not the summary requirement", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    // The flag is what actually blocks this call, so that is the error it
+    // gets: a retry that only adds change_summary would still fail.
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Set overwrite=true to replace it.");
+    expect(result.content).not.toContain("change_summary");
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("the ownership backstop speaks before the change_summary requirement", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-owned",
+        name: "User Owned",
+        description: "a person wrote this",
+        body_markdown: "V1.",
+        activation_hints: HINTS,
+      },
+      makeContext(),
+    );
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-owned",
+        name: "User Owned",
+        description: "a person wrote this",
+        body_markdown: "V2.",
+        activation_hints: HINTS,
+        overwrite: true,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("not verifiably assistant-authored");
+  });
+
+  test("a user-directed overwrite needs no change_summary: it never notifies", async () => {
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-skill",
+        name: "User Skill",
+        description: "asked for",
+        body_markdown: "V1.",
+        activation_hints: HINTS,
+      },
+      makeContext(),
+    );
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "user-skill",
+        name: "User Skill",
+        description: "asked for",
+        body_markdown: "V2.",
+        activation_hints: HINTS,
+        overwrite: true,
+      },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+  });
+
+  test("change_summary is sanitized like any other notification body", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+        overwrite: true,
+        change_summary: `Added\u0007 the   retry.\r\n\n\n\nDropped the login step. ${"x".repeat(300)}`,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    const body = String(emittedSignals[0]!.contextPayload?.body);
+    // Control characters go, horizontal whitespace collapses, blank-line runs
+    // collapse to one paragraph break, and the whole thing is clamped to the
+    // shared notification preview budget.
+    expect(
+      body.startsWith("Added the retry.\n\nDropped the login step. xxx"),
+    ).toBe(true);
+    expect(body).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/);
+    expect(body.length).toBe(200);
+    expect(body.endsWith("\u2026")).toBe(true);
+  });
+
+  test("a non-string change_summary is a self-correcting error", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+        overwrite: true,
+        change_summary: ["not", "a", "string"],
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("Error: change_summary must be a string");
+    expect(emittedSignals).toHaveLength(0);
+  });
+
+  test("the registered tool's schema declares change_summary as an optional string", () => {
+    // A call through the registered tool is validated against TOOLS.json
+    // first, and the validator rejects undeclared keys, so the field has to
+    // be in the schema for the executor to ever see it. It stays optional
+    // there: the requirement holds only for a background overwrite of an
+    // existing skill, which the schema cannot express, so the executor
+    // enforces it.
+    const scaffoldTool = readScaffoldToolEntry();
+    expect(scaffoldTool.input_schema.properties.change_summary).toMatchObject({
+      type: "string",
+    });
+    expect(scaffoldTool.input_schema.required).not.toContain("change_summary");
+
+    const result = validateInputAgainstSchema(
+      "scaffold_managed_skill",
+      {
+        skill_id: "s",
+        name: "N",
+        description: "D",
+        body_markdown: "B",
+        activation_hints: HINTS,
+        overwrite: true,
+        change_summary: "Added the retry step.",
+      },
+      scaffoldTool.input_schema,
+    );
+    expect(result.ok).toBe(true);
   });
 
   test("it falls back to the run conversation when fork lineage does not resolve", async () => {
@@ -1745,6 +1967,7 @@ describe("background skill update notification", () => {
         body_markdown: "1. Refined steps.",
         activation_hints: HINTS,
         overwrite: true,
+        change_summary: "Refined the steps.",
       },
       makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
       { getConversation: () => null },

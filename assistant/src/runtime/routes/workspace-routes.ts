@@ -30,23 +30,14 @@ import {
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
+import { walkWorkspaceTree } from "./workspace-tree-walk.js";
 import {
   isTextMimeType,
   MAX_INLINE_TEXT_SIZE,
   resolveWorkspacePath,
+  workspaceEntrySchema,
   writeWorkspaceFile,
 } from "./workspace-utils.js";
-
-const workspaceTreeEntrySchema = z.object({
-  name: z.string(),
-  path: z.string(),
-  type: z.enum(["file", "directory"]),
-  size: z.number().nullable(),
-  mimeType: z.string().nullable(),
-  modifiedAt: z.string(),
-});
-
-type TreeEntry = z.infer<typeof workspaceTreeEntrySchema>;
 
 // Recursive directory sizing walks the filesystem synchronously, so it is
 // bounded by two caps that work together:
@@ -175,10 +166,11 @@ function publishSoundsConfigUpdatedForPaths(
 // GET /v1/workspace/tree — list directory contents
 // ---------------------------------------------------------------------------
 
-function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
+async function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
   const requestedPath = queryParams?.path ?? "";
   const showHidden = queryParams?.showHidden === "true";
   const includeDirSizes = queryParams?.includeDirSizes === "true";
+  const recursive = queryParams?.recursive === "true";
   const resolved = resolveWorkspacePath(requestedPath, {
     allowHidden: showHidden,
   });
@@ -186,62 +178,36 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
     throw new BadRequestError("Invalid path");
   }
 
-  try {
-    const dirents = readdirSync(resolved, { withFileTypes: true });
-    const workspaceDir = getWorkspaceDir();
-
-    // Listing-wide budget, only constructed when sizes are requested. Each
-    // directory draws a per-directory allotment from it so one oversized
-    // subtree can't starve its siblings, while the shared remainder still caps
-    // total synchronous traversal for the whole listing.
-    const listingBudget: DirSizeBudget | undefined = includeDirSizes
+  // Listing-wide budget, only constructed when sizes are requested. Each
+  // directory draws a per-directory allotment from it so one oversized
+  // subtree can't starve its siblings, while the shared remainder still caps
+  // total synchronous traversal for the whole listing.
+  const listingBudget: DirSizeBudget | undefined =
+    includeDirSizes && !recursive
       ? { remaining: DIR_SIZE_TOTAL_ENTRY_BUDGET }
       : undefined;
 
-    const entries: TreeEntry[] = [];
-    for (const entry of dirents) {
-      if (!showHidden && entry.name.startsWith(".")) {
-        continue;
-      }
-
-      const fullPath = join(resolved, entry.name);
-
-      let stats: ReturnType<typeof statSync>;
-      try {
-        stats = statSync(fullPath);
-      } catch {
-        continue;
-      }
-
-      const isDir = stats.isDirectory();
-      const relativePath = fullPath.slice(workspaceDir.length + 1);
-
-      const dirSize =
-        isDir && listingBudget
-          ? computeDirSizeWithinListing(fullPath, listingBudget)
-          : null;
-
-      entries.push({
-        name: entry.name,
-        path: relativePath,
-        type: isDir ? "directory" : "file",
-        size: isDir ? dirSize : stats.size,
-        mimeType: isDir ? null : Bun.file(fullPath).type,
-        modifiedAt: stats.mtime.toISOString(),
-      });
-    }
-
-    entries.sort((a, b) => {
-      if (a.type !== b.type) {
-        return a.type === "directory" ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
+  let walk: Awaited<ReturnType<typeof walkWorkspaceTree>>;
+  try {
+    walk = await walkWorkspaceTree({
+      rootPath: resolved,
+      workspaceDir: getWorkspaceDir(),
+      showHidden,
+      recursive,
+      directorySize: listingBudget
+        ? (absPath) => computeDirSizeWithinListing(absPath, listingBudget)
+        : undefined,
     });
-
-    return { path: requestedPath, entries };
   } catch {
     throw new NotFoundError("Directory not found");
   }
+
+  return {
+    path: requestedPath,
+    entries: walk.entries,
+    truncated: walk.truncated,
+    skipped: walk.skipped,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -569,14 +535,31 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "includeDirSizes",
         description:
-          "Compute recursive byte size for each directory entry (true/false). Budget-bounded — large subtrees may return size: null.",
+          "Compute recursive byte size for each directory entry (true/false). Budget-bounded: large subtrees may return size: null. Not applied to a recursive listing, which carries every file for the client to sum.",
+      },
+      {
+        name: "recursive",
+        description:
+          "List the whole subtree in one response (true/false). Depth-first, each directory's entries in listing order, so grouping by parent path recovers per-directory listings. Bounded: sets truncated when the entry cap or deadline stops the walk, and does not enter directories the workspace gitignore rules exclude, which are named in skipped.",
       },
     ],
     responseBody: z.object({
       path: z.string(),
       entries: z
-        .array(workspaceTreeEntrySchema)
+        .array(workspaceEntrySchema)
         .describe("Directory entry objects"),
+      truncated: z
+        .boolean()
+        .optional()
+        .describe(
+          "A recursive walk stopped at its entry cap or deadline, so deeper entries are missing. Absent from assistants that predate recursive listings.",
+        ),
+      skipped: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Directories a recursive walk listed but did not enter, whether because a workspace gitignore rule excludes them, they are symlinks, or they could not be read. Each can still be listed on its own. Absent from assistants that predate recursive listings.",
+        ),
     }),
     handler: handleWorkspaceTree,
   },

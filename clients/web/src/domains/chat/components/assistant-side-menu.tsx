@@ -81,6 +81,8 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   activeAppId?: string;
   onStartNewConversation?: () => void;
   footerAction?: ReactNode;
+  /** First control in the overlay's action cluster, before search. */
+  leadingAction?: ReactNode;
   /**
    * Trailing control in the overlay's glyph row, beside search and opposite
    * dismiss. A slot rather than a direct render: the control belongs to
@@ -248,6 +250,7 @@ export function AssistantSideMenu({
   onStartNewConversation,
   footerAction,
   notificationsAction,
+  leadingAction,
   onPinConversation,
   onRenameConversation,
   onArchiveConversation,
@@ -641,6 +644,11 @@ export function AssistantSideMenu({
                 onClick={() => onClose?.()}
               />
               <div className="flex items-center gap-2">
+                {leadingAction ? (
+                  <div className="pointer-events-auto empty:hidden">
+                    {leadingAction}
+                  </div>
+                ) : null}
                 <SearchButton />
                 {notificationsAction ? (
                   <div className="pointer-events-auto">

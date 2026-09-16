@@ -12,12 +12,14 @@ const published: CompanionContext[] = [];
 // at teardown. What the clear then publishes is the runtime module's own rule,
 // and `runtime/companion-surface.test.ts` exercises the real one.
 const clearWorkingMock = mock(() => undefined);
+const clearPopoverMock = mock(() => undefined);
 
 mock.module("@/runtime/companion-surface", () => ({
   setCompanionContext: (context: CompanionContext) => {
     published.push(context);
   },
   clearCompanionWorking: clearWorkingMock,
+  clearCompanionPopover: clearPopoverMock,
   // The targeted path the running dictation's words take, which reuses the
   // last context rather than rebuilding one. Recorded the same way, since what
   // matters to these cases is what reached the surface.
@@ -103,6 +105,10 @@ const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const { MIN_VERSION: TARGET_MIN_VERSION } =
   await import("@/lib/backwards-compat/watch-capture-target");
+const { useInteractionStore } =
+  await import("@/domains/chat/interaction-store");
+const { offerSurfaceToCompanion, useCompanionPopoverStore } =
+  await import("@/domains/chat/companion-popover");
 const { useCompanionMirror } = await import("./use-companion-mirror");
 
 function Mirror() {
@@ -766,6 +772,87 @@ describe("the screen share the companion mirror publishes", () => {
     });
     await waitFor(() => {
       expect(latest().callConversationId).toBeUndefined();
+    });
+  });
+});
+
+describe("the popover the companion mirror publishes", () => {
+  afterEach(() => {
+    act(() => {
+      useInteractionStore.getState().resetAll();
+      useCompanionPopoverStore.setState({ offeredSurfaceId: null });
+    });
+  });
+
+  test("publishes the approval the turn is waiting on, and clears it", async () => {
+    render(<Mirror />);
+    expect(latest().popover).toBeUndefined();
+
+    act(() => {
+      useInteractionStore
+        .getState()
+        .showConfirmation({ requestId: "req-1", toolName: "bash" });
+    });
+    await waitFor(() => {
+      expect(latest().popover?.id).toBe("req-1");
+    });
+
+    act(() => {
+      useInteractionStore.getState().dismissConfirmationIfMatches("req-1");
+    });
+    await waitFor(() => {
+      expect(latest().popover).toBeUndefined();
+    });
+  });
+
+  /**
+   * Completion lands on the transcript snapshot, which is written on every
+   * streamed delta, so the mirror has to notice the one write that matters.
+   */
+  test("stops showing the popover when the layout goes away", () => {
+    const { unmount } = render(<Mirror />);
+    clearPopoverMock.mockClear();
+
+    unmount();
+
+    expect(clearPopoverMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("takes a surface down when the transcript completes it", async () => {
+    const surface = {
+      surfaceId: "surf-1",
+      surfaceType: "card",
+      data: { title: "Pick a time" },
+    };
+    act(() => {
+      useChatSessionStore.setState({
+        snapshot: { messages: [{ id: "m-1", role: "assistant", surfaces: [surface] }] },
+        dismissedSurfaceIds: new Set(),
+      } as never);
+    });
+    render(<Mirror />);
+    act(() => {
+      offerSurfaceToCompanion("surf-1");
+    });
+    await waitFor(() => {
+      expect(latest().popover?.kind).toBe("card");
+    });
+
+    act(() => {
+      useChatSessionStore.setState({
+        snapshot: {
+          messages: [
+            {
+              id: "m-1",
+              role: "assistant",
+              surfaces: [{ ...surface, completed: true }],
+            },
+          ],
+        },
+      } as never);
+    });
+    await waitFor(() => {
+      expect(latest().popover).toBeUndefined();
     });
   });
 });

@@ -26,6 +26,7 @@ export type TeleportPhase =
 /** Stable error codes for teleport failures, mirroring Swift `TeleportError`. */
 export type TeleportErrorCode =
   | "not_signed_in"
+  | "backup_failed"
   | "export_failed"
   | "export_timed_out"
   | "export_job_failed"
@@ -93,39 +94,46 @@ export function resolveDestination(
   return null;
 }
 
-/** Human-facing label for a destination, mirroring Swift `displayLabel`. */
-export function destinationLabel(destination: TeleportDestination): string {
+/** Catalog key for a destination's action label, mirroring Swift `displayLabel`. */
+export function destinationLabelKey(
+  destination: TeleportDestination,
+):
+  | "teleportCard.moveToDocker"
+  | "teleportCard.moveToPlatform"
+  | "teleportCard.moveToLocal" {
   switch (destination) {
     case "docker":
-      return "Move to Docker";
+      return "teleportCard.moveToDocker";
     case "platform":
-      return "Move to Cloud (Platform)";
+      return "teleportCard.moveToPlatform";
     case "local":
-      return "Move to Local";
+      return "teleportCard.moveToLocal";
   }
 }
+
+type HostSuffix = "Macos" | "Windows" | "Linux";
+
+const HOST_SUFFIX: Record<ElectronHostOS, HostSuffix> = {
+  macos: "Macos",
+  windows: "Windows",
+  linux: "Linux",
+};
 
 /** Catalog key for a destination description, mirroring Swift `description`. */
 export function destinationDescriptionKey(
   destination: TeleportDestination,
   hostOS: ElectronHostOS = "macos",
 ):
-  | "teleportCard.dockerDescriptionMacos"
-  | "teleportCard.dockerDescriptionWindows"
+  | `teleportCard.dockerDescription${HostSuffix}`
   | "teleportCard.platformDescription"
-  | "teleportCard.localDescriptionMacos"
-  | "teleportCard.localDescriptionWindows" {
+  | `teleportCard.localDescription${HostSuffix}` {
   switch (destination) {
     case "docker":
-      return hostOS === "windows"
-        ? "teleportCard.dockerDescriptionWindows"
-        : "teleportCard.dockerDescriptionMacos";
+      return `teleportCard.dockerDescription${HOST_SUFFIX[hostOS]}`;
     case "platform":
       return "teleportCard.platformDescription";
     case "local":
-      return hostOS === "windows"
-        ? "teleportCard.localDescriptionWindows"
-        : "teleportCard.localDescriptionMacos";
+      return `teleportCard.localDescription${HOST_SUFFIX[hostOS]}`;
   }
 }
 

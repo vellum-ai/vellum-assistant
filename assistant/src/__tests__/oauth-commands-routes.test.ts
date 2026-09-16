@@ -1165,6 +1165,33 @@ describe("POST oauth/managed-connect/start", () => {
     expect(result.connect_url).toBe("https://app.vellum.ai/connect/abc");
   });
 
+  test("forwards tenant_host to the platform only when one is supplied", async () => {
+    // Shopify's endpoints live on the merchant's host, which the platform
+    // substitutes into its templates; other providers must not see the key.
+    const bodies: Array<Record<string, unknown>> = [];
+    mockFetchImpl = async (_path, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          connect_url: "https://app.vellum.ai/connect/abc",
+        }),
+        text: async () => "",
+      };
+    };
+    await getRoute("POST", "oauth/managed-connect/start").handler(
+      makeArgs({
+        body: { provider: "shopify", tenant_host: " my-store.myshopify.com " },
+      }),
+    );
+    await getRoute("POST", "oauth/managed-connect/start").handler(
+      makeArgs({ body: { provider: "google", tenant_host: "   " } }),
+    );
+    expect(bodies[0]?.tenant_host).toBe("my-store.myshopify.com");
+    expect(bodies[1]).not.toHaveProperty("tenant_host");
+  });
+
   test("raises InternalError when platform returns 401", async () => {
     mockFetchImpl = async () => ({
       ok: false,
@@ -1228,6 +1255,7 @@ describe("GET oauth/managed-connect/poll", () => {
         id: string;
         account_label: string | null;
         scopes_granted: string[];
+        provider_params: Record<string, string>;
       }>;
     };
     expect(result.ok).toBe(true);
@@ -1236,6 +1264,7 @@ describe("GET oauth/managed-connect/poll", () => {
         id: "conn-1",
         account_label: "alice@example.com",
         scopes_granted: ["email"],
+        provider_params: {},
       },
     ]);
   });
@@ -1247,5 +1276,31 @@ describe("GET oauth/managed-connect/poll", () => {
         makeArgs({ queryParams: { provider: "google" } }),
       ),
     ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("passes through the provider params a connection is scoped by", async () => {
+    // QuickBooks pins the company (realm) the user picked to the connection;
+    // a caller addressing /companyinfo/<realmId> needs it back.
+    mockFetchImpl = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          id: "conn-qb",
+          account_label: "Acme Widgets",
+          scopes_granted: ["com.intuit.quickbooks.accounting"],
+          provider_params: { realm_id: "9130357849012345" },
+        },
+      ],
+      text: async () => "",
+    });
+    const result = (await getRoute("GET", "oauth/managed-connect/poll").handler(
+      makeArgs({ queryParams: { provider: "quickbooks" } }),
+    )) as {
+      connections: Array<{ provider_params: Record<string, string> }>;
+    };
+    expect(result.connections[0]?.provider_params).toEqual({
+      realm_id: "9130357849012345",
+    });
   });
 });

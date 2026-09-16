@@ -2804,3 +2804,72 @@ describe("macOS host-browser proxy without extension registry", () => {
     expect(result).toEqual({ ok: true, via: "extension" });
   });
 });
+
+describe("native renderer browser compatibility", () => {
+  beforeEach(() => {
+    setCdpInspectEnabled(false);
+    setDesktopAutoConfig({ enabled: true, cooldownMs: 30_000 });
+    _resetDesktopAutoCooldown();
+    _resetHostBridgeCooldown();
+    mockSingletonProxy = null;
+  });
+  test.each(["macos", "windows"] as const)(
+    "%s web renderer sends CDP to the connected host bridge",
+    async (clientOs) => {
+      mockSingletonProxy = makeMacosBridgeOnlyProxy();
+      const client = getCdpClient(
+        makeContext({
+          conversationId: "conv-native",
+          transportInterface: "web",
+          clientOs,
+        }),
+      );
+      try {
+        expect(await client.send("Page.getFrameTree", {})).toMatchObject({
+          via: "host-bridge",
+        });
+      } finally {
+        client.dispose();
+      }
+    },
+  );
+
+  test.each(["macos", "windows"] as const)(
+    "%s web renderer keeps the existing Playwright fallback without a bridge",
+    async (clientOs) => {
+      const client = getCdpClient(
+        makeContext({
+          conversationId: "conv-native",
+          transportInterface: "web",
+          clientOs,
+        }),
+      );
+      try {
+        expect(await client.send("Page.getFrameTree", {})).toMatchObject({
+          via: "local",
+        });
+      } finally {
+        client.dispose();
+      }
+    },
+  );
+
+  test("explicit Playwright choice overrides the native browser default", async () => {
+    mockSingletonProxy = makeMacosBridgeOnlyProxy();
+    const client = getCdpClient(
+      makeContext({
+        conversationId: "conv-native",
+        transportInterface: "web",
+        clientOs: "windows",
+      }),
+      { mode: "local" },
+    );
+    try {
+      expect(await client.send("Page.getFrameTree", {})).toMatchObject({
+        via: "local",
+      });
+    } finally {
+      client.dispose();
+    }
+  });
+});

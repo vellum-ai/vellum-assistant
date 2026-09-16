@@ -1,3 +1,4 @@
+import { safeStringSlice } from "../host-utils.js";
 import type {
   DeterministicRecallSearchResult,
   DeterministicRecallSourceNote,
@@ -139,9 +140,9 @@ function compactText(text: string, maxChars: number): string {
     return compacted;
   }
   if (maxChars <= 3) {
-    return compacted.slice(0, maxChars);
+    return safeStringSlice(compacted, 0, maxChars);
   }
-  return `${compacted.slice(0, maxChars - 3).trimEnd()}...`;
+  return `${safeStringSlice(compacted, 0, maxChars - 3).trimEnd()}...`;
 }
 
 function dedupeStrings(values: readonly string[]): string[] {

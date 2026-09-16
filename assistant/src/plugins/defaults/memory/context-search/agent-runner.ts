@@ -7,6 +7,7 @@ import type {
 import { getConfiguredProvider } from "@vellumai/plugin-api";
 
 import { redactSecrets } from "../../../../security/secret-scanner.js";
+import { safeStringSlice } from "../host-utils.js";
 import {
   buildRecallAgentPromptBundle,
   FINISH_RECALL_TOOL_DEFINITION,
@@ -862,9 +863,9 @@ function compactText(text: string, maxChars: number): string {
     return compacted;
   }
   if (maxChars <= 3) {
-    return compacted.slice(0, maxChars);
+    return safeStringSlice(compacted, 0, maxChars);
   }
-  return `${compacted.slice(0, maxChars - 3).trimEnd()}...`;
+  return `${safeStringSlice(compacted, 0, maxChars - 3).trimEnd()}...`;
 }
 
 function dedupeEvidenceById(

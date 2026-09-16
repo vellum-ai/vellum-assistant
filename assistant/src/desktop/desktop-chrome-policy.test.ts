@@ -31,10 +31,18 @@ test("preserves unrelated policies and does not rewrite on repeated startup", ()
   const otherPath = join(directory, "organization.json");
   const unrelated = '{ "HomepageLocation": "https://example.com" }\n';
   writeFileSync(otherPath, unrelated);
-  writeFileSync(path, JSON.stringify({ DownloadRestrictions: 1 }));
+  writeFileSync(
+    path,
+    JSON.stringify({
+      CommandLineFlagSecurityWarningsEnabled: false,
+      DownloadRestrictions: 1,
+    }),
+  );
+  const original = statSync(path);
 
   writeDesktopChromePolicy(directory);
   const content = readFileSync(path, "utf8");
+  expect(statSync(path).ino).not.toBe(original.ino);
   expect(JSON.parse(content).DownloadRestrictions).toBe(1);
   expect(readFileSync(otherPath, "utf8")).toBe(unrelated);
   expect(readdirSync(directory).sort()).toEqual([

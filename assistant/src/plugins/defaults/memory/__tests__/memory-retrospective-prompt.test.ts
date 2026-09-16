@@ -115,6 +115,11 @@ For everything else in your review window, use the \`remember\` tool on facts, p
     expect(out).toContain(
       "\n---\n\nIf your review window contains a PROCEDURE you actually carried out",
     );
+    // An UPDATE is announced by a notice whose only account of the change is
+    // what the pass passes here, so the instruction has to ask for it.
+    expect(out).toContain(
+      "and pass `change_summary` (the update is rejected without it): one or two short sentences (under 200 characters)",
+    );
     expect(
       out.endsWith(
         "skills are for executed, reusable procedures, not for facts.\n",

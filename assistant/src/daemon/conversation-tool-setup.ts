@@ -7,10 +7,9 @@
  */
 
 import type { AssistantEvent } from "../api/index.js";
+import { shouldUseVirtualDesktopBrowser } from "../browser/virtual-desktop-target.js";
 import {
-  type ClientOs,
   type HostProxyCapability,
-  parseClientOs,
   supportsHostProxy,
 } from "../channels/types.js";
 import { getIsPlatform } from "../config/env-registry.js";
@@ -62,10 +61,7 @@ import {
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
-import {
-  injectActivationMomentParam,
-  projectUiToolsForChannel,
-} from "../tools/ui-surface/channel-variants.js";
+import { injectActivationMomentParam } from "../tools/ui-surface/channel-variants.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
@@ -77,6 +73,7 @@ import {
   conversationSupportsGuardianQuestionCards,
 } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
+import { resolveTurnClientOs } from "./conversation-client-surface.js";
 import { projectSkillTools } from "./conversation-skill-tools.js";
 import {
   restoreSurfaceStateEntry,
@@ -746,30 +743,6 @@ export const ALLOWLIST_ONLY_TOOL_NAMES = new Set<string>([
 ]);
 
 /**
- * Host OS of the client driving this turn. The Electron renderer reports
- * `interface: "web"` and carries the real OS in `clientOs`, so this prefers
- * the frozen per-turn value and only falls back to a desktop transport.
- */
-function resolveTurnClientOs(ctx: Conversation): {
-  clientOs: ClientOs | undefined;
-  transportInterface: Conversation["transportInterface"];
-} {
-  const pin = ctx.toolContextPin;
-  const transportInterface = pin
-    ? pin.transportInterface
-    : ctx.transportInterface;
-  const clientOs = pin
-    ? pin.clientOs
-    : (parseClientOs(ctx.currentTurnClientOs ?? ctx.clientOs) ??
-      (transportInterface === "macos" ||
-      transportInterface === "windows" ||
-      transportInterface === "linux"
-        ? transportInterface
-        : undefined));
-  return { clientOs, transportInterface };
-}
-
-/**
  * Windows parity gate: skill tools may declare `supported_client_os`; drop
  * them when the turn's client OS (or pinned OS for wakes) is not listed.
  */
@@ -1147,19 +1120,40 @@ export function createResolveToolsCallback(
         : currentWorkspaceDefs
     ).filter((d) => !readOnlyHidesFromWire(d.name));
     const excluded = new Set(getConfig().tools.exclude);
-    // Swap UI surface tools for channel-appropriate variants (e.g. Slack's
-    // task_progress-only ui_show). Mirrors the pin handling in
-    // `isToolActiveForContext`: execution-gate-mode wakes pin channel
-    // capabilities to undefined, which resolves to the unprojected defs.
-    const channelForUiTools = ctx.toolContextPin
-      ? undefined
-      : ctx.channelCapabilities?.channel;
-    let allBaseDefs = projectUiToolsForChannel(
-      [...scopedCoreDefs, ...scopedWorkspaceDefs, ...scopedMcpDefs].filter(
-        (d) => !excluded.has(d.name),
-      ),
-      channelForUiTools,
-    );
+    // UI definitions stay identical across channel and background turns.
+    // Channel renderers enforce their supported surface subset at execution,
+    // while background calls persist the full surface content for the next
+    // capable client that opens the conversation. Skill tools stay off this
+    // list (`skill_execute` dispatch) and are a separate disclosure path.
+    let allBaseDefs = [
+      ...scopedCoreDefs,
+      ...scopedWorkspaceDefs,
+      ...scopedMcpDefs,
+    ].filter((d) => !excluded.has(d.name));
+    if (
+      ctx.transportInterface === "web" &&
+      shouldUseVirtualDesktopBrowser(
+        undefined,
+        {},
+        {
+          workingDir: ctx.workingDir,
+          conversationId: ctx.conversationId,
+          trustClass: ctx.trustContext?.trustClass ?? "unknown",
+          transportInterface: ctx.transportInterface,
+          clientOs: resolveTurnClientOs(ctx).clientOs,
+          sourceActorPrincipalId: ctx.getTurnActorPrincipalId?.(),
+        },
+      )
+    ) {
+      allBaseDefs = allBaseDefs.map((definition) =>
+        definition.name === "bash"
+          ? {
+              ...definition,
+              description: `${definition.description} For browser tasks, use assistant browser navigate --url <url> directly. It installs the virtual desktop if needed, starts Chrome, and completes the action in one call. Use timeout_seconds: ${getConfig().timeouts.shellMaxTimeoutSec} for first use; setup progress is visible in the Virtual desktop panel. Use assistant browser --help for other browser actions. Use this managed path even if saved notes describe manual setup. Do not install packages or launch Chrome, X servers, or screenshot scripts yourself.`,
+            }
+          : definition,
+      );
+    }
     // Activation-rail conversations carry the optional `activation_moment`
     // telemetry param on ui_show. The marker is written before the first
     // tool resolution (see `applyBootstrapTemplate` in system-prompt.ts), so

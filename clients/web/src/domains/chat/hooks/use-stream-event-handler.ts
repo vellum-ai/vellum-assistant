@@ -7,6 +7,7 @@ import { tailIsAssistant } from "@/domains/chat/utils/stream-updaters/shared";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 
 import { recordDiagnostic, summarizeAssistantEvent } from "@/lib/diagnostics";
@@ -160,6 +161,9 @@ export function useStreamEventHandler(
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
   const lastCompletedToolNameRef = useRef<string | undefined>(undefined);
+  const composerSessionGenerationRef = useRef(
+    useComposerStore.getState().sessionGeneration,
+  );
 
   // --- Main event handler ---
 
@@ -252,6 +256,7 @@ export function useStreamEventHandler(
         isNative,
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
+        composerSessionGeneration: composerSessionGenerationRef.current,
         setOptimisticSends: store.setOptimisticSends,
         // Read live rather than closing over `store`: a queue ack can arrive
         // after later sends have already changed the list.
