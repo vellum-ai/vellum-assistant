@@ -22,6 +22,7 @@ import { clearAllArgs, markAllReadArgs } from "@/domains/home/utils";
 import { avatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useTranslation } from "@/i18n";
 import type { FeedItem } from "@vellumai/assistant-api";
+import { AVATAR_COLORS } from "@vellumai/avatar-catalog/colors";
 import { Typography } from "@vellumai/design-library";
 
 import { PANEL_LIST_CONTENT_HEIGHT } from "./notifications-bell";
@@ -293,13 +294,30 @@ const DESIGN_FEED = [
   TOOL_APPROVAL,
 ];
 
+const NO_AVATAR_ACCENT = "none";
+const AVATAR_ACCENT_OPTIONS = [
+  NO_AVATAR_ACCENT,
+  ...AVATAR_COLORS.map(({ id }) => id),
+];
+const AVATAR_ACCENT_MAPPING = Object.fromEntries([
+  [NO_AVATAR_ACCENT, null],
+  ...AVATAR_COLORS.map(({ id, hex }) => [id, hex]),
+]);
+const AVATAR_ACCENT_LABELS = Object.fromEntries([
+  [NO_AVATAR_ACCENT, "No accent"],
+  ...AVATAR_COLORS.map(({ id }) => [
+    id,
+    `${id[0]!.toUpperCase()}${id.slice(1)}`,
+  ]),
+]);
+
 /**
  * The popover box the bell renders the panel into, so the stories are seen
  * at the panel's real width and on its real surface.
  */
 function PopoverFrame({
   children,
-  accent = "#6366f1",
+  accent = AVATAR_COLORS[0]!.hex,
 }: {
   children: ReactNode;
   accent?: string | null;
@@ -393,14 +411,23 @@ function PanelPreview({
 // panel's own props, since the panel is only ever seen wrapped around a list.
 const meta = {
   title: "Home/NotificationsBellPanel",
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", controls: { sort: "alpha" } },
+  argTypes: {
+    accent: {
+      name: "Assistant color",
+      description: "Active assistant avatar color shared by the count and toggle.",
+      options: AVATAR_ACCENT_OPTIONS,
+      mapping: AVATAR_ACCENT_MAPPING,
+      control: { type: "select", labels: AVATAR_ACCENT_LABELS },
+    },
+  },
   args: {
     items: DESIGN_FEED,
     supportsBulkStatus: true,
     isBulkPending: false,
     isDecisionPending: false,
     initialUnreadOnly: true,
-    accent: "#6366f1",
+    accent: "green",
   },
   render: (args) => <PanelPreview {...args} />,
 } satisfies Meta<PanelStoryArgs>;
@@ -418,21 +445,21 @@ export const Default: Story = {};
 /** A light assistant accent uses dark contrast ink for the checked knob. */
 export const LightAccent: Story = {
   args: {
-    accent: "#E9C91A",
+    accent: "yellow",
   },
 };
 
 /** A pink accent colors the checked switch and the count's readable fill. */
 export const PinkAccent: Story = {
   args: {
-    accent: "#DB4B77",
+    accent: "pink",
   },
 };
 
 /** No avatar color keeps the notification badge's semantic fallback. */
 export const NoAccent: Story = {
   args: {
-    accent: null,
+    accent: NO_AVATAR_ACCENT,
   },
 };
 
