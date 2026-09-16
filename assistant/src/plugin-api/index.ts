@@ -364,7 +364,8 @@ export {
   stringifyMessageContent,
 } from "../persistence/message-content.js";
 // Conversation history — reads and writes on the host conversation store
-// (rows, message history, processing state, disk-view paths) plus the lexical
+// (rows, message history, processing state, the recorded wire tool surface,
+// disk-view paths) plus the lexical
 // message-search surface. Every operation takes explicit parameters; nothing
 // is resolved from config. Async because the facade loads the DB store graph
 // lazily on first call.
@@ -376,6 +377,7 @@ export {
   getConversation,
   getConversationDirPath,
   getConversationProcessingStartedAt,
+  getConversationToolSurface,
   getMessages,
   hasLexicalTokens,
   isConversationProcessing,

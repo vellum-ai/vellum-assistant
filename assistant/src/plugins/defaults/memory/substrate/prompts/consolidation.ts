@@ -670,7 +670,7 @@ For each article you touched:
 
 ---
 
-Finish by reporting, in your own words: what you filed, what you skipped and why. That closing reply is how the runtime knows the pass finished; it removes this pass's entries from \`memory/buffer.md\` only after a run that wrote pages and then reported. A run that stops mid-work leaves them for the next pass.
+Write and edit pages with \`file_write\` and \`file_edit\`; the shell is for inspection (greps, counts, size checks), not for writing pages. Finish by reporting, in your own words: what you filed, what you skipped and why. That closing reply is how the runtime knows the pass finished; it removes this pass's entries from \`memory/buffer.md\` only after a run whose file-tool writes succeeded and that then reported. A run that stops mid-work, or that wrote only through the shell, leaves them for the next pass.
 
 This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgment, voice. Your voice. Your wiki.`;
 
@@ -999,7 +999,7 @@ For each article you touched:
 
 ---
 
-Finish by reporting, in your own words: what you filed, what you skipped and why. That closing reply is how the runtime knows the pass finished; it removes this pass's entries from \`memory/buffer.md\` only after a run that wrote pages and then reported. A run that stops mid-work leaves them for the next pass.
+Write and edit pages with \`file_write\` and \`file_edit\`; the shell is for inspection (greps, counts, size checks), not for writing pages. Finish by reporting, in your own words: what you filed, what you skipped and why. That closing reply is how the runtime knows the pass finished; it removes this pass's entries from \`memory/buffer.md\` only after a run whose file-tool writes succeeded and that then reported. A run that stops mid-work, or that wrote only through the shell, leaves them for the next pass.
 
 This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgment, voice. Your voice. Your wiki.`;
 

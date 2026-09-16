@@ -636,8 +636,16 @@ interface SelectionRow {
  * The row holds one section per slug: the selection's FIRST selected section
  * (pool order) stands for the page; a page selected with no section (a card,
  * or a section-less edge or learned line) logs none.
+ *
+ * A turn whose selector could not run (`selectorFailure`) logs no rows: its
+ * selections are the stable prefix kept unjudged, and the selection table is
+ * what the hot set's frecency and the learned-edge graph read as judgments.
+ * The pool record still carries the turn for the inspector.
  */
 export function attributeSelections(result: OrchestrateResult): SelectionRow[] {
+  if (result.selectorFailure) {
+    return [];
+  }
   const core = new Set<Slug>(result.lanes.core);
   const hot = new Set<Slug>(result.lanes.hot);
   const fresh = new Set<Slug>(result.lanes.fresh);
