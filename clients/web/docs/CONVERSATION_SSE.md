@@ -126,8 +126,9 @@ tool calls are the canonical `ChatMessageToolCall` the main chat renders.
   buffered wrapped tail as the replay). Until then the history is `null` and live
   events are not folded; the seed replays them. A failed fetch leaves it `null`,
   so the next read retries.
-- A subagent with no child conversation to fetch seeds an empty history at spawn
-  and is built from the stream alone.
+- A subagent whose `subagent_spawned` arrives live, or that has no child
+  conversation to fetch, seeds an empty history at spawn and is built from the
+  stream alone.
 - A proven seq gap on the parent stream drops the fetched subagent histories
   (`invalidateHistories`) alongside the parent's authoritative reconcile, so they
   are refetched rather than advanced with missing events.

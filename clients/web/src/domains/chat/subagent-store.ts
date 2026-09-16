@@ -106,8 +106,8 @@ export interface SubagentEntry {
    * inner events, exactly as the main chat folds its own stream. `null` until
    * seeded, which `loadHistoryIfNeeded` does on demand; while unseeded, live
    * events are not folded (the seed replays the buffered tail). A subagent
-   * with no child conversation to fetch seeds empty at spawn, since every
-   * event it will have arrives on the stream.
+   * whose spawn arrives live, or with no child conversation to fetch, seeds
+   * empty at spawn, since every event it will have arrives on the stream.
    */
   history: PaginatedHistoryResult | null;
   /** The subagent's own conversation ID, used to fetch detail data. */
