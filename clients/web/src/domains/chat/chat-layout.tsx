@@ -1179,7 +1179,7 @@ export function ChatLayout({
           </aside>
         }
         desktopPreview={
-          !isPopout && !documentHeaderVisible ? (
+          !documentHeaderVisible ? (
             <AssistantDesktopPreview />
           ) : null
         }
