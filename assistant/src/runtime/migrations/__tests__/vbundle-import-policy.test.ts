@@ -261,9 +261,9 @@ describe("evaluateRuntimeCompatibility", () => {
 
   // A `vel up` minikube image or CLI local hatch is stamped
   // `<pkg.version>-local.<ts>.<sha>` from the checkout's package.json,
-  // which lags release cuts: a released desktop app at 0.12.2-staging.4
-  // exports bundles no 0.12.1-local runtime could otherwise import.
-  test("local dev runtime build fails open below min", () => {
+  // which only moves on release cuts, so the minimum bound cannot be
+  // decided from it; the explicit maximum ceiling still applies.
+  test("local dev runtime build skips the minimum bound", () => {
     expect(
       evaluateRuntimeCompatibility(
         { min_runtime_version: "0.12.2-staging.4", max_runtime_version: null },
@@ -272,10 +272,33 @@ describe("evaluateRuntimeCompatibility", () => {
     ).toEqual({ ok: true });
   });
 
-  test("local dev runtime build fails open above max", () => {
+  test("local dev runtime build within an explicit range passes", () => {
     expect(
       evaluateRuntimeCompatibility(
-        { min_runtime_version: "0.7.0", max_runtime_version: "0.7.5" },
+        { min_runtime_version: "0.12.2", max_runtime_version: "0.12.5" },
+        "0.12.1-local.20260916144827.2f409056e6",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  test("local dev runtime build above max still fails", () => {
+    const compat = {
+      min_runtime_version: "0.7.0",
+      max_runtime_version: "0.7.5",
+    };
+    const runtime = "0.12.1-local.20260916144827.2f409056e6";
+    expect(evaluateRuntimeCompatibility(compat, runtime)).toEqual({
+      ok: false,
+      reason: "version_incompatible",
+      bundle_compat: compat,
+      runtime_version: runtime,
+    });
+  });
+
+  test("local dev runtime build with unparsable max fails open", () => {
+    expect(
+      evaluateRuntimeCompatibility(
+        { min_runtime_version: "0.7.0", max_runtime_version: "garbage" },
         "0.12.1-local.20260916144827.2f409056e6",
       ),
     ).toEqual({ ok: true });
