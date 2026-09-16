@@ -75,7 +75,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A failed search falls through to the generic body by design. |
  * | Skills (`skill_load`, `skill_execute`) | purpose-built | 5 | SkillLoad, SkillLoadLongBody, SkillLoadError, SkillLoadRunning, SkillExecute | The only tools with native treatment, and `skill_execute` is close to unused, so most of this investment sits on the rarer of the pair. |
  * | MCP (`mcp__*`) | generic | 6 | McpTool, McpToolHighRisk | The wire name goes through `titleCaseToolName`, so `mcp__analytics__exec` is titled "Mcp Analytics Exec": server and tool are not separated and the transport prefix is shown as a word. |
- * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | An object parameter nests its fields under a rule, each label above its value, with short lists and small objects on one line; only a value nested past four levels falls back to JSON. |
+ * | Managed workspace tools | generic | mixed | ManagedWorkspaceTool | An object parameter nests its fields in a bordered group, each label above its value, with short lists and small objects on one line; only a value nested past four levels falls back to JSON. |
  * | Unenumerable third-party | generic | mixed | UnknownThirdPartyTool | The fallback that has to stay good, since we cannot write a renderer per vendor. |
  * | Reasoning (`kind: "thinking"`) | purpose-built | n/a | Thinking | Renders markdown properly. No gap. |
  *

@@ -15,6 +15,14 @@ import { layoutToolParams } from "@/domains/chat/utils/tool-param-layout";
 import type { ToolParamEntry } from "@/domains/chat/utils/tool-params";
 import { useTranslation } from "@/i18n";
 
+/**
+ * The raw input as pretty JSON. Its own component so the disclosure, which
+ * unmounts closed content, only serializes the input once someone opens it.
+ */
+function RawInputJson({ input }: { input: Record<string, unknown> }) {
+  return <CodeBlock text={JSON.stringify(input, null, 2)} />;
+}
+
 interface ToolInputParametersProps {
   /** Parameters to show, in order. */
   params: ToolParamEntry[];
@@ -40,7 +48,7 @@ export function ToolInputParameters({
       )}
 
       <DetailDisclosure label={t("toolInputParameters.rawInput")}>
-        <CodeBlock text={JSON.stringify(rawInput, null, 2)} />
+        <RawInputJson input={rawInput} />
       </DetailDisclosure>
     </>
   );

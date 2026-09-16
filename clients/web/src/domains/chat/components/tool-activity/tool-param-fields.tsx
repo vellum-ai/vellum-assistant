@@ -1,7 +1,7 @@
 /**
  * Draws the parameter layout `layoutToolParams` decides: each field a small
  * label above its value, long text as a code block, and larger structure
- * nested under a single rule.
+ * nested in a bordered group.
  */
 
 import { Typography } from "@vellumai/design-library";
@@ -64,7 +64,7 @@ function FieldValue({ field }: { field: ToolParamField }) {
 
 interface ToolParamFieldsProps {
   list: ToolParamFieldList;
-  /** Sets the fields under a rule, for the contents of a list or object. */
+  /** Draws the fields as a bordered group, for a list or object inside. */
   nested?: boolean;
 }
 
@@ -80,7 +80,8 @@ export function ToolParamFields({
       className={cn(
         "flex min-w-0 flex-col",
         gap,
-        nested && "mt-1 border-l border-[var(--border-base)] pl-3",
+        nested &&
+          "mt-1 rounded-lg border border-[var(--border-base)] px-3 py-2.5",
       )}
     >
       <dl className={cn("flex min-w-0 flex-col", gap)}>
