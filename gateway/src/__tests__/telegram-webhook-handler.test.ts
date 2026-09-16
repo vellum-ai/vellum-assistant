@@ -198,6 +198,17 @@ function installFetchMock() {
         });
       }
 
+      // The bot's own identity, for the room admission gate.
+      if (url.endsWith("/getMe")) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            result: { id: 123456789, username: "vellum_bot" },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
       // Telegram API calls (sendMessage, etc.)
       if (url.includes("api.telegram.org")) {
         return new Response(JSON.stringify({ ok: true, result: {} }), {
@@ -740,5 +751,154 @@ describe("telegram webhook handler: callback_query forwarding", () => {
     const runtimeBody = runtimeCall!.body as any;
     expect(runtimeBody.callbackQueryId).toBeUndefined();
     expect(runtimeBody.callbackData).toBeUndefined();
+  });
+});
+
+describe("telegram webhook handler: rooms", () => {
+  const GROUP_CHAT_ID = -1001234567890;
+
+  function makeGroupPayload(
+    updateId: number,
+    overrides: Record<string, unknown> = {},
+  ) {
+    return {
+      update_id: updateId,
+      message: {
+        message_id: updateId,
+        text: "@vellum_bot how is it going",
+        entities: [{ type: "mention", offset: 0, length: 11 }],
+        chat: { id: GROUP_CHAT_ID, type: "supergroup" },
+        from: { id: 67890, is_bot: false, username: "testuser" },
+        ...overrides,
+      },
+    };
+  }
+
+  test("a supergroup message that mentions the bot is forwarded with the room facts", async () => {
+    const config = makeConfig({
+      routingEntries: [
+        {
+          type: "conversation_id",
+          key: String(GROUP_CHAT_ID),
+          assistantId: "assistant-a",
+        },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    const res = await handler(makeWebhookRequest(makeGroupPayload(5001)));
+    expect(res.status).toBe(200);
+
+    const runtimeCall = fetchCalls.find((c) => c.url.includes("/inbound"));
+    expect(runtimeCall).toBeDefined();
+    const body = runtimeCall!.body as any;
+    expect(body.conversationExternalId).toBe(String(GROUP_CHAT_ID));
+    expect(body.sourceMetadata.chatType).toBe("supergroup");
+    expect(body.sourceMetadata.conversationType).toBe("private");
+    expect(body.sourceMetadata.botMentioned).toBe(true);
+    expect(body.replyCallbackUrl).toBe(
+      "http://127.0.0.1:7830/deliver/telegram",
+    );
+  });
+
+  test("the bot's identity is resolved once and reused across updates", async () => {
+    const config = makeConfig({
+      routingEntries: [
+        {
+          type: "conversation_id",
+          key: String(GROUP_CHAT_ID),
+          assistantId: "assistant-a",
+        },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    await handler(makeWebhookRequest(makeGroupPayload(5101)));
+    await handler(makeWebhookRequest(makeGroupPayload(5102)));
+
+    expect(fetchCalls.filter((c) => c.url.endsWith("/getMe"))).toHaveLength(1);
+    expect(fetchCalls.filter((c) => c.url.includes("/inbound"))).toHaveLength(
+      2,
+    );
+  });
+
+  test("a private-chat message never asks Telegram who the bot is", async () => {
+    // Private chats are admitted without the identity, so a deployment that
+    // only ever sees them makes no getMe call at all.
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "12345", assistantId: "assistant-a" },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    await handler(makeWebhookRequest(makeTelegramPayload("hello", 5301)));
+
+    expect(fetchCalls.filter((c) => c.url.endsWith("/getMe"))).toHaveLength(0);
+    expect(fetchCalls.filter((c) => c.url.includes("/inbound"))).toHaveLength(
+      1,
+    );
+  });
+
+  test("/new@bot in a supergroup resets the group conversation", async () => {
+    // Telegram spells a group command `/new@username`; the route's parser
+    // must see `/new`, or the reset silently becomes an ordinary message.
+    const config = makeConfig({
+      routingEntries: [
+        {
+          type: "conversation_id",
+          key: String(GROUP_CHAT_ID),
+          assistantId: "assistant-a",
+        },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    const res = await handler(
+      makeWebhookRequest(
+        makeGroupPayload(5401, {
+          text: "/new@vellum_bot",
+          entities: [{ type: "bot_command", offset: 0, length: 15 }],
+        }),
+      ),
+    );
+    expect(res.status).toBe(200);
+
+    const resetCall = fetchCalls.find((c) =>
+      c.url.includes("/channels/conversation"),
+    );
+    expect(resetCall).toBeDefined();
+    expect(resetCall!.method).toBe("DELETE");
+    expect(fetchCalls.find((c) => c.url.includes("/inbound"))).toBeUndefined();
+  });
+
+  test("a supergroup message that does not address the bot never reaches the runtime", async () => {
+    const config = makeConfig({
+      routingEntries: [
+        {
+          type: "conversation_id",
+          key: String(GROUP_CHAT_ID),
+          assistantId: "assistant-a",
+        },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    const res = await handler(
+      makeWebhookRequest(
+        makeGroupPayload(5201, { text: "lunch anyone?", entities: [] }),
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(fetchCalls.find((c) => c.url.includes("/inbound"))).toBeUndefined();
+    // No notice goes back into the room either: silence is the whole point.
+    expect(
+      fetchCalls.find((c) => c.url.endsWith("/sendMessage")),
+    ).toBeUndefined();
   });
 });

@@ -82,10 +82,12 @@ import {
 
 import {
   isLiveVoiceUserSpeaking,
+  takeLiveVoiceLookFrame,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
   createSightCapture,
+  LOOK_FRAME_REASON,
   type SightKeepOrigin,
 } from "@/domains/chat/voice/live-voice/sight-capture";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
@@ -119,6 +121,13 @@ import {
 
 /** Where a failure is filed, so the tag reads the same from every path. */
 const ERROR_CONTEXT = "voice-room sight: sample/upload frame";
+
+/**
+ * How long the arm for a look's frame waits. A look can be what turned Live
+ * on, so the arm has to outlast the fresh gate's warmup and the view settling
+ * behind it, not just the next poll.
+ */
+const LOOK_KEEP_TTL_MS = 5_000;
 
 /** The most recent frame the call was given. */
 export interface VoiceRoomSightFrame {
@@ -211,6 +220,13 @@ export function useVoiceRoomSight(
    * which is why it is a ref rather than a render's value.
    */
   const armedAtRef = useRef<number | null>(null);
+  /**
+   * When the standing arm was made for a look rather than a question, or null
+   * when it was not. The keep that spends it is the frame the assistant asked
+   * to see, reported as such so the session answers the look from it. A
+   * question's arm made after it replaces the gate's arm, and this with it.
+   */
+  const lookArmedAtRef = useRef<number | null>(null);
   /**
    * The running native poll, so a change it cannot see can reach the sample it
    * has on the bridge.
@@ -432,6 +448,8 @@ export function useVoiceRoomSight(
   const invalidateCaptures = useCallback(() => {
     sight.invalidate();
     hold(null);
+    // The reset drops the gate's arm, so a look waiting on it is gone too.
+    lookArmedAtRef.current = null;
     gateRef.current?.reset(performance.now());
     nativeSourceRef.current?.invalidate();
   }, [hold, sight]);
@@ -484,10 +502,19 @@ export function useVoiceRoomSight(
      * one an arm asked for, so it carries when the arm was taken; every other
      * keep is the cadence's own.
      */
-    const keepOrigin = (decision: FrameGateDecision): SightKeepOrigin =>
-      decision.reason === "forced" && armedAtRef.current !== null
+    const keepOrigin = (decision: FrameGateDecision): SightKeepOrigin => {
+      if (decision.reason !== "forced") {
+        return { reason: decision.reason };
+      }
+      const lookArmedAtMs = lookArmedAtRef.current;
+      if (lookArmedAtMs !== null) {
+        lookArmedAtRef.current = null;
+        return { reason: LOOK_FRAME_REASON, armedAtMs: lookArmedAtMs };
+      }
+      return armedAtRef.current !== null
         ? { reason: decision.reason, armedAtMs: armedAtRef.current }
         : { reason: decision.reason };
+    };
 
     let stopSampling: () => void;
     if (video) {
@@ -544,6 +571,7 @@ export function useVoiceRoomSight(
       stopSampling();
       gateRef.current = null;
       nativeSourceRef.current = null;
+      lookArmedAtRef.current = null;
       hold(null);
     };
   }, [active, assistantId, hold, nativePreview, sight, videoRef]);
@@ -604,11 +632,43 @@ export function useVoiceRoomSight(
     }
     const armedAtMs = performance.now();
     armedAtRef.current = armedAtMs;
+    // The question's arm replaces a look's still standing. What the user is
+    // saying now runs a turn of its own, and that turn reads this frame.
+    lookArmedAtRef.current = null;
     gateRef.current?.armForcedKeep(armedAtMs);
     // The browser sampler needs no nudge: its next candidate frame is one
     // video frame away and will consume the arm on its own.
     nativeSourceRef.current?.sampleNow();
   }, [active, muted, userSpeaking]);
+
+  /**
+   * Ask the gate for the frame a look owes: the assistant said "let me look"
+   * and says nothing more until a frame of the camera lands.
+   *
+   * Taken only while Live is running, so a look that is what starts Live
+   * waits here for it, and the arm lands on the gate that run just made.
+   * Unlike a question's arm it keeps a view the last keep already shows: the
+   * session is waiting on a frame, and an unchanged scene is still the answer.
+   * Declared after the sampling effect, which creates that gate, so on the
+   * commit that starts Live this runs against it.
+   */
+  const lookFrameRequested = useLiveVoiceStore.use.lookFrameRequested();
+  useEffect(() => {
+    if (!active || !lookFrameRequested.camera) {
+      return;
+    }
+    const gate = gateRef.current;
+    if (gate === null || !takeLiveVoiceLookFrame("camera")) {
+      return;
+    }
+    const armedAtMs = performance.now();
+    lookArmedAtRef.current = armedAtMs;
+    gate.armForcedKeep(armedAtMs, {
+      evenIfUnchanged: true,
+      ttlMs: LOOK_KEEP_TTL_MS,
+    });
+    nativeSourceRef.current?.sampleNow();
+  }, [active, lookFrameRequested]);
 
   // A flip points the camera somewhere else entirely and mirrors it, so every
   // score against the old baseline is meaningless and every capture still

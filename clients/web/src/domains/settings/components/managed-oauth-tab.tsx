@@ -16,6 +16,7 @@ import {
 import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
+import { Tag } from "@vellumai/design-library/components/tag";
 
 export interface ManagedTabProps {
   displayName: string;
@@ -179,9 +180,16 @@ export function ManagedTab({
                 logoUrl={logoUrl}
                 size={20}
               />
-              <span className="min-w-0 flex-1 truncate text-body-medium-default text-[var(--content-default)]">
-                {accountLabel}
-              </span>
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <span className="min-w-0 truncate text-body-medium-default text-[var(--content-default)]">
+                  {accountLabel}
+                </span>
+                <Tag tone={connection.connected ? "positive" : "negative"}>
+                  {connection.connected
+                    ? t("managedOauthTab.statusConnected")
+                    : t("managedOauthTab.statusNeedsAttention")}
+                </Tag>
+              </div>
               <Button
                 variant="dangerOutline"
                 size="compact"

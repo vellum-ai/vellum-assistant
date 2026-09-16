@@ -16,6 +16,7 @@ type StubWindow = {
   webContents: StubWebContents;
   isDestroyed: () => boolean;
   on: (event: string, listener: Listener) => StubWindow;
+  once: (event: string, listener: Listener) => StubWindow;
   emit: (event: string) => void;
   setPosition: ReturnType<typeof mock>;
   setAlwaysOnTop: ReturnType<typeof mock>;
@@ -64,6 +65,17 @@ const makeWindow = (): StubWindow => {
       listeners.push(listener);
       windowListeners.set(event, listeners);
       return win;
+    },
+    once: (event, listener) => {
+      const wrapped = (): void => {
+        const listeners = windowListeners.get(event) ?? [];
+        windowListeners.set(
+          event,
+          listeners.filter((each) => each !== wrapped),
+        );
+        listener();
+      };
+      return win.on(event, wrapped);
     },
     emit: (event) => {
       if (event === "closed") destroyed = true;
@@ -224,6 +236,37 @@ describe("createFloatingWindow", () => {
     expect(focused.showInactive).not.toHaveBeenCalled();
     expect(focused.show).toHaveBeenCalledTimes(1);
     expect(focused.focus).toHaveBeenCalledTimes(1);
+  });
+
+  test("holds a window asked to show when ready until its first paint", () => {
+    const win = createFloatingWindow({
+      kind: kind("ready"),
+      route: "/ready",
+      width: 100,
+      height: 100,
+      showWhenReady: true,
+    }) as unknown as StubWindow;
+    expect(win.showInactive).not.toHaveBeenCalled();
+    expect(win.show).not.toHaveBeenCalled();
+
+    win.emit("ready-to-show");
+    expect(win.showInactive).toHaveBeenCalledTimes(1);
+
+    win.emit("ready-to-show");
+    expect(win.showInactive).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not show a window closed before its first paint", () => {
+    const win = createFloatingWindow({
+      kind: kind("closed-early"),
+      route: "/closed-early",
+      width: 100,
+      height: 100,
+      showWhenReady: true,
+    }) as unknown as StubWindow;
+    win.emit("closed");
+    win.emit("ready-to-show");
+    expect(win.showInactive).not.toHaveBeenCalled();
   });
 
   test("reuses the existing window for a kind and repositions it before showing", () => {

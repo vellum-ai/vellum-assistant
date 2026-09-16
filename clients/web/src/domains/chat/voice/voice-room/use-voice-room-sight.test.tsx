@@ -26,6 +26,7 @@ import { useEffect } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 import type { UploadAttachmentResult } from "@/domains/chat/api/messages";
+import type { ForcedKeepOptions } from "@/lib/camera/frame-gate";
 import type { FrameSamplerOptions } from "@/lib/camera/frame-sampler";
 import type { NativeFrameSourceOptions } from "@/lib/camera/native-frame-source";
 
@@ -271,7 +272,7 @@ function watchGateReset() {
  * object the source was given is what the hook calls.
  */
 function watchGateArm() {
-  const spy = mock((_nowMs: number) => {});
+  const spy = mock((_nowMs: number, _options?: ForcedKeepOptions) => {});
   (samplerOptions ?? nativeSourceOptions)!.gate.armForcedKeep = spy;
   return spy;
 }
@@ -2049,5 +2050,95 @@ describe("useVoiceRoomSight: a frame for the question being asked", () => {
 
     expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
     expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The frame a look owes: the assistant said it would take a look through the
+ * camera and says nothing more until a frame reported as one lands.
+ */
+describe("useVoiceRoomSight: a look the assistant asked for", () => {
+  function owe(): void {
+    act(() => {
+      useLiveVoiceStore.getState().setLookFrameRequested("camera", true);
+    });
+  }
+
+  async function forcedKeep(): Promise<void> {
+    act(() => {
+      samplerOptions?.onDecision(
+        { ...KEEP, reason: "forced" as const },
+        performance.now(),
+      );
+    });
+    await flush();
+  }
+
+  // Unlike a question's arm, a look's keeps a view the call already has: the
+  // session is waiting on a frame, and an unchanged scene is still the answer.
+  test("a running Live arms a keep that goes even for an unchanged view", () => {
+    renderSight({ live: true, nativePreview: true });
+    const armed = watchGateArm();
+
+    owe();
+
+    expect(armed).toHaveBeenCalledTimes(1);
+    expect(armed.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({ evenIfUnchanged: true }),
+    );
+    expect(nativeSampleNow).toHaveBeenCalledTimes(1);
+    expect(useLiveVoiceStore.getState().lookFrameRequested.camera).toBe(false);
+  });
+
+  test("the keep that answers it is reported as the look's", async () => {
+    renderSight({ live: true });
+    owe();
+
+    await forcedKeep();
+
+    expect(controls.sightFrame).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({
+        reason: "look",
+        armToKeepMs: expect.any(Number),
+      }),
+    );
+  });
+
+  test("a look that starts Live waits for it, then arms the gate it made", async () => {
+    const { view } = renderSight({ live: false });
+    owe();
+    expect(useLiveVoiceStore.getState().lookFrameRequested.camera).toBe(true);
+
+    act(() => {
+      view.result.current.setLive(true);
+    });
+    expect(useLiveVoiceStore.getState().lookFrameRequested.camera).toBe(false);
+
+    await forcedKeep();
+    expect(controls.sightFrame).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({ reason: "look" }),
+    );
+  });
+
+  // Whatever the user says next runs a turn of its own that reads the frame,
+  // so the keep is theirs, not the look's.
+  test("a question asked after the look takes the arm over", async () => {
+    act(() => {
+      useLiveVoiceStore.getState().setHandsFree(true);
+    });
+    renderSight({ live: true });
+    owe();
+    act(() => {
+      useLiveVoiceStore.getState().setUtteranceOpen(true);
+    });
+
+    await forcedKeep();
+
+    expect(controls.sightFrame).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({ reason: "forced" }),
+    );
   });
 });

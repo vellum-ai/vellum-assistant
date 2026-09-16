@@ -58,7 +58,13 @@ function selectOwner(owner = OWNER) {
 function openMinimizedApp() {
   const viewer = useViewerStore.getState();
   viewer.openApp("app-1");
-  viewer.setLoadedApp({ appId: "app-1", dirName: "example-app", name: "Example app", html: "<html></html>" });
+  viewer.setLoadedApp({
+    assistantId: "asst-1",
+    appId: "app-1",
+    dirName: "example-app",
+    name: "Example app",
+    html: "<html></html>",
+  });
   viewer.minimizeApp();
 }
 

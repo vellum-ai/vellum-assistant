@@ -10,7 +10,7 @@ import {
 /**
  * Invalidates every billing query a plan change can stale: the subscription,
  * the plan catalog, the onboarding ceiling, and the billing summary whose
- * usage-grant figures draw the Usage Balance bar. Shared by every path that
+ * usage-grant figures draw the Current Usage bar. Shared by every path that
  * changes the subscription (immediate package and tier changes, and the
  * native checkout-sheet dismissal), so a billing read added here refreshes on
  * all of them at once instead of drifting per call site.

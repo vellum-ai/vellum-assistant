@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
+
 type BackButtonHandler = (payload: { canGoBack: boolean }) => void;
 
 let nativeAndroid = true;
@@ -14,7 +16,6 @@ let viewerMainView = "chat";
 let viewerAppMinimized = false;
 const closeAppMock = mock(() => {});
 const minimizeViewerAppMock = mock(() => {});
-const exitAppEditingMock = mock(() => {});
 const closeActiveOverlayMock = mock(() => viewerMainView === "tool-detail");
 mock.module("@/stores/viewer-store", () => ({
   useViewerStore: {
@@ -23,11 +24,16 @@ mock.module("@/stores/viewer-store", () => ({
       isAppMinimized: viewerAppMinimized,
       closeApp: closeAppMock,
       minimizeApp: minimizeViewerAppMock,
-      exitAppEditing: exitAppEditingMock,
       closeActiveOverlay: closeActiveOverlayMock,
     }),
   },
 }));
+
+// The split exit is the shared helper's, so this suite watches the call.
+const exitAppSplitMock = mock(() => {});
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({ exitAppSplit: exitAppSplitMock }),
+);
 
 let backButtonHandler: BackButtonHandler | null = null;
 const removeMock = mock(async () => {});
@@ -38,6 +44,7 @@ const addListenerMock = mock(
   },
 );
 const minimizeAppMock = mock(async () => {});
+const closeAppRouteMock = mock(() => {});
 
 mock.module("@capacitor/app", () => ({
   App: {
@@ -82,8 +89,10 @@ beforeEach(() => {
   removeMock.mockClear();
   closeAppMock.mockClear();
   minimizeViewerAppMock.mockClear();
-  exitAppEditingMock.mockClear();
+  exitAppSplitMock.mockClear();
   closeActiveOverlayMock.mockClear();
+  closeAppRouteMock.mockClear();
+  window.history.replaceState(null, "", "/assistant");
   document.body.replaceChildren();
 });
 
@@ -91,7 +100,7 @@ describe("subscribeAndroidBackButtonSource", () => {
   test("does not subscribe outside the native Android shell", async () => {
     nativeAndroid = false;
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
 
     expect(addListenerMock).not.toHaveBeenCalled();
@@ -111,7 +120,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     });
     document.addEventListener("keydown", escapeHandler);
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -142,7 +151,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     trigger.addEventListener("keydown", escapeHandler);
     document.body.append(trigger, menu);
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -160,7 +169,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     dialog.setAttribute("role", "dialog");
     document.body.append(dialog);
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -180,7 +189,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     });
     window.addEventListener("keydown", escapeHandler);
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -206,7 +215,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     document.body.append(input);
     input.focus();
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -230,7 +239,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     };
     window.addEventListener("keydown", lowerHandler);
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -271,7 +280,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     };
     document.addEventListener("keydown", drawerHandler);
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -310,7 +319,7 @@ describe("subscribeAndroidBackButtonSource", () => {
       }
     });
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -335,7 +344,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     });
     document.addEventListener("keydown", escapeHandler);
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -359,7 +368,7 @@ describe("subscribeAndroidBackButtonSource", () => {
       });
     });
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -373,7 +382,7 @@ describe("subscribeAndroidBackButtonSource", () => {
       () => undefined,
     );
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -389,7 +398,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     viewerMainView = "tool-detail";
     mountActiveChatView();
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -403,12 +412,46 @@ describe("subscribeAndroidBackButtonSource", () => {
     viewerMainView = "app";
     mountActiveChatView();
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
     expect(minimizeViewerAppMock).toHaveBeenCalledTimes(1);
     expect(closeAppMock).not.toHaveBeenCalled();
+  });
+
+  test("closes a minimized app viewer through the route", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    viewerMainView = "app";
+    viewerAppMinimized = true;
+    mountActiveChatView();
+
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(closeAppRouteMock).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
+    expect(closeAppMock).not.toHaveBeenCalled();
+    historyBackSpy.mockRestore();
+  });
+
+  test("exits the split through the shared helper before changing history", async () => {
+    const historyBackSpy = spyOn(window.history, "back").mockImplementation(
+      () => undefined,
+    );
+    viewerMainView = "app-editing";
+    mountActiveChatView();
+
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
+    await flushAsyncWork();
+    await pressBack(true);
+
+    expect(exitAppSplitMock).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
+    historyBackSpy.mockRestore();
   });
 
   test("ignores stale viewer state outside the active chat route", async () => {
@@ -417,7 +460,7 @@ describe("subscribeAndroidBackButtonSource", () => {
     );
     viewerMainView = "app";
 
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
     await pressBack(true);
 
@@ -427,7 +470,7 @@ describe("subscribeAndroidBackButtonSource", () => {
   });
 
   test("minimizes the app at the WebView history root", async () => {
-    subscribeAndroidBackButtonSource();
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
     await flushAsyncWork();
 
     await pressBack(false);
@@ -435,8 +478,29 @@ describe("subscribeAndroidBackButtonSource", () => {
     expect(minimizeAppMock).toHaveBeenCalledTimes(1);
   });
 
+  test("closes a minimized app viewer at the WebView history root through the route", async () => {
+    viewerMainView = "app";
+    viewerAppMinimized = true;
+    mountActiveChatView();
+    window.history.replaceState(
+      null,
+      "",
+      "/assistant/conversations/conv-1/app/app-1",
+    );
+
+    subscribeAndroidBackButtonSource({ closeAppRoute: closeAppRouteMock });
+    await flushAsyncWork();
+    await pressBack(false);
+
+    expect(closeAppRouteMock).toHaveBeenCalledTimes(1);
+    expect(minimizeAppMock).not.toHaveBeenCalled();
+    expect(closeAppMock).not.toHaveBeenCalled();
+  });
+
   test("removes the native listener on cleanup", async () => {
-    const unsubscribe = subscribeAndroidBackButtonSource();
+    const unsubscribe = subscribeAndroidBackButtonSource({
+      closeAppRoute: closeAppRouteMock,
+    });
     await flushAsyncWork();
 
     unsubscribe();

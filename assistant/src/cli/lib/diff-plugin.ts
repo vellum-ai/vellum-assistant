@@ -290,7 +290,7 @@ export async function diffPlugin(
 
   const meta = readInstallMeta(target);
   const commit = meta?.commit ?? null;
-  if (!meta || !commit) {
+  if (!meta || meta.source.kind !== "github" || !commit) {
     throw new PluginDiffUnavailableError(
       name,
       `no install commit was recorded (an older or manually-copied install); reinstall with 'assistant plugins install ${name} --force' to record provenance`,

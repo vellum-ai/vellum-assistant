@@ -181,6 +181,7 @@ import {
   canSpawnSubagentsForTurn,
   createResolveToolsCallback,
   createToolExecutor,
+  createWireToolSurfaceRecorder,
 } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
@@ -452,6 +453,21 @@ export class Conversation {
    * @internal
    */
   toolContextPin?: WakeToolContextPin;
+  /**
+   * Tool definitions sent verbatim in place of the resolved wire array, for
+   * a wake replaying its source conversation's recorded surface
+   * (`recordConversationToolSurface`). Set and restored alongside the
+   * allowlist by `scopeWakeAllowedTools`; read only where the resolver returns
+   * the wire array, so it never widens what may execute.
+   * @internal
+   */
+  wireToolReplay?: readonly ToolDefinition[];
+  /**
+   * Hash of the wire tool array last recorded for this conversation in this
+   * process, so an unchanged surface is not rewritten on every provider call.
+   * @internal
+   */
+  recordedToolSurfaceHash?: string;
   /** @internal */ readonly skillProjectionState = new Map<string, string>();
   /** @internal */ readonly skillProjectionCache: SkillProjectionCache = {};
   /** @internal */ usageStats: UsageStats = {
@@ -1038,6 +1054,7 @@ export class Conversation {
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
+      onToolsSent: createWireToolSurfaceRecorder(this),
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
         if (!conv) {

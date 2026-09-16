@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { EventEmitter } from "node:events";
 
 import {
   companionAnnotationInkSchema,
@@ -133,6 +134,9 @@ const surface = {
 
 type Invoker = (args: unknown[]) => unknown;
 
+/** The renderer behind IPC sends, including the lifecycle a running call owns. */
+const mainRenderer = new EventEmitter();
+
 /** Channel to handler, with the channel's schema applied the way `on` does. */
 const listeners = new Map<string, Invoker>();
 const invocable = new Map<string, Invoker>();
@@ -142,9 +146,11 @@ const register =
   (
     channel: string,
     schema: { parse: (input: unknown) => unknown },
-    fn: (args: never) => unknown,
+    fn: (args: never, event: { sender: EventEmitter }) => unknown,
   ): void => {
-    into.set(channel, (args) => fn(schema.parse(args) as never));
+    into.set(channel, (args) =>
+      fn(schema.parse(args) as never, { sender: mainRenderer }),
+    );
   };
 
 /**
@@ -326,8 +332,14 @@ let locateHeldBy: Promise<void> | null = null;
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
-  captureTargetFrame: async (target: unknown) => {
+  captureTargetFrame: async (
+    target: unknown,
+    onError?: (err: unknown) => void,
+  ) => {
     framesAsked.push(target);
+    if (frameError !== null) {
+      onError?.(frameError);
+    }
     return capturedFrame;
   },
   captureSourceThumbnail: async (target: unknown) => {
@@ -345,6 +357,31 @@ mock.module("./companion-capture-sources", () => ({
     }
     return located;
   },
+}));
+
+/** Whether the helper holds Screen Recording, as main reads it. */
+let screenGranted = true;
+/** What a frame was refused with, or null when frames come back. */
+let frameError: unknown = null;
+/** The refusal the permission module recognises as a missing grant. */
+const SCREEN_REFUSAL = new Error("Screen Recording permission denied");
+/** Every permission main sent the user to Settings for. */
+const settingsOpened: string[] = [];
+
+mock.module("./screen-recording-permission", () => ({
+  screenRecordingGranted: async () => screenGranted,
+  isScreenRecordingRefusal: (err: unknown) => err === SCREEN_REFUSAL,
+  answerScreenRecordingRefusal: async (ask: () => Promise<unknown>) => {
+    await ask();
+  },
+}));
+
+mock.module("./permissions-service", () => ({
+  getPermissionsService: () => ({
+    openSettings: async (kind: string) => {
+      settingsOpened.push(kind);
+    },
+  }),
 }));
 
 mock.module("./ipc", () => ({
@@ -396,6 +433,7 @@ type GlowWindow = {
   close: () => void;
   isDestroyed: () => boolean;
   on: () => void;
+  once: (event: string, listener: () => void) => void;
   /** Whether the frame is on screen: hidden while its window is not. */
   visible: boolean;
   hide: () => void;
@@ -470,6 +508,12 @@ const openGlow = (options: {
     },
     isDestroyed: () => false,
     on: () => {},
+    // Painted at once: the real window's first paint is the renderer's.
+    once: (event, listener) => {
+      if (event === "ready-to-show") {
+        listener();
+      }
+    },
     visible: true,
     hide: () => {
       window.visible = false;
@@ -2055,7 +2099,23 @@ describe("the picker behind Teach", () => {
   test("lists what a session could read on demand", async () => {
     const list = invocable.get("vellum:companion:listCaptureSources");
     expect(list).toBeDefined();
-    expect(await list?.([])).toEqual(listedSources);
+    expect(await list?.([])).toEqual({
+      ...listedSources,
+      screenRecordingGranted: true,
+    });
+  });
+
+  test("says when nothing listed could be captured for want of the grant", async () => {
+    screenGranted = false;
+    try {
+      const list = invocable.get("vellum:companion:listCaptureSources");
+      expect(await list?.([])).toEqual({
+        ...listedSources,
+        screenRecordingGranted: false,
+      });
+    } finally {
+      screenGranted = true;
+    }
   });
 
   test("a press with no pick is the toggle it always was", () => {
@@ -3619,6 +3679,74 @@ describe("popoverBoundsFor", () => {
 });
 
 /**
+ * The app's window owns the live session while main only holds the snapshot
+ * drawn on this surface. If that owner disappears, its socket and microphone
+ * disappear with it and the snapshot must not keep claiming a call is live.
+ */
+describe("the call's renderer ownership", () => {
+  beforeEach(() => {
+    mainWindowOpen = true;
+    send("vellum:voiceActivity:end");
+  });
+
+  test("is given up when the window is destroyed", () => {
+    send("vellum:voiceActivity:start", START);
+    expect(state().call).toEqual(START);
+    const before = pushes.length;
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().call).toBeNull();
+    expect(pushes.length).toBeGreaterThan(before);
+    expect(pushes.at(-1)?.call).toBeNull();
+  });
+
+  test("survives the window merely being hidden", () => {
+    send("vellum:voiceActivity:start", START);
+
+    mainWindowVisible = false;
+    fireVisibilityChange();
+
+    expect(state().call).toEqual(START);
+    send("vellum:voiceActivity:end");
+  });
+
+  test("is given up when its renderer loads a new document", () => {
+    send("vellum:voiceActivity:start", START);
+
+    mainRenderer.emit("did-start-navigation", {
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+
+    expect(state().call).toBeNull();
+    expect(pushes.at(-1)?.call).toBeNull();
+  });
+
+  test("is given up when its renderer process exits", () => {
+    send("vellum:voiceActivity:start", START);
+
+    mainRenderer.emit("render-process-gone");
+
+    expect(state().call).toBeNull();
+    expect(pushes.at(-1)?.call).toBeNull();
+  });
+
+  test("survives same-document app navigation", () => {
+    send("vellum:voiceActivity:start", START);
+
+    mainRenderer.emit("did-start-navigation", {
+      isMainFrame: true,
+      isSameDocument: true,
+    });
+
+    expect(state().call).toEqual(START);
+    send("vellum:voiceActivity:end");
+  });
+});
+
+/**
  * The app's window is destroyed while this surface stays open.
  *
  * The socket and the microphone go down with the renderer, and nothing is left
@@ -3934,6 +4062,52 @@ describe("Share on the companion surface", () => {
     release();
     await Bun.sleep(0);
     expect(dispatched).toEqual([{ kind: "toggleWatch" }]);
+  });
+
+  test("a pick without the grant sends the user to it and starts nothing", async () => {
+    screenGranted = false;
+    settingsOpened.length = 0;
+    const resolvedBefore = picksResolved.length;
+    try {
+      send("vellum:companion:setScreenShare", {
+        kind: "display",
+        displayId: 2,
+      });
+      await Bun.sleep(0);
+      expect(settingsOpened).toEqual(["screen"]);
+      expect(picksResolved).toHaveLength(resolvedBefore);
+      expect(dispatched).toEqual([]);
+    } finally {
+      screenGranted = true;
+    }
+  });
+
+  test("a frame refused for want of the grant sends the user to it", async () => {
+    settingsOpened.length = 0;
+    frameError = SCREEN_REFUSAL;
+    capturedFrame = null;
+    try {
+      const capture = invocable.get("vellum:companion:captureScreen");
+      expect(await capture?.([{ kind: "display", displayId: 2 }])).toBeNull();
+      await Bun.sleep(0);
+      expect(settingsOpened).toEqual(["screen"]);
+    } finally {
+      frameError = null;
+    }
+  });
+
+  test("a frame missed for any other reason sends nobody anywhere", async () => {
+    settingsOpened.length = 0;
+    frameError = new Error("The window to capture is no longer on screen");
+    capturedFrame = null;
+    try {
+      const capture = invocable.get("vellum:companion:captureScreen");
+      expect(await capture?.([{ kind: "window", windowId: 7 }])).toBeNull();
+      await Bun.sleep(0);
+      expect(settingsOpened).toEqual([]);
+    } finally {
+      frameError = null;
+    }
   });
 
   test("takes a frame of the shared target from the helper", async () => {

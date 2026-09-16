@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
   takeLiveVoiceCameraLookRequest,
+  takeLiveVoiceLookFrame,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
@@ -183,6 +184,35 @@ describe("look controls", () => {
     expect(setScreenShare).not.toHaveBeenCalled();
   });
 
+  // The session answers a look from the frame taken for it, so the frame is
+  // owed whether the look started the share or found one running.
+  test("a screen look owes one fresh frame of the screen, taken once", () => {
+    withSightStreamAssistant();
+    withShareBridge();
+    useLiveVoiceStore
+      .getState()
+      .setScreenShareTarget({ kind: "display", displayId: 1 } as never);
+
+    applyLiveVoiceSessionControl({ action: "look_screen" });
+
+    expect(takeLiveVoiceLookFrame("camera")).toBe(false);
+    expect(takeLiveVoiceLookFrame("screen")).toBe(true);
+    expect(takeLiveVoiceLookFrame("screen")).toBe(false);
+  });
+
+  test("a share that ends owes no look frame", () => {
+    withSightStreamAssistant();
+    withShareBridge();
+    useLiveVoiceStore
+      .getState()
+      .setScreenShareTarget({ kind: "display", displayId: 1 } as never);
+    applyLiveVoiceSessionControl({ action: "look_screen" });
+
+    useLiveVoiceStore.getState().setScreenShareTarget(null);
+
+    expect(takeLiveVoiceLookFrame("screen")).toBe(false);
+  });
+
   test("a spoken stop ends a running share and asks the room to close the camera", () => {
     withSightStreamAssistant();
     const setScreenShare = withShareBridge();
@@ -212,6 +242,15 @@ describe("look controls", () => {
     expect(takeLiveVoiceCameraLookRequest()).toBe("start");
     // A room that mounts later must not reopen the camera for the same ask.
     expect(takeLiveVoiceCameraLookRequest()).toBeNull();
+  });
+
+  test("a camera look owes one fresh frame of the camera, and a stop drops it", () => {
+    applyLiveVoiceSessionControl({ action: "look_camera" });
+    expect(useLiveVoiceStore.getState().lookFrameRequested.camera).toBe(true);
+
+    applyLiveVoiceSessionControl({ action: "look_stop" });
+
+    expect(takeLiveVoiceLookFrame("camera")).toBe(false);
   });
 });
 

@@ -68,11 +68,13 @@ import { useEffect, useState } from "react";
 import {
   isLiveVoiceSessionActive,
   isLiveVoiceUserSpeaking,
+  takeLiveVoiceLookFrame,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { annotateSharedFrame } from "@/domains/chat/voice/live-voice/annotate-shared-frame";
 import {
   createSightCapture,
+  LOOK_FRAME_REASON,
   type SightKeepOrigin,
 } from "@/domains/chat/voice/live-voice/sight-capture";
 import { useSupportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
@@ -197,7 +199,9 @@ export function useLiveVoiceScreenShare(): void {
     /**
      * Not filed: a window that closed or a permission not granted is the
      * desktop's answer, not a fault. Lowering the ask is what tells the
-     * control, and this effect's own cleanup ends the run.
+     * control, and this effect's own cleanup ends the run. A missing grant
+     * is told to the user by main, which sends them to it when it sees the
+     * helper refuse the frame.
      */
     const lowerShare = (): void => {
       console.warn(
@@ -279,11 +283,18 @@ export function useLiveVoiceScreenShare(): void {
      * with it here, in queue order and just before this occasion's own
      * picture is judged, so a later question's ask cannot overwrite this
      * one's while this one's picture still waits its turn.
+     *
+     * `look` marks the frame the assistant asked for by looking. Like a
+     * drawing it is not judged: the session answers the look from this frame
+     * and says nothing until it lands, so a view the call already has is
+     * still sent. The gate adopts it, so the cadence after it is judged
+     * against the view the call was just given.
      */
     const take = async (
       drawing: SharedDrawing | null,
       run: number,
       askedAtMs: number | null,
+      look: boolean,
     ): Promise<void> => {
       const stale = (): boolean => cancelled || generation !== run;
       if (stale()) {
@@ -322,12 +333,15 @@ export function useLiveVoiceScreenShare(): void {
           ? null
           : { grid: new Uint8Array(grid), atMs: nowMs, seq: judgedSeq };
       let keep: SightKeepOrigin;
-      if (drawing !== null) {
+      if (drawing !== null || look) {
         if (grid !== null) {
           gate.adopt(grid, nowMs);
           baseline = judged;
         }
-        keep = { reason: "drawing" };
+        // A drawing on the frame outranks the look it was taken for: the
+        // marks are what the user pointed at, and the session answers a look
+        // only from a frame reported as one.
+        keep = { reason: drawing !== null ? "drawing" : LOOK_FRAME_REASON };
       } else {
         // A frame the gate cannot read is not sent unjudged: that is the
         // second frame of one view this file exists to stop, and a share
@@ -402,12 +416,13 @@ export function useLiveVoiceScreenShare(): void {
     const share = (
       drawing: SharedDrawing | null = null,
       askedAtMs: number | null = null,
+      look = false,
     ): void => {
       // Stamped now rather than when the occasion is dequeued, so a stop or
       // a reconnect that lands while it waits is one it cannot outlive.
       const run = generation;
       queue = queue
-        .then(() => take(drawing, run, askedAtMs))
+        .then(() => take(drawing, run, askedAtMs, look))
         .catch((err: unknown) => {
           // One occasion, filed. The queue goes on, so a decode that threw
           // cannot hold every later frame behind it.
@@ -415,7 +430,8 @@ export function useLiveVoiceScreenShare(): void {
         });
     };
 
-    share();
+    // A share a look started owes that look its first frame.
+    share(null, null, takeLiveVoiceLookFrame("screen"));
     let speaking = isLiveVoiceUserSpeaking(useLiveVoiceStore.getState());
     let reconnecting = useLiveVoiceStore.getState().reconnecting;
     // The drawing this run has already sent. A run that starts with one
@@ -467,6 +483,17 @@ export function useLiveVoiceScreenShare(): void {
       if (drawn !== undefined && drawn !== null && drawn.id !== annotation) {
         annotation = drawn.id;
         share({ strokes: drawn.strokes, ink: drawn.ink });
+        return;
+      }
+      // **A look goes at once too**, for the same reason: the assistant asked
+      // to see the screen as it is now, and it says nothing until this frame
+      // lands. Taken before anything below can return, so the ask is never
+      // left owed on a share that is running.
+      if (
+        session.lookFrameRequested.screen &&
+        takeLiveVoiceLookFrame("screen")
+      ) {
+        share(null, null, true);
         return;
       }
       // The hand is still down. Whatever moved, it is not worth a frame: the

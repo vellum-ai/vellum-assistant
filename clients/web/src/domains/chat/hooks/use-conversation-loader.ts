@@ -1,6 +1,5 @@
 import { t } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
-import { useViewerStore } from "@/stores/viewer-store";
 
 import {
   type MutableRefObject,
@@ -24,14 +23,15 @@ import {
 import { toast } from "@vellumai/design-library";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { requestComposerFocus } from "@/domains/chat/composer-focus";
-import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
-import { haptic } from "@/utils/haptics";
-import { revealConversationView } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
+import { carriedAppEntryState } from "@/utils/app-navigation";
+import {
+  currentEntryState,
+  currentPathname,
+  navigateToNewConversation,
+} from "@/utils/conversation-navigation";
+import { appIdForPath, routes } from "@/utils/routes";
 import { useNavigate } from "react-router";
 
 import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
@@ -348,6 +348,29 @@ export function useConversationLoader({
     ) {
       return;
     }
+    // A draft entry pushed before the first send names an id the daemon never
+    // had once that send re-keyed it, so the entry becomes its row in place,
+    // app segment and all. The entry survives the replace, so the return path
+    // it records rides along re-keyed to the row, and closing the app still
+    // pops. The map never holds a server id as a key, so the destination
+    // cannot redirect again.
+    const replacementId =
+      explicitConversationId === null
+        ? undefined
+        : useConversationStore
+            .getState()
+            .draftReplacements.get(explicitConversationId);
+    if (replacementId !== undefined) {
+      void navigate(
+        routes.conversation(replacementId, appIdForPath(currentPathname())),
+        {
+          replace: true,
+          state: carriedAppEntryState(currentEntryState(), replacementId),
+        },
+      );
+      return;
+    }
+
     lastAppliedUrlConversationIdRef.current = explicitConversationId;
 
     let onboardingDraftConversationId: string | null = null;
@@ -358,8 +381,8 @@ export function useConversationLoader({
 
     const apply = (key: string) => {
       useConversationStore.getState().setActiveConversationId(key);
-      // Explicit routes already name the selected chat. Their search params
-      // belong to the document and prompt handlers, not bootstrap routing.
+      // The URL may carry more than the key (the app viewer segment); when it
+      // already names the resolved key there is nothing to rewrite.
       if (key !== explicitConversationId) {
         void navigate(routes.conversation(key), { replace: true });
       }
@@ -477,21 +500,11 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   // startNewConversation
   // -------------------------------------------------------------------------
+  // `sound: false`: the in-chat entry stays quiet, unlike the sidebar button
+  // and the shortcut that share the helper.
   const startNewConversation = useCallback(
     ({ silent }: { silent?: boolean } = {}) => {
-      if (!silent) {
-        haptic.light();
-      }
-      useSubagentStore.getState().reset();
-      useWorkflowStore.getState().reset();
-      useViewerStore.getState().clearTranscriptPanelPayloads();
-      const draftConversationId = createDraftConversationId();
-      revealConversationView(draftConversationId);
-      useConversationStore
-        .getState()
-        .setActiveConversationId(draftConversationId);
-      void navigate(routes.conversation(draftConversationId));
-      requestComposerFocus();
+      navigateToNewConversation(navigate, { silent, sound: false });
     },
     [navigate],
   );

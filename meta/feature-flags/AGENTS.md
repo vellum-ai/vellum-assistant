@@ -8,7 +8,6 @@ Feature flag keys are **simple kebab-case strings** with no prefix or suffix:
 "browser"
 "a2a-channel"
 "conversation-starters"
-"conversation-starters"
 ```
 
 The `id` and `key` fields in `feature-flag-registry.json` **must match** and both use kebab-case. client-scope flags follow the same convention:
