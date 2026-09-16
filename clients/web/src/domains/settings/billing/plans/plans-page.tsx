@@ -11,12 +11,8 @@ import {
   type SwitchRelation,
   tierRelation,
 } from "@/domains/settings/billing/package-types";
-import {
-  currentTierRows,
-  machineLabel,
-} from "@/domains/settings/billing/plan-spec";
+import { currentTierRows } from "@/domains/settings/billing/plan-spec";
 import type { CurrentTiers } from "@/domains/settings/billing/use-change-tiers";
-import { FREE_STORAGE_GIB } from "@/domains/settings/billing/plan-tier-meta";
 import {
   CustomPlanModal,
   type CustomPlanSeed,
@@ -27,6 +23,10 @@ import { PRICING_DOCS_URL } from "@/domains/settings/billing/plans/docs-links";
 import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
+import {
+  freeColumnFeatures,
+  packageColumnFeatures,
+} from "@/domains/settings/billing/plans/plan-column-features";
 import { PAGE_BACKGROUND } from "@/domains/settings/billing/plans/plans-canvas";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { Trans, useTranslation } from "@/i18n";
@@ -97,36 +97,6 @@ const TAKEOVER_DIRECTION: Record<SwitchRelation, TakeoverDirection> = {
 // The screen is a wall of creature avatars; warm the bundled component chunk at
 // module load so they resolve before first paint instead of popping in.
 preloadBundledAvatarComponents();
-
-type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
-
-/** Machine label for a package's feature row, e.g. "Medium Computer". */
-function machineComputerLabel(
-  pkg: ProPackage,
-  translate: SettingsTranslate,
-): string {
-  return translate("plansPage.featureComputer", {
-    machine: machineLabel(pkg),
-  });
-}
-
-/** Catalog-derived feature rows, plus any static extras from the copy. */
-function packageFeatures(
-  pkg: ProPackage,
-  extra: readonly string[],
-  translate: SettingsTranslate,
-): string[] {
-  return [
-    machineComputerLabel(pkg, translate),
-    translate("plansPage.featureStorage", { gib: pkg.storage_gib }),
-    // The bundle row never names a credit amount: it reads as the package's
-    // own usage allowance, derived from the package name the way the plan
-    // card's chip is, so it holds even when the catalog carries no
-    // `usage_label`.
-    translate("plansPage.featureUsage", { name: pkg.name }),
-    ...extra,
-  ];
-}
 
 /**
  * A one-line recap of a custom sub's current tiers for the Custom row, e.g.
@@ -763,11 +733,7 @@ function PlansPageContent() {
       ? "downgrade"
       : tierRelation(currentTierKey, "free");
 
-    const freeFeatures = [
-      t("plansPage.freeFeatureSmallComputer"),
-      t("plansPage.freeFeatureStorage", { gib: FREE_STORAGE_GIB }),
-      t("plansPage.freeFeaturePayAsYouGo"),
-    ];
+    const freeFeatures = freeColumnFeatures(t);
 
     body = (
       <div className="my-auto flex w-full flex-col items-center">
@@ -831,7 +797,11 @@ function PlansPageContent() {
                     ? t("plansPage.downgradeTo", { name: pkg.name })
                     : (copy?.cta ?? pkg.name)
                 }
-                features={packageFeatures(pkg, copy?.extraFeatures ?? [], t)}
+                features={packageColumnFeatures(
+                  pkg,
+                  copy?.extraFeatures ?? [],
+                  t,
+                )}
                 recommended={copy?.recommended}
                 tone={copy?.recommended ? "light" : "dark"}
                 isCurrent={currentTierKey === pkg.key}
