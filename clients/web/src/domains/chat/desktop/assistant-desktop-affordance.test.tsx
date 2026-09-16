@@ -304,11 +304,14 @@ describe("AssistantDesktopAffordance", () => {
   test("corner resizing preserves the desktop ratio and clamps to 1000px", async () => {
     await openDesktop();
     const frame = mockPreviewGeometry(1400, 1000);
+    const capture = mock(() => {});
+    Object.defineProperty(frame, "setPointerCapture", { value: capture });
     const handle = screen.getByRole("button", {
       name: "Resize desktop preview (arrow keys)",
     });
     const pointer = { pointerId: 1, button: 0, buttons: 1, isPrimary: true };
     fireEvent.pointerDown(handle, { ...pointer, clientX: 480, clientY: 380 });
+    expect(capture).toHaveBeenCalledWith(pointer.pointerId);
     fireEvent.pointerMove(frame, { ...pointer, clientX: 160, clientY: 200 });
     expect(useDesktopPreviewStore.getState().width).toBe(640);
     expect(useDesktopPreviewStore.getState().position).toEqual({ x: 160, y: 200 });

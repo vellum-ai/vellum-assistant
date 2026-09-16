@@ -113,6 +113,9 @@ export function useDesktopPreviewDrag() {
       return;
     }
     const resizing = Boolean(event.target.closest("[data-desktop-resize]"));
+    if (resizing) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
     gesture.current = {
       kind: resizing ? "resize" : "move",
       width: event.currentTarget.offsetWidth,
