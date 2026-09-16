@@ -29,11 +29,6 @@ import {
 export interface PlanSpec {
   icon: LucideIcon;
   label: string;
-  /**
-   * Let the label wrap inside the pill; set on the sentence-length chips so a
-   * tile narrower than the label never overflows.
-   */
-  multiline?: boolean;
 }
 
 /**
@@ -61,17 +56,16 @@ export function machineLabel(pkg: ProPackage | null): string {
  * package's own usage allowance (e.g. `planCard.usageChip`), supplied by the
  * caller because this pure module has no `t()`.
  *
- * Every chip flows in the tile's one wrapping row; the usage chip and the
- * extras are sentences, so they are wrap-capable for tiles narrower than
- * their label.
+ * Order is the only layout hint here: every chip flows in the tile's one
+ * wrapping row and breaks onto a new line only when the width runs out.
  */
 export function packageSpecs(pkg: ProPackage, usageLabel: string): PlanSpec[] {
   const extras = getPlanTierCopy(pkg.key)?.extraFeatures ?? [];
   return [
     { icon: Computer, label: `${machineLabel(pkg)} Machine` },
     { icon: HardDrive, label: `${pkg.storage_gib} GB Storage` },
-    { icon: Coins, label: usageLabel, multiline: true },
-    ...extras.map((label) => ({ icon: Mail, label, multiline: true })),
+    { icon: Coins, label: usageLabel },
+    ...extras.map((label) => ({ icon: Mail, label })),
   ];
 }
 
@@ -83,7 +77,7 @@ export function freePlanSpecs(): PlanSpec[] {
   return [
     { icon: Computer, label: `${STANDARD_MACHINE_LABEL} Machine` },
     { icon: HardDrive, label: `${FREE_STORAGE_GIB} GB Storage` },
-    { icon: Coins, label: "Pay as you go credits", multiline: true },
+    { icon: Coins, label: "Pay as you go credits" },
   ];
 }
 

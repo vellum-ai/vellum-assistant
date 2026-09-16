@@ -22,8 +22,8 @@ export interface PlanTileProps {
   tag: ReactNode;
   /**
    * Spec chips; omitted entirely when null or empty. The chips flow as one
-   * wrapping row; a chip flagged `multiline` may wrap inside its pill when it
-   * lands on a line narrower than its label.
+   * wrapping row, packing as many per line as the tile's width allows; a chip
+   * wider than the tile wraps inside its pill.
    */
   specs?: PlanSpec[] | null;
   /** Bottom slot (price row or CTA), pinned to the tile's bottom edge. */
@@ -77,12 +77,7 @@ export function PlanTile({
         // its neighbours.
         <div className="flex flex-row flex-wrap items-start gap-1">
           {specs.map((spec) => (
-            <SpecChip
-              key={spec.label}
-              icon={spec.icon}
-              label={spec.label}
-              multiline={spec.multiline}
-            />
+            <SpecChip key={spec.label} icon={spec.icon} label={spec.label} />
           ))}
         </div>
       ) : null}

@@ -30,7 +30,7 @@ const { PlanTile } = await import("./plan-tile");
 
 const SPECS = freePlanSpecs();
 
-/** The production shape: two short chips and a wrap-capable usage sentence. */
+/** The production shape: two short chips and a sentence-length usage chip. */
 const PACKAGE_SPECS = packageSpecs(
   makeProPackage(),
   "Mighty usage, reset monthly",
@@ -156,7 +156,7 @@ describe("PlanTile", () => {
     expect([...wrapRow.children].map((chip) => chip.textContent)).toEqual(
       PACKAGE_SPECS.map((spec) => spec.label),
     );
-    // A sentence-length chip may wrap inside its pill.
+    // A chip wider than the tile wraps inside its pill rather than overflowing.
     expect(getByText("Mighty usage, reset monthly").className).toContain(
       "whitespace-normal",
     );

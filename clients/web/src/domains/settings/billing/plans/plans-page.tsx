@@ -792,10 +792,10 @@ function PlansPageContent() {
         </header>
 
         {/* Shrinks the four columns to fit as the viewport narrows, reflowing
-            to two-up then one-up; `items-start` keeps each card at its natural
-            content height, so the four-feature Super/Ultra columns are taller
-            than the featured Mighty column. */}
-        <div className="mt-6 grid w-full max-w-[1312px] grid-cols-1 items-start gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
+            to two-up then one-up. The grid's default stretch keeps every card
+            in a row as tall as the tallest, so a three-feature column is never
+            ragged beside four-feature Super and Ultra. */}
+        <div className="mt-6 grid w-full max-w-[1312px] grid-cols-1 gap-4 sm:mt-10 sm:grid-cols-2 sm:gap-6 lg:grid-cols-4">
           <PlanColumnCard
             tierKey="free"
             name="Base"

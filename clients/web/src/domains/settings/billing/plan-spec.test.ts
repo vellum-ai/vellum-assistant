@@ -30,14 +30,12 @@ describe("freePlanSpecs", () => {
     expect(specs.map((s) => s.icon)).toEqual([Computer, HardDrive, Coins]);
   });
 
-  test("marks the credits chip wrap-capable", () => {
-    // The machine and storage chips are short enough to stay on one line; the
-    // credits chip is a phrase, so it may wrap inside its pill.
-    expect(freePlanSpecs().map((s) => s.multiline)).toEqual([
-      undefined,
-      undefined,
-      true,
-    ]);
+  test("carries no per-chip layout hints", () => {
+    // Every chip flows in the tile's one wrapping row, so a spec is icon and
+    // label only.
+    for (const spec of freePlanSpecs()) {
+      expect(Object.keys(spec).sort()).toEqual(["icon", "label"]);
+    }
   });
 });
 
@@ -97,7 +95,7 @@ describe("packageSpecs", () => {
     expect(specs[3].icon).toBe(Mail);
   });
 
-  test("marks the usage chip and every extra wrap-capable", () => {
+  test("carries no per-chip layout hints", () => {
     const specs = packageSpecs(
       {
         key: "super",
@@ -107,14 +105,11 @@ describe("packageSpecs", () => {
       } as ProPackage,
       "Super usage, reset monthly",
     );
-    // Every chip flows in the same wrapping row; the usage phrase and the
-    // email/subdomain extra may wrap inside their pills.
-    expect(specs.map((s) => s.multiline)).toEqual([
-      undefined,
-      undefined,
-      true,
-      true,
-    ]);
+    // Machine, storage, usage and the extras all flow in the same wrapping
+    // row; where a line breaks is the tile's width to decide.
+    for (const spec of specs) {
+      expect(Object.keys(spec).sort()).toEqual(["icon", "label"]);
+    }
   });
 });
 
