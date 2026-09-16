@@ -73,19 +73,22 @@ export function AssistantInboxHeader({
       data-testid="assistant-inbox-header"
       className="flex flex-wrap items-start gap-4 px-6 pb-4 pt-6"
     >
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <h1
-            className="min-w-0 truncate text-[var(--content-emphasised)]"
-            style={TITLE_STYLE}
-          >
-            {t("assistantInboxHeader.title", { name: assistantName })}
-          </h1>
-          <p className="text-body-medium-lighter text-[var(--content-secondary)]">
-            {t("assistantInboxHeader.subtitle")}
-          </p>
-        </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <h1
+          className="min-w-0 truncate text-[var(--content-emphasised)]"
+          style={TITLE_STYLE}
+        >
+          {t("assistantInboxHeader.title", { name: assistantName })}
+        </h1>
+        <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+          {t("assistantInboxHeader.subtitle")}
+        </p>
+      </div>
 
+      {/* The address and the day's counts stack on the trailing edge, so the
+          title keeps the leading edge to itself and the masthead stays two
+          lines tall. */}
+      <div className="flex shrink-0 flex-col items-end gap-2">
         <button
           type="button"
           onClick={() => copy(address)}
@@ -96,7 +99,7 @@ export function AssistantInboxHeader({
               : t("assistantInboxHeader.copyAddress")
           }
           className={cn(
-            "group inline-flex max-w-full cursor-pointer select-none items-center gap-2.5 self-start rounded-full pr-3",
+            "group inline-flex max-w-full cursor-pointer select-none items-center gap-2.5 rounded-full pr-3",
             "bg-[var(--panel-item-bg,var(--surface-active))]",
             "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
             "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
@@ -131,16 +134,15 @@ export function AssistantInboxHeader({
             />
           )}
         </button>
+        {usage ? (
+          <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+            {t("assistantInboxHeader.usage", {
+              sent: usage.sentToday,
+              received: usage.receivedToday,
+            })}
+          </p>
+        ) : null}
       </div>
-
-      {usage ? (
-        <p className="shrink-0 text-body-small-lighter text-[var(--content-tertiary)]">
-          {t("assistantInboxHeader.usage", {
-            sent: usage.sentToday,
-            received: usage.receivedToday,
-          })}
-        </p>
-      ) : null}
     </header>
   );
 }
