@@ -5,7 +5,7 @@
 // semantic retrieval.
 // ---------------------------------------------------------------------------
 
-import { CLI_COMMAND_HELP } from "@vellumai/plugin-api";
+import { CLI_COMMAND_HELP, safeStringSlice } from "@vellumai/plugin-api";
 import { and, eq, like, sql } from "drizzle-orm";
 
 import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
@@ -26,7 +26,6 @@ import {
   getCachedCatalogSync,
   getCatalog,
 } from "../../../../skills/catalog-cache.js";
-import { safeStringSlice } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { memoryDbOrNull } from "../memory-db.js";
 import type { SkillCapabilityInput } from "../substrate/skill-content.js";

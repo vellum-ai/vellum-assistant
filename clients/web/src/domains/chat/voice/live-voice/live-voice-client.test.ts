@@ -202,6 +202,7 @@ describe("connect", () => {
         client: "web",
         textInput: true,
         sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         conversationId: "conv-xyz",
       },
@@ -217,6 +218,7 @@ describe("connect", () => {
       client: "web",
       textInput: true,
       sessionControls: ["end", "mute"],
+      lookFrames: true,
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
   });
@@ -268,6 +270,7 @@ describe("connect", () => {
         client: "web",
         textInput: true,
         sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
       },
@@ -288,6 +291,7 @@ describe("connect", () => {
         client: "web",
         textInput: true,
         sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
         turnDetection: "server_vad",
         silenceThresholdMs: 1500,
@@ -918,6 +922,7 @@ describe("sendAudio", () => {
         client: "web",
         textInput: true,
         sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);
@@ -980,6 +985,7 @@ describe("control frames", () => {
         client: "web",
         textInput: true,
         sessionControls: ["end", "mute"],
+        lookFrames: true,
         audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
       },
     ]);

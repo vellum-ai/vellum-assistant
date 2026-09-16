@@ -160,6 +160,11 @@ import {
 } from "./protocol.js";
 import {
   type ClientSessionControlRequest,
+  isLookSessionControl,
+  LOOK_FOLLOW_UP_CONTENT,
+  LOOK_FRAME_REASON,
+  lookFollowUpNote,
+  type LookSessionControl,
   progressConfigForCadence,
   requestedSessionControl,
   sessionControlTeaching,
@@ -270,6 +275,18 @@ const CONTINUATION_ANNOUNCE_MAX_DRAIN_REARMS = 3;
 // persisted on the user side is this marker, and it persists hidden.
 export const CONTINUATION_DELIVERY_CONTENT =
   "(background work finished — deliver it now)";
+// How long a look control waits for the fresh frame the client takes for it.
+// Long enough for a camera that has to open and warm up before its first keep;
+// past it the look is dropped rather than answered into a later, unrelated
+// silence.
+const LOOK_FRAME_WAIT_MS = 10_000;
+// How long after the look was asked for its answer may still start. Past it
+// the floor has been taken for so long (a user talking through noise that never
+// became a turn, say) that the look no longer answers what is on screen.
+const LOOK_ANSWER_DEADLINE_MS = 15_000;
+// The shortest wait before checking the floor again, for a blocker with no
+// known end time (the look's own turn clearing, an utterance in capture).
+const LOOK_FOLLOW_UP_REARM_MS = 250;
 
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
@@ -697,6 +714,10 @@ interface ActiveAssistantTurn {
   // no user utterance behind it — `content` is CONTINUATION_DELIVERY_CONTENT and
   // the answer rides the control prompt (buildLiveDeliveryNote).
   continuationDelivery: ContinuationDelivery | null;
+  // Set only on the turn that answers a look: which look it answers. The turn
+  // has no user utterance behind it; the instruction rides the control prompt
+  // (lookFollowUpNote).
+  lookFollowUp: LookSessionControl | null;
   // The turn's content is an internal instruction rather than user speech (the
   // greeting that opens a session, say). The row still persists and the model
   // still sees it; `hiddenSyntheticPrompt` keeps it out of the transcript.
@@ -838,6 +859,14 @@ function describeInterruptedRequest(request: string): string {
     : "their earlier request";
 }
 
+// A look control waiting on its fresh frame: which look, when it was asked
+// for, and the wait's bound.
+interface PendingLook {
+  action: LookSessionControl;
+  armedAtMs: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 // A finished background continuation waiting to be delivered: the request it
 // took over and the answer it produced.
 interface ContinuationDelivery {
@@ -866,13 +895,14 @@ function buildVoiceControlPrompt(
   turn: ActiveAssistantTurn,
   leg: { frontDoor?: boolean },
   sessionControls: readonly LiveVoiceSessionControl[],
+  client: { lookFrames: boolean },
 ): string {
   let prompt =
     LIVE_VOICE_CONTROL_PROMPT_BASE +
     (leg.frontDoor === true
       ? ""
       : LIVE_VOICE_SCREEN_REVEAL_TEACHING + LIVE_VOICE_SETUP_FLOW_TEACHING) +
-    sessionControlTeaching(sessionControls, leg);
+    sessionControlTeaching(sessionControls, leg, client);
   if (turn.language !== undefined) {
     prompt = `${prompt}\n\nThe caller has been speaking the language with code "${turn.language}" this turn. Reply in that language unless they clearly switch to another.`;
   }
@@ -884,6 +914,9 @@ function buildVoiceControlPrompt(
   }
   if (turn.handedOffRequest) {
     prompt = `${prompt}\n\n${buildHandoffAnnouncementNote(turn.handedOffRequest)}`;
+  }
+  if (turn.lookFollowUp !== null) {
+    prompt = `${prompt}\n\n${lookFollowUpNote(turn.lookFollowUp)}`;
   }
   if (turn.continuationDelivery) {
     prompt = `${prompt}\n\n${buildLiveDeliveryNote(
@@ -1135,6 +1168,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // The session controls the client declared it can carry out; the only ones
   // the model is taught and the only ones a reply's marker can trigger.
   private readonly sessionControls: readonly LiveVoiceSessionControl[];
+  // The client declared `lookFrames`: it sends a fresh frame for every look
+  // control it carries out, so the session answers a look on its own turn and
+  // teaches the model that the reply asking for one is only the acknowledgement.
+  private readonly lookFrames: boolean;
   // How often progress updates are spoken, as the user last asked out loud.
   // Session-scoped: it applies from the next turn to the end of the call.
   private progressCadence: "fewer" | "normal" = "normal";
@@ -1222,6 +1259,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // answer.
   private pendingAnnouncement: ContinuationDelivery | null = null;
   private announcementTimer: ReturnType<typeof setTimeout> | null = null;
+  // A look control sent to a client that declared `lookFrames`, waiting for
+  // the fresh frame the client takes for it. The session answers the look on a
+  // turn of its own once that frame is in the conversation (see
+  // answerLookWhenFloorIsFree). Cleared when the frame lands, when the wait
+  // runs out, and when the session closes.
+  private pendingLook: PendingLook | null = null;
+  private lookFollowUpTimer: ReturnType<typeof setTimeout> | null = null;
   // Set when a continuation actually spawns: the request it took over, so the
   // NEXT turn can tell the user the work is still running. Consumed by that
   // turn; cleared when the continuation finishes (by then the result note
@@ -1236,6 +1280,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // the distance from it to a keep arriving is the client leg of the frame the
   // onset asked for, measured from the daemon's own clock.
   private lastSpeechStartedAtMs: number | null = null;
+  // How many assistant turns have launched, so a look can tell whether one has
+  // started since its frame landed. A count rather than a time: two launches
+  // and a frame can share a millisecond.
+  private turnsLaunched = 0;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
@@ -1413,6 +1461,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       SERVER_VAD_PENDING_AUDIO_MAX_SECONDS;
     this.textInput = context.startFrame.textInput === true;
     this.sessionControls = context.startFrame.sessionControls ?? [];
+    this.lookFrames = context.startFrame.lookFrames === true;
   }
 
   get finalTranscriptText(): string {
@@ -1661,6 +1710,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         },
         "Sight frame timing",
       );
+      // Only once the row is in: the turn that answers the look reads the
+      // conversation, so the frame has to be there before that turn starts.
+      if (result.ok && frame.timing?.reason === LOOK_FRAME_REASON) {
+        this.lookFrameLanded();
+      }
       if (!result.ok && !this.isClosed) {
         void this.sendFrame({
           type: "error",
@@ -1866,6 +1920,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // cleared: the announcement is dead either way.
     await this.deliverPendingContinuationToConversation();
     this.clearContinuationAnnouncement();
+    this.clearPendingLook();
     this.stopSessionTranscriber();
     // Detached continuations outlive the call. A deliberate `interrupt()`
     // aborts them; ending the session leaves them running. With no next voice
@@ -2909,16 +2964,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // already finished, so bargeIn returns it to the stash instead.
         turn.continuationDelivery !== null
         ? "announcement_turn"
-        : // The model already finished generating (barge-in during TTS playback
-          // of a complete reply): there is nothing to continue, so a
-          // continuation would just re-do a finished answer.
-          turn.assistantCompleted
-          ? "assistant_already_completed"
-          : // A stop (interrupt/close) or a superseding invalidation landed
-            // during the barge-in teardown: honor it.
-            this.detachStopGeneration !== stopGeneration
-            ? "invalidated_during_barge_teardown"
-            : null;
+        : // Nor over the answer to a look: there is no request behind it
+          // either, and the user talking over it is them moving on.
+          turn.lookFollowUp !== null
+          ? "look_follow_up"
+          : // The model already finished generating (barge-in during TTS playback
+            // of a complete reply): there is nothing to continue, so a
+            // continuation would just re-do a finished answer.
+            turn.assistantCompleted
+            ? "assistant_already_completed"
+            : // A stop (interrupt/close) or a superseding invalidation landed
+              // during the barge-in teardown: honor it.
+              this.detachStopGeneration !== stopGeneration
+              ? "invalidated_during_barge_teardown"
+              : null;
     if (skipReason !== null) {
       log.info(
         { turnId: turn.turnId, skipReason },
@@ -3565,6 +3624,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // own it leaves manual mode blind to a user who is talking right now and
     // has no text yet — hence the captured-audio flag, which manual ingress
     // sets from the first chunk.
+    //
+    // A partial counts only when it has words. Deepgram Flux sends interim
+    // updates through silence too, each an empty partial, and one of those
+    // would otherwise hold the floor until the user next spoke.
     if (
       utterance !== null &&
       !utterance.completed &&
@@ -3572,11 +3635,127 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         utterance.assistantTurnStarted ||
         (utterance.manualAudioCaptured && opts?.ignoreManualCapture !== true) ||
         utterance.finalTranscriptSegments.length > 0 ||
-        utterance.latestPartialText !== null)
+        (utterance.latestPartialText?.trim() ?? "").length > 0)
     ) {
       return "utterance_in_flight";
     }
     return null;
+  }
+
+  /**
+   * Wait for the fresh frame a look control asks the client for.
+   *
+   * Only for a client that declared `lookFrames`: any other sends no such
+   * frame, and its look keeps the old shape, where the user's next words are
+   * what the frame gets answered on. A newer look replaces an older one still
+   * waiting, and the wait is bounded so a frame that never comes (a camera
+   * that would not open, a share the desktop refused) cannot turn up minutes
+   * later as a reply to nothing.
+   */
+  private awaitLookFrame(action: LookSessionControl): void {
+    if (!this.lookFrames) {
+      return;
+    }
+    this.clearPendingLook();
+    const timer = setTimeout(() => {
+      if (this.pendingLook?.timer !== timer) {
+        return;
+      }
+      this.pendingLook = null;
+      log.info(
+        { conversationId: this.conversationId, action },
+        "Live voice look dropped: no frame arrived",
+      );
+    }, LOOK_FRAME_WAIT_MS);
+    this.pendingLook = { action, armedAtMs: Date.now(), timer };
+  }
+
+  private clearPendingLook(): void {
+    if (this.pendingLook !== null) {
+      clearTimeout(this.pendingLook.timer);
+      this.pendingLook = null;
+    }
+    if (this.lookFollowUpTimer !== null) {
+      clearTimeout(this.lookFollowUpTimer);
+      this.lookFollowUpTimer = null;
+    }
+  }
+
+  /**
+   * The frame a look asked for is in the conversation: answer the look.
+   *
+   * A look frame with no look waiting (the wait ran out, or the session never
+   * armed one) is only a frame, like any other keep.
+   */
+  private lookFrameLanded(): void {
+    const pending = this.pendingLook;
+    if (pending === null || this.isClosed) {
+      return;
+    }
+    clearTimeout(pending.timer);
+    this.pendingLook = null;
+    this.answerLookWhenFloorIsFree(pending, this.turnsLaunched, 0);
+  }
+
+  /**
+   * Start the turn that answers a look, once nothing else holds the floor.
+   *
+   * The acknowledgement ("taking a look") can still be playing when the frame
+   * lands, and the look's own turn can still be clearing, so both are waited
+   * out, as is the user mid-utterance. A turn that starts once the frame is in
+   * the conversation is not: it reads the frame, so answering the look as well
+   * would answer it twice. A turn that started before the frame landed did not
+   * see it, so the look is still answered once that turn is done.
+   *
+   * `turnsAtFrame` is how many turns had launched when the frame landed.
+   */
+  private answerLookWhenFloorIsFree(
+    look: PendingLook,
+    turnsAtFrame: number,
+    rearms: number,
+  ): void {
+    if (this.lookFollowUpTimer !== null) {
+      clearTimeout(this.lookFollowUpTimer);
+      this.lookFollowUpTimer = null;
+    }
+    const { action, armedAtMs } = look;
+    // A turn launched since the frame landed read it already. Speech that
+    // never became a turn (a cough, noise that transcribed to nothing) is only
+    // waited out.
+    const blockedBy =
+      this.turnsLaunched > turnsAtFrame
+        ? "turn_since_look"
+        : this.sessionTurnFloorBlocker();
+    if (blockedBy === null) {
+      void this.launchAssistantTurn(
+        createSyntheticUtterance(),
+        LOOK_FOLLOW_UP_CONTENT,
+        { lookFollowUp: action, hiddenPrompt: true },
+      ).catch((err: unknown) => {
+        log.warn(
+          { err, conversationId: this.conversationId, action },
+          "Live voice look follow-up failed to start",
+        );
+      });
+      return;
+    }
+    const waitable =
+      blockedBy !== "turn_since_look" && blockedBy !== "session_unavailable";
+    if (!waitable || Date.now() - armedAtMs >= LOOK_ANSWER_DEADLINE_MS) {
+      log.info(
+        { conversationId: this.conversationId, action, blockedBy, rearms },
+        "Live voice look follow-up skipped",
+      );
+      return;
+    }
+    const drainMs = Math.max(0, this.assistantPlaybackTailUntilMs - Date.now());
+    this.lookFollowUpTimer = setTimeout(
+      () => {
+        this.lookFollowUpTimer = null;
+        this.answerLookWhenFloorIsFree(look, turnsAtFrame, rearms + 1);
+      },
+      Math.max(drainMs, LOOK_FOLLOW_UP_REARM_MS),
+    );
   }
 
   // Speak the finished continuation's result on a turn the session starts
@@ -4770,6 +4949,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.pendingInterruptedRequest = null;
     // ...and it hard-stops any detached background continuations.
     this.abortDetachedRuns({ reason: "client_interrupt" });
+    // ...and a look still waiting to be answered: the user stopped the call
+    // talking, and a reply starting on its own a moment later is not a stop.
+    this.clearPendingLook();
     const utterance = this.currentUtterance;
     this.stopSessionTranscriber();
     if (utterance) {
@@ -4991,6 +5173,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // Set on an announcement turn: the finished continuation this turn exists
       // to deliver. Its answer goes in the control prompt, not in `content`.
       continuationDelivery?: ContinuationDelivery | null;
+      // Set on the turn that answers a look: which look. Its instruction goes
+      // in the control prompt, not in `content`.
+      lookFollowUp?: LookSessionControl;
       // Unified front-door: dispatch without releasing the utterance. The
       // thinking frame and floor-holding timers are deferred until the leg's
       // leading verdict commits the turn (see commitSpeculativeTurn); a hold
@@ -5085,6 +5270,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       consumedAnnouncement: pending?.announcement ?? null,
       pendingContextStopGeneration: this.detachStopGeneration,
       continuationDelivery: opts?.continuationDelivery ?? null,
+      lookFollowUp: opts?.lookFollowUp ?? null,
       hiddenPrompt: opts?.hiddenPrompt === true,
       deltaEpoch: 0,
       frontDoor: null,
@@ -5100,6 +5286,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       assistantAudioMimeType: "audio/pcm",
     };
     this.activeAssistantTurn = activeTurn;
+    this.turnsLaunched += 1;
 
     // A speculative turn defers the thinking frame and both floor-holding
     // timers to commitSpeculativeTurn: until the verdict arrives, the pause
@@ -5342,6 +5529,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               : {}),
           },
           this.sessionControls,
+          { lookFrames: this.lookFrames },
         ),
         onApprovalPending: (requestId) => {
           this.revealRoomForPendingApproval(activeTurn, requestId);
@@ -5896,6 +6084,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
           if (sessionControl.action === "end") {
             currentTurn.minimizeRequested = false;
+          }
+          // Armed before the send, so a client quick enough to answer with
+          // its frame before this await resolves still finds the look waiting.
+          // Never from the turn that answers a look: that turn is the answer,
+          // and a marker it emits anyway must not chain another.
+          if (
+            isLookSessionControl(sessionControl.action) &&
+            currentTurn.lookFollowUp === null
+          ) {
+            this.awaitLookFrame(sessionControl.action);
           }
           await this.sendFrame(
             {

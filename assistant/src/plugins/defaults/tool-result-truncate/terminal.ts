@@ -6,52 +6,7 @@
  * This module is side-effect free: importing it does not register any plugin.
  */
 
-const HIGH_SURROGATE_START = 0xd800;
-const HIGH_SURROGATE_END = 0xdbff;
-const LOW_SURROGATE_START = 0xdc00;
-const LOW_SURROGATE_END = 0xdfff;
-
-function isHighSurrogate(code: number): boolean {
-  return code >= HIGH_SURROGATE_START && code <= HIGH_SURROGATE_END;
-}
-
-function isLowSurrogate(code: number): boolean {
-  return code >= LOW_SURROGATE_START && code <= LOW_SURROGATE_END;
-}
-
-/**
- * Slice a string by code-unit indices without splitting a surrogate pair, so
- * the result never ends or begins mid-emoji. Indices are clamped to the
- * string bounds; a cut that would land between a high/low surrogate is nudged
- * inward to the nearest whole code point.
- */
-function safeStringSlice(
-  str: string,
-  start = 0,
-  end: number = str.length,
-): string {
-  let safeStart = Math.max(0, Math.min(str.length, start));
-  let safeEnd = Math.max(safeStart, Math.min(str.length, end));
-
-  if (safeEnd < str.length && safeEnd > safeStart) {
-    const lastCode = str.charCodeAt(safeEnd - 1);
-    if (isHighSurrogate(lastCode)) {
-      safeEnd--;
-    }
-  }
-
-  if (safeStart > 0 && safeStart < str.length) {
-    const firstCode = str.charCodeAt(safeStart);
-    if (isLowSurrogate(firstCode)) {
-      safeStart++;
-      if (safeStart > safeEnd) {
-        safeEnd = safeStart;
-      }
-    }
-  }
-
-  return str.slice(safeStart, safeEnd);
-}
+import { safeStringSlice } from "@vellumai/plugin-api";
 
 /**
  * Minimum number of characters to preserve when truncating.

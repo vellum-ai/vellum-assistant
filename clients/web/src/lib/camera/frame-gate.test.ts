@@ -842,6 +842,33 @@ describe("frame gate forced keep", () => {
     expect(gate.offer(scene({ seed: 9 }), 100).reason).toBe("forced");
   });
 
+  // The assistant asking to look needs a frame to arrive at all: a view the
+  // call already has is still the answer it is waiting on.
+  test("an arm made even if unchanged keeps a view the last keep already shows", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(10, { evenIfUnchanged: true });
+    const same = gate.offer(scene({ seed: 1 }), 20);
+    expect(same.keep).toBe(true);
+    expect(same.reason).toBe("forced");
+    expect(same.novelty).toBeLessThan(TEST_OPTIONS.forcedNoveltyThreshold);
+  });
+
+  test("an arm can wait longer than a question's window", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    const lateMs = 10 + FRAME_GATE_FORCED_KEEP_TTL_MS + 500;
+    gate.armForcedKeep(10, {
+      evenIfUnchanged: true,
+      ttlMs: FRAME_GATE_FORCED_KEEP_TTL_MS + 1_000,
+    });
+    expect(gate.offer(scene({ seed: 1 }), lateMs).reason).toBe("forced");
+  });
+
   test("keeps before any baseline exists, in place of the first keep", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);

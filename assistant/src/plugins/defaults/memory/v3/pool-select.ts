@@ -52,12 +52,12 @@ import type {
   Message,
   ToolUseContent,
 } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
 import { z } from "zod";
 
 import { classifyConversationError } from "../../../../daemon/conversation-error.js";
 import type { PendingConversationNotice } from "../../../../daemon/conversation-notices.js";
-import { redactLogString, safeStringSlice, truncate } from "../host-utils.js";
+import { redactLogString, truncate } from "../host-utils.js";
 import {
   cachedTextBlock,
   extractToolUse,
