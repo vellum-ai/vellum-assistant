@@ -81,11 +81,12 @@ export function NotificationsBellPanel({
         <div className="flex shrink-0 items-center gap-[var(--app-spacing-sm)]">
           <Typography
             variant="body-medium-default"
-            className="text-[var(--content-secondary)]"
+            className="text-optical-center text-[var(--content-secondary)]"
           >
             {t("notificationsBell.unread")}
           </Typography>
           <Toggle
+            size="sm"
             checked={unreadOnly}
             onChange={onUnreadOnlyChange}
             aria-label={t("notificationsBell.unread")}
