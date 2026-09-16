@@ -139,7 +139,7 @@
       "name": "contractor-voice-invoicer",
       "description": "Converts 20-second truck voice memos and job photos into itemized client invoices with custom labor rates, material markups, and one-click accounting staging.",
       "category": "commerce",
-      "icon": "🔧",
+      "icon": "\ud83d\udd27",
       "license": "MIT",
       "homepage": "https://github.com/ZeebBoyBlue/contractor-voice-invoicer",
       "source": {
@@ -854,7 +854,8 @@
           "mode": "oauth",
           "instructions": "Sign in to Calendly. Available actions depend on your plan and account permissions."
         },
-        "logo": "calendly-mcp.png"
+        "logo": "calendly-mcp.png",
+        "oauthProvider": "calendly"
       }
     },
     {
@@ -1360,7 +1361,8 @@
           "mode": "oauth",
           "instructions": "Authorize the Todoist account whose tasks and projects you want to use."
         },
-        "logo": "todoist-mcp.png"
+        "logo": "todoist-mcp.png",
+        "oauthProvider": "todoist"
       }
     },
     {

@@ -70,11 +70,17 @@ describe("bundled MCP marketplace inventory", () => {
       ),
     ).toEqual([expect.objectContaining({ name: "ramp" })]);
     expect(
-      integrations
-        .filter((entry) => entry.integration?.oauthProvider !== undefined)
-        .map((entry) => entry.name)
-        .sort(),
-    ).toEqual(["linear", "notion"]);
+      Object.fromEntries(
+        integrations
+          .filter((entry) => entry.integration?.oauthProvider !== undefined)
+          .map((entry) => [entry.name, entry.integration?.oauthProvider]),
+      ),
+    ).toEqual({
+      calendly: "calendly",
+      linear: "linear",
+      notion: "notion",
+      todoist: "todoist",
+    });
 
     for (const entry of integrations) {
       const pluginRoot = join(REPO_ROOT, entry.source.path);
