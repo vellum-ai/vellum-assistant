@@ -34,6 +34,7 @@ import { join } from "node:path";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import { readPluginManifest } from "../../util/plugin-manifest.js";
+import { readBundledPluginFile } from "./bundled-plugin-packages.js";
 import type { FetchLike } from "./fetch-like.js";
 import { sanitizePluginName } from "./install-from-github.js";
 import {
@@ -300,6 +301,17 @@ async function readRemotePlugin(
   source: PluginMatchSource,
   fetchFn: FetchLike,
 ): Promise<RemotePlugin> {
+  if (source.kind === "local") {
+    const manifest = readBundledPluginFile(
+      source.path,
+      source.version,
+      "plugin.json",
+    );
+    return {
+      manifest: manifest ? safeParseManifest(manifest) : emptyManifest(),
+      readme: null,
+    };
+  }
   const [owner, repo] = source.repo.split("/", 2) as [string, string];
   const entries = await listDirSafe(
     owner,

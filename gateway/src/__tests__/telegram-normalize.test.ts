@@ -1,6 +1,29 @@
 import { describe, test, expect } from "bun:test";
-import { normalizeTelegramUpdate } from "../telegram/normalize.js";
+import {
+  normalizeTelegramUpdate,
+  type TelegramDropReason,
+  type TelegramNormalization,
+} from "../telegram/normalize.js";
 import { verifyWebhookSecret } from "../telegram/verify.js";
+import type { GatewayInboundEvent } from "../types.js";
+
+/** The event a normalization produced, failing the test if it dropped. */
+function eventOf(result: TelegramNormalization): GatewayInboundEvent {
+  if (result.dropped) {
+    throw new Error(`expected an event, got drop: ${result.reason}`);
+  }
+  return result.event;
+}
+
+function expectDrop(
+  result: TelegramNormalization,
+  reason: TelegramDropReason,
+): void {
+  expect(result.dropped).toBe(true);
+  if (result.dropped) {
+    expect(result.reason).toBe(reason);
+  }
+}
 
 describe("normalizeTelegramUpdate", () => {
   const validPayload = {
@@ -21,36 +44,36 @@ describe("normalizeTelegramUpdate", () => {
   };
 
   test("normalizes a valid private text message", () => {
-    const result = normalizeTelegramUpdate(validPayload);
-    expect(result).not.toBeNull();
-    expect(result!.version).toBe("v1");
-    expect(result!.sourceChannel).toBe("telegram");
-    expect(result!.message.content).toBe("Hello bot");
-    expect(result!.message.conversationExternalId).toBe("99001");
-    expect(result!.message.externalMessageId).toBe("123456");
-    expect(result!.actor.actorExternalId).toBe("55001");
-    expect(result!.actor.username).toBe("testuser");
-    expect(result!.actor.displayName).toBe("Test User");
-    expect(result!.actor.firstName).toBe("Test");
-    expect(result!.actor.lastName).toBe("User");
-    expect(result!.actor.languageCode).toBe("en");
-    expect(result!.actor.isBot).toBe(false);
-    expect(result!.source.updateId).toBe("123456");
-    expect(result!.source.messageId).toBe("42");
-    expect(result!.source.chatType).toBe("private");
-    expect(result!.raw).toEqual(validPayload);
+    const result = eventOf(normalizeTelegramUpdate(validPayload));
+    expect(result.version).toBe("v1");
+    expect(result.sourceChannel).toBe("telegram");
+    expect(result.message.content).toBe("Hello bot");
+    expect(result.message.conversationExternalId).toBe("99001");
+    expect(result.message.externalMessageId).toBe("123456");
+    expect(result.actor.actorExternalId).toBe("55001");
+    expect(result.actor.username).toBe("testuser");
+    expect(result.actor.displayName).toBe("Test User");
+    expect(result.actor.firstName).toBe("Test");
+    expect(result.actor.lastName).toBe("User");
+    expect(result.actor.languageCode).toBe("en");
+    expect(result.actor.isBot).toBe(false);
+    expect(result.source.updateId).toBe("123456");
+    expect(result.source.messageId).toBe("42");
+    expect(result.source.chatType).toBe("private");
+    expect(result.raw).toEqual(validPayload);
   });
 
-  test("returns null for unsupported message types (e.g. sticker-only)", () => {
+  test("drops unsupported message types (e.g. sticker-only)", () => {
     const payload = {
       update_id: 1,
       message: {
         message_id: 1,
         chat: { id: 1, type: "private" },
+        from: { id: 7 },
         sticker: { file_id: "abc" },
       },
     };
-    expect(normalizeTelegramUpdate(payload)).toBeNull();
+    expectDrop(normalizeTelegramUpdate(payload), "no_supported_content");
   });
 
   test("normalizes a photo message", () => {
@@ -83,11 +106,10 @@ describe("normalizeTelegramUpdate", () => {
         caption: "Check this out",
       },
     };
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.message.content).toBe("Check this out");
-    expect(result!.message.attachments).toHaveLength(1);
-    expect(result!.message.attachments![0]).toEqual({
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.message.content).toBe("Check this out");
+    expect(result.message.attachments).toHaveLength(1);
+    expect(result.message.attachments![0]).toEqual({
       type: "photo",
       fileId: "large_id",
       fileSize: undefined,
@@ -106,11 +128,10 @@ describe("normalizeTelegramUpdate", () => {
         ],
       },
     };
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.message.content).toBe("");
-    expect(result!.message.attachments).toHaveLength(1);
-    expect(result!.message.attachments![0].fileId).toBe("only_id");
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.message.content).toBe("");
+    expect(result.message.attachments).toHaveLength(1);
+    expect(result.message.attachments![0].fileId).toBe("only_id");
   });
 
   test("normalizes a document message", () => {
@@ -130,11 +151,10 @@ describe("normalizeTelegramUpdate", () => {
         caption: "Here is the report",
       },
     };
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.message.content).toBe("Here is the report");
-    expect(result!.message.attachments).toHaveLength(1);
-    expect(result!.message.attachments![0]).toEqual({
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.message.content).toBe("Here is the report");
+    expect(result.message.attachments).toHaveLength(1);
+    expect(result.message.attachments![0]).toEqual({
       type: "document",
       fileId: "doc_file_id",
       fileName: "report.pdf",
@@ -158,40 +178,38 @@ describe("normalizeTelegramUpdate", () => {
         },
       },
     };
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.message.content).toBe("");
-    expect(result!.message.attachments).toHaveLength(1);
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.message.content).toBe("");
+    expect(result.message.attachments).toHaveLength(1);
   });
 
   test("text-only messages have no attachments field", () => {
-    const result = normalizeTelegramUpdate(validPayload);
-    expect(result).not.toBeNull();
-    expect(result!.message.attachments).toBeUndefined();
+    const result = eventOf(normalizeTelegramUpdate(validPayload));
+    expect(result.message.attachments).toBeUndefined();
   });
 
-  test("returns null for group messages", () => {
+  test("drops group messages when the bot's identity is unknown", () => {
     const payload = {
       ...validPayload,
       message: { ...validPayload.message, chat: { id: 99001, type: "group" } },
     };
-    expect(normalizeTelegramUpdate(payload)).toBeNull();
+    expectDrop(normalizeTelegramUpdate(payload), "bot_identity_unknown");
   });
 
-  test("returns null for payloads without update_id", () => {
+  test("drops payloads without update_id", () => {
     const { update_id: _, ...rest } = validPayload;
-    expect(normalizeTelegramUpdate(rest)).toBeNull();
+    expectDrop(normalizeTelegramUpdate(rest), "missing_update_id");
   });
 
-  test("returns null for payloads without chat id", () => {
+  test("drops payloads without chat id", () => {
     const payload = {
       update_id: 1,
       message: { message_id: 1, text: "hello", chat: {} },
     };
-    expect(normalizeTelegramUpdate(payload)).toBeNull();
+    expectDrop(normalizeTelegramUpdate(payload), "missing_chat");
   });
 
-  test("returns null when from.id is missing", () => {
+  test("drops a message when from.id is missing", () => {
     const payload = {
       update_id: 1,
       message: {
@@ -201,15 +219,15 @@ describe("normalizeTelegramUpdate", () => {
       },
     };
     const result = normalizeTelegramUpdate(payload);
-    expect(result).toBeNull();
+    expectDrop(result, "missing_sender");
   });
 
-  test("returns null for callback_query without message context", () => {
+  test("drops callback_query without message context", () => {
     const payload = {
       update_id: 1,
       callback_query: { id: "abc", from: { id: 123 }, data: "some_data" },
     };
-    expect(normalizeTelegramUpdate(payload)).toBeNull();
+    expectDrop(normalizeTelegramUpdate(payload), "callback_without_message");
   });
 
   test("normalizes an edited_message update as an edit", () => {
@@ -227,15 +245,14 @@ describe("normalizeTelegramUpdate", () => {
         },
       },
     };
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.message.eventKind).toBe("edit");
-    expect(result!.message.content).toBe("Hello bot (edited)");
-    expect(result!.message.conversationExternalId).toBe("99001");
-    expect(result!.message.externalMessageId).toBe("200");
-    expect(result!.source.updateId).toBe("200");
-    expect(result!.source.messageId).toBe("42");
-    expect(result!.actor.actorExternalId).toBe("55001");
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.message.eventKind).toBe("edit");
+    expect(result.message.content).toBe("Hello bot (edited)");
+    expect(result.message.conversationExternalId).toBe("99001");
+    expect(result.message.externalMessageId).toBe("200");
+    expect(result.source.updateId).toBe("200");
+    expect(result.source.messageId).toBe("42");
+    expect(result.actor.actorExternalId).toBe("55001");
   });
 
   test("prefers message over edited_message when both are present", () => {
@@ -254,10 +271,9 @@ describe("normalizeTelegramUpdate", () => {
         from: { id: 55001, is_bot: false },
       },
     };
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.message.isEdit).toBeUndefined();
-    expect(result!.message.content).toBe("Original");
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.message.isEdit).toBeUndefined();
+    expect(result.message.content).toBe("Original");
   });
 
   test("classifies an edited_message with photo as an edit", () => {
@@ -278,14 +294,13 @@ describe("normalizeTelegramUpdate", () => {
         caption: "Updated caption",
       },
     };
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.message.eventKind).toBe("edit");
-    expect(result!.message.content).toBe("Updated caption");
-    expect(result!.message.attachments).toHaveLength(1);
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.message.eventKind).toBe("edit");
+    expect(result.message.content).toBe("Updated caption");
+    expect(result.message.attachments).toHaveLength(1);
   });
 
-  test("returns null for edited_message in group chat", () => {
+  test("drops edited_message in a group when the bot's identity is unknown", () => {
     const payload = {
       update_id: 500,
       edited_message: {
@@ -295,7 +310,7 @@ describe("normalizeTelegramUpdate", () => {
         from: { id: 55001, is_bot: false },
       },
     };
-    expect(normalizeTelegramUpdate(payload)).toBeNull();
+    expectDrop(normalizeTelegramUpdate(payload), "bot_identity_unknown");
   });
 });
 
@@ -322,30 +337,29 @@ describe("normalizeTelegramUpdate: callback_query", () => {
       },
     };
 
-    const result = normalizeTelegramUpdate(payload);
+    const result = eventOf(normalizeTelegramUpdate(payload));
 
-    expect(result).not.toBeNull();
-    expect(result!.version).toBe("v1");
-    expect(result!.sourceChannel).toBe("telegram");
-    expect(result!.message.content).toBe("apr:run-abc:approve");
-    expect(result!.message.conversationExternalId).toBe("12345");
-    expect(result!.message.externalMessageId).toBe("5001");
-    expect(result!.message.callbackQueryId).toBe("cbq-123");
-    expect(result!.message.callbackData).toBe("apr:run-abc:approve");
-    expect(result!.message.attachments).toBeUndefined();
-    expect(result!.actor.actorExternalId).toBe("67890");
-    expect(result!.actor.username).toBe("testuser");
-    expect(result!.actor.displayName).toBe("Test User");
-    expect(result!.actor.firstName).toBe("Test");
-    expect(result!.actor.lastName).toBe("User");
-    expect(result!.actor.languageCode).toBe("en");
-    expect(result!.actor.isBot).toBe(false);
-    expect(result!.source.updateId).toBe("5001");
-    expect(result!.source.messageId).toBe("42");
-    expect(result!.source.chatType).toBe("private");
+    expect(result.version).toBe("v1");
+    expect(result.sourceChannel).toBe("telegram");
+    expect(result.message.content).toBe("apr:run-abc:approve");
+    expect(result.message.conversationExternalId).toBe("12345");
+    expect(result.message.externalMessageId).toBe("5001");
+    expect(result.message.callbackQueryId).toBe("cbq-123");
+    expect(result.message.callbackData).toBe("apr:run-abc:approve");
+    expect(result.message.attachments).toBeUndefined();
+    expect(result.actor.actorExternalId).toBe("67890");
+    expect(result.actor.username).toBe("testuser");
+    expect(result.actor.displayName).toBe("Test User");
+    expect(result.actor.firstName).toBe("Test");
+    expect(result.actor.lastName).toBe("User");
+    expect(result.actor.languageCode).toBe("en");
+    expect(result.actor.isBot).toBe(false);
+    expect(result.source.updateId).toBe("5001");
+    expect(result.source.messageId).toBe("42");
+    expect(result.source.chatType).toBe("private");
   });
 
-  test("returns null when callback_query has no message (inline mode edge case)", () => {
+  test("drops a callback_query with no message (inline mode edge case)", () => {
     const payload = {
       update_id: 5002,
       callback_query: {
@@ -361,10 +375,10 @@ describe("normalizeTelegramUpdate: callback_query", () => {
     };
 
     const result = normalizeTelegramUpdate(payload);
-    expect(result).toBeNull();
+    expectDrop(result, "callback_without_message");
   });
 
-  test("returns null when callback_query has no data", () => {
+  test("drops a callback_query with no data", () => {
     const payload = {
       update_id: 5003,
       callback_query: {
@@ -384,10 +398,10 @@ describe("normalizeTelegramUpdate: callback_query", () => {
     };
 
     const result = normalizeTelegramUpdate(payload);
-    expect(result).toBeNull();
+    expectDrop(result, "callback_without_data");
   });
 
-  test("returns null when callback_query message has no chat id", () => {
+  test("drops a callback_query whose message has no chat id", () => {
     const payload = {
       update_id: 5004,
       callback_query: {
@@ -408,10 +422,10 @@ describe("normalizeTelegramUpdate: callback_query", () => {
     };
 
     const result = normalizeTelegramUpdate(payload);
-    expect(result).toBeNull();
+    expectDrop(result, "callback_without_message");
   });
 
-  test("returns null when callback_query from.id is missing", () => {
+  test("drops a callback_query when from.id is missing", () => {
     const payload = {
       update_id: 5005,
       callback_query: {
@@ -427,7 +441,7 @@ describe("normalizeTelegramUpdate: callback_query", () => {
     };
 
     const result = normalizeTelegramUpdate(payload);
-    expect(result).toBeNull();
+    expectDrop(result, "missing_sender");
   });
 
   test("callback_query does not set isEdit or attachments", () => {
@@ -450,10 +464,9 @@ describe("normalizeTelegramUpdate: callback_query", () => {
       },
     };
 
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.message.isEdit).toBeUndefined();
-    expect(result!.message.attachments).toBeUndefined();
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.message.isEdit).toBeUndefined();
+    expect(result.message.attachments).toBeUndefined();
   });
 
   test("regular text messages are unaffected by callback_query support", () => {
@@ -472,11 +485,10 @@ describe("normalizeTelegramUpdate: callback_query", () => {
       },
     };
 
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.message.content).toBe("Hello world");
-    expect(result!.message.callbackQueryId).toBeUndefined();
-    expect(result!.message.callbackData).toBeUndefined();
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.message.content).toBe("Hello world");
+    expect(result.message.callbackQueryId).toBeUndefined();
+    expect(result.message.callbackData).toBeUndefined();
   });
 });
 

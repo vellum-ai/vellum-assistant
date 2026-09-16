@@ -68,6 +68,13 @@ Everything else under the plugin root is **spine**:
   the writer plus the one matcher every reader uses. It lives at the root
   precisely so `substrate/`, `graph/`, and `graph-topology/` can all reach it
   without a tier importing spine. Do not add a second matcher anywhere),
+  `buffer-file` (the two writers of `memory/buffer.md`: the append every
+  `remember()`-shaped path uses and the consume the consolidation job runs
+  after a pass. Do not write the buffer from anywhere else, and never
+  rewrite it from a read that is not inside `consumeBufferEntries`'s
+  synchronous critical section), `memory-run-evidence` (readers of what a
+  background memory run durably produced from its persisted messages; every
+  job that gates a state transition on a verified write uses them),
   `segmenter`, `message-media`, `worker`, `worker-control`,
   `memory-recall-log-store`, `activation-session-store` (the onboarding
   activation rail — **not** a memory tier despite the name),
@@ -407,8 +414,13 @@ per distinct matched section, at most `memory.v3.finderSectionsPerPage` in
 surfacing order (needle, dense, reply, span) plus its entity and rare-term
 lines, and selecting a line selects that section; the selection log keeps
 one row per slug, so the pool row is where the per-section verdicts live. A
-turn whose selector never judged a pool (the injection gate hard-skipped it,
-or nothing was pooled) persists an empty pool with `selector_ran = 0`, and a
+turn whose selector never judged a pool persists it with `selector_ran = 0`:
+an empty pool when the injection gate hard-skipped it or nothing was pooled,
+and the pool as the selector was given it, stable-prefix cards chosen and
+finder lines not, when the selector's provider failed and the orchestrator
+kept that prefix unjudged. That turn writes no `memory_v3_selections` rows:
+the hot set's frecency and the learned-edge graph read that table as
+judgments, and an unjudged page is not one. A
 turn that logged no selections is still reachable by its stamped
 `message_id`, so the inspector shows negative verdicts too. The pool row and
 the turn's `memory_v3_selections` rows are

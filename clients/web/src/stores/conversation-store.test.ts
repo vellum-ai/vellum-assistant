@@ -1,13 +1,50 @@
-import { afterEach, describe, it, expect } from "bun:test";
+import { afterEach, beforeEach, describe, it, expect } from "bun:test";
 
-import { useConversationStore } from "@/stores/conversation-store";
+import {
+  DRAFT_REPLACEMENTS_KEY,
+  readStoredDraftReplacements,
+  useConversationStore,
+} from "@/stores/conversation-store";
 
 function getState() {
   return useConversationStore.getState();
 }
 
+beforeEach(() => {
+  sessionStorage.clear();
+});
+
+/**
+ * Run `body` against a `sessionStorage` that throws on every access, the way a
+ * private window or a policy that disables storage does.
+ *
+ * The global is replaced rather than `Storage.prototype` patched: happy-dom
+ * serves `sessionStorage` from an accessor and hands out a method reference
+ * that a later prototype assignment does not reach.
+ */
+function withBlockedStorage(body: () => void): void {
+  const descriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "sessionStorage",
+  );
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    get() {
+      throw new Error("storage is blocked");
+    },
+  });
+  try {
+    body();
+  } finally {
+    if (descriptor !== undefined) {
+      Object.defineProperty(globalThis, "sessionStorage", descriptor);
+    }
+  }
+}
+
 afterEach(() => {
   getState().reset();
+  sessionStorage.clear();
 });
 
 describe("useConversationStore", () => {
@@ -296,5 +333,136 @@ describe("draft conversation ids", () => {
     getState().reset();
 
     expect(getState().draftConversationIds.size).toBe(0);
+  });
+});
+
+describe("draft replacements", () => {
+  it("records the id a send assigned a draft", () => {
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+
+    expect(getState().draftReplacements.get("draft-1")).toBe("conv-server-1");
+  });
+
+  it("records nothing for a draft the server kept the id of", () => {
+    getState().recordDraftReplacement("draft-1", "draft-1");
+
+    expect(getState().draftReplacements.size).toBe(0);
+  });
+
+  it("keeps the same map reference when the pair is already recorded", () => {
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+    const before = getState().draftReplacements;
+
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+
+    expect(getState().draftReplacements).toBe(before);
+  });
+
+  it("drops every replacement on reset", () => {
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+
+    getState().reset();
+
+    expect(getState().draftReplacements.size).toBe(0);
+  });
+
+  it("stores the recorded pair for the rest of the tab's life", () => {
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+
+    expect(sessionStorage.getItem(DRAFT_REPLACEMENTS_KEY)).toBe(
+      JSON.stringify({ "draft-1": "conv-server-1" }),
+    );
+  });
+
+  it("keeps the 50 most recent pairs, so one tab cannot grow the key", () => {
+    for (let i = 0; i < 60; i += 1) {
+      getState().recordDraftReplacement(`draft-${i}`, `conv-${i}`);
+    }
+
+    expect(getState().draftReplacements.size).toBe(50);
+    expect(getState().draftReplacements.has("draft-9")).toBe(false);
+    expect(getState().draftReplacements.get("draft-10")).toBe("conv-10");
+    expect(
+      Object.keys(
+        JSON.parse(
+          sessionStorage.getItem(DRAFT_REPLACEMENTS_KEY) ?? "{}",
+        ) as Record<string, string>,
+      ),
+    ).toHaveLength(50);
+  });
+
+  it("clears the stored key on reset", () => {
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+
+    getState().reset();
+
+    expect(sessionStorage.getItem(DRAFT_REPLACEMENTS_KEY)).toBeNull();
+  });
+
+  it("still records the pair when storage refuses the write", () => {
+    withBlockedStorage(() => {
+      getState().recordDraftReplacement("draft-1", "conv-server-1");
+    });
+
+    expect(getState().draftReplacements.get("draft-1")).toBe("conv-server-1");
+  });
+});
+
+describe("readStoredDraftReplacements", () => {
+  it("reads back what a send recorded", () => {
+    getState().recordDraftReplacement("draft-1", "conv-server-1");
+
+    expect([...readStoredDraftReplacements()]).toEqual([
+      ["draft-1", "conv-server-1"],
+    ]);
+  });
+
+  it("is empty when nothing was stored", () => {
+    expect(readStoredDraftReplacements().size).toBe(0);
+  });
+
+  it("is empty for a value that is not a map of ids", () => {
+    sessionStorage.setItem(DRAFT_REPLACEMENTS_KEY, "not json");
+
+    expect(readStoredDraftReplacements().size).toBe(0);
+  });
+
+  it("drops entries that do not name a server id", () => {
+    sessionStorage.setItem(
+      DRAFT_REPLACEMENTS_KEY,
+      JSON.stringify({ "draft-1": "conv-server-1", "draft-2": 7 }),
+    );
+
+    expect([...readStoredDraftReplacements()]).toEqual([
+      ["draft-1", "conv-server-1"],
+    ]);
+  });
+
+  it("is empty when storage refuses the read", () => {
+    sessionStorage.setItem(
+      DRAFT_REPLACEMENTS_KEY,
+      JSON.stringify({ "draft-1": "conv-server-1" }),
+    );
+
+    withBlockedStorage(() => {
+      expect(readStoredDraftReplacements().size).toBe(0);
+    });
+  });
+
+  it("seeds a store that loads after the pair was stored", async () => {
+    sessionStorage.setItem(
+      DRAFT_REPLACEMENTS_KEY,
+      JSON.stringify({ "draft-1": "conv-server-1" }),
+    );
+
+    /* A reload is a fresh module graph; the query makes this import one too
+       instead of handing back the copy this file already holds. */
+    const reloaded = (await import(
+      `./conversation-store.ts?reload=${Date.now()}`
+    )) as typeof import("@/stores/conversation-store");
+
+    expect(
+      reloaded.useConversationStore.getState().draftReplacements.get("draft-1"),
+    ).toBe("conv-server-1");
   });
 });

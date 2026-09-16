@@ -33,8 +33,8 @@ import {
   setLocalNumber,
 } from "@/utils/local-settings";
 import {
+  conversationIdForPath,
   isAboutAssistantPath,
-  isConversationChatPath,
   isConversationPath,
   routes,
 } from "@/utils/routes";
@@ -67,6 +67,7 @@ import { useMaterializedDraftReconcile } from "@/domains/chat/hooks/use-material
 import { useGroupNameRequestStore } from "@/domains/chat/group-name-request-store";
 import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import {
+  keptAppId,
   navigateToConversation,
   navigateToNewConversation,
 } from "@/utils/conversation-navigation";
@@ -870,9 +871,10 @@ export function ChatLayout({
       if (!activeConversationId) {
         return;
       }
-      const target = routes.conversation(activeConversationId);
-      if (location.pathname !== target) {
-        void navigate(target);
+      // The app sub-route is another presentation of the same conversation,
+      // so the comparison is by id rather than by whole path.
+      if (conversationIdForPath(location.pathname) !== activeConversationId) {
+        void navigate(routes.conversation(activeConversationId, keptAppId()));
       }
       requestComposerFocus();
     },
@@ -972,34 +974,8 @@ export function ChatLayout({
     ? (activeConversationId ?? undefined)
     : undefined;
 
-  // Sidebar pinned-app open. The viewer panel only renders under ChatPage
-  // (mounted at `/assistant` index + `/assistant/conversations/:id`), so a
-  // pinned-app click from library / identity / inspector etc. would
-  // mutate the viewer store with no surface to display against. Navigate
-  // to a chat route first when off-chat, then run the shared open flow.
-  //
-  // See `use-open-app-from-chat.ts` for the full-width loadApp flow shared
-  // with the transcript / assets-pill open path.
   const openAppFromChat = useOpenAppFromChat();
   const activeAppId = useViewerStore.use.activeAppId();
-  const handleOpenAppFromSidebar = useCallback(
-    async (appId: string) => {
-      // Off a chat route the viewer panel has no surface to render against, so
-      // we must land on one before opening the app. Routing to `/assistant`
-      // isn't neutral: the chat index auto-bootstraps to the last active /
-      // latest conversation (`use-conversation-loader`), which resurfaces the
-      // stale conversation behind the app and once it's closed (LUM-2691) —
-      // `activeConversationId` persists across route changes for SSE /
-      // attention consumers, so it doesn't reflect the user's intent. Opening
-      // over a fresh silent draft hands the loader an explicit id it won't
-      // override and leaves a clean new-chat surface on close.
-      if (!isConversationChatPath(location.pathname)) {
-        navigateToNewConversation(navigate, { silent: true });
-      }
-      await openAppFromChat(appId);
-    },
-    [location.pathname, navigate, openAppFromChat],
-  );
 
   // Inspector affordance for the sidebar context menu. The topbar variant
   // (in `chat-page.tsx`) uses `useConversationSecondaryActions` so it can
@@ -1046,7 +1022,7 @@ export function ChatLayout({
       isIntelligenceActive={isIdentityActive}
       onOpenIntelligence={handleOpenIdentity}
       activeAppId={activeAppId ?? undefined}
-      onOpenApp={handleOpenAppFromSidebar}
+      onOpenApp={openAppFromChat}
       onPinConversation={handleTogglePinConversation}
       onRenameConversation={handleRenameConversation}
       onArchiveConversation={handleArchiveConversation}

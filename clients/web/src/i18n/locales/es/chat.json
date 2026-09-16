@@ -686,10 +686,6 @@
     "copied": "Copiado",
     "copy": "Copiar"
   },
-  "copyButton": {
-    "copied": "Copiado",
-    "copyFailed": "No se pudo copiar al portapapeles."
-  },
   "copyIdToClipboard": {
     "conversationCopied": "ID de conversación copiado al portapapeles.",
     "conversationFailed": "No se pudo copiar el ID de conversación.",
@@ -1584,8 +1580,12 @@
     "view": "Ver"
   },
   "skillLoadDetail": {
+    "failed": "No se pudo cargar",
+    "loading": "Cargando habilidad…",
     "loadingAria": "Cargando habilidad",
+    "notApproved": "No aprobada",
     "provides": "Proporciona",
+    "unnamedSkill": "Habilidad",
     "usedSkill": "Habilidad usada"
   },
   "skillLoadOutput": {

@@ -173,15 +173,22 @@ export function memoryV3TurnMemoSizeForTests(): number {
   return observedTurns.size;
 }
 
+/** What the turn still got when the selector could not run: nothing (the
+ *  orchestration itself failed) or the stable prefix unjudged. */
+type MemoryV3DegradedScope = "none" | "stable-prefix";
+
 function queueMemoryV3ConversationNotice(
   err: MemoryV3RetrievalUnavailableError,
   ctx: TurnContext,
+  scope: MemoryV3DegradedScope,
 ): void {
   const notice: PendingConversationNotice = err.conversationNotice ?? {
     source: "memory_v3",
     code: "UNKNOWN",
     userMessage:
-      "Memory is temporarily unavailable, so this response may not use your saved memories. You can retry in a moment.",
+      scope === "stable-prefix"
+        ? "Memory selection is temporarily unavailable, so this response draws only on your core memories. You can retry in a moment."
+        : "Memory is temporarily unavailable, so this response may not use your saved memories. You can retry in a moment.",
     errorCategory: "memory_v3_degraded",
   };
   queueConversationNotice(
@@ -324,7 +331,7 @@ export const memoryV3Injector: Injector = {
       observed = await observeTurnOnce(ctx.conversationId, ctx.turnIndex);
     } catch (err) {
       if (err instanceof MemoryV3RetrievalUnavailableError) {
-        queueMemoryV3ConversationNotice(err, ctx);
+        queueMemoryV3ConversationNotice(err, ctx, "none");
         log.error(
           {
             err: err.message,
@@ -336,193 +343,220 @@ export const memoryV3Injector: Injector = {
       }
       return null;
     }
-    // Empty selection → return null (attach nothing). The user-prompt-submit
-    // hook skipped v2 retrieval under live, so a turn with nothing selected
-    // simply gets no v3 `<memory>` block (prior turns' frozen sections still
-    // ride history).
-    if (!observed || observed.selections.length === 0) {
+    if (!observed) {
       return null;
     }
-    // `const` so the non-null narrowing survives capture in the `commit`
-    // closure below (a `let` would re-widen to `OrchestrateResult | null`).
-    const result = observed;
-
-    try {
-      // Partition this turn's injection units: each selected section under
-      // its own key, a page selected with none under `""` (its lead;
-      // capability content injects whole under `""` too).
-      //  - A pair tombstoned since the turn's first produce is skipped: a
-      //    re-entry never revives what the valve pruned.
-      //  - On a re-entry assembly (`rendered` set by the first produce) an
-      //    entry the first produce rendered is re-emitted from the memo byte
-      //    for byte: the store counts it active, but its only copy rode the
-      //    tail the re-injection strip cleared, so the store alone would
-      //    read it as resident and drop it for the rest of the turn. A
-      //    re-entry block carries no commit (and runtime assembly withholds
-      //    one on a `reinjection` assembly besides), so a turn's sections
-      //    are recorded once, at the first-call site; after a compaction they
-      //    stay unclaimed until the next turn injects them net-new onto its
-      //    own persisted message, and the newest-copy rule
-      //    (`stripPrunedSectionsFromMessages`) retires the re-entry copy.
-      //  - A pair active in the store is resident: a pointer entry, stamped
-      //    with the turn's selection time below. Capability slugs are
-      //    stamped too but left out of the pointer (no `memory/concepts/`
-      //    path to point at).
-      //  - Every other pair renders net-new, including one the first produce
-      //    saw resident whose copy a compaction's store reset has since
-      //    unclaimed (neither active nor tombstoned), in memory only.
-      // Under a run-messages replacement (`ctx.replacesRunMessages`: the
-      // Slack chronological transcript, rendered from persisted rows, so it
-      // carries no earlier turn's block) residency means nothing. The
-      // store's active set is not consulted, every pair renders or
-      // re-emits, none is pointed at, and the block carries no commit, so
-      // nothing is recorded or scheduled and runtime assembly attaches the
-      // block in memory only as the prompt's single copy. A Slack
-      // conversation whose transcript injector is absent is not replaced and
-      // injects as an ordinary committed turn.
-      const rendered = observedTurn(
-        ctx.conversationId,
-        ctx.turnIndex,
-      )?.rendered;
-      const firstProduce = rendered === undefined;
-      const replaced = ctx.replacesRunMessages === true;
-      const active = replaced ? null : getActiveSections(ctx.conversationId);
-      const pruned = firstProduce
-        ? undefined
-        : getPrunedSections(ctx.conversationId);
-      const resident: SectionRef[] = [];
-      const slots: BlockSlot[] = [];
-      for (const { slug, key, matched } of injectionUnits(result.selections)) {
-        if (pruned && sectionRefSetHas(pruned, slug, key)) {
-          continue;
-        }
-        const reemitted = rendered?.get(slug)?.get(key);
-        if (reemitted !== undefined) {
-          slots.push({ slug, key, matched, text: reemitted });
-          continue;
-        }
-        if (active && sectionRefSetHas(active, slug, key)) {
-          resident.push({ slug, key });
-          continue;
-        }
-        slots.push({ slug, key, matched, text: undefined });
-      }
-      rememberPointerEntries(
-        ctx.conversationId,
-        ctx.turnIndex,
-        resident.filter(({ slug }) => !isCapabilitySlug(slug)),
+    const block = await renderSelections(ctx, observed);
+    // A selector that could not run left the stable prefix unjudged in
+    // `selections`. The person is told what this turn drew on only once the
+    // render is known: the prefix when a block carries it (an empty-text
+    // block means the sections already ride history), nothing when no block
+    // attaches.
+    if (observed.selectorFailure) {
+      queueMemoryV3ConversationNotice(
+        observed.selectorFailure,
+        ctx,
+        block === null ? "none" : "stable-prefix",
       );
-      // The turn's selection time, stamped on the resident pairs NOW, in the
-      // same synchronous segment as the classification above: the page reads
-      // below yield to the event loop, and a prune valve queued by an earlier
-      // turn's commit fires on a timer, so it can run while they are awaited
-      // and would otherwise rank a pair this turn is about by its stale
-      // stamp and evict it. The stamp is a recency bump, not a claim, so a
-      // turn whose block never attaches (or that returns null below because
-      // every net-new pair rendered empty) bumps harmlessly. Only the first
-      // produce stamps: a re-entry re-emits the turn's selections, and a
-      // run-messages replacement claims nothing (`resident` is empty there).
-      // The net-new pairs take the same time with their record in the commit.
-      const selectedAt = Date.now();
-      if (firstProduce) {
-        touchSelected(ctx.conversationId, resident, selectedAt);
-      }
-
-      // Render net-new sections (each an independent page read, so in
-      // parallel), skipping pairs that resolve to no content (deleted pages,
-      // unresolvable capabilities, empty sections): nothing is attached for
-      // them, so nothing is recorded either.
-      const netNew = slots.filter((slot) => slot.text === undefined);
-      const renderedNow = await Promise.all(
-        netNew.map(({ slug, matched }) =>
-          renderV3InjectionEntry(slug, matched),
-        ),
-      );
-      for (const [i, slot] of netNew.entries()) {
-        slot.text = renderedNow[i]!;
-      }
-      const entries: Array<SectionRef & { text: string }> = [];
-      for (const { slug, key, text } of slots) {
-        if (text !== undefined && text.trim().length > 0) {
-          entries.push({ slug, key, text });
-        }
-      }
-      // Every net-new section rendered empty: return null rather than an
-      // empty-text block. Under live there is no v2 block, so the turn simply
-      // gets no new memory. Distinct from the all-repeat case (empty
-      // `netNew`), where the empty block correctly keeps v2 suppressed
-      // because the sections already ride history.
-      if (netNew.length > 0 && entries.length === 0) {
-        return null;
-      }
-
-      // Empty net-new → empty-text block: assembly attaches no content
-      // (`applyInjectionBlock` no-ops empty text) but the block's presence
-      // still marks v3 as this turn's `<memory>` source for v2 suppression.
-      const inner = renderInjectionBlockInner(entries.map((e) => e.text));
-      const block: InjectionBlock = {
-        id: MEMORY_V3_BLOCK_ID,
-        text: inner.length === 0 ? "" : wrapMemoryBlock(inner),
-        // Mirror v2's dynamic `<memory>` block placement.
-        placement: "after-memory-prefix",
-      };
-      if (!firstProduce) {
-        return block;
-      }
-
-      rememberRendered(ctx.conversationId, ctx.turnIndex, entries);
-      // A block rendered for a run-messages replacement rides that prompt
-      // only: no copy of it persists, so the store must not claim its
-      // sections and the valve has nothing new to account for.
-      if (replaced) {
-        return block;
-      }
-      // The net-new record and the prune-valve schedule are DEFERRED to this
-      // commit callback, invoked by runtime assembly at the point where
-      // attachment is guaranteed (the turn's tail is a user message, the
-      // same gate as metadata capture). Recording here in `produce()` would
-      // let a never-attached turn (non-user tail) claim sections in the
-      // store, suppressing them until compaction. Only the turn's first
-      // produce carries it: a re-entry block re-emits what this one rendered
-      // and is never persisted, so it must not record anything. The valve is
-      // scheduled after the record so the resident accounting, and the
-      // recency it ranks by, include this turn's sections (the resident
-      // pairs carry their stamp from the classification above); it evicts by
-      // recency with no lane exemptions. It runs on a timer, so this turn's
-      // block may not have folded back into the live history when it strips;
-      // a section it prunes from this very turn is stripped by assembly Step
-      // 0 on the next turn, which applies the store's full tombstone set
-      // every turn.
-      const commit = (): void => {
-        recordInjected(
-          ctx.conversationId,
-          entries.map(({ slug, key, text }) => ({
-            slug,
-            key,
-            // Capability content (skills / CLI commands) renders with its own
-            // `# Skill:` / `# CLI command:` header, which the prune valve's
-            // section grammar can never locate to free. Record it at zero
-            // bytes so it never inflates the freeable resident accounting
-            // (the valve would otherwise loop-fire on bytes it cannot free).
-            bytes: isCapabilitySlug(slug) ? 0 : renderedBytes(text),
-          })),
-          selectedAt,
-        );
-        schedulePruneValve(ctx.conversationId);
-      };
-      return { ...block, meta: { [MEMORY_V3_COMMIT_META_KEY]: commit } };
-    } catch (err) {
       log.warn(
         {
-          err: err instanceof Error ? err.message : String(err),
+          err: observed.selectorFailure.message,
           conversationId: ctx.conversationId,
+          stableCount: observed.selections.length,
+          attached: block !== null,
+          mode: "live",
         },
-        "memory-v3 live render failed (non-fatal) — returning null (no v3 block this turn)",
+        "memory-v3 selector unavailable; the stable prefix stands in unjudged",
       );
-      return null;
     }
+    return block;
   },
 };
+
+/**
+ * Render a turn's selections into its `<memory>` block, or `null` when the
+ * turn attaches nothing: an empty selection (the user-prompt-submit hook
+ * skipped v2 retrieval under live, so the turn simply gets no v3 block while
+ * prior turns' frozen sections still ride history), every net-new section
+ * rendering empty, or a render failure (non-fatal, logged).
+ */
+async function renderSelections(
+  ctx: TurnContext,
+  result: OrchestrateResult,
+): Promise<InjectionBlock | null> {
+  if (result.selections.length === 0) {
+    return null;
+  }
+  try {
+    // Partition this turn's injection units: each selected section under
+    // its own key, a page selected with none under `""` (its lead;
+    // capability content injects whole under `""` too).
+    //  - A pair tombstoned since the turn's first produce is skipped: a
+    //    re-entry never revives what the valve pruned.
+    //  - On a re-entry assembly (`rendered` set by the first produce) an
+    //    entry the first produce rendered is re-emitted from the memo byte
+    //    for byte: the store counts it active, but its only copy rode the
+    //    tail the re-injection strip cleared, so the store alone would
+    //    read it as resident and drop it for the rest of the turn. A
+    //    re-entry block carries no commit (and runtime assembly withholds
+    //    one on a `reinjection` assembly besides), so a turn's sections
+    //    are recorded once, at the first-call site; after a compaction they
+    //    stay unclaimed until the next turn injects them net-new onto its
+    //    own persisted message, and the newest-copy rule
+    //    (`stripPrunedSectionsFromMessages`) retires the re-entry copy.
+    //  - A pair active in the store is resident: a pointer entry, stamped
+    //    with the turn's selection time below. Capability slugs are
+    //    stamped too but left out of the pointer (no `memory/concepts/`
+    //    path to point at).
+    //  - Every other pair renders net-new, including one the first produce
+    //    saw resident whose copy a compaction's store reset has since
+    //    unclaimed (neither active nor tombstoned), in memory only.
+    // Under a run-messages replacement (`ctx.replacesRunMessages`: the
+    // Slack chronological transcript, rendered from persisted rows, so it
+    // carries no earlier turn's block) residency means nothing. The
+    // store's active set is not consulted, every pair renders or
+    // re-emits, none is pointed at, and the block carries no commit, so
+    // nothing is recorded or scheduled and runtime assembly attaches the
+    // block in memory only as the prompt's single copy. A Slack
+    // conversation whose transcript injector is absent is not replaced and
+    // injects as an ordinary committed turn.
+    const rendered = observedTurn(ctx.conversationId, ctx.turnIndex)?.rendered;
+    const firstProduce = rendered === undefined;
+    const replaced = ctx.replacesRunMessages === true;
+    const active = replaced ? null : getActiveSections(ctx.conversationId);
+    const pruned = firstProduce
+      ? undefined
+      : getPrunedSections(ctx.conversationId);
+    const resident: SectionRef[] = [];
+    const slots: BlockSlot[] = [];
+    for (const { slug, key, matched } of injectionUnits(result.selections)) {
+      if (pruned && sectionRefSetHas(pruned, slug, key)) {
+        continue;
+      }
+      const reemitted = rendered?.get(slug)?.get(key);
+      if (reemitted !== undefined) {
+        slots.push({ slug, key, matched, text: reemitted });
+        continue;
+      }
+      if (active && sectionRefSetHas(active, slug, key)) {
+        resident.push({ slug, key });
+        continue;
+      }
+      slots.push({ slug, key, matched, text: undefined });
+    }
+    rememberPointerEntries(
+      ctx.conversationId,
+      ctx.turnIndex,
+      resident.filter(({ slug }) => !isCapabilitySlug(slug)),
+    );
+    // The turn's selection time, stamped on the resident pairs NOW, in the
+    // same synchronous segment as the classification above: the page reads
+    // below yield to the event loop, and a prune valve queued by an earlier
+    // turn's commit fires on a timer, so it can run while they are awaited
+    // and would otherwise rank a pair this turn is about by its stale
+    // stamp and evict it. The stamp is a recency bump, not a claim, so a
+    // turn whose block never attaches (or that returns null below because
+    // every net-new pair rendered empty) bumps harmlessly. Only the first
+    // produce stamps: a re-entry re-emits the turn's selections, and a
+    // run-messages replacement claims nothing (`resident` is empty there).
+    // The net-new pairs take the same time with their record in the commit.
+    const selectedAt = Date.now();
+    if (firstProduce) {
+      touchSelected(ctx.conversationId, resident, selectedAt);
+    }
+
+    // Render net-new sections (each an independent page read, so in
+    // parallel), skipping pairs that resolve to no content (deleted pages,
+    // unresolvable capabilities, empty sections): nothing is attached for
+    // them, so nothing is recorded either.
+    const netNew = slots.filter((slot) => slot.text === undefined);
+    const renderedNow = await Promise.all(
+      netNew.map(({ slug, matched }) => renderV3InjectionEntry(slug, matched)),
+    );
+    for (const [i, slot] of netNew.entries()) {
+      slot.text = renderedNow[i]!;
+    }
+    const entries: Array<SectionRef & { text: string }> = [];
+    for (const { slug, key, text } of slots) {
+      if (text !== undefined && text.trim().length > 0) {
+        entries.push({ slug, key, text });
+      }
+    }
+    // Every net-new section rendered empty: return null rather than an
+    // empty-text block. Under live there is no v2 block, so the turn simply
+    // gets no new memory. Distinct from the all-repeat case (empty
+    // `netNew`), where the empty block correctly keeps v2 suppressed
+    // because the sections already ride history.
+    if (netNew.length > 0 && entries.length === 0) {
+      return null;
+    }
+
+    // Empty net-new → empty-text block: assembly attaches no content
+    // (`applyInjectionBlock` no-ops empty text) but the block's presence
+    // still marks v3 as this turn's `<memory>` source for v2 suppression.
+    const inner = renderInjectionBlockInner(entries.map((e) => e.text));
+    const block: InjectionBlock = {
+      id: MEMORY_V3_BLOCK_ID,
+      text: inner.length === 0 ? "" : wrapMemoryBlock(inner),
+      // Mirror v2's dynamic `<memory>` block placement.
+      placement: "after-memory-prefix",
+    };
+    if (!firstProduce) {
+      return block;
+    }
+
+    rememberRendered(ctx.conversationId, ctx.turnIndex, entries);
+    // A block rendered for a run-messages replacement rides that prompt
+    // only: no copy of it persists, so the store must not claim its
+    // sections and the valve has nothing new to account for.
+    if (replaced) {
+      return block;
+    }
+    // The net-new record and the prune-valve schedule are DEFERRED to this
+    // commit callback, invoked by runtime assembly at the point where
+    // attachment is guaranteed (the turn's tail is a user message, the
+    // same gate as metadata capture). Recording here in `produce()` would
+    // let a never-attached turn (non-user tail) claim sections in the
+    // store, suppressing them until compaction. Only the turn's first
+    // produce carries it: a re-entry block re-emits what this one rendered
+    // and is never persisted, so it must not record anything. The valve is
+    // scheduled after the record so the resident accounting, and the
+    // recency it ranks by, include this turn's sections (the resident
+    // pairs carry their stamp from the classification above); it evicts by
+    // recency with no lane exemptions. It runs on a timer, so this turn's
+    // block may not have folded back into the live history when it strips;
+    // a section it prunes from this very turn is stripped by assembly Step
+    // 0 on the next turn, which applies the store's full tombstone set
+    // every turn.
+    const commit = (): void => {
+      recordInjected(
+        ctx.conversationId,
+        entries.map(({ slug, key, text }) => ({
+          slug,
+          key,
+          // Capability content (skills / CLI commands) renders with its own
+          // `# Skill:` / `# CLI command:` header, which the prune valve's
+          // section grammar can never locate to free. Record it at zero
+          // bytes so it never inflates the freeable resident accounting
+          // (the valve would otherwise loop-fire on bytes it cannot free).
+          bytes: isCapabilitySlug(slug) ? 0 : renderedBytes(text),
+        })),
+        selectedAt,
+      );
+      schedulePruneValve(ctx.conversationId);
+    };
+    return { ...block, meta: { [MEMORY_V3_COMMIT_META_KEY]: commit } };
+  } catch (err) {
+    log.warn(
+      {
+        err: err instanceof Error ? err.message : String(err),
+        conversationId: ctx.conversationId,
+      },
+      "memory-v3 live render failed (non-fatal) — returning null (no v3 block this turn)",
+    );
+    return null;
+  }
+}
 
 export const memoryV3PointerInjector: Injector = {
   name: "memory-v3-pointer",

@@ -33,7 +33,7 @@ import { fetchImpl } from "../fetch.js";
 import type { DiscordInboundEvent } from "../channels/inbound-event.js";
 import type { ChannelConnectionHealth } from "../channels/types.js";
 import { admitDiscordMessage } from "./admit.js";
-import { AdmissionDropLog } from "./admission-log.js";
+import { createDiscordAdmissionDropLog } from "./admission-log.js";
 import {
   extractDiscordAttachmentMap,
   type DiscordAttachmentReference,
@@ -157,7 +157,7 @@ export class DiscordGatewayClient {
   private readonly heartbeat: HeartbeatMonitor;
   private readonly backoff: ReconnectBackoff;
   private readonly threadParents = new ThreadParentCache();
-  private readonly admissionDropLog = new AdmissionDropLog();
+  private readonly admissionDropLog = createDiscordAdmissionDropLog();
 
   private sessionState: DiscordSessionState | null = null;
   private ws: GatewaySocketLike | null = null;
@@ -739,6 +739,7 @@ export class DiscordGatewayClient {
       ...(parentChannelId !== undefined ? { parentChannelId } : {}),
       raw: (data ?? {}) as Record<string, unknown>,
       edit: { revision: message.edited_timestamp },
+      botUserId: this.botUserId,
     });
     if (!normalized) {
       log.warn(
@@ -980,6 +981,7 @@ export class DiscordGatewayClient {
     const normalized = normalizeDiscordMessage(message, {
       ...(parentChannelId !== undefined ? { parentChannelId } : {}),
       raw: (data ?? {}) as Record<string, unknown>,
+      botUserId: this.botUserId,
     });
     if (!normalized) {
       log.warn(

@@ -25,6 +25,11 @@ mock.module("@/runtime/window-attention", () => ({
   supportsWindowAttention: () => attentionSupported,
 }));
 
+let automationActive: boolean | undefined = false;
+mock.module("./use-desktop-setup", () => ({
+  useDesktopSetupStatus: () => ({ query: { data: { automationActive } } }),
+}));
+
 mock.module("@/hooks/use-platform-gate", () => ({
   useActiveAssistantIsPlatformHosted: () => platformHosted,
 }));
@@ -96,6 +101,7 @@ beforeEach(() => {
   attended = true;
   attentionSupported = true;
   platformHosted = true;
+  automationActive = false;
   useDesktopPreviewStore.setState({ position: null });
   panelUnmounts = 0;
   desktopEnabled = true;
@@ -596,4 +602,23 @@ test("an older transcript row cannot show a newer help request", () => {
   } finally {
     act(() => useInteractionStore.setState({ pendingQuestion: null }));
   }
+});
+
+test("desktop icon pulses during automation and clears when it ends", () => {
+  const { rerender } = render(<DesktopHarness />);
+  const icon = () =>
+    screen
+      .getByRole("button", { name: "Open Alice's virtual desktop" })
+      .querySelector("svg")!;
+  expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(false);
+  automationActive = true;
+  rerender(<DesktopHarness />);
+  expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(true);
+  expect(icon().getAttribute("stroke")).toBe(
+    "var(--avatar-accent, var(--content-emphasised))",
+  );
+  automationActive = undefined;
+  rerender(<DesktopHarness />);
+  expect(icon().getAttribute("stroke")).toBe("currentColor");
+  expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(false);
 });

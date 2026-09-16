@@ -41,6 +41,15 @@ describe("fetchPluginCatalogFromPlatform", () => {
             homepage: "https://example.com",
             license: "MIT",
             icon: "🧠",
+            integration: {
+              kind: "mcp",
+              displayName: "Memory Graph",
+              documentationUrl: "https://example.com/docs",
+              verifiedAt: "2026-09-10",
+              verification: "documentation-only",
+              setup: { mode: "oauth", instructions: "Sign in." },
+              logo: "memory-graph.png",
+            },
             // dropped keys
             id: "abc",
             display_name: "Memory Graph",
@@ -69,6 +78,11 @@ describe("fetchPluginCatalogFromPlatform", () => {
       category: "productivity",
       homepage: "https://example.com",
       license: "MIT",
+      integration: {
+        kind: "mcp",
+        displayName: "Memory Graph",
+        logo: "memory-graph.png",
+      },
       source: {
         kind: "github",
         repo: "acme/memory-graph",

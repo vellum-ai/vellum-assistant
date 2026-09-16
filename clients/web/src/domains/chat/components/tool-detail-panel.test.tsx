@@ -244,6 +244,26 @@ describe("ToolDetailPanel", () => {
     );
   });
 
+  test("keeps saying a denied call did not run once its denial result lands", () => {
+    // The daemon answers a refusal with a result addressed to the model. It is
+    // not output, so the reader still sees why the call did not run.
+    const { getByTestId, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          result:
+            'Permission denied. The "subagent_spawn" tool was not allowed. Do NOT retry this tool call immediately.',
+          status: "denied",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "This tool call was not approved, so it did not run.",
+    );
+    expect(queryByText(/Do NOT retry/)).toBeNull();
+  });
+
   test("picks up a denial that lands while the drawer is open", () => {
     // The payload was captured before the guardian answered, so the snapshot
     // still says the call was running. The live tool call carries the decision.

@@ -694,10 +694,6 @@
     "copied": "Copied",
     "copy": "Copy"
   },
-  "copyButton": {
-    "copied": "Copied",
-    "copyFailed": "Could not copy to the clipboard."
-  },
   "copyIdToClipboard": {
     "conversationCopied": "Conversation ID copied to clipboard.",
     "conversationFailed": "Couldn't copy the conversation ID.",
@@ -1633,8 +1629,12 @@
     "view": "View"
   },
   "skillLoadDetail": {
+    "failed": "Failed to load",
+    "loading": "Loading skill…",
     "loadingAria": "Loading skill",
+    "notApproved": "Not approved",
     "provides": "Provides",
+    "unnamedSkill": "Skill",
     "usedSkill": "Used Skill"
   },
   "skillLoadOutput": {

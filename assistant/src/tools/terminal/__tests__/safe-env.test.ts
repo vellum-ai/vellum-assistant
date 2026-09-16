@@ -111,6 +111,35 @@ describe("safe-env Windows forwarding", () => {
     }
   });
 
+  test("prepends the Windows assistant binary directory when it sits beside the runtime", () => {
+    const dir = mkdtempSync(join(tmpdir(), "win-assistant-"));
+    writeFileSync(join(dir, "assistant.exe"), "");
+    try {
+      const env = buildSanitizedEnv(
+        "win32",
+        { Path: "C:\\Windows\\System32" },
+        { execPath: join(dir, "vellum-daemon.exe") },
+      );
+      expect(env.PATH).toBe(`${dir};C:\\Windows\\System32`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not invent a Windows assistant path when the sibling binary is absent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "win-no-assistant-"));
+    try {
+      const env = buildSanitizedEnv(
+        "win32",
+        { Path: "C:\\Windows\\System32" },
+        { execPath: join(dir, "vellum-daemon.exe") },
+      );
+      expect(env.PATH).toBe("C:\\Windows\\System32");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("matches Windows environment names case-insensitively", () => {
     const windowsEnv = buildSanitizedEnv("win32", {
       Path: "C:\\Windows\\System32;C:\\Program Files\\Vellum",

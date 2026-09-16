@@ -403,10 +403,6 @@
   "conversationStarterDock": {
     "caption": "Подсказки:"
   },
-  "copyButton": {
-    "copied": "Скопировано",
-    "copyFailed": "Не удалось скопировать в буфер обмена."
-  },
   "copyIdToClipboard": {
     "conversationCopied": "ID диалога скопирован в буфер обмена.",
     "conversationFailed": "Не удалось скопировать ID диалога.",
@@ -895,6 +891,15 @@
   "skillDetailPanel": {
     "actionsAria": "Действия навыка",
     "moreTooltip": "Ещё"
+  },
+  "skillLoadDetail": {
+    "failed": "Не удалось загрузить",
+    "loading": "Загрузка навыка…",
+    "loadingAria": "Загрузка навыка",
+    "notApproved": "Не одобрено",
+    "provides": "Предоставляет",
+    "unnamedSkill": "Навык",
+    "usedSkill": "Использованный навык"
   },
   "skillsTab": {
     "callLink": "Вызов {number}",

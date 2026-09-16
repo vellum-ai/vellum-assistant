@@ -18,6 +18,7 @@ import {
   queueConversationNotice,
   resetConversationNoticesForTests,
 } from "../daemon/conversation-notices.js";
+import { desktopAutomationLease } from "../desktop/desktop-automation-lease.js";
 import { getConversationDirName } from "../persistence/conversation-directories.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -1661,6 +1662,30 @@ describe("session-agent-loop", () => {
         { anchor: "global", requestId: "test-req" },
       ]);
     });
+  });
+
+  test("releases desktop control before a completed turn accepts another message", async () => {
+    const events: AssistantEvent[] = [];
+    const ctx = makeCtx();
+    const release = spyOn(desktopAutomationLease, "releaseForConversation");
+    const setProcessing = ctx.setProcessing.bind(ctx);
+    ctx.setProcessing = (processing) => {
+      if (!processing) {
+        expect(release).toHaveBeenCalledWith(ctx.conversationId);
+      }
+      setProcessing(processing);
+    };
+    try {
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (event) =>
+        events.push(event),
+      );
+      expect(events.some((event) => event.type === "message_complete")).toBe(
+        true,
+      );
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      release.mockRestore();
+    }
   });
 
   describe("tool execution errors via agent loop", () => {

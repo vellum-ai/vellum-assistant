@@ -303,4 +303,4 @@ The provider-level rate limiter (`providers/ratelimit.ts`) also logs warnings (m
 
 HTTP is the sole transport for client-daemon communication. The runtime HTTP server (`assistant/src/runtime/http-server.ts`) is the canonical API surface. Clients connect via HTTP for request/response operations and SSE (`GET /v1/events`) for streaming server-to-client events.
 
-When writing skills that need to call daemon configuration endpoints, use `curl` with the runtime HTTP API (JWT-authenticated via `Authorization: Bearer <jwt>`). The assistant already knows how to use `curl`.
+A skill never calls the runtime HTTP API directly: every request from a skill targets the gateway, and `gateway-only-guard.test.ts` fails CI on a runtime-port URL in a skill. For configuration reads, use the CLI (`assistant config get`); for control-plane writes with no CLI verb, use `$INTERNAL_GATEWAY_BASE_URL`. See "Gateway-Only API Consumption" in `gateway/AGENTS.md` for the rule and its exceptions.
