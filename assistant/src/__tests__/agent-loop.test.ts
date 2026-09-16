@@ -2064,8 +2064,8 @@ describe("AgentLoop", () => {
   });
 
   test("onToolsSent does not fire for a call cancelled before the request leaves", async () => {
-    // A pre-model-call hook runs after tool resolution and before the send;
-    // aborting there is the window Codex flagged: tools resolved, never sent.
+    // A pre-model-call hook runs after tool resolution and before the send,
+    // so aborting there is a call whose tools are resolved but never sent.
     const controller = new AbortController();
     registerPlugin({
       manifest: { name: "abort-before-send", version: "0.0.1" },
