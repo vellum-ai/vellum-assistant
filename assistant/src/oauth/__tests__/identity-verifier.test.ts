@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { verifyIdentity } from "../identity-verifier.js";
+import {
+  providerReportsFailure,
+  verifyIdentity,
+} from "../identity-verifier.js";
 import type { OAuthProviderRow } from "../oauth-store.js";
 
 // ---------------------------------------------------------------------------
@@ -467,5 +470,36 @@ describe("verifyIdentity", () => {
       const result = await verifyIdentity(dropboxRow, "dbx-token");
       expect(result).toBe("jane@dropbox.com");
     });
+  });
+});
+
+describe("providerReportsFailure", () => {
+  test("reads an explicit false in the declared field as failure", () => {
+    expect(
+      providerReportsFailure(
+        { identityOkField: "ok" },
+        { ok: false, error: "invalid_auth" },
+      ),
+    ).toBe(true);
+    expect(
+      providerReportsFailure({ identityOkField: "ok" }, { ok: true }),
+    ).toBe(false);
+  });
+
+  test("a body without the field says nothing", () => {
+    // A download or an endpoint outside the envelope; the status decides.
+    expect(providerReportsFailure({ identityOkField: "ok" }, null)).toBe(false);
+    expect(
+      providerReportsFailure({ identityOkField: "ok" }, Buffer.from("png")),
+    ).toBe(false);
+    expect(
+      providerReportsFailure({ identityOkField: "ok" }, { data: {} }),
+    ).toBe(false);
+  });
+
+  test("a provider that declares no field never reports failure", () => {
+    expect(
+      providerReportsFailure({ identityOkField: null }, { ok: false }),
+    ).toBe(false);
   });
 });

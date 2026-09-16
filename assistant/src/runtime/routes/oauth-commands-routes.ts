@@ -30,6 +30,7 @@ import {
   type ResolveOAuthConnectionOptions,
   resolveOAuthConnectionWithMeta,
 } from "../../oauth/connection-resolver.js";
+import { providerReportsFailure } from "../../oauth/identity-verifier.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -689,7 +690,9 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     ...(pingBody !== undefined ? { body: pingBody } : {}),
   });
 
-  if (response.status >= 200 && response.status < 300) {
+  const httpOk = response.status >= 200 && response.status < 300;
+  const reportedFailure = providerReportsFailure(providerRow, response.body);
+  if (httpOk && !reportedFailure) {
     return { ok: true, provider: b.provider, status: response.status };
   }
 
@@ -697,10 +700,17 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     ok: false,
     provider: b.provider,
     status: response.status,
-    error: `Ping failed with HTTP ${response.status}`,
+    error: reportedFailure
+      ? `Ping failed: ${b.provider} answered HTTP ${response.status} but reported ${providerRow.identityOkField}: false`
+      : `Ping failed with HTTP ${response.status}`,
   };
+  if (reportedFailure) {
+    payload.body = jsonSafeOAuthBody(response.body).body;
+  }
 
-  if (response.status === 401 || response.status === 403) {
+  // A provider that refuses the ping inside a 2xx is refusing the credential
+  // the same way a 401 does.
+  if (response.status === 401 || response.status === 403 || reportedFailure) {
     payload.hint =
       `Run 'assistant oauth status ${b.provider}' to check connection health. ` +
       `To reconnect, run 'assistant oauth connect --help'.`;
@@ -978,8 +988,12 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   const response = await connection.request(req);
   const encodedBody = jsonSafeOAuthBody(response.body);
 
+  const httpOk = response.status >= 200 && response.status < 300;
+  const reportedFailure =
+    httpOk && providerReportsFailure(providerRow, response.body);
+
   const result: Record<string, unknown> = {
-    ok: response.status >= 200 && response.status < 300,
+    ok: httpOk && !reportedFailure,
     status: response.status,
     headers: response.headers,
     body: encodedBody.body,
@@ -1001,7 +1015,11 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
       `used "${selected}". Pass --account to select a specific one.`;
   }
 
-  if (response.status === 401 || response.status === 403) {
+  if (reportedFailure) {
+    // The body carries the provider's own error code, so the hint says only
+    // why a 2xx is being reported as a failure.
+    result.hint = `${b.provider} answered HTTP ${response.status} but reported ${providerRow.identityOkField}: false in the response body. The body names the error.`;
+  } else if (response.status === 401 || response.status === 403) {
     // The recovery steps follow the credential's kind, not the door the
     // request came through: a channel bot's token was stored by the channel's
     // setup, so the OAuth status and connect commands cannot repair it.

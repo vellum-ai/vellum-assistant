@@ -241,8 +241,9 @@ export async function runAuthenticatedRequest(params: {
       throw err;
     }
 
-    // Non-2xx exit code
-    if (result.status < 200 || result.status >= 300) {
+    // The route's verdict, not the status code: a provider that reports
+    // failure inside a 2xx (Slack's `ok: false`) is a failed request.
+    if (!result.ok) {
       process.exitCode = 1;
     }
 

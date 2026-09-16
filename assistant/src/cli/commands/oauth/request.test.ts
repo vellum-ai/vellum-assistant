@@ -308,6 +308,28 @@ describe("oauth request body output", () => {
     expect(parsed.bodyEncoding).toBe("base64");
   });
 
+  test("exits non-zero when the route reports failure inside a 2xx", async () => {
+    // The exit code follows the route's verdict, so a caller that only checks
+    // the exit code sees a refused call as a failure; the body still prints,
+    // since it carries the provider's own error code.
+    handleRequestResult = {
+      ok: false,
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "not_in_channel" },
+      account: "user@example.com",
+    };
+    const { stdout, exitCode } = await runRequestCommand([
+      "--provider",
+      "slack_channel",
+      "-s",
+      "/chat.postMessage",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stdout.toString("utf8")).toContain("not_in_channel");
+  });
+
   test("writes text bodies as UTF-8 and appends a newline on stdout", async () => {
     handleRequestResult = {
       ok: true,

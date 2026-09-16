@@ -103,12 +103,10 @@ export interface ScheduleResultNotificationParams {
  * conversation can come back too and are harmless, because only this run's
  * own call ids are matched.
  *
- * A Slack Web API post through bash is deliberately not a route, because its
- * success proves nothing about the post. Slack refuses a call with HTTP 200
- * and `ok: false` in the body, and the authenticated-request command fails
- * only on a non-2xx status, so a post Slack refused still leaves a successful
- * tool result. A run that posts that way gets the fallback too: at worst a
- * duplicate, never a silence.
+ * A Slack Web API post through bash is deliberately not a route. It is off
+ * the guided path and unrecorded, and recognizing it would mean reading a
+ * shell command for a method name. A run that posts that way gets the
+ * fallback too: at worst a duplicate, never a silence.
  */
 function deliveredThroughMessagingTool(
   conversationId: string,

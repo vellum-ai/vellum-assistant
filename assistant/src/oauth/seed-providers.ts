@@ -103,6 +103,13 @@ export const PROVIDER_SEED_DATA: Record<
     identityBody?: unknown;
     identityResponsePaths?: string[];
     identityFormat?: string;
+    /**
+     * Dot path of the boolean the provider's API puts in every response body
+     * to say whether the call succeeded (Slack: `ok`). The identity verifier
+     * requires it true on the identity call; ping and the authenticated-request
+     * doors read an explicit `false` under a 2xx as a failed call, since such
+     * a provider hides refusals behind a successful status.
+     */
     identityOkField?: string;
     featureFlag?: string;
     logoUrl?: string;
@@ -1221,6 +1228,9 @@ export const PROVIDER_SEED_DATA: Record<
     authorizeUrl: "urn:manual-token",
     tokenExchangeUrl: "urn:manual-token",
     pingUrl: "https://slack.com/api/auth.test",
+    // The bot answers through the same Web API envelope as the person's
+    // integration, and auth.test refuses a revoked token inside an HTTP 200.
+    identityOkField: "ok",
     baseUrl: "https://slack.com/api",
     displayLabel: "Slack Channel",
     description: "Channel bot token",
