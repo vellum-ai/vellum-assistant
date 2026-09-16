@@ -94,7 +94,9 @@ export async function handleQuestionResponse(
   }
 
   if (getDesktopHelpEntry(snapshot)) {
-    useDesktopPreviewStore.getState().markHelpSubmitted(snapshot.requestId);
+    useDesktopPreviewStore
+      .getState()
+      .markHelpSubmitted(ctx.assistantId, snapshot.requestId);
   }
 
   try {
@@ -103,6 +105,11 @@ export async function handleQuestionResponse(
       snapshot.requestId,
       { kind: "submit", responses },
     );
+    if (result.ok || result.status === 404) {
+      useDesktopPreviewStore
+        .getState()
+        .resolveHelpSubmission(snapshot.requestId);
+    }
     if (!result.ok) {
       if (result.status === 404) {
         clearStaleQuestion(snapshot.requestId);

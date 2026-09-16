@@ -128,7 +128,7 @@ beforeEach(() => {
   useInteractionStore.getState().resetAll();
   useChatSessionStore.getState().setError(null);
   useStreamStore.getState().setStreamContext(null);
-  useDesktopPreviewStore.setState({ submittedHelpRequestId: null });
+  useDesktopPreviewStore.setState({ submittedHelpRequests: {} });
 });
 
 it.each(["response", "throw"])(
@@ -147,9 +147,9 @@ it.each(["response", "throw"])(
       ],
     });
     onSubmit = () => {
-      expect(useDesktopPreviewStore.getState().submittedHelpRequestId).toBe(
-        "q-help",
-      );
+      expect(
+        useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"],
+      ).toBe("q-help");
     };
     if (failure === "throw") {
       throwByRequestId.add("q-help");
@@ -168,9 +168,9 @@ it.each(["response", "throw"])(
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
       "q-help",
     );
-    expect(useDesktopPreviewStore.getState().submittedHelpRequestId).toBe(
-      "q-help",
-    );
+    expect(
+      useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"],
+    ).toBe("q-help");
     throwByRequestId.clear();
     submitQuestionResult = { ok: true };
     await handleQuestionResponse([
@@ -178,6 +178,9 @@ it.each(["response", "throw"])(
     ]);
     expect(submitCalls).toHaveLength(2);
     expect(useInteractionStore.getState().pendingQuestion).toBeNull();
+    expect(
+      useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"],
+    ).toBeUndefined();
   },
 );
 

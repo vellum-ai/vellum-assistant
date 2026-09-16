@@ -105,7 +105,7 @@ beforeEach(() => {
   useDesktopPreviewStore.setState({
     position: null,
     width: 320,
-    submittedHelpRequestId: null,
+    submittedHelpRequests: {},
   });
   panelUnmounts = 0;
   desktopEnabled = true;
@@ -821,7 +821,7 @@ test("submitted help stays read-only after a failed response and reopening", asy
     expect(panel.getAttribute("data-view-only")).toBe("false");
     act(() => {
       useInteractionStore.getState().claimSubmission("question", "req-help");
-      useDesktopPreviewStore.getState().markHelpSubmitted("req-help");
+      useDesktopPreviewStore.getState().markHelpSubmitted("asst-1", "req-help");
     });
     expect(panel.getAttribute("data-view-only")).toBe("true");
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
@@ -846,6 +846,24 @@ test("submitted help stays read-only after a failed response and reopening", asy
         "data-view-only",
       ),
     ).toBe("true");
+    act(() => useInteractionStore.getState().resetAll());
+    await waitFor(() =>
+      expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+    );
+    act(() => useDesktopPreviewStore.getState().openFullscreen("asst-1"));
+    const reopened = await screen.findByTestId("desktop-panel");
+    expect(reopened.getAttribute("data-view-only")).toBe("true");
+    act(() =>
+      useDesktopPreviewStore.getState().resolveHelpSubmission("unrelated"),
+    );
+    expect(reopened.getAttribute("data-view-only")).toBe("true");
+    act(() =>
+      useDesktopPreviewStore.getState().resolveHelpSubmission("req-help"),
+    );
+    expect(reopened.getAttribute("data-view-only")).toBe("true");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    act(() => useDesktopPreviewStore.getState().openFullscreen("asst-1"));
+    expect(reopened.getAttribute("data-view-only")).toBe("false");
   } finally {
     act(() => {
       useInteractionStore.getState().releaseSubmission("question", "req-help");

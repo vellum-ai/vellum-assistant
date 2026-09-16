@@ -4,13 +4,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { PreviewModalHeader } from "@/domains/chat/components/preview-modal-header";
-import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTranslation } from "@/i18n";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import { cn } from "@/utils/misc";
 
 import { DesktopPanel } from "./desktop-panel";
-import { getDesktopHelpEntry } from "./desktop-help";
 import { useDesktopPreviewStore } from "./desktop-preview-store";
 
 interface DesktopPreviewContentProps {
@@ -28,12 +26,9 @@ export function DesktopPreviewContent({
 }: DesktopPreviewContentProps) {
   const { t } = useTranslation("chat");
   const isPresent = useIsPresent();
-  const question = useInteractionStore.use.pendingQuestion();
-  const submittedHelpRequestId =
-    useDesktopPreviewStore.use.submittedHelpRequestId();
-  const helpInputLocked =
-    !!getDesktopHelpEntry(question) &&
-    submittedHelpRequestId === question?.requestId;
+  const helpInputLocked = useDesktopPreviewStore(
+    (state) => !!state.submittedHelpRequests[assistantId],
+  );
   const modalOpen = fullscreen && isPresent;
   const interactive = modalOpen && !helpInputLocked;
   const previewRef = useRef<HTMLDivElement>(null);

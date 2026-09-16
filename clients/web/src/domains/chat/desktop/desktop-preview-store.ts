@@ -6,13 +6,14 @@ interface DesktopPreviewState {
   inlinePreview: { assistantId: string; container: HTMLDivElement } | null;
   session: { assistantId: string; view: "preview" | "fullscreen" } | null;
   sessionBeforeHelp: DesktopPreviewState["session"];
-  submittedHelpRequestId: string | null;
+  submittedHelpRequests: Record<string, string>;
   position: { x: number; y: number } | null;
   width: number;
 }
 
 interface DesktopPreviewActions {
-  markHelpSubmitted: (requestId: string) => void;
+  markHelpSubmitted: (assistantId: string, requestId: string) => void;
+  resolveHelpSubmission: (requestId: string) => void;
   setInlinePreview: (preview: DesktopPreviewState["inlinePreview"]) => void;
   openFullscreen: (assistantId: string) => void;
   openPreview: (assistantId: string) => void;
@@ -27,9 +28,27 @@ export const useDesktopPreviewStore = createSelectors(
   create<DesktopPreviewState & DesktopPreviewActions>()((set) => ({
     inlinePreview: null,
     sessionBeforeHelp: null,
-    submittedHelpRequestId: null,
-    markHelpSubmitted: (submittedHelpRequestId) =>
-      set({ submittedHelpRequestId }),
+    submittedHelpRequests: {},
+    markHelpSubmitted: (assistantId, requestId) =>
+      set((state) => ({
+        submittedHelpRequests: {
+          ...state.submittedHelpRequests,
+          [assistantId]: requestId,
+        },
+      })),
+    resolveHelpSubmission: (requestId) =>
+      set((state) => ({
+        submittedHelpRequests: Object.fromEntries(
+          Object.entries(state.submittedHelpRequests).filter(
+            ([, id]) => id !== requestId,
+          ),
+        ),
+        session:
+          state.session &&
+          state.submittedHelpRequests[state.session.assistantId] === requestId
+            ? { ...state.session, view: "preview" }
+            : state.session,
+      })),
     setInlinePreview: (inlinePreview) =>
       set((state) => {
         if (inlinePreview) {

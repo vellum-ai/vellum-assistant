@@ -8,6 +8,7 @@ import type { AssistantState } from "@/assistant/types";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { decideGraduationDispatches } from "@/domains/chat/hooks/attention-tracking-utils";
 import { reconcileAttentionKeys } from "@/domains/chat/utils/reconcile-attention-keys";
+import { useDesktopPreviewStore } from "@/domains/chat/desktop/desktop-preview-store";
 
 import { useActiveConversation } from "./use-active-conversation";
 import { useMarkSeenOnOpen } from "./use-mark-seen-on-open";
@@ -199,6 +200,9 @@ export function useAttentionTracking({
     const event = envelope.message;
     if (event.type !== "interaction_resolved") {
       return;
+    }
+    if (event.kind === "question") {
+      useDesktopPreviewStore.getState().resolveHelpSubmission(event.requestId);
     }
     if (!USER_FACING_INTERACTION_KINDS.has(event.kind)) {
       return;
