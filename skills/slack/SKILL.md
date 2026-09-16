@@ -72,8 +72,6 @@ Two commands reach the Slack Web API, and both send the token from inside the as
 
 These two commands are the only way to call the Slack Web API. Never fetch a Slack token yourself (`assistant credentials reveal`, an environment variable, a pasted value) and never call `slack.com/api` with `curl` or any other HTTP client: a token that reaches a shell command line is written into the transcript and the tool log, where no redaction applies. The doors send the token from inside the assistant and never show it to you.
 
-Do not capture a door's output with command substitution or a pipe: the process can stay alive after the body is written, so `$(...)` waits forever. Read the output in the tool result, or write it to a file with `-o` and read the file.
-
 The examples below use `assistant oauth request --provider slack_channel`, the bot door under its provider name, since reading a channel the bot has joined is what it is for; `assistant channels request slack` makes the same call. See [Which provider to pass](#which-provider-to-pass) before reaching for one on a workspace that has no bot, or for `search.messages`.
 
 General pattern:
