@@ -226,7 +226,7 @@ The unified messaging layer provides platform-agnostic tools (`messaging_send`, 
 
 **Channel sends go through the channel's transport.** `messaging_send` posts to a Slack, Telegram, Discord, or WhatsApp chat through the same transport that delivers a reply, and `POST /v1/channels/send` exposes the same daemon function for the CLI and for scripts, so a post is threaded, rendered, and recorded in the chat's conversation once the channel acknowledges it. Reading, searching, reactions, and file upload on Slack stay on the Slack Web API, which the `slack` skill reaches through `assistant oauth request`; the provider injects the bot token and the model never sees it.
 
-Connect Gmail via the Settings UI (Integrations) or `assistant oauth connect google`. OAuth2 tokens are stored in the credential vault; the LLM never sees raw tokens. Slack connects via Socket Mode using a bot token and app-level token — see the `slack-app-setup` skill. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions.
+Connect Gmail via the Settings UI (Integrations) or `assistant oauth connect google`. OAuth2 tokens are stored in the credential vault; the LLM never sees raw tokens. Slack connects via Socket Mode using a bot token and app-level token: see the `slack-app-setup` skill. Telegram uses a bot token (not OAuth): see the `telegram-setup` skill for setup instructions.
 
 ### Dynamic Skill Authoring
 
