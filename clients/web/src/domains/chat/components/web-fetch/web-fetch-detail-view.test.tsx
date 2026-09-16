@@ -1,5 +1,5 @@
 /**
- * Tests for `WebFetchDetailView` and its `parseWebFetchResult` parser — the
+ * Tests for `WebFetchDetailView` and its `parseWebFetchResult` parser, the
  * nested detail shown when a subagent `web_fetch` pill is clicked. Covers
  * header parsing (url/status/notices), `<external_content>` stripping, the
  * source card + notices + content render, the "View raw" toggle, and the
@@ -160,7 +160,7 @@ describe("WebFetchDetailView", () => {
 
   test("'View raw' toggles to the unparsed result", () => {
     const { getByText, queryByTestId, container } = renderView(payload({}));
-    // Parsed view first — the raw HTTP header is hidden.
+    // Parsed view first: the raw HTTP header is hidden.
     expect(queryByTestId("markdown")).not.toBeNull();
 
     fireEvent.click(getByText("View raw"));
