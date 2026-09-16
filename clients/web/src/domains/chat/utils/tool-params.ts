@@ -4,6 +4,8 @@
  * but a value nested too deep to lay out has to be shown as JSON.
  */
 
+import { ACTIVITY_KEY } from "@/domains/chat/utils/tool-input";
+
 /** Nesting depth at which an object or array is shown as JSON instead. */
 const MAX_DEPTH = 4;
 
@@ -97,7 +99,7 @@ export function toolCallParams(
 ): ToolParamEntry[] {
   return toToolParams(
     Object.fromEntries(
-      Object.entries(input).filter(([key]) => key !== "activity"),
+      Object.entries(input).filter(([key]) => key !== ACTIVITY_KEY),
     ),
   );
 }
