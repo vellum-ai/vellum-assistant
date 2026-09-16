@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  ACTIVITY_KEYS,
   COMMAND_KEYS,
   FILE_PATH_KEYS,
   readToolInputString,
@@ -26,9 +25,6 @@ describe("readToolInputString", () => {
     expect(
       readToolInputString({ command: "", cmd: "ls" }, ...COMMAND_KEYS),
     ).toBe("ls");
-    expect(
-      readToolInputString({ activity: "   ", reason: "why" }, ...ACTIVITY_KEYS),
-    ).toBe("why");
   });
 
   test("skips a non-string earlier key rather than stopping at it", () => {

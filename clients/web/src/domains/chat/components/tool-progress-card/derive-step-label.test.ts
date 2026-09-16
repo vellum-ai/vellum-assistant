@@ -235,17 +235,17 @@ describe("deriveStepLabel", () => {
     );
   });
 
-  test("skill_load falls back to input.reason when activity is absent", () => {
+  test("a tool's own reason argument is not read as its status", () => {
     const result = deriveStepLabel(
       buildToolCall({
-        name: "skill_load",
-        input: { name: "deep-research", reason: "Loading research playbook" },
+        name: "app_control_stop",
+        input: { reason: "Task complete" },
       }),
     );
-    expect(result.activity).toBe("Loading research playbook");
+    expect(result.activity).toBe("");
   });
 
-  test("no activity or reason → activity is the empty string", () => {
+  test("no activity → activity is the empty string", () => {
     const result = deriveStepLabel(
       buildToolCall({
         name: "bash",
