@@ -15,8 +15,9 @@ import type { TelegramDropReason } from "./normalize.js";
  *
  * `bot_not_mentioned` is a person making a room remark that does not address
  * the bot. It is not a fault, but it is evidence that events reach the
- * gateway at all, which is the fact a person debugging a quiet group needs
- * (LUM-3623). `chat_not_supported` and `bot_identity_unknown` are the two a
+ * gateway at all, which is the fact a person debugging a quiet group needs,
+ * and this line is the only place that records it, since Telegram sees a 200
+ * either way. `chat_not_supported` and `bot_identity_unknown` are the two a
  * person or operator can act on. The malformed-shape reasons promote because
  * a well-formed Bot API update never produces them, so any occurrence is
  * worth a look.

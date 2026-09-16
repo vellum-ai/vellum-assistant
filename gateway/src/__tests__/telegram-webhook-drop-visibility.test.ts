@@ -15,9 +15,8 @@ import "./test-preload.js";
  * gateway stream is built at `level: "info"`, so a `debug` line reaches no
  * sink, and a spy would record a call no configured stream ever writes.
  *
- * This is the LUM-3623 shape. A group message the bot could not act on used
- * to be acknowledged with a 200 and nothing else, so from Telegram's side and
- * the operator's it looked like it was never sent.
+ * A dropped update is acknowledged with a 200, so Telegram reports nothing
+ * pending and no error; the log line is the only place the drop exists.
  *
  * `initLogger` sets module-global logger state, so this file keeps to itself.
  */
@@ -101,9 +100,12 @@ function makeConfig(): GatewayConfig {
 function makeCaches() {
   const credentials = {
     get: async (key: string) => {
-      if (key === credentialKey("telegram", "webhook_secret")) return SECRET;
-      if (key === credentialKey("telegram", "bot_token"))
+      if (key === credentialKey("telegram", "webhook_secret")) {
+        return SECRET;
+      }
+      if (key === credentialKey("telegram", "bot_token")) {
         return "123456789:test-secret";
+      }
       return undefined;
     },
     invalidate: () => {},
