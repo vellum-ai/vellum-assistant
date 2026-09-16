@@ -27,6 +27,7 @@ import { PRICING_DOCS_URL } from "@/domains/settings/billing/plans/docs-links";
 import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
+import { PAGE_BACKGROUND } from "@/domains/settings/billing/plans/plans-canvas";
 import { getPlanTierCopy } from "@/domains/settings/billing/plans/plans-copy";
 import { Trans, useTranslation } from "@/i18n";
 import {
@@ -79,10 +80,6 @@ import { PACKAGE_PARAM, routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
-
-// Near-black takeover canvas. No surface token holds this value — the darkest
-// dark-theme surface is `--surface-base` (#17191C) — so the raw hex stands.
-const PAGE_BACKGROUND = "#0A0A0B";
 
 // How long the `?package=` deep link waits for its forced re-read of the
 // billing data before deciding on whatever the cache already holds.
