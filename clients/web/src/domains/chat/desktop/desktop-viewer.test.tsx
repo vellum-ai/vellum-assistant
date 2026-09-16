@@ -217,7 +217,7 @@ describe("DesktopViewer", () => {
     expect(status()).toBeNull();
   });
 
-  test("4013 says another viewer has the desktop, with no reconnect", async () => {
+  test("4013 allows reconnecting after another window releases the desktop", async () => {
     await mountPanel();
 
     act(() => socket().serverClose(4013));
@@ -226,7 +226,11 @@ describe("DesktopViewer", () => {
     expect(
       screen.getByText("The virtual desktop is in use by another viewer."),
     ).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    await flush();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    act(() => rfb().emit("connect"));
+    expect(status()).toBeNull();
   });
 
   test("4008 says the assistant has no desktop, with no reconnect", async () => {

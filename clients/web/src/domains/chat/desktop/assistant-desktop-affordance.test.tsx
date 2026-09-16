@@ -9,12 +9,18 @@ import {
 } from "@testing-library/react";
 import { useEffect, useState } from "react";
 
+import { publish } from "@/lib/event-bus";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 let desktopEnabled: boolean | undefined = true;
 let assistantId = "asst-1";
 let touch = false;
 let platformHosted = true;
+let attended = true;
+
+mock.module("@/runtime/window-attention", () => ({
+  isWindowAttended: () => attended,
+}));
 
 mock.module("@/hooks/use-platform-gate", () => ({
   useActiveAssistantIsPlatformHosted: () => platformHosted,
@@ -84,6 +90,7 @@ const openDesktop = async () => {
 beforeEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
   touch = false;
+  attended = true;
   platformHosted = true;
   useDesktopPreviewStore.setState({ position: null });
   panelUnmounts = 0;
@@ -468,4 +475,28 @@ test("moving an open desktop into a help card preserves the live connection", as
   expect(screen.getByTestId("desktop-panel")).toBe(panel);
   expect(panelUnmounts).toBe(0);
   expect(panel.getAttribute("data-view-only")).toBe("false");
+});
+
+test("desktop help releases its viewer when another app window takes focus", async () => {
+  attended = false;
+  render(
+    <>
+      <DesktopHelpCard
+        entry={helpEntry}
+        isSubmitting={false}
+        onSubmit={() => {}}
+      />
+      <AssistantDesktopPreview />
+    </>,
+  );
+  expect(screen.queryByTestId("desktop-panel")).toBeNull();
+  act(() => publish("app.attention", { attended: true }));
+  await screen.findByTestId("desktop-panel");
+  act(() => publish("app.attention", { attended: false }));
+  expect(screen.queryByTestId("desktop-panel")).toBeNull();
+  expect(panelUnmounts).toBe(1);
+  act(() => publish("app.attention", { attended: true }));
+  await screen.findByTestId("desktop-panel");
+  fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
 });

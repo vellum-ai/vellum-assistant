@@ -93,7 +93,7 @@ export const askQuestionInputSchema = z
           .describe("The label for Skip in the user's language."),
       })
       .describe(
-        "Request human interaction in the virtual desktop, such as a CAPTCHA, sign-in or native dialog. Explain what the user should do. Shows a live preview with Step In, Done and Skip. Pass this instead of questions.",
+        "Request human interaction in the virtual desktop, such as a CAPTCHA or native dialog. For logins, use saved credentials or securely prompt for missing credentials first. Explain what the user should do. Shows a live preview with Step In, Done and Skip. Pass this instead of questions.",
       )
       .optional(),
     questions: z
@@ -117,9 +117,12 @@ export type AskQuestionInput = z.infer<typeof askQuestionInputSchema>;
 // ── Tool description ────────────────────────────────────────────────
 
 const DESCRIPTION = [
-  "When virtual desktop browsing needs human interaction (CAPTCHA, sign-in,",
-  "or a native dialog), call this tool with desktopHelp explaining the task",
+  "When virtual desktop browsing needs human interaction (a CAPTCHA or",
+  "native dialog), call this tool with desktopHelp explaining the task",
   "instead of questions. It releases browser control and waits for Done or Skip.",
+  "For logins, use saved credentials first. Securely collect missing credentials",
+  "with assistant credentials prompt, then fill the login form yourself.",
+  "Use desktopHelp only for steps that require the user to interact directly.",
   "After Done, inspect a fresh browser snapshot before continuing. Skip does",
   "not mean the obstacle was resolved; use another approach or explain the blocker.",
   "",

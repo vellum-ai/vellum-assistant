@@ -25,6 +25,7 @@ const END_REASON_KEY = {
 const RETRYABLE_END_REASONS: ReadonlySet<DesktopEndReason> = new Set([
   "failed",
   "lost",
+  "busy",
 ]);
 
 const VIEWPORT_MODES = [
