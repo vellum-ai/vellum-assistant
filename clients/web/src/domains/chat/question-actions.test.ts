@@ -148,7 +148,8 @@ it.each(["response", "throw"])(
     });
     onSubmit = () => {
       expect(
-        useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"],
+        useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"]
+          ?.requestId,
       ).toBe("q-help");
     };
     if (failure === "throw") {
@@ -169,7 +170,8 @@ it.each(["response", "throw"])(
       "q-help",
     );
     expect(
-      useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"],
+      useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"]
+        ?.requestId,
     ).toBe("q-help");
     throwByRequestId.clear();
     submitQuestionResult = { ok: true };
@@ -179,7 +181,8 @@ it.each(["response", "throw"])(
     expect(submitCalls).toHaveLength(2);
     expect(useInteractionStore.getState().pendingQuestion).toBeNull();
     expect(
-      useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"],
+      useDesktopPreviewStore.getState().submittedHelpRequests["ast-1"]
+        ?.requestId,
     ).toBeUndefined();
   },
 );

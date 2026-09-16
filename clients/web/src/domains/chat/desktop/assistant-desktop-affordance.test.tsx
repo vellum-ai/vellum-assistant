@@ -821,7 +821,9 @@ test("submitted help stays read-only after a failed response and reopening", asy
     expect(panel.getAttribute("data-view-only")).toBe("false");
     act(() => {
       useInteractionStore.getState().claimSubmission("question", "req-help");
-      useDesktopPreviewStore.getState().markHelpSubmitted("asst-1", "req-help");
+      useDesktopPreviewStore
+        .getState()
+        .markHelpSubmitted("asst-1", "req-help", "conv-help");
     });
     expect(panel.getAttribute("data-view-only")).toBe("true");
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(

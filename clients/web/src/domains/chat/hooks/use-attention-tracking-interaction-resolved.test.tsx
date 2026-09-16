@@ -56,6 +56,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 
 mock.module("@/domains/chat/api/interactions", () => ({
   listConversationIdsWithPendingInteractions: async () => new Set<string>(),
+  getPendingInteractions: async () => ({}),
 }));
 
 const { useAttentionTracking } =
@@ -115,8 +116,12 @@ afterEach(() => {
 
 describe("useAttentionTracking — interaction_resolved subscriber", () => {
   test("a background question resolution unlocks only its assistant and exits interactive mode", () => {
-    useDesktopPreviewStore.getState().markHelpSubmitted("asst-1", "req-help");
-    useDesktopPreviewStore.getState().markHelpSubmitted("asst-2", "req-other");
+    useDesktopPreviewStore
+      .getState()
+      .markHelpSubmitted("asst-1", "req-help", "conv-help");
+    useDesktopPreviewStore
+      .getState()
+      .markHelpSubmitted("asst-2", "req-other", "conv-other");
     useDesktopPreviewStore.getState().openFullscreen("asst-1");
     renderHook(
       () =>
@@ -134,7 +139,7 @@ describe("useAttentionTracking — interaction_resolved subscriber", () => {
       kind: "question",
     });
     expect(useDesktopPreviewStore.getState().submittedHelpRequests).toEqual({
-      "asst-2": "req-other",
+      "asst-2": { requestId: "req-other", conversationId: "conv-other" },
     });
     expect(useDesktopPreviewStore.getState().session).toEqual({
       assistantId: "asst-1",

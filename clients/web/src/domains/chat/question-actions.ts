@@ -96,7 +96,11 @@ export async function handleQuestionResponse(
   if (getDesktopHelpEntry(snapshot)) {
     useDesktopPreviewStore
       .getState()
-      .markHelpSubmitted(ctx.assistantId, snapshot.requestId);
+      .markHelpSubmitted(
+        ctx.assistantId,
+        snapshot.requestId,
+        ctx.conversationId,
+      );
   }
 
   try {
