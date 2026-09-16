@@ -17,9 +17,11 @@ let assistantId = "asst-1";
 let touch = false;
 let platformHosted = true;
 let attended = true;
+let attentionSupported = true;
 
 mock.module("@/runtime/window-attention", () => ({
   isWindowAttended: () => attended,
+  supportsWindowAttention: () => attentionSupported,
 }));
 
 mock.module("@/hooks/use-platform-gate", () => ({
@@ -91,6 +93,7 @@ beforeEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
   touch = false;
   attended = true;
+  attentionSupported = true;
   platformHosted = true;
   useDesktopPreviewStore.setState({ position: null });
   panelUnmounts = 0;
@@ -498,5 +501,15 @@ test("desktop help releases its viewer when another app window takes focus", asy
   act(() => publish("app.attention", { attended: true }));
   await screen.findByTestId("desktop-panel");
   fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+});
+
+test("older desktop shells can still open a viewer without window attention", async () => {
+  attended = false;
+  attentionSupported = false;
+  await openDesktop();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Expand virtual desktop" }),
+  );
   expect(screen.getByRole("dialog")).toBeTruthy();
 });

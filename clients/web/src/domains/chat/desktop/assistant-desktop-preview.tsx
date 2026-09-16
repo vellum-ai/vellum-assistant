@@ -3,7 +3,10 @@ import { lazy, useEffect, useState } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { isWindowAttended } from "@/runtime/window-attention";
+import {
+  isWindowAttended,
+  supportsWindowAttention,
+} from "@/runtime/window-attention";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { usePointerCoarse } from "@/utils/pointer";
 
@@ -23,7 +26,9 @@ export function AssistantDesktopPreview() {
   const session = useDesktopPreviewStore.use.session();
   const inlinePreview = useDesktopPreviewStore.use.inlinePreview();
   const fullscreenOnly = usePointerCoarse();
-  const [attended, setAttended] = useState(isWindowAttended);
+  const [attended, setAttended] = useState(
+    () => !supportsWindowAttention() || isWindowAttended(),
+  );
   useBusSubscription("app.attention", ({ attended }) => setAttended(attended));
 
   useEffect(() => {
