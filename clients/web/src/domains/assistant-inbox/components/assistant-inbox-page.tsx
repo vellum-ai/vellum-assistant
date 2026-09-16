@@ -169,12 +169,13 @@ export function AssistantInboxPage({
           >
             <div className="border-b border-[var(--border-subtle)] px-4 py-3">
               <Input
-                type="search"
+                type="text"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={t("assistantInboxPage.searchPlaceholder")}
                 aria-label={t("assistantInboxPage.searchAriaLabel")}
-                leftIcon={<Search aria-hidden="true" />}
+                leftIcon={<Search className="h-3.5 w-3.5" aria-hidden />}
+                fullWidth
               />
             </div>
             {emails.length === 0 ? (

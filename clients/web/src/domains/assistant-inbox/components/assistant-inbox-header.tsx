@@ -56,11 +56,6 @@ export function AssistantInboxHeader({
   });
 
   const wash = accentHex ? panelItemWashStyle(accentHex) : null;
-  const headerWash: CSSProperties | undefined = accentHex
-    ? {
-        background: `linear-gradient(to bottom, color-mix(in oklab, ${accentHex} 16%, transparent), transparent)`,
-      }
-    : undefined;
   const pillStyle: CustomPropertyStyle | undefined = wash
     ? {
         "--panel-item-bg": wash["--panel-item-bg"],
@@ -77,7 +72,6 @@ export function AssistantInboxHeader({
     <header
       data-testid="assistant-inbox-header"
       className="flex flex-wrap items-start gap-4 px-6 pb-4 pt-6"
-      style={headerWash}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex flex-col gap-1">
