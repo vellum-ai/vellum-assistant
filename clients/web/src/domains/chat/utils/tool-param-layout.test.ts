@@ -74,10 +74,12 @@ describe("layoutToolParams", () => {
     });
   });
 
-  test("writes literals, empty lists and empty objects as-is", () => {
+  test("writes literals, empty strings, empty lists and empty objects visibly", () => {
     expect(
-      layout({ public: false, cursor: null, tags: [], options: {} }).fields,
+      layout({ title: "", public: false, cursor: null, tags: [], options: {} })
+        .fields,
     ).toEqual([
+      { kind: "text", label: "title", text: '""' },
       { kind: "text", label: "public", text: "false" },
       { kind: "text", label: "cursor", text: "null" },
       { kind: "text", label: "tags", text: "[]" },

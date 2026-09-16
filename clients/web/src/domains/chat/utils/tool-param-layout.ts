@@ -62,11 +62,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * The text of a value written as-is: a string, number, boolean or null, or an
- * empty list or object. `null` for anything with contents to lay out.
+ * empty list or object. `null` for anything with contents to lay out. An empty
+ * string is written as `""`, since a blank value reads as a missing one.
  */
 function scalarText(value: unknown): string | null {
   if (typeof value === "string") {
-    return value;
+    return value === "" ? '""' : value;
   }
   if (Array.isArray(value)) {
     return value.length === 0 ? "[]" : null;
