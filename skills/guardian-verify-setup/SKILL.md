@@ -80,6 +80,12 @@ Based on the chosen channel, ask for the required destination:
          echo "ERROR: the Slack bot is not configured or the request failed; fall back to manual entry"
          exit 1
        }
+       # Slack reports an application error as ok:false inside an HTTP 200,
+       # which the request door does not treat as a failure.
+       if [ "$(echo "$RESPONSE" | jq -r '.ok')" != "true" ]; then
+         echo "ERROR: Slack refused users.list ($(echo "$RESPONSE" | jq -r '.error // "unknown"')); fall back to manual entry"
+         exit 1
+       fi
        PAGE_MATCHES=$(echo "$RESPONSE" | jq --arg q "$USER_QUERY" '[.members[] | select(.deleted == false) | select(.profile.display_name == $q or .name == $q or .profile.display_name_normalized == $q or .real_name == $q) | {id: .id, name: .name, display_name: .profile.display_name, real_name: .real_name}]')
        MATCHES=$(echo "$MATCHES $PAGE_MATCHES" | jq -s 'add')
        CURSOR=$(echo "$RESPONSE" | jq -r '.response_metadata.next_cursor // empty')
@@ -96,8 +102,7 @@ Based on the chosen channel, ask for the required destination:
      - **No matches**: Tell the user no matches were found. Suggest they double-check the spelling, or fall back to manual entry (see below).
 
   2. **Fallback to manual entry** if any of the following occur:
-     - The `BOT_TOKEN` retrieval fails (the bash block above exits 1 with the "bot_token not found" error)
-     - The `users.list` API call fails or returns an error
+     - The bash block above exits 1: the Slack bot is not configured, the request door refused the call, or Slack answered `users.list` with an error such as `missing_scope`
      - Too many matches are returned (more than 5)
      - The user prefers to enter their ID directly
 
