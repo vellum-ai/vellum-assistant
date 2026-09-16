@@ -44,13 +44,9 @@ export function validateManagedSkillId(id: string): string | null {
 
 // ─── Path helpers ────────────────────────────────────────────────────────────
 
-function getManagedSkillsDir(): string {
-  return getWorkspaceSkillsDir();
-}
-
 /** Absolute path of a managed skill's directory (whether or not it exists). */
 export function getManagedSkillDir(id: string): string {
-  return join(getManagedSkillsDir(), id);
+  return join(getWorkspaceSkillsDir(), id);
 }
 
 interface ResolvedCompanionPath {

@@ -225,10 +225,6 @@ export interface SkillToolManifestMeta {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getSkillsDir(): string {
-  return getWorkspaceSkillsDir();
-}
-
 export function getBundledSkillsDir(): string {
   const dir = import.meta.dir;
 
@@ -1114,7 +1110,7 @@ export function loadSkillCatalog(
   }
 
   // Load managed (user) skills, which take precedence over bundled skills with the same ID
-  const skillsDir = getSkillsDir();
+  const skillsDir = getWorkspaceSkillsDir();
   const directories = discoverSkillDirectories(skillsDir);
 
   for (const directory of directories) {
@@ -1354,7 +1350,7 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   } else {
     loaded = readSkillFromDirectory(
       skill.directoryPath,
-      getSkillsDir(),
+      getWorkspaceSkillsDir(),
       skill.source,
     );
   }
