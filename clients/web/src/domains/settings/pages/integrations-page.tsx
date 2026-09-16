@@ -21,6 +21,7 @@ import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack
 import { oauthProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { usePlatformAssistantId } from "@/hooks/use-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
+import { usePluginsList } from "@/hooks/use-plugins-list";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -28,6 +29,7 @@ import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 import { IntegrationDetailModal } from "../components/integration-detail-modal";
+import { IntegrationMethodsModal } from "../components/integration-methods-modal";
 import { IntegrationRow } from "../components/integration-row";
 import {
   buildIntegrationItems,
@@ -35,7 +37,9 @@ import {
   type IntegrationItem,
 } from "../integration-items";
 import { McpConnectionDialogs } from "../mcp/mcp-connection-dialogs";
+import { buildMcpPluginDefinitions } from "../mcp/mcp-plugin-definitions";
 import { McpServerCard } from "../mcp/mcp-server-card";
+import { PluginIntegrationRow } from "../mcp/plugin-integration-row";
 import { useMcpConnections } from "../mcp/use-mcp-connections";
 
 type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
@@ -97,8 +101,10 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
   const [selectedProviderKey, setSelectedProviderKey] = useState<string | null>(
     providerParam,
   );
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const previousProviderParam = useRef(providerParam);
   const mcp = useMcpConnections(mcpAssistantId);
+  const plugins = usePluginsList(mcpAssistantId);
 
   useEffect(() => {
     let active = true;
@@ -199,8 +205,22 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
         oauthReady ? (providers.data ?? []) : [],
         oauthReady ? (connections.data ?? []) : [],
         mcp.list.data?.servers ?? [],
+        !plugins.installedLoaded
+          ? []
+          : buildMcpPluginDefinitions(
+              plugins.catalogMatches,
+              plugins.installedPlugins,
+            ),
       ),
-    [oauthReady, providers.data, connections.data, mcp.list.data],
+    [
+      oauthReady,
+      providers.data,
+      connections.data,
+      mcp.list.data,
+      plugins.installedLoaded,
+      plugins.catalogMatches,
+      plugins.installedPlugins,
+    ],
   );
   const items = useMemo(
     () => filterIntegrationItems(allItems, searchText),
@@ -211,12 +231,14 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
   const selectedProvider = providers.data?.find(
     (provider) => provider.provider_key === selectedProviderKey,
   );
+  const selectedItem = allItems.find((item) => item.id === selectedItemId);
   const loading =
     assistantLoading ||
     providers.isLoading ||
     connections.isLoading ||
     platformAssistantIdLoading ||
-    mcp.list.isLoading;
+    mcp.list.isLoading ||
+    ((plugins.isLoading || plugins.catalogLoading) && allItems.length === 0);
   const authBusy = mcp.auth.isBusy;
 
   const addCustom = () => {
@@ -238,14 +260,30 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
           description={item.provider.description}
           logoUrl={item.provider.logo_url}
           connections={item.connections}
+          mcpMethods={item.methods}
           disabled={
             assistantLoading ||
             !assistant ||
             (platformGate === "full" && !platformAssistantId)
           }
-          onConfigure={() =>
-            setSelectedProviderKey(item.provider.provider_key)
-          }
+          onConfigure={() => {
+            if (item.methods.length > 0) {
+              setSelectedItemId(item.id);
+            } else {
+              setSelectedProviderKey(item.provider.provider_key);
+            }
+          }}
+        />
+      );
+    }
+    if (item.kind === "plugin") {
+      return (
+        <PluginIntegrationRow
+          key={item.id}
+          assistantId={mcpAssistantId}
+          method={item.method}
+          disabled={authBusy}
+          onOpen={() => setSelectedItemId(item.id)}
         />
       );
     }
@@ -310,6 +348,11 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
           {t("integrationsPage.mcpUnavailable")}
         </Notice>
       ) : null}
+      {plugins.catalogError || plugins.isError ? (
+        <Notice tone="warning">
+          {t("integrationsPage.pluginCatalogUnavailable")}
+        </Notice>
+      ) : null}
       <McpConnectionDialogs connections={mcp} allowAdd={allowAdd} />
 
       {loading ? (
@@ -365,6 +408,23 @@ function IntegrationsPanelInner({ mcpAssistantId }: { mcpAssistantId: string }) 
           platformGate={platformGate}
           tenantHost={selectedProvider.tenant_host}
           onClose={closeProvider}
+        />
+      ) : null}
+      {selectedItem && selectedItem.kind !== "mcp" ? (
+        <IntegrationMethodsModal
+          assistantId={mcpAssistantId}
+          item={selectedItem}
+          connections={mcp}
+          oauthDisabled={
+            assistantLoading ||
+            !assistant ||
+            (platformGate === "full" && !platformAssistantId)
+          }
+          onOAuth={(providerKey) => {
+            setSelectedItemId(null);
+            setSelectedProviderKey(providerKey);
+          }}
+          onClose={() => setSelectedItemId(null)}
         />
       ) : null}
     </div>

@@ -12,7 +12,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon.js";
+import { PluginIcon } from "@/components/plugins/plugin-icon.js";
 
 afterEach(() => {
   cleanup();

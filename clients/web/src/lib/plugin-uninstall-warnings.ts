@@ -1,5 +1,6 @@
-import type { TFunction } from "@/i18n";
 import { toast } from "@vellumai/design-library";
+
+import type { TFunction } from "@/i18n";
 
 const MCP_OAUTH_CREDENTIALS_UNCHECKED =
   "plugin.uninstall.mcp_oauth_credentials_unchecked";

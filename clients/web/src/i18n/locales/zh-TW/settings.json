@@ -893,6 +893,23 @@
     "connectedAccounts": "{count, plural, other {# 個已連線帳號}}",
     "needsAttention": "需要處理"
   },
+  "pluginIntegration": {
+    "actionFailed": "無法更新外掛程式。請再試一次。",
+    "chooseMethod": "選擇連接此整合的方式。",
+    "findingServers": "外掛程式已安裝。正在尋找其 MCP 伺服器...",
+    "install": "安裝外掛程式",
+    "installing": "正在安裝...",
+    "localServer": "本機 MCP 伺服器",
+    "noServers": "外掛程式已安裝，但未提供任何 MCP 伺服器。",
+    "openDocumentation": "開啟設定指南",
+    "providerAccount": "{name} 帳戶",
+    "remoteServer": "遠端 MCP 伺服器",
+    "serverLoadFailed": "外掛程式已安裝，但無法載入其 MCP 伺服器。",
+    "removeMessage": "移除 {name}？這會移除該外掛程式、其技能以及全部 {count} 個 MCP 伺服器。",
+    "removePlugin": "移除外掛程式",
+    "removeTitle": "移除 {name}？",
+    "setUp": "設定"
+  },
   "integrationsPage": {
     "accountConnectedToast": "{providerLabel} 帳號已成功連線。",
     "accountConnectedToastGeneric": "帳號已成功連線。",
@@ -909,6 +926,7 @@
     "oauthErrorStateExpired": "授權已過期。請再試一次。",
     "oauthErrorStateInvalid": "授權狀態無效。請再試一次。",
     "oauthUnavailable": "部分 OAuth 整合無法載入。MCP 連線仍然可用。",
+    "pluginCatalogUnavailable": "無法載入外掛程式整合。現有整合仍然可用。",
     "searchAriaLabel": "搜尋整合",
     "searchPlaceholder": "搜尋整合",
     "sectionAvailable": "可用",

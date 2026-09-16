@@ -879,6 +879,23 @@
     "connectedAccounts": "{count, plural, one {# подключённый аккаунт} few {# подключённых аккаунта} many {# подключённых аккаунтов} other {# подключённого аккаунта}}",
     "needsAttention": "Требует внимания"
   },
+  "pluginIntegration": {
+    "actionFailed": "Не удалось обновить плагин. Повторите попытку.",
+    "chooseMethod": "Выберите способ подключения интеграции.",
+    "findingServers": "Плагин установлен. Идет поиск его серверов MCP...",
+    "install": "Установить плагин",
+    "installing": "Установка...",
+    "localServer": "Локальный сервер MCP",
+    "noServers": "Плагин установлен, но не предоставил серверы MCP.",
+    "openDocumentation": "Открыть руководство по настройке",
+    "providerAccount": "Учетная запись {name}",
+    "remoteServer": "Удаленный сервер MCP",
+    "serverLoadFailed": "Плагин установлен, но не удалось загрузить его серверы MCP.",
+    "removeMessage": "Удалить {name}? Будут удалены плагин, его навыки и {count, plural, one {# сервер MCP} few {# сервера MCP} many {# серверов MCP} other {# сервера MCP}}.",
+    "removePlugin": "Удалить плагин",
+    "removeTitle": "Удалить {name}?",
+    "setUp": "Настроить"
+  },
   "integrationsPage": {
     "accountConnectedToast": "Аккаунт {providerLabel} успешно подключён.",
     "accountConnectedToastGeneric": "Аккаунт успешно подключён.",
@@ -895,6 +912,7 @@
     "oauthErrorStateExpired": "Авторизация истекла. Повторите попытку.",
     "oauthErrorStateInvalid": "Состояние авторизации было недействительным. Повторите попытку.",
     "oauthUnavailable": "Не удалось загрузить некоторые интеграции OAuth. Подключения MCP по-прежнему доступны.",
+    "pluginCatalogUnavailable": "Не удалось загрузить интеграции плагинов. Существующие интеграции по-прежнему доступны.",
     "searchAriaLabel": "Поиск интеграций",
     "searchPlaceholder": "Поиск интеграций",
     "sectionAvailable": "Доступные",

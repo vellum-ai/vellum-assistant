@@ -74,7 +74,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 }));
 
 const { usePluginsList } =
-  await import("@/domains/intelligence/plugins/use-plugins-list");
+  await import("@/hooks/use-plugins-list");
 
 function installed(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
   // `enabled` is omitted by default to model an older daemon that predates the
@@ -161,6 +161,7 @@ describe("usePluginsList", () => {
       "available",
     ]);
     expect(result.current.isError).toBe(false);
+    expect(result.current.installedLoaded).toBe(true);
     expect(result.current.catalogError).toBe(false);
   });
 
@@ -247,6 +248,7 @@ describe("usePluginsList", () => {
     const { result } = renderPluginsList();
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.installedLoaded).toBe(false);
   });
 
   test("catalog failure degrades to installed-only via catalogError", async () => {

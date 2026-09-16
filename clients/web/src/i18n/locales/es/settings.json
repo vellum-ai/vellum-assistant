@@ -893,6 +893,23 @@
     "connectedAccounts": "{count, plural, one {# cuenta conectada} other {# cuentas conectadas}}",
     "needsAttention": "Requiere atención"
   },
+  "pluginIntegration": {
+    "actionFailed": "No se pudo actualizar el plugin. Inténtalo de nuevo.",
+    "chooseMethod": "Elige cómo conectar esta integración.",
+    "findingServers": "El plugin está instalado. Buscando sus servidores MCP...",
+    "install": "Instalar plugin",
+    "installing": "Instalando...",
+    "localServer": "Servidor MCP local",
+    "noServers": "El plugin está instalado, pero no proporcionó ningún servidor MCP.",
+    "openDocumentation": "Abrir guía de configuración",
+    "providerAccount": "Cuenta de {name}",
+    "remoteServer": "Servidor MCP remoto",
+    "serverLoadFailed": "El plugin está instalado, pero no se pudieron cargar sus servidores MCP.",
+    "removeMessage": "¿Eliminar {name}? Esto elimina el plugin, sus skills y {count, plural, one {su # servidor MCP} other {sus # servidores MCP}}.",
+    "removePlugin": "Eliminar plugin",
+    "removeTitle": "¿Eliminar {name}?",
+    "setUp": "Configurar"
+  },
   "integrationsPage": {
     "accountConnectedToast": "Cuenta de {providerLabel} conectada correctamente.",
     "accountConnectedToastGeneric": "Cuenta conectada correctamente.",
@@ -909,6 +926,7 @@
     "oauthErrorStateExpired": "La autorización expiró. Inténtalo de nuevo.",
     "oauthErrorStateInvalid": "El estado de autorización no era válido. Inténtalo de nuevo.",
     "oauthUnavailable": "No se pudieron cargar algunas integraciones OAuth. Las conexiones MCP siguen disponibles.",
+    "pluginCatalogUnavailable": "No se pudieron cargar las integraciones de plugins. Tus integraciones existentes siguen disponibles.",
     "searchAriaLabel": "Buscar integraciones",
     "searchPlaceholder": "Buscar integraciones",
     "sectionAvailable": "Disponibles",

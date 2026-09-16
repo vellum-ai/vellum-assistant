@@ -5,11 +5,11 @@ import type {
   InstalledPlugin,
   PluginCatalogMatch,
   PluginListItem,
-} from "@/domains/intelligence/plugins/types";
+} from "@/lib/plugins/types";
 import {
   mergePlugins,
   sortPlugins,
-} from "@/domains/intelligence/plugins/utils";
+} from "@/lib/plugins/utils";
 import {
   pluginsGetQueryKey,
   pluginsSearchGetOptions,
@@ -45,6 +45,8 @@ export interface UsePluginsListResult {
   catalogLoading: boolean;
   /** Fatal: the installed list failed to load. Catalog failures degrade. */
   isError: boolean;
+  /** Whether the installed list has resolved at least once, including cached data. */
+  installedLoaded: boolean;
   /** True while either underlying query is fetching (incl. background). */
   isFetching: boolean;
   /**
@@ -315,6 +317,7 @@ export function usePluginsList(
     catalogLoading: catalogQuery.isLoading,
     // Only the installed failure is fatal; a catalog failure degrades.
     isError: installedQuery.isError,
+    installedLoaded: installedQuery.data !== undefined,
     isFetching: installedQuery.isFetching || catalogQuery.isFetching,
     catalogError: catalogQuery.isError,
     categorySupported,

@@ -4,14 +4,14 @@ import type {
   InstalledPlugin,
   PluginCatalogMatch,
   PluginListItem,
-} from "./types";
+} from "@/lib/plugins/types";
 import {
   filterByStatus,
   matchesQuery,
   mergePlugins,
   shortSha,
   sortPlugins,
-} from "./utils";
+} from "@/lib/plugins/utils";
 
 function installed(overrides: Partial<InstalledPlugin> = {}): InstalledPlugin {
   // `enabled` is omitted by default (older-daemon shape); the cast is needed

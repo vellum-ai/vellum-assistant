@@ -45,7 +45,7 @@ globalThis.URL.createObjectURL = createObjectURL;
 globalThis.URL.revokeObjectURL = revokeObjectURL;
 
 const { usePluginIconSrc } =
-  await import("@/domains/intelligence/plugins/use-plugin-icon-src");
+  await import("@/hooks/use-plugin-icon-src");
 
 function renderIconSrc(
   hasIcon: boolean | undefined,
