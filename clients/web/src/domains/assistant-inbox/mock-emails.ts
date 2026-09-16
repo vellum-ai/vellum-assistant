@@ -3,7 +3,7 @@
  *
  * Timestamps are relative to {@link MOCK_NOW} so the list draws the same
  * "today" times and "Sep 12" dates on every run. The set covers what the
- * real list will have to carry: an unread message, one with attachments, a
+ * real list will have to carry: a message with attachments, a
  * sender with no display name, a long subject, an outbound reply that
  * threads an inbound message, and an assistant-initiated send.
  */
@@ -40,7 +40,6 @@ export const MOCK_INBOX: InboxEmail[] = [
       "Hi Velly, this is a reminder that Tirman has a cleaning booked for Thursday...",
     body: "Hi Velly,\n\nThis is a reminder that Tirman has a cleaning booked for Thursday, September 18 at 9:30am with Dr. Patel.\n\nPlease reply to confirm, or let us know if you need to move it. We hold the slot until Wednesday noon.\n\nThanks,\nLakeside Dental",
     createdAt: at(0, 14, 5),
-    unread: true,
     attachments: [],
   },
   {
@@ -53,7 +52,6 @@ export const MOCK_INBOX: InboxEmail[] = [
       "Attaching the redlined contract and the pricing sheet. Can Tirman take a look before Friday?",
     body: "Hi Velly,\n\nAttaching the redlined contract and the updated pricing sheet. Can Tirman take a look before Friday? The main change is in section 4, where we moved to net-45 terms.\n\nHappy to jump on a call if anything is unclear.\n\nBest,\nMaya",
     createdAt: at(0, 9, 52),
-    unread: true,
     attachments: [
       {
         id: "att-1",
@@ -80,7 +78,6 @@ export const MOCK_INBOX: InboxEmail[] = [
       "Flight UA 512 will now depart from gate B24. Departure time is unchanged.",
     body: "Flight UA 512 on Monday, September 22 will now depart from gate B24 instead of B18.\n\nDeparture time is unchanged at 7:05am. Boarding begins at 6:30am.\n\nThis is an automated message.",
     createdAt: at(1, 18, 20),
-    unread: false,
     attachments: [],
   },
   {
@@ -93,7 +90,6 @@ export const MOCK_INBOX: InboxEmail[] = [
       "Saturday works. Somewhere in the Mission? I can book if you tell me a time.",
     body: "Saturday works! Somewhere in the Mission? I can book if you tell me a time.\n\nAlso, tell Tirman I still have his charger.\n\nSam",
     createdAt: at(2, 11, 8),
-    unread: false,
     attachments: [],
   },
   {
@@ -106,7 +102,6 @@ export const MOCK_INBOX: InboxEmail[] = [
       "A long read on why cities are quieter than they used to be, a short one on sourdough, and...",
     body: "A long read on why cities are quieter than they used to be, a short one on sourdough hydration, and an interview with the person who names paint colors.\n\nRead on the web if this looks wrong in your client.",
     createdAt: at(4, 7, 30),
-    unread: false,
     attachments: [],
   },
 ];
@@ -123,7 +118,6 @@ export const MOCK_SENT: InboxEmail[] = [
     snippet: "Confirmed, thank you. Tirman will be there Thursday at 9:30.",
     body: "Confirmed, thank you. Tirman will be there Thursday at 9:30.\n\nVelly\nAssistant to Tirman Sidhu",
     createdAt: at(0, 14, 12),
-    unread: false,
     attachments: [],
   },
   {
@@ -136,7 +130,6 @@ export const MOCK_SENT: InboxEmail[] = [
       "7:30 on Saturday works for Tirman. Foreign Cinema if they have a table?",
     body: "7:30 on Saturday works for Tirman. Foreign Cinema if they have a table? If not, anywhere on Valencia is fine.\n\nHe says thanks for holding on to the charger.\n\nVelly",
     createdAt: at(2, 11, 40),
-    unread: false,
     attachments: [],
   },
   {
@@ -149,7 +142,6 @@ export const MOCK_SENT: InboxEmail[] = [
       "Three meetings moved, one contract waiting on you, and the dentist is Thursday.",
     body: "Morning. Here is where the week stands.\n\nThree meetings moved: the design review is now Wednesday at 2, the 1:1 with Priya slid to Thursday, and Friday's planning is cancelled.\n\nMaya sent the Northwind contract. The only material change is net-45 terms in section 4. I flagged it in the doc.\n\nDentist is Thursday at 9:30. I confirmed it.\n\nVelly",
     createdAt: at(3, 8, 0),
-    unread: false,
     attachments: [
       {
         id: "att-3",

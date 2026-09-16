@@ -3,6 +3,7 @@
     "label": "Bandeja del asistente"
   },
   "assistantInboxHeader": {
+    "title": "Bandeja de {name}",
     "copyAddress": "Copiar dirección de correo",
     "copied": "Copiado",
     "copyFailed": "No se pudo copiar la dirección.",
@@ -12,17 +13,19 @@
   "assistantInboxPage": {
     "folderAriaLabel": "Carpeta de correo",
     "inboxTab": "Recibidos",
-    "inboxTabUnread": "Recibidos ({count})",
     "sentTab": "Enviados",
     "inboxEmptyTitle": "Todavía no hay nada",
     "inboxEmptyBody": "Comparte {address} y todo lo que llegue aparecerá aquí.",
     "sentEmptyTitle": "Aún no hay correos enviados",
     "sentEmptyBody": "Pídeme que escriba a alguien y guardaré una copia aquí.",
     "selectPrompt": "Elige un correo para leerlo.",
-    "backToList": "Volver a la lista"
+    "backToList": "Volver a la lista",
+    "searchPlaceholder": "Buscar correo",
+    "searchAriaLabel": "Buscar en esta carpeta",
+    "searchEmptyTitle": "Sin resultados",
+    "searchEmptyBody": "Nada en esta carpeta coincide con tu búsqueda."
   },
   "emailListRow": {
-    "unread": "No leído",
     "toPrefix": "Para {name}",
     "attachments": "{count, plural, one {# adjunto} other {# adjuntos}}"
   },

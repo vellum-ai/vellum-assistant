@@ -35,7 +35,6 @@ export interface InboxEmail {
   body: string;
   /** ISO 8601. */
   createdAt: string;
-  unread: boolean;
   attachments: EmailAttachment[];
 }
 

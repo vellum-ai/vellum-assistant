@@ -21,8 +21,8 @@ interface EmailListRowProps {
 
 /**
  * One message in the list. Inbound rows lead with who wrote; outbound rows
- * lead with who it went to, since the sender is always the assistant. Unread
- * carries in weight and a dot, not in colour alone.
+ * lead with who it went to, since the sender is always the assistant. No
+ * read state: the platform keeps none, so the list does not pretend to.
  */
 function EmailListRow({ email, selected, now, onSelect }: EmailListRowProps) {
   const { t, i18n } = useTranslation("assistant-inbox");
@@ -49,19 +49,7 @@ function EmailListRow({ email, selected, now, onSelect }: EmailListRowProps) {
         <SenderDisc participant={counterpart} className="mt-0.5" />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2">
-            <span
-              className={cn(
-                "min-w-0 flex-1 truncate text-body-medium-lighter text-[var(--content-default)]",
-                email.unread && "text-body-medium-default",
-              )}
-            >
-              {email.unread ? (
-                <span
-                  role="img"
-                  aria-label={t("emailListRow.unread")}
-                  className="mr-1.5 inline-block size-2 -translate-y-px rounded-full bg-[var(--system-info-strong)] align-middle"
-                />
-              ) : null}
+            <span className="min-w-0 flex-1 truncate text-body-medium-default text-[var(--content-default)]">
               {who}
             </span>
             <time
@@ -71,12 +59,7 @@ function EmailListRow({ email, selected, now, onSelect }: EmailListRowProps) {
               {formatEmailListTime(email.createdAt, now, i18n.language)}
             </time>
           </span>
-          <span
-            className={cn(
-              "truncate text-body-small-lighter text-[var(--content-default)]",
-              email.unread && "text-body-small-default",
-            )}
-          >
+          <span className="truncate text-body-small-lighter text-[var(--content-default)]">
             {email.subject}
           </span>
           <span className="flex items-center gap-1.5 text-body-small-lighter text-[var(--content-tertiary)]">

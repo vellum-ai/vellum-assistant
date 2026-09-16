@@ -3,6 +3,7 @@
     "label": "Assistant Inbox"
   },
   "assistantInboxHeader": {
+    "title": "{name}'s Inbox",
     "copyAddress": "Copy email address",
     "copied": "Copied",
     "copyFailed": "Couldn't copy the address.",
@@ -12,17 +13,19 @@
   "assistantInboxPage": {
     "folderAriaLabel": "Mail folder",
     "inboxTab": "Inbox",
-    "inboxTabUnread": "Inbox ({count})",
     "sentTab": "Sent",
     "inboxEmptyTitle": "Nothing here yet",
     "inboxEmptyBody": "Share {address} and anything sent there shows up here.",
     "sentEmptyTitle": "No sent mail yet",
     "sentEmptyBody": "Ask me to email someone and I'll keep a copy here.",
     "selectPrompt": "Pick an email to read it.",
-    "backToList": "Back to list"
+    "backToList": "Back to list",
+    "searchPlaceholder": "Search mail",
+    "searchAriaLabel": "Search this folder",
+    "searchEmptyTitle": "No matches",
+    "searchEmptyBody": "Nothing in this folder matches your search."
   },
   "emailListRow": {
-    "unread": "Unread",
     "toPrefix": "To {name}",
     "attachments": "{count, plural, one {# attachment} other {# attachments}}"
   },
