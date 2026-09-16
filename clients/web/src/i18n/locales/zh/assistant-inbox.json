@@ -12,7 +12,7 @@
   },
   "assistantInboxPage": {
     "folderAriaLabel": "邮件文件夹",
-    "inboxTab": "收件箱",
+    "inboxTab": "已接收",
     "sentTab": "已发送",
     "inboxEmptyTitle": "还没有邮件",
     "inboxEmptyBody": "把 {address} 分享出去，发到这里的邮件都会显示在这里。",

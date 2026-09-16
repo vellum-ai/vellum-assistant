@@ -12,7 +12,7 @@
   },
   "assistantInboxPage": {
     "folderAriaLabel": "郵件資料夾",
-    "inboxTab": "收件匣",
+    "inboxTab": "已接收",
     "sentTab": "寄件備份",
     "inboxEmptyTitle": "還沒有郵件",
     "inboxEmptyBody": "把 {address} 分享出去，寄到這裡的郵件都會顯示在這裡。",

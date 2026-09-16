@@ -12,7 +12,7 @@
   },
   "assistantInboxPage": {
     "folderAriaLabel": "Папка почты",
-    "inboxTab": "Входящие",
+    "inboxTab": "Полученные",
     "sentTab": "Отправленные",
     "inboxEmptyTitle": "Пока пусто",
     "inboxEmptyBody": "Поделитесь адресом {address}, и всё, что на него придёт, появится здесь.",

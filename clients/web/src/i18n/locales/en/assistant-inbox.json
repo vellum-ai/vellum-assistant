@@ -12,7 +12,7 @@
   },
   "assistantInboxPage": {
     "folderAriaLabel": "Mail folder",
-    "inboxTab": "Inbox",
+    "inboxTab": "Received",
     "sentTab": "Sent",
     "inboxEmptyTitle": "Nothing here yet",
     "inboxEmptyBody": "Share {address} and anything sent there shows up here.",
