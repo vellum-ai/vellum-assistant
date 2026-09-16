@@ -179,6 +179,38 @@ function threadIdFromMessage(message: TelegramMessage): string | undefined {
   return inTopic ? String(message.message_thread_id) : undefined;
 }
 
+/**
+ * The text with a leading `/command@username` addressed to this bot reduced
+ * to `/command`, so the route's command parsers see the same spelling a
+ * private chat sends. Telegram appends the username in groups to say which
+ * bot a command is for; it is addressing, not content, the way a leading
+ * Slack mention is. Any other text is returned as is.
+ */
+function withoutOwnCommandSuffix(
+  text: string,
+  entities: TelegramMessageEntity[],
+  botUsername: string | undefined,
+): string {
+  if (botUsername === undefined) {
+    return text;
+  }
+  const command = entities.find(
+    (entity) => entity.type === "bot_command" && entity.offset === 0,
+  );
+  if (command?.length == null) {
+    return text;
+  }
+  const span = text.slice(0, command.length);
+  const at = span.indexOf("@");
+  if (at === -1) {
+    return text;
+  }
+  if (span.slice(at + 1).toLowerCase() !== botUsername.toLowerCase()) {
+    return text;
+  }
+  return span.slice(0, at) + text.slice(command.length);
+}
+
 /** Who a message names, read off its entities the way the gate wants them. */
 function admissionCandidate(
   message: TelegramMessage,
@@ -471,7 +503,13 @@ export function normalizeTelegramUpdate(
 
   const topicThreadId = threadIdFromMessage(message);
 
-  const content = message.text || message.caption || "";
+  const content = message.text
+    ? withoutOwnCommandSuffix(
+        message.text,
+        message.entities ?? [],
+        options.bot?.username,
+      )
+    : message.caption || "";
 
   const attachments: {
     type: "photo" | "document" | "audio";

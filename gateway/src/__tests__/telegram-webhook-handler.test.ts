@@ -843,6 +843,39 @@ describe("telegram webhook handler: rooms", () => {
     );
   });
 
+  test("/new@bot in a supergroup resets the group conversation", async () => {
+    // Telegram spells a group command `/new@username`; the route's parser
+    // must see `/new`, or the reset silently becomes an ordinary message.
+    const config = makeConfig({
+      routingEntries: [
+        {
+          type: "conversation_id",
+          key: String(GROUP_CHAT_ID),
+          assistantId: "assistant-a",
+        },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    const res = await handler(
+      makeWebhookRequest(
+        makeGroupPayload(5401, {
+          text: "/new@vellum_bot",
+          entities: [{ type: "bot_command", offset: 0, length: 15 }],
+        }),
+      ),
+    );
+    expect(res.status).toBe(200);
+
+    const resetCall = fetchCalls.find((c) =>
+      c.url.includes("/channels/conversation"),
+    );
+    expect(resetCall).toBeDefined();
+    expect(resetCall!.method).toBe("DELETE");
+    expect(fetchCalls.find((c) => c.url.includes("/inbound"))).toBeUndefined();
+  });
+
   test("a supergroup message that does not address the bot never reaches the runtime", async () => {
     const config = makeConfig({
       routingEntries: [
