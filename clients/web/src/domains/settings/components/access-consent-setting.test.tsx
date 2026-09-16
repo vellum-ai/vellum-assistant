@@ -35,6 +35,11 @@ const patchCalls: RequestArgs[] = [];
 // them, so a test can change the active assistant while a write is still in
 // flight. Held in an object so TypeScript does not narrow it across awaits.
 const patchGate: { release: (() => void) | null } = { release: () => {} };
+// Read through a function so TypeScript does not narrow `release` to null
+// across the awaits between the assignment and the call.
+function currentRelease(): (() => void) | null {
+  return patchGate.release;
+}
 
 mock.module("@/generated/api/client.gen", () => ({
   client: {
@@ -147,8 +152,8 @@ describe("AccessConsentSetting", () => {
     useResolvedAssistantsStore.getState().setActiveAssistantId(OTHER_ID);
 
     // Let the original write settle.
-    await waitFor(() => expect(patchGate.release).not.toBeNull());
-    patchGate.release?.();
+    await waitFor(() => expect(currentRelease()).not.toBeNull());
+    currentRelease()?.();
 
     // The response belongs to the first assistant. The second assistant's
     // query fetched its own value (false) and must not inherit true.
