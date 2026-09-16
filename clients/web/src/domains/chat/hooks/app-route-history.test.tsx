@@ -1,11 +1,13 @@
 /**
  * The app viewer's history, exercised through the real pieces: a memory
  * router, the real viewer store and its daemon-backed load, the real
- * `useAppRouteSync`, and the real open and close helpers.
+ * `useAppRouteSync`, the real open and close helpers, and the real
+ * `useConversationLoader` on the routes a test asks for it.
  *
  * What the seams here are for: the daemon POST can be held open, so a test can
- * leave the URL while a load is in flight and settle it afterwards, and the
- * window is mirrored from the router, since the imperative helpers read
+ * leave the URL while a load is in flight and settle it afterwards, the daemon
+ * GET answers empty so the loader's list and transcript reads ask nobody, and
+ * the window is mirrored from the router, since the imperative helpers read
  * `window.location`.
  */
 
@@ -26,6 +28,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createRef } from "react";
 import {
   createMemoryRouter,
   NavigationType,
@@ -49,12 +53,16 @@ import { routes } from "@/utils/routes";
 
 import { useAppRouteSync } from "./use-app-route-sync";
 import { useAppViewerRouteHandlers } from "./use-app-viewer-route-handlers";
+import { useConversationLoader } from "./use-conversation-loader";
 import { useOpenAppFromChat } from "./use-open-app-from-chat";
 
 const ASSISTANT_ID = "asst-1";
 const APP_ID = "app-1";
 const CONV_ID = "c1";
 const OTHER_CONV_ID = "c2";
+const DRAFT_CONV_ID = "draft-1";
+/** The id the daemon mints for the draft's first message. */
+const SERVER_CONV_ID = "conv-server-1";
 const LIBRARY_PATH = routes.library.root;
 const CONVERSATION_PATH = routes.conversation(CONV_ID);
 const APP_PATH = routes.conversation(CONV_ID, APP_ID);
@@ -112,6 +120,34 @@ function ConversationRoute() {
   );
 }
 
+/**
+ * The conversation route under the loader the chat page mounts, for the tests
+ * that need a URL naming a retired draft resolved to its server row. The
+ * loader sits above `ConversationRoute`, so the mirror inside it writes the
+ * window before the loader reads it, which is the order the real window is
+ * already in.
+ */
+function ConversationRouteWithLoader() {
+  const { conversationId } = useParams<{ conversationId: string }>();
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+
+  useConversationLoader({
+    assistantId,
+    assistantStateKind: "active",
+    activeConversationId: conversationId ?? null,
+    urlConversationId: conversationId ?? null,
+    searchParams: new URLSearchParams(),
+    activeConversation: undefined,
+    refreshEpoch: 0,
+    reachabilityReadyEpoch: 0,
+    onboardingDraftConversationIdRef: createRef<string | null>() as {
+      current: string | null;
+    },
+  });
+
+  return <ConversationRoute />;
+}
+
 function LibraryStandIn() {
   const openApp = useOpenAppFromChat();
   return (
@@ -125,22 +161,29 @@ function LibraryStandIn() {
   );
 }
 
-function renderHistory(initialEntries: string[]) {
+function renderHistory(
+  initialEntries: string[],
+  options?: { withLoader?: boolean },
+) {
+  const element =
+    options?.withLoader === true ? (
+      <ConversationRouteWithLoader />
+    ) : (
+      <ConversationRoute />
+    );
   const router = createMemoryRouter(
     [
       { path: LIBRARY_PATH, element: <LibraryStandIn /> },
-      {
-        path: routes.conversation(":conversationId"),
-        element: <ConversationRoute />,
-      },
-      {
-        path: routes.conversation(":conversationId", ":appId"),
-        element: <ConversationRoute />,
-      },
+      { path: routes.conversation(":conversationId"), element },
+      { path: routes.conversation(":conversationId", ":appId"), element },
     ],
     { initialEntries, initialIndex: initialEntries.length - 1 },
   );
-  render(<RouterProvider router={router} />);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
   return router;
 }
 
@@ -176,6 +219,13 @@ beforeEach(() => {
       });
     });
   }) as unknown as typeof daemonClient.post);
+  /* Every read the loader mounts, answered empty: this suite is about the
+     history entries, not about what a conversation holds. */
+  spyOn(daemonClient, "get").mockImplementation((async () => ({
+    data: { conversations: [], messages: [], hasMore: false },
+    error: null,
+    response: new Response("{}", { status: 200 }),
+  })) as unknown as typeof daemonClient.get);
 });
 
 afterEach(() => {
@@ -385,6 +435,62 @@ describe("app route history", () => {
 
     await act(async () => router.navigate(-1));
     expect(router.state.location.pathname).toBe(LIBRARY_PATH);
+
+    router.dispose();
+  });
+
+  test("an entry naming a retired draft is redirected in place and still pops on close", async () => {
+    const router = renderHistory(
+      [LIBRARY_PATH, routes.conversation(DRAFT_CONV_ID)],
+      { withLoader: true },
+    );
+
+    click("Open app");
+    await waitForAppOpen();
+    expect(router.state.location.pathname).toBe(
+      routes.conversation(DRAFT_CONV_ID, APP_ID),
+    );
+
+    /* The user leaves, so the app entry is historical by the time the draft's
+       first send comes back with the row's id. The send records the
+       replacement and rewrites the active view, which is no longer this
+       entry, so the entry still names the draft. */
+    await act(async () => router.navigate(LIBRARY_PATH));
+    expect(await screen.findByText("Library")).toBeDefined();
+    act(() => {
+      useConversationStore
+        .getState()
+        .recordDraftReplacement(DRAFT_CONV_ID, SERVER_CONV_ID);
+    });
+
+    await act(async () => router.navigate(-1));
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        routes.conversation(SERVER_CONV_ID, APP_ID),
+      ),
+    );
+    expect(router.state.location.state).toEqual({
+      appEntry: {
+        appId: APP_ID,
+        returnTo: routes.conversation(SERVER_CONV_ID),
+      },
+    });
+
+    click("Close app");
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(
+        routes.conversation(SERVER_CONV_ID),
+      ),
+    );
+
+    /* The close popped, so the entry behind is the one the open was pushed
+       from. A replace would have left the retired draft there, and Back would
+       redirect onto the row already on screen. */
+    await act(async () => router.navigate(-1));
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(LIBRARY_PATH),
+    );
 
     router.dispose();
   });

@@ -25,7 +25,9 @@ import { toast } from "@vellumai/design-library";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { isNativeMobile } from "@/runtime/platform-detection";
 import { useConversationStore } from "@/stores/conversation-store";
+import { carriedAppEntryState } from "@/utils/app-navigation";
 import {
+  currentEntryState,
   currentPathname,
   navigateToNewConversation,
 } from "@/utils/conversation-navigation";
@@ -348,8 +350,10 @@ export function useConversationLoader({
     }
     // A draft entry pushed before the first send names an id the daemon never
     // had once that send re-keyed it, so the entry becomes its row in place,
-    // app segment and all. The map never holds a server id as a key, so the
-    // destination cannot redirect again.
+    // app segment and all. The entry survives the replace, so the return path
+    // it records rides along re-keyed to the row, and closing the app still
+    // pops. The map never holds a server id as a key, so the destination
+    // cannot redirect again.
     const replacementId =
       explicitConversationId === null
         ? undefined
@@ -359,7 +363,10 @@ export function useConversationLoader({
     if (replacementId !== undefined) {
       void navigate(
         routes.conversation(replacementId, appIdForPath(currentPathname())),
-        { replace: true },
+        {
+          replace: true,
+          state: carriedAppEntryState(currentEntryState(), replacementId),
+        },
       );
       return;
     }
