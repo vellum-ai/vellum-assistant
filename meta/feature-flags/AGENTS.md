@@ -57,7 +57,7 @@ The `id` and `key` fields in `feature-flag-registry.json` **must match** and bot
 
 1. **Remove the code reads and the registry entry in the same PR.** A registry-only removal breaks the gated surface silently: the web flag stores hold `Record<string, boolean>` state behind the `createSelectors` Proxy (`clients/web/src/utils/create-selectors.ts`), so `store.use.<removedKey>()` still type-checks and just returns `undefined`. The gate reads falsy, the surface vanishes, and no type check or test fails.
 
-2. Run `bun run meta/sync-bundled-copies.ts`. Commit the regenerated `clients/web/src/lib/feature-flags/feature-flag-registry.json` alongside `meta/feature-flags/feature-flag-registry.json`. CI byte-compares them (`bun run meta/sync-bundled-copies.ts --check`), so a stale copy fails the build.
+2. Run `bun run meta/sync-bundled-copies.ts`. Commit the regenerated `clients/web/src/lib/feature-flags/feature-flag-registry.json` alongside `meta/feature-flags/feature-flag-registry.json`. The script supports `--check` (fail on drift), but every CI and hook invocation runs it in write mode, so a stale committed copy is regenerated rather than failed; committing both copies is on you.
 
 3. Add a negative assertion to `clients/web/src/lib/feature-flags/feature-flag-catalog.test.ts`, following the existing block of such tests:
 
