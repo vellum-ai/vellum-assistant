@@ -11,6 +11,7 @@ import {
 
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
+import { Button } from "@vellumai/design-library/components/button";
 import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
@@ -401,13 +402,14 @@ export function CompanionCapturePicker({
               <span className="text-[12px] text-white/70">
                 {t("companionSurface.captureScreenRecordingOff")}
               </span>
-              <button
-                type="button"
-                className="h-7 shrink-0 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+              <Button
+                variant="primary"
+                size="compact"
+                className="shrink-0"
                 onClick={onAllowScreenRecording}
               >
                 {t("companionSurface.captureTurnOnScreenRecording")}
-              </button>
+              </Button>
             </div>
           )}
           {listed !== null && kind === "screens" && (

@@ -376,9 +376,8 @@ export class PermissionsService {
       status,
       canRequest: this.canRequest(kind, status),
       canOpenSettings: status !== "granted",
-      // Screen Recording used to need the app relaunched. The grant that
-      // matters is the helper's now, and a newly granted read lets the
-      // helper go, so nothing does.
+      // No grant needs the app relaunched. Screen Recording is the helper's,
+      // and a read that finds it newly granted lets the helper go.
       requiresRestart: false,
       ...(error ? { error } : {}),
     };
