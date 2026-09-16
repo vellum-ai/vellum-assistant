@@ -383,10 +383,11 @@ test("desktop icon pulses during automation and clears when it ends", () => {
   automationActive = true;
   rerender(<DesktopHarness />);
   expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(true);
-  expect(
-    icon().classList.contains("text-[var(--system-negative-strong)]"),
-  ).toBe(true);
+  expect(icon().getAttribute("stroke")).toBe(
+    "var(--avatar-accent, var(--content-emphasised))",
+  );
   automationActive = undefined;
   rerender(<DesktopHarness />);
+  expect(icon().getAttribute("stroke")).toBe("currentColor");
   expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(false);
 });
