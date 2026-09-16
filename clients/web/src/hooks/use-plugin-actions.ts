@@ -15,6 +15,7 @@ export function usePluginActions(
   options?: {
     onInstalled?: () => void;
     onRemoved?: () => void;
+    announceInstall?: boolean;
   },
 ) {
   const { t } = useTranslation("intelligence");
@@ -24,11 +25,13 @@ export function usePluginActions(
     onSuccess: () => {
       invalidatePluginQueries(queryClient, assistantId, name);
       options?.onInstalled?.();
-      toast.success(
-        t("pluginToast.installed", {
-          name: name || t("pluginToast.pluginFallback"),
-        }),
-      );
+      if (options?.announceInstall !== false) {
+        toast.success(
+          t("pluginToast.installed", {
+            name: name || t("pluginToast.pluginFallback"),
+          }),
+        );
+      }
     },
   });
   const removeMutation = usePluginsByNameDeleteMutation({
@@ -46,6 +49,11 @@ export function usePluginActions(
         body: { name },
       });
     },
+    installAsync: () =>
+      installMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { name },
+      }),
     remove: () => {
       removeMutation.mutate({
         path: { assistant_id: assistantId, name },

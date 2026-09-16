@@ -909,9 +909,6 @@
   "pluginIntegration": {
     "actionFailed": "無法更新外掛程式。請再試一次。",
     "chooseMethod": "選擇連接此整合的方式。",
-    "findingServers": "外掛程式已安裝。正在尋找其 MCP 伺服器...",
-    "install": "安裝外掛程式",
-    "installing": "正在安裝...",
     "localServer": "本機 MCP 伺服器",
     "noServers": "外掛程式已安裝，但未提供任何 MCP 伺服器。",
     "openDocumentation": "開啟設定指南",

@@ -128,9 +128,21 @@ function connectionHarness(
     isError: boolean;
   }>,
 ) {
-  const connect = mock(() => {});
+  const preparations: Array<Promise<string | null | void>> = [];
+  const connect = mock(
+    (
+      _serverId: string,
+      prepare?: () => Promise<string | null | void>,
+      _displayName?: string,
+    ) => {
+      if (prepare) {
+        preparations.push(prepare());
+      }
+    },
+  );
   return {
     connect,
+    preparations,
     connections: ({
       auth: {
         isBusy: false,
@@ -284,12 +296,14 @@ describe("IntegrationMethodsModal", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Install plugin" }));
+    expect(screen.queryByRole("button", { name: "Install plugin" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
     await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
-    expect(harness.connect).not.toHaveBeenCalled();
+    expect(harness.connect).toHaveBeenCalledTimes(1);
+    expect(await harness.preparations[0]).toBeNull();
   });
 
-  test("requires an explicit sign-in click after plugin installation", async () => {
+  test("installs and resolves one server from the same Connect action", async () => {
     const refetch = mock(async () => ({
       data: { servers: [server()] },
       isError: false,
@@ -300,7 +314,7 @@ describe("IntegrationMethodsModal", () => {
       servers: [],
     };
 
-    const view = renderWithProviders(
+    renderWithProviders(
       <IntegrationMethodsModal
         assistantId="assistant-123"
         item={item(method)}
@@ -311,31 +325,13 @@ describe("IntegrationMethodsModal", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Install plugin" }));
-    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
-    expect(harness.connect).not.toHaveBeenCalled();
-
-    const installedMethod = {
-      definition: definition(),
-      servers: [server()],
-    };
-    view.rerender(
-      <IntegrationMethodsModal
-        assistantId="assistant-123"
-        item={item(installedMethod)}
-        connections={harness.connections}
-        oauthDisabled={false}
-        onOAuth={() => {}}
-        onClose={() => {}}
-      />,
-    );
     fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
-    expect(harness.connect).toHaveBeenCalledWith(
-      "example-server",
-      undefined,
-      "Example",
-    );
+    expect(harness.connect).toHaveBeenCalledTimes(1);
+    expect(harness.connect.mock.calls[0]?.[0]).toBe("plugin:example-mcp");
+    expect(harness.connect.mock.calls[0]?.[2]).toBe("Example");
+    expect(await harness.preparations[0]).toBe("example-server");
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 
   test("refreshes the installed plugin under StrictMode effect replay", async () => {
@@ -362,10 +358,11 @@ describe("IntegrationMethodsModal", () => {
       </StrictMode>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Install plugin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
 
-    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
-    expect(harness.connect).not.toHaveBeenCalled();
+    expect(await harness.preparations[0]).toBe("example-server");
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(harness.connect).toHaveBeenCalledTimes(1);
   });
 
   test("ignores an install refetch that finishes after the modal unmounts", async () => {
@@ -396,12 +393,13 @@ describe("IntegrationMethodsModal", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Install plugin" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await waitFor(() => expect(install).toHaveBeenCalledTimes(1));
     view.unmount();
     resolveRefetch?.({ data: { servers: [server()] }, isError: false });
-    await Promise.resolve();
+    expect(await harness.preparations[0]).toBe("example-server");
 
-    expect(harness.connect).not.toHaveBeenCalled();
+    expect(harness.connect).toHaveBeenCalledTimes(1);
   });
 
   test("retries server loading for an installed plugin without reinstalling", async () => {

@@ -15,6 +15,7 @@ import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import {
   type IntegrationItem,
   isMcpPluginMethodConfigured,
+  mcpServersForPlugin,
   type McpPluginMethod,
 } from "../integration-items";
 import type { McpServerEntry } from "../mcp/mcp-api";
@@ -119,16 +120,21 @@ function PluginMethodSection({
   installedOverride: boolean;
   icon?: ReactNode;
   onRetryServers: () => void;
-  onInstalled: (method: McpPluginMethod) => void;
+  onInstalled: (method: McpPluginMethod) => Promise<McpServerEntry[]>;
   onRemoved: () => void;
 }) {
   const { t } = useTranslation("settings");
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const installed = installedOverride || isMcpPluginMethodConfigured(method);
   const actions = usePluginActions(assistantId, method.definition.pluginName, {
-    onInstalled: () => onInstalled(method),
     onRemoved,
+    announceInstall: false,
   });
+  const provisionalServerId = `plugin:${method.definition.pluginName}`;
+  const connecting =
+    actions.isInstalling ||
+    (connections.auth.isBusy &&
+      connections.auth.attempt?.serverId === provisionalServerId);
 
   return (
     <section className="space-y-3">
@@ -159,7 +165,10 @@ function PluginMethodSection({
         {t("pluginIntegration.openDocumentation")}
       </Button>
 
-      {actions.isInstallError || actions.isRemoveError ? (
+      {actions.isInstallError ? (
+        <Notice tone="warning">{t("mcpConnect.startFailed")}</Notice>
+      ) : null}
+      {actions.isRemoveError ? (
         <Notice tone="warning">{t("pluginIntegration.actionFailed")}</Notice>
       ) : null}
 
@@ -188,7 +197,7 @@ function PluginMethodSection({
             ) : (
               <Notice tone="warning">
                 {refreshing
-                  ? t("pluginIntegration.findingServers")
+                  ? t("mcpServerCard.connecting")
                   : t("pluginIntegration.noServers")}
               </Notice>
             )
@@ -204,17 +213,34 @@ function PluginMethodSection({
         </div>
       ) : (
         <Button
-          disabled={actions.isInstalling || refreshing}
+          disabled={connecting || refreshing || connections.auth.isBusy}
           leftIcon={
-            actions.isInstalling ? (
+            connecting ? (
               <Loader2 className="animate-spin" />
             ) : undefined
           }
-          onClick={actions.install}
+          onClick={() =>
+            connections.auth.connect(
+              provisionalServerId,
+              async () => {
+                await actions.installAsync();
+                const servers = await onInstalled(method);
+                const authCandidates = servers.filter(
+                  (server) =>
+                    server.transport.type !== "stdio" &&
+                    server.status !== "connected",
+                );
+                return authCandidates.length === 1
+                  ? authCandidates[0]!.id
+                  : null;
+              },
+              method.definition.displayName,
+            )
+          }
         >
-          {actions.isInstalling
-            ? t("pluginIntegration.installing")
-            : t("pluginIntegration.install")}
+          {connecting
+            ? t("mcpServerCard.connecting")
+            : t("integrationRow.connect")}
         </Button>
       )}
 
@@ -279,27 +305,35 @@ export function IntegrationMethodsModal({
     };
   }, []);
 
-  const handleInstalled = async (method: McpPluginMethod) => {
-    if (!mounted.current) {
-      return;
+  const handleInstalled = async (
+    method: McpPluginMethod,
+  ): Promise<McpServerEntry[]> => {
+    if (mounted.current) {
+      setLocallyInstalledPlugins((current) => {
+        const next = new Set(current);
+        next.add(method.definition.pluginName);
+        return next;
+      });
     }
-    setLocallyInstalledPlugins((current) => {
-      const next = new Set(current);
-      next.add(method.definition.pluginName);
-      return next;
-    });
     const operation = ++refreshOperation.current;
-    setRefreshingPlugin(method.definition.pluginName);
-    setServerLoadFailed(null);
+    if (mounted.current) {
+      setRefreshingPlugin(method.definition.pluginName);
+      setServerLoadFailed(null);
+    }
     const result = await connections.list.refetch();
-    if (!mounted.current || operation !== refreshOperation.current) {
-      return;
+    if (mounted.current && operation === refreshOperation.current) {
+      setRefreshingPlugin(null);
+      if (result.isError) {
+        setServerLoadFailed(method.definition.pluginName);
+      }
     }
-    setRefreshingPlugin(null);
     if (result.isError) {
-      setServerLoadFailed(method.definition.pluginName);
-      return;
+      return [];
     }
+    return mcpServersForPlugin(
+      result.data?.servers ?? [],
+      method.definition.pluginName,
+    );
   };
 
   const handleRemoved = () => {

@@ -909,9 +909,6 @@
   "pluginIntegration": {
     "actionFailed": "No se pudo actualizar el plugin. Inténtalo de nuevo.",
     "chooseMethod": "Elige cómo conectar esta integración.",
-    "findingServers": "El plugin está instalado. Buscando sus servidores MCP...",
-    "install": "Instalar plugin",
-    "installing": "Instalando...",
     "localServer": "Servidor MCP local",
     "noServers": "El plugin está instalado, pero no proporcionó ningún servidor MCP.",
     "openDocumentation": "Abrir guía de configuración",
