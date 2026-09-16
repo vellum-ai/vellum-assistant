@@ -1,4 +1,5 @@
 import { Button, Modal } from "@vellumai/design-library";
+import { useIsPresent } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -24,6 +25,8 @@ export function DesktopPreviewContent({
   previewContainer,
 }: DesktopPreviewContentProps) {
   const { t } = useTranslation("chat");
+  const isPresent = useIsPresent();
+  const interactive = fullscreen && isPresent;
   const previewRef = useRef<HTMLDivElement>(null);
   // A stable portal host keeps the live session mounted across both surfaces.
   const [host] = useState(() => {
@@ -83,10 +86,10 @@ export function DesktopPreviewContent({
     <>
       {previewContainer ? createPortal(preview, previewContainer) : preview}
       {createPortal(
-        <DesktopPanel assistantId={assistantId} viewOnly={!fullscreen} />,
+        <DesktopPanel assistantId={assistantId} viewOnly={!interactive} />,
         host,
       )}
-      <Modal.Root open={fullscreen} onOpenChange={setFullscreen}>
+      <Modal.Root open={interactive} onOpenChange={setFullscreen}>
         <Modal.Content
           id="assistant-desktop-modal"
           hideCloseButton

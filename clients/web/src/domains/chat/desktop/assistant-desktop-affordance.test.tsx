@@ -354,8 +354,15 @@ describe("AssistantDesktopAffordance", () => {
     expect(capture).toHaveBeenCalledWith(pointer.pointerId);
     fireEvent.pointerMove(frame, { ...pointer, clientX: 160, clientY: 200 });
     expect(useDesktopPreviewStore.getState().width).toBe(640);
-    expect(useDesktopPreviewStore.getState().position).toEqual({ x: 160, y: 200 });
-    fireEvent.pointerMove(frame, { ...pointer, clientX: -1000, clientY: -1000 });
+    expect(useDesktopPreviewStore.getState().position).toEqual({
+      x: 160,
+      y: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      ...pointer,
+      clientX: -1000,
+      clientY: -1000,
+    });
     expect(useDesktopPreviewStore.getState().width).toBe(1000);
     expect(useDesktopPreviewStore.getState().position).toEqual({ x: 0, y: 0 });
     fireEvent.pointerUp(frame, pointer);
@@ -381,11 +388,18 @@ describe("AssistantDesktopAffordance", () => {
     expect(useDesktopPreviewStore.getState().width).toBe(344);
     const pointer = { pointerId: 1, button: 0, buttons: 1, isPrimary: true };
     fireEvent.pointerDown(handle, { ...pointer, clientX: 400, clientY: 200 });
-    fireEvent.pointerMove(frame, { ...pointer, clientX: -1000, clientY: -1000 });
+    fireEvent.pointerMove(frame, {
+      ...pointer,
+      clientX: -1000,
+      clientY: -1000,
+    });
     fireEvent.pointerUp(frame, pointer);
     expect(frame.offsetWidth).toBe(640);
     expect(frame.offsetHeight).toBe(400);
-    expect(useDesktopPreviewStore.getState().position).toEqual({ x: 160, y: 0 });
+    expect(useDesktopPreviewStore.getState().position).toEqual({
+      x: 160,
+      y: 0,
+    });
     expect(panelUnmounts).toBe(0);
   });
 
@@ -591,7 +605,8 @@ test("moving an open desktop into a help card preserves the live connection", as
   rerender(<Harness help={false} />);
   expect(screen.getByTestId("desktop-panel")).toBe(panel);
   expect(panelUnmounts).toBe(0);
-  expect(panel.getAttribute("data-view-only")).toBe("false");
+  expect(panel.getAttribute("data-view-only")).toBe("true");
+  expect(screen.queryByRole("dialog")).toBeNull();
 });
 
 test("desktop help releases its viewer when another app window takes focus", async () => {
@@ -755,3 +770,33 @@ test("a help request does not claim a viewer until this client selects Step In",
   expect(screen.getByTestId("desktop-panel")).toBe(panel);
   expect(panelUnmounts).toBe(0);
 });
+
+test.each([false, true])(
+  "resolving help remotely closes its interactive viewer (touch=%s)",
+  async (isTouch) => {
+    touch = isTouch;
+    useInteractionStore.setState({
+      pendingQuestion: { requestId: "req-help", entries: [helpEntry] },
+    });
+    try {
+      render(
+        <>
+          <PendingDesktopHelpRow requestId="req-help" />
+          <AssistantDesktopPreview />
+        </>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+      const panel = await screen.findByTestId("desktop-panel");
+      expect(panel.getAttribute("data-view-only")).toBe("false");
+      act(() => useInteractionStore.setState({ pendingQuestion: null }));
+      expect(panel.getAttribute("data-view-only")).toBe("true");
+      await waitFor(() =>
+        expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+      );
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(useDesktopPreviewStore.getState().session).toBeNull();
+    } finally {
+      act(() => useInteractionStore.setState({ pendingQuestion: null }));
+    }
+  },
+);

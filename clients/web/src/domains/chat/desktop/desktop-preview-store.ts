@@ -5,6 +5,7 @@ import { createSelectors } from "@/utils/create-selectors";
 interface DesktopPreviewState {
   inlinePreview: { assistantId: string; container: HTMLDivElement } | null;
   session: { assistantId: string; view: "preview" | "fullscreen" } | null;
+  sessionBeforeHelp: DesktopPreviewState["session"];
   position: { x: number; y: number } | null;
   width: number;
 }
@@ -23,7 +24,30 @@ interface DesktopPreviewActions {
 export const useDesktopPreviewStore = createSelectors(
   create<DesktopPreviewState & DesktopPreviewActions>()((set) => ({
     inlinePreview: null,
-    setInlinePreview: (inlinePreview) => set({ inlinePreview }),
+    sessionBeforeHelp: null,
+    setInlinePreview: (inlinePreview) =>
+      set((state) => {
+        if (inlinePreview) {
+          return {
+            inlinePreview,
+            sessionBeforeHelp: state.inlinePreview
+              ? state.sessionBeforeHelp
+              : state.session?.assistantId === inlinePreview.assistantId &&
+                  state.session.view === "preview"
+                ? state.session
+                : null,
+          };
+        }
+        return {
+          inlinePreview: null,
+          sessionBeforeHelp: null,
+          session:
+            state.inlinePreview &&
+            state.session?.assistantId === state.inlinePreview.assistantId
+              ? state.sessionBeforeHelp
+              : state.session,
+        };
+      }),
     openPreview: (assistantId) =>
       set({ session: { assistantId, view: "preview" } }),
     openFullscreen: (assistantId) =>
