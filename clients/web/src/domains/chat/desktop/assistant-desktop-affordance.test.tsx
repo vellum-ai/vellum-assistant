@@ -90,7 +90,7 @@ beforeEach(() => {
   touch = false;
   platformHosted = true;
   automationActive = false;
-  useDesktopPreviewStore.setState({ position: null });
+  useDesktopPreviewStore.setState({ position: null, width: 320 });
   panelUnmounts = 0;
   desktopEnabled = true;
   assistantId = "asst-1";
@@ -269,11 +269,23 @@ describe("AssistantDesktopAffordance", () => {
     ).not.toBeNull();
   });
 
-  function mockPreviewGeometry() {
+  function mockPreviewGeometry(width = 800, height = 600) {
     const frame = document.getElementById("assistant-desktop-preview")!;
+    const renderedWidth = () =>
+      Math.min(
+        useDesktopPreviewStore.getState().width,
+        width,
+        ((height - 40) * 16) / 9,
+      );
     Object.defineProperties(frame, {
-      offsetWidth: { configurable: true, value: 320 },
-      offsetHeight: { configurable: true, value: 220 },
+      offsetWidth: {
+        configurable: true,
+        get: renderedWidth,
+      },
+      offsetHeight: {
+        configurable: true,
+        get: () => (renderedWidth() * 9) / 16 + 40,
+      },
       offsetLeft: {
         configurable: true,
         get: () => Number.parseFloat(frame.style.left || "480"),
@@ -285,8 +297,8 @@ describe("AssistantDesktopAffordance", () => {
       setPointerCapture: { configurable: true, value: () => {} },
     });
     Object.defineProperties(frame.parentElement!, {
-      clientWidth: { configurable: true, value: 800 },
-      clientHeight: { configurable: true, value: 600 },
+      clientWidth: { configurable: true, value: width },
+      clientHeight: { configurable: true, value: height },
     });
     return frame;
   }
@@ -315,6 +327,99 @@ describe("AssistantDesktopAffordance", () => {
     fireEvent.pointerDown(close, pointer);
     fireEvent.click(close, { detail: 1 });
     expect(useDesktopPreviewStore.getState().session).toBeNull();
+  });
+
+  test("corner resizing preserves the desktop ratio and clamps to 1000px", async () => {
+    await openDesktop();
+    const frame = mockPreviewGeometry(1400, 1000);
+    const capture = mock(() => {});
+    Object.defineProperty(frame, "setPointerCapture", { value: capture });
+    const handle = screen.getByRole("button", {
+      name: "Resize virtual desktop preview (arrow keys)",
+    });
+    const pointer = { pointerId: 1, button: 0, buttons: 1, isPrimary: true };
+    fireEvent.pointerDown(handle, { ...pointer, clientX: 480, clientY: 380 });
+    expect(capture).toHaveBeenCalledWith(pointer.pointerId);
+    fireEvent.pointerMove(frame, { ...pointer, clientX: 160, clientY: 200 });
+    expect(useDesktopPreviewStore.getState().width).toBe(640);
+    expect(useDesktopPreviewStore.getState().position).toEqual({ x: 160, y: 200 });
+    fireEvent.pointerMove(frame, { ...pointer, clientX: -1000, clientY: -1000 });
+    expect(useDesktopPreviewStore.getState().width).toBe(1000);
+    expect(useDesktopPreviewStore.getState().position).toEqual({ x: 0, y: 0 });
+    fireEvent.pointerUp(frame, pointer);
+    fireEvent.click(handle, { detail: 1 });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(panelUnmounts).toBe(0);
+
+    fireEvent.pointerDown(handle, { ...pointer, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(frame, { ...pointer, clientX: 1000, clientY: 1000 });
+    fireEvent.pointerUp(frame, pointer);
+    expect(useDesktopPreviewStore.getState().width).toBe(320);
+  });
+
+  test("resizing fits short viewports and supports the keyboard", async () => {
+    await openDesktop();
+    const frame = mockPreviewGeometry(800, 400);
+    const handle = screen.getByRole("button", {
+      name: "Resize virtual desktop preview (arrow keys)",
+    });
+    fireEvent.keyDown(handle, { key: "ArrowLeft", shiftKey: true });
+    expect(useDesktopPreviewStore.getState().width).toBe(360);
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(useDesktopPreviewStore.getState().width).toBe(344);
+    const pointer = { pointerId: 1, button: 0, buttons: 1, isPrimary: true };
+    fireEvent.pointerDown(handle, { ...pointer, clientX: 400, clientY: 200 });
+    fireEvent.pointerMove(frame, { ...pointer, clientX: -1000, clientY: -1000 });
+    fireEvent.pointerUp(frame, pointer);
+    expect(frame.offsetWidth).toBe(640);
+    expect(frame.offsetHeight).toBe(400);
+    expect(useDesktopPreviewStore.getState().position).toEqual({ x: 160, y: 0 });
+    expect(panelUnmounts).toBe(0);
+  });
+
+  test("enlarging a constrained preview preserves its preferred width", async () => {
+    await openDesktop();
+    act(() => useDesktopPreviewStore.getState().resize(1000, { x: 0, y: 0 }));
+    const frame = mockPreviewGeometry(800, 400);
+    const handle = screen.getByRole("button", {
+      name: "Resize virtual desktop preview (arrow keys)",
+    });
+    expect(frame.offsetWidth).toBe(640);
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(useDesktopPreviewStore.getState().width).toBe(1000);
+    expect(frame.offsetWidth).toBe(640);
+    mockPreviewGeometry(1400, 1000);
+    expect(frame.offsetWidth).toBe(1000);
+  });
+
+  test("keyboard resizing accumulates while the viewport constrains the frame", async () => {
+    await openDesktop();
+    act(() => useDesktopPreviewStore.getState().resize(600, { x: 0, y: 0 }));
+    const frame = mockPreviewGeometry(400, 400);
+    const handle = screen.getByRole("button", {
+      name: "Resize virtual desktop preview (arrow keys)",
+    });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(frame.offsetWidth).toBe(400);
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    mockPreviewGeometry();
+    expect(frame.offsetWidth).toBe(616);
+  });
+
+  test("a narrow viewport does not lower the preferred minimum size", async () => {
+    await openDesktop();
+    const frame = mockPreviewGeometry(240, 400);
+    fireEvent.keyDown(
+      screen.getByRole("button", {
+        name: "Resize virtual desktop preview (arrow keys)",
+      }),
+      { key: "ArrowRight" },
+    );
+    expect(frame.offsetWidth).toBe(240);
+    expect(useDesktopPreviewStore.getState().width).toBe(320);
+    mockPreviewGeometry();
+    expect(frame.offsetWidth).toBe(320);
   });
 
   test("keyboard movement keeps the preview inside the available area", async () => {

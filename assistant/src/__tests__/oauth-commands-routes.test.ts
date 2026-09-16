@@ -32,6 +32,7 @@ interface MockProviderRow {
   pingMethod: string | null;
   pingHeaders: string | null;
   pingBody: string | null;
+  responseOkField: string | null;
 }
 
 const baseProvider: MockProviderRow = {
@@ -44,6 +45,7 @@ const baseProvider: MockProviderRow = {
   pingMethod: null,
   pingHeaders: null,
   pingBody: null,
+  responseOkField: null,
 };
 
 let mockProviders: Record<string, MockProviderRow> = {};
@@ -586,6 +588,37 @@ describe("POST oauth/ping", () => {
     expect(result.status).toBe(401);
     expect(result.hint).toContain("oauth connect");
   });
+
+  // Slack's auth.test refuses a revoked token inside an HTTP 200, so a ping
+  // that read only the status would report a dead bot credential as healthy.
+  test("a 2xx ping whose body reports failure in the declared ok field is not ok", async () => {
+    const seed = PROVIDER_SEED_DATA.slack_channel;
+    mockProviders.slack_channel = {
+      ...baseProvider,
+      provider: "slack_channel",
+      pingUrl: seed.pingUrl ?? null,
+      responseOkField: seed.responseOkField ?? null,
+    };
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "invalid_auth" },
+    };
+    const result = (await getRoute("POST", "oauth/ping").handler(
+      makeArgs({ body: { provider: "slack_channel" } }),
+    )) as {
+      ok: boolean;
+      status: number;
+      error: string;
+      body?: unknown;
+      hint?: string;
+    };
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(200);
+    expect(result.error).toContain("ok: false");
+    expect(result.body).toEqual({ ok: false, error: "invalid_auth" });
+    expect(result.hint).toContain("oauth connect");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -917,6 +950,7 @@ describe("POST oauth/request", () => {
       managedServiceConfigKey: null,
       baseUrl: seed.baseUrl ?? null,
       injectionTemplates: JSON.stringify(seed.injectionTemplates),
+      responseOkField: seed.responseOkField ?? null,
     };
   }
 
@@ -1141,6 +1175,67 @@ describe("POST oauth/request", () => {
         }),
       ),
     ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  // Slack documents that every Web API response carries a top-level boolean
+  // `ok`, false on failure, under a successful status. The provider row
+  // declares that field, and the door reads it, so a refused call is not
+  // reported as a success to the caller.
+  test("a 2xx whose body reports failure in the provider's declared ok field is not ok", async () => {
+    mockProviders.slack_channel = seededProvider("slack_channel");
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "not_in_channel" },
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "/chat.postMessage",
+          parsed_data: { channel: "C1", text: "digest" },
+        },
+      }),
+    )) as { ok: boolean; status: number; body: unknown; hint?: string };
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: false, error: "not_in_channel" });
+    expect(result.hint).toContain("ok: false");
+  });
+
+  test("a body without the declared ok field leaves the status as the verdict", async () => {
+    // A file download from the same credential answers with bytes, not the
+    // envelope, and must not read as a refusal.
+    mockProviders.slack_channel = seededProvider("slack_channel");
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "image/png" },
+      body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "https://files.slack.com/files-pri/T0123-F0456/download/shot.png",
+        },
+      }),
+    )) as { ok: boolean; hint?: string };
+    expect(result.ok).toBe(true);
+    expect(result.hint).toBeUndefined();
+  });
+
+  test("a provider that declares no ok field is judged by status alone", async () => {
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "not_an_envelope" },
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: { provider: "google", url: "https://api.google.com/v1/me" },
+      }),
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
   });
 });
 

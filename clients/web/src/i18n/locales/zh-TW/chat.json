@@ -102,6 +102,7 @@
     "hideAria": "隱藏虛擬桌面",
     "closeAria": "關閉虛擬桌面預覽",
     "moveAria": "移動虛擬桌面預覽（方向鍵）",
+    "resizeAria": "調整虛擬桌面預覽大小（方向鍵）",
     "expandAria": "展開虛擬桌面",
     "busy": "虛擬桌面正由其他使用者使用中。",
     "connecting": "正在連線至虛擬桌面…",
