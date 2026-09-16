@@ -448,7 +448,6 @@ export function FrameGateHudBody({
           <Button
             variant="ghost"
             size="compact"
-            expandOnMobile={false}
             onClick={resetOverrides}
             className="[--vbtn-fg:var(--aux-white)]"
           >
