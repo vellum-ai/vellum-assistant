@@ -1048,13 +1048,14 @@ export interface AgentLoopConstructorOptions {
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
   /**
-   * Observer for the final tool array of each provider call, invoked once per
-   * call with exactly what goes on the wire (after any provider-native tool
-   * is appended). This is the only point that sees the sent array: the
-   * dynamic `resolveTools` callback is also consulted out of band (token
-   * counting, compaction estimates), so a consumer that needs "what the last
-   * request sent" subscribes here rather than wrapping the resolver. Must not
-   * throw.
+   * Observer for the final tool array of each provider call, invoked
+   * immediately before the request leaves with exactly what goes on the wire
+   * (after any provider-native tool is appended, past the inter-call throttle
+   * and the pre-model hooks, and not at all once the run is aborted). This is
+   * the only point that sees the sent array: the dynamic `resolveTools`
+   * callback is also consulted out of band (token counting, compaction
+   * estimates), so a consumer that needs "what the last request sent"
+   * subscribes here rather than wrapping the resolver. Must not throw.
    */
   onToolsSent?: (tools: ToolDefinition[]) => void;
   /**
@@ -1909,7 +1910,6 @@ export class AgentLoop {
         const currentTools = attachNativeWebSearch
           ? [...resolvedTools, NATIVE_WEB_SEARCH_TOOL]
           : resolvedTools;
-        this.onToolsSent?.(currentTools);
 
         // Field precedence (highest wins):
         //   1. Per-run explicit (`runModel`)
@@ -2255,6 +2255,11 @@ export class AgentLoop {
         // Latency: the request is about to leave for the provider. The span
         // from here to the first streamed token is time-to-first-token.
         latencyTracker?.mark("request_sent");
+        // Every await that could cancel the call is behind us; a run aborted
+        // during the throttle or a hook never reports an array it did not send.
+        if (!signal?.aborted) {
+          this.onToolsSent?.(currentTools);
+        }
         let response: ProviderResponse;
         try {
           response = await traceAsyncSection("agent-loop:provider-send", () =>

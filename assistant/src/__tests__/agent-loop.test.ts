@@ -2063,6 +2063,44 @@ describe("AgentLoop", () => {
     expect(calls[0].tools).toEqual(sent[0]);
   });
 
+  test("onToolsSent does not fire for a call cancelled before the request leaves", async () => {
+    // A pre-model-call hook runs after tool resolution and before the send;
+    // aborting there is the window Codex flagged: tools resolved, never sent.
+    const controller = new AbortController();
+    registerPlugin({
+      manifest: { name: "abort-before-send", version: "0.0.1" },
+      hooks: {
+        "pre-model-call": async (ctx) => {
+          controller.abort();
+          return ctx;
+        },
+      },
+    });
+    const sent: ToolDefinition[][] = [];
+    const { provider } = createMockProvider([textResponse("never")]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      resolveTools: () => dummyTools,
+      onToolsSent: (tools) => {
+        sent.push(tools);
+      },
+    });
+
+    await loop
+      .run({
+        requestId: "test-request",
+        messages: [userMessage],
+        onEvent: () => {},
+        trust: { sourceChannel: "vellum", trustClass: "unknown" },
+        signal: controller.signal,
+      })
+      .catch(() => {});
+
+    expect(sent).toEqual([]);
+  });
+
   // 28. Tool list can change between turns
   test("resolveTools can return different tools on each turn", async () => {
     const toolsPerTurn: ToolDefinition[][] = [
