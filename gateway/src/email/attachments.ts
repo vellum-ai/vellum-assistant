@@ -7,7 +7,8 @@ import {
 import type { EmailAttachment } from "./normalize.js";
 import {
   type AttachmentIngestResult,
-  type OversizedAttachment,
+  type IngestibleAttachment,
+  ingestAttachments,
   oversizedAttachmentNotice,
 } from "../attachments/ingest.js";
 
@@ -33,77 +34,57 @@ function estimateBase64Bytes(base64: string): number {
  * and return the resulting ids for forwarding to the runtime, which stores
  * them in the conversation workspace.
  *
- * Attachments larger than the email per-file cap are reported as oversized.
- * Validation failures (unsupported MIME type, dangerous extension) are
- * skipped so a single bad attachment never drops the user's email; transient failures
- * (upload 5xx, network) are propagated so the caller can surface an error and
- * let the upstream retry the delivery.
+ * Email is the one channel whose bytes arrive inline rather than behind a
+ * URL, so its "download" is a lookup; everything else (the per-channel cap,
+ * the bounded concurrency, the three-outcome accounting, and which failures
+ * are skipped versus propagated so the upstream retries the delivery) is the
+ * shared ingest, so a fix there is a fix here.
  */
 export async function ingestEmailAttachments(
   config: GatewayConfig,
   attachments: EmailAttachment[] | undefined,
   log: Logger,
 ): Promise<EmailAttachmentIngestResult> {
-  const attachmentIds: string[] = [];
-  const failedAttachmentNames: string[] = [];
-  const oversizedAttachments: OversizedAttachment[] = [];
-
   if (!attachments || attachments.length === 0) {
-    return { attachmentIds, failedAttachmentNames, oversizedAttachments };
+    return {
+      attachmentIds: [],
+      failedAttachmentNames: [],
+      oversizedAttachments: [],
+    };
   }
 
-  const maxBytes =
-    config.maxAttachmentBytes.email ?? config.maxAttachmentBytes.default;
-
-  const eligible = attachments.filter((att) => {
-    const bytes = att.size ?? estimateBase64Bytes(att.content);
-    if (bytes > maxBytes) {
-      log.warn(
-        { filename: att.filename, bytes, limit: maxBytes },
-        "Skipping oversized email attachment",
-      );
-      oversizedAttachments.push({
-        name: att.filename,
-        fileSize: bytes,
-        limit: maxBytes,
-      });
-      return false;
-    }
-    return true;
+  const source = new Map<IngestibleAttachment, EmailAttachment>();
+  const references = attachments.map((att, index) => {
+    const reference: IngestibleAttachment = {
+      fileId: att.contentId ?? `${index}:${att.filename}`,
+      fileName: att.filename,
+      mimeType: att.contentType,
+      fileSize: att.size ?? estimateBase64Bytes(att.content),
+    };
+    source.set(reference, att);
+    return reference;
   });
 
-  // Bounded concurrency mirrors the other channel webhooks so a message with
-  // many attachments does not open an unbounded number of upstream requests.
-  for (let i = 0; i < eligible.length; i += config.maxAttachmentConcurrency) {
-    const batch = eligible.slice(i, i + config.maxAttachmentConcurrency);
-    const results = await Promise.allSettled(
-      batch.map((att) =>
-        uploadAttachment(config, {
-          filename: att.filename,
-          mimeType: att.contentType,
-          data: att.content,
-        }),
-      ),
-    );
-    for (let j = 0; j < results.length; j++) {
-      const result = results[j];
-      if (result.status === "fulfilled") {
-        attachmentIds.push(result.value.id);
-      } else if (result.reason instanceof AttachmentValidationError) {
-        log.warn(
-          { err: result.reason, filename: batch[j].filename },
-          "Skipping email attachment with validation error",
-        );
-        failedAttachmentNames.push(batch[j].filename);
-      } else {
-        // Transient failure — propagate so the caller returns an error and the
-        // upstream retries the whole delivery rather than silently dropping.
-        throw result.reason;
+  return ingestAttachments(config, "email", references, log, {
+    download: async (reference) => {
+      const att = source.get(reference);
+      if (!att) {
+        throw new Error(`Email attachment ${reference.fileId} has no source`);
       }
-    }
-  }
-
-  return { attachmentIds, failedAttachmentNames, oversizedAttachments };
+      return {
+        filename: att.filename,
+        mimeType: att.contentType,
+        data: att.content,
+      };
+    },
+    upload: (downloaded) => uploadAttachment(config, downloaded),
+    failurePolicy: {
+      mode: "rethrow-unless-skippable",
+      // A rejected type or extension skips that one attachment; anything else
+      // (upload 5xx, network) propagates so the upstream retries the delivery.
+      isSkippableError: (error) => error instanceof AttachmentValidationError,
+    },
+  });
 }
 
 /**
