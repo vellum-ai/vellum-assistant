@@ -159,14 +159,15 @@
     },
     "next": "Next",
     "share": {
-      "allow": "Allow",
       "body": "In a call, this shows me your screen so I can see what you mean.",
       "line": "Listening",
-      "title": "Show me your screen"
+      "title": "Show me your screen",
+      "try": "Try it, we'll ask permission"
     },
     "talk": {
       "body": "Click me or double tap Fn to start a conversation.",
-      "title": "Talk"
+      "title": "Talk",
+      "try": "Try it, double tap Fn"
     }
   },
   "companionSurface": {

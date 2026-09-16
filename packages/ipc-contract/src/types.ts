@@ -2116,11 +2116,16 @@ export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
  * main resolves it against the beat it is actually on. A stale press from a
  * renderer a beat behind then lands where the user could see it would.
  *
+ * `try` is a beat's own offer to do the thing it is describing for real: it
+ * starts a session, which only main can do. It does not move the run, which is
+ * the point. A session withdraws the card while it lasts and main still holds
+ * the beat, so the run picks up where it left off once the call is over.
+ *
  * A permission ask is not among them: the surface's own renderer holds the
- * permissions bridge, so the share beat's Allow goes straight out through that
- * and never moves the run.
+ * permissions bridge, so the share beat's offer goes straight out through that
+ * and never reaches main at all.
  */
-export const COMPANION_INTRO_ACTIONS = ["next", "dismiss"] as const;
+export const COMPANION_INTRO_ACTIONS = ["next", "dismiss", "try"] as const;
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 

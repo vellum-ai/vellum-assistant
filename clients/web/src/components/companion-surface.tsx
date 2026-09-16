@@ -2386,7 +2386,11 @@ function CallBody({
             : t("companionSurface.muteAssistant")
         }
         shortcut={shortcuts?.muteAssistant}
-        dimmed={spotlight !== undefined}
+        // The mute beat is about both directions, so both controls are lit:
+        // the sentence says "either of us" and a row that lit one of them
+        // would be pointing at half of it.
+        spotlit={spotlight === "mute"}
+        dimmed={spotlight !== undefined && spotlight !== "mute"}
         onClick={() => {
           onControl?.(
             outputMuted ? "unmuteAssistantAudio" : "muteAssistantAudio",

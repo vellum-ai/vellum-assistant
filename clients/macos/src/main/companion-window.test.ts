@@ -2232,6 +2232,13 @@ describe("introOnAdvance", () => {
     expect(introOnAdvance("menu", "next")).toBe(null);
   });
 
+  // The offer a beat makes to do the thing for real. The session withdraws the
+  // card on its own, so the run has to be left exactly where it was.
+  test("taking up a beat's offer leaves the run on that beat", () => {
+    expect(introOnAdvance("talk", "try")).toBe("talk");
+    expect(introOnAdvance("share", "try")).toBe("share");
+  });
+
   test("dismiss ends the run from any beat", () => {
     expect(introOnAdvance("meet", "dismiss")).toBe(null);
     expect(introOnAdvance("talk", "dismiss")).toBe(null);

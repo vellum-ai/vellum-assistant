@@ -303,10 +303,25 @@ export function CompanionIntro({
   const index = COMPANION_INTRO_BEATS.indexOf(beat);
   const isLast = index === COMPANION_INTRO_BEATS.length - 1;
   const copy = INTRO_COPY_KEYS[beat];
-  // The one beat with a permission to ask for, and only while it is missing
-  // and there is something here able to ask.
-  const asking =
-    beat === "share" && screenGranted === false && onGrantScreen !== undefined;
+  /**
+   * What this beat offers to do for real, or `null` where it offers nothing.
+   *
+   * Only the beats with something a press can actually do outside a session:
+   * Talk can start one, and Share can ask for the permission a session will
+   * need. Draw and the mutes act on a running call, so an offer there would be
+   * a button that could only fail.
+   */
+  const offer: { label: string; take: () => void } | null =
+    beat === "talk" && onAdvance !== undefined
+      ? {
+          label: t("companionIntro.talk.try"),
+          take: () => onAdvance("try"),
+        }
+      : beat === "share" &&
+          screenGranted === false &&
+          onGrantScreen !== undefined
+        ? { label: t("companionIntro.share.try"), take: onGrantScreen }
+        : null;
 
   // Where the creature is standing, when a beat has walked it over a control.
   // The card hangs off the creature, so this is all it needs to travel with
@@ -404,20 +419,23 @@ export function CompanionIntro({
         )}
       </p>
       <p className="text-[12px] leading-[1.45] text-white/70">{t(copy.body)}</p>
-      {/* **The permission is asked for where it is explained.** The beat
-          pointing at Share is the one moment the user has a reason to grant
-          screen recording, so the ask is here rather than at some later moment
-          they would have to connect back to this.
-          Beside the sentence and not in place of Next: an Allow that took the
-          primary control's spot made the first press on that spot do something
-          other than move on, which reads as a Next that did not work. */}
-      {asking && (
+      {/* **The beat's offer to do the thing for real, where there is one.**
+          Reading that a key starts a conversation is not the same as having
+          started one, so the beat that describes a gesture offers to take it:
+          Talk starts a session, and Share asks for the permission it needs,
+          which is the one moment the user has a reason to grant it.
+          Beside the sentence and not in place of Next, because an offer in the
+          primary control's spot made the first press there do something other
+          than move on, which reads as a Next that did not work. The label says
+          what will happen, prompt included: a press that raises a system
+          dialog nobody was expecting is a press nobody makes twice. */}
+      {offer !== null && (
         <button
           type="button"
           className="self-start rounded-full bg-white/15 px-2.5 py-1 text-[12px] text-white transition-colors hover:bg-white/25"
-          onClick={onGrantScreen}
+          onClick={offer.take}
         >
-          {t("companionIntro.share.allow")}
+          {offer.label}
         </button>
       )}
       <div className="flex items-center justify-between pt-0.5">
