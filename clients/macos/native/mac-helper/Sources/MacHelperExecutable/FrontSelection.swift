@@ -170,9 +170,11 @@ enum FrontSelection {
             // field it would be withholding from, so it answers the way an
             // untrusted read does.
             //
-            // Chromium's "nothing focused" is not conclusive either: it builds
-            // its accessibility tree only once something starts asking, so a
-            // composer the caret is sitting in reads as nothing at all.
+            // Chromium's "nothing focused" is not conclusive either: it keeps
+            // its web content's accessibility tree off until an assistive
+            // app turns it on, and asking for the focused element does not.
+            // With it off, a composer the caret is sitting in reads as
+            // nothing focused on every hold, not just the first.
             let conclusive = !chromium
                 && (status == .noValue || status == .attributeUnsupported)
             return Focus(
