@@ -178,7 +178,7 @@ export class DesktopStreamBridge {
     if (!this.isEnabled()) {
       this.fail(
         DESKTOP_CLOSE.unavailable,
-        "Desktop is not available on this assistant",
+        "Virtual desktop is available only on enabled platform-hosted assistants",
       );
       return false;
     }

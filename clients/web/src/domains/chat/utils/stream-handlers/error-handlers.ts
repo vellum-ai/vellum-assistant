@@ -35,7 +35,12 @@ export function handleStreamError(
         if (text && ctx.assistantId && convId) {
           useComposerStore
             .getState()
-            .restoreFailedDraft(ctx.assistantId, convId, text);
+            .restoreFailedDraft(
+              ctx.assistantId,
+              convId,
+              text,
+              ctx.composerSessionGeneration,
+            );
         }
         return removeQueuedMessage(prev, messageId);
       });

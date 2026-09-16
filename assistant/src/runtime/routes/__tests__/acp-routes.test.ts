@@ -302,6 +302,25 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     ]);
   });
 
+  test("does not expose snapshot-only history metadata", async () => {
+    insertHistoryRow({
+      id: "hist-private",
+      status: "completed",
+      cwd: "/tmp/private-project",
+      authErrorCredential: "credential-digest",
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({})) as ResponseShape;
+    const session = body.sessions.find((entry) => entry.id === "hist-private");
+
+    expect(session).toBeDefined();
+    expect(session).not.toHaveProperty("source");
+    expect(session).not.toHaveProperty("resumable");
+    expect(session).not.toHaveProperty("cwd");
+    expect(session).not.toHaveProperty("authErrorCredential");
+  });
+
   test("returns input/output tokens for live and history sessions", async () => {
     fakeInMemorySessions = [
       {

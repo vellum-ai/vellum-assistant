@@ -72,6 +72,7 @@ import { setConfig } from "../__tests__/helpers/set-config.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import {
   formatNoConnectionError,
+  platformProxyBaseUrl,
   resolveEffectiveBaseUrl,
   resolveOAuthConnection,
   resolveOAuthConnectionWithMeta,
@@ -752,6 +753,32 @@ describe("resolveEffectiveBaseUrl", () => {
         metadata,
       ),
     ).toBe("https://gmail.googleapis.com/gmail/v1/users/me");
+  });
+});
+
+describe("platformProxyBaseUrl", () => {
+  test("forwards a concrete seed base URL", () => {
+    expect(platformProxyBaseUrl("https://api.figma.com")).toBe(
+      "https://api.figma.com",
+    );
+  });
+
+  test("withholds a templated base URL so the platform fills it", () => {
+    // Shopify's host and QuickBooks' realm are pinned to the connection on
+    // the platform. Forwarding the unfilled template would fail the proxy's
+    // allowlist check and shadow the platform's own default.
+    expect(platformProxyBaseUrl("https://{tenant_host}")).toBeUndefined();
+    expect(
+      platformProxyBaseUrl(
+        "https://quickbooks.api.intuit.com/v3/company/{realm_id}",
+      ),
+    ).toBeUndefined();
+  });
+
+  test("treats a missing base URL as no override", () => {
+    expect(platformProxyBaseUrl(undefined)).toBeUndefined();
+    expect(platformProxyBaseUrl(null)).toBeUndefined();
+    expect(platformProxyBaseUrl("")).toBeUndefined();
   });
 });
 

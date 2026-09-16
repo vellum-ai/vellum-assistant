@@ -69,19 +69,19 @@ Based on the chosen channel, ask for the required destination:
      USER_QUERY="alice"  # ← replace with the actual value the user provided
      USER_QUERY="${USER_QUERY#@}"  # strip leading @ — Slack .name fields have no @ prefix
 
-     # Get the bot token from the credential store
-     BOT_TOKEN=$(assistant credentials reveal --service slack_channel --field bot_token)
-     if [ -z "$BOT_TOKEN" ]; then
-       echo "ERROR: bot_token not found in credential store — fall back to manual entry"
-       exit 1
-     fi
-
-     # Search for matching users (paginate through all workspace members)
+     # Search for matching users (paginate through all workspace members).
+     # The request door sends the bot token from inside the assistant; never
+     # reveal it into a variable or a curl line, where it would land in the
+     # transcript and the tool log. The door exits non-zero when the bot is
+     # not configured, when the call is refused, and when Slack answers with
+     # ok:false, so one branch covers every failure.
      CURSOR=""
      MATCHES="[]"
      while true; do
-       RESPONSE=$(curl -s -H "Authorization: Bearer $BOT_TOKEN" \
-         "https://slack.com/api/users.list?limit=200${CURSOR:+&cursor=$CURSOR}")
+       RESPONSE=$(assistant channels request slack "/users.list?limit=200${CURSOR:+&cursor=$CURSOR}") || {
+         echo "ERROR: the Slack lookup failed; fall back to manual entry"
+         exit 1
+       }
        PAGE_MATCHES=$(echo "$RESPONSE" | jq --arg q "$USER_QUERY" '[.members[] | select(.deleted == false) | select(.profile.display_name == $q or .name == $q or .profile.display_name_normalized == $q or .real_name == $q) | {id: .id, name: .name, display_name: .profile.display_name, real_name: .real_name}]')
        MATCHES=$(echo "$MATCHES $PAGE_MATCHES" | jq -s 'add')
        CURSOR=$(echo "$RESPONSE" | jq -r '.response_metadata.next_cursor // empty')
@@ -98,8 +98,7 @@ Based on the chosen channel, ask for the required destination:
      - **No matches**: Tell the user no matches were found. Suggest they double-check the spelling, or fall back to manual entry (see below).
 
   2. **Fallback to manual entry** if any of the following occur:
-     - The `BOT_TOKEN` retrieval fails (the bash block above exits 1 with the "bot_token not found" error)
-     - The `users.list` API call fails or returns an error
+     - The bash block above exits 1: the Slack bot is not configured, the request door refused the call, or Slack answered `users.list` with an error such as `missing_scope` (the door prints the reason)
      - Too many matches are returned (more than 5)
      - The user prefers to enter their ID directly
 

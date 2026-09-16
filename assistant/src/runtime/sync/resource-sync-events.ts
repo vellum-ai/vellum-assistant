@@ -152,6 +152,10 @@ export function publishPluginsChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.pluginsList], originClientId);
 }
 
+export function publishMcpChanged(): void {
+  void publishSyncInvalidation([SYNC_TAGS.mcpList]);
+}
+
 /**
  * Invalidate the activation-checklist progress resource on every client.
  *

@@ -42,6 +42,7 @@ export function MobileActivityStepsOverlay({
 
   return (
     <div
+      data-testid="mobile-activity-steps-overlay"
       className="fixed inset-x-0 bottom-0 z-30 h-[100dvh] bg-black/40"
       style={{
         paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",

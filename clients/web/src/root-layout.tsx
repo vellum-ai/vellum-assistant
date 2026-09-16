@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 
@@ -46,7 +46,11 @@ import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { handleToggleWatchCommand } from "@/runtime/watch-command";
 
-import { navigateToConversation } from "@/utils/conversation-navigation";
+import { autoSendPromptState } from "@/utils/auto-send-prompt";
+import {
+  closeAppRoute,
+  navigateToConversation,
+} from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
@@ -111,6 +115,9 @@ import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
 import { answerDictationOffer } from "@/domains/chat/voice/dictation-offer-actions";
+import { answerCompanionPopover } from "@/domains/chat/companion-popover-actions";
+import { toggleCompanionPicker } from "@/domains/chat/companion-popover";
+import { useCompanionPickers } from "@/domains/chat/hooks/use-companion-pickers";
 import { useRequestOrganizationId } from "@/stores/organization-store";
 import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import { reconcilePreparedNotificationIdentityOwners } from "@/runtime/notification-avatar";
@@ -339,7 +346,22 @@ export function RootLayout() {
   // at the root because downloads start from every domain (chat attachments,
   // workspace files, invoices, inspector exports).
   useDownloadFeedback();
-  useEffect(() => subscribeAndroidBackButtonSource(), []);
+  // Android Back closes a minimized app the WebView history root cannot pop.
+  // The listener is armed once and reads the current entry's recorded return
+  // through the ref.
+  const locationStateRef = useRef(location.state);
+  useEffect(() => {
+    locationStateRef.current = location.state;
+  }, [location.state]);
+  useEffect(
+    () =>
+      subscribeAndroidBackButtonSource({
+        closeAppRoute: () => {
+          closeAppRoute(navigate, { state: locationStateRef.current });
+        },
+      }),
+    [navigate],
+  );
   // Inbound deep-link navigation + window activation. Mounted here
   // (not in `ChatPage`) so a `vellum://thread/...` arriving while
   // the user is on `/assistant/settings`, `/logs`, etc. still
@@ -357,6 +379,8 @@ export function RootLayout() {
   // surface is on screen for as long as the app is, including on routes with no
   // transcript rendered.
   useCompanionMirror();
+  // The microphones and voices the call bar's chevrons open in the popover.
+  useCompanionPickers();
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Id of the assistant a tray "Retire <assistant>…" command targets. The tray
@@ -441,9 +465,9 @@ export function RootLayout() {
       const draftId = createDraftConversationId();
       useConversationStore.getState().setActiveConversationId(draftId);
       useViewerStore.getState().setMainView("chat");
-      void navigate(
-        `${routes.conversation(draftId)}?prompt=${encodeURIComponent(command.message)}`,
-      );
+      void navigate(routes.conversationWithPrompt(draftId, command.message), {
+        state: autoSendPromptState(),
+      });
     },
     startVoice: () => {
       // The companion surface's Talk, the one sender of this command. See
@@ -508,6 +532,18 @@ export function RootLayout() {
         return;
       }
       void answerDictationOffer(command.answer, command.offerId);
+    },
+    answerCompanionPopover: (command) => {
+      if (command.kind !== "answerCompanionPopover") {
+        return;
+      }
+      void answerCompanionPopover(command.popoverId, command.answer);
+    },
+    toggleCompanionPicker: (command) => {
+      if (command.kind !== "toggleCompanionPicker") {
+        return;
+      }
+      toggleCompanionPicker(command.picker);
     },
     // The user pressed a control the assistant was pointing at. Handled here
     // rather than beside the session's controls for the reason the dial's

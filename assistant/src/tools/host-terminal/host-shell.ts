@@ -24,8 +24,10 @@ import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import {
   buildShellInvocation,
+  buildShellSpawnFlags,
   prependUniquePathEntries,
   terminateProcessTree,
+  watchShellProcessStart,
 } from "../../util/host-process.js";
 import { getLogger } from "../../util/logger.js";
 import type { CompletedBackgroundTool } from "../background-tool-registry.js";
@@ -458,9 +460,9 @@ export const hostShellTool = {
         cwd: workingDir,
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-        windowsHide: true,
+        ...buildShellSpawnFlags(),
       });
+      const launch = watchShellProcessStart(child);
 
       const collector = attachBoundedStdio(child);
       let timedOut = false;
@@ -486,7 +488,9 @@ export const hostShellTool = {
         }
         completed = true;
         clearTimeout(timer);
-        const result = collector.format(code, timedOut, timeoutSec);
+        const result = collector.format(code, timedOut, timeoutSec, {
+          started: launch.didStart(),
+        });
         // Cancel takes precedence over the SIGKILL-induced error result.
         const status = aborted
           ? "cancelled"
@@ -632,9 +636,9 @@ export const hostShellTool = {
         cwd: workingDir,
         env: hostEnv,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-        windowsHide: true,
+        ...buildShellSpawnFlags(),
       });
+      const launch = watchShellProcessStart(child);
       const collector = attachBoundedStdio(child, {
         onOutput: context.onOutput,
       });
@@ -660,7 +664,9 @@ export const hostShellTool = {
         clearTimeout(timer);
         context.signal?.removeEventListener("abort", onAbort);
 
-        const result = collector.format(code, timedOut, timeoutSec);
+        const result = collector.format(code, timedOut, timeoutSec, {
+          started: launch.didStart(),
+        });
 
         resolve({
           content: result.content,

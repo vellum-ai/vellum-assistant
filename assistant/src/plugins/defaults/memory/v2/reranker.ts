@@ -2,8 +2,9 @@
 
 import { createHash } from "node:crypto";
 
+import { safeStringSlice } from "@vellumai/plugin-api";
+
 import type { AssistantConfig } from "../../../../config/types.js";
-import { safeStringSlice } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { getWorkspaceDir } from "../paths.js";
 import { readPage } from "../substrate/page-store.js";

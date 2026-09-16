@@ -31,6 +31,9 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationOfferAnswer,
+  CompanionPopoverAnswer,
+  CompanionPopoverView,
+  CompanionPicker,
   DictationPartialsResult,
   DictationTranscribeResult,
   HelperRestartResult,
@@ -617,6 +620,38 @@ const bridge: VellumBridge = {
         offerId,
       );
     },
+    answerPopover: (
+      answer: CompanionPopoverAnswer,
+      popoverId: string,
+    ): void => {
+      ipcRenderer.send("vellum:companion:answerPopover", answer, popoverId);
+    },
+    setPopoverSize: (popoverId: string, width: number, height: number): void => {
+      ipcRenderer.send(
+        "vellum:companion:setPopoverSize",
+        popoverId,
+        width,
+        height,
+      );
+    },
+    setPopoverView: (popoverId: string, view: CompanionPopoverView): void => {
+      ipcRenderer.send("vellum:companion:setPopoverView", popoverId, view);
+    },
+    setAttachedPopoverHeight: (popoverId: string, height: number): void => {
+      ipcRenderer.send(
+        "vellum:companion:setAttachedPopoverHeight",
+        popoverId,
+        height,
+      );
+    },
+    togglePicker: (picker: CompanionPicker): void => {
+      ipcRenderer.send("vellum:companion:togglePicker", picker);
+    },
+    openLink: (url: string): void => {
+      ipcRenderer.send("vellum:companion:openLink", url);
+    },
+    takesPrompts: (): Promise<boolean> =>
+      ipcRenderer.invoke("vellum:companion:takesPrompts") as Promise<boolean>,
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");
     },

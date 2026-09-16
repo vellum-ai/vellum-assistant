@@ -519,11 +519,31 @@ describe("GET /schedules/:id", () => {
       message: "review queue",
       mode: "execute",
       enabled: true,
+      quiet: false,
       isOneShot: false,
       createdFromConversationId: source.id,
       createdFromConversationExists: true,
       createdFromConversationArchivedAt: null,
     });
+  });
+
+  test("serializes quiet from the stored schedule row", async () => {
+    const schedule = await createSchedule({
+      name: "Quiet schedule",
+      cronExpression: "0 9 * * *",
+      message: "review queue",
+      syntax: "cron",
+      quiet: true,
+    });
+
+    const route = findRoute("schedules/:id", "GET");
+    const result = (await route.handler({
+      pathParams: { id: schedule.id },
+    })) as {
+      schedule: { quiet: boolean };
+    };
+
+    expect(result.schedule.quiet).toBe(true);
   });
 
   test("returns deferred schedules that the list hides by default", async () => {

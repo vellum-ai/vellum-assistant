@@ -32,6 +32,7 @@ interface MockProviderRow {
   pingMethod: string | null;
   pingHeaders: string | null;
   pingBody: string | null;
+  responseOkField: string | null;
 }
 
 const baseProvider: MockProviderRow = {
@@ -44,6 +45,7 @@ const baseProvider: MockProviderRow = {
   pingMethod: null,
   pingHeaders: null,
   pingBody: null,
+  responseOkField: null,
 };
 
 let mockProviders: Record<string, MockProviderRow> = {};
@@ -586,6 +588,37 @@ describe("POST oauth/ping", () => {
     expect(result.status).toBe(401);
     expect(result.hint).toContain("oauth connect");
   });
+
+  // Slack's auth.test refuses a revoked token inside an HTTP 200, so a ping
+  // that read only the status would report a dead bot credential as healthy.
+  test("a 2xx ping whose body reports failure in the declared ok field is not ok", async () => {
+    const seed = PROVIDER_SEED_DATA.slack_channel;
+    mockProviders.slack_channel = {
+      ...baseProvider,
+      provider: "slack_channel",
+      pingUrl: seed.pingUrl ?? null,
+      responseOkField: seed.responseOkField ?? null,
+    };
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "invalid_auth" },
+    };
+    const result = (await getRoute("POST", "oauth/ping").handler(
+      makeArgs({ body: { provider: "slack_channel" } }),
+    )) as {
+      ok: boolean;
+      status: number;
+      error: string;
+      body?: unknown;
+      hint?: string;
+    };
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(200);
+    expect(result.error).toContain("ok: false");
+    expect(result.body).toEqual({ ok: false, error: "invalid_auth" });
+    expect(result.hint).toContain("oauth connect");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -669,6 +702,77 @@ describe("POST oauth/request", () => {
   // bot's token is stored by the channel's setup, so the OAuth status and
   // connect commands cannot repair it; the hint must name the channel's own
   // diagnostics, through whichever door the request came.
+  // A 403 carrying an HTML page is a resource refusing this identity, not the
+  // credential failing: an API refuses with JSON, and the same token serves
+  // it. The hint names the resource's access and never tells the caller to
+  // reconnect; a JSON 403 from any host keeps the credential reading.
+  test("an HTML 403 names the resource's access, not the credential", async () => {
+    mockProviders.slack_channel = seededProvider("slack_channel");
+    mockResolveResponse = {
+      status: 403,
+      headers: { "content-type": "text/html; charset=utf-8" },
+      body: "<html><title>Slack</title></html>",
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "https://files.slack.com/files-pri/T0123-F0456/download/shot.png",
+        },
+      }),
+    )) as { ok: boolean; status: number; hint?: string };
+    expect(result.ok).toBe(false);
+    expect(result.hint).toContain("HTML page from files.slack.com");
+    expect(result.hint).toContain("cannot see this resource");
+    expect(result.hint).not.toContain("was rejected");
+    expect(result.hint).not.toContain("setup skill");
+
+    // A JSON 403 is an API refusal and keeps the credential reading, on the
+    // API host and on a provider's other API hosts alike.
+    mockResolveResponse = {
+      status: 403,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "missing_scope" },
+    };
+    const apiResult = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: { provider: "slack_channel", url: "/conversations.history" },
+      }),
+    )) as { hint?: string };
+    expect(apiResult.hint).toContain("slack bot credential was rejected");
+
+    mockProviders.google = {
+      ...baseProvider,
+      injectionTemplates: JSON.stringify([
+        {
+          hostPattern: "gmail.googleapis.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+        {
+          hostPattern: "calendar.googleapis.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ]),
+      baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+    };
+    const otherApi = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://calendar.googleapis.com/calendar/v3/calendars/primary",
+        },
+      }),
+    )) as { hint?: string };
+    expect(otherApi.hint).toContain(
+      "The OAuth token may be expired or revoked",
+    );
+    expect(otherApi.hint).not.toContain("cannot see this resource");
+  });
+
   test("401 as a channel bot points at the channel's diagnostics, never the OAuth commands", async () => {
     mockProviders.slack_channel = {
       ...baseProvider,
@@ -917,6 +1021,7 @@ describe("POST oauth/request", () => {
       managedServiceConfigKey: null,
       baseUrl: seed.baseUrl ?? null,
       injectionTemplates: JSON.stringify(seed.injectionTemplates),
+      responseOkField: seed.responseOkField ?? null,
     };
   }
 
@@ -1142,6 +1247,67 @@ describe("POST oauth/request", () => {
       ),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
+
+  // Slack documents that every Web API response carries a top-level boolean
+  // `ok`, false on failure, under a successful status. The provider row
+  // declares that field, and the door reads it, so a refused call is not
+  // reported as a success to the caller.
+  test("a 2xx whose body reports failure in the provider's declared ok field is not ok", async () => {
+    mockProviders.slack_channel = seededProvider("slack_channel");
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "not_in_channel" },
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "/chat.postMessage",
+          parsed_data: { channel: "C1", text: "digest" },
+        },
+      }),
+    )) as { ok: boolean; status: number; body: unknown; hint?: string };
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ ok: false, error: "not_in_channel" });
+    expect(result.hint).toContain("ok: false");
+  });
+
+  test("a body without the declared ok field leaves the status as the verdict", async () => {
+    // A file download from the same credential answers with bytes, not the
+    // envelope, and must not read as a refusal.
+    mockProviders.slack_channel = seededProvider("slack_channel");
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "image/png" },
+      body: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "https://files.slack.com/files-pri/T0123-F0456/download/shot.png",
+        },
+      }),
+    )) as { ok: boolean; hint?: string };
+    expect(result.ok).toBe(true);
+    expect(result.hint).toBeUndefined();
+  });
+
+  test("a provider that declares no ok field is judged by status alone", async () => {
+    mockResolveResponse = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "not_an_envelope" },
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: { provider: "google", url: "https://api.google.com/v1/me" },
+      }),
+    )) as { ok: boolean };
+    expect(result.ok).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1163,6 +1329,33 @@ describe("POST oauth/managed-connect/start", () => {
       makeArgs({ body: { provider: "google", scopes: ["email"] } }),
     )) as { ok: boolean; connect_url: string };
     expect(result.connect_url).toBe("https://app.vellum.ai/connect/abc");
+  });
+
+  test("forwards tenant_host to the platform only when one is supplied", async () => {
+    // Shopify's endpoints live on the merchant's host, which the platform
+    // substitutes into its templates; other providers must not see the key.
+    const bodies: Array<Record<string, unknown>> = [];
+    mockFetchImpl = async (_path, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          connect_url: "https://app.vellum.ai/connect/abc",
+        }),
+        text: async () => "",
+      };
+    };
+    await getRoute("POST", "oauth/managed-connect/start").handler(
+      makeArgs({
+        body: { provider: "shopify", tenant_host: " my-store.myshopify.com " },
+      }),
+    );
+    await getRoute("POST", "oauth/managed-connect/start").handler(
+      makeArgs({ body: { provider: "google", tenant_host: "   " } }),
+    );
+    expect(bodies[0]?.tenant_host).toBe("my-store.myshopify.com");
+    expect(bodies[1]).not.toHaveProperty("tenant_host");
   });
 
   test("raises InternalError when platform returns 401", async () => {
@@ -1228,6 +1421,7 @@ describe("GET oauth/managed-connect/poll", () => {
         id: string;
         account_label: string | null;
         scopes_granted: string[];
+        provider_params: Record<string, string>;
       }>;
     };
     expect(result.ok).toBe(true);
@@ -1236,6 +1430,7 @@ describe("GET oauth/managed-connect/poll", () => {
         id: "conn-1",
         account_label: "alice@example.com",
         scopes_granted: ["email"],
+        provider_params: {},
       },
     ]);
   });
@@ -1247,5 +1442,31 @@ describe("GET oauth/managed-connect/poll", () => {
         makeArgs({ queryParams: { provider: "google" } }),
       ),
     ).rejects.toBeInstanceOf(BadRequestError);
+  });
+
+  test("passes through the provider params a connection is scoped by", async () => {
+    // QuickBooks pins the company (realm) the user picked to the connection;
+    // a caller addressing /companyinfo/<realmId> needs it back.
+    mockFetchImpl = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          id: "conn-qb",
+          account_label: "Acme Widgets",
+          scopes_granted: ["com.intuit.quickbooks.accounting"],
+          provider_params: { realm_id: "9130357849012345" },
+        },
+      ],
+      text: async () => "",
+    });
+    const result = (await getRoute("GET", "oauth/managed-connect/poll").handler(
+      makeArgs({ queryParams: { provider: "quickbooks" } }),
+    )) as {
+      connections: Array<{ provider_params: Record<string, string> }>;
+    };
+    expect(result.connections[0]?.provider_params).toEqual({
+      realm_id: "9130357849012345",
+    });
   });
 });

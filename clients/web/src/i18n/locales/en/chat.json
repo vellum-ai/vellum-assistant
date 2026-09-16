@@ -23,6 +23,7 @@
   },
   "acpConnectAffordance": {
     "connectButton": "Connect",
+    "dismissButton": "Dismiss",
     "errorFallback": "Connecting Claude failed. Please try again.",
     "pastePlaceholder": "Paste your key",
     "saveButton": "Save",
@@ -64,8 +65,17 @@
     "backAria": "Back to all steps",
     "backTooltip": "All steps",
     "closeSteps": "Close steps",
+    "screenshotAria": "Preview screenshot from {activity}",
+    "screenshotFallbackAria": "Preview computer screenshot",
+    "screenshotFallbackTitle": "Computer screenshot",
+    "screenshotTitle": "Screenshot from {activity}",
     "thinkingTitle": "Thinking",
     "viewThinkingAria": "View thinking"
+  },
+  "computerUseScreenshotPreview": {
+    "unavailable": "Latest screenshot unavailable.",
+    "unavailableShowingPrevious": "Latest screenshot unavailable. Showing previous screenshot.",
+    "updating": "Updating screenshot..."
   },
   "addToChatSheet": {
     "camera": "Camera",
@@ -94,27 +104,32 @@
     "earlierActivity": "Earlier activity"
   },
   "assistantDesktop": {
-    "resizeAria": "Resize desktop sidebar",
-    "collapseAria": "Collapse desktop sidebar",
-    "expandAria": "Expand desktop",
-    "busy": "The desktop is in use by another viewer.",
-    "connecting": "Connecting to the desktop…",
-    "failed": "The desktop couldn't start.",
-    "lost": "The connection to the desktop was lost.",
-    "openAria": "Open desktop",
+    "fitView": "Fit",
+    "panView": "Pan",
+    "controlView": "Control",
+    "panHint": "Drag to pan. Tap to click.",
+    "hideAria": "Hide virtual desktop",
+    "closeAria": "Close virtual desktop preview",
+    "moveAria": "Move virtual desktop preview (arrow keys)",
+    "resizeAria": "Resize virtual desktop preview (arrow keys)",
+    "expandAria": "Expand virtual desktop",
+    "busy": "The virtual desktop is in use by another viewer.",
+    "connecting": "Connecting to the virtual desktop…",
+    "failed": "The virtual desktop couldn't start.",
+    "lost": "The connection to the virtual desktop was lost.",
+    "openAria": "Open {name}'s virtual desktop",
+    "openUnnamedAria": "Open virtual desktop",
     "reconnectButton": "Reconnect",
     "title": "Desktop",
-    "unavailable": "The desktop isn't available on this assistant.",
-    "installButton": "Install desktop",
-    "installDescription": "Install Google Chrome and the components needed for your assistant’s desktop. This may take a few minutes.",
-    "checkingSetup": "Checking desktop setup…",
-    "installingPackages": "Installing desktop components…",
+    "unavailable": "The virtual desktop isn't available on this assistant.",
+    "installButton": "Install virtual desktop",
+    "checkingSetup": "Checking virtual desktop setup…",
+    "installingPackages": "Installing virtual desktop components…",
     "installingChrome": "Installing Google Chrome…",
     "checkingInstall": "Checking the installation…",
-    "installBackground": "Setup continues if you close this window.",
     "installFailed": "Installation failed. Try again to finish setup.",
-    "setupRequestFailed": "Could not check desktop setup. Reconnect to try again.",
-    "setupUnsupported": "Desktop installation requires a Linux x64 or ARM64 container with administrator access."
+    "setupRequestFailed": "Could not check virtual desktop setup. Reconnect to try again.",
+    "setupUnsupported": "Virtual desktop installation requires a Linux x64 or ARM64 container with administrator access."
   },
   "assistantNavItem": {
     "newChat": "New Chat"
@@ -688,10 +703,6 @@
   "copyBlockSurface": {
     "copied": "Copied",
     "copy": "Copy"
-  },
-  "copyButton": {
-    "copied": "Copied",
-    "copyFailed": "Could not copy to the clipboard."
   },
   "copyIdToClipboard": {
     "conversationCopied": "Conversation ID copied to clipboard.",
@@ -1286,6 +1297,7 @@
     "defaultDescription": "Connect {name} so I can use it for this task.",
     "dismiss": "Dismiss",
     "missingDetails": "Missing assistant or provider details.",
+    "tenantHostInvalid": "Enter a valid {label}, for example {placeholder}",
     "thisAccount": "this account",
     "waiting": "Waiting...",
     "yourAssistant": "Your assistant"
@@ -1368,6 +1380,7 @@
   },
   "preferencesMenu": {
     "admin": "Admin",
+    "earnCredits": "Earn Free Credits",
     "preferences": "Preferences",
     "settings": "Settings",
     "shareFeedback": "Share Feedback"
@@ -1608,10 +1621,6 @@
   "singleActivity": {
     "webSearch": "Web Search"
   },
-  "skillCreatedCard": {
-    "view": "View",
-    "viewAria": "View {name}"
-  },
   "skillDetailPanel": {
     "actionsAria": "Skill actions",
     "closeDetails": "Close skill details",
@@ -1630,8 +1639,12 @@
     "view": "View"
   },
   "skillLoadDetail": {
+    "failed": "Failed to load",
+    "loading": "Loading skill…",
     "loadingAria": "Loading skill",
+    "notApproved": "Not approved",
     "provides": "Provides",
+    "unnamedSkill": "Skill",
     "usedSkill": "Used Skill"
   },
   "skillLoadOutput": {

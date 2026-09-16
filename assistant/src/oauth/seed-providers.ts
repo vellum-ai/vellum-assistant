@@ -90,6 +90,13 @@ export const PROVIDER_SEED_DATA: Record<
     }>;
     appType?: string;
     setupNotes?: string[];
+    /**
+     * Per-tenant providers only: the host the user supplies at connect time,
+     * which the platform substitutes into `{tenant_host}` URL placeholders.
+     * `pattern` mirrors the platform registry's validation so clients can
+     * reject a malformed host before the request leaves the browser.
+     */
+    tenantHost?: { pattern: string; label: string; placeholder: string };
     identityUrl?: string;
     identityMethod?: string;
     identityHeaders?: Record<string, string>;
@@ -97,6 +104,14 @@ export const PROVIDER_SEED_DATA: Record<
     identityResponsePaths?: string[];
     identityFormat?: string;
     identityOkField?: string;
+    /**
+     * Dot path of the boolean the provider's API puts in every response body
+     * to report success (Slack: `ok`). Ping and the authenticated-request
+     * doors read an explicit `false` under a 2xx as a failed call, since such
+     * a provider hides refusals behind a successful status. Distinct from
+     * `identityOkField`, which governs only the identity call.
+     */
+    responseOkField?: string;
     featureFlag?: string;
     logoUrl?: string;
   }
@@ -249,6 +264,7 @@ export const PROVIDER_SEED_DATA: Record<
     appType: "Slack App",
     identityUrl: "https://slack.com/api/auth.test",
     identityOkField: "ok",
+    responseOkField: "ok",
     identityResponsePaths: ["user", "team"],
     identityFormat: "@${user} (${team})",
   },
@@ -1003,7 +1019,12 @@ export const PROVIDER_SEED_DATA: Record<
     // default, because Figma rejects the whole authorization request if the
     // app cannot grant a requested scope. `selections:read` is withheld for
     // that same reason: it is not offered in the app's OAuth scope list, so
-    // requesting it would fail the entire authorization.
+    // requesting it would fail the entire authorization. `folders:read` is
+    // withheld likewise: Figma documents it, but the app's scope picker only
+    // offers `folder_metadata:read` under Folders. `file_code_connect:write`
+    // is withheld because Figma only offers it to apps owned by an
+    // Organization-plan team, which not every managed app is, and nothing
+    // here uses Code Connect; it stays in availableScopes for BYO apps.
     defaultScopes: [
       "current_user:read",
       "file_content:read",
@@ -1013,7 +1034,6 @@ export const PROVIDER_SEED_DATA: Record<
       "file_comments:write",
       "file_dev_resources:read",
       "file_dev_resources:write",
-      "folders:read",
       "folder_metadata:read",
       "library_content:read",
       "library_assets:read",
@@ -1052,6 +1072,10 @@ export const PROVIDER_SEED_DATA: Record<
       {
         scope: "file_dev_resources:write",
         description: "Write dev resources to files",
+      },
+      {
+        scope: "file_code_connect:write",
+        description: "Write and change component code (Code Connect)",
       },
       {
         scope: "folders:read",
@@ -1206,6 +1230,9 @@ export const PROVIDER_SEED_DATA: Record<
     authorizeUrl: "urn:manual-token",
     tokenExchangeUrl: "urn:manual-token",
     pingUrl: "https://slack.com/api/auth.test",
+    // The bot answers through the same Web API envelope as the person's
+    // integration, and auth.test refuses a revoked token inside an HTTP 200.
+    responseOkField: "ok",
     baseUrl: "https://slack.com/api",
     displayLabel: "Slack Channel",
     description: "Channel bot token",
@@ -1383,11 +1410,26 @@ export const PROVIDER_SEED_DATA: Record<
       "read_customers",
       "write_customers",
       "read_inventory",
+      "write_inventory",
       "read_locations",
       "read_fulfillments",
+      "write_fulfillments",
       "read_discounts",
       "write_discounts",
       "read_price_rules",
+      "write_price_rules",
+      "read_content",
+      "write_content",
+      "read_reports",
+      // Location, shipping, and marketing writes stay opt-in from the scope
+      // picker: they change store setup rather than day-to-day operations,
+      // and keeping them out of the defaults keeps the install consent short.
+      // write_themes covers listing, duplicating, and publishing themes.
+      // Writing theme files (settings, JSON templates, Liquid) also requires
+      // Shopify's theme-code exemption on the app itself, which is granted
+      // per app in the Shopify dashboard rather than through a scope.
+      "read_themes",
+      "write_themes",
     ],
     availableScopes: [
       {
@@ -1428,6 +1470,7 @@ export const PROVIDER_SEED_DATA: Record<
         description: "Adjust inventory levels and items",
       },
       { scope: "read_locations", description: "Read store locations" },
+      { scope: "write_locations", description: "Add and edit store locations" },
       { scope: "read_fulfillments", description: "Read fulfillment services" },
       {
         scope: "write_fulfillments",
@@ -1440,8 +1483,21 @@ export const PROVIDER_SEED_DATA: Record<
         scope: "write_price_rules",
         description: "Create and update price rules",
       },
+      { scope: "read_themes", description: "Read themes and theme files" },
+      {
+        scope: "write_themes",
+        description: "Create, publish, and edit themes and theme files",
+      },
       { scope: "read_files", description: "Read files uploaded to the store" },
       { scope: "write_files", description: "Upload and update files" },
+      {
+        scope: "read_content",
+        description: "Read blog posts, pages, and comments",
+      },
+      {
+        scope: "write_content",
+        description: "Create and update blog posts, pages, and comments",
+      },
       { scope: "read_gift_cards", description: "Read gift cards" },
       {
         scope: "write_gift_cards",
@@ -1455,10 +1511,22 @@ export const PROVIDER_SEED_DATA: Record<
         scope: "read_shipping",
         description: "Read shipping and delivery carrier services",
       },
+      {
+        scope: "write_shipping",
+        description: "Create and update delivery carrier services",
+      },
+      {
+        scope: "read_reports",
+        description: "Run ShopifyQL sales and analytics queries",
+      },
       { scope: "read_analytics", description: "Read analytics and reports" },
       {
         scope: "read_marketing_events",
         description: "Read marketing events and activities",
+      },
+      {
+        scope: "write_marketing_events",
+        description: "Create and update marketing events and activities",
       },
       { scope: "read_order_edits", description: "Read order edits" },
       {
@@ -1485,6 +1553,12 @@ export const PROVIDER_SEED_DATA: Record<
     ],
     loopbackPort: 17341,
     managedServiceConfigKey: "shopify-oauth",
+    // Mirrors `extra_config.tenant_host` in the platform provider registry.
+    tenantHost: {
+      pattern: "^[a-z0-9][a-z0-9-]*\\.myshopify\\.com$",
+      label: "Shop domain",
+      placeholder: "your-store.myshopify.com",
+    },
     injectionTemplates: [
       {
         hostPattern: "*.myshopify.com",
@@ -1507,6 +1581,93 @@ export const PROVIDER_SEED_DATA: Record<
     // in place a visible Shopify tile would offer a connect flow that
     // cannot complete.
     featureFlag: "shopify-oauth",
+  },
+
+  quickbooks: {
+    provider: "quickbooks",
+    authorizeUrl: "https://appcenter.intuit.com/connect/oauth2",
+    tokenExchangeUrl:
+      "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    // Access tokens live an hour; refresh tokens 100 days and are rotated on
+    // every refresh, which the platform persists. Both token endpoints
+    // authenticate the client with HTTP Basic.
+    refreshUrl: "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    tokenEndpointAuthMethod: "client_secret_basic",
+    // No revokeUrl: Intuit's revocation endpoint wants a JSON body under HTTP
+    // Basic client auth, and the daemon's revoke helper only posts an
+    // unauthenticated form body, so a seeded URL would fail silently on every
+    // your-own disconnect. The platform registry revokes managed tokens itself.
+    // Every Accounting API path is scoped to the company (realm) the user
+    // picked on Intuit's consent screen. The realm arrives only as the
+    // callback's `realmId` query parameter; the platform captures it into the
+    // connection's `provider_params` and fills the `{realm_id}` placeholder
+    // server-side, so managed callers send paths relative to the company
+    // (`/query`, `/customer/123`). Production and sandbox keys use different
+    // hosts; the platform picks the host per environment.
+    baseUrl: "https://quickbooks.api.intuit.com/v3/company/{realm_id}",
+    // No pingUrl: the only company-independent probe would still need the
+    // realm in its path, which the ping route cannot fill in (it sends the
+    // URL's origin as a per-request base override, which would also pin a
+    // managed sandbox connection to the production host).
+    displayLabel: "QuickBooks",
+    description: "Invoices, customers, vendors, and accounting data",
+    dashboardUrl: "https://developer.intuit.com/app/developer/dashboard",
+    clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/quickbooks",
+    // The Accounting scope covers the QuickBooks Online API. Payments is a
+    // separate product the app must be enabled for, and the OpenID scopes
+    // only add the signing-in user's profile, so none are on by default.
+    defaultScopes: ["com.intuit.quickbooks.accounting"],
+    availableScopes: [
+      {
+        scope: "com.intuit.quickbooks.accounting",
+        description:
+          "Read and write QuickBooks Online accounting data: customers, vendors, invoices, bills, payments, items, accounts, and reports",
+      },
+      {
+        scope: "com.intuit.quickbooks.payment",
+        description:
+          "QuickBooks Payments: charges, refunds, bank accounts, and cards (requires a Payments-enabled app)",
+      },
+      { scope: "openid", description: "Sign in with Intuit (OpenID Connect)" },
+      { scope: "profile", description: "The signing-in user's name" },
+      { scope: "email", description: "The signing-in user's email address" },
+      { scope: "phone", description: "The signing-in user's phone number" },
+      { scope: "address", description: "The signing-in user's address" },
+    ],
+    loopbackPort: 17342,
+    managedServiceConfigKey: "quickbooks-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "quickbooks.api.intuit.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "sandbox-quickbooks.api.intuit.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    setupNotes: [
+      "QuickBooks scopes every Accounting API call to the company (realm) chosen on Intuit's consent screen. Managed connections carry the realm as provider_params.realm_id and requests are sent relative to /v3/company/{realmId}.",
+      "Intuit development keys only authorize sandbox companies, which live on sandbox-quickbooks.api.intuit.com; production keys use quickbooks.api.intuit.com.",
+      "The Accounting API returns XML unless the request carries Accept: application/json.",
+    ],
+    // CompanyInfo does not repeat the realm (its Id is always "1"); the
+    // platform keys the connection on the captured realm and labels it with
+    // the company name.
+    identityUrl:
+      "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}",
+    identityHeaders: { Accept: "application/json" },
+    identityResponsePaths: ["CompanyInfo.CompanyName", "CompanyInfo.LegalName"],
+    // Gated like figma/shopify: the platform side lands separately, and until
+    // the client ids are live a visible tile would offer a connect flow that
+    // cannot complete.
+    featureFlag: "quickbooks-oauth",
   },
 };
 

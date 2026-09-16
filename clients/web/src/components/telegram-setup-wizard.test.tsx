@@ -70,6 +70,21 @@ function renderWizard(ui: React.ReactElement) {
 }
 
 describe("TelegramSetupWizard step flow", () => {
+  test("create step states which chats are supported and how a group is addressed", () => {
+    renderWizard(
+      <TelegramSetupWizard
+        assistantId="asst-test"
+        assistantName={ASSISTANT_NAME}
+      />,
+    );
+
+    expect(
+      screen.queryByText(
+        /Private chats and groups are supported\. In a group, the assistant replies when it is mentioned or when someone replies to it\. Broadcast channels are not supported\./i,
+      ),
+    ).not.toBeNull();
+  });
+
   test("copying the suggested name does not navigate", () => {
     renderWizard(
       <TelegramSetupWizard

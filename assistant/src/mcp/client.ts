@@ -5,11 +5,18 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 
-import type { McpServerSource, McpTransport } from "../config/schemas/mcp.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import type {
+  McpServerSource,
+  McpTransport,
+  ResolvedMcpServerConfig,
+} from "../config/schemas/mcp.js";
 import { getLogger } from "../util/logger.js";
+import {
+  resolveMcpOAuthCredentialTarget,
+  workspaceMcpOAuthCredentialTarget,
+} from "./credential-target.js";
 import { getMcpHeaders } from "./mcp-header-store.js";
-import { McpOAuthProvider } from "./mcp-oauth-provider.js";
+import { hasMcpOAuthTokens, McpOAuthProvider } from "./mcp-oauth-provider.js";
 
 const log = getLogger("mcp-client");
 
@@ -55,11 +62,12 @@ export interface McpCallResult {
 export class McpClient {
   readonly serverId: string;
   /**
-   * Where this server was declared. Only a `workspace` server resolves
-   * `mcp:<serverId>:tokens` / `mcp:<serverId>:headers` from the credential
-   * store — see {@link McpServerSource} for why a plugin server must not.
+   * Where this server was declared. Workspace servers use their public id for
+   * OAuth and static-header identity. Plugin servers use their declaring owner,
+   * original key, and endpoint for OAuth and never read workspace headers.
    */
   readonly source: McpServerSource;
+  private readonly serverConfig: ResolvedMcpServerConfig | null;
   private client: Client;
   private transport:
     | StdioClientTransport
@@ -79,9 +87,18 @@ export class McpClient {
     return this.connected;
   }
 
-  constructor(serverId: string, source: McpServerSource = "workspace") {
+  constructor(
+    serverId: string,
+    sourceOrConfig: McpServerSource | ResolvedMcpServerConfig = "workspace",
+    private readonly onUnexpectedClose?: () => void,
+  ) {
     this.serverId = serverId;
-    this.source = source;
+    this.source =
+      typeof sourceOrConfig === "string"
+        ? sourceOrConfig
+        : sourceOrConfig.source;
+    this.serverConfig =
+      typeof sourceOrConfig === "string" ? null : sourceOrConfig;
     this.client = new Client({
       name: "vellum-assistant",
       version: "1.0.0",
@@ -96,6 +113,14 @@ export class McpClient {
         "MCP SDK transport error (non-fatal)",
       );
     };
+    this.client.onclose = () => {
+      const wasConnected = this.connected;
+      this.connected = false;
+      this.transport = null;
+      if (wasConnected) {
+        this.onUnexpectedClose?.();
+      }
+    };
   }
 
   async connect(transportConfig: McpTransport): Promise<void> {
@@ -106,21 +131,20 @@ export class McpClient {
     const isHttpTransport =
       transportConfig.type === "sse" ||
       transportConfig.type === "streamable-http";
-    const usesStoredCredentials = this.source === "workspace";
+    const credentialTarget = this.resolveCredentialTarget(transportConfig);
+    this.oauthProvider = null;
 
     // For HTTP transports, only attach an OAuth provider if cached tokens
     // exist. This avoids triggering client registration during daemon
     // startup. If no tokens, try without auth: if the server requires it,
     // skip silently.
-    if (isHttpTransport && usesStoredCredentials) {
-      const cachedTokens = await getSecureKeyAsync(
-        `mcp:${this.serverId}:tokens`,
-      );
-      if (cachedTokens) {
+    if (isHttpTransport && credentialTarget) {
+      if (await hasMcpOAuthTokens(credentialTarget)) {
         this.oauthProvider = new McpOAuthProvider(
           this.serverId,
           transportConfig.url,
           /* interactive */ false,
+          { credentialTarget },
         );
       }
     }
@@ -128,7 +152,7 @@ export class McpClient {
     // Resolve static auth headers from credential store, falling back to
     // any legacy headers in the transport config for backward compatibility.
     let effectiveConfig = transportConfig;
-    if (isHttpTransport && usesStoredCredentials) {
+    if (isHttpTransport && this.source === "workspace") {
       const storedHeaders = await getMcpHeaders(this.serverId);
       if (storedHeaders) {
         effectiveConfig = {
@@ -184,8 +208,32 @@ export class McpClient {
       return;
     }
 
+    if (this.transport === null) {
+      this._lastError = new Error(
+        `MCP server "${this.serverId}" closed during initialization`,
+      );
+      return;
+    }
+
     this.connected = true;
     log.info({ serverId: this.serverId }, "MCP client connected");
+  }
+
+  private resolveCredentialTarget(
+    transport: McpTransport,
+  ): ReturnType<typeof resolveMcpOAuthCredentialTarget> {
+    if (this.source === "workspace") {
+      return transport.type === "stdio"
+        ? null
+        : workspaceMcpOAuthCredentialTarget(this.serverId);
+    }
+    if (!this.serverConfig) {
+      return null;
+    }
+    return resolveMcpOAuthCredentialTarget(this.serverId, {
+      ...this.serverConfig,
+      transport,
+    });
   }
 
   async listTools(): Promise<McpToolInfo[]> {
@@ -278,12 +326,12 @@ export class McpClient {
       return;
     }
 
+    this.connected = false;
     try {
       await this.client.close();
     } catch (err) {
       log.warn({ err, serverId: this.serverId }, "Error closing MCP client");
     }
-    this.connected = false;
     this.transport = null;
     log.info({ serverId: this.serverId }, "MCP client disconnected");
   }

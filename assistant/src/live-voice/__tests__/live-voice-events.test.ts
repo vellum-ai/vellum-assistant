@@ -253,14 +253,16 @@ describe("LiveVoiceSession archive and metrics events", () => {
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
       // Pins the full production control prompt for the FRONT-DOOR leg (the
-      // first leg of every routed turn): the speech-first rule, and nothing
-      // else. This leg is toolless, so both the screen-reveal and setup-flow
-      // teachings are deliberately absent. It has nothing to show and no
-      // connection to run, and its capability digest already routes anything
-      // needing a tool to the escalated leg (see
-      // live-voice-triage-escalate.test.ts).
+      // first leg of every routed turn): the speech-first rule and the session
+      // controls, and nothing else. This leg is toolless, so both the
+      // screen-reveal and setup-flow teachings are deliberately absent. It
+      // has nothing to show and no connection to run, and its capability
+      // digest already routes anything needing a tool to the escalated leg
+      // (see live-voice-triage-escalate.test.ts). The start frame declares no
+      // client controls, so only the session's own update cadence and the
+      // no-looks line are taught.
       voiceControlPrompt:
-        "You are speaking in a local live voice session. Keep each reply to one to three spoken sentences. The caller is listening, not reading: lead with the answer, say it in the fewest words that are still complete, and stop. No preamble, no recap of the question, no closing offer of more. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links), bulleted or numbered lists, or emojis. Write plain conversational text only; if something is naturally a list, say it as one sentence. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. ",
+        'You are speaking in a local live voice session. Keep each reply to one to three spoken sentences. The caller is listening, not reading: lead with the answer, say it in the fewest words that are still complete, and stop. No preamble, no recap of the question, no closing offer of more. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links), bulleted or numbered lists, or emojis. Write plain conversational text only; if something is naturally a list, say it as one sentence. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work, or a card with an image or a link instead of reading an address out); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. The user can also control this call by asking you. Only when they clearly ask:\n- This call cannot turn on a screen share or the camera. If they ask you to look at their screen or at something and you have no other way to see it, say so briefly instead of pretending to look.\n- To hear fewer spoken progress updates while you work (for example "don\'t give me updates so often"), confirm that you will only check in now and then and will tell them when it is done, then end your reply with [UPDATES:FEWER]. If they later want regular updates back, confirm and end with [UPDATES:NORMAL].\nThe marker must be the very last thing in your reply. It is never spoken and does nothing anywhere else.',
     });
     callbacks?.assistant_text_delta?.(makeTextDelta("Hello there."));
     callbacks?.message_complete?.(makeMessageComplete());

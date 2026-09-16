@@ -1,14 +1,16 @@
-import { Button } from "@vellumai/design-library";
-import { Loader2 } from "lucide-react";
+import { Button, Typography } from "@vellumai/design-library";
 import { useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/i18n";
+import { usePointerCoarse } from "@/utils/pointer";
 
+import { DesktopStatus } from "./desktop-status";
 import type { DesktopEndReason } from "./desktop-connection";
 import {
   openDesktopSession,
   type DesktopSessionState,
   type DesktopSession,
+  type DesktopViewportMode,
 } from "./desktop-session";
 
 // Spelled out rather than templated so the catalog-usage guard sees each key.
@@ -25,26 +27,40 @@ const RETRYABLE_END_REASONS: ReadonlySet<DesktopEndReason> = new Set([
   "lost",
 ]);
 
+const VIEWPORT_MODES = [
+  { mode: "fit", label: "assistantDesktop.fitView" },
+  { mode: "pan", label: "assistantDesktop.panView" },
+  { mode: "control", label: "assistantDesktop.controlView" },
+] as const;
+
 interface DesktopViewerProps {
   assistantId: string;
   viewOnly?: boolean;
-  onExpand?: () => void;
 }
 
 /**
  * The interactive view of an assistant desktop. Opens a session on mount and
- * closes it on unmount; noVNC scales the whole desktop to fit the viewport.
+ * closes it on unmount. Touch viewers can pan a full-size desktop or fit it.
  * A status overlay covers the viewport until the picture is live, and again
  * once the session ends, with a Reconnect button where retrying can help.
  */
-export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: DesktopViewerProps) {
+export function DesktopViewer({
+  assistantId,
+  viewOnly = false,
+}: DesktopViewerProps) {
   const { t } = useTranslation("chat");
+  const touch = usePointerCoarse();
+  const [mobileMode, setMobileMode] = useState<DesktopViewportMode>("pan");
+  const viewportMode = touch && !viewOnly ? mobileMode : "fit";
   const sessionRef = useRef<DesktopSession | null>(null);
   const viewOnlyRef = useRef(viewOnly);
+  const viewportModeRef = useRef(viewportMode);
   useEffect(() => {
     viewOnlyRef.current = viewOnly;
+    viewportModeRef.current = viewportMode;
     sessionRef.current?.setViewOnly(viewOnly);
-  }, [viewOnly]);
+    sessionRef.current?.setViewportMode(viewportMode);
+  }, [viewOnly, viewportMode]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<DesktopSessionState>({
     kind: "connecting",
@@ -62,6 +78,7 @@ export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: Deskt
       container,
       onState: setState,
       viewOnly: viewOnlyRef.current,
+      viewportMode: viewportModeRef.current,
     });
     sessionRef.current = session;
     return () => {
@@ -76,47 +93,61 @@ export function DesktopViewer({ assistantId, viewOnly = false, onExpand }: Deskt
   };
 
   return (
-    <div className="relative h-full w-full" data-testid="desktop-panel">
-      <div
-        ref={containerRef}
-        className="h-full w-full overflow-hidden [&_canvas]:rounded-lg"
-        data-testid="desktop-panel-viewport"
-      />
-      {state.kind === "connected" && viewOnly && onExpand ? (
-        <Button
-          variant="ghost"
-          aria-label={t("assistantDesktop.expandAria")}
-          onClick={onExpand}
-          className="absolute inset-0 h-full w-full cursor-zoom-in rounded-none bg-transparent hover:bg-transparent"
-        />
-      ) : null}
-      {state.kind === "connected" ? null : (
+    <div className="flex h-full w-full flex-col" data-testid="desktop-panel">
+      {touch && !viewOnly && state.kind === "connected" && (
+        <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 bg-[var(--surface-base)] p-2">
+          {VIEWPORT_MODES.map(({ mode, label }) => (
+            <Button
+              key={mode}
+              variant="ghost"
+              className="h-11 px-4"
+              active={mobileMode === mode}
+              aria-pressed={mobileMode === mode}
+              onClick={() => setMobileMode(mode)}
+            >
+              {t(label)}
+            </Button>
+          ))}
+          {mobileMode === "pan" && (
+            <Typography
+              variant="body-small-default"
+              className="w-full text-center text-[var(--content-secondary)]"
+            >
+              {t("assistantDesktop.panHint")}
+            </Typography>
+          )}
+        </div>
+      )}
+      <div className="relative min-h-0 flex-1">
         <div
-          className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[var(--surface-base)] text-[var(--content-default)]"
-          data-testid="desktop-panel-status"
-          data-state={state.kind === "ended" ? state.reason : state.kind}
-        >
-          {state.kind === "connecting" ? (
-            <>
-              <Loader2 className="h-5 w-5 animate-spin text-[var(--content-tertiary)]" />
-              <span className="text-body-medium-lighter">
-                {t("assistantDesktop.connecting")}
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="text-body-medium-lighter">
-                {t(END_REASON_KEY[state.reason])}
-              </span>
-              {RETRYABLE_END_REASONS.has(state.reason) ? (
+          ref={containerRef}
+          className="h-full w-full overflow-hidden"
+          data-testid="desktop-panel-viewport"
+        />
+        {state.kind === "connected" ? null : (
+          <div
+            className="absolute inset-0 bg-[var(--surface-base)]"
+            data-testid="desktop-panel-status"
+            data-state={state.kind === "ended" ? state.reason : state.kind}
+          >
+            <DesktopStatus
+              loading={state.kind === "connecting"}
+              message={
+                state.kind === "connecting"
+                  ? t("assistantDesktop.connecting")
+                  : t(END_REASON_KEY[state.reason])
+              }
+            >
+              {state.kind === "ended" &&
+              RETRYABLE_END_REASONS.has(state.reason) ? (
                 <Button variant="outlined" onClick={reconnect}>
                   {t("assistantDesktop.reconnectButton")}
                 </Button>
               ) : null}
-            </>
-          )}
-        </div>
-      )}
+            </DesktopStatus>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

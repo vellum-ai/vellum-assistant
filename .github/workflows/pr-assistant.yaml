@@ -8,6 +8,8 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'assistant/**'
+      - 'plugins/marketplace.json'
+      - 'plugins/mcp-catalog/**'
       - 'credential-executor/**'
       - 'gateway/**'
       - 'packages/**'
@@ -148,14 +150,16 @@ jobs:
         with:
           bun-version: '1.3.11'
 
+      - name: Install catalog generation dependencies
+        run: bun install --frozen-lockfile --ignore-scripts --filter=@vellumai/assistant
+
       - name: Sync bundled copies
         # bundled-marketplace.json (and the flag registries) are generated,
         # gitignored artifacts that plugin-catalog-local.ts statically imports.
-        # This job zips raw source without `bun install`, and the archive excludes
-        # the repo-root meta/ + plugins/ trees, so the consumer of the preview
-        # build can't regenerate them. Materialize them here so the assistant in
-        # the `vel up assistant --pr` artifact can load.
-        run: cd .. && bun run meta/sync-bundled-copies.ts
+        # The archive excludes node_modules and the repo-root meta/ + plugins/
+        # trees, so the consumer cannot regenerate the catalog. Materialize the
+        # static imports before creating the preview artifact.
+        run: bun run sync:bundled-catalog
 
       - name: Zip assistant artifact
         run: zip -r ../assistant-pr-${{ github.event.pull_request.number }}.zip . -x "node_modules/*"

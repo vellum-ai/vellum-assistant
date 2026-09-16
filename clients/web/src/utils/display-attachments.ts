@@ -37,6 +37,9 @@ export function toDisplayAttachments(
         att.sizeBytes ?? (att.data ? Math.floor((att.data.length * 3) / 4) : 0),
       previewUrl,
       thumbnailUrl,
+      ...(att.computerUseScreenshot !== undefined
+        ? { computerUseScreenshot: att.computerUseScreenshot }
+        : {}),
     };
   });
 }

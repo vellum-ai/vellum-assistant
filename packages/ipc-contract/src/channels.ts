@@ -220,6 +220,14 @@ export const COMPANION_SHARED_FRAME = "vellum:companion:sharedFrame";
 export const COMPANION_ANSWER_WATCH_RETRO = "vellum:companion:answerWatchRetro";
 export const COMPANION_ANSWER_DICTATION_OFFER =
   "vellum:companion:answerDictationOffer";
+export const COMPANION_ANSWER_POPOVER = "vellum:companion:answerPopover";
+export const COMPANION_SET_POPOVER_SIZE = "vellum:companion:setPopoverSize";
+export const COMPANION_SET_POPOVER_VIEW = "vellum:companion:setPopoverView";
+export const COMPANION_SET_ATTACHED_POPOVER_HEIGHT =
+  "vellum:companion:setAttachedPopoverHeight";
+export const COMPANION_TOGGLE_PICKER = "vellum:companion:togglePicker";
+export const COMPANION_OPEN_LINK = "vellum:companion:openLink";
+export const COMPANION_TAKES_PROMPTS = "vellum:companion:takesPrompts";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";
 export const COMPANION_SET_CONTEXT = "vellum:companion:setContext";
 export const COMPANION_ADVANCE_INTRO = "vellum:companion:advanceIntro";

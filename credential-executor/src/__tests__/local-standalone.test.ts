@@ -18,6 +18,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
+
 import {
   CES_PROTOCOL_VERSION,
   CesRpcMethod,
@@ -136,24 +138,29 @@ afterEach(async () => {
 describe("local CES standalone sibling (real entrypoint)", () => {
   test("serves over a socket with no stdio parent, survives disconnect, exits on SIGTERM", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "ces-standalone-"));
-    const socketPath = join(tmpDir, "ces.sock");
     const securityDir = join(tmpDir, "protected");
     const workspaceDir = join(tmpDir, "workspace");
+    const bootstrapDir = join(securityDir, "credential-executor");
     mkdirSync(securityDir, { recursive: true });
     mkdirSync(workspaceDir, { recursive: true });
+    mkdirSync(bootstrapDir, { recursive: true });
+    const socketPath = resolveIpcEndpoint("ces", {
+      workspaceDir: bootstrapDir,
+    }).path;
 
     const localMain = resolve(__dirname, "..", "main.ts");
+    const env: Record<string, string | undefined> = {
+      ...process.env,
+      CREDENTIAL_SECURITY_DIR: securityDir,
+      VELLUM_WORKSPACE_DIR: workspaceDir,
+      CES_BOOTSTRAP_SOCKET_DIR: bootstrapDir,
+    };
 
     // stdin closed is how the CLI launches the sibling — CES serves over a
     // Unix socket, not stdio.
     proc = Bun.spawn({
       cmd: [process.execPath, localMain],
-      env: {
-        ...process.env,
-        CES_LOCAL_SOCKET: socketPath,
-        CREDENTIAL_SECURITY_DIR: securityDir,
-        VELLUM_WORKSPACE_DIR: workspaceDir,
-      },
+      env,
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",

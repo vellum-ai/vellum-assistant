@@ -22,18 +22,29 @@ function freshWorkspace(): string {
 
 /**
  * Materialize an installed plugin under `<workspace>/plugins/<name>/` with a
- * package.json manifest. Returns the plugin directory path.
+ * plugin manifest. Returns the plugin directory path.
  */
 function installPlugin(
   name: string,
-  opts: { disabled?: boolean } = {},
+  opts: { disabled?: boolean; standard?: boolean } = {},
 ): string {
   const pluginDir = join(getWorkspacePluginsDir(), name);
   mkdirSync(pluginDir, { recursive: true });
-  writeFileSync(
-    join(pluginDir, "package.json"),
-    JSON.stringify({ name, version: "1.0.0" }),
-  );
+  if (opts.standard) {
+    writeFileSync(
+      join(pluginDir, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name,
+        version: "1.0.0",
+      }),
+    );
+  } else {
+    writeFileSync(
+      join(pluginDir, "package.json"),
+      JSON.stringify({ name, version: "1.0.0" }),
+    );
+  }
   if (opts.disabled) {
     writeFileSync(join(pluginDir, ".disabled"), "");
   }
@@ -104,7 +115,16 @@ describe("listAllApps", () => {
     expect(all.map((a) => a.origin.kind)).toEqual(["workspace", "plugin"]);
   });
 
-  test("ignores directories under plugins/ without a package.json manifest", () => {
+  test("discovers apps from a standard-only plugin", () => {
+    const pluginDir = installPlugin("standard-plugin", { standard: true });
+    bundleApp(pluginDir, "dashboard");
+
+    expect(listPluginApps().map((app) => app.id)).toEqual([
+      "plugins~standard-plugin~dashboard",
+    ]);
+  });
+
+  test("ignores directories under plugins/ without a root manifest", () => {
     // A stray directory that is not an installed plugin, even with an apps/ dir.
     const strayDir = join(getWorkspacePluginsDir(), "not-a-plugin");
     mkdirSync(join(strayDir, "apps", "ghost"), { recursive: true });
@@ -166,6 +186,18 @@ describe("resolveAppSource", () => {
     expect(source!.sourceDir).toBe(join(pluginDir, "apps", "acme-dashboard"));
   });
 
+  test("resolves an app from a standard-only plugin", () => {
+    const pluginDir = installPlugin("standard-plugin", { standard: true });
+    bundleApp(pluginDir, "dashboard");
+
+    const source = resolveAppSource("plugins~standard-plugin~dashboard");
+    expect(source?.sourceDir).toBe(join(pluginDir, "apps", "dashboard"));
+    expect(source?.origin).toEqual({
+      kind: "plugin",
+      pluginName: "standard-plugin",
+    });
+  });
+
   test("returns null for an unknown workspace id", () => {
     expect(resolveAppSource("11111111-1111-1111-1111-111111111111")).toBeNull();
   });
@@ -177,7 +209,7 @@ describe("resolveAppSource", () => {
     expect(resolveAppSource("plugins~acme~acme-dashboard")).toBeNull();
   });
 
-  test("returns null for a plugin dir without a package.json manifest", () => {
+  test("returns null for a plugin dir without a root manifest", () => {
     // Stray directory shaped like a plugin app but not an installed plugin.
     const strayApp = join(
       getWorkspacePluginsDir(),

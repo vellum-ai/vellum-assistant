@@ -27,6 +27,30 @@ function getNestedValue(obj: unknown, dotPath: string): unknown {
   return current;
 }
 
+/**
+ * Whether a response body says the call failed, read through the ok field the
+ * provider declares (`responseOkField`).
+ *
+ * Some APIs report failure inside a successful HTTP exchange: Slack documents
+ * that every Web API response is a JSON object with a top-level boolean `ok`,
+ * false on failure, so the status code alone reads a refused call as a
+ * success. The provider row is where that envelope is declared, and this is
+ * the one reader of it for calls whose endpoint is not known in advance (ping
+ * and the authenticated-request doors). Only an explicit `false` counts: a
+ * body without the field, such as a file download or an endpoint outside the
+ * envelope, says nothing, and the status stays the verdict. The identity
+ * verifier reads its own field, `identityOkField`, for the one call it makes.
+ */
+export function providerReportsFailure(
+  providerRow: Pick<OAuthProviderRow, "responseOkField">,
+  body: unknown,
+): boolean {
+  if (!providerRow.responseOkField) {
+    return false;
+  }
+  return getNestedValue(body, providerRow.responseOkField) === false;
+}
+
 /** Safely parse a JSON string, returning a fallback on failure or null/undefined input. */
 function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
   if (value == null) {

@@ -39,6 +39,10 @@ matching Tailwind's `md` breakpoint. Use it for **layout**: how many columns, wh
 stacks, how many chips fit before truncating. Prefer plain `max-md:` classes when CSS can express it,
 and reach for the hook only when the difference is structural (different components, different props).
 
+Keep the ancestry of stateful route content stable when a window crosses a layout breakpoint. Change
+wrapper classes and conditional siblings around one route outlet. Moving the outlet between alternate
+parent branches remounts its subtree and discards local state such as an in-progress composer.
+
 #### Measured sizes: no new JavaScript `clamp()`
 
 The same preference, one level down. `useLayoutViewportSize()` and `useElementSize()`

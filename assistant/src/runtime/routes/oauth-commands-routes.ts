@@ -20,7 +20,10 @@ import {
   type Services,
   ServicesSchema,
 } from "../../config/schemas/services.js";
-import type { OAuthConnectionRequest } from "../../oauth/connection.js";
+import type {
+  OAuthConnectionRequest,
+  OAuthConnectionResponse,
+} from "../../oauth/connection.js";
 import {
   isBinaryOAuthBody,
   jsonSafeOAuthBody,
@@ -30,6 +33,7 @@ import {
   type ResolveOAuthConnectionOptions,
   resolveOAuthConnectionWithMeta,
 } from "../../oauth/connection-resolver.js";
+import { providerReportsFailure } from "../../oauth/identity-verifier.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -66,6 +70,7 @@ interface PlatformConnectionEntry {
   id: string;
   account_label?: string;
   scopes_granted?: string[];
+  provider_params?: Record<string, string> | null;
   status?: string;
 }
 
@@ -230,6 +235,27 @@ function assertOAuthRequestUrlAllowed(
       `OAuth request URL host "${parsedUrl.hostname}" is not allowed for "${providerRow.provider}". Allowed hosts: ${allowedHostPatterns.join(", ")}.`,
     );
   }
+}
+
+/**
+ * The verdict on a provider exchange: whether the status said success, and
+ * whether the provider's declared ok field (`responseOkField`) then took it
+ * back. The field is read only under a 2xx, so a 429 or 5xx whose body
+ * happens to carry it stays a transport failure rather than a refusal.
+ * `reportedFailure` is the one-line account of a refusal, absent otherwise.
+ */
+function judgeProviderResponse(
+  providerRow: OAuthProviderRow,
+  response: OAuthConnectionResponse,
+): { ok: boolean; reportedFailure?: string } {
+  const httpOk = response.status >= 200 && response.status < 300;
+  if (httpOk && providerReportsFailure(providerRow, response.body)) {
+    return {
+      ok: false,
+      reportedFailure: `${providerRow.provider} answered HTTP ${response.status} but reported ${providerRow.responseOkField}: false`,
+    };
+  }
+  return { ok: httpOk };
 }
 
 /**
@@ -574,6 +600,9 @@ async function handleStatus({ queryParams = {} }: RouteHandlerArgs) {
       account: c.account_label ?? null,
       grantedScopes: c.scopes_granted ?? [],
       status: c.status ?? "ACTIVE",
+      // Values the provider scopes the connection by (QuickBooks' realm id),
+      // so a caller can address resources the proxy's base URL does not.
+      providerParams: c.provider_params ?? {},
     }));
 
     return {
@@ -685,7 +714,8 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     ...(pingBody !== undefined ? { body: pingBody } : {}),
   });
 
-  if (response.status >= 200 && response.status < 300) {
+  const verdict = judgeProviderResponse(providerRow, response);
+  if (verdict.ok) {
     return { ok: true, provider: b.provider, status: response.status };
   }
 
@@ -693,10 +723,21 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     ok: false,
     provider: b.provider,
     status: response.status,
-    error: `Ping failed with HTTP ${response.status}`,
+    error: verdict.reportedFailure
+      ? `Ping failed: ${verdict.reportedFailure}`
+      : `Ping failed with HTTP ${response.status}`,
   };
+  if (verdict.reportedFailure) {
+    payload.body = response.body;
+  }
 
-  if (response.status === 401 || response.status === 403) {
+  // A provider that refuses the ping inside a 2xx is refusing the credential
+  // the same way a 401 does.
+  if (
+    response.status === 401 ||
+    response.status === 403 ||
+    verdict.reportedFailure
+  ) {
     payload.hint =
       `Run 'assistant oauth status ${b.provider}' to check connection health. ` +
       `To reconnect, run 'assistant oauth connect --help'.`;
@@ -974,8 +1015,10 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   const response = await connection.request(req);
   const encodedBody = jsonSafeOAuthBody(response.body);
 
+  const verdict = judgeProviderResponse(providerRow, response);
+
   const result: Record<string, unknown> = {
-    ok: response.status >= 200 && response.status < 300,
+    ok: verdict.ok,
     status: response.status,
     headers: response.headers,
     body: encodedBody.body,
@@ -997,11 +1040,30 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
       `used "${selected}". Pass --account to select a specific one.`;
   }
 
-  if (response.status === 401 || response.status === 403) {
+  const botChannel = channelForBotProvider(b.provider);
+  if (verdict.reportedFailure) {
+    // The body carries the provider's own error code, so the hint says only
+    // why a 2xx is being reported as a failure.
+    result.hint = `${verdict.reportedFailure} in the response body. The body names the error.`;
+  } else if (response.status === 403 && isHtmlResponse(response.headers)) {
+    // An API refuses with JSON. A 403 carrying an HTML page is a resource
+    // host (a file host, a sign-in page) refusing this identity: the same
+    // token is what the API accepts, and the resource is simply not visible
+    // to it. Blaming the credential sends the caller off to reconnect one
+    // that works.
+    const identity = botChannel ? `${botChannel} bot` : "connected account";
+    const requestHost = parseUrl(baseUrl ?? providerRow.baseUrl)?.hostname;
+    result.hint =
+      `Request returned HTTP 403 with an HTML page${requestHost ? ` from ${requestHost}` : ""}, not an API error. ` +
+      `That usually means the ${identity} cannot see this resource: it is not shared with it, or the scope it needs is missing. ` +
+      `Check the resource's access before treating the credential as revoked; ` +
+      (botChannel
+        ? `'assistant channels get ${botChannel}' reports the credential itself.`
+        : `'assistant oauth status ${b.provider}' reports the credential itself.`);
+  } else if (response.status === 401 || response.status === 403) {
     // The recovery steps follow the credential's kind, not the door the
     // request came through: a channel bot's token was stored by the channel's
     // setup, so the OAuth status and connect commands cannot repair it.
-    const botChannel = channelForBotProvider(b.provider);
     result.hint = botChannel
       ? `Request returned HTTP ${response.status}. The ${botChannel} bot credential was rejected; it may have been revoked or reinstalled with fewer scopes.\n\n` +
         `Run 'assistant channels get ${botChannel}' to re-probe the channel and see what it reports.\n` +
@@ -1060,6 +1122,8 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
     provider: string;
     scopes?: string[];
     redirect_after_connect?: string;
+    /** Per-tenant providers (Shopify): the customer's own host. */
+    tenant_host?: string;
   };
 
   if (!b.provider) {
@@ -1076,6 +1140,13 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
   }
   reqBody.redirect_after_connect =
     b.redirect_after_connect ?? "/account/oauth/complete";
+  // Only forwarded when present: the platform validates it against the
+  // provider's pattern and rejects per-tenant providers that omit it.
+  const tenantHost =
+    typeof b.tenant_host === "string" ? b.tenant_host.trim() : "";
+  if (tenantHost) {
+    reqBody.tenant_host = tenantHost;
+  }
 
   const response = await client.fetch(startPath, {
     method: "POST",
@@ -1122,6 +1193,7 @@ async function handleManagedConnectPoll({
       id: e.id,
       account_label: e.account_label ?? null,
       scopes_granted: e.scopes_granted ?? [],
+      provider_params: e.provider_params ?? {},
     })),
   };
 }

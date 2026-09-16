@@ -41,6 +41,8 @@ export interface StreamHandlerContext {
   // --- Stream context (resolved from stream-store / resolved-assistants-store) ---
   streamContext: StreamContext | null;
   assistantId: string | null;
+  /** Auth session that owned this stream handler mount. */
+  composerSessionGeneration: number;
 
   // --- Optimistic user sends ---
   // The rendered transcript content (assistant rows, tool calls, surfaces,

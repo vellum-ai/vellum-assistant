@@ -80,11 +80,19 @@ export interface SightSharedFrame {
   readonly frame: File;
 }
 
+/**
+ * The keep reason of the fresh frame taken because the assistant asked to
+ * look. The one reason the daemon acts on rather than only logs: it answers
+ * the look from the frame that carries it (see the `lookFrames` start field).
+ */
+export const LOOK_FRAME_REASON = "look";
+
 /** Why a frame was kept, for the timing it reports. */
 export interface SightKeepOrigin {
   /**
    * The gate's reason, or a source's own word for a keep no gate judged. Goes
-   * to the daemon's log as-is.
+   * to the daemon's log as-is, and {@link LOOK_FRAME_REASON} also has the
+   * daemon answer a look from the frame.
    */
   readonly reason: string;
   /**

@@ -75,6 +75,7 @@ mock.module("../oauth/oauth-store.js", () => ({
           identityBody: null,
           identityFormat: null,
           identityOkField: null,
+          responseOkField: null,
           featureFlag: null,
           createdAt: 1735689500000,
           updatedAt: 1735689550000,

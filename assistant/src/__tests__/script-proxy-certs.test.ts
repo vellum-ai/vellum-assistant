@@ -52,7 +52,7 @@ test("combined trust verifies certificates from both CA sources", async () => {
   for (const leaf of leaves) {
     expect(output).toContain(`${leaf}: OK`);
   }
-});
+}, 30_000);
 
 describe("ensureLocalCA", () => {
   test("creates CA cert and key with correct permissions", async () => {

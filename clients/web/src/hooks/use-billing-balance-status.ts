@@ -40,12 +40,12 @@ export interface BillingBalanceStatus {
   /**
    * Unused credit still sitting on the unexpired usage grants (the initial
    * credit and a Pro sub's monthly bundle), as a decimal string. This is what
-   * the Usage Balance bar measures, and what the credit figures net out.
+   * the Current Usage bar measures, and what the credit figures net out.
    */
   availableUsageBalance: string | null;
   /**
    * What those same grants were originally worth, as a decimal string. The
-   * denominator of a free plan's Usage Balance bar.
+   * denominator of a free plan's Current Usage bar.
    */
   totalUsageBalance: string | null;
   /** Whether the billing summary query is allowed to run at all. */

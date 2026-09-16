@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentProps, ReactElement } from "react";
 
@@ -10,17 +16,32 @@ type ContentResult = { data: Blob | null; error: { message: string } | null };
 
 // Mock only the daemon content endpoint; keep the rest of the generated SDK
 // real so any other consumer in the module graph is unaffected.
-const attachmentsByIdContentGet = mock(
-  async (): Promise<ContentResult> => ({
-    data: new Blob(["content"]),
-    error: null,
-  }),
-);
+const attachmentsByIdContentGet = mock(async (): Promise<ContentResult> => ({
+  data: new Blob(["content"]),
+  error: null,
+}));
+const attachmentsByIdGet = mock(async () => ({
+  data: {
+    id: "att-1",
+    filename: "capture.jpeg",
+    mimeType: "image/jpeg",
+    sizeBytes: 10,
+    kind: "image",
+    data: null,
+  },
+  error: null,
+}));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   attachmentsByIdContentGet,
+  attachmentsByIdGet,
 }));
+
+const saveFile = mock(
+  async (_source: Blob | string, _filename: string): Promise<void> => undefined,
+);
+mock.module("@/runtime/native-file", () => ({ saveFile }));
 
 // happy-dom doesn't implement object URLs.
 globalThis.URL.createObjectURL = mock(
@@ -85,6 +106,8 @@ function renderGallery(
 afterEach(() => {
   cleanup();
   attachmentsByIdContentGet.mockClear();
+  attachmentsByIdGet.mockClear();
+  saveFile.mockClear();
 });
 
 describe("AttachmentPreviewModal content loading", () => {
@@ -158,6 +181,32 @@ describe("AttachmentPreviewModal content loading", () => {
     const img = await screen.findByAltText("photo.png");
     expect(img.getAttribute("src")).toBe("blob:preview-mock");
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
+  });
+
+  test("downloads a referenced image with its canonical metadata", async () => {
+    attachmentsByIdContentGet.mockImplementation(async () => ({
+      data: new Blob(["jpeg-bytes"], { type: "image/jpeg" }),
+      error: null,
+    }));
+    const referencedAttachment: DisplayAttachment & {
+      resolveReferenceMetadata: true;
+    } = {
+      ...ATTACHMENT,
+      filename: "computer-use-click.png",
+      resolveReferenceMetadata: true,
+    };
+    renderModal(referencedAttachment);
+
+    await screen.findByAltText("computer-use-click.png");
+    fireEvent.click(screen.getByLabelText("Download computer-use-click.png"));
+
+    await waitFor(() => expect(saveFile).toHaveBeenCalledTimes(1));
+    expect(attachmentsByIdGet).toHaveBeenCalledTimes(1);
+    const [source, filename] = saveFile.mock.calls[0]!;
+    expect(source).toBeInstanceOf(Blob);
+    expect((source as Blob).type).toBe("image/jpeg");
+    expect(await (source as Blob).text()).toBe("jpeg-bytes");
+    expect(filename).toBe("capture.jpeg");
   });
 
   test("shows the failure fallback when the daemon fetch fails", async () => {

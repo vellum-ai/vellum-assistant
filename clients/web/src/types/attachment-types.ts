@@ -29,6 +29,8 @@ export type ConversationAttachmentSummary =
  *  (real UUIDs that resolve against the content endpoint) or, as a fallback,
  *  reverse-parsed from `[File attachment] …` summary lines in the message text. */
 export interface DisplayAttachment extends AttachmentMetadata {
+  /** True when the assistant automatically linked this computer-use screenshot. */
+  computerUseScreenshot?: boolean;
   /** Client-only URL for the attachment's actual content — either an inline
    *  data URI (when the daemon sent `data`) or a blob URL lazily fetched from
    *  the daemon's content endpoint. When null, the preview modal fetches from

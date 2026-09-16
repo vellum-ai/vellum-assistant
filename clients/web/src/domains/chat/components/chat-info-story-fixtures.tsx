@@ -416,6 +416,7 @@ export function primeChatInfoAppPreviews(
       assistantId,
       app.id,
       chatInfoPreviewHtml(app.name, seed.lines),
+      app.updatedAt,
     );
   }
 }

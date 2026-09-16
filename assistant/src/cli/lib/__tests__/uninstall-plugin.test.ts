@@ -21,15 +21,34 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  jest,
+  mock,
+  test,
+} from "bun:test";
+
+const deletePluginMcpOAuthCredentials = jest.fn(async () => ({
+  ok: true,
+  unreachable: false,
+  matchedKeys: [] as string[],
+  failedKeys: [] as string[],
+}));
+
+mock.module("../../../mcp/mcp-oauth-provider.js", () => ({
+  deletePluginMcpOAuthCredentials,
+}));
 
 import { resetHookCacheForTests } from "../../../hooks/hook-loader.js";
 import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import { InvalidPluginNameError } from "../install-from-github.js";
-import {
-  PluginNotInstalledError,
-  uninstallPlugin,
-} from "../uninstall-plugin.js";
+const { PluginNotInstalledError, uninstallPlugin } =
+  await import("../uninstall-plugin.js");
+const { PLUGIN_UNINSTALL_WARNING_KEYS } =
+  await import("../uninstall-plugin.js");
 
 let pluginsDir: string;
 
@@ -38,6 +57,13 @@ beforeEach(() => {
   rmSync(pluginsDir, { recursive: true, force: true });
   mkdirSync(pluginsDir, { recursive: true });
   resetHookCacheForTests();
+  deletePluginMcpOAuthCredentials.mockReset();
+  deletePluginMcpOAuthCredentials.mockImplementation(async () => ({
+    ok: true,
+    unreachable: false,
+    matchedKeys: [],
+    failedKeys: [],
+  }));
 });
 
 afterEach(() => {
@@ -162,6 +188,97 @@ describe("uninstallPlugin", () => {
     // The shutdown hook must NOT have run — a disabled plugin's code
     // should never execute, including during uninstall.
     expect(existsSync(marker)).toBe(false);
+  });
+
+  test("preserves the plugin when credential deletion fails", async () => {
+    const target = writePlugin("cleanup-fails");
+    deletePluginMcpOAuthCredentials.mockImplementationOnce(async () => ({
+      ok: false,
+      unreachable: false,
+      matchedKeys: ["mcp-plugin/v1/key"],
+      failedKeys: ["mcp-plugin/v1/key"],
+    }));
+
+    await expect(
+      uninstallPlugin({
+        name: "cleanup-fails",
+        workspacePluginsDir: pluginsDir,
+      }),
+    ).rejects.toThrow("MCP OAuth credentials could not be deleted");
+    expect(existsSync(target)).toBe(true);
+  });
+
+  test("preserves an MCP plugin when credential storage is unavailable", async () => {
+    const target = writePlugin("offline-mcp");
+    writeFileSync(join(target, "mcp.json"), JSON.stringify({ mcpServers: {} }));
+    deletePluginMcpOAuthCredentials.mockImplementationOnce(async () => ({
+      ok: false,
+      unreachable: true,
+      matchedKeys: [],
+      failedKeys: [],
+    }));
+
+    await expect(
+      uninstallPlugin({
+        name: "offline-mcp",
+        workspacePluginsDir: pluginsDir,
+      }),
+    ).rejects.toThrow("credential storage is unavailable");
+    expect(existsSync(target)).toBe(true);
+  });
+
+  test("uses the install fingerprint as MCP evidence when the file was removed", async () => {
+    const target = writePlugin("recorded-mcp");
+    writeFileSync(
+      join(target, "install-meta.json"),
+      JSON.stringify({
+        name: "recorded-mcp",
+        source: {
+          kind: "github",
+          owner: "example",
+          repo: "plugin",
+          ref: "main",
+        },
+        fingerprint: {
+          algorithm: "sha256",
+          files: { "mcp.json": "digest" },
+        },
+      }),
+    );
+    deletePluginMcpOAuthCredentials.mockImplementationOnce(async () => ({
+      ok: false,
+      unreachable: true,
+      matchedKeys: [],
+      failedKeys: [],
+    }));
+
+    await expect(
+      uninstallPlugin({
+        name: "recorded-mcp",
+        workspacePluginsDir: pluginsDir,
+      }),
+    ).rejects.toThrow("credential storage is unavailable");
+    expect(existsSync(target)).toBe(true);
+  });
+
+  test("removes a non-MCP plugin offline and returns a visible warning", async () => {
+    const target = writePlugin("offline-simple");
+    deletePluginMcpOAuthCredentials.mockImplementationOnce(async () => ({
+      ok: false,
+      unreachable: true,
+      matchedKeys: [],
+      failedKeys: [],
+    }));
+
+    const result = await uninstallPlugin({
+      name: "offline-simple",
+      workspacePluginsDir: pluginsDir,
+    });
+
+    expect(existsSync(target)).toBe(false);
+    expect(result.warnings).toEqual([
+      PLUGIN_UNINSTALL_WARNING_KEYS.MCP_OAUTH_CREDENTIALS_UNCHECKED,
+    ]);
   });
 
   test.each([

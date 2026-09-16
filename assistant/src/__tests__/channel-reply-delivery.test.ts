@@ -588,6 +588,62 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload.text).toBe("Fallback text");
   });
 
+  it("delivers a screenshot-only reply attachment", async () => {
+    const screenshot: RuntimeAttachmentMetadata = {
+      id: "final-screenshot",
+      filename: "computer-use-click.png",
+      mimeType: "image/png",
+      sizeBytes: 10,
+      kind: "image",
+    };
+
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/telegram",
+      chatId: "chat-screenshot",
+      textSegments: [],
+      fallbackText: "",
+      attachments: [screenshot],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload).toMatchObject({
+      chatId: "chat-screenshot",
+      attachments: [screenshot],
+    });
+  });
+
+  it("delivers the final screenshot with an unrelated PDF", async () => {
+    const attachments: RuntimeAttachmentMetadata[] = [
+      {
+        id: "final-screenshot",
+        filename: "computer-use-click.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+        kind: "image",
+      },
+      {
+        id: "explicit-report",
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: 20,
+        kind: "document",
+      },
+    ];
+
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-screenshot-pdf",
+      textSegments: ["Done."],
+      fallbackText: "Done.",
+      attachments,
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.attachments).toEqual(attachments);
+  });
+
   it("uses rendered textSegments (tool boundaries) when delivering from conversation history", async () => {
     conversationMessages.push(
       { id: "msg-user", role: "user", content: "hi" },

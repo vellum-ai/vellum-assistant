@@ -23,6 +23,7 @@
   },
   "acpConnectAffordance": {
     "connectButton": "Conectar",
+    "dismissButton": "Descartar",
     "errorFallback": "No se pudo conectar Claude. Inténtalo de nuevo.",
     "pastePlaceholder": "Pega tu clave",
     "saveButton": "Guardar",
@@ -64,8 +65,17 @@
     "backAria": "Volver a todos los pasos",
     "backTooltip": "Todos los pasos",
     "closeSteps": "Cerrar pasos",
+    "screenshotAria": "Vista previa de la captura de pantalla de {activity}",
+    "screenshotFallbackAria": "Vista previa de la captura de pantalla del ordenador",
+    "screenshotFallbackTitle": "Captura de pantalla del ordenador",
+    "screenshotTitle": "Captura de pantalla de {activity}",
     "thinkingTitle": "Pensando",
     "viewThinkingAria": "Ver razonamiento"
+  },
+  "computerUseScreenshotPreview": {
+    "unavailable": "La captura de pantalla más reciente no está disponible.",
+    "unavailableShowingPrevious": "La captura de pantalla más reciente no está disponible. Se muestra la captura anterior.",
+    "updating": "Actualizando la captura de pantalla..."
   },
   "addToChatSheet": {
     "camera": "Cámara",
@@ -94,24 +104,29 @@
     "earlierActivity": "Actividad anterior"
   },
   "assistantDesktop": {
-    "resizeAria": "Cambiar el ancho del panel del escritorio",
-    "collapseAria": "Contraer el panel del escritorio",
-    "expandAria": "Ampliar escritorio",
-    "busy": "Otro usuario está usando el escritorio.",
-    "connecting": "Conectando con el escritorio…",
-    "failed": "No se pudo iniciar el escritorio.",
-    "lost": "Se perdió la conexión con el escritorio.",
-    "openAria": "Abrir escritorio",
+    "fitView": "Ajustar",
+    "panView": "Desplazar",
+    "controlView": "Controlar",
+    "panHint": "Arrastra para desplazarte. Toca para hacer clic.",
+    "hideAria": "Ocultar escritorio virtual",
+    "closeAria": "Cerrar vista previa del escritorio virtual",
+    "moveAria": "Mover vista previa del escritorio virtual (teclas de flecha)",
+    "resizeAria": "Cambiar tamaño de la vista previa del escritorio virtual (teclas de flecha)",
+    "expandAria": "Ampliar escritorio virtual",
+    "busy": "Otro usuario está usando el escritorio virtual.",
+    "connecting": "Conectando con el escritorio virtual…",
+    "failed": "No se pudo iniciar el escritorio virtual.",
+    "lost": "Se perdió la conexión con el escritorio virtual.",
+    "openAria": "Abrir el escritorio virtual de {name}",
+    "openUnnamedAria": "Abrir escritorio virtual",
     "reconnectButton": "Reconectar",
     "title": "Escritorio",
-    "unavailable": "El escritorio no está disponible en este asistente.",
-    "installButton": "Instalar escritorio",
-    "installDescription": "Instala Google Chrome y los componentes necesarios para el escritorio de tu asistente. Esto puede tardar unos minutos.",
-    "checkingSetup": "Comprobando el escritorio…",
-    "installingPackages": "Instalando componentes del escritorio…",
+    "unavailable": "El escritorio virtual no está disponible en este asistente.",
+    "installButton": "Instalar escritorio virtual",
+    "checkingSetup": "Comprobando el escritorio virtual…",
+    "installingPackages": "Instalando componentes del escritorio virtual…",
     "installingChrome": "Instalando Google Chrome…",
     "checkingInstall": "Comprobando la instalación…",
-    "installBackground": "La instalación continúa si cierras esta ventana.",
     "installFailed": "La instalación falló. Inténtalo de nuevo para terminar.",
     "setupRequestFailed": "No se pudo comprobar la instalación. Vuelve a conectar para intentarlo de nuevo.",
     "setupUnsupported": "La instalación requiere un contenedor Linux x64 o ARM64 con acceso de administrador."
@@ -681,10 +696,6 @@
     "copied": "Copiado",
     "copy": "Copiar"
   },
-  "copyButton": {
-    "copied": "Copiado",
-    "copyFailed": "No se pudo copiar al portapapeles."
-  },
   "copyIdToClipboard": {
     "conversationCopied": "ID de conversación copiado al portapapeles.",
     "conversationFailed": "No se pudo copiar el ID de conversación.",
@@ -1237,6 +1248,7 @@
     "defaultDescription": "Conecta {name} para que pueda usarlo en esta tarea.",
     "dismiss": "Descartar",
     "missingDetails": "Faltan detalles del asistente o del proveedor.",
+    "tenantHostInvalid": "Introduce un {label} válido, por ejemplo {placeholder}",
     "thisAccount": "esta cuenta",
     "waiting": "Esperando...",
     "yourAssistant": "Tu asistente"
@@ -1319,6 +1331,7 @@
   },
   "preferencesMenu": {
     "admin": "Admin",
+    "earnCredits": "Gana créditos gratis",
     "preferences": "Preferencias",
     "settings": "Ajustes",
     "shareFeedback": "Compartir comentarios"
@@ -1559,10 +1572,6 @@
   "singleActivity": {
     "webSearch": "Búsqueda web"
   },
-  "skillCreatedCard": {
-    "view": "Ver",
-    "viewAria": "Ver {name}"
-  },
   "skillDetailPanel": {
     "actionsAria": "Acciones de habilidad",
     "closeDetails": "Cerrar detalles de la habilidad",
@@ -1581,8 +1590,12 @@
     "view": "Ver"
   },
   "skillLoadDetail": {
+    "failed": "No se pudo cargar",
+    "loading": "Cargando habilidad…",
     "loadingAria": "Cargando habilidad",
+    "notApproved": "No aprobada",
     "provides": "Proporciona",
+    "unnamedSkill": "Habilidad",
     "usedSkill": "Habilidad usada"
   },
   "skillLoadOutput": {

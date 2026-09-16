@@ -10,12 +10,12 @@
  * need to be renamed when the convention shifts.
  *
  *     <pluginDir>/
- *       package.json              ← manifest.name comes from `name`
- *                                   (npm scope stripped);
+ *       package.json              ← legacy Vellum manifest, selected first;
  *                                   peerDependencies["@vellumai/plugin-api"]
  *                                   semver range is checked against the
  *                                   running assistant version and rejects
  *                                   the plugin if unsatisfied
+ *       plugin.json               ← standard fallback when package.json is absent
  *       hooks/
  *         <name>.ts               ← default export → plugin.hooks[<name>]
  *                                   (today the runtime invokes "init" at
@@ -41,7 +41,6 @@
  */
 
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -53,6 +52,10 @@ import { PLUGIN_SECRET_PATTERN_LIMITS } from "../security/plugin-secret-patterns
 import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
+import {
+  LEGACY_PLUGIN_MANIFEST,
+  readPluginManifest,
+} from "../util/plugin-manifest.js";
 import { registerPlugin } from "./registry.js";
 import type {
   HookFunction,
@@ -69,39 +72,12 @@ const log = getLogger("external-plugin-loader");
 /** Default upper bound on how long a single plugin load may take. */
 const DEFAULT_IMPORT_TIMEOUT_MS = 10_000;
 
-/**
- * Zod schema for the subset of `package.json` the external loader reads.
- *
- * - `name` is the only required field; everything else is best-effort.
- * - `peerDependencies["@vellumai/plugin-api"]` is the canonical host-compat
- *   declaration. If present, the loader checks `semver.satisfies(host, range)`
- *   against the running assistant version and rejects the plugin on
- *   mismatch. If absent, the plugin loads without a host-compat claim
- *   (with a warning).
- * - `credentialKeyPatterns` is typed `unknown` here and shape-validated
- *   separately ({@link parseCredentialKeyPatterns}) so a malformed
- *   declaration degrades to `undefined` instead of failing the whole
- *   `safeParse` and blocking plugin load.
- * - Unknown fields pass through (`passthrough`) so the loader does not
- *   destructively reshape the file when the rest of the npm ecosystem
- *   writes to it.
- */
-const PluginPackageJsonSchema = z
-  .object({
-    name: z.string().min(1, "package.json `name` must be a non-empty string"),
-    version: z.string().optional(),
-    peerDependencies: z.record(z.string(), z.string()).optional(),
-    credentialKeyPatterns: z.unknown().optional(),
-    /** Human title, when the package name is not one ("@vellumai/imessage"). */
-    displayName: z.string().min(1).optional(),
-    /** Standard npm field, reused as the one-line description clients show. */
-    description: z.string().min(1).optional(),
-    /** Lucide icon name without the `lucide-` prefix, matching `ChannelInfo`. */
-    icon: z.string().min(1).optional(),
-  })
-  .passthrough();
-
-type PluginPackageJson = z.infer<typeof PluginPackageJsonSchema>;
+interface LegacyPluginFields extends Record<string, unknown> {
+  readonly peerDependencies?: Record<string, string>;
+  readonly credentialKeyPatterns?: unknown;
+  readonly displayName?: string;
+  readonly icon?: string;
+}
 
 /**
  * Shape-level caps for the `credentialKeyPatterns` manifest field. The
@@ -270,23 +246,8 @@ async function loadHooks(
  * timeout/try-catch/register triple.
  */
 async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
-  const pkgPath = join(pluginDir, "package.json");
-  let rawPkg: unknown;
-  try {
-    rawPkg = JSON.parse(await readFile(pkgPath, "utf8"));
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `package.json at ${pluginDir} could not be read or parsed: ${reason}`,
-    );
-  }
-  const parsed = PluginPackageJsonSchema.safeParse(rawPkg);
-  if (!parsed.success) {
-    throw new Error(
-      `package.json at ${pluginDir} failed schema validation: ${parsed.error.message}`,
-    );
-  }
-  const pkg: PluginPackageJson = parsed.data;
+  const resolvedManifest = readPluginManifest(pluginDir);
+  const legacyFields = resolvedManifest.raw as LegacyPluginFields;
   // A plugin's identity is its install directory name — the slug the plugin
   // was installed under (a marketplace slug or a GitHub path leaf). This is
   // the identity every other surface uses: `plugins list`, enable/disable,
@@ -296,7 +257,10 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   // registry from the identity the user toggles and the scope filters match.
   // The manifest is still required (schema-validated above) as the load gate.
   const name = basename(pluginDir);
-  const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
+  const version =
+    resolvedManifest.version && resolvedManifest.version.length > 0
+      ? resolvedManifest.version
+      : "0.0.0";
 
   // Host-compat negotiation: plugins declare their plugin-api version
   // range via standard `peerDependencies["@vellumai/plugin-api"]`. We
@@ -310,7 +274,7 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   //
   // If the peerDep is absent, the plugin loads without a host-compat
   // claim; we log a warning so the omission is visible at boot.
-  const range = pkg.peerDependencies?.[PLUGIN_API_PEER_DEP];
+  const range = legacyFields.peerDependencies?.[PLUGIN_API_PEER_DEP];
   if (range !== undefined) {
     if (!semver.validRange(range)) {
       log.error(
@@ -333,7 +297,7 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
         `external plugin ${name}: peerDependencies["${PLUGIN_API_PEER_DEP}"] requires "${range}" but assistant is ${assistantPkg.version} — loading anyway`,
       );
     }
-  } else {
+  } else if (resolvedManifest.source === LEGACY_PLUGIN_MANIFEST) {
     log.warn(
       { pluginDir, plugin: name, peerDep: PLUGIN_API_PEER_DEP },
       "external plugin missing plugin-api peerDependency — loading without host-compat claim",
@@ -342,7 +306,9 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
 
   const manifest: PluginManifest = { name, version };
   const credentialKeyPatterns = parseCredentialKeyPatterns(
-    pkg.credentialKeyPatterns,
+    resolvedManifest.source === LEGACY_PLUGIN_MANIFEST
+      ? legacyFields.credentialKeyPatterns
+      : undefined,
     pluginDir,
   );
   if (credentialKeyPatterns !== undefined) {
@@ -459,9 +425,9 @@ export async function loadExternalPlugin(
 }
 
 /**
- * Parse a plugin's `package.json` manifest from disk. Returns the plugin
+ * Parse a plugin's selected manifest from disk. Returns the plugin
  * identity (its install directory name), version, and any declared
- * `credentialKeyPatterns`, or `undefined` when the `package.json` is
+ * legacy `credentialKeyPatterns`, or `undefined` when the manifest is
  * missing, unparseable, or fails schema validation.
  *
  * Exported so the mtime cache can discover plugin identity without going
@@ -497,20 +463,23 @@ export interface PluginPresentation {
 export async function parsePluginPresentation(
   pluginDir: string,
 ): Promise<PluginPresentation | undefined> {
-  let rawPkg: unknown;
   try {
-    rawPkg = JSON.parse(
-      await readFile(join(pluginDir, "package.json"), "utf8"),
-    );
+    const manifest = readPluginManifest(pluginDir);
+    const legacyFields = manifest.raw as LegacyPluginFields;
+    return {
+      displayName:
+        manifest.source === LEGACY_PLUGIN_MANIFEST
+          ? legacyFields.displayName
+          : manifest.name,
+      description: manifest.description,
+      icon:
+        manifest.source === LEGACY_PLUGIN_MANIFEST
+          ? legacyFields.icon
+          : undefined,
+    };
   } catch {
     return undefined;
   }
-  const parsed = PluginPackageJsonSchema.safeParse(rawPkg);
-  if (!parsed.success) {
-    return undefined;
-  }
-  const { displayName, description, icon } = parsed.data;
-  return { displayName, description, icon };
 }
 
 export async function parsePluginManifest(
@@ -519,35 +488,29 @@ export async function parsePluginManifest(
 ): Promise<
   Pick<PluginManifest, "name" | "version" | "credentialKeyPatterns"> | undefined
 > {
-  const pkgPath = join(pluginDir, "package.json");
-  let rawPkg: unknown;
+  let resolvedManifest: ReturnType<typeof readPluginManifest>;
   try {
-    rawPkg = JSON.parse(await readFile(pkgPath, "utf8"));
+    resolvedManifest = readPluginManifest(pluginDir);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     if (!opts.quiet) {
       log.error(
         { err, pluginDir },
-        `package.json at ${pluginDir} could not be read or parsed: ${reason}`,
+        `Plugin manifest at ${pluginDir} could not be read or validated: ${reason}`,
       );
     }
     return undefined;
   }
-  const parsed = PluginPackageJsonSchema.safeParse(rawPkg);
-  if (!parsed.success) {
-    if (!opts.quiet) {
-      log.error(
-        { err: parsed.error, pluginDir },
-        `package.json at ${pluginDir} failed schema validation: ${parsed.error.message}`,
-      );
-    }
-    return undefined;
-  }
-  const pkg: PluginPackageJson = parsed.data;
+  const legacyFields = resolvedManifest.raw as LegacyPluginFields;
   const name = basename(pluginDir);
-  const version = pkg.version && pkg.version.length > 0 ? pkg.version : "0.0.0";
+  const version =
+    resolvedManifest.version && resolvedManifest.version.length > 0
+      ? resolvedManifest.version
+      : "0.0.0";
   const credentialKeyPatterns = parseCredentialKeyPatterns(
-    pkg.credentialKeyPatterns,
+    resolvedManifest.source === LEGACY_PLUGIN_MANIFEST
+      ? legacyFields.credentialKeyPatterns
+      : undefined,
     pluginDir,
   );
   if (credentialKeyPatterns !== undefined) {

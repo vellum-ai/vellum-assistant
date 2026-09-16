@@ -698,6 +698,53 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("keeps known session controls and drops unknown ones", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      sessionControls: [
+        "mute",
+        "look_stop",
+        "look_camera",
+        "end",
+        "mute",
+        7,
+        "fly",
+      ],
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    // A newer client's controls cost it nothing on an older daemon.
+    expect(result.frame).toMatchObject({
+      type: "start",
+      sessionControls: ["end", "mute", "look_camera", "look_stop"],
+    });
+  });
+
+  test.each([
+    ["absent", {}],
+    ["not an array", { sessionControls: "end" }],
+    ["all unknown", { sessionControls: ["fly"] }],
+  ])(
+    "omits sessionControls from the start frame when %s",
+    (_label, extra: Record<string, unknown>) => {
+      const result = validateLiveVoiceClientFrame({
+        type: "start",
+        ...extra,
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect("sessionControls" in result.frame).toBe(false);
+    },
+  );
+
   test("parses the textInput capability on the start frame", () => {
     const result = validateLiveVoiceClientFrame({
       type: "start",
@@ -749,6 +796,54 @@ describe("parseLiveVoiceClientTextFrame", () => {
     expect(result.error).toMatchObject({
       code: "invalid_field",
       field: "textInput",
+      frameType: "start",
+    });
+  });
+
+  test("parses the lookFrames capability on the start frame", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      lookFrames: true,
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.frame).toMatchObject({ type: "start", lookFrames: true });
+  });
+
+  test("omits lookFrames from the start frame when false", () => {
+    // False and absent mean the same thing: no look frame is coming, so the
+    // session must not wait for one.
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      lookFrames: false,
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect("lookFrames" in result.frame).toBe(false);
+  });
+
+  test("returns a typed protocol error for a non-boolean lookFrames", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      lookFrames: 1,
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "lookFrames",
       frameType: "start",
     });
   });

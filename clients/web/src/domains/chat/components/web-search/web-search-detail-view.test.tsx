@@ -1,5 +1,5 @@
 /**
- * Tests for `WebSearchDetailView` — the nested detail shown when a subagent
+ * Tests for `WebSearchDetailView`, the nested detail shown when a subagent
  * "Searching the web" query pill is clicked. Covers the query line + the
  * source chips, and the empty-results fallback.
  */

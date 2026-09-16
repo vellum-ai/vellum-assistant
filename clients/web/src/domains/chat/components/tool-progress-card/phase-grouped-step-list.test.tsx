@@ -89,6 +89,42 @@ describe("PhaseGroupedStepList — phase grouping", () => {
   });
 });
 
+describe("PhaseGroupedStepList - phase footer", () => {
+  test.each([false, true])(
+    "renders one footer after the final step when timeline=%s",
+    (timeline) => {
+      const { getAllByTestId } = render(
+        <PhaseGroupedStepList
+          steps={[
+            bash("first", "completed", "1s", "tc-a"),
+            bash("second", "completed", "1s", "tc-b"),
+          ]}
+          timeline={timeline}
+          renderPhaseFooter={(section) => (
+            <div data-testid="phase-footer">{section.label}</div>
+          )}
+        />,
+      );
+
+      const section = getAllByTestId("phase-section")[0]!;
+      const steps = section.querySelectorAll('[data-testid="phase-step-pill"]');
+      const footer = getAllByTestId("phase-footer")[0]!;
+      expect(getAllByTestId("phase-footer")).toHaveLength(1);
+      expect(
+        steps[steps.length - 1]!.compareDocumentPosition(footer) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    },
+  );
+
+  test("keeps existing callers footer-free by default", () => {
+    const { queryByTestId } = render(
+      <PhaseGroupedStepList steps={[bash("only")]} />,
+    );
+    expect(queryByTestId("phase-footer")).toBeNull();
+  });
+});
+
 describe("PhaseGroupedStepList — phase header status icon", () => {
   test("all-completed section renders a green check", () => {
     const steps: ToolCallCardStep[] = [

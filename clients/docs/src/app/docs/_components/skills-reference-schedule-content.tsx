@@ -179,12 +179,12 @@ export function SkillsReferenceScheduleContent() {
               around interactive buttons, which Slack takes by a different
               route. Your assistant can still find that message by reading the
               Slack channel, but it isn&apos;t kept alongside its other replies,
-              and your assistant can&apos;t confirm it landed, so a scheduled
-              run that posts one also sends you its final reply as a
-              notification. If a run finishes with output and nothing delivered
-              it, whether it never tried or the send failed, the assistant sends
-              you its final reply as a notification, so a scheduled run never
-              finishes silently in a conversation you don&apos;t have open.
+              so a scheduled run that posts one also sends you its final reply
+              as a notification. If a run finishes with output and nothing
+              delivered it, whether it never tried or the send failed, the
+              assistant sends you its final reply as a notification, so a
+              scheduled run never finishes silently in a conversation you
+              don&apos;t have open.
             </li>
             <li>
               <strong>In-app links in Vellum chat.</strong> In Vellum chat,

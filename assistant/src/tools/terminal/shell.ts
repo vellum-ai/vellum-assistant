@@ -12,7 +12,9 @@ import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import {
   buildShellInvocation,
+  buildShellSpawnFlags,
   terminateProcessTree,
+  watchShellProcessStart,
 } from "../../util/host-process.js";
 import { getLogger } from "../../util/logger.js";
 import { getDataDir } from "../../util/platform.js";
@@ -326,9 +328,9 @@ export const shellTool = {
         cwd: context.workingDir,
         env,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-        windowsHide: true,
+        ...buildShellSpawnFlags(),
       });
+      const launch = watchShellProcessStart(child);
       const collector = attachBoundedStdio(child);
 
       const killTree = buildKillTree(child, {
@@ -369,11 +371,13 @@ export const shellTool = {
           timedOut,
         });
 
-        const fmtResult = collector.format(code, timedOut, timeoutSec);
+        const fmtResult = collector.format(code, timedOut, timeoutSec, {
+          started: launch.didStart(),
+        });
 
         const status: BackgroundToolCompletedEvent["status"] = aborted
           ? "cancelled"
-          : timedOut
+          : timedOut || fmtResult.isError
             ? "failed"
             : code === 0
               ? "completed"
@@ -531,9 +535,9 @@ export const shellTool = {
         cwd: context.workingDir,
         env,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-        windowsHide: true,
+        ...buildShellSpawnFlags(),
       });
+      const launch = watchShellProcessStart(child);
       const collector = attachBoundedStdio(child, {
         onOutput: context.onOutput,
       });
@@ -575,7 +579,9 @@ export const shellTool = {
           timedOut,
         });
 
-        const fmtResult = collector.format(code, timedOut, timeoutSec);
+        const fmtResult = collector.format(code, timedOut, timeoutSec, {
+          started: launch.didStart(),
+        });
 
         resolve({
           content: fmtResult.content,

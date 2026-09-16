@@ -33,7 +33,7 @@ function FloatingHydrateFallback() {
 import { ActiveAssistantGate } from "@/components/layout/active-assistant-gate";
 import { remoteGatewayPublicPathPrefix } from "@/lib/auth/remote-gateway-session";
 import { isRemoteGatewayMode } from "@/lib/local-mode";
-import { routes } from "@/utils/routes";
+import { CONVERSATION_APP_SEGMENT, routes } from "@/utils/routes";
 
 /**
  * Redirects legacy `/account/oauth/desktop-complete` to the canonical
@@ -418,6 +418,21 @@ export const routeTree = [
       Component: () =>
         import("@/components/companion-dock-zones-page").then(
           (m) => m.CompanionDockZonesPage,
+        ),
+    },
+  },
+  // The popover beside the companion: an approval, a card, a link or an image
+  // the assistant needs the user to see while they are away from the app's
+  // window. Its own window sized to the card, opened and placed by the shell;
+  // standalone for the reason the surface is.
+  {
+    path: "/assistant/floating/companion-popover",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-popover-page").then(
+          (m) => m.CompanionPopoverPage,
         ),
     },
   },
@@ -943,6 +958,14 @@ export const routeTree = [
                   { index: true, Component: ConversationRedirect },
                   {
                     path: "conversations/:conversationId",
+                    Component: ChatPage,
+                  },
+                  // The app the viewer shows is part of the URL so browser Back
+                  // closes it (see `useAppRouteSync`). Same component and the
+                  // same lifecycle tolerance as the conversation route above;
+                  // the extra segment only adds the `appId` param.
+                  {
+                    path: `conversations/:conversationId/${CONVERSATION_APP_SEGMENT}/:appId`,
                     Component: ChatPage,
                   },
                   {

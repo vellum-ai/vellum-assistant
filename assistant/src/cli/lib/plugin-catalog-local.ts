@@ -61,10 +61,20 @@ export function readBundledPluginCatalog(): PluginCatalog {
   return memoized;
 }
 
+/** Local packages the current assistant release can materialize itself. */
+export function readBundledLocalPluginCatalog(): PluginCatalog {
+  return {
+    ref: "bundled",
+    matches: projectMarketplaceEntries(
+      bundledEntries().filter((entry) => entry.source.source === "local"),
+    ),
+  };
+}
+
 /**
- * Resolve an install name to its pinned GitHub source from the bundled manifest,
- * or `null` when no bundled entry claims the name. The offline analogue of
- * resolving against the remote-fetched marketplace — used when platform
+ * Resolve an install name to its exact source from the bundled manifest, or
+ * `null` when no bundled entry claims the name. The offline analogue of
+ * resolving against the remote-fetched marketplace, used when platform
  * features are disabled and `assistant plugins install <name>` must resolve the
  * pin without any network call.
  */

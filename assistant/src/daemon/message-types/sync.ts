@@ -18,6 +18,7 @@ export const SYNC_TAGS = {
   appsList: "apps:list",
   documentsList: "documents:list",
   pluginsList: "plugins:list",
+  mcpList: "mcp:list",
   conversationsList: "conversations:list",
   /** Activation-checklist progress: task launches, step counts, completions. */
   activationProgress: "activation:progress",
