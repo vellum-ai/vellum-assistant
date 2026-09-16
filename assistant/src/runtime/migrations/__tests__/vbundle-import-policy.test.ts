@@ -259,7 +259,7 @@ describe("evaluateRuntimeCompatibility", () => {
     ).toEqual({ ok: true });
   });
 
-  // A `vel up` minikube image or CLI local hatch is stamped
+  // A `vel up` minikube assistant image is stamped
   // `<pkg.version>-local.<ts>.<sha>` from the checkout's package.json,
   // which only moves on release cuts, so the minimum bound cannot be
   // decided from it; the explicit maximum ceiling still applies.

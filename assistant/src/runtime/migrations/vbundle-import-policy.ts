@@ -173,11 +173,14 @@ export function formatRuntimeCompatibilityMessage(
 }
 
 /**
- * Whether `version` names a local development build of the runtime: the
- * `<pkg.version>-local.<timestamp>.<sha>` stamp the CLI's local hatch and
- * `vel up`'s minikube images carry. The triple is the checkout's
- * package.json version, which only moves on release cuts, so it says
- * nothing about whether the checkout is newer or older than a release.
+ * Whether `version` names a runtime built from a source checkout: the
+ * `<pkg.version>-local.<timestamp>.<sha>` `APP_VERSION` that the platform
+ * repo's `vel up` stamps on the assistant images it builds for its local
+ * minikube cluster. The triple is the checkout's package.json version,
+ * which only moves on release cuts, so it says nothing about whether the
+ * checkout is newer or older than a release. A CLI hatch from a checkout
+ * without an explicit `APP_VERSION` runs as the plain package version and
+ * is not covered.
  */
 export function isLocalDevRuntimeVersion(version: string): boolean {
   return /^\d+\.\d+\.\d+-local\./.test(version);
