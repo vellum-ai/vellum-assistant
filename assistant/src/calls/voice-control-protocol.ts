@@ -60,6 +60,18 @@ export const FEWER_UPDATES_MARKER = "[UPDATES:FEWER]";
 export const NORMAL_UPDATES_MARKER = "[UPDATES:NORMAL]";
 const UPDATES_MARKER_PREFIX = "[UPDATES:";
 
+/**
+ * Look session controls for live voice: turn on a screen share
+ * ({@link LOOK_SCREEN_MARKER}) or the camera ({@link LOOK_CAMERA_MARKER}) so
+ * the call can see what the user means by "take a look". Carried out by the
+ * client, like mute and end.
+ */
+export const LOOK_SCREEN_MARKER = "[LOOK:SCREEN]";
+export const LOOK_CAMERA_MARKER = "[LOOK:CAMERA]";
+/** Stop showing the call the screen and the camera, whichever is on. */
+export const LOOK_STOP_MARKER = "[LOOK:STOP]";
+const LOOK_MARKER_PREFIX = "[LOOK:";
+
 // ---------------------------------------------------------------------------
 // Regexes
 // ---------------------------------------------------------------------------
@@ -82,6 +94,7 @@ const ESCALATE_VERDICT_TOKEN_REGEX = /\[1\]/g;
 const MINIMIZE_ROOM_MARKER_REGEX = /\[-1\]/g;
 const MUTE_MARKER_REGEX = /\[MUTE(?::\s*[^\]]*)?\]/g;
 const UPDATES_MARKER_REGEX = /\[UPDATES:\s*[^\]]*\]/g;
+const LOOK_MARKER_REGEX = /\[LOOK:\s*[^\]]*\]/g;
 const GUARDIAN_TIMEOUT_MARKER_REGEX = /\[GUARDIAN_TIMEOUT\]/g;
 const GUARDIAN_UNAVAILABLE_MARKER_REGEX = /\[GUARDIAN_UNAVAILABLE\]/g;
 
@@ -209,6 +222,7 @@ export function stripInternalSpeechMarkers(text: string): string {
     .replace(MINIMIZE_ROOM_MARKER_REGEX, "")
     .replace(MUTE_MARKER_REGEX, "")
     .replace(UPDATES_MARKER_REGEX, "")
+    .replace(LOOK_MARKER_REGEX, "")
     .replace(GUARDIAN_TIMEOUT_MARKER_REGEX, "")
     .replace(GUARDIAN_UNAVAILABLE_MARKER_REGEX, "");
   return result;
@@ -237,6 +251,7 @@ const CONTROL_MARKER_STRINGS = [
   MUTE_MARKER,
   MUTE_MARKER_PREFIX,
   UPDATES_MARKER_PREFIX,
+  LOOK_MARKER_PREFIX,
   "[GUARDIAN_TIMEOUT]",
   "[GUARDIAN_UNAVAILABLE]",
 ];
@@ -252,6 +267,7 @@ const FIRST_BRACKET_TERMINATED_PREFIXES = [
   "[USER_INSTRUCTION:",
   MUTE_MARKER_PREFIX,
   UPDATES_MARKER_PREFIX,
+  LOOK_MARKER_PREFIX,
 ];
 
 const GUARDIAN_APPROVAL_PREFIX = "[ASK_GUARDIAN_APPROVAL:";
@@ -339,15 +355,19 @@ export function createControlMarkerHoldback(
 /**
  * A session control a live-voice reply asked for with a terminal marker:
  * `end` from {@link END_CALL_MARKER}, `mute` from {@link MUTE_MARKER} or its
- * timed form, `updates` from the progress-cadence markers.
+ * timed form, `updates` from the progress-cadence markers, `look_screen` and
+ * `look_camera` and `look_stop` from the look markers.
  */
 export type SessionControlRequest =
   | { readonly action: "end" }
   | { readonly action: "mute"; readonly durationMs?: number }
-  | { readonly action: "updates"; readonly cadence: "fewer" | "normal" };
+  | { readonly action: "updates"; readonly cadence: "fewer" | "normal" }
+  | { readonly action: "look_screen" }
+  | { readonly action: "look_camera" }
+  | { readonly action: "look_stop" };
 
 const TERMINAL_SESSION_CONTROL_REGEX =
-  /(\[END_CALL\]|\[UPDATES:(FEWER|NORMAL)\]|\[MUTE\]|\[MUTE:\s*([^\]]*)\])\s*$/;
+  /(\[END_CALL\]|\[UPDATES:(FEWER|NORMAL)\]|\[LOOK:(SCREEN|CAMERA|STOP)\]|\[MUTE\]|\[MUTE:\s*([^\]]*)\])\s*$/;
 
 /**
  * The session control a reply ends with, or null.
@@ -378,7 +398,17 @@ export function parseTerminalSessionControl(
       cadence: match[2] === "FEWER" ? "fewer" : "normal",
     };
   }
-  const seconds = match[3] === undefined ? NaN : Number(match[3].trim());
+  if (match[3] !== undefined) {
+    return {
+      action:
+        match[3] === "SCREEN"
+          ? "look_screen"
+          : match[3] === "CAMERA"
+            ? "look_camera"
+            : "look_stop",
+    };
+  }
+  const seconds = match[4] === undefined ? NaN : Number(match[4].trim());
   if (
     Number.isFinite(seconds) &&
     seconds > 0 &&

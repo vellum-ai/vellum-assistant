@@ -17,7 +17,12 @@ import { z } from "zod";
 import type { McpServerConfig } from "../../config/schemas/mcp.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
-import { McpClient } from "../../mcp/client.js";
+import {
+  mcpOAuthCredentialKey,
+  resolveMcpOAuthCredentialTarget,
+  workspaceMcpOAuthCredentialTarget,
+} from "../../mcp/credential-target.js";
+import { readEffectiveMcpConfig } from "../../mcp/effective-config.js";
 import { getMcpServerManager } from "../../mcp/manager.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
@@ -74,9 +79,7 @@ function persistWorkspaceMcpConfig(config: {
   try {
     saveWorkspaceMcpConfig(config);
   } catch (err) {
-    throw new InternalError(
-      err instanceof Error ? err.message : String(err),
-    );
+    throw new InternalError(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -91,8 +94,9 @@ async function handleMcpAuthStart({
 }> {
   const { serverId } = parseBody(McpServerIdParams, body);
 
-  const servers = loadWorkspaceMcpConfig().servers;
-  const serverConfig = servers[serverId];
+  const serverConfig = readEffectiveMcpConfig(loadWorkspaceMcpConfig()).servers[
+    serverId
+  ];
 
   if (!serverConfig) {
     throw new BadRequestError(`MCP server "${serverId}" not configured`);
@@ -105,10 +109,29 @@ async function handleMcpAuthStart({
     );
   }
 
+  const credentialTarget = resolveMcpOAuthCredentialTarget(
+    serverId,
+    serverConfig,
+  );
+  if (!credentialTarget) {
+    throw new BadRequestError(
+      `OAuth only supported for sse/streamable-http transports (server "${serverId}" uses ${transport.type})`,
+    );
+  }
+
+  try {
+    mcpOAuthCredentialKey(credentialTarget, "tokens");
+  } catch {
+    throw new BadRequestError(
+      `MCP server "${serverId}" has an invalid transport URL`,
+    );
+  }
+
   let result: { auth_url: string; already_authenticated?: boolean };
   try {
     result = await orchestrateMcpOAuthConnect({
       serverId,
+      credentialTarget,
       transport: {
         url: transport.url,
         type: transport.type,
@@ -135,7 +158,19 @@ function handleMcpAuthStatus({
   | { status: "complete" }
   | { status: "error"; error: string } {
   const { serverId } = pathParams as { serverId: string };
-  const state = getMcpAuthState(serverId);
+  const serverConfig = readEffectiveMcpConfig(loadWorkspaceMcpConfig()).servers[
+    serverId
+  ];
+  const target = serverConfig
+    ? resolveMcpOAuthCredentialTarget(serverId, serverConfig)
+    : null;
+  let targetKey: string | undefined;
+  try {
+    targetKey = target ? mcpOAuthCredentialKey(target, "tokens") : undefined;
+  } catch {
+    targetKey = undefined;
+  }
+  const state = targetKey ? getMcpAuthState(serverId, targetKey) : null;
 
   if (state === null) {
     throw new NotFoundError(`No active OAuth flow for server "${serverId}"`);
@@ -168,53 +203,6 @@ function handleMcpReload(_args: { body?: Record<string, unknown> }): {
 } {
   triggerReload("internal_mcp_reload");
   return { ok: true };
-}
-
-// ---------------------------------------------------------------------------
-// Health check helper
-// ---------------------------------------------------------------------------
-
-const HEALTH_CHECK_TIMEOUT_MS = 10_000;
-
-async function checkMachineReadableHealth(
-  serverId: string,
-  config: McpServerConfig,
-  timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
-): Promise<string> {
-  const client = new McpClient(serverId);
-  try {
-    await Promise.race([
-      client.connect(config.transport),
-      new Promise<never>((_, reject) => {
-        const t = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-        if (typeof t === "object" && "unref" in t) {
-          t.unref();
-        }
-      }),
-    ]);
-
-    if (client.isConnected) {
-      await client.disconnect();
-      return "connected";
-    }
-
-    const err = client.lastError;
-    if (err) {
-      if (err.message.includes("timeout")) {
-        return "error";
-      }
-      return "error";
-    }
-
-    return "needs-auth";
-  } catch {
-    try {
-      await client.disconnect();
-    } catch {
-      /* ignore */
-    }
-    return "error";
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -271,12 +259,19 @@ async function handleMcpList(_args: {
   const configEntries = (
     Object.entries(servers) as [string, McpServerConfig][]
   ).filter(([, config]) => config && typeof config === "object");
+  const manager = getMcpServerManager();
 
   const workspaceEntries: McpServerEntry[] = await Promise.all(
     configEntries.map(async ([id, config]) => {
-      const status = await checkMachineReadableHealth(id, config);
+      const runtimeState = manager.getServerState(id, "workspace");
+      const status =
+        runtimeState === "connected" || runtimeState === "needs-auth"
+          ? runtimeState
+          : "error";
       const hasOAuth =
-        config.transport.type !== "stdio" ? await hasMcpOAuthTokens(id) : false;
+        config.transport.type !== "stdio"
+          ? await hasMcpOAuthTokens(workspaceMcpOAuthCredentialTarget(id))
+          : false;
 
       // Check credential store for stored static auth headers
       const storedHeaders = await getMcpHeaders(id);
@@ -316,21 +311,23 @@ async function handleMcpList(_args: {
   );
 
   return {
-    servers: [...workspaceEntries, ...listPluginServerEntries(configEntries)],
+    servers: [
+      ...workspaceEntries,
+      ...(await listPluginServerEntries(configEntries)),
+    ],
   };
 }
 
 /**
  * Project plugin-declared servers onto listing entries.
  *
- * Nothing here touches the credential store or the network: a plugin
- * server carries no auth state the assistant owns, and its status comes
- * from the manager's in-memory client rather than a probe (see
- * {@link PLUGIN_SERVER_STATUS}).
+ * OAuth presence is read from the plugin's scoped credential identity. Static
+ * workspace headers are never consulted, no network probe runs, and status
+ * comes from the manager's in-memory client (see {@link PLUGIN_SERVER_STATUS}).
  */
-function listPluginServerEntries(
+async function listPluginServerEntries(
   configEntries: [string, McpServerConfig][],
-): McpServerEntry[] {
+): Promise<McpServerEntry[]> {
   const { servers, issues } = readPluginMcpServers();
   for (const issue of issues) {
     log.warn(
@@ -349,36 +346,51 @@ function listPluginServerEntries(
   const workspaceIds = new Set(configEntries.map(([id]) => id));
   const manager = getMcpServerManager();
 
-  return servers
-    .filter((server) => {
-      if (!workspaceIds.has(server.id)) {
-        return true;
-      }
-      log.warn(
-        { plugin: server.pluginName, serverId: server.id },
-        "Plugin MCP server shadowed by a workspace server of the same id; skipping",
-      );
-      return false;
-    })
-    .map((server) => {
-      const { headers: _stripped, ...safeTransport } = server.config
-        .transport as Record<string, unknown>;
-      return {
-        id: server.id,
-        status: manager.getClient(server.id)?.isConnected
-          ? "connected"
-          : PLUGIN_SERVER_STATUS,
-        transport: safeTransport as McpServerEntry["transport"],
-        // A plugin server has no assistant-owned credentials. Resolving
-        // these against `mcp:<id>:*` would report, and could disclose, a
-        // workspace credential that happens to share the id.
-        hasOAuth: false,
-        hasStaticAuth: false,
-        authType: "none" as const,
-        source: "plugin" as const,
-        pluginName: server.pluginName,
-      };
-    });
+  return Promise.all(
+    servers
+      .filter((server) => {
+        if (!workspaceIds.has(server.id)) {
+          return true;
+        }
+        log.warn(
+          { plugin: server.pluginName, serverId: server.id },
+          "Plugin MCP server shadowed by a workspace server of the same id; skipping",
+        );
+        return false;
+      })
+      .map(async (server) => {
+        const { headers: _stripped, ...safeTransport } = server.config
+          .transport as Record<string, unknown>;
+        let hasOAuth = false;
+        const credentialTarget = resolveMcpOAuthCredentialTarget(
+          server.id,
+          server.config,
+        );
+        if (credentialTarget) {
+          try {
+            hasOAuth = await hasMcpOAuthTokens(credentialTarget);
+          } catch (err) {
+            log.warn(
+              { err, plugin: server.pluginName, serverId: server.id },
+              "Plugin MCP OAuth credential identity could not be resolved",
+            );
+          }
+        }
+        return {
+          id: server.id,
+          status:
+            manager.getServerState(server.id, "plugin") === "connected"
+              ? "connected"
+              : PLUGIN_SERVER_STATUS,
+          transport: safeTransport as McpServerEntry["transport"],
+          hasOAuth,
+          hasStaticAuth: false,
+          authType: "none" as const,
+          source: "plugin" as const,
+          pluginName: server.pluginName,
+        };
+      }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -687,7 +699,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List MCP servers with health status",
     description:
-      "Returns configured MCP servers with live health-check results (connected, needs auth, error).",
+      "Returns configured MCP servers with recorded runtime status without opening new connections.",
     tags: ["internal"],
     responseBody: z.object({
       servers: z.array(

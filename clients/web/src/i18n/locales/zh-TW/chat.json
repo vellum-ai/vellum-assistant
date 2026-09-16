@@ -23,6 +23,7 @@
   },
   "acpConnectAffordance": {
     "connectButton": "連線",
+    "dismissButton": "關閉",
     "errorFallback": "連線 Claude 失敗。請再試一次。",
     "pastePlaceholder": "貼上您的金鑰",
     "saveButton": "儲存",
@@ -94,27 +95,31 @@
     "earlierActivity": "較早的活動"
   },
   "assistantDesktop": {
-    "resizeAria": "調整桌面側欄寬度",
-    "collapseAria": "收合桌面側欄",
-    "expandAria": "展開桌面",
-    "busy": "桌面正由其他使用者使用中。",
-    "connecting": "正在連線至桌面…",
-    "failed": "桌面無法啟動。",
-    "lost": "與桌面的連線已中斷。",
-    "openAria": "開啟桌面",
+    "fitView": "符合螢幕",
+    "panView": "平移",
+    "controlView": "控制",
+    "panHint": "拖曳以平移，輕點以按一下。",
+    "hideAria": "隱藏虛擬桌面",
+    "closeAria": "關閉虛擬桌面預覽",
+    "moveAria": "移動虛擬桌面預覽（方向鍵）",
+    "expandAria": "展開虛擬桌面",
+    "busy": "虛擬桌面正由其他使用者使用中。",
+    "connecting": "正在連線至虛擬桌面…",
+    "failed": "虛擬桌面無法啟動。",
+    "lost": "與虛擬桌面的連線已中斷。",
+    "openAria": "開啟 {name} 的虛擬桌面",
+    "openUnnamedAria": "開啟虛擬桌面",
     "reconnectButton": "重新連線",
     "title": "桌面",
-    "unavailable": "此助理不支援桌面。",
-    "installButton": "安裝桌面",
-    "installDescription": "安裝 Google Chrome 和助理桌面所需的元件。這可能需要幾分鐘。",
-    "checkingSetup": "正在檢查桌面設定…",
-    "installingPackages": "正在安裝桌面元件…",
+    "unavailable": "此助理不支援虛擬桌面。",
+    "installButton": "安裝虛擬桌面",
+    "checkingSetup": "正在檢查虛擬桌面設定…",
+    "installingPackages": "正在安裝虛擬桌面元件…",
     "installingChrome": "正在安裝 Google Chrome…",
     "checkingInstall": "正在檢查安裝…",
-    "installBackground": "關閉此視窗後，安裝仍會繼續。",
     "installFailed": "安裝失敗。請重試以完成設定。",
-    "setupRequestFailed": "無法檢查桌面設定。請重新連線後再試。",
-    "setupUnsupported": "桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
+    "setupRequestFailed": "無法檢查虛擬桌面設定。請重新連線後再試。",
+    "setupUnsupported": "虛擬桌面安裝需要具有管理員權限的 Linux x64 或 ARM64 容器。"
   },
   "assistantNavItem": {
     "newChat": "新增聊天"
@@ -1358,6 +1363,7 @@
   },
   "preferencesMenu": {
     "admin": "管理員",
+    "earnCredits": "賺取免費點數",
     "preferences": "偏好設定",
     "settings": "設定",
     "shareFeedback": "分享意見回饋"

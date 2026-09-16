@@ -158,6 +158,22 @@
     "backToAssistant": "Вернуться к ассистенту",
     "goBack": "Назад"
   },
+  "referralContent": {
+    "copied": "Скопировано!",
+    "copyError": "Не удалось скопировать реферальную ссылку.",
+    "copySuccess": "Скопировано в буфер обмена!",
+    "creditsEarned": "Заработано кредитов",
+    "friendsReferred": "Приглашено друзей",
+    "gatedTooltip": "Оформи подписку или купи кредиты, чтобы начать зарабатывать!",
+    "loadError": "Не удалось загрузить сведения о реферальной программе.",
+    "loading": "Загрузка...",
+    "shareLink": "Поделиться ссылкой",
+    "subtitleDefault": "Расскажи друзьям о Vellum и получай кредиты за каждую регистрацию.",
+    "subtitleWithAmounts": "Расскажи друзьям о Vellum: вы оба получите {creditAmount} кредитов после их регистрации, всего до {earningCap}."
+  },
+  "referralModal": {
+    "title": "Заработать бесплатные кредиты"
+  },
   "resourcePressureBanner": {
     "title": "Ассистенту нужно больше мощности",
     "titleNamed": "{assistantName} нуждается в большей мощности",

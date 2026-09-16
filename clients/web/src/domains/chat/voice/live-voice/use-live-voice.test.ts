@@ -205,6 +205,7 @@ describe("full turn", () => {
     });
     expect(h.view.result.current.state).toBe("connecting");
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
     });
@@ -539,6 +540,7 @@ describe("hands-free mode", () => {
     // With no user preference set, the overrides are omitted so the daemon's
     // configured VAD defaults govern (never clobbered by a client default).
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
@@ -627,6 +629,7 @@ describe("hands-free mode", () => {
     await startListening(h, { handsFree: true });
 
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
@@ -640,6 +643,7 @@ describe("hands-free mode", () => {
     await startListening(h); // manual
 
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
     });
@@ -2898,6 +2902,7 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     expect(h.getPlayerCreateCount()).toBe(1);
     expect(h.player.disposeCount).toBe(0);
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
@@ -3185,6 +3190,7 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     expect(h.getPlayerCreateCount()).toBe(1);
     expect(h.player.disposeCount).toBe(0);
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",

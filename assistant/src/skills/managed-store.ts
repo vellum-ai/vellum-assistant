@@ -14,10 +14,12 @@ import { dirname, isAbsolute, join, normalize, relative, sep } from "node:path";
 
 import { stringify as stringifyYaml } from "yaml";
 
+import { parseFrontmatter } from "../config/skills.js";
 import { deleteSkillCapabilityNode } from "../plugins/defaults/memory/graph/capability-seed.js";
 import { isDeniedBasename } from "../tools/shared/filesystem/path-policy.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspaceSkillsDir } from "../util/platform.js";
+import { parseFrontmatterFields } from "./frontmatter.js";
 import { writeInstallMeta } from "./install-meta.js";
 
 const log = getLogger("managed-store");
@@ -448,6 +450,60 @@ export function createManagedSkill(
   );
 
   return { created: true, path: skillFilePath };
+}
+
+/**
+ * A managed skill as it is on disk. Frontmatter fields come through the
+ * catalog's parser so they are exactly what routing and the Skills UI see;
+ * `body` is the stored text after the frontmatter, verbatim except for the
+ * separator newline the store writes before it and the trailing newline it
+ * guarantees. Verbatim matters: the skill loader substitutes `{baseDir}` and
+ * `{workspaceDir}` and strips feature-gated sections, and a caller that wrote
+ * that output back would bake absolute paths into the skill; and a first line
+ * that opens an indented code block must keep its indentation or a copy turns
+ * it into prose.
+ */
+export interface StoredManagedSkill {
+  name: string;
+  description: string;
+  emoji?: string;
+  includes?: string[];
+  activationHints?: string[];
+  avoidWhen?: string[];
+  category?: string;
+  body: string;
+}
+
+/**
+ * Read a managed skill from disk. Best-effort: a missing file or frontmatter
+ * that does not parse resolves to null, so a caller enriching or patching one
+ * skill never fails on a bad one.
+ */
+export function readStoredManagedSkill(
+  skillId: string,
+): StoredManagedSkill | null {
+  const skillFilePath = join(getManagedSkillDir(skillId), "SKILL.md");
+  try {
+    const content = readFileSync(skillFilePath, "utf-8");
+    const parsed = parseFrontmatter(content, skillFilePath);
+    const raw = parseFrontmatterFields(content);
+    if (!parsed || !raw) {
+      return null;
+    }
+    return {
+      name: parsed.name,
+      description: parsed.description,
+      emoji: parsed.emoji,
+      includes: parsed.includes,
+      activationHints: parsed.activationHints,
+      avoidWhen: parsed.avoidWhen,
+      category: parsed.category,
+      body: raw.body.replace(/^(?:\r?\n)+/, "").replace(/(?:\r?\n)+$/, ""),
+    };
+  } catch (err) {
+    log.warn({ err, skillFilePath }, "Could not read managed skill");
+    return null;
+  }
 }
 
 interface DeleteManagedSkillResult {

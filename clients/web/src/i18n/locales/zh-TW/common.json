@@ -159,17 +159,27 @@
     "allow": "允許",
     "confirm": "確認",
     "credentialLabel": "憑證",
+    "defaultSuffix": "（預設）",
     "deny": "拒絕",
     "dismiss": "關閉",
     "enter": "輸入",
+    "microphoneFallback": "麥克風 {index}",
+    "microphonePermissionHint": "允許存取麥克風後即可依名稱查看每個麥克風。",
+    "microphoneTitle": "麥克風",
     "needsCredentials": "需要憑證",
     "needsCredentialsFor": "需要 {service} 的憑證",
     "needsOkCount": "{count, plural, other {有 # 項需要你的同意}}",
     "notNow": "暫不",
     "openApp": "開啟 Vellum",
     "pendingBadge": "{count, plural, other {有 # 項需要你的同意}}",
+    "previewVoice": "試聽 {voice}",
     "review": "檢視",
-    "surfaceFallback": "有內容要給你看"
+    "savedMicrophone": "已儲存的麥克風",
+    "savedMicrophoneNotConnected": "已儲存的麥克風（未連接）",
+    "stopPreview": "停止試聽",
+    "surfaceFallback": "有內容要給你看",
+    "systemDefault": "系統預設",
+    "voiceTitle": "聲音"
   },
   "companionSurface": {
     "calling": "正在呼叫…",
@@ -210,7 +220,9 @@
     "drawFreehand": "自由繪製",
     "drawLine": "直線",
     "drawBox": "方框",
-    "drawCircle": "圓形"
+    "drawCircle": "圓形",
+    "chooseMicrophone": "選擇麥克風",
+    "chooseVoice": "選擇聲音"
   },
   "companionWatchFramePage": {
     "sharingScreen": "正在分享你的螢幕",
@@ -438,6 +450,22 @@
   "quickInputPage": {
     "logoAlt": "Vellum",
     "placeholder": "詢問 Vellum 任何問題…"
+  },
+  "referralContent": {
+    "copied": "已複製！",
+    "copyError": "無法複製推薦連結。",
+    "copySuccess": "已複製到剪貼簿！",
+    "creditsEarned": "已賺取點數",
+    "friendsReferred": "已推薦好友",
+    "gatedTooltip": "訂閱或購買點數以開始賺取！",
+    "loadError": "載入推薦資訊失敗。",
+    "loading": "載入中...",
+    "shareLink": "分享連結",
+    "subtitleDefault": "與好友分享 Vellum，每次註冊均可賺取點數。",
+    "subtitleWithAmounts": "與好友分享 Vellum - 他們註冊後，您和好友將各獲得 {creditAmount} 點數，總計最高可達 {earningCap}。"
+  },
+  "referralModal": {
+    "title": "賺取免費點數"
   },
   "removeFromDeviceDialog": {
     "confirm": "移除",

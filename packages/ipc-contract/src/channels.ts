@@ -225,6 +225,7 @@ export const COMPANION_SET_POPOVER_SIZE = "vellum:companion:setPopoverSize";
 export const COMPANION_SET_POPOVER_VIEW = "vellum:companion:setPopoverView";
 export const COMPANION_SET_ATTACHED_POPOVER_HEIGHT =
   "vellum:companion:setAttachedPopoverHeight";
+export const COMPANION_TOGGLE_PICKER = "vellum:companion:togglePicker";
 export const COMPANION_OPEN_LINK = "vellum:companion:openLink";
 export const COMPANION_TAKES_PROMPTS = "vellum:companion:takesPrompts";
 export const COMPANION_ACTIVATE = "vellum:companion:activate";

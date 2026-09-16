@@ -145,10 +145,23 @@ export interface LiveVoiceClientStartFrame {
    * An older assistant ignores the field and never sends the frame.
    */
   readonly sessionControls?: readonly LiveVoiceSessionControl[];
+  /**
+   * This client sends a fresh `sight_frame` with reason `look` right after it
+   * carries out a look control, whether or not a share or the camera was
+   * already running, and the assistant answers the look from that frame
+   * without waiting for the user to speak again. An older assistant ignores
+   * the field and the frame is only a frame.
+   */
+  readonly lookFrames?: boolean;
 }
 
 /** A session control this client carries out on the assistant's behalf. */
-export type LiveVoiceSessionControl = "end" | "mute";
+export type LiveVoiceSessionControl =
+  | "end"
+  | "mute"
+  | "look_screen"
+  | "look_camera"
+  | "look_stop";
 
 export interface LiveVoiceClientPttReleaseFrame {
   readonly type: "ptt_release";
@@ -411,7 +424,9 @@ export interface LiveVoiceMinimizeRoomServerFrame extends LiveVoiceServerFrameBa
  * A session control the user asked for out loud: the completed reply ended
  * with a control marker, and its acknowledgement has been synthesized. Sent
  * after `tts_done`, so the client still waits for local playback to drain
- * before acting. `mute` with `durationMs` unmutes again once it elapses.
+ * before acting. `mute` with `durationMs` unmutes again once it elapses;
+ * `look_screen` and `look_camera` start showing the call the screen or the
+ * camera, and `look_stop` stops both.
  *
  * The body is not validated by {@link parseServerFrame}; the handler treats
  * an unknown `action` or a malformed `durationMs` as nothing to do.

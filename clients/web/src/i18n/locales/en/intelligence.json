@@ -264,7 +264,9 @@
   },
   "pluginToast": {
     "alreadyUpToDate": "{name} is already up to date",
+    "cleanupWarning": "Plugin cleanup completed with a warning.",
     "installed": "Installed {name}",
+    "mcpOAuthCredentialsUnchecked": "Credential storage is unavailable, so historical plugin MCP OAuth credentials could not be checked.",
     "pluginFallback": "plugin",
     "pluginFallbackCapitalized": "Plugin",
     "removed": "Removed {name}",

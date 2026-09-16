@@ -154,11 +154,18 @@ describe("session control markers", () => {
     expect(isIncompleteControlMarkerTail("[MUTE:30]")).toBe(false);
     expect(isIncompleteControlMarkerTail("[UPDATES:FEW")).toBe(true);
     expect(isIncompleteControlMarkerTail("[UPDATES:FEWER]")).toBe(false);
+    expect(isIncompleteControlMarkerTail("[LOOK:SCR")).toBe(true);
+    expect(
+      stripInternalSpeechMarkers("Taking a look. [LOOK:SCREEN]").trim(),
+    ).toBe("Taking a look.");
   });
 
   test.each([
     ["Okay, talk soon. [END_CALL]", { action: "end" }],
     ["Muted. [MUTE]", { action: "mute" }],
+    ["Taking a look. [LOOK:SCREEN]", { action: "look_screen" }],
+    ["Show me. [LOOK:CAMERA]", { action: "look_camera" }],
+    ["Okay, I'll stop looking. [LOOK:STOP]", { action: "look_stop" }],
     [
       "I'll check in less. [UPDATES:FEWER]",
       { action: "updates", cadence: "fewer" },

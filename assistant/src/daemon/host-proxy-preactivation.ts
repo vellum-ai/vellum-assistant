@@ -9,6 +9,8 @@
  *   - `daemon/process-message.ts` (create path, prepareConversationForMessage)
  *   - `daemon/conversation-process.ts` `drainSingleMessage` (re-add after dequeue)
  *   - `daemon/conversation-process.ts` `drainBatch` (re-add after dequeue)
+ *   - `calls/voice-session-bridge.ts` (tool-capable legs of a live-voice
+ *     session opened from the macOS desktop client)
  *
  * The create paths additionally instantiate the proxy itself; that
  * instantiation logic is per-proxy-class and stays inline at each create

@@ -159,17 +159,27 @@
     "allow": "Allow",
     "confirm": "Confirm",
     "credentialLabel": "Credential",
+    "defaultSuffix": "(default)",
     "deny": "Deny",
     "dismiss": "Dismiss",
     "enter": "Enter",
+    "microphoneFallback": "Microphone {index}",
+    "microphonePermissionHint": "Allow microphone access to see each microphone by name.",
+    "microphoneTitle": "Microphone",
     "needsCredentials": "Need a credential",
     "needsCredentialsFor": "Need credentials for {service}",
     "needsOkCount": "{count, plural, one {Need your OK on # thing} other {Need your OK on # things}}",
     "notNow": "Not Now",
     "openApp": "Open Vellum",
     "pendingBadge": "{count, plural, one {# thing needs your OK} other {# things need your OK}}",
+    "previewVoice": "Preview {voice}",
     "review": "Review",
-    "surfaceFallback": "Something to look at"
+    "savedMicrophone": "Saved microphone",
+    "savedMicrophoneNotConnected": "Saved microphone (not connected)",
+    "stopPreview": "Stop preview",
+    "surfaceFallback": "Something to look at",
+    "systemDefault": "System Default",
+    "voiceTitle": "Voice"
   },
   "companionSurface": {
     "calling": "Calling…",
@@ -210,7 +220,9 @@
     "talk": "Talk",
     "teach": "Teach",
     "unmuteAssistant": "Unmute assistant",
-    "unmuteMicrophone": "Unmute microphone"
+    "unmuteMicrophone": "Unmute microphone",
+    "chooseMicrophone": "Choose microphone",
+    "chooseVoice": "Choose voice"
   },
   "companionWatchFramePage": {
     "sharingScreen": "Sharing your screen",
@@ -438,6 +450,22 @@
   "quickInputPage": {
     "logoAlt": "Vellum",
     "placeholder": "Ask Vellum anything..."
+  },
+  "referralContent": {
+    "copied": "Copied!",
+    "copyError": "Couldn't copy the referral link.",
+    "copySuccess": "Copied to clipboard!",
+    "creditsEarned": "Credits Earned",
+    "friendsReferred": "Friends Referred",
+    "gatedTooltip": "Subscribe or purchase credits to start earning!",
+    "loadError": "Failed to load referral information.",
+    "loading": "Loading...",
+    "shareLink": "Share Link",
+    "subtitleDefault": "Share Vellum with friends and earn credits for every signup.",
+    "subtitleWithAmounts": "Share Vellum with friends - you'll each earn {creditAmount} credits when they sign up, up to {earningCap} total."
+  },
+  "referralModal": {
+    "title": "Earn Free Credits"
   },
   "removeFromDeviceDialog": {
     "confirm": "Remove",

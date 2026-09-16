@@ -1,6 +1,9 @@
 import {
   END_CALL_MARKER,
   FEWER_UPDATES_MARKER,
+  LOOK_CAMERA_MARKER,
+  LOOK_SCREEN_MARKER,
+  LOOK_STOP_MARKER,
   MUTE_MARKER,
   NORMAL_UPDATES_MARKER,
   parseTerminalSessionControl,
@@ -24,8 +27,60 @@ import type { LiveVoiceSessionControl } from "./protocol.js";
 
 const CLIENT_CONTROL_LINES: Record<LiveVoiceSessionControl, string> = {
   end: `- To end the call (for example "I'm all done" or "okay, I'm gonna go"), say a brief goodbye, then end your reply with ${END_CALL_MARKER}. Being done with a task is not the same as leaving the call; end only when they are leaving.`,
+  look_screen: `- To look at their screen (for example "take a look at my screen" or "can you see what I'm looking at?"), say you are taking a look, then end your reply with ${LOOK_SCREEN_MARKER}. Their screen starts being shared with you once you finish speaking, so you cannot describe it yet: ask what they want you to look at, or say you will take it from their next words.`,
+  look_camera: `- To look through their camera (for example "look at this" or "can you see this?" while they hold something up), say you are taking a look, then end your reply with ${LOOK_CAMERA_MARKER}. The camera turns on once you finish speaking, so you cannot describe what it sees yet: ask them to show you, or say you will take it from their next words.`,
+  look_stop: `- To stop showing you their screen or camera (for example "stop sharing" or "you can stop looking now"), confirm in a few words, then end your reply with ${LOOK_STOP_MARKER}.`,
   mute: `- To mute their microphone (for example "mute for 30 seconds" or "mute yourself, I need to take this"), confirm in a few words, then end your reply with [MUTE:<seconds>] when they gave a duration or ${MUTE_MARKER} when they did not. While muted you cannot hear them, so mention they can unmute from the call controls unless the mute is timed.`,
 };
+
+/**
+ * The look lines for a client that declared `lookFrames`: one that sends a
+ * fresh frame the moment it carries out a look, which the session answers on
+ * a turn of its own (see {@link LOOK_FRAME_REASON}). The reply that asks for
+ * the look is therefore only the acknowledgement, and asking to look again is
+ * how the model gets a current view of a share that is already running.
+ */
+const LOOK_FRAME_CONTROL_LINES: Partial<
+  Record<LiveVoiceSessionControl, string>
+> = {
+  look_screen: `- To look at their screen (for example "take a look at my screen", or "can you see it now?" after something on it changed), say in a few words that you are taking a look, then end your reply with ${LOOK_SCREEN_MARKER}. Use it even when their screen is already shared with you, to see it as it is now. You get a fresh view right after you finish speaking and answer from that, so do not describe the screen yet and do not ask them to say anything more.`,
+  look_camera: `- To look through their camera (for example "look at this" or "can you see this?" while they hold something up), say in a few words that you are taking a look, then end your reply with ${LOOK_CAMERA_MARKER}. Use it even when the camera is already on, to see what it shows now. You get a fresh view right after you finish speaking and answer from that, so do not describe it yet and do not ask them to say anything more.`,
+};
+
+/**
+ * The `reason` a client's sight frame timing carries when the frame is the
+ * fresh view it took for a look control. Only a client that declared
+ * `lookFrames` sends one, and the session answers the look from it.
+ */
+export const LOOK_FRAME_REASON = "look";
+
+/** The controls that end in a fresh frame the session answers from. */
+export type LookSessionControl = Extract<
+  LiveVoiceSessionControl,
+  "look_screen" | "look_camera"
+>;
+
+export function isLookSessionControl(
+  action: string,
+): action is LookSessionControl {
+  return action === "look_screen" || action === "look_camera";
+}
+
+/**
+ * The persisted `content` of the turn that answers a look. Hidden: there is no
+ * user utterance behind the turn, and the instruction rides the control prompt
+ * ({@link lookFollowUpNote}).
+ */
+export const LOOK_FOLLOW_UP_CONTENT = "(fresh view taken; answer from it now)";
+
+/**
+ * Appended to the control prompt of the turn that answers a look: the reply
+ * that asked for it only acknowledged, and the frame it asked for has landed.
+ */
+export function lookFollowUpNote(action: LookSessionControl): string {
+  const what = action === "look_screen" ? "their screen" : "their camera";
+  return `You just took a fresh look at ${what}, and the newest image in the conversation is what it shows right now. Answer what they wanted you to look at, out loud, in a few spoken sentences. If the image does not show what they meant, say briefly what you do see and ask. You have already said you were taking a look, so do not say it again and do not end with a look marker.`;
+}
 
 // Always taught: narration is the session's own, so no client has to be able
 // to carry it out.
@@ -43,13 +98,40 @@ const UPDATES_LINE = `- To hear fewer spoken progress updates while you work (fo
 export function sessionControlTeaching(
   controls: readonly LiveVoiceSessionControl[],
   leg: { frontDoor?: boolean },
+  client: { lookFrames?: boolean } = {},
 ): string {
+  const lines =
+    client.lookFrames === true
+      ? { ...CLIENT_CONTROL_LINES, ...LOOK_FRAME_CONTROL_LINES }
+      : CLIENT_CONTROL_LINES;
   return [
     "The user can also control this call by asking you. Only when they clearly ask:",
-    ...controls.map((control) => CLIENT_CONTROL_LINES[control]),
+    ...controls.map((control) => lines[control]),
+    ...lookGuidance(controls),
     UPDATES_LINE,
     `The marker must be the very last thing in your reply. It is never spoken and does nothing anywhere else.${leg.frontDoor === true ? "" : " Never emit any other bracketed marker."}`,
   ].join("\n");
+}
+
+/**
+ * What to say about looking beyond the per-control lines: ask which when the
+ * device can do both and the request does not say, and say so plainly when it
+ * can do neither, rather than failing silently.
+ */
+function lookGuidance(controls: readonly LiveVoiceSessionControl[]): string[] {
+  const screen = controls.includes("look_screen");
+  const camera = controls.includes("look_camera");
+  if (screen && camera) {
+    return [
+      `- If they just say "take a look" and it is not clear whether they mean their screen or their camera, ask which one instead of guessing, and use no marker until they answer.`,
+    ];
+  }
+  if (!screen && !camera) {
+    return [
+      "- This call cannot turn on a screen share or the camera. If they ask you to look at their screen or at something and you have no other way to see it, say so briefly instead of pretending to look.",
+    ];
+  }
+  return [];
 }
 
 /** A session control the client carries out, sent as a `session_control` frame. */

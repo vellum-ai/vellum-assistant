@@ -294,6 +294,19 @@ export const DEFAULT_FRAME_GATE_OPTIONS: FrameGateOptions = {
  */
 export const FRAME_GATE_FORCED_KEEP_TTL_MS = 2_000;
 
+/** How an arm from {@link FrameGate.armForcedKeep} differs from a question's. */
+export interface ForcedKeepOptions {
+  /**
+   * Keep the first settled frame whether or not the last keep already shows
+   * the view: never `answered`. For an ask that needs a frame to arrive at
+   * all, such as the assistant asking to look, where a view the call already
+   * has is still the answer it is waiting on.
+   */
+  readonly evenIfUnchanged?: boolean;
+  /** How long the arm waits. Defaults to {@link FRAME_GATE_FORCED_KEEP_TTL_MS}. */
+  readonly ttlMs?: number;
+}
+
 export interface FrameGate {
   /**
    * Offer one frame. `grid` is read synchronously and never retained, so a
@@ -375,7 +388,8 @@ export interface FrameGate {
    * that spends the arm.
    *
    * One shot, and it expires {@link FRAME_GATE_FORCED_KEEP_TTL_MS} after
-   * `nowMs`.
+   * `nowMs` unless `options` says otherwise. `options` can also make it keep
+   * a frame the last keep already shows (see {@link ForcedKeepOptions}).
    *
    * `nowMs` is also the arm's lower bound: only a frame whose picture provably
    * postdates it may spend it. The proof an offer carries is its
@@ -387,7 +401,7 @@ export interface FrameGate {
    * offers are stamped from one clock, which every caller of this gate reads
    * from `performance.now`.
    */
-  armForcedKeep(nowMs: number): void;
+  armForcedKeep(nowMs: number, options?: ForcedKeepOptions): void;
   /**
    * Drop all comparison history: no last-kept baseline, no previous frame,
    * and a fresh warmup window starting at `nowMs`.
@@ -535,7 +549,11 @@ export function createFrameGate(
   // reaches it may spend it: an offer can carry a capture from before the
   // ask, which is the very scene the arm exists to get past. `untilMs` is
   // when it stops being answerable at all.
-  let forcedArm: { sinceMs: number; untilMs: number } | null = null;
+  let forcedArm: {
+    sinceMs: number;
+    untilMs: number;
+    evenIfUnchanged: boolean;
+  } | null = null;
 
   // Detail of the frame being decided right now. Held here rather than passed
   // through every helper: it is a property of `current`, which the helpers
@@ -670,7 +688,11 @@ export function createFrameGate(
         // The last keep already shows this view. The arm is left standing:
         // the question may be about a change still on its way in, and the
         // window is what gives that change time to arrive.
-        if (novelty !== null && novelty < options.forcedNoveltyThreshold) {
+        if (
+          !forcedArm.evenIfUnchanged &&
+          novelty !== null &&
+          novelty < options.forcedNoveltyThreshold
+        ) {
           return skipFrame(nowMs, "answered", motion, novelty);
         }
         // Through `keepFrame` like every other keep, so both baselines move
@@ -722,10 +744,11 @@ export function createFrameGate(
       recordKeep(nowMs);
     },
 
-    armForcedKeep(nowMs: number): void {
+    armForcedKeep(nowMs: number, armOptions?: ForcedKeepOptions): void {
       forcedArm = {
         sinceMs: nowMs,
-        untilMs: nowMs + FRAME_GATE_FORCED_KEEP_TTL_MS,
+        untilMs: nowMs + (armOptions?.ttlMs ?? FRAME_GATE_FORCED_KEEP_TTL_MS),
+        evenIfUnchanged: armOptions?.evenIfUnchanged === true,
       };
     },
 

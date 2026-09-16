@@ -7,9 +7,8 @@ interface ChatLayoutFrameProps {
   isPopout: boolean;
   mainRoomClass: string;
   routeContentInert: boolean;
-  outletInert: boolean;
   desktopNavigation: ReactNode;
-  desktopSidebar: ReactNode;
+  desktopPreview: ReactNode;
   sleepStage: ReactNode;
   popoutVoiceSession: ReactNode;
   desktopVoiceRoom: ReactNode;
@@ -21,9 +20,8 @@ export function ChatLayoutFrame({
   isPopout,
   mainRoomClass,
   routeContentInert,
-  outletInert,
   desktopNavigation,
-  desktopSidebar,
+  desktopPreview,
   sleepStage,
   popoutVoiceSession,
   desktopVoiceRoom,
@@ -50,16 +48,11 @@ export function ChatLayoutFrame({
           {/* The route remains mounted while the voice or sleep surface holds
               it inert, keeping the header and navigation reachable. */}
           <div
-            className="relative flex min-h-0 min-w-0 flex-1 gap-4"
+            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
             inert={routeContentInert}
           >
-            <div
-              className="flex min-h-0 min-w-0 flex-1 flex-col"
-              inert={outletInert}
-            >
-              <Outlet />
-            </div>
-            {desktopSidebar}
+            <Outlet />
+            {desktopPreview}
           </div>
           {sleepStage}
           {isPopout ? popoutVoiceSession : null}

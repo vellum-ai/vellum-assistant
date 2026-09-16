@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
+  closeCompanionPicker,
   currentCompanionPopover,
   offerSurfaceToCompanion,
+  toggleCompanionPicker,
   useCompanionPopoverStore,
   withdrawSurfaceFromCompanion,
 } from "@/domains/chat/companion-popover";
@@ -42,7 +44,12 @@ const seed = (surfaces: Surface[]): void => {
 
 beforeEach(() => {
   useInteractionStore.getState().resetAll();
-  useCompanionPopoverStore.setState({ offeredSurfaceId: null });
+  useCompanionPopoverStore.setState({
+    offeredSurfaceId: null,
+    openPicker: null,
+    microphones: null,
+    voices: null,
+  });
 });
 
 afterEach(() => {
@@ -268,5 +275,90 @@ describe("what the companion's popover shows", () => {
       .showConfirmation({ requestId: "req-1", toolName: "bash" });
 
     expect(currentCompanionPopover()?.kind).toBe("approvals");
+  });
+});
+
+describe("a picker opened from the call bar", () => {
+  const MICROPHONES = {
+    options: [{ id: "usb-mic", label: "USB Mic" }],
+    selected: "usb-mic",
+    needsPermission: false,
+  };
+
+  test("shows once its list is in, in place of an offered surface", () => {
+    seed([CARD]);
+    offerSurfaceToCompanion("surf-1");
+    toggleCompanionPicker("microphones");
+    expect(currentCompanionPopover()?.kind).toBe("card");
+
+    useCompanionPopoverStore.setState({ microphones: MICROPHONES });
+    expect(currentCompanionPopover()).toEqual({
+      kind: "microphones",
+      id: "microphones",
+      ...MICROPHONES,
+    });
+
+    closeCompanionPicker();
+    expect(currentCompanionPopover()?.kind).toBe("card");
+  });
+
+  test("a second press on the same chevron closes it, another switches", () => {
+    toggleCompanionPicker("microphones");
+    toggleCompanionPicker("voices");
+    expect(useCompanionPopoverStore.getState().openPicker).toBe("voices");
+    toggleCompanionPicker("voices");
+    expect(useCompanionPopoverStore.getState().openPicker).toBeNull();
+  });
+
+  test("gives way to an approval", () => {
+    toggleCompanionPicker("microphones");
+    useCompanionPopoverStore.setState({ microphones: MICROPHONES });
+    useInteractionStore
+      .getState()
+      .showConfirmation({ requestId: "req-1", toolName: "bash" });
+
+    expect(currentCompanionPopover()?.kind).toBe("approvals");
+  });
+
+  test("lists the voices as the window grouped them", () => {
+    toggleCompanionPicker("voices");
+    useCompanionPopoverStore.setState({
+      voices: {
+        groups: [
+          {
+            accent: "British",
+            voices: [
+              {
+                id: "aura-1",
+                label: "Calm",
+                sampleUrl: "https://example.com/a.mp3",
+                isDefault: false,
+              },
+            ],
+          },
+        ],
+        selected: "aura-1",
+        select: () => undefined,
+      },
+    });
+
+    expect(currentCompanionPopover()).toEqual({
+      kind: "voices",
+      id: "voices",
+      groups: [
+        {
+          accent: "British",
+          voices: [
+            {
+              id: "aura-1",
+              label: "Calm",
+              sampleUrl: "https://example.com/a.mp3",
+              isDefault: false,
+            },
+          ],
+        },
+      ],
+      selected: "aura-1",
+    });
   });
 });

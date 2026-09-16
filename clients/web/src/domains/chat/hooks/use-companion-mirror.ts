@@ -156,6 +156,8 @@ function currentContext(): CompanionContext {
     // up, for the popover beside the companion. Both live in this window's
     // stores. See `companion-popover.ts`.
     popover: currentCompanionPopover(),
+    // Whether the call bar's voice chevron has a catalog to open.
+    voicesPickable: useCompanionPopoverStore.getState().voicesPickable,
   };
 }
 
@@ -291,7 +293,8 @@ function sameContext(a: CompanionContext, b: CompanionContext): boolean {
     a.dictationOffer?.reason === b.dictationOffer?.reason &&
     offerApp(a.dictationOffer) === offerApp(b.dictationOffer) &&
     a.dictationOffer?.text === b.dictationOffer?.text &&
-    samePopover(a.popover, b.popover)
+    samePopover(a.popover, b.popover) &&
+    a.voicesPickable === b.voicesPickable
   );
 }
 

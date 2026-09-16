@@ -51,7 +51,7 @@ function StatChip({ icon, value, label }: StatChipProps) {
 }
 
 export function ReferralContent() {
-  const { t } = useTranslation("settings");
+  const { t } = useTranslation();
   const { data, isLoading, isError } = useQuery(
     referralCodesMeRetrieveOptions(),
   );

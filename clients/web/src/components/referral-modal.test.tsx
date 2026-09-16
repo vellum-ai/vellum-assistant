@@ -1,8 +1,8 @@
 /**
  * ReferralModal wraps ReferralContent in a dialog opened from the Credit
- * Balance header. The referral query cache is seeded so the content resolves
- * synchronously; the GET SDK function is stubbed with a never-resolving promise
- * so the background refetch stays inert.
+ * Balance header and from the chat preferences menu. The referral query cache
+ * is seeded so the content resolves synchronously; the GET SDK function is
+ * stubbed with a never-resolving promise so the background refetch stays inert.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";

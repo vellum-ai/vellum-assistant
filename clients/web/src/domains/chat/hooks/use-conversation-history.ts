@@ -363,8 +363,9 @@ export function useConversationHistory({
     // failed acp_spawn (persisted `acp_claude_oauth_missing` marker). Without
     // this, a page reload or SSE reconnect wipes the in-memory prompt and the
     // card silently disappears. Skipped when a prompt is already active;
-    // `showAcpConnect` additionally no-ops a failure already retired this
-    // session (auto-continue or self-heal), so a reseed can't resurrect it.
+    // `showAcpConnect` additionally no-ops a failure already retired (auto-
+    // continue, self-heal, or a persisted user Dismiss), so a reseed can't
+    // resurrect it.
     const wirePendingAcpConnect = extractWirePendingAcpConnect(
       pagination.messages,
     );

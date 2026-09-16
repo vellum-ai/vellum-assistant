@@ -34,6 +34,9 @@ import {
   VOICE_ACTIVITY_PHASES,
   COMPANION_DICTATION_OFFER_MAX,
   COMPANION_POPOVER_ACTIONS_MAX,
+  COMPANION_PICKER_MICROPHONES,
+  COMPANION_PICKER_OPTIONS_MAX,
+  COMPANION_PICKER_VOICES,
   COMPANION_POPOVER_APPROVALS_MAX,
   COMPANION_POPOVER_BODY_MAX,
   COMPANION_POPOVER_PERMISSIONS,
@@ -406,6 +409,45 @@ export const companionPopoverSchema = z.discriminatedUnion("kind", [
     id: z.string().min(1).max(128),
     title: z.string().max(300),
   }),
+  z.object({
+    kind: z.literal("microphones"),
+    id: z.literal(COMPANION_PICKER_MICROPHONES),
+    options: z
+      .array(
+        z.object({ id: z.string().max(512), label: z.string().max(200) }),
+      )
+      .max(COMPANION_PICKER_OPTIONS_MAX),
+    selected: z.string().max(512),
+    needsPermission: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal("voices"),
+    id: z.literal(COMPANION_PICKER_VOICES),
+    groups: z
+      .array(
+        z.object({
+          accent: z.string().max(120),
+          voices: z
+            .array(
+              z.object({
+                id: z.string().min(1).max(256),
+                label: z.string().max(200),
+                sampleUrl: z.string().max(2048),
+                isDefault: z.boolean(),
+              }),
+            )
+            .max(COMPANION_PICKER_OPTIONS_MAX),
+        }),
+      )
+      .max(COMPANION_PICKER_OPTIONS_MAX),
+    selected: z.string().max(256),
+  }),
+]);
+
+/** The pickers the call bar can open. */
+export const companionPickerSchema = z.enum([
+  COMPANION_PICKER_MICROPHONES,
+  COMPANION_PICKER_VOICES,
 ]);
 
 /** What the user pressed on the popover. See `CompanionPopoverAnswer`. */
@@ -420,6 +462,7 @@ export const companionPopoverAnswerSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("action"), actionId: z.string().max(128) }),
   z.object({ kind: z.literal("open") }),
   z.object({ kind: z.literal("dismiss") }),
+  z.object({ kind: z.literal("pick"), optionId: z.string().max(512) }),
 ]);
 
 /** What the app's window tells main about the assistant the surface is for. */
@@ -493,6 +536,7 @@ export const companionContextSchema = z.object({
   // a popover that fails its bounds is one the surface does not draw, which
   // must not cost the rest of the context.
   popover: companionPopoverSchema.optional().catch(undefined),
+  voicesPickable: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------

@@ -159,17 +159,27 @@
     "allow": "Permitir",
     "confirm": "Confirmar",
     "credentialLabel": "Credencial",
+    "defaultSuffix": "(predeterminada)",
     "deny": "Denegar",
     "dismiss": "Descartar",
     "enter": "Introducir",
+    "microphoneFallback": "Micrófono {index}",
+    "microphonePermissionHint": "Permite el acceso al micrófono para ver cada micrófono por su nombre.",
+    "microphoneTitle": "Micrófono",
     "needsCredentials": "Necesito una credencial",
     "needsCredentialsFor": "Necesito credenciales para {service}",
     "needsOkCount": "{count, plural, one {Necesito tu aprobación para # cosa} other {Necesito tu aprobación para # cosas}}",
     "notNow": "Ahora no",
     "openApp": "Abrir Vellum",
     "pendingBadge": "{count, plural, one {# cosa necesita tu aprobación} other {# cosas necesitan tu aprobación}}",
+    "previewVoice": "Escuchar {voice}",
     "review": "Revisar",
-    "surfaceFallback": "Algo para ver"
+    "savedMicrophone": "Micrófono guardado",
+    "savedMicrophoneNotConnected": "Micrófono guardado (no conectado)",
+    "stopPreview": "Detener",
+    "surfaceFallback": "Algo para ver",
+    "systemDefault": "Predeterminado del sistema",
+    "voiceTitle": "Voz"
   },
   "companionSurface": {
     "calling": "Llamando…",
@@ -208,7 +218,9 @@
     "talk": "Hablar",
     "teach": "Enseñar",
     "unmuteAssistant": "Activar sonido del asistente",
-    "unmuteMicrophone": "Activar micrófono"
+    "unmuteMicrophone": "Activar micrófono",
+    "chooseMicrophone": "Elegir micrófono",
+    "chooseVoice": "Elegir voz"
   },
   "companionWatchFramePage": {
     "sharingScreen": "Compartiendo tu pantalla",
@@ -436,6 +448,22 @@
   "quickInputPage": {
     "logoAlt": "Vellum",
     "placeholder": "Pregunta lo que quieras a Vellum..."
+  },
+  "referralContent": {
+    "copied": "¡Copiado!",
+    "copyError": "No se pudo copiar el enlace de referido.",
+    "copySuccess": "¡Copiado al portapapeles!",
+    "creditsEarned": "Créditos ganados",
+    "friendsReferred": "Amigos referidos",
+    "gatedTooltip": "¡Suscríbete o compra créditos para empezar a ganar!",
+    "loadError": "No se pudo cargar la información de referidos.",
+    "loading": "Cargando...",
+    "shareLink": "Compartir enlace",
+    "subtitleDefault": "Comparte Vellum con amigos y gana créditos por cada registro.",
+    "subtitleWithAmounts": "Comparte Vellum con amigos - cada uno ganará {creditAmount} créditos cuando se registren, hasta {earningCap} en total."
+  },
+  "referralModal": {
+    "title": "Gana créditos gratis"
   },
   "removeFromDeviceDialog": {
     "confirm": "Eliminar",

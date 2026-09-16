@@ -1873,6 +1873,40 @@ describe("LiveVoiceSession server VAD", () => {
     expect(announcement?.voiceControlPrompt).toContain("first question");
   });
 
+  // Deepgram Flux sends interim updates through silence, each an empty
+  // partial. A call nobody is talking on is still idle.
+  test("an empty partial on an idle call does not hold the announcement back", async () => {
+    const continuation = makeControlledContinuation();
+    const { startVoiceTurn, calls } = makeResurfaceTurnStarter();
+    const { frames, session, transcribers } = createHarness({
+      finals: ["first question", ""],
+      startVoiceTurn,
+      streamTtsAudio: makeImmediateTts(),
+      spawnBackgroundContinuation: continuation.spawnBackgroundContinuation,
+      continuationAnnounceSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(
+      () => continuation.spawnBackgroundContinuation.mock.calls.length === 1,
+    );
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "utterance_discarded"),
+    );
+    await waitFor(() => transcribers.some((t) => !t.stopped));
+    for (const transcriber of transcribers) {
+      if (!transcriber.stopped) {
+        transcriber.emit({ type: "partial", text: "" });
+      }
+    }
+
+    continuation.finish("THE_RESULT");
+    await waitFor(() => announcementOf(calls) !== undefined);
+  });
+
   test("an announcement persists hidden and is never delivered twice", async () => {
     const continuation = makeControlledContinuation();
     const { startVoiceTurn, calls } = makeResurfaceTurnStarter();

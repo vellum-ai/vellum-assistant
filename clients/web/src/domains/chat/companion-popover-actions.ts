@@ -1,9 +1,11 @@
 import type { CompanionPopoverAnswer } from "@vellumai/ipc-contract";
 
 import {
+  closeCompanionPicker,
   currentCompanionPopover,
   offeredSurface,
   pendingApprovals,
+  useCompanionPopoverStore,
   withdrawSurfaceFromCompanion,
 } from "@/domains/chat/companion-popover";
 import { handleConfirmationSubmit } from "@/domains/chat/confirmation-actions";
@@ -11,6 +13,7 @@ import { handleSecretSubmit } from "@/domains/chat/secret-actions";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { captureError } from "@/lib/sentry/capture-error";
 import { openSystemPermissionSettings } from "@/runtime/system-permissions";
+import { setPreferredInputDeviceId } from "@/utils/voice-input-device";
 
 /** Surfaces with an action from the popover still being submitted. */
 const surfacesSubmitting = new Set<string>();
@@ -94,6 +97,33 @@ export async function answerCompanionPopover(
       }
       return;
     }
+    case "pick":
+      if (popover.kind === "microphones") {
+        // System Default, or a microphone the popover listed. The running
+        // capture moves onto it by watching the saved preference.
+        if (
+          answer.optionId === "" ||
+          popover.options.some((option) => option.id === answer.optionId)
+        ) {
+          setPreferredInputDeviceId(answer.optionId);
+          closeCompanionPicker();
+        }
+        return;
+      }
+      if (popover.kind === "voices") {
+        // Left open, so several voices can be tried in a row. The pick lands
+        // on the assistant's next spoken turn.
+        const voices = useCompanionPopoverStore.getState().voices;
+        if (
+          voices !== null &&
+          popover.groups.some((group) =>
+            group.voices.some((voice) => voice.id === answer.optionId),
+          )
+        ) {
+          voices.select(answer.optionId);
+        }
+      }
+      return;
     case "open":
     case "dismiss":
       // `open` has already brought the app forward, which is where an approval
@@ -101,6 +131,9 @@ export async function answerCompanionPopover(
       // waved off, stops being offered.
       if (popover.kind === "card" || popover.kind === "surface") {
         withdrawSurfaceFromCompanion(popoverId);
+      }
+      if (popover.kind === "microphones" || popover.kind === "voices") {
+        closeCompanionPicker();
       }
       return;
     default:

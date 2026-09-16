@@ -1,5 +1,9 @@
 import {
   AudioLines,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
   Circle,
   Eraser,
   Eye,
@@ -43,6 +47,7 @@ import {
 import type {
   CompanionAnnotationTool,
   CompanionCharacter,
+  CompanionPicker,
   CompanionWatchRetro,
   VoiceActivityControlAction,
   VoiceActivityState,
@@ -746,6 +751,18 @@ export interface CompanionSurfaceProps {
    */
   onClearMarks?: () => void;
   /**
+   * The picker the popover is showing, if it is one the call bar opened, so
+   * its chevron reads as held open.
+   */
+  openPicker?: CompanionPicker;
+  /**
+   * Whether the assistant has voices to pick from. Without a catalog the
+   * voice chevron would open nothing, so it is not drawn.
+   */
+  voicesPickable?: boolean;
+  /** A chevron pressed: open that picker in the popover, or close it. */
+  onPicker?: (picker: CompanionPicker) => void;
+  /**
    * The keys the call row's controls also answer to, as the caption spells
    * them (`⌥S`). Absent where the host watches no chord, so the caption never
    * names a key that does nothing. The share and the pen are shown their key
@@ -942,6 +959,9 @@ export function CompanionSurface({
   onAnnotate,
   marked = false,
   onClearMarks,
+  openPicker,
+  voicesPickable = false,
+  onPicker,
   shortcuts,
   onAvatarClick,
   working = false,
@@ -1450,6 +1470,12 @@ export function CompanionSurface({
                   onStopShare={onStopShare}
                   onAnnotate={onAnnotate}
                   onClearMarks={onClearMarks}
+                  openPicker={openPicker}
+                  voicesPickable={voicesPickable}
+                  onPicker={onPicker}
+                  pickerSide={
+                    vertical ? (dock === "left" ? "right" : "left") : dock === "top" ? "below" : "above"
+                  }
                   shortcuts={shortcuts}
                   promptsDeferred={promptsDeferred}
                   lineExtra={lineExtra}
@@ -2292,6 +2318,10 @@ function CallBody({
   onStopShare,
   onAnnotate,
   onClearMarks,
+  openPicker,
+  voicesPickable,
+  onPicker,
+  pickerSide,
   shortcuts,
   promptsDeferred = 0,
   onReviewPrompts,
@@ -2324,6 +2354,11 @@ function CallBody({
   onStopShare?: () => void;
   onAnnotate?: (annotating: boolean) => void;
   onClearMarks?: () => void;
+  openPicker?: CompanionPicker;
+  voicesPickable: boolean;
+  onPicker?: (picker: CompanionPicker) => void;
+  /** Where the popover a chevron opens hangs from the bar, which it points at. */
+  pickerSide: DrawToolsPlacement;
   shortcuts?: CompanionCallShortcuts;
   promptsDeferred?: number;
   onReviewPrompts?: () => void;
@@ -2454,6 +2489,15 @@ function CallBody({
           onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
         }}
       />
+      {/* Beside the control it chooses for, the way a system call bar puts
+          the device menu next to its mute. */}
+      <PickerChevron
+        picker="microphones"
+        label={t("companionSurface.chooseMicrophone")}
+        side={pickerSide}
+        open={openPicker === "microphones"}
+        onPicker={onPicker}
+      />
       <PillButton
         icon={
           outputMuted ? (
@@ -2474,6 +2518,15 @@ function CallBody({
           );
         }}
       />
+      {voicesPickable ? (
+        <PickerChevron
+          picker="voices"
+          label={t("companionSurface.chooseVoice")}
+          side={pickerSide}
+          open={openPicker === "voices"}
+          onPicker={onPicker}
+        />
+      ) : null}
       <EndCallButton onControl={onControl} />
     </>
   );
@@ -2902,6 +2955,48 @@ const captionStance = (
  * so the state a looking user reads off the background and the state a reader
  * is told cannot come apart.
  */
+const CHEVRON_FOR_SIDE: Record<DrawToolsPlacement, typeof ChevronUp> = {
+  above: ChevronUp,
+  below: ChevronDown,
+  left: ChevronLeft,
+  right: ChevronRight,
+};
+
+/**
+ * A narrow chevron beside a call control that opens its picker in the
+ * popover, pointing the way the popover opens. Held down while its picker is
+ * the one showing; a second press closes it.
+ */
+function PickerChevron({
+  picker,
+  label,
+  side,
+  open,
+  onPicker,
+}: {
+  picker: CompanionPicker;
+  label: string;
+  side: DrawToolsPlacement;
+  open: boolean;
+  onPicker?: (picker: CompanionPicker) => void;
+}) {
+  if (onPicker === undefined) {
+    return null;
+  }
+  const Chevron = CHEVRON_FOR_SIDE[side];
+  return (
+    <PillButton
+      icon={<Chevron className="size-3.5" strokeWidth={2.25} />}
+      label={label}
+      pressed={open}
+      narrow
+      onClick={() => {
+        onPicker(picker);
+      }}
+    />
+  );
+}
+
 function PillButton({
   icon,
   label,
@@ -2909,6 +3004,7 @@ function PillButton({
   tone,
   showLabel = false,
   pressed,
+  narrow = false,
   className = "",
   onClick,
 }: {
@@ -2919,6 +3015,8 @@ function PillButton({
   tone?: "positive" | "negative";
   showLabel?: boolean;
   pressed?: boolean;
+  /** Drawn to its icon's width, for a chevron riding beside another control. */
+  narrow?: boolean;
   /** A name for the stylesheet, for a control something else is placed against. */
   className?: string;
   onClick?: () => void;
@@ -2935,7 +3033,9 @@ function PillButton({
       onPointerDown={(event) => {
         event.stopPropagation();
       }}
-      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${className} ${
+      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full text-[12px] transition-colors hover:bg-white/15 ${
+        narrow ? "-mx-1 px-0.5" : "px-2"
+      } ${className} ${
         pressed === true ? "bg-white/15" : ""
       } ${
         tone === "negative"

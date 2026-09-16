@@ -7,6 +7,7 @@ import { setConfig } from "../../__tests__/helpers/set-config.js";
 import {
   MAX_OUTPUT_LENGTH,
   OUTPUT_TRUNCATED_TAG,
+  SHELL_DID_NOT_START_MESSAGE,
 } from "../shared/shell-output.js";
 import type { ToolContext } from "../types.js";
 
@@ -204,6 +205,34 @@ describe("foreground stdin handling", () => {
     expect(result.isError).toBeFalsy();
     expect(result.content).toContain("done");
     expect(result.content).not.toContain("ENXIO");
+  });
+});
+
+describe("foreground command execution", () => {
+  let tmpDir = "";
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "bash-exec-"));
+  });
+
+  afterEach(async () => {
+    if (tmpDir) {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a command that writes a file must actually create it", async () => {
+    const result = await shellTool.execute(
+      {
+        command: "printf ran > proof.txt",
+        activity: "test",
+      },
+      { ...makeContext(), workingDir: tmpDir },
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.content).not.toBe(SHELL_DID_NOT_START_MESSAGE);
+    expect(await readFile(join(tmpDir, "proof.txt"), "utf-8")).toBe("ran");
   });
 });
 

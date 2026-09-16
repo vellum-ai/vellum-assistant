@@ -1,4 +1,5 @@
-import { safeStringSlice } from "../host-utils.js";
+import { safeStringSlice } from "@vellumai/plugin-api";
+
 import type { Section, SectionIndex, Slug } from "./types.js";
 
 /**

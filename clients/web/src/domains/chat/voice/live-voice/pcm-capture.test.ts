@@ -5,6 +5,7 @@ import {
   LIVE_VOICE_AUDIO_FORMAT,
   LiveVoiceAudioCapture,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
+import { setPreferredInputDeviceId } from "@/utils/voice-input-device";
 
 // ---------------------------------------------------------------------------
 // Browser audio API fakes
@@ -51,10 +52,13 @@ class FakeAudioWorkletNode {
 let lastWorklet: FakeAudioWorkletNode | null = null;
 
 class FakeSourceNode {
+  disconnected = false;
   connect(node: FakeAudioWorkletNode): void {
     node.connected = true;
   }
-  disconnect(): void {}
+  disconnect(): void {
+    this.disconnected = true;
+  }
 }
 
 class FakeAudioContext {
@@ -70,8 +74,11 @@ class FakeAudioContext {
   constructor() {
     FakeAudioContext.lastInstance = this;
   }
+  sources: FakeSourceNode[] = [];
   createMediaStreamSource(): FakeSourceNode {
-    return new FakeSourceNode();
+    const source = new FakeSourceNode();
+    this.sources.push(source);
+    return source;
   }
   close(): Promise<void> {
     this.closed = true;
@@ -395,5 +402,66 @@ describe("amplitude", () => {
     lastWorklet!.port.emit(new Int16Array([0, 0, 0, 0]).buffer);
 
     expect(amps[0]).toBe(0);
+  });
+});
+
+describe("switching microphones mid-session", () => {
+  afterEach(() => {
+    setPreferredInputDeviceId("");
+  });
+
+  /** Let the watcher's switch finish its getUserMedia. */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("moves the running graph onto the new microphone and lets the old one go", async () => {
+    const first = new FakeMediaStream();
+    const second = new FakeMediaStream();
+    const streams = [first, second];
+    // Captures other tests left running follow the preference too, so
+    // anything past these two is theirs.
+    getUserMediaImpl = () =>
+      Promise.resolve(streams.shift() ?? new FakeMediaStream());
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+    await capture.start();
+    const ctx = FakeAudioContext.lastInstance!;
+
+    setPreferredInputDeviceId("usb-mic");
+    await settle();
+
+    expect(ctx.closed).toBe(false);
+    expect(ctx.addModuleCalls.length).toBe(1);
+    expect(ctx.sources.length).toBe(2);
+    expect(ctx.sources[0]!.disconnected).toBe(true);
+    expect(first.tracks.every((t) => t.stopped)).toBe(true);
+    expect(second.tracks.some((t) => t.stopped)).toBe(false);
+    await capture.stop();
+  });
+
+  test("keeps the current microphone when the new one will not open", async () => {
+    const first = new FakeMediaStream();
+    getUserMediaImpl = () => Promise.resolve(first);
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+    await capture.start();
+
+    getUserMediaImpl = () =>
+      Promise.reject(new DOMException("busy", "NotReadableError"));
+    setPreferredInputDeviceId("usb-mic");
+    await settle();
+
+    expect(first.tracks.some((t) => t.stopped)).toBe(false);
+    expect(FakeAudioContext.lastInstance!.sources.length).toBe(1);
+    await capture.stop();
+  });
+
+  test("a stopped capture no longer follows the saved microphone", async () => {
+    const capture = new LiveVoiceAudioCapture({ onChunk: () => {} });
+    await capture.start();
+    const ctx = FakeAudioContext.lastInstance!;
+    await capture.stop();
+
+    setPreferredInputDeviceId("usb-mic");
+    await settle();
+
+    expect(ctx.sources.length).toBe(1);
   });
 });

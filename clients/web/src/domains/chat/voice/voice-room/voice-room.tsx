@@ -146,6 +146,7 @@ import {
   minimizeVoiceRoom,
   setLiveVoiceMuted,
   setLiveVoiceOutputMuted,
+  takeLiveVoiceCameraLookRequest,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { FrameGateHud } from "@/domains/chat/frame-gate-hud";
@@ -755,6 +756,95 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
     }
     setLive(false);
   }, [roomVisible, setLive]);
+  // A spoken "look at this" or "stop looking": the session left the ask in the
+  // store because the camera is this room's, and the room may have been
+  // minimized or not yet mounted when it landed. Taken the moment the room
+  // sees it, so a room that mounts later never reopens the camera for an old
+  // ask; Live follows once the viewfinder is up, since Live on a closed camera
+  // is forced back off. A stop closes the viewfinder the way the camera
+  // control does, consent first.
+  //
+  // The ask to enter Live belongs to the open it started, and lasts no longer.
+  // `opening` while that open is in flight; `awaitingLive` once it settled, for
+  // as long as the viewfinder it put up stays up. An open that failed or was
+  // cancelled, or a viewfinder closed before Live could start, drops the ask:
+  // a later open is the user's own, for photos, and must not enter Live and
+  // start sending frames on the strength of an ask that already ran its
+  // course.
+  //
+  // The phase alone cannot say which open settled: a press on the camera
+  // control while the spoken open is still acquiring starts an open of its
+  // own, which the camera lets supersede the first. So each spoken open takes
+  // a token, anything that takes the camera out of the ask's hands (a press, a
+  // spoken stop) moves the token on, and only the open still holding it may
+  // arm Live.
+  const cameraLookRequest = useLiveVoiceStore.use.cameraLookRequest();
+  const [cameraLook, setCameraLook] = useState<
+    "idle" | "opening" | "awaitingLive"
+  >("idle");
+  const cameraLookOpenRef = useRef(0);
+  const dropCameraLook = useCallback(() => {
+    cameraLookOpenRef.current += 1;
+    setCameraLook("idle");
+  }, []);
+  // The camera control's open is the user's own, for photos.
+  const openCameraByHand = useCallback(() => {
+    dropCameraLook();
+    void open();
+  }, [dropCameraLook, open]);
+  useEffect(() => {
+    if (cameraLookRequest === null) {
+      return;
+    }
+    const request = takeLiveVoiceCameraLookRequest();
+    if (request === "stop") {
+      dropCameraLook();
+      if (cameraOpen) {
+        closeCamera();
+      }
+      return;
+    }
+    if (request !== "start" || !cameraSupported) {
+      return;
+    }
+    const attempt = ++cameraLookOpenRef.current;
+    if (cameraOpen) {
+      setCameraLook("awaitingLive");
+      return;
+    }
+    setCameraLook("opening");
+    // `open` settles after the camera has reported whether it came up, so the
+    // render this settles into reads the real `cameraOpen`.
+    void open().finally(() => {
+      if (cameraLookOpenRef.current !== attempt) {
+        return;
+      }
+      setCameraLook((current) =>
+        current === "opening" ? "awaitingLive" : current,
+      );
+    });
+  }, [
+    cameraLookRequest,
+    cameraSupported,
+    cameraOpen,
+    open,
+    closeCamera,
+    dropCameraLook,
+  ]);
+  useEffect(() => {
+    if (cameraLook !== "awaitingLive") {
+      return;
+    }
+    if (!cameraOpen) {
+      setCameraLook("idle");
+      return;
+    }
+    if (!liveAvailable) {
+      return;
+    }
+    setCameraLook("idle");
+    setLive(true);
+  }, [cameraLook, cameraOpen, liveAvailable, setLive]);
   // One value for what the camera is doing, read by the pill, the shutter, the
   // hint and the announcement alike, so no two of them can disagree about it.
   const cameraMode = live ? "live" : "photo";
@@ -1584,7 +1674,7 @@ function VoiceRoomOverlay({ variant }: { variant: VoiceRoomVariant }) {
                 ? t("voiceRoom.closeCamera")
                 : t("voiceRoom.showCamera")
             }
-            onClick={() => (cameraOpen ? closeCamera() : void open())}
+            onClick={() => (cameraOpen ? closeCamera() : openCameraByHand())}
             pressed={cameraOpen}
             surface={controlSurface}
             data-testid="voice-room-camera-toggle"

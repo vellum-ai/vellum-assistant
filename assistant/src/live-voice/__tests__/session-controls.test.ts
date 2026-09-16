@@ -71,6 +71,65 @@ describe("sessionControlTeaching", () => {
     expect(teaching).toContain("Never emit any other bracketed marker.");
   });
 
+  test("a device that can show both asks which one a bare look means", () => {
+    const teaching = sessionControlTeaching(["look_screen", "look_camera"], {});
+
+    expect(teaching).toContain("[LOOK:SCREEN]");
+    expect(teaching).toContain("[LOOK:CAMERA]");
+    expect(teaching).toContain("ask which one instead of guessing");
+  });
+
+  test("a device that can look can be told to stop", () => {
+    const teaching = sessionControlTeaching(["look_screen", "look_stop"], {});
+
+    expect(teaching).toContain("[LOOK:STOP]");
+    expect(
+      requestedSessionControl("Stopping. [LOOK:STOP]", ["look_stop"]),
+    ).toEqual({ action: "look_stop" });
+  });
+
+  test("a device that can show one look needs no question", () => {
+    const teaching = sessionControlTeaching(["look_camera"], {});
+
+    expect(teaching).toContain("[LOOK:CAMERA]");
+    expect(teaching).not.toContain("[LOOK:SCREEN]");
+    expect(teaching).not.toContain("ask which one");
+    expect(teaching).not.toContain("cannot turn on a screen share");
+  });
+
+  // The silent failure in the report this exists for: asked to look, the
+  // assistant neither looked nor said it could not.
+  test("a device that can show neither says so rather than pretending", () => {
+    expect(sessionControlTeaching(["end"], {})).toContain(
+      "This call cannot turn on a screen share or the camera.",
+    );
+  });
+
+  // A client that sends a fresh frame for every look lets the session answer
+  // it, so the reply asking for the look only acknowledges, and asking again is
+  // how a share already running gets looked at as it is now.
+  test("a client that sends look frames is taught the look is answered for it", () => {
+    const teaching = sessionControlTeaching(
+      ["look_screen", "look_camera"],
+      {},
+      { lookFrames: true },
+    );
+
+    expect(teaching).toContain("[LOOK:SCREEN]");
+    expect(teaching).toContain(
+      "Use it even when their screen is already shared with you",
+    );
+    expect(teaching).toContain("Use it even when the camera is already on");
+    expect(teaching).not.toContain("take it from their next words");
+  });
+
+  test("a client that sends no look frames keeps the next-words look", () => {
+    const teaching = sessionControlTeaching(["look_screen"], {});
+
+    expect(teaching).toContain("take it from their next words");
+    expect(teaching).not.toContain("Use it even when");
+  });
+
   test("the front-door leg keeps its verdict tokens", () => {
     expect(sessionControlTeaching(["end"], { frontDoor: true })).not.toContain(
       "Never emit any other bracketed marker.",

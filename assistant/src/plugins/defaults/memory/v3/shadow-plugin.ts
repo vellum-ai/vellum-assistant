@@ -32,6 +32,7 @@ import {
   getMessages,
   listInstalledSkills,
   parseMessageMetadata,
+  safeStringSlice,
   stringifyMessageContent,
   VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND,
 } from "@vellumai/plugin-api";
@@ -44,7 +45,7 @@ import {
   timeLatencySubSpan,
 } from "../../../../daemon/turn-latency-sub-spans.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
-import { safeStringSlice, stripCommentLines } from "../host-utils.js";
+import { stripCommentLines } from "../host-utils.js";
 import { getLogger } from "../logging.js";
 import { type MemorySqlite, memorySqliteOrNull } from "../memory-db.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../paths.js";

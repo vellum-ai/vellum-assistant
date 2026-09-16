@@ -854,7 +854,7 @@ export function buildChannelCapabilityBlock(
   if (clientOs === "macos") {
     lines.push("");
     lines.push(
-      "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
+      "On macOS, drive apps with the computer-use skill; `host_bash` is for shell commands.",
     );
   }
 

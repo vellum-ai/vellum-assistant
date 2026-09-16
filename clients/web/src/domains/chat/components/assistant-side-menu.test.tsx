@@ -230,6 +230,7 @@ function renderMenu(props: {
   onRetryConversations?: () => void;
   onWidthChange?: (width: number) => void;
   includeNotificationsAction?: boolean;
+  includeLeadingAction?: boolean;
 }): string {
   setSectionRows(props.conversations);
   const includeFooterAction = props.includeFooterAction ?? true;
@@ -252,6 +253,9 @@ function renderMenu(props: {
         : undefined,
       notificationsAction: props.includeNotificationsAction
         ? createElement("span", { "data-testid": "bell-stub" }, "Bell")
+        : undefined,
+      leadingAction: props.includeLeadingAction
+        ? createElement("button", { type: "button" }, "Desktop")
         : undefined,
     }),
   );
@@ -898,17 +902,18 @@ describe("AssistantSideMenu · native mobile floating glyph row", () => {
     );
   });
 
-  test("search sits in the right cluster beside the notifications bell", () => {
+  test("the leading action sits before search and notifications", () => {
     const container = document.createElement("div");
     container.innerHTML = renderMenu({
       conversations,
       variant: "overlay",
       includeNotificationsAction: true,
+      includeLeadingAction: true,
     });
 
-    // Mirrors the chat header's right cluster: search directly left of the
-    // bell, with the close glyph alone on the other side of the row.
     const cluster = glyph(container, "Search").parentElement;
+    expect(cluster?.firstElementChild?.textContent).toBe("Desktop");
+    expect(cluster?.children[1]?.getAttribute("aria-label")).toBe("Search");
     expect(cluster?.querySelector('[data-testid="bell-stub"]')).not.toBeNull();
     expect(
       cluster?.querySelector('[aria-label="Close navigation"]'),

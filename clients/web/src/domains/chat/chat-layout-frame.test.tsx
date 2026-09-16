@@ -36,9 +36,8 @@ function renderFrame({ isPopout = false }: { isPopout?: boolean } = {}) {
             isPopout={isPopout}
             mainRoomClass=""
             routeContentInert={false}
-            outletInert={false}
             desktopNavigation={<nav>Desktop navigation</nav>}
-            desktopSidebar={<aside>Desktop session</aside>}
+            desktopPreview={<aside>Desktop session</aside>}
             sleepStage={<div>Sleep stage</div>}
             popoutVoiceSession={<div>Popout voice session</div>}
             desktopVoiceRoom={<div>Desktop voice room</div>}
@@ -68,6 +67,7 @@ describe("ChatLayoutFrame", () => {
   test("preserves the routed chat across narrow and wide resizes", () => {
     renderFrame();
     const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+    const desktopPreview = screen.getByText("Desktop session");
     fireEvent.change(textarea, { target: { value: "draft with attachment" } });
 
     expect(mountCount).toBe(1);
@@ -82,6 +82,7 @@ describe("ChatLayoutFrame", () => {
     expect(screen.getByText("Desktop voice room")).toBeTruthy();
     expect(screen.getByRole("textbox")).toBe(textarea);
     expect(textarea.value).toBe("draft with attachment");
+    expect(screen.getByText("Desktop session")).toBe(desktopPreview);
     expect(mountCount).toBe(1);
 
     act(() => setViewportWidth(767));

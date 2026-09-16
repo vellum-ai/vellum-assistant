@@ -33,6 +33,7 @@ import { extractErrorMessage } from "@/utils/api-errors";
 import { ManagedTab } from "@/domains/settings/components/managed-oauth-tab";
 import { YourOwnTab } from "@/domains/settings/components/your-own-oauth-tab";
 import { getConnectPresets } from "@/domains/settings/oauth-scope-presets";
+import { connectionsForOAuthProvider } from "@/domains/settings/integration-items";
 
 type ModalTab = "managed" | "your-own";
 
@@ -108,8 +109,9 @@ export function IntegrationDetailModal({
     enabled: managedAvailable,
   });
 
-  const providerConnections: OAuthConnection[] = (allConnections ?? []).filter(
-    (c) => c.provider === providerKey && c.connected,
+  const providerConnections: OAuthConnection[] = connectionsForOAuthProvider(
+    allConnections ?? [],
+    providerKey,
   );
 
   const managedConnect = useManagedOAuthConnect({

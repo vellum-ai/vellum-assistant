@@ -286,6 +286,11 @@ export {
 // writes files under the workspace (e.g. its own `plugins/<name>/data/`
 // directory) resolves them against this instead of hardcoding a base path.
 export { getWorkspaceDir } from "../util/platform.js";
+// `String.prototype.slice` that never cuts a UTF-16 surrogate pair in half.
+// Any text a plugin truncates by character budget and hands to a model must
+// go through this: an orphaned half is invalid UTF-16 that strict provider
+// parsers reject.
+export { safeStringSlice } from "../util/unicode.js";
 // Declarative help for the top-level `assistant` CLI commands that have adopted
 // the static-help split. Plugins (e.g. the memory capability indexer) read this
 // to embed CLI command capabilities without importing the CLI action graph.

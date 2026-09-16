@@ -12,6 +12,11 @@
 
 import { create } from "zustand";
 
+import {
+  addDismissedAcpConnectId,
+  loadDismissedAcpConnectIds,
+  removeDismissedAcpConnectId,
+} from "@/domains/chat/utils/dismissed-acp-connect-storage";
 import { createSelectors } from "@/utils/create-selectors";
 
 import type { PromptKind } from "@/domains/chat/prompt-submission";
@@ -83,21 +88,23 @@ export interface InteractionState {
    * remediation CTA. It is restored on a `/messages` reseed from the failed
    * tool call's persisted `errorCode` marker, so a reload or reconnect does
    * not lose it. To avoid nagging from history, a dismissal (the connect
-   * flow's auto-continue, or the already-connected self-heal) is recorded in
-   * `dismissedAcpConnectToolUseIds` and suppresses any later restore of that
-   * same failed spawn.
+   * flow's auto-continue, the already-connected self-heal, or a user Dismiss)
+   * is recorded in `dismissedAcpConnectToolUseIds` and suppresses any later
+   * restore of that same failed spawn. A user Dismiss also persists the id so
+   * a reload cannot raise that spawn again.
    */
   pendingAcpConnect: PendingAcpConnectState | null;
 
   /**
    * Failed-`acp_spawn` tool-call ids whose Connect prompt was already retired
-   * this session (by the connect flow's auto-continue or by the
-   * already-connected self-heal). The
-   * `errorCode` marker lives permanently in history, so without this a reseed
-   * would re-raise the card on every turn until Claude is connected; recording
-   * the id lets `showAcpConnect` no-op a restore of a retired prompt. A
-   * genuine new failure gets a fresh tool-use id, so it is never suppressed.
-   * Cleared with the rest of the store on conversation switch (`resetAll`).
+   * (by the connect flow's auto-continue, the already-connected self-heal, or
+   * a user Dismiss). The `errorCode` marker lives permanently in history, so
+   * without this a reseed would re-raise the card on every turn until Claude
+   * is connected; recording the id lets `showAcpConnect` no-op a restore of a
+   * retired prompt. A genuine new failure gets a fresh tool-use id, so it is
+   * never suppressed. Session-only ids clear on conversation switch
+   * (`resetAll`). User-persisted ids are re-read from storage on the next
+   * `showAcpConnect` so a reload or return to the conversation stays quiet.
    */
   dismissedAcpConnectToolUseIds: Set<string>;
 
@@ -240,7 +247,11 @@ export interface InteractionActions {
    * legitimately in flight.
    */
   adoptAcpConnectConversation: (conversationId: string) => void;
-  dismissAcpConnect: () => void;
+  /**
+   * Retire the standing Connect prompt. Pass `persist` for a user Dismiss so
+   * the same failed spawn is not restored from history after a reload.
+   */
+  dismissAcpConnect: (opts?: { persist?: boolean }) => void;
   requestAcpContinue: () => void;
   setAcpConnectFlowActive: (active: boolean) => void;
   setAcpConnectPlacement: (
@@ -545,15 +556,25 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
       ) {
         return state;
       }
-      if (state.dismissedAcpConnectToolUseIds.has(payload.toolUseId)) {
+      // Include ids the user dismissed on a previous load. History reseeds
+      // and snapshot restores call this with an empty in-memory set after a
+      // reload or `resetAll`.
+      const dismissed = new Set(state.dismissedAcpConnectToolUseIds);
+      for (const id of loadDismissedAcpConnectIds()) {
+        dismissed.add(id);
+      }
+      if (dismissed.has(payload.toolUseId)) {
         if (!opts?.supersedesDismissal) {
-          return state;
+          if (dismissed.size === state.dismissedAcpConnectToolUseIds.size) {
+            return state;
+          }
+          return { dismissedAcpConnectToolUseIds: dismissed };
         }
         // A new rejection under an anchor the user dismissed. Forget the
         // dismissal with it: keeping the id would suppress this card and every
         // later restore of it, and the run has genuinely failed again.
-        const dismissed = new Set(state.dismissedAcpConnectToolUseIds);
         dismissed.delete(payload.toolUseId);
+        removeDismissedAcpConnectId(payload.toolUseId);
         return {
           dismissedAcpConnectToolUseIds: dismissed,
           pendingAcpConnect: payload,
@@ -595,16 +616,21 @@ const useInteractionStoreBase = create<InteractionStore>()((set, get) => ({
     ),
 
   // Remember which failed spawn was dismissed so a later reseed can't resurrect
-  // it (the tool call's `errorCode` marker lives permanently in history).
-  dismissAcpConnect: () =>
-    set((state) => ({
-      pendingAcpConnect: null,
-      dismissedAcpConnectToolUseIds: state.pendingAcpConnect
-        ? new Set(state.dismissedAcpConnectToolUseIds).add(
-            state.pendingAcpConnect.toolUseId,
-          )
-        : state.dismissedAcpConnectToolUseIds,
-    })),
+  // it (the tool call's `errorCode` marker lives permanently in history). A
+  // user Dismiss also writes the id to storage so a reload stays quiet.
+  dismissAcpConnect: (opts) =>
+    set((state) => {
+      const toolUseId = state.pendingAcpConnect?.toolUseId;
+      if (opts?.persist && toolUseId) {
+        addDismissedAcpConnectId(toolUseId);
+      }
+      return {
+        pendingAcpConnect: null,
+        dismissedAcpConnectToolUseIds: toolUseId
+          ? new Set(state.dismissedAcpConnectToolUseIds).add(toolUseId)
+          : state.dismissedAcpConnectToolUseIds,
+      };
+    }),
 
   requestAcpContinue: () => set({ pendingAcpContinue: true }),
 
