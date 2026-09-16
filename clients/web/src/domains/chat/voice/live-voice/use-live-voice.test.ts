@@ -205,6 +205,7 @@ describe("full turn", () => {
     });
     expect(h.view.result.current.state).toBe("connecting");
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
     });
@@ -539,6 +540,7 @@ describe("hands-free mode", () => {
     // With no user preference set, the overrides are omitted so the daemon's
     // configured VAD defaults govern (never clobbered by a client default).
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
@@ -627,6 +629,7 @@ describe("hands-free mode", () => {
     await startListening(h, { handsFree: true });
 
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
@@ -640,6 +643,7 @@ describe("hands-free mode", () => {
     await startListening(h); // manual
 
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
     });
@@ -2898,6 +2902,7 @@ describe("hands-free reconnect (retryable tunnel close)", () => {
     expect(h.getPlayerCreateCount()).toBe(1);
     expect(h.player.disposeCount).toBe(0);
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
@@ -3185,6 +3190,7 @@ describe("initial-connect resilience (JARVIS-1282)", () => {
     expect(h.getPlayerCreateCount()).toBe(1);
     expect(h.player.disposeCount).toBe(0);
     expect(h.client.connectArgs).toEqual({
+      sessionControls: ["end", "mute"],
       assistantId: "assistant-1",
       conversationId: "conv-1",
       turnDetection: "server_vad",
@@ -4111,6 +4117,97 @@ describe("reversible barge-in", () => {
       h.client.emit("speechStarted", { type: "speech_started", seq });
     });
   }
+
+  /** The reply playing now ends with a spoken session control. */
+  function askForControl(
+    h: ReturnType<typeof renderController>,
+    action: "end" | "mute",
+  ) {
+    act(() => {
+      h.client.emit("ttsDone", { type: "tts_done", seq: 7, turnId: "t1" });
+      h.client.emit("sessionControl", {
+        type: "session_control",
+        seq: 8,
+        turnId: "t1",
+        action,
+      });
+    });
+  }
+
+  test("a spoken end waits for the goodbye to be heard", async () => {
+    const h = await speakingSession();
+    askForControl(h, "end");
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(h.client.ended).toBe(false);
+
+    await act(async () => {
+      h.player.finishPlayback();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(h.client.ended).toBe(true);
+  });
+
+  // "Wait" over "okay, bye": the flush resolves the drain, and the call must
+  // not end on that.
+  test("talking over a spoken end keeps the call", async () => {
+    const h = await speakingSession();
+    askForControl(h, "end");
+
+    bargeIn(h, 10);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(h.client.ended).toBe(false);
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 11,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", { type: "stt_final", seq: 12, text: "wait" });
+      h.client.emit("thinking", { type: "thinking", seq: 13, turnId: "t2" });
+    });
+    await act(async () => {
+      h.player.finishPlayback();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(h.client.ended).toBe(false);
+  });
+
+  // A cough over "muting you" is not the user changing their mind: the reply
+  // comes back, and the mute follows it.
+  test("a spoken control survives a discarded onset and applies after the resumed reply", async () => {
+    const h = await speakingSession();
+    askForControl(h, "mute");
+
+    bargeIn(h, 10);
+    await act(async () => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 11,
+        reason: "silence",
+      });
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 12,
+      });
+      await Promise.resolve();
+    });
+    expect(h.player.resumeHeldCount).toBe(1);
+    expect(useLiveVoiceStore.getState().muted).toBe(false);
+
+    await act(async () => {
+      h.player.finishPlayback();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().muted).toBe(true);
+  });
 
   test("a discarded utterance puts the flushed reply back", async () => {
     const h = await speakingSession();

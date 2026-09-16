@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import {
   resolveCallSiteConfig,
   selectWinningProfile,
@@ -10,7 +8,6 @@ import {
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
 import { resolveSubagentAttribution } from "../usage/subagent-attribution.js";
-import { getExistingDeviceId } from "../util/device-id.js";
 import {
   type ProviderCredentialSource,
   ProviderError,
@@ -43,7 +40,7 @@ import {
   isAdaptiveThinkingOnlyModel,
   isAdaptiveThinkingUnsupportedModel,
 } from "./model-catalog.js";
-import { buildOpenCodeRequestHeaders } from "./opencode/client.js";
+import { resolveOpenCodeRequestHeaders } from "./opencode/client.js";
 import { sanitizeOutboundRequest } from "./outbound-request-sanitize.js";
 import { dispatchProviderResolvable } from "./provider-resolvability.js";
 import {
@@ -647,18 +644,11 @@ function normalizeSendMessageOptions(
       typeof config.conversationId === "string"
         ? config.conversationId
         : undefined;
-    const requestHeaders = buildOpenCodeRequestHeaders({
-      conversationId,
-      // Background call paths (memory/commit-message enrichment,
-      // proactivity, workflow runs) have no conversationId - reuse the
-      // existing stable per-device ID so those requests still carry a
-      // session header instead of persisting a new ID for this purpose.
-      fallbackSessionId: getExistingDeviceId() ?? undefined,
-      requestId: randomUUID(),
-    });
-    if (Object.keys(requestHeaders).length > 0) {
-      nextConfig.requestHeaders = requestHeaders;
-    }
+    // Profile probes and background call paths (memory/commit-message
+    // enrichment, proactivity, workflow runs) have no conversationId; the
+    // fallback keeps a session header on every request since zen/go rejects
+    // requests without one.
+    nextConfig.requestHeaders = resolveOpenCodeRequestHeaders(conversationId);
   }
 
   // `overrideProfile`, `forceOverrideProfile`, `selectionSeed`,

@@ -45,10 +45,23 @@ beforeEach(() => {
 describe("listInstalledPluginDirs", () => {
   test("lists real plugin directories and skips dot entries", () => {
     makePluginDir(pluginsDir, "alpha");
+    const standard = join(pluginsDir, "standard");
+    mkdirSync(standard, { recursive: true });
+    writeFileSync(
+      join(standard, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "standard",
+      }),
+    );
     makePluginDir(pluginsDir, ".hidden");
     mkdirSync(join(pluginsDir, "no-manifest"), { recursive: true });
 
-    expect(listInstalledPluginDirs().map((p) => p.name)).toEqual(["alpha"]);
+    expect(
+      listInstalledPluginDirs()
+        .map((p) => p.name)
+        .sort(),
+    ).toEqual(["alpha", "standard"]);
   });
 
   test("skips a symlinked plugin root that points outside the plugins dir", () => {

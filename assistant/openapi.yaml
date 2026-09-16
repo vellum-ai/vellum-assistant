@@ -4146,6 +4146,8 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
               required:
                 - operation
       responses:
@@ -4181,7 +4183,7 @@ paths:
     post:
       operationId: browser_tabs_post
       summary: Manage browser tabs
-      description: List, create, select, or close browser tabs via the Chrome extension backend.
+      description: List, create, select, or close browser tabs in the Chrome extension or streamed desktop browser.
       tags:
         - browser
       requestBody:
@@ -4205,6 +4207,10 @@ paths:
                 conversationId:
                   type: string
                   minLength: 1
+                desktop:
+                  type: boolean
+                browserMode:
+                  type: string
                 tabId:
                   type: number
                 url:
@@ -11916,7 +11922,7 @@ paths:
   /v1/desktop/setup:
     get:
       operationId: desktop_setup_get
-      summary: Get desktop setup status
+      summary: Get virtual desktop setup status
       tags:
         - desktop
       responses:
@@ -11946,7 +11952,7 @@ paths:
                 additionalProperties: false
     post:
       operationId: desktop_setup_post
-      summary: Install desktop components
+      summary: Install virtual desktop components
       tags:
         - desktop
       responses:
@@ -18426,7 +18432,7 @@ paths:
     get:
       operationId: internal_mcp_list_get
       summary: List MCP servers with health status
-      description: Returns configured MCP servers with live health-check results (connected, needs auth, error).
+      description: Returns configured MCP servers with recorded runtime status without opening new connections.
       tags:
         - internal
       responses:
@@ -24481,6 +24487,22 @@ paths:
                             anyOf:
                               - type: string
                               - type: "null"
+                          tenant_host:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  pattern:
+                                    type: string
+                                  label:
+                                    type: string
+                                  placeholder:
+                                    type: string
+                                required:
+                                  - pattern
+                                  - label
+                                  - placeholder
+                                additionalProperties: false
+                              - type: "null"
                           acts_as:
                             type: string
                             enum:
@@ -24497,6 +24519,7 @@ paths:
                           - supports_managed_mode
                           - managed_service_is_paid
                           - feature_flag
+                          - tenant_host
                           - acts_as
                         additionalProperties: false
                       - type: "null"
@@ -25015,6 +25038,22 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        tenant_host:
+                          anyOf:
+                            - type: object
+                              properties:
+                                pattern:
+                                  type: string
+                                label:
+                                  type: string
+                                placeholder:
+                                  type: string
+                              required:
+                                - pattern
+                                - label
+                                - placeholder
+                              additionalProperties: false
+                            - type: "null"
                         acts_as:
                           type: string
                           enum:
@@ -25031,6 +25070,7 @@ paths:
                         - supports_managed_mode
                         - managed_service_is_paid
                         - feature_flag
+                        - tenant_host
                         - acts_as
                       additionalProperties: false
                 required:
@@ -26510,6 +26550,12 @@ paths:
                   target:
                     type: string
                     description: Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.
+                  warnings:
+                    description: Stable keys for non-fatal cleanup limitations that should be localized at the presentation edge.
+                    type: array
+                    items:
+                      type: string
+                      const: plugin.uninstall.mcp_oauth_credentials_unchecked
                 required:
                   - name
                   - target

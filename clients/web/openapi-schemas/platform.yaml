@@ -8781,6 +8781,10 @@ components:
           type: string
           minLength: 1
           default: /
+        tenant_host:
+          type: string
+          default: ''
+          maxLength: 253
     OAuthStartResponse:
       type: object
       properties:

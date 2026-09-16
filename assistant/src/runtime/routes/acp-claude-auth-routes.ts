@@ -18,7 +18,7 @@
  *   has landed.
  * POST /v1/acp/claude/auth/exchange — complete a manual/cloud flow: accept the
  *   pasted `code#state` (or a raw code + state), exchange it, and store the
- *   Claude OAuth token.
+ *   Claude OAuth token set (access token plus any refresh token and expiry).
  *
  * `handleStartAuth` picks loopback vs. manual: a containerized host, or a client
  * that sets `preferManual` because its browser can't reach the daemon's
@@ -126,7 +126,11 @@ async function handleStartLocalAuth(): Promise<StartResponse> {
   // can react. Runs in the background — the web client opens `authorize_url`.
   void flow.completion
     .then(async (result) => {
-      await storeAcpClaudeToken(result.tokens.accessToken);
+      await storeAcpClaudeToken({
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken,
+        expiresIn: result.tokens.expiresIn,
+      });
       pendingFlows.mark(flow.state, "connected");
       log.info("ACP Claude local OAuth flow connected");
     })
@@ -216,7 +220,11 @@ async function handleExchange(args: RouteHandlerArgs): Promise<{ ok: true }> {
       pending.codeVerifier,
       state,
     );
-    await storeAcpClaudeToken(result.tokens.accessToken);
+    await storeAcpClaudeToken({
+      accessToken: result.tokens.accessToken,
+      refreshToken: result.tokens.refreshToken,
+      expiresIn: result.tokens.expiresIn,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     pendingFlows.mark(state, "error", { error: message });

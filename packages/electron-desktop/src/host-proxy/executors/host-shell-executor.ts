@@ -76,7 +76,8 @@ function handleRequest(
     env,
     stdio: ["ignore", "pipe", "pipe"],
     // No-op off Windows; on Windows it stops every command from flashing a
-    // visible console window over the desktop.
+    // visible console window over the desktop. Leave the process attached so
+    // piped stdio stays connected to this executor.
     windowsHide: true,
   });
 

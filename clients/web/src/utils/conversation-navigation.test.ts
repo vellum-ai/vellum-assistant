@@ -21,6 +21,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { hasAutoSendPromptState } from "@/utils/auto-send-prompt";
 import { routes } from "@/utils/routes";
 
 const hapticLight = mock(() => {});
@@ -251,6 +252,26 @@ describe("navigateToNewConversation", () => {
     expect(useViewerStore.getState().mainView).toBe("app-editing");
     expect(useConversationStore.getState().editingConversationId).toBe(newId);
     expect(composerFocus).toHaveBeenCalledTimes(1);
+  });
+
+  test("a prompt rides the URL with the in-app auto-send marker in history state", () => {
+    const navigate = mock((_to: string, _options?: { state?: unknown }) => {});
+    const draftId = navigateToNewConversation(
+      navigate as unknown as NavigateFunction,
+      { prompt: "hello there" },
+    );
+
+    const [to, options] = navigate.mock.calls[0];
+    expect(to).toBe(routes.conversationWithPrompt(draftId, "hello there"));
+    expect(hasAutoSendPromptState(options?.state)).toBe(true);
+  });
+
+  test("without a prompt the navigation carries no auto-send marker", () => {
+    const navigate = mock((_to: string, _options?: { state?: unknown }) => {});
+    navigateToNewConversation(navigate as unknown as NavigateFunction);
+
+    const [, options] = navigate.mock.calls[0];
+    expect(hasAutoSendPromptState(options?.state)).toBe(false);
   });
 });
 

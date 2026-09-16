@@ -161,6 +161,10 @@ In the CDP factory the bridge is the internal `"host-bridge"` candidate kind (`I
 
 **After the first successful CDP command**, the selected backend becomes **sticky** for the remainder of the tool invocation. Subsequent commands always route through the same backend so multi-command tool flows do not hop transports mid-step.
 
+### Browser CLI surface defaults
+
+The browser execute and tab routes share `browser/virtual-desktop-target.ts`. Platform-hosted web guardian conversations use installed, enabled virtual desktop Chrome by default. The shared `isVirtualDesktopEnabled` gate requires both `IS_PLATFORM` and `IS_CONTAINERIZED` alongside the `assistant-desktop` flag. Native renderer turns also use the `web` transport, so the frozen turn `clientOs` excludes native apps from automatic streamed-browser selection. Native apps retain their existing backend selection and fallback behavior. Explicit desktop/backend/client targets and existing personal-browser sessions override the surface default. Disabled or uninstalled desktop support retains the existing browser path; selection never triggers installation.
+
 ### Per-tool `browser_mode` override
 
 All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_screenshot`, `browser_click`, `browser_type`, `browser_hover`, `browser_scroll`, `browser_press_key`, `browser_select_option`, `browser_wait_for`, `browser_extract`, `browser_fill_credential`, `browser_attach`, `browser_detach`, `browser_close`, `browser_status`) accept an optional `browser_mode` input parameter that overrides the automatic backend selection for that invocation.

@@ -8,7 +8,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Outlet,
   useLocation,
   useNavigate,
   useNavigationType,
@@ -101,12 +100,14 @@ import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/resea
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
+import { AssistantDesktopPreview } from "@/domains/chat/desktop/assistant-desktop-preview";
 import { AssistantDesktopAffordance } from "@/domains/chat/desktop/assistant-desktop-affordance";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
+import { ChatLayoutFrame } from "./chat-layout-frame";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { useDocumentHeaderVisible } from "./hooks/use-document-header-visible";
 import {
@@ -1064,6 +1065,11 @@ export function ChatLayout({
       onMoveToGroup={handleMoveToGroup}
       onCreateGroupInto={handleRequestCreateGroup}
       onRemoveFromGroup={handleRemoveFromGroup}
+      leadingAction={
+        args.variant === "overlay" ? (
+          <AssistantDesktopAffordance onToggle={args.onClose} />
+        ) : undefined
+      }
       /* The same injected control the header carries, restated in the
          drawer's glyph row where the mock puts it. Sourced from the prop
          rather than imported, because it lives in another domain. */
@@ -1087,33 +1093,11 @@ export function ChatLayout({
   // mainly matters for the fade transition. Desktop is deliberately excluded:
   // its room is an inset panel mounted INSIDE `<main>`, so blurring `<main>`
   // would blur the room along with the chat behind it. Reachability is handled
-  // by `chatContent` below on both platforms, not here.
+  // by `ChatLayoutFrame` on both platforms, not here.
   const mainRoomClass =
     voiceRoomVisible && isMobile
       ? "blur-sm opacity-40 transition-[filter,opacity]"
       : "";
-
-  // The route content, held inert while the voice room covers it.
-  //
-  // The room paints over the chat but does not remove it from the page, so
-  // without this the composer, transcript and their controls stay tabbable and
-  // screen-reader reachable behind an opaque panel. `inert` takes the whole
-  // subtree out of the tab order and the accessibility tree at once, which
-  // neither the blur nor `aria-modal` does: the desktop room is deliberately
-  // non-modal so the header and sidenav stay usable, and scoping the gate to
-  // this wrapper is what keeps that chrome reachable while the content under
-  // the panel is not.
-  //
-  // The wrapper carries `<main>`'s own flex classes so the route content sees
-  // the same flex parent it would without it.
-  const chatContent = (
-    <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col"
-      inert={voiceRoomVisible || sleepStageVisible}
-    >
-      <Outlet />
-    </div>
-  );
 
   return (
     <>
@@ -1153,7 +1137,7 @@ export function ChatLayout({
             <>
               {topBarRightSlot}
               {topBarPill}
-              <AssistantDesktopAffordance />
+              {!isMobile && <AssistantDesktopAffordance />}
               {topBarAccessory}
             </>
           }
@@ -1175,30 +1159,37 @@ export function ChatLayout({
         </div>
       ) : null}
 
-      {isMobile ? (
-        <>
-          <main
-            className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
+      <ChatLayoutFrame
+        isPopout={isPopout}
+        mainRoomClass={mainRoomClass}
+        routeContentInert={voiceRoomVisible || sleepStageVisible}
+        desktopNavigation={
+          <aside
+            id="chat-side-menu"
+            ref={setSideMenuAside}
+            className="w-fit shrink-0 overflow-hidden"
+            aria-label={t("chatLayout.navigationAria")}
           >
-            {chatContent}
-            {/* Self-gates on the conversation route and the assistant's
-                sleeping/waking status. */}
-            <AssistantSleepStage />
-            {/* A popout narrowed below the mobile breakpoint lands in this
-                branch, still headerless, so it still needs the floating
-                session surface (see the desktop popout branch below). */}
-            {isPopout ? <VoiceSessionPillHost variant="standalone" /> : null}
-          </main>
-          {/* The drawer is a sibling of `<main>`, not a child of it, even
-              though it is the chat body's own navigation. `mainRoomClass`
-              puts a `filter` + `opacity` on `<main>` while the voice room is
-              up, and both make it a stacking context AND (for the filter) the
-              containing block for `position: fixed` descendants. Nested,
-              the drawer would come up blurred at 40% opacity, offset to
-              `<main>`'s box instead of the viewport, and sealed below the
-              room by its parent's tier: the menu button read as dead. Out
-              here its z-40 sorts against the room directly. */}
-          {drawerGestures.present ? (
+            {renderSideMenu({
+              collapsed: effectiveCollapsed,
+              variant: "rail",
+              width: sidebarWidth,
+              onWidthChange: handleSidebarWidthChange,
+            })}
+          </aside>
+        }
+        desktopPreview={
+          !isPopout && !documentHeaderVisible ? (
+            <AssistantDesktopPreview />
+          ) : null
+        }
+        sleepStage={<AssistantSleepStage />}
+        popoutVoiceSession={
+          <VoiceSessionPillHost variant="standalone" />
+        }
+        desktopVoiceRoom={<VoiceRoom variant="content" />}
+        mobileDrawer={
+          drawerGestures.present ? (
             <div
               ref={drawerRef}
               className="fixed inset-0"
@@ -1270,61 +1261,9 @@ export function ChatLayout({
                 })}
               </aside>
             </div>
-          ) : null}
-        </>
-      ) : isPopout ? (
-        <main
-          className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4 ${mainRoomClass}`}
-        >
-          {chatContent}
-          {/* A pop-out is a conversation like any other: without this the stage
-              would come and go as the window crosses the mobile breakpoint. */}
-          <AssistantSleepStage />
-          {/* Pop-outs render no header, but they DO support in-window
-              conversation switching (Cmd+Up/Down) — so a live session started
-              here can lose its owning composer exactly like in the main
-              window. The standalone variant floats the pill (or the failed
-              chip) over the top-right corner; it renders nothing while the
-              on-screen composer owns the session. */}
-          <VoiceSessionPillHost variant="standalone" />
-        </main>
-      ) : (
-        <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">
-          <aside
-            id="chat-side-menu"
-            ref={setSideMenuAside}
-            // No width of its own: the wrapper shrink-wraps the SideMenu
-            // nav, which owns the rail width (drag-resize mutates it outside
-            // React until pointer-up). The tour's slide-away effect animates
-            // this element imperatively; overflow-hidden clips the nav
-            // mid-slide.
-            className="w-fit shrink-0 overflow-hidden"
-            aria-label={t("chatLayout.navigationAria")}
-          >
-            {renderSideMenu({
-              collapsed: effectiveCollapsed,
-              variant: "rail",
-              width: sidebarWidth,
-              onWidthChange: handleSidebarWidthChange,
-            })}
-          </aside>
-          <main
-            className={`relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden ${mainRoomClass}`}
-          >
-            {chatContent}
-            {/* Self-gates on the conversation route and the assistant's
-                sleeping/waking status. Mounted ahead of the voice room so the
-                room paints over it when both are up. */}
-            <AssistantSleepStage />
-            {/* Live-voice room, desktop: an inset panel scoped to the content
-                area, so the title bar above and the sidenav beside it stay
-                visible and interactive. Self-gates on
-                `useIsVoiceRoomVisible()`; the composer's voice bar and
-                transcript render underneath, hidden by it. */}
-            <VoiceRoom variant="content" />
-          </main>
-        </div>
-      )}
+          ) : null
+        }
+      />
 
       {/* Focused research-onboarding results — a full-viewport layer ON TOP of
           the normal layout (not a separate render branch), so `ActiveChatView`

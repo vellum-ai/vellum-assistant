@@ -485,8 +485,12 @@ describe("surfaceProxyResolver — CU tool routing", () => {
       // Proxy state is clean after done
       expect(proxy.stepCount).toBe(0);
       expect(proxy.actionHistory).toHaveLength(0);
-      // Only 2 messages sent to client (screenshot + click; done is terminal)
-      expect(sentMessages).toHaveLength(2);
+      // screenshot + click, then done tells the client the task ended so the
+      // helper returns the pointer; done itself never reaches the client
+      expect(sentMessages).toHaveLength(3);
+      expect((sentMessages[2] as Record<string, unknown>).type).toBe(
+        "host_cu_cancel",
+      );
     });
   });
 

@@ -397,6 +397,13 @@ export const oauthProviderSummarySchema = z.object({
   supports_managed_mode: z.boolean(),
   managed_service_is_paid: z.boolean(),
   feature_flag: z.string().nullable(),
+  tenant_host: z
+    .object({
+      pattern: z.string(),
+      label: z.string(),
+      placeholder: z.string(),
+    })
+    .nullable(),
   acts_as: z.enum(["user", "assistant"]),
 });
 

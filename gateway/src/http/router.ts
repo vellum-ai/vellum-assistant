@@ -24,8 +24,8 @@ export type GetRawPeerIp = () => string;
  *                      principal must match the guardian's principal id.
  *                      When DISABLE_HTTP_AUTH=true (platform-managed), the
  *                      caller is asserted via X-Vellum-User-Id forwarded by
- *                      vembda, cross-referenced with the stored
- *                      vellum:platform_user_id credential.
+ *                      vembda, cross-referenced with the bound platform
+ *                      user id.
  * - "track-failures" — no gateway-level auth, but downstream 401s are
  *                      recorded against the rate limiter
  * - "custom"       — the handler manages auth internally

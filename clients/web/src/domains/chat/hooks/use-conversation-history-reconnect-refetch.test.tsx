@@ -15,6 +15,7 @@ import { organizationsBillingSummaryRetrieveQueryKey } from "@/generated/api/@ta
 import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
@@ -109,18 +110,76 @@ beforeEach(() => {
   invalidateSpy = mock(async () => {});
   billingSummaryEnabled = true;
   invalidateQueriesSpy.mockClear();
+  useChatSessionStore.setState({
+    snapshot: null,
+    optimisticSends: [],
+    previousConversationId: null,
+    previousAssistantId: null,
+    draftConversationIdResolution: false,
+  });
+  useComposerStore.getState().fullReset();
+  useComposerStore.getState().setInput("");
 });
 
 afterEach(() => {
   cleanup();
   __resetForTesting();
-  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  useChatSessionStore.setState({
+    snapshot: null,
+    optimisticSends: [],
+    previousConversationId: null,
+    previousAssistantId: null,
+    draftConversationIdResolution: false,
+  });
+  useComposerStore.getState().fullReset();
+  useComposerStore.getState().setInput("");
   useConversationStore.getState().removeProcessingConversationId("conv-A");
   useConversationStore.getState().removeProcessingConversationId("conv-B");
   useTurnStore.setState({ phase: "idle" });
 });
 
 describe("useConversationHistory — refetch on SSE reopen", () => {
+  test("keeps composer state when the same history consumer becomes active again", () => {
+    useChatSessionStore.setState({
+      previousAssistantId: "asst-1",
+      previousConversationId: "conv-A",
+      draftConversationIdResolution: false,
+    });
+    useComposerStore.getState().setInput("Unsent draft");
+    useComposerStore
+      .getState()
+      .addPathReferences(["/example/project-notes"]);
+
+    const { rerender } = renderHook(
+      ({ assistantStateKind }: { assistantStateKind: "loading" | "active" }) =>
+        useConversationHistory({
+          assistantId: "asst-1",
+          assistantStateKind,
+          activeConversationId: "conv-A",
+        }),
+      {
+        wrapper: Wrapper,
+        initialProps: {
+          assistantStateKind: "loading" as "loading" | "active",
+        },
+      },
+    );
+
+    rerender({ assistantStateKind: "active" });
+
+    expect(useComposerStore.getState().input).toBe("Unsent draft");
+    expect(useComposerStore.getState().attachments).toMatchObject([
+      {
+        kind: "path-reference",
+        path: "/example/project-notes",
+      },
+    ]);
+    expect(useChatSessionStore.getState().previousAssistantId).toBe("asst-1");
+    expect(useChatSessionStore.getState().previousConversationId).toBe(
+      "conv-A",
+    );
+  });
+
   test("refetches history when the connection reopens after a resume", () => {
     /**
      * A resume reopen (return-from-background) past the daemon's 30s replay

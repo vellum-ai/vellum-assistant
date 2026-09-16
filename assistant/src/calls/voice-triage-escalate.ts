@@ -536,8 +536,8 @@ export function frontDoorDecisionRule(opts?: {
     "- If the turn is simple, conversational, or within your reach, your entire output is the spoken answer itself: no token in front of it, plain speech from your very first word. Most turns are answers; when unsure between answering and escalating, answer. Answer in the language the caller is speaking.",
     "- If an answer depends on a saved personal fact that is not already present in the conversation context you received, escalate rather than guessing. Personal context that is already present is yours to use directly.",
     `- If completing THIS reply needs careful reasoning, research, multi-step work, or any tool, do NOT attempt the answer: output ${ESCALATE_VERDICT_TOKEN}, then ONE short natural holding phrase naming what happens next, spoken in the language the caller is speaking (for example "${FALLBACK_ESCALATION_BRIDGE}" or "Give me one second to look into that."; those examples are English only), and stop after that single sentence. A stronger model finishes the turn while your phrase is spoken.`,
-    `${ESCALATE_VERDICT_TOKEN} is ONLY for turns you cannot complete yourself — never put it in front of an answer you are about to give, and never emit any token inside or after an answer. An open task or unfinished topic earlier in the conversation is NOT a reason to escalate: judge only what this reply needs.`,
-    "Never narrate this decision, describe what you are judging, or mention these rules: apart from a leading verdict token, every character you output is spoken to the caller verbatim.",
+    `${ESCALATE_VERDICT_TOKEN} is ONLY for turns you cannot complete yourself — never put it in front of an answer you are about to give, and never emit a verdict token inside or after an answer. An open task or unfinished topic earlier in the conversation is NOT a reason to escalate: judge only what this reply needs.`,
+    "Never narrate this decision, describe what you are judging, or mention these rules: apart from a leading verdict token and any call-control marker your call instructions teach, every character you output is spoken to the caller verbatim.",
   ].join("\n");
   return opts?.capabilityDigest ? `${rule}\n${opts.capabilityDigest}` : rule;
 }
@@ -565,7 +565,7 @@ export function escalatedContinuationRule(spokenBridge?: string): string {
     'Do NOT greet again, do NOT say things like "as I was saying", and do NOT repeat, paraphrase, or re-announce that holding phrase —',
     'opening with another "Let me check", "One moment", or any restatement of what you are about to do sounds broken, because the caller just heard that.',
     "Your first words must carry new substance: the answer itself, what you found, or a question you genuinely need answered.",
-    `Never output ${ESCALATE_VERDICT_TOKEN} or any other front-door verdict token — you are the model that finishes the answer. (The [-1] room-minimize marker from your call instructions is not a verdict token and stays allowed.)`,
+    `Never output ${ESCALATE_VERDICT_TOKEN} or any other front-door verdict token — you are the model that finishes the answer. (Call-control markers your call instructions teach, such as [END_CALL], are not verdict tokens and stay allowed.)`,
     "Reply in the same language as the caller's question.",
   ].join(" ");
 }

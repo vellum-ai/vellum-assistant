@@ -15,13 +15,12 @@ import { z } from "zod";
 import { generateInviteToken, hashInviteToken } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
-import type { CredentialCache } from "../credential-cache.js";
-import { credentialKey } from "../credential-key.js";
 import {
   CredentialRequestStore,
   MAX_ACTIVE_CREDENTIAL_REQUESTS,
 } from "../db/credential-request-store.js";
 import { getLogger } from "../logger.js";
+import { resolvePlatformAssistantIdOrUndefined } from "../platform-identity.js";
 import { resolvePublicHttpBaseUrl } from "../runtime/client.js";
 import type { IpcRoute } from "./server.js";
 
@@ -73,8 +72,9 @@ export type CreateCredentialRequestResult =
 
 export interface CreateCredentialRequestDeps {
   /**
-   * Lazily read `vellum:platform_assistant_id` — only invoked for the Velay
-   * fallback, so a config-resolved (self-hosted/manual) URL never touches CES.
+   * Lazily resolve the bound platform assistant id. Only invoked for the
+   * Velay fallback, so a config-resolved (self-hosted/manual) URL never
+   * loads identity.
    */
   getPlatformAssistantId?: () => Promise<string | undefined>;
   /**
@@ -88,7 +88,6 @@ export interface CreateCredentialRequestDeps {
 export function createCredentialRequestIpcRoutes(
   config: GatewayConfig,
   configFile: ConfigFileCache,
-  credentials: CredentialCache,
   ensurePublicIngressLive: () => Promise<void>,
 ): IpcRoute[] {
   return [
@@ -98,10 +97,7 @@ export function createCredentialRequestIpcRoutes(
       handler: async (params?: Record<string, unknown>) => {
         const parsed = CreateCredentialRequestSchema.parse(params ?? {});
         return createCredentialRequest(config, configFile, parsed, {
-          getPlatformAssistantId: () =>
-            credentials
-              .get(credentialKey("vellum", "platform_assistant_id"))
-              .then((value) => value?.trim()),
+          getPlatformAssistantId: () => resolvePlatformAssistantIdOrUndefined(),
           ensurePublicIngressLive,
         });
       },

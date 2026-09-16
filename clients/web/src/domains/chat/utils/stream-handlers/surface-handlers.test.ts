@@ -1,14 +1,24 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, mock } from "bun:test";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useCompanionPopoverStore } from "@/domains/chat/companion-popover";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
-import {
+
+/** Whether the companion is on screen to show a surface beside itself. */
+let companionOnScreen = false;
+const realCompanionSurface = await import("@/runtime/companion-surface");
+mock.module("@/runtime/companion-surface", () => ({
+  ...realCompanionSurface,
+  companionTakesPrompts: () => Promise.resolve(companionOnScreen),
+}));
+
+const {
   handleUISurfaceShow,
   handleUISurfaceUpdate,
   handleUISurfaceDismiss,
   handleUISurfaceComplete,
-} from "@/domains/chat/utils/stream-handlers/surface-handlers";
+} = await import("@/domains/chat/utils/stream-handlers/surface-handlers");
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
@@ -26,8 +36,41 @@ function seedSnapshot(messages: DisplayMessage[]): void {
 
 afterEach(() => {
   useChatSessionStore.setState({ snapshot: null });
+  useCompanionPopoverStore.setState({ offeredSurfaceId: null });
+  companionOnScreen = false;
 });
 describe("handleUISurfaceShow", () => {
+  const showCard = (): void => {
+    handleUISurfaceShow(
+      {
+        type: "ui_surface_show",
+        conversationId: "c-1",
+        surfaceId: "s-card",
+        surfaceType: "card",
+        data: { title: "A picture" },
+      },
+      makeCtx(),
+    );
+  };
+
+  it("offers the surface to the companion while it is on screen", async () => {
+    companionOnScreen = true;
+    showCard();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useCompanionPopoverStore.getState().offeredSurfaceId).toBe("s-card");
+  });
+
+  /** Read here, so it is not held out again once the user leaves. */
+  it("does not offer a surface shown while the user is in the app", async () => {
+    showCard();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(useCompanionPopoverStore.getState().offeredSurfaceId).toBeNull();
+  });
+
   it("increments assets refresh key for dynamic_page", () => {
     const ctx = makeCtx();
     handleUISurfaceShow(

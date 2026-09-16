@@ -24,6 +24,7 @@ import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   buildEffectiveMcpConfig,
   pluginMcpServersChangedSinceLastBuild,
+  readEffectiveMcpConfig,
   resetEffectiveMcpConfigForTests,
 } from "../effective-config.js";
 
@@ -179,6 +180,16 @@ describe("pluginMcpServersChangedSinceLastBuild", () => {
     buildEffectiveMcpConfig(workspaceConfig({}));
     writePlugin("unabyss", UNABYSS);
 
+    expect(pluginMcpServersChangedSinceLastBuild()).toBe(true);
+  });
+
+  test("a read-only resolution does not record the changed plugin set as applied", () => {
+    buildEffectiveMcpConfig(workspaceConfig({}));
+    writePlugin("unabyss", UNABYSS);
+
+    expect(
+      readEffectiveMcpConfig(workspaceConfig({})).servers.unabyss,
+    ).toBeDefined();
     expect(pluginMcpServersChangedSinceLastBuild()).toBe(true);
   });
 
