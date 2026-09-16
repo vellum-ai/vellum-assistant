@@ -22,6 +22,7 @@
 // (`assistant/src/tools/skills/execute.ts`), so there is no other spelling to
 // tolerate here.
 import { readToolInputString } from "@/domains/chat/utils/tool-input";
+
 /** A single parameter row under a skill tool's `Parameters:` list. */
 export interface SkillToolParam {
   name: string;
