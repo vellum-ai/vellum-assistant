@@ -1490,6 +1490,7 @@ describe("classifyConversationError", () => {
       "subagent_aborted",
       "signal_cancel",
       "voice_session_aborted",
+      "voice_progress_narration_timeout",
     ];
 
     for (const kind of taggedKinds) {
@@ -1727,7 +1728,9 @@ describe("ConnectionResolutionError classification", () => {
     expect(result.userMessage).toContain("qwen/qwen3-8b");
     expect(result.userMessage).toContain("Vellum GPU route");
     expect(result.userMessage).toContain('profile "steer"');
-    expect(result.userMessage).toContain("was not sent through another provider");
+    expect(result.userMessage).toContain(
+      "was not sent through another provider",
+    );
   });
 
   it("classifies missing_credential naming the connection and fix", () => {
