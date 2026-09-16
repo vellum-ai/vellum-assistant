@@ -132,7 +132,7 @@ import { getLogger } from "../logging.js";
 import {
   collectSuccessfulToolResultIds,
   countDurableToolUses,
-  hasCommittedTextReply,
+  endsWithTextReply,
 } from "../memory-run-evidence.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
@@ -630,10 +630,11 @@ export async function memoryV2ConsolidateJob(
     // job requires two things of the run's persisted messages: at least one
     // page-writing tool call whose result is not an error (a run that
     // answered in prose, or whose writes all failed, filed nothing), and a
-    // closing reply in the agent's own words as the run's final row (a run
-    // that wrote a page, say a repair-step fix, and then stopped mid-work
-    // has not filed its pass; the prompt mandates the pass summary, so its
-    // absence is the run ending before it finished). Either missing, and
+    // closing reply in the agent's own words as the run's final row, with
+    // no tool call on it (a run that wrote a page, say a repair-step fix,
+    // and then stopped mid-work has not filed its pass, and narration on
+    // the row that called the tool is not a conclusion; the prompt mandates
+    // the pass summary, so its absence is the run ending early). Either missing, and
     // consuming would delete entries unfiled. A skipped run never invoked
     // the agent, so it consumes nothing either. With both, the consume
     // removes exactly the pass's entries and leaves every other entry
@@ -646,14 +647,29 @@ export async function memoryV2ConsolidateJob(
         try {
           consumed = await consumeBufferEntries(bufferPath, pass);
         } catch (err) {
+          // Thrown only before the rename commits, so the buffer still holds
+          // the pass.
           log.error(
             { err, conversationId: runResult.conversationId },
-            "consolidation: buffer consume failed; entries left for the next pass",
+            "consolidation: buffer consume failed before rewriting; entries left for the next pass",
           );
         }
       }
     }
     const noProgress = consumed === null;
+    if (consumed !== null && consumed.unrecoveredLateAppendBytes > 0) {
+      // The pass is consumed (the rename committed) but bytes an appender
+      // landed on the replaced inode could not be copied back. Those
+      // entries are still in memory/archive/<date>.md, written by the same
+      // append that wrote them to the buffer.
+      log.error(
+        {
+          conversationId: runResult.conversationId,
+          unrecoveredLateAppendBytes: consumed.unrecoveredLateAppendBytes,
+        },
+        "consolidation: entries appended during the buffer rewrite could not be copied back into buffer.md; they remain in the daily archive only",
+      );
+    }
     if (consumed !== null && consumed.alreadyAbsent > 0) {
       // Only appenders are expected to touch the buffer during a run. An
       // entry the job handed the run but cannot find afterwards was removed
@@ -900,7 +916,10 @@ async function snapshotIsComplete(
 interface RunEvidence {
   /** Page-writing tool calls whose execution verifiably succeeded. */
   durableWrites: number;
-  /** The run's final assistant row is a reply in its own words. */
+  /**
+   * The run's final row is an assistant reply in its own words, with no
+   * tool call on it: the shape of a run the model ended itself.
+   */
   concluded: boolean;
 }
 
@@ -929,7 +948,7 @@ async function readRunEvidence(conversationId: string): Promise<RunEvidence> {
       CONSOLIDATION_DURABLE_TOOLS,
       collectSuccessfulToolResultIds(messages),
     ),
-    concluded: hasCommittedTextReply(messages),
+    concluded: endsWithTextReply(messages),
   };
 }
 

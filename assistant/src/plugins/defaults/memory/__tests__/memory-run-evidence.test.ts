@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   collectSuccessfulToolResultIds,
   countDurableToolUses,
+  endsWithTextReply,
   extractRememberContents,
   hasCommittedTextReply,
   type MessageLike,
@@ -93,6 +94,39 @@ describe("hasCommittedTextReply", () => {
     expect(hasCommittedTextReply([{ role: "assistant", content: "{" }])).toBe(
       false,
     );
+  });
+});
+
+describe("endsWithTextReply", () => {
+  test("true only when the final row is an assistant reply with text and no tool call", () => {
+    expect(
+      endsWithTextReply([
+        row("assistant", [use("a", "file_write")]),
+        row("user", [result("a")]),
+        row("assistant", [text("Filed it.")]),
+      ]),
+    ).toBe(true);
+    // Narration on the row that also calls a tool, then a tool result: the
+    // run stopped mid-loop, whatever the narration said.
+    expect(
+      endsWithTextReply([
+        row("assistant", [
+          text("Fixing that page now."),
+          use("a", "file_write"),
+        ]),
+        row("user", [result("a")]),
+      ]),
+    ).toBe(false);
+    expect(
+      endsWithTextReply([
+        row("assistant", [text("Done."), use("b", "file_read")]),
+      ]),
+    ).toBe(false);
+    expect(endsWithTextReply([row("assistant", [text("   ")])])).toBe(false);
+    expect(endsWithTextReply([{ role: "assistant", content: "{" }])).toBe(
+      false,
+    );
+    expect(endsWithTextReply([])).toBe(false);
   });
 });
 

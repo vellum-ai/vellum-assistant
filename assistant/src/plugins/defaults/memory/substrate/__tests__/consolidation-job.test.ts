@@ -1016,6 +1016,34 @@ describe("memoryV2ConsolidateJob: runtime-owned consumption", () => {
     expect(enqueuedJobs).toHaveLength(0);
   });
 
+  test("narration on the row that called the tool does not count as concluding", async () => {
+    // The model said "fixing that page now", called file_write, and the run
+    // stopped after the result. Text on a tool-call row is not the closing
+    // reply; the pass stays.
+    runMessages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Fixing that page now." },
+          { type: "tool_use", id: "t1", name: "file_write", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+      },
+    ];
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.noProgress).toBe(true);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(TWO_ENTRIES);
+  });
+
   test("only page-writing tools count as evidence", async () => {
     runMessages = [
       {

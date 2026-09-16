@@ -37,11 +37,17 @@
 // synchronous `appendFileSync`, so that needs the appending process to be
 // stopped between two adjacent syscalls for longer than the grace window (a
 // debugger, SIGSTOP, or a multi-second scheduler stall). Machine sleep
-// freezes both processes together and does not count. If that residual ever
-// proves reachable, the escalation is a short-held `wx` lock file taken by
-// both writers around their synchronous critical sections (the idiom
-// `substrate/consolidation-lock.ts` uses); the consume shape above does not
-// change, only its critical section gains a guard.
+// freezes both processes together and does not count. The other way out is
+// the drain's own copy failing (disk full, an I/O error) on every retry;
+// the descriptor cannot be held forever, so those bytes are then gone from
+// the buffer and reported as unrecovered, and the entries survive only in
+// the daily archive the same append wrote. Nothing after the rename throws:
+// once the rename has committed the pass is consumed, and the result says
+// so. If either residual ever proves reachable, the escalation is a
+// short-held `wx` lock file taken by both writers around their synchronous
+// critical sections (the idiom `substrate/consolidation-lock.ts` uses);
+// the consume shape above does not change, only its critical section gains
+// a guard.
 //
 // Ordering: consumption removes entries and copies the rest verbatim, so
 // the file stays in append order except for a drained late append, which
@@ -86,6 +92,11 @@ const log = getLogger("memory-buffer-file");
  * completes both within microseconds.
  */
 const LATE_APPEND_GRACE_MS = 500;
+
+/** Attempts to copy late-appended bytes back before giving them up. */
+const LATE_APPEND_COPY_ATTEMPTS = 3;
+/** Wait between those attempts; disk pressure and I/O errors are often brief. */
+const LATE_APPEND_COPY_RETRY_MS = 200;
 
 /**
  * Append `entry` to `<rootDir>/buffer.md` and `<rootDir>/archive/<today>.md`,
@@ -138,10 +149,18 @@ export interface ConsumeBufferEntriesResult {
   alreadyAbsent: number;
   /** Bytes appended to the replaced inode after the read and copied back. */
   lateAppendBytesRecovered: number;
+  /**
+   * Bytes appended to the replaced inode that could not be copied back
+   * after every retry. The pass is consumed regardless (the rename had
+   * committed); these entries remain only in the daily archive.
+   */
+  unrecoveredLateAppendBytes: number;
 }
 
 /**
  * Remove `consumed` from `bufferPath`, leaving every other entry in place.
+ * Never throws once the rename has committed; see the result's
+ * `unrecoveredLateAppendBytes`.
  *
  * Each consumed entry is matched by its exact text ({@link bufferEntryText})
  * against the live file, first occurrence, once per consumed entry, so an
@@ -175,6 +194,7 @@ export async function consumeBufferEntries(
         removed: 0,
         alreadyAbsent: pending.length,
         lateAppendBytesRecovered: 0,
+        unrecoveredLateAppendBytes: 0,
       };
     }
     throw err;
@@ -209,24 +229,50 @@ export async function consumeBufferEntries(
       throw err;
     }
 
-    // Drain: appends that landed on the replaced inode after the read.
+    // Drain: appends that landed on the replaced inode after the read. The
+    // rename has committed, so from here nothing throws: a copy that fails
+    // is retried, and bytes that cannot be copied are reported, not raised.
     let lateAppendBytesRecovered = 0;
-    const drain = (): void => {
+    let unrecoveredLateAppendBytes = 0;
+    const drain = async (): Promise<void> => {
       const size = fstatSync(fd).size;
       if (size <= drainedTo) {
         return;
       }
       const late = Buffer.alloc(size - drainedTo);
       const read = readSync(fd, late, 0, late.length, drainedTo);
-      appendFileSync(bufferPath, late.subarray(0, read));
-      drainedTo += read;
-      lateAppendBytesRecovered += read;
+      const bytes = late.subarray(0, read);
+      for (let attempt = 1; ; attempt++) {
+        try {
+          appendFileSync(bufferPath, bytes);
+          drainedTo += read;
+          lateAppendBytesRecovered += read;
+          return;
+        } catch (err) {
+          if (attempt >= LATE_APPEND_COPY_ATTEMPTS) {
+            log.error(
+              { err, bufferPath, bytes: read, attempt },
+              "buffer consume: could not copy entries appended during the rewrite back into the buffer; giving them up",
+            );
+            drainedTo += read;
+            unrecoveredLateAppendBytes += read;
+            return;
+          }
+          log.warn(
+            { err, bufferPath, bytes: read, attempt },
+            "buffer consume: copying late-appended entries failed; retrying",
+          );
+          await new Promise((resolve) =>
+            setTimeout(resolve, LATE_APPEND_COPY_RETRY_MS),
+          );
+        }
+      }
     };
-    drain();
+    await drain();
     if (graceMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, graceMs));
     }
-    drain();
+    await drain();
     if (lateAppendBytesRecovered > 0) {
       log.info(
         { bufferPath, lateAppendBytesRecovered },
@@ -238,6 +284,7 @@ export async function consumeBufferEntries(
       removed,
       alreadyAbsent: pending.length,
       lateAppendBytesRecovered,
+      unrecoveredLateAppendBytes,
     };
   } finally {
     closeSync(fd);

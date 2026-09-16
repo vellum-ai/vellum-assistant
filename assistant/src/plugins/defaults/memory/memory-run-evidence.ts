@@ -46,6 +46,30 @@ export function hasCommittedTextReply(messages: MessageLike[]): boolean {
 }
 
 /**
+ * Whether the run's FINAL persisted row is an assistant reply in its own
+ * words: text with non-whitespace content and no `tool_use` block. This is
+ * the shape of a run the model ended itself, since the loop stops when the
+ * assistant answers without asking for a tool. It is stricter than
+ * {@link hasCommittedTextReply} on purpose: narration on a row that also
+ * calls a tool ("fixing that page now" followed by `file_write`) is not a
+ * conclusion, and a run whose last row is a tool result stopped mid-loop.
+ */
+export function endsWithTextReply(messages: MessageLike[]): boolean {
+  const last = messages[messages.length - 1];
+  if (last === undefined || last.role !== "assistant") {
+    return false;
+  }
+  const blocks = parseMessageBlocks(last);
+  if (blocks === null || blocks.some((b) => b.type === "tool_use")) {
+    return false;
+  }
+  return blocks.some(
+    (b) =>
+      b.type === "text" && typeof b.text === "string" && b.text.trim() !== "",
+  );
+}
+
+/**
  * Ids of `tool_result` blocks on the run's user rows whose execution did not
  * report an error. Robust to malformed content JSON the same way
  * `extractRememberContents` is.

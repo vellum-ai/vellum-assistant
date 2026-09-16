@@ -13,6 +13,7 @@
 
 import {
   appendFileSync,
+  chmodSync,
   closeSync,
   existsSync,
   mkdtempSync,
@@ -104,6 +105,7 @@ describe("consumeBufferEntries", () => {
       removed: 2,
       alreadyAbsent: 0,
       lateAppendBytesRecovered: 0,
+      unrecoveredLateAppendBytes: 0,
     });
     expect(readFileSync(bufferPath, "utf-8")).toBe(file(C, D));
   });
@@ -144,6 +146,7 @@ describe("consumeBufferEntries", () => {
       removed: 0,
       alreadyAbsent: 1,
       lateAppendBytesRecovered: 0,
+      unrecoveredLateAppendBytes: 0,
     });
     expect(existsSync(bufferPath)).toBe(false);
   });
@@ -178,7 +181,33 @@ describe("consumeBufferEntries", () => {
 
     expect(result.removed).toBe(1);
     expect(result.lateAppendBytesRecovered).toBe(file(C).length);
+    expect(result.unrecoveredLateAppendBytes).toBe(0);
     expect(texts()).toEqual([B, C]);
+  });
+
+  test("a late append the drain cannot copy back is reported, not thrown, and the pass stays consumed", async () => {
+    // The rename has committed when the drain runs, so a failing copy must
+    // not surface as "nothing happened". The test makes the rewritten
+    // buffer read-only before the late bytes land, so every copy attempt
+    // fails.
+    writeFileSync(bufferPath, file(A, B));
+    const lateFd = openSync(bufferPath, "a");
+    const consuming = consumeBufferEntries(bufferPath, entries(file(A)), {
+      lateAppendGraceMs: 50,
+    });
+    chmodSync(bufferPath, 0o444);
+    appendFileSync(lateFd, file(C));
+    closeSync(lateFd);
+
+    try {
+      const result = await consuming;
+      expect(result.removed).toBe(1);
+      expect(result.lateAppendBytesRecovered).toBe(0);
+      expect(result.unrecoveredLateAppendBytes).toBe(file(C).length);
+      expect(texts()).toEqual([B]);
+    } finally {
+      chmodSync(bufferPath, 0o644);
+    }
   });
 });
 
