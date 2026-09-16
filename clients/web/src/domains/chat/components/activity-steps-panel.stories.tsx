@@ -1,9 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
+import type { ActivityStepsPayload } from "@/stores/viewer-store";
 
 import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+import { attachmentContentQueryKey } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 
 import { ActivityStepsPanel } from "./activity-steps-panel";
 
@@ -116,6 +120,89 @@ const ITEMS: ToolCallCardItem[] = [
 
 const TOOL_CALLS = [WEB_SEARCH, SKILL, RISKY_BASH];
 
+const FIRST_DASHBOARD_SCREENSHOT =
+  "iVBORw0KGgoAAAANSUhEUgAAAUAAAAC0CAIAAABqhmJGAAACoElEQVR42u3boQ2DUBSG0bcIigWYgnW6IJoEh0CRildTUYEjJCgcFgIVvc1JvgnuzZF/KspKUtCSE0gASwJYEsASwJIAlgSwJIAlgCUBLAlgCWBJAEsCWBLAEsCSAJYEsCSAJYAlASwJYAlgSQBLAljSAeDXewrUvKyS9gCWAAZYAhhgCWAJYIAlgAGWAAZYAlgCGGAJYIAlgCWAAZYABlgCGGAJYAlggCWAAZYA9jAJYAngCIDrR9aFzl94zB9dDmCAAQYYYAEMMMAAC2CAAQYYYIABBhhggAEGGGCABTDAAAMMsAAGGGCAAQYYYIABBhhggAEGWAADDDDAAhhggAEGmEaAAQYYYIABBhhgAQwwwAADLIABBhhgAQwwwAADDDDAAAMsgAEGGGABDDDAAAMsgAEGGGCAAQYYYAEMMMAAAyyAAQYYYAEMMMAAAwwwwAADDDDAAAMMsAAGGGCAARbAAAMMMMAAAwwwwAADDDDAAAtggAEGWAADDDDAAAMMMMCxAUv/HcASwABLAAMsASwBDLAEMMASwABLAEsAAywBDLAEsAQwwBLAAEsAAywBLAEcG3DXP6WfDWCABTDAEsAASwADLIABBlgAAywBDLAEMMACGGAJYIAlgAEWwAADLIABlgA2J5TMCQGWAJYABlgCGGAJYEkASwADLAEMsASwBDDAEsAASwDfA9y0g3QygAEWwAADLIABBlgAAyyAAQZYAAMMsAAGWAIYYAEMMMACGGCABTDAAhhggAUwwAALYHNCyZwQYAlggCWAJQEsAQywBDDAEsASwABLAAMsAQywBLAEMMASwABLAEsAAywBDLAEMMASwBLAAEsAAywBDLAEsAQwwBLAAEsASwADLAEMsAQwwBLAEsAASwADLH29DSe7+El0/BV7AAAAAElFTkSuQmCC";
+const SECOND_DASHBOARD_SCREENSHOT =
+  "iVBORw0KGgoAAAANSUhEUgAAAUAAAAC0CAIAAABqhmJGAAACmElEQVR42u3bIQ5AABTHYRdRuIATua2gySZQBEEzm6SpDMGzb/ud4L198Z+keSEpaIkTSABLAlgSwBLAkgCWBLAkgCWAJQEsCWAJYEkASwJYEsASwJIAlgSwJIAlgCUBLAlgCWBJAEsCWNIJ4GGcA7Wsm6QjgCWAAZYABlgCWAIYYAlggCWAAZYAlgAGWAIYYAlgCWCAJYABlgAGWAJYAhhgCWCAJYA9TAJYAjgC4KwqdaPrF277SbcDGGCAAQZYAAMMMMACGGCAAQYYYIABBhhggAEGGGABDDDAAAMsgAEGGGCAAQYYYIABBhhggAEWwAADDLAABhhggAGmEWCAAQYYYIABBlgAAwwwwAALYIABBlgAAwwwwAADDDDAAAtggAEGWAADDDDAAAtggAEGGGCAAQZYAAMMMMAAC2CAAQZYAAMMMMAAAwwwwAADDDDAAAMsgAEGGGCABTDAAAMMMMAAAwwwwAADDDDAAhhggAEWwAADDDDAAAMMcGzA0r8DWAIYYAlggCWAJYABlgAGWAIYYAlgCWCAJYABlgCWAAZYAhhgCWCAJYAlgGMDrptO+mwAAyyAAZYABlgCGGABDDDAAhhgCWCAJYABFsAASwADLAEMsAAGGGABDLAEsDmhZE4IsASwBDDAEsAASwBLAlgCGGAJYIAlgCWAAZYABlgC+BngrCqliwEMsAAGGGABDDDAAhhgAQwwwAIYYIAFMMASwAALYIABFsAAAyyAARbAAAMsgAEGWACbE0rmhABLAAMsASwJYAlggCWAAZYAlgAGWAIYYAlggCWAJYABlgAGWAJYAhhgCWCAJYABlgCWAAZYAhhgCWCAJYAlgAGWAAZYAlgCGGAJYIAlgAGWAJYABlgCGGDp9XYa20dtPpc6UgAAAABJRU5ErkJggg==";
+
+const FIRST_SCREENSHOT = makeToolCall({
+  id: "tc-screen-first",
+  name: "computer_use_screenshot",
+  input: { activity: "Opening the example dashboard" },
+  imageDataList: [FIRST_DASHBOARD_SCREENSHOT],
+  startedAt: START,
+  completedAt: START + 2_000,
+});
+const SECOND_SCREENSHOT = makeToolCall({
+  id: "tc-screen-second",
+  name: "computer_use_screenshot",
+  input: { activity: "Checking the completed dashboard" },
+  imageDataList: [SECOND_DASHBOARD_SCREENSHOT],
+  startedAt: START + 2_000,
+  completedAt: START + 4_000,
+});
+const GALLERY_CALLS = [FIRST_SCREENSHOT, SECOND_SCREENSHOT];
+const GALLERY_ITEMS: ToolCallCardItem[] = GALLERY_CALLS.map((toolCall) => ({
+  kind: "toolCall",
+  toolCall,
+}));
+
+function singleScreenshotPayload(
+  toolCall: ChatMessageToolCall,
+): ActivityStepsPayload {
+  return {
+    items: [{ kind: "toolCall", toolCall }],
+    toolCalls: [toolCall],
+  };
+}
+
+function referencedScreenshot(attachmentId: string): ChatMessageToolCall {
+  return {
+    ...SECOND_SCREENSHOT,
+    imageDataList: undefined,
+    imageAttachmentIds: [attachmentId],
+  };
+}
+
+const RUNNING_SCREENSHOT = {
+  ...SECOND_SCREENSHOT,
+  completedAt: undefined,
+  result: undefined,
+};
+const LOADED_SCREENSHOT = referencedScreenshot("story-loaded");
+const LOADING_SCREENSHOT = referencedScreenshot("story-loading");
+const UNAVAILABLE_SCREENSHOT = referencedScreenshot("story-unavailable");
+
+function referencedStoryClient(
+  attachmentId: string,
+  state: "loaded" | "loading",
+): QueryClient {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const key = attachmentContentQueryKey("story-assistant", attachmentId);
+  if (state === "loaded") {
+    client.setQueryData(
+      key,
+      new Blob(
+        [
+          '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200" fill="royalblue"/></svg>',
+        ],
+        { type: "image/svg+xml" },
+      ),
+    );
+  } else {
+    void client.prefetchQuery({
+      queryKey: key,
+      queryFn: () => new Promise<Blob>(() => {}),
+    });
+  }
+  return client;
+}
+
+const LOADED_STORY_CLIENT = referencedStoryClient("story-loaded", "loaded");
+const LOADING_STORY_CLIENT = referencedStoryClient("story-loading", "loading");
+
 const meta: Meta<typeof ActivityStepsPanel> = {
   title: "Chat/ActivityStepsPanel",
   component: ActivityStepsPanel,
@@ -181,4 +268,88 @@ export const StreamingRun: Story = {
     },
     onClose: () => {},
   },
+};
+
+/** Two screenshot occurrences in one Working phase produce one footer tile. */
+export const ScreenshotGallery: Story = {
+  args: {
+    payload: { items: GALLERY_ITEMS, toolCalls: GALLERY_CALLS },
+    onClose: () => {},
+    assistantId: "story-assistant",
+  },
+};
+
+/** The real full-screen preview opens from the representative phase tile. */
+export const ScreenshotGalleryPreview: Story = {
+  ...ScreenshotGallery,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      within(canvasElement).getByRole("button", {
+        name: "Preview screenshot from Checking the completed dashboard",
+      }),
+    );
+  },
+};
+
+/** A new screenshot-bearing call replaces the Working footer while streaming. */
+export const StreamingScreenshotGallery: Story = {
+  args: {
+    payload: {
+      items: [
+        { kind: "toolCall", toolCall: FIRST_SCREENSHOT },
+        { kind: "toolCall", toolCall: RUNNING_SCREENSHOT },
+      ],
+      toolCalls: [FIRST_SCREENSHOT, RUNNING_SCREENSHOT],
+      active: true,
+    },
+    onClose: () => {},
+    assistantId: "story-assistant",
+  },
+};
+
+/** A referenced screenshot reuses the assistant-scoped attachment cache. */
+export const ReferencedScreenshot: Story = {
+  args: {
+    payload: singleScreenshotPayload(LOADED_SCREENSHOT),
+    onClose: () => {},
+    assistantId: "story-assistant",
+  },
+  decorators: [
+    (Story) => (
+      <QueryClientProvider client={LOADED_STORY_CLIENT}>
+        <Story />
+      </QueryClientProvider>
+    ),
+  ],
+};
+
+/** The 64px tile holds its place while referenced bytes are still loading. */
+export const ReferencedScreenshotLoading: Story = {
+  args: {
+    payload: singleScreenshotPayload(LOADING_SCREENSHOT),
+    onClose: () => {},
+    assistantId: "story-assistant",
+  },
+  decorators: [
+    (Story) => (
+      <QueryClientProvider client={LOADING_STORY_CLIENT}>
+        <Story />
+      </QueryClientProvider>
+    ),
+  ],
+};
+
+/** A reference with no owning assistant stays operable with the image fallback. */
+export const ReferencedScreenshotUnavailable: Story = {
+  args: {
+    payload: singleScreenshotPayload(UNAVAILABLE_SCREENSHOT),
+    onClose: () => {},
+    assistantId: null,
+  },
+};
+
+/** The production panel and preview remain the same composition at mobile width. */
+export const ScreenshotGalleryNarrow: Story = {
+  ...ScreenshotGallery,
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };

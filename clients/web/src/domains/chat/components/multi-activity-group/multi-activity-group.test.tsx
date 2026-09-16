@@ -10,8 +10,8 @@
  *    expand-in-place `SingleActivity variant="web"` link.
  *  - A GROUPED (2+) purely-web group and mixed groups (web + non-web) render
  *    through the unified header.
- *  - A pending confirmation in the group short-circuits to the inline
- *    approve/deny UI rather than the progress-card chrome.
+ *  - Pending confirmations render beside the compact summary, one chip per
+ *    pending call.
  *  - A `subagent_spawn`-only group renders `null` (the inline subagent card
  *    handles spawned subagents at the transcript level).
  *  - Unknown-command nudges render beneath the header.
@@ -20,7 +20,7 @@
 import { type ComponentProps } from "react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
@@ -173,6 +173,7 @@ describe("MultiActivityGroup — header opens the activity-steps panel", () => {
     const { getByRole } = renderCard(toolCalls, {
       messageId: "m1",
       groupIndex: 2,
+      groupToolCallIds: ["tc-raw", "tc-1", "tc-2"],
     });
     fireEvent.click(getByRole("button", { name: /view steps/i }));
     const state = useViewerStore.getState();
@@ -180,6 +181,11 @@ describe("MultiActivityGroup — header opens the activity-steps panel", () => {
     expect(state.activeActivitySteps).not.toBeNull();
     expect(state.activeActivitySteps?.messageId).toBe("m1");
     expect(state.activeActivitySteps?.groupIndex).toBe(2);
+    expect(state.activeActivitySteps?.groupToolCallIds).toEqual([
+      "tc-raw",
+      "tc-1",
+      "tc-2",
+    ]);
     expect(state.activeActivitySteps?.toolCalls.map((tc) => tc.id)).toEqual([
       "tc-1",
       "tc-2",
@@ -248,6 +254,37 @@ describe("MultiActivityGroup — lone web tool group", () => {
     expect(queryByTestId("web-search-progress-card")).toBeNull();
     expect(queryByTestId("tool-progress-card-shell")).toBeNull();
   });
+
+  test("visible thinking beside one web search uses the unified header", () => {
+    const toolCall = makeToolCall({
+      id: "tc-1",
+      name: "web_search",
+      status: "completed",
+      input: { query: "tigers" },
+    });
+    const items: ToolCallCardItem[] = [
+      { kind: "thinking", text: "I should verify this." },
+      { kind: "toolCall", toolCall },
+    ];
+
+    const { getByTestId, queryByTestId } = renderCard([toolCall], { items });
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    expect(queryByTestId("inline-web-link")).toBeNull();
+  });
+
+  test("hidden thinking keeps the lone web shortcut", () => {
+    const toolCall = makeToolCall({
+      id: "tc-1",
+      name: "web_search",
+      status: "completed",
+      input: { query: "tigers" },
+    });
+    const items: ToolCallCardItem[] = [{ kind: "toolCall", toolCall }];
+
+    const { getByTestId, queryByTestId } = renderCard([toolCall], { items });
+    expect(getByTestId("inline-web-link")).toBeTruthy();
+    expect(queryByTestId("tool-progress-card-shell")).toBeNull();
+  });
 });
 
 describe("MultiActivityGroup — grouped web tool group", () => {
@@ -297,14 +334,20 @@ describe("MultiActivityGroup — mixed group", () => {
   });
 });
 
-describe("MultiActivityGroup — confirmation short-circuit", () => {
-  test("a tool call with pendingConfirmation renders the inline approve/deny UI, not the progress card", () => {
+describe("MultiActivityGroup - pending confirmations", () => {
+  test("keeps the compact summary and renders only the pending call's chip", () => {
     const toolCalls = [
       makeToolCall({
-        id: "tc-1",
+        id: "tc-complete",
+        name: "bash",
+        status: "completed",
+        input: { command: "date" },
+      }),
+      makeToolCall({
+        id: "tc-pending",
         name: "bash",
         status: "running",
-        input: { command: "rm -rf /" },
+        input: { command: "echo pending" },
         pendingConfirmation: {
           requestId: "req-1",
           title: "Allow bash command?",
@@ -314,13 +357,97 @@ describe("MultiActivityGroup — confirmation short-circuit", () => {
     const { getByText, queryByTestId } = renderCard(toolCalls, {
       onConfirmationSubmit: () => {},
     });
-    // The inline confirmation card is mounted via ToolCallChip — its title
-    // and Allow/Deny buttons should appear.
+    expect(queryByTestId("tool-progress-card-shell")).toBeTruthy();
     expect(getByText("Allow bash command?")).toBeTruthy();
     expect(getByText("Allow")).toBeTruthy();
     expect(getByText("Deny")).toBeTruthy();
-    // The unified shell is NOT mounted — confirmation has its own chrome.
-    expect(queryByTestId("tool-progress-card-shell")).toBeNull();
+    expect(getByText("2 steps")).toBeTruthy();
+  });
+
+  test("renders every pending call and forwards each decision with its call", async () => {
+    const first = makeToolCall({
+      id: "tc-first",
+      name: "bash",
+      status: "running",
+      pendingConfirmation: {
+        requestId: "req-first",
+        title: "Allow first command?",
+      },
+    });
+    const second = makeToolCall({
+      id: "tc-second",
+      name: "bash",
+      status: "running",
+      pendingConfirmation: {
+        requestId: "req-second",
+        title: "Allow second command?",
+      },
+    });
+    const onConfirmationSubmit = mock(() => {});
+    const { getAllByText, getByText } = renderCard([first, second], {
+      onConfirmationSubmit,
+    });
+
+    expect(getByText("Allow first command?")).toBeTruthy();
+    expect(getByText("Allow second command?")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(getAllByText("Deny")[1]!);
+    });
+    expect(onConfirmationSubmit).toHaveBeenCalledWith("deny", second);
+  });
+
+  test("forwards approval and returns to the compact summary after resolution", () => {
+    const pending = makeToolCall({
+      id: "tc-pending",
+      name: "bash",
+      status: "running",
+      input: { command: "echo pending" },
+      pendingConfirmation: {
+        requestId: "req-pending",
+        title: "Allow pending command?",
+      },
+    });
+    const onConfirmationSubmit = mock(() => {});
+    const { getByText, queryByText, getByTestId, rerender } = renderCard(
+      [pending],
+      { onConfirmationSubmit },
+    );
+
+    fireEvent.click(getByText("Allow"));
+    expect(onConfirmationSubmit).toHaveBeenCalledWith("allow", pending);
+
+    const settled = { ...pending, completedAt: 2 };
+    delete settled.pendingConfirmation;
+    rerender(
+      <MultiActivityGroup
+        toolCalls={[settled]}
+        onConfirmationSubmit={onConfirmationSubmit}
+      />,
+    );
+    expect(queryByText("Allow pending command?")).toBeNull();
+    expect(queryByText("Allow")).toBeNull();
+    expect(queryByText("Deny")).toBeNull();
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+  });
+
+  test("a pending lone web search keeps its summary entry point", () => {
+    const toolCall = makeToolCall({
+      id: "tc-web",
+      name: "web_search",
+      status: "running",
+      input: { query: "tigers" },
+      pendingConfirmation: {
+        requestId: "req-web",
+        title: "Allow web search?",
+      },
+    });
+
+    const { getByTestId, queryByTestId, getByText } = renderCard([toolCall], {
+      onConfirmationSubmit: () => {},
+    });
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    expect(queryByTestId("inline-web-link")).toBeNull();
+    expect(getByText("Allow web search?")).toBeTruthy();
   });
 });
 

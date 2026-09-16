@@ -66,6 +66,7 @@ function schedule(
     mode: "notify",
     status: "active",
     routingIntent: "single_channel",
+    quiet: false,
     reuseConversation: false,
     wakeConversationId: null,
     workflowName: null,

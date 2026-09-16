@@ -65,8 +65,17 @@
     "backAria": "返回所有步骤",
     "backTooltip": "所有步骤",
     "closeSteps": "关闭步骤",
+    "screenshotAria": "预览来自“{activity}”的屏幕截图",
+    "screenshotFallbackAria": "预览电脑屏幕截图",
+    "screenshotFallbackTitle": "电脑屏幕截图",
+    "screenshotTitle": "来自“{activity}”的屏幕截图",
     "thinkingTitle": "思考中",
     "viewThinkingAria": "查看思考过程"
+  },
+  "computerUseScreenshotPreview": {
+    "unavailable": "最新屏幕截图不可用。",
+    "unavailableShowingPrevious": "最新屏幕截图不可用。正在显示上一张屏幕截图。",
+    "updating": "正在更新屏幕截图..."
   },
   "addToChatSheet": {
     "camera": "相机",

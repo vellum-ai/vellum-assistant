@@ -3,7 +3,7 @@ import {
   friendlyToolLabel,
 } from "@/domains/chat/components/tool-call-chip/utils";
 import {
-  ACTIVITY_KEYS,
+  ACTIVITY_KEY,
   readToolInputString,
 } from "@/domains/chat/utils/tool-input";
 
@@ -21,7 +21,7 @@ export function confirmationAsk(
   input: Record<string, unknown> | undefined,
   confirmation: { title?: string; description?: string; riskReason?: string },
 ): { context: string; ask: string | null } {
-  const activity = readToolInputString(input ?? {}, ...ACTIVITY_KEYS);
+  const activity = readToolInputString(input ?? {}, ACTIVITY_KEY);
   return {
     context:
       activity ||

@@ -712,7 +712,7 @@
     "copied": "¡Copiado!",
     "copyName": "Copiar nombre",
     "displayNameHint": "Para el nombre visible, <strong>{suggestedName}</strong> mantiene este bot alineado con tu asistente. El nombre de usuario es independiente y no tiene que coincidir.",
-    "dmOnlyNotice": "Los chats privados sí están admitidos. Los mensajes y las pulsaciones de botones en grupos, supergrupos y canales aún no están admitidos.",
+    "chatScopeNotice": "Los chats privados y los grupos están admitidos. En un grupo, el asistente responde cuando lo mencionan o cuando alguien responde a uno de sus mensajes. Los canales de difusión no están admitidos.",
     "inBotFather": "En BotFather:",
     "intro": "Los bots de Telegram se crean enviando un mensaje a <strong>@BotFather</strong>. Ábrelo, sigue las indicaciones y vuelve con el token que te dé.",
     "next": "Siguiente",

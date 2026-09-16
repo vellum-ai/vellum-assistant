@@ -1054,14 +1054,15 @@ describe("ingress-dependent setup skills declare public-ingress intentionally", 
     expect(includes ?? []).not.toContain("public-ingress");
   });
 
-  test("telegram-setup documents the private-chat limitation", () => {
+  test("telegram-setup documents which chats are supported and how a group is addressed", () => {
     const content = readFileSync(
       join(FIRST_PARTY_SKILLS_DIR, "telegram-setup", "SKILL.md"),
       "utf-8",
     );
-    expect(content).toMatch(/private-chat only/i);
-    expect(content).toMatch(/group, supergroup, and channel/i);
-    expect(content).toMatch(/button taps/i);
+    expect(content).toMatch(/private chats and in groups and supergroups/i);
+    expect(content).toMatch(/@mention of the bot's username/i);
+    expect(content).toMatch(/reply to one of its posts/i);
+    expect(content).toMatch(/Broadcast channels are not supported/i);
   });
 
   test("twilio-setup includes public-ingress", () => {

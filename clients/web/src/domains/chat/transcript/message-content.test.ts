@@ -76,6 +76,105 @@ describe("groupContentBlocks", () => {
     ]);
   });
 
+  test("ignores blank text without closing or creating an activity group", () => {
+    const blocks: ConversationContentBlock[] = [
+      { type: "text", text: " \n\t" },
+      { type: "thinking", thinking: "plan", startedAt: 300, completedAt: 500 },
+      { type: "text", text: "\n" },
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+      { type: "text", text: "  " },
+      {
+        type: "thinking",
+        thinking: "next",
+        startedAt: 100,
+        completedAt: 900,
+      },
+      { type: "text", text: "\t" },
+    ];
+
+    expect(groupContentBlocks(blocks)).toEqual([
+      {
+        type: "activity",
+        items: [
+          {
+            type: "thinking",
+            thinking: "plan",
+            startedAt: 300,
+            completedAt: 500,
+          },
+          { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+          {
+            type: "thinking",
+            thinking: "next",
+            startedAt: 100,
+            completedAt: 900,
+          },
+        ],
+      },
+    ]);
+    expect(groupContentBlocks([{ type: "text", text: " \n\t" }])).toEqual([]);
+  });
+
+  test("coalesces thinking across blank text and widens its timing", () => {
+    const blocks: ConversationContentBlock[] = [
+      { type: "thinking", thinking: "first", startedAt: 300, completedAt: 500 },
+      { type: "text", text: "\n\n" },
+      {
+        type: "thinking",
+        thinking: "second",
+        startedAt: 100,
+        completedAt: 900,
+      },
+    ];
+
+    expect(groupContentBlocks(blocks)).toEqual([
+      {
+        type: "activity",
+        items: [
+          {
+            type: "thinking",
+            thinking: "first\nsecond",
+            startedAt: 100,
+            completedAt: 900,
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("preserves nonblank text exactly and still closes the activity run", () => {
+    const blocks: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+      { type: "text", text: "  answer  \n" },
+      { type: "tool_use", toolCall: toolCall({ id: "call-b" }) },
+    ];
+
+    expect(groupContentBlocks(blocks)).toEqual([
+      {
+        type: "activity",
+        items: [{ type: "tool_use", toolCall: toolCall({ id: "call-a" }) }],
+      },
+      { type: "text", text: "  answer  \n" },
+      {
+        type: "activity",
+        items: [{ type: "tool_use", toolCall: toolCall({ id: "call-b" }) }],
+      },
+    ]);
+  });
+
+  test("does not mutate content blocks while dropping blank text", () => {
+    const blocks: ConversationContentBlock[] = [
+      { type: "thinking", thinking: "plan" },
+      { type: "text", text: " \n" },
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+    ];
+    const original = structuredClone(blocks);
+
+    groupContentBlocks(blocks);
+
+    expect(blocks).toEqual(original);
+  });
+
   test("coalesces consecutive thinking blocks into one item, joining text and widening timing", () => {
     /**
      * Consecutive reasoning blocks render as a single thought process, so they

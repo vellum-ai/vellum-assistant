@@ -45,8 +45,12 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { isAppNotFoundError, sameChatInfoTarget, useViewerStore } =
-  await import("@/stores/viewer-store");
+const {
+  isAppNotFoundError,
+  sameActivityStepsTarget,
+  sameChatInfoTarget,
+  useViewerStore,
+} = await import("@/stores/viewer-store");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1016,6 +1020,97 @@ describe("openActivitySteps / toggleActivitySteps / closeActivitySteps", () => {
     const state = getState();
     expect(state.mainView).toBe("activity-steps");
     expect(state.activeActivitySteps?.groupIndex).toBe(2);
+  });
+
+  it("keeps a tool-anchored group active after pagination shifts its index", () => {
+    const open: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-anchor"],
+      items: [],
+      toolCalls: [{ id: "tc-anchor", name: "bash", input: {} }],
+    };
+    const relocated = { ...open, groupIndex: 3 };
+
+    expect(sameActivityStepsTarget(open, relocated)).toBe(true);
+    getState().openActivitySteps(open);
+    getState().toggleActivitySteps(relocated);
+    expect(getState().mainView).toBe("chat");
+    expect(getState().activeActivitySteps).toBeNull();
+  });
+
+  it("keeps identity-less groups on exact index identity", () => {
+    const first: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      items: [],
+      toolCalls: [],
+    };
+    const shifted = { ...first, groupIndex: 3 };
+    expect(sameActivityStepsTarget(first, shifted)).toBe(false);
+  });
+
+  it("rejects a different anchored group that replaced the same index", () => {
+    const original: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-original"],
+      items: [],
+      toolCalls: [{ id: "tc-original", name: "bash", input: {} }],
+    };
+    const replacement: ActivityStepsPayload = {
+      ...original,
+      groupToolCallIds: ["tc-replacement"],
+      toolCalls: [{ id: "tc-replacement", name: "bash", input: {} }],
+    };
+    expect(sameActivityStepsTarget(original, replacement)).toBe(false);
+  });
+
+  it("matches a group when older history prepends another raw tool call", () => {
+    const open: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-existing"],
+      items: [],
+      toolCalls: [{ id: "tc-existing", name: "bash", input: {} }],
+    };
+    const extended: ActivityStepsPayload = {
+      ...open,
+      groupIndex: 3,
+      groupToolCallIds: ["tc-older", "tc-existing"],
+    };
+    expect(sameActivityStepsTarget(open, extended)).toBe(true);
+  });
+
+  it("uses raw ids when visible calls change after process suppression", () => {
+    const open: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-process", "tc-visible"],
+      items: [],
+      toolCalls: [
+        { id: "tc-process", name: "run_workflow", input: {} },
+        { id: "tc-visible", name: "bash", input: {} },
+      ],
+    };
+    const suppressed: ActivityStepsPayload = {
+      ...open,
+      toolCalls: [{ id: "tc-visible", name: "bash", input: {} }],
+    };
+    expect(sameActivityStepsTarget(open, suppressed)).toBe(true);
+  });
+
+  it("rejects overlapping raw ids from a different message", () => {
+    const first: ActivityStepsPayload = {
+      messageId: "m1",
+      groupIndex: 0,
+      groupToolCallIds: ["tc-shared"],
+      items: [],
+      toolCalls: [],
+    };
+    expect(sameActivityStepsTarget(first, { ...first, messageId: "m2" })).toBe(
+      false,
+    );
   });
 
   it("identity-less payloads match on the first tool-call id", () => {

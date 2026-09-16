@@ -10,7 +10,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Gateway ingress/webhooks                    | [`gateway/ARCHITECTURE.md`](gateway/ARCHITECTURE.md)                                               |
 | Browser extension                           | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                         |
 | Clients (web, iOS, Android, macOS, Windows) | [`clients/README.md`](clients/README.md)                                                           |
-| Mobile document chat session | [`clients/web/docs/DOCUMENT_CHAT.md`](clients/web/docs/DOCUMENT_CHAT.md) |
+| Mobile document chat session                | [`clients/web/docs/DOCUMENT_CHAT.md`](clients/web/docs/DOCUMENT_CHAT.md)                           |
 | Public docs site (`clients/docs`)           | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
@@ -620,6 +620,20 @@ subgraph "Text Q&A Session"
     classDef storage fill:#78909c,stroke:#37474f,color:#fff
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
+
+Computer-use screenshots are materialized as canonical attachment rows while
+their tool-result messages are finalized. Every screenshot keeps that
+tool-result link. At turn completion, only the last screenshot-bearing
+computer-use invocation also links its attachment to the actual reply row.
+That reply link is what Files and channel delivery consume. The reply row
+stores the accepted automatic attachment ID in metadata, and history plus
+terminal events project it as `computerUseScreenshot: true`. Forks retain the
+source ID and add the cloned reply attachment ID to that metadata.
+
+The web client projects computer-use images from tool results before applying
+transcript suppression. Each activity block keeps tool-call occurrence order,
+shows one captionless screenshot tile per eligible Working phase, and opens a
+single gallery containing every computer-use screenshot in that block.
 
 ## Assistant Feature Flags
 

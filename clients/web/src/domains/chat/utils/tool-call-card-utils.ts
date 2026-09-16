@@ -786,6 +786,8 @@ export interface ToolCallCardDataOptions {
    * header title stands in for it, and that title has to change with the rest.
    */
   hideThinkingUi?: boolean;
+  /** The owning transcript group is the active trailing group for this turn. */
+  active?: boolean;
 }
 
 export type ToolCallCardItem =
@@ -900,7 +902,10 @@ export function computeToolCallCardDataFromItems(
     }
   }
 
-  const state = deriveCardState(renderableToolCalls);
+  const state = combineCardStates([
+    deriveCardState(renderableToolCalls),
+    ...(options.active ? (["loading"] as const) : []),
+  ]);
 
   // The collapsed header reflects the LATEST built step. When the run ends in
   // a genuine thinking segment (e.g. `tool → thinking`), the header carousels

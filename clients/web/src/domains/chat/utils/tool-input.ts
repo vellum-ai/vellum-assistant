@@ -46,7 +46,8 @@ export const FILE_PATH_KEYS = ["path", "file_path", "filePath"] as const;
 export const COMMAND_KEYS = ["command", "cmd"] as const;
 
 /**
- * Spellings of the activity sentence the daemon attaches to an input, mirroring
- * macOS `reasonDescription`; `reason` is the legacy one.
+ * The key of the status sentence the daemon asks the model to attach to every
+ * tool call. Only this key is read as status: other keys, such as
+ * `app_control_stop`'s `reason`, are the tool's own arguments.
  */
-export const ACTIVITY_KEYS = ["activity", "reason"] as const;
+export const ACTIVITY_KEY = "activity";

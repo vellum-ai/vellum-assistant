@@ -22,10 +22,6 @@ import { rehydratePlatformCredentials } from "../config/platform-rehydration.js"
 import { startConversationEvictor } from "../daemon/conversation-evictor.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
 import { MCP_RELOAD_SIGNAL_FILE } from "../mcp/reload-signal.js";
-import {
-  restartConfiguredMcpServers,
-  startConfiguredMcpServers,
-} from "../mcp/startup.js";
 import { resetDb } from "../persistence/db-connection.js";
 import { registerWorkerPluginSurface } from "../plugins/worker-plugin-surface.js";
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
@@ -37,6 +33,10 @@ import {
   startWorkerPidFileGuard,
 } from "../util/worker-process.js";
 import { runDueSchedulesOnce } from "./scheduler.js";
+import {
+  bootstrapScheduleWorkerMcp,
+  reloadScheduleWorkerMcp,
+} from "./worker-mcp.js";
 
 const log = getLogger("schedule-worker-process");
 
@@ -45,19 +45,6 @@ const TICK_INTERVAL_MS = 15_000;
 
 /** How often this process re-reads flag overrides from the gateway. */
 const FLAG_REFRESH_INTERVAL_MS = 60_000;
-
-/**
- * How long startup waits for MCP servers before arming the tick.
- *
- * Connecting is worth waiting for: a schedule that fires first would fail its
- * `mcp__*` calls as unknown tools. It is not worth waiting for without limit.
- * `McpServerManager.start()` walks servers one at a time and allows each 30s to
- * connect and 30s more to list its tools, so a handful of unreachable ones can
- * hold the first tick for minutes, including the notify and script schedules
- * that never touch MCP. Past this deadline the connect continues in the
- * background and the tick starts without it.
- */
-const MCP_STARTUP_GRACE_MS = 20_000;
 
 /**
  * Rebuild this process's MCP connections whenever the daemon reports a reload.
@@ -85,10 +72,7 @@ function watchForMcpReload(): void {
       restartQueued = true;
       return;
     }
-    restarting = restartConfiguredMcpServers()
-      .then((toolCount) => {
-        log.info({ toolCount }, "MCP servers reloaded in schedule worker");
-      })
+    restarting = reloadScheduleWorkerMcp()
       .catch((err: unknown) => {
         log.warn({ err }, "MCP reload failed in schedule worker");
       })
@@ -193,16 +177,10 @@ async function main(): Promise<void> {
   // keeps this process independent of the daemon's event loop, which is the
   // reason it is a separate process at all.
   //
-  // Bounded by MCP_STARTUP_GRACE_MS: unreachable servers must not hold the
-  // schedules that do not use them. The connect runs on past the deadline.
-  const mcpStartup = startConfiguredMcpServers();
-  await Promise.race([
-    mcpStartup,
-    // Unref'd so a connect that beats the deadline leaves nothing pending.
-    new Promise((resolve) => {
-      setTimeout(resolve, MCP_STARTUP_GRACE_MS).unref();
-    }),
-  ]);
+  // Bounded by MCP_STARTUP_GRACE_MS so notify/script can fire. Execute, wake,
+  // and workflow schedules stay deferred until the connect settles and the
+  // tool surface is marked ready.
+  await bootstrapScheduleWorkerMcp();
 
   // React to an MCP reload in the daemon. The server set belongs to the config
   // and the daemon owns the watcher that notices it change; this process holds

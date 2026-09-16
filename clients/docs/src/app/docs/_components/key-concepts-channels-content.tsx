@@ -240,9 +240,10 @@ export function KeyConceptsChannelsContent() {
             to do something, it sends an inline keyboard you can tap.
           </p>
           <p className="mb-4 text-zinc-600">
-            Telegram currently works in private chats only. Messages and
-            button taps from groups, supergroups, and channels are not
-            supported yet.
+            Telegram works in private chats and in groups. In a group, your
+            assistant answers when a message mentions it or replies to one of
+            its posts, and stays out of the rest of the conversation. Broadcast
+            channels are not supported.
           </p>
           <p className="mb-0 text-zinc-600">
             Telegram is also one of the channels your assistant can use to

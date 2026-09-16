@@ -462,6 +462,74 @@ describe("computeToolCallCardDataFromItems — interleaved ordering", () => {
   });
 });
 
+describe("computeToolCallCardDataFromItems - explicit activity", () => {
+  const settledToolThenThinking = (): ToolCallCardItem[] => [
+    {
+      kind: "toolCall",
+      toolCall: makeToolCall({
+        id: "tc-complete",
+        name: "bash",
+        status: "completed",
+        input: { command: "date" },
+      }),
+    },
+    { kind: "thinking", text: "Preparing the next step" },
+  ];
+
+  test("keeps trailing thinking live only while its transcript group is active", () => {
+    expect(
+      computeToolCallCardDataFromItems(
+        settledToolThenThinking(),
+        {},
+        undefined,
+        { active: true },
+      ).state,
+    ).toBe("loading");
+    expect(
+      computeToolCallCardDataFromItems(settledToolThenThinking(), {}).state,
+    ).toBe("complete");
+  });
+
+  test("active loading takes precedence over a completed error", () => {
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-error",
+          name: "bash",
+          status: "error",
+          isError: true,
+        }),
+      },
+      { kind: "thinking", text: "Recovering" },
+    ];
+
+    expect(
+      computeToolCallCardDataFromItems(items, {}, undefined, { active: true })
+        .state,
+    ).toBe("loading");
+  });
+
+  test("denial remains stronger than explicit activity", () => {
+    const items: ToolCallCardItem[] = [
+      {
+        kind: "toolCall",
+        toolCall: makeToolCall({
+          id: "tc-denied",
+          name: "bash",
+          confirmationDecision: "denied",
+        }),
+      },
+      { kind: "thinking", text: "Waiting" },
+    ];
+
+    expect(
+      computeToolCallCardDataFromItems(items, {}, undefined, { active: true })
+        .state,
+    ).toBe("denied");
+  });
+});
+
 describe("computeToolCallCardDataFromItems — totalDurationLabel", () => {
   test("sums BOTH thinking and tool time, not just tool calls", () => {
     // GIVEN a run with 2s of thinking and 3s of tool work

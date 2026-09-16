@@ -17,7 +17,7 @@ import {
 } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import {
@@ -31,7 +31,7 @@ import { getWorkspaceDir } from "../util/platform.js";
 import { getConversationAttachmentsDirPath } from "./conversation-directories.js";
 import { getDb } from "./db-connection.js";
 import { rawAll, rawGet, rawRun } from "./raw-query.js";
-import { attachments, messageAttachments } from "./schema.js";
+import { attachments, messageAttachments, messages } from "./schema.js";
 
 export interface StoredAttachment {
   id: string;
@@ -206,16 +206,23 @@ function insertMessageAttachmentLink(
   attachmentId: string,
   position: number,
 ): void {
-  const db = getDb();
-  db.insert(messageAttachments)
-    .values({
-      id: uuid(),
-      messageId,
-      attachmentId,
-      position,
-      createdAt: Date.now(),
-    })
-    .run();
+  rawRun(
+    "attachments:insertMessageAttachmentLink",
+    `INSERT INTO message_attachments
+       (id, message_id, attachment_id, position, created_at)
+     SELECT ?, ?, ?, ?, ?
+     WHERE NOT EXISTS (
+       SELECT 1 FROM message_attachments
+       WHERE message_id = ? AND attachment_id = ?
+     )`,
+    uuid(),
+    messageId,
+    attachmentId,
+    position,
+    Date.now(),
+    messageId,
+    attachmentId,
+  );
 }
 
 function persistAttachmentFilePath(
@@ -1256,6 +1263,20 @@ export function linkAttachmentToMessage(
     throw new Error(`Message not found: ${messageId}`);
   }
 
+  const existing = getDb()
+    .select({ attachmentId: messageAttachments.attachmentId })
+    .from(messageAttachments)
+    .where(
+      and(
+        eq(messageAttachments.messageId, messageId),
+        eq(messageAttachments.attachmentId, attachmentId),
+      ),
+    )
+    .get();
+  if (existing) {
+    return existing.attachmentId;
+  }
+
   const scopedAttachmentId = scopeAttachmentToConversation(
     attachmentId,
     ctx.conversationId,
@@ -1301,41 +1322,60 @@ export function getAttachmentsForMessage(
 export function getAttachmentMetadataForMessage(
   messageId: string,
 ): StoredAttachment[] {
-  const db = getDb();
-  const links = db
-    .select({ attachmentId: messageAttachments.attachmentId })
-    .from(messageAttachments)
-    .where(eq(messageAttachments.messageId, messageId))
-    .orderBy(messageAttachments.position)
-    .all();
+  return getAttachmentMetadataForMessages([messageId]).map(
+    (row) => row.attachment,
+  );
+}
 
-  if (links.length === 0) {
+export interface MessageAttachmentMetadata {
+  messageId: string;
+  messageMetadata: string | null;
+  attachment: StoredAttachment;
+}
+
+/**
+ * Return linked attachment metadata together with the metadata of each source
+ * message. Rows follow the requested message order, then link position.
+ */
+export function getAttachmentMetadataForMessages(
+  messageIds: string[],
+): MessageAttachmentMetadata[] {
+  if (messageIds.length === 0) {
     return [];
   }
-
-  const results: StoredAttachment[] = [];
-  for (const link of links) {
-    if (!link.attachmentId) {
-      continue;
-    }
-    const row = db
-      .select({
-        id: attachments.id,
-        originalFilename: attachments.originalFilename,
-        mimeType: attachments.mimeType,
-        sizeBytes: attachments.sizeBytes,
-        kind: attachments.kind,
-        thumbnailBase64: attachments.thumbnailBase64,
-        createdAt: attachments.createdAt,
-      })
-      .from(attachments)
-      .where(eq(attachments.id, link.attachmentId))
-      .get();
-    if (row) {
-      results.push(row);
-    }
-  }
-  return results;
+  const db = getDb();
+  const rows = db
+    .select({
+      messageId: messageAttachments.messageId,
+      messageMetadata: messages.metadata,
+      position: messageAttachments.position,
+      id: attachments.id,
+      originalFilename: attachments.originalFilename,
+      mimeType: attachments.mimeType,
+      sizeBytes: attachments.sizeBytes,
+      kind: attachments.kind,
+      thumbnailBase64: attachments.thumbnailBase64,
+      createdAt: attachments.createdAt,
+    })
+    .from(messageAttachments)
+    .innerJoin(messages, eq(messages.id, messageAttachments.messageId))
+    .innerJoin(attachments, eq(attachments.id, messageAttachments.attachmentId))
+    .where(inArray(messageAttachments.messageId, messageIds))
+    .all();
+  const messageOrder = new Map(messageIds.map((id, index) => [id, index]));
+  rows.sort((a, b) => {
+    const messageDelta =
+      (messageOrder.get(a.messageId) ?? 0) -
+      (messageOrder.get(b.messageId) ?? 0);
+    return messageDelta !== 0 ? messageDelta : a.position - b.position;
+  });
+  return rows.map(
+    ({ messageId, messageMetadata, position: _position, ...a }) => ({
+      messageId,
+      messageMetadata,
+      attachment: a,
+    }),
+  );
 }
 
 /**

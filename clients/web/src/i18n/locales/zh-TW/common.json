@@ -712,7 +712,7 @@
     "copied": "已複製！",
     "copyName": "複製名稱",
     "displayNameHint": "對於顯示名稱，<strong>{suggestedName}</strong> 可讓此機器人與您的助理相符。使用者名稱是獨立的，不一定要相符。",
-    "dmOnlyNotice": "目前僅支援私人聊天。群組、超級群組與頻道中的訊息與按鈕點擊尚不支援。",
+    "chatScopeNotice": "支援私人聊天與群組。在群組中，助理會在被提及或有人回覆它時回應。不支援廣播頻道。",
     "inBotFather": "在 BotFather 中：",
     "intro": "Telegram 機器人是透過傳送訊息給 <strong>@BotFather</strong> 來建立的。開啟它，按照提示操作，然後帶著它給您的權杖回來。",
     "next": "下一步",

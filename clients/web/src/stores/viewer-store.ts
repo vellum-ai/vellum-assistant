@@ -434,17 +434,6 @@ export interface ToolDetailPayload {
 }
 
 /**
- * Payload for the activity-steps side panel — the full steps timeline of one
- * contiguous thinking + tool run (a `MultiActivityGroup`).
- *
- * `messageId` + `groupIndex` are the stable identity of the activity group in
- * the transcript: the open panel re-derives live items from the chat-session
- * store (via `useLiveActivityGroup`) so it streams as new steps land. The
- * embedded `items` / `toolCalls` are the open-time snapshot, used only when
- * the live source can't be resolved (message paged out, or identity-less
- * callers like stories).
- */
-/**
  * Payload for the wake-detail side panel: everything the transcript card
  * folds away behind "View details".
  *
@@ -459,26 +448,53 @@ export interface WakeDetailPayload {
   metadata: Array<{ label: string; value: string }>;
 }
 
+/**
+ * Payload for the activity-steps side panel: the full steps timeline of one
+ * contiguous thinking + tool run (a `MultiActivityGroup`).
+ *
+ * `messageId` plus the raw group tool-call ids identify the activity group as
+ * pagination shifts its numeric index or older history extends the group.
+ * Thinking-only groups retain exact-index identity. The embedded `items` /
+ * `toolCalls` are the open-time snapshot, used only when the live source can't
+ * be resolved (message paged out, or identity-less callers like stories).
+ */
 export interface ActivityStepsPayload {
   messageId?: string;
   groupIndex?: number;
+  /** Tool-call occurrence ids from the group before display suppression. */
+  groupToolCallIds?: string[];
   items: ToolCallCardItem[];
   toolCalls: ChatMessageToolCall[];
+  /** Open-time evidence that this was the active trailing transcript group. */
+  active?: boolean;
 }
 
 /**
  * Whether two activity-steps payloads address the same transcript group.
- * Keys on the stable (message, group) identity when present, falling back to
- * the first tool-call id for identity-less callers.
+ * Within one message, overlapping raw tool-call ids keep the same group
+ * selected when pagination prepends older groups. Exact indexes identify
+ * groups that have no raw tool-call evidence.
  */
 export function sameActivityStepsTarget(
   a: ActivityStepsPayload,
   b: ActivityStepsPayload,
 ): boolean {
   if (a.messageId != null || b.messageId != null) {
-    return a.messageId === b.messageId && a.groupIndex === b.groupIndex;
+    if (a.messageId !== b.messageId) {
+      return false;
+    }
+    if (a.groupToolCallIds?.length && b.groupToolCallIds?.length) {
+      const bIds = new Set(b.groupToolCallIds);
+      return a.groupToolCallIds.some((id) => bIds.has(id));
+    }
+    return a.groupIndex === b.groupIndex;
   }
-  return a.toolCalls[0]?.id === b.toolCalls[0]?.id;
+  const aAnchor = a.toolCalls[0]?.id;
+  const bAnchor = b.toolCalls[0]?.id;
+  if (aAnchor != null && bAnchor != null) {
+    return aAnchor === bAnchor;
+  }
+  return a.groupIndex != null && a.groupIndex === b.groupIndex;
 }
 
 /**

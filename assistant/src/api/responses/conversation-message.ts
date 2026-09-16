@@ -51,6 +51,9 @@ export const ConversationMessageAttachmentSchema = z.object({
   thumbnailData: z.string().optional(),
   /** True when the attachment bytes are backed by a file on disk. */
   fileBacked: z.boolean().optional(),
+  /** True when this computer-use screenshot was placed on the reply
+   *  automatically. Missing or false identifies legacy or explicit placement. */
+  computerUseScreenshot: z.boolean().optional(),
 });
 export type ConversationMessageAttachment = z.infer<
   typeof ConversationMessageAttachmentSchema

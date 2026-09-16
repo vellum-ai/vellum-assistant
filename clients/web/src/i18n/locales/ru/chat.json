@@ -24,7 +24,16 @@
   "activityStepsPanel": {
     "backAria": "Назад ко всем шагам",
     "backTooltip": "Все шаги",
+    "screenshotAria": "Открыть снимок экрана: {activity}",
+    "screenshotFallbackAria": "Открыть снимок экрана компьютера",
+    "screenshotFallbackTitle": "Снимок экрана компьютера",
+    "screenshotTitle": "Снимок экрана: {activity}",
     "thinkingTitle": "Размышление"
+  },
+  "computerUseScreenshotPreview": {
+    "unavailable": "Последний снимок экрана недоступен.",
+    "unavailableShowingPrevious": "Последний снимок экрана недоступен. Показан предыдущий снимок.",
+    "updating": "Обновление снимка экрана..."
   },
   "addToChatSheet": {
     "title": "Добавить в диалог",

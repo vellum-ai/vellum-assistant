@@ -65,8 +65,17 @@
     "backAria": "Volver a todos los pasos",
     "backTooltip": "Todos los pasos",
     "closeSteps": "Cerrar pasos",
+    "screenshotAria": "Vista previa de la captura de pantalla de {activity}",
+    "screenshotFallbackAria": "Vista previa de la captura de pantalla del ordenador",
+    "screenshotFallbackTitle": "Captura de pantalla del ordenador",
+    "screenshotTitle": "Captura de pantalla de {activity}",
     "thinkingTitle": "Pensando",
     "viewThinkingAria": "Ver razonamiento"
+  },
+  "computerUseScreenshotPreview": {
+    "unavailable": "La captura de pantalla más reciente no está disponible.",
+    "unavailableShowingPrevious": "La captura de pantalla más reciente no está disponible. Se muestra la captura anterior.",
+    "updating": "Actualizando la captura de pantalla..."
   },
   "addToChatSheet": {
     "camera": "Cámara",
