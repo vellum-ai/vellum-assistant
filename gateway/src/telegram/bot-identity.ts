@@ -13,7 +13,10 @@
  * still admit" rather than "every room message drops".
  *
  * Cached per token, so a rotated token re-resolves and a stable one costs one
- * call per process.
+ * call per process. An identity that came from the token alone is held only
+ * for {@link DEGRADED_IDENTITY_RETRY_MS}, so a `getMe` outage at the first
+ * room message does not leave `@username` mentions unrecognised until the
+ * next restart.
  */
 
 import { credentialKey } from "../credential-key.js";
@@ -40,14 +43,32 @@ export function botUserIdFromToken(token: string): string | undefined {
 type GetMeResult = { id?: number; username?: string };
 
 /**
+ * How long an identity resolved without `getMe` is trusted before the next
+ * room update tries `getMe` again. Long enough that a Telegram outage does
+ * not cost a call per message, short enough that recovery is noticed within
+ * a minute.
+ */
+export const DEGRADED_IDENTITY_RETRY_MS = 60_000;
+
+/**
  * A resolver that answers the bot's identity for the current token, or
  * `undefined` when there is no token to answer for.
  */
-export function createTelegramBotIdentityResolver(caches?: {
-  credentials?: CredentialCache;
-  configFile?: ConfigFileCache;
-}): () => Promise<TelegramBotIdentity | undefined> {
-  let cached: { token: string; identity: TelegramBotIdentity } | undefined;
+export function createTelegramBotIdentityResolver(
+  caches?: {
+    credentials?: CredentialCache;
+    configFile?: ConfigFileCache;
+  },
+  now: () => number = Date.now,
+): () => Promise<TelegramBotIdentity | undefined> {
+  let cached:
+    | {
+        token: string;
+        identity: TelegramBotIdentity;
+        /** Set when `getMe` failed and the identity came from the token. */
+        retryAfter?: number;
+      }
+    | undefined;
   let inFlight: Promise<TelegramBotIdentity | undefined> | undefined;
 
   return async () => {
@@ -57,7 +78,10 @@ export function createTelegramBotIdentityResolver(caches?: {
     if (!token) {
       return undefined;
     }
-    if (cached?.token === token) {
+    if (
+      cached?.token === token &&
+      (cached.retryAfter === undefined || now() < cached.retryAfter)
+    ) {
       return cached.identity;
     }
     if (inFlight) {
@@ -65,27 +89,34 @@ export function createTelegramBotIdentityResolver(caches?: {
     }
     inFlight = (async () => {
       const fromToken = botUserIdFromToken(token);
-      let identity: TelegramBotIdentity | undefined;
       try {
         const me = await callTelegramApi<GetMeResult>("getMe", {}, caches);
         const userId = me.id != null ? String(me.id) : fromToken;
-        if (userId) {
-          identity = {
-            userId,
-            ...(me.username ? { username: me.username } : {}),
-          };
+        if (!userId) {
+          return undefined;
         }
+        const identity: TelegramBotIdentity = {
+          userId,
+          ...(me.username ? { username: me.username } : {}),
+        };
+        cached = { token, identity };
+        return identity;
       } catch (err) {
         log.warn(
           { err },
           "getMe failed; room admission falls back to the token's user id",
         );
-        identity = fromToken ? { userId: fromToken } : undefined;
+        if (!fromToken) {
+          return undefined;
+        }
+        const identity: TelegramBotIdentity = { userId: fromToken };
+        cached = {
+          token,
+          identity,
+          retryAfter: now() + DEGRADED_IDENTITY_RETRY_MS,
+        };
+        return identity;
       }
-      if (identity) {
-        cached = { token, identity };
-      }
-      return identity;
     })();
     try {
       return await inFlight;
