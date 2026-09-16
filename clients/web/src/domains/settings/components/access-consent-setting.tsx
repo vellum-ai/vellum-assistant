@@ -57,26 +57,30 @@ export function AccessConsentSetting() {
     enabled: canQuery,
   });
 
+  // The target id travels with the mutation rather than being read from
+  // render scope in `onSuccess`: if the active assistant changes while the
+  // PATCH is in flight, the response must land in the cache of the assistant
+  // it was sent for, not whichever one is now on screen.
   const updateConsent = useMutation({
-    mutationFn: async (next: boolean) => {
-      if (!assistantId) {
-        throw new Error("No active assistant");
-      }
+    mutationFn: async ({
+      assistantId: targetId,
+      next,
+    }: {
+      assistantId: string;
+      next: boolean;
+    }) => {
       const { data: updated } =
         await assistantsAccessConsentDetailPartialUpdate({
-          path: { id: assistantId },
+          path: { id: targetId },
           body: { access_consented: next },
           throwOnError: true,
         });
       return updated;
     },
-    onSuccess: (updated) => {
-      if (!assistantId) {
-        return;
-      }
+    onSuccess: (updated, variables) => {
       assistantsAccessConsentDetailReadSetQueryData(
         queryClient,
-        { path: { id: assistantId } },
+        { path: { id: variables.assistantId } },
         updated,
       );
       toast.success(
@@ -143,7 +147,11 @@ export function AccessConsentSetting() {
               <Toggle
                 checked={checked}
                 disabled={disabled}
-                onChange={() => updateConsent.mutate(!checked)}
+                onChange={() => {
+                  if (assistantId) {
+                    updateConsent.mutate({ assistantId, next: !checked });
+                  }
+                }}
               />
             </>
           )}

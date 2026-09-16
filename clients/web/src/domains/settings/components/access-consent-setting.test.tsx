@@ -31,6 +31,9 @@ interface RequestArgs {
 let consented = false;
 const getCalls: RequestArgs[] = [];
 const patchCalls: RequestArgs[] = [];
+// When null, PATCH responses wait until the test releases them, so a test
+// can change the active assistant while a write is still in flight.
+let releasePatch: (() => void) | null = () => {};
 
 mock.module("@/generated/api/client.gen", () => ({
   client: {
@@ -43,6 +46,11 @@ mock.module("@/generated/api/client.gen", () => ({
     },
     patch: async (args: RequestArgs) => {
       patchCalls.push(args);
+      if (releasePatch === null) {
+        await new Promise<void>((resolve) => {
+          releasePatch = resolve;
+        });
+      }
       consented = args.body?.access_consented ?? consented;
       return {
         data: { access_consented: consented },
@@ -90,6 +98,7 @@ describe("AccessConsentSetting", () => {
     consented = false;
     getCalls.length = 0;
     patchCalls.length = 0;
+    releasePatch = () => {};
     useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
   });
 
@@ -119,6 +128,34 @@ describe("AccessConsentSetting", () => {
     expect(patchCalls[0].body).toEqual({ access_consented: true });
     await waitFor(() =>
       expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
+  });
+
+  test("a PATCH that settles after switching assistants is cached under the assistant it was sent for", async () => {
+    const OTHER_ID = "019d3011-97c7-7541-b49a-000000000000";
+    renderSetting();
+
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() => expect(isDisabled(toggle)).toBe(false));
+
+    // Hold the PATCH open, click, then switch the active assistant.
+    releasePatch = null;
+    fireEvent.click(toggle);
+    await waitFor(() => expect(patchCalls).toHaveLength(1));
+    expect(patchCalls[0].path?.id).toBe(ASSISTANT_ID);
+    useResolvedAssistantsStore.getState().setActiveAssistantId(OTHER_ID);
+
+    // Let the original write settle.
+    await waitFor(() => expect(releasePatch).not.toBeNull());
+    releasePatch?.();
+
+    // The response belongs to the first assistant. The second assistant's
+    // query fetched its own value (false) and must not inherit true.
+    await waitFor(() =>
+      expect(getCalls.some((call) => call.path?.id === OTHER_ID)).toBe(true),
+    );
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("false"),
     );
   });
 
