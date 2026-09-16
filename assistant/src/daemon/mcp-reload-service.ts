@@ -116,7 +116,7 @@ async function doReload(): Promise<McpReloadResult> {
     const servers: McpReloadServerResult[] = [];
 
     if (serverIds.length > 0) {
-      const serverToolInfos = await manager.start(mcpConfig);
+      const { servers: serverToolInfos } = await manager.start(mcpConfig);
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
         const mcpTools = createMcpToolsFromServer(
           tools,

@@ -58,6 +58,13 @@ import {
   scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
+import {
+  getScheduleToolSurfaceSnapshot,
+  getScheduleToolSurfaceState,
+  isScheduleToolSurfaceReady,
+  MCP_NOT_READY_DEFER_MS,
+  scheduleModeNeedsToolSurface,
+} from "./tool-surface-readiness.js";
 import { buildWakeScheduleOptions } from "./wake-schedule-options.js";
 import {
   isScheduleWorkerAdministrativelyStopped,
@@ -700,6 +707,32 @@ export async function runDueSchedulesOnce(
         `Schedule not run: plugin "${sourcePlugin}" is disabled, uninstalled, or no longer declares this schedule.`,
       );
       mark("skipped");
+      continue;
+    }
+
+    if (
+      scheduleModeNeedsToolSurface(job.mode) &&
+      !isScheduleToolSurfaceReady()
+    ) {
+      log.info(
+        {
+          jobId: job.id,
+          name: job.name,
+          mode: job.mode,
+          toolSurfaceState: getScheduleToolSurfaceState(),
+          ...getScheduleToolSurfaceSnapshot(),
+        },
+        "Deferring tool-backed schedule until the MCP tool surface is ready",
+      );
+      try {
+        await deferClaimedSchedule(job.id, Date.now() + MCP_NOT_READY_DEFER_MS);
+      } catch (err) {
+        log.warn(
+          { err, jobId: job.id },
+          "Failed to defer claimed schedule while MCP tool surface is not ready",
+        );
+      }
+      result.skipped += 1;
       continue;
     }
 
