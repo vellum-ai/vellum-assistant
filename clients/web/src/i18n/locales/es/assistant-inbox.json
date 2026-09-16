@@ -48,8 +48,6 @@
   },
   "assistantInboxSetupCard": {
     "title": "Correo del asistente",
-    "subtitle": "Configura un correo para tu asistente.",
-    "addressPreview": "La dirección de tu asistente será {address}.",
     "getStarted": "Empezar"
   }
 }

@@ -48,8 +48,6 @@
   },
   "assistantInboxSetupCard": {
     "title": "助理電子郵件",
-    "subtitle": "為你的助理設定一個電子郵件。",
-    "addressPreview": "你的助理的電子郵件地址將是 {address}。",
     "getStarted": "開始使用"
   }
 }

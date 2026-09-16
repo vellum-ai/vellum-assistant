@@ -48,8 +48,6 @@
   },
   "assistantInboxSetupCard": {
     "title": "Assistant Email",
-    "subtitle": "Set up an email for your assistant.",
-    "addressPreview": "Your assistant's address will be {address}.",
     "getStarted": "Get started"
   }
 }

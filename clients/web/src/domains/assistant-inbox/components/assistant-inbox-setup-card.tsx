@@ -11,11 +11,11 @@ import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailAddressFields } from "./email-address-fields";
 import { InboxCard } from "./inbox-card";
 
-const AVATAR_SIZE = 28;
-const DISC_SIZE = 36;
+/** The identity pill's disc, the size the sidebar draws it. */
+const DISC_SIZE = 32;
 
 export interface AssistantInboxSetupCardProps {
-  /** Whose address this creates; the card shows their avatar. */
+  /** Whose address this creates; the preview pill shows their avatar. */
   assistantId: string;
   /** The assistant's handle, set during onboarding; shown, not edited. */
   handle: string;
@@ -28,11 +28,12 @@ export interface AssistantInboxSetupCardProps {
 /**
  * The inbox on an entitled plan with no address yet. One decision is left,
  * the local part of the address, because onboarding already fixed the
- * handle, so that is the one field here: the handle and domain read as
- * text after the `@`, with the assistant's avatar leading the line, since
- * the address is theirs. The line sits on a panel washed in the assistant's
- * accent, the same wash the New Chat pill wears. There is one way out,
- * forward: skipping would leave the inbox with nothing to show.
+ * handle, so that is the one field: the handle and domain read as text
+ * after the `@`. Beneath it the address the field will produce is drawn as
+ * the sidebar's identity pill, the assistant's disc leading and the address
+ * where the name usually goes, so the preview reads as the assistant, not
+ * as a caption. There is one way out, forward: skipping would leave the
+ * inbox with nothing to show.
  */
 export function AssistantInboxSetupCard({
   assistantId,
@@ -47,13 +48,13 @@ export function AssistantInboxSetupCard({
   const [prefix, setPrefix] = useState("hi");
 
   const wash = accentHex ? panelItemWashStyle(accentHex) : null;
-  const panelStyle: CSSProperties = wash
+  const pillStyle: CSSProperties = wash
     ? { backgroundColor: String(wash["--panel-item-bg"]) }
     : {};
   const discStyle: CSSProperties = {
     width: DISC_SIZE,
     height: DISC_SIZE,
-    ...(wash ? { backgroundColor: String(wash["--panel-item-hover"]) } : {}),
+    ...(accentHex ? { backgroundColor: accentHex } : {}),
   };
 
   return (
@@ -61,7 +62,6 @@ export function AssistantInboxSetupCard({
       <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
         <InboxCard
           title={t("assistantInboxSetupCard.title")}
-          subtitle={t("assistantInboxSetupCard.subtitle")}
           footerAlign="center"
           footer={
             <Button
@@ -73,37 +73,36 @@ export function AssistantInboxSetupCard({
             </Button>
           }
         >
-          <div
-            className="flex flex-col items-center gap-3 rounded-xl bg-[var(--surface-sunken)] px-5 py-5"
-            style={panelStyle}
-          >
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col items-center gap-4">
+            <EmailAddressFields
+              prefix={prefix}
+              handle={handle}
+              rootDomain={rootDomain}
+              onPrefixChange={setPrefix}
+              disabled={busy}
+              autoFocus
+            />
+            <div
+              className="inline-flex max-w-full items-center gap-2.5 rounded-full bg-[var(--surface-active)] pr-4"
+              style={pillStyle}
+            >
               <span
                 aria-hidden="true"
-                className="flex shrink-0 items-center justify-center rounded-full bg-[var(--surface-active)]"
+                className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--surface-active)]"
                 style={discStyle}
               >
                 <ChatAvatar
                   components={components}
                   traits={traits}
                   customImageUrl={customImageUrl}
-                  size={AVATAR_SIZE}
+                  size={DISC_SIZE}
                 />
               </span>
-              <EmailAddressFields
-                prefix={prefix}
-                handle={handle}
-                rootDomain={rootDomain}
-                onPrefixChange={setPrefix}
-                disabled={busy}
-                autoFocus
-              />
+              <span className="min-w-0 truncate text-body-medium-default text-[var(--content-default)]">
+                {prefix || t("emailAddressFields.prefixPlaceholder")}@{handle}.
+                {rootDomain}
+              </span>
             </div>
-            <p className="text-center text-body-small-lighter text-[var(--content-secondary)]">
-              {t("assistantInboxSetupCard.addressPreview", {
-                address: `${prefix || "hi"}@${handle}.${rootDomain}`,
-              })}
-            </p>
           </div>
         </InboxCard>
       </div>

@@ -13,7 +13,7 @@ const TITLE_STYLE: CSSProperties = {
 
 export interface InboxCardProps {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   children: ReactNode;
   footer?: ReactNode;
   /** Where the footer's actions sit. A single action reads best centred. */
@@ -45,11 +45,13 @@ export function InboxCard({
           <h2 className="text-[var(--content-emphasised)]" style={TITLE_STYLE}>
             {title}
           </h2>
-          {/* Capped short of the edges so a longer line wraps well before
-              the card's. */}
-          <p className="max-w-[380px] text-[14px] text-[var(--content-secondary)]">
-            {subtitle}
-          </p>
+          {subtitle ? (
+            /* Capped short of the edges so a longer line wraps well before
+               the card's. */
+            <p className="max-w-[380px] text-[14px] text-[var(--content-secondary)]">
+              {subtitle}
+            </p>
+          ) : null}
         </header>
         {children}
         {footer ? (

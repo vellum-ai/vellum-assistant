@@ -48,8 +48,6 @@
   },
   "assistantInboxSetupCard": {
     "title": "Почта ассистента",
-    "subtitle": "Настройте почту для вашего ассистента.",
-    "addressPreview": "Адрес вашего ассистента будет {address}.",
     "getStarted": "Начать"
   }
 }

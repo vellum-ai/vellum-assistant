@@ -48,8 +48,6 @@
   },
   "assistantInboxSetupCard": {
     "title": "助手邮箱",
-    "subtitle": "为你的助手设置一个邮箱。",
-    "addressPreview": "你的助手的邮箱地址将是 {address}。",
     "getStarted": "开始使用"
   }
 }
