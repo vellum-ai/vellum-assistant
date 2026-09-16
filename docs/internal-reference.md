@@ -248,12 +248,11 @@ Installed managed skills are discovered from valid directories under `$VELLUM_WO
 | `scaffold_managed_skill`   | High       | Write a managed skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
 | `delete_managed_skill`     | High       | Remove a managed skill directory.                                                                                                                   |
 
-All three tools require explicit user approval before execution (Risk Level = High).
+Both tools require explicit user approval before execution (Risk Level = High).
 
 #### Constraints
 
-- Snippets must export a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.
-- If evaluation fails after 3 attempts, the assistant asks for user guidance instead of retrying.
+- A script that does not work after a few attempts is a reason to ask the user for guidance rather than to keep retrying.
 - After a skill is written or deleted, capability cards reseed from the `SKILL.md` set. The next turn continues in the same conversation.
 - Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
 
