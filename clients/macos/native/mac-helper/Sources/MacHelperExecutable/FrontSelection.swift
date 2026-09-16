@@ -118,6 +118,9 @@ enum FrontSelection {
         let role: String?
         var bundleId: String?
         var trusted = true
+        /// Whether the application in front renders with Chromium. See
+        /// `isChromium`.
+        var chromium = false
         /// Why the focused element could not be read, when it could not be.
         /// Two very different things end up as `focused=false`, and only the
         /// log can tell them apart afterwards: an application that says
@@ -125,7 +128,7 @@ enum FrontSelection {
         var error: AXError?
 
         var logLine: String {
-            "trusted=\(trusted) app=\(bundleId ?? "-") focused=\(focused) role=\(role ?? "-") takesText=\(takesText) err=\(error.map { String($0.rawValue) } ?? "-")"
+            "trusted=\(trusted) app=\(bundleId ?? "-") chromium=\(chromium) focused=\(focused) role=\(role ?? "-") takesText=\(takesText) err=\(error.map { String($0.rawValue) } ?? "-")"
         }
     }
 
@@ -145,7 +148,9 @@ enum FrontSelection {
                 trusted: false
             )
         }
-        let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        let bundleId = frontApp?.bundleIdentifier
+        let chromium = isChromium(frontApp)
         let systemWide = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(systemWide, requestTimeoutSeconds)
         var focusedRef: CFTypeRef?
@@ -164,24 +169,73 @@ enum FrontSelection {
             // that is not an element. A failure to ask has not seen the text
             // field it would be withholding from, so it answers the way an
             // untrusted read does.
-            let conclusive = status == .noValue || status == .attributeUnsupported
+            //
+            // Chromium's "nothing focused" is not conclusive either: it builds
+            // its accessibility tree only once something starts asking, so a
+            // composer the caret is sitting in reads as nothing at all.
+            let conclusive = !chromium
+                && (status == .noValue || status == .attributeUnsupported)
             return Focus(
                 focused: false,
                 takesText: !conclusive,
                 role: nil,
                 bundleId: bundleId,
+                chromium: chromium,
                 error: status == .success ? nil : status
             )
         }
         let focused = focusedValue as! AXUIElement
         AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
         let role = stringAttribute(focused, kAXRoleAttribute as CFString)
+        // **In Chromium only the page itself is a trusted no.** Web editors
+        // hand focus to wrappers that report their text as unwritable while
+        // the editor inside them takes the paste: Slack's composer is an
+        // `AXGroup` around its real `AXTextArea`. A focused web area is the
+        // page with nothing editable focused, and that one it gets right.
+        let takes = takesText(focused, role: role)
+            || (chromium && role != webAreaRole)
         return Focus(
             focused: true,
-            takesText: takesText(focused, role: role),
+            takesText: takes,
             role: role,
-            bundleId: bundleId
+            bundleId: bundleId,
+            chromium: chromium
         )
+    }
+
+    private static let webAreaRole = "AXWebArea"
+
+    /// Answers from `isChromium`, by bundle path. An application's frameworks
+    /// do not change while it runs, and this is asked at the end of every hold.
+    private nonisolated(unsafe) static var chromiumBundles: [String: Bool] = [:]
+
+    /// Whether the application renders with Chromium: Chrome and the browsers
+    /// built on it, Electron apps, CEF apps. Every one of them carries
+    /// Chromium's resource pack inside a framework, whatever the framework is
+    /// named ("Electron Framework", "Google Chrome Framework", or an app's
+    /// own), which the Accessibility attributes cannot tell apart from a
+    /// native app's.
+    private static func isChromium(_ app: NSRunningApplication?) -> Bool {
+        guard let bundlePath = app?.bundleURL?.path else {
+            return false
+        }
+        if let known = chromiumBundles[bundlePath] {
+            return known
+        }
+        let frameworks = URL(fileURLWithPath: bundlePath)
+            .appendingPathComponent("Contents/Frameworks")
+        let found = ((try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? [])
+            .filter { $0.hasSuffix(".framework") }
+            .contains {
+                FileManager.default.fileExists(
+                    atPath: frameworks
+                        .appendingPathComponent($0)
+                        .appendingPathComponent("Resources/chrome_100_percent.pak")
+                        .path
+                )
+            }
+        chromiumBundles[bundlePath] = found
+        return found
     }
 
     /// Whether text pasted right now would land in this element.
