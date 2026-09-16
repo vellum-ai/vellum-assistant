@@ -1977,6 +1977,92 @@ describe("AgentLoop", () => {
     expect(calls[0].tools).not.toEqual(dummyTools);
   });
 
+  test("onToolsSent observes the exact tool array of every provider call", async () => {
+    const perCall: ToolDefinition[][] = [
+      [
+        {
+          name: "first",
+          description: "First",
+          input_schema: { type: "object" },
+        },
+      ],
+      [
+        {
+          name: "second",
+          description: "Second",
+          input_schema: { type: "object" },
+        },
+      ],
+    ];
+    let resolveCount = 0;
+    const sent: ToolDefinition[][] = [];
+
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("t1", "first", {}),
+      textResponse("Done"),
+    ]);
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      toolExecutor: async () => ({ content: "result", isError: false }),
+      resolveTools: () => perCall[resolveCount++]!,
+      onToolsSent: (tools) => {
+        sent.push(tools);
+      },
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // One observation per provider call, each the array that call sent.
+    expect(sent).toHaveLength(2);
+    expect(calls[0].tools).toEqual(sent[0]);
+    expect(calls[1].tools).toEqual(sent[1]);
+    expect(sent.map((tools) => tools.map((t) => t.name))).toEqual([
+      ["first"],
+      ["second"],
+    ]);
+  });
+
+  test("onToolsSent sees the provider-native web_search tool the loop appends", async () => {
+    const dynamicTools: ToolDefinition[] = [
+      {
+        name: "dynamic_tool",
+        description: "Dynamic",
+        input_schema: { type: "object" },
+      },
+    ];
+    const sent: ToolDefinition[][] = [];
+
+    const { provider, calls } = createMockProvider([textResponse("Hi")]);
+    Object.assign(provider, { supportsNativeWebSearch: true });
+    const loop = new AgentLoop({
+      provider: provider,
+      systemPrompt: "system",
+      conversationId: "test-conversation",
+      config: { enableNativeWebSearch: true },
+      resolveTools: () => dynamicTools,
+      onToolsSent: (tools) => {
+        sent.push(tools);
+      },
+    });
+    await loop.run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    });
+
+    // The resolver never saw web_search; the observer sees the wire array.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.map((t) => t.name)).toEqual(["dynamic_tool", "web_search"]);
+    expect(calls[0].tools).toEqual(sent[0]);
+  });
+
   // 28. Tool list can change between turns
   test("resolveTools can return different tools on each turn", async () => {
     const toolsPerTurn: ToolDefinition[][] = [

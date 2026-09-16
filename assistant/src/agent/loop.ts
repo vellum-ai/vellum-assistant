@@ -1048,6 +1048,16 @@ export interface AgentLoopConstructorOptions {
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
   /**
+   * Observer for the final tool array of each provider call, invoked once per
+   * call with exactly what goes on the wire (after any provider-native tool
+   * is appended). This is the only point that sees the sent array: the
+   * dynamic `resolveTools` callback is also consulted out of band (token
+   * counting, compaction estimates), so a consumer that needs "what the last
+   * request sent" subscribes here rather than wrapping the resolver. Must not
+   * throw.
+   */
+  onToolsSent?: (tools: ToolDefinition[]) => void;
+  /**
    * Conversation this loop drives. Scopes the loop-held compaction circuit
    * breaker and is the source of truth the loop's pipeline contexts and
    * post-compaction re-injection resolve the live conversation through.
@@ -1087,6 +1097,7 @@ export class AgentLoop {
   private config: AgentLoopConfig;
   private tools: ToolDefinition[];
   private resolveTools: ((history: Message[]) => ToolDefinition[]) | null;
+  private onToolsSent: ((tools: ToolDefinition[]) => void) | null;
   private toolExecutor: LoopToolExecutor | null;
 
   /**
@@ -1122,6 +1133,7 @@ export class AgentLoop {
       tools,
       toolExecutor,
       resolveTools,
+      onToolsSent,
       conversationId,
       resolveConversationDir,
       transformCompactedHistory,
@@ -1131,6 +1143,7 @@ export class AgentLoop {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tools = tools ?? [];
     this.resolveTools = resolveTools ?? null;
+    this.onToolsSent = onToolsSent ?? null;
     this.toolExecutor = toolExecutor ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
@@ -1896,6 +1909,7 @@ export class AgentLoop {
         const currentTools = attachNativeWebSearch
           ? [...resolvedTools, NATIVE_WEB_SEARCH_TOOL]
           : resolvedTools;
+        this.onToolsSent?.(currentTools);
 
         // Field precedence (highest wins):
         //   1. Per-run explicit (`runModel`)

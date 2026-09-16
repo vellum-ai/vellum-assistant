@@ -103,6 +103,7 @@ import { createSurfaceMutex } from "../daemon/conversation-surfaces.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
+  createWireToolSurfaceRecorder,
   isRefusedInReadOnlyPass,
   type SubagentToolStats,
 } from "../daemon/conversation-tool-setup.js";
@@ -1157,41 +1158,82 @@ describe("createResolveToolsCallback: wire tool surface record and replay", () =
     projectedSkillToolNames = [];
   });
 
-  test("records the wire array a turn sends, keyed by conversation, and remembers its hash", () => {
+  test("the resolver itself never records: out-of-band callers read it too", () => {
     const toolDefs = [makeToolDef("remember"), makeToolDef("tool_b")];
     const ctx = makeProjectionCtx({ conversationId: "conv-live" });
     const resolve = createResolveToolsCallback(toolDefs, ctx)!;
 
-    const tools = resolve(EMPTY_HISTORY);
+    // The `/compact` token count resolves outside any turn, where presence
+    // reads clientless; recording here would overwrite the sent surface.
     resolve(EMPTY_HISTORY);
 
-    expect(tools.map((t) => t.name)).toEqual(["remember", "tool_b"]);
+    expect(recordedSurfaces).toEqual([]);
+    expect(ctx.recordedToolSurfaceHash).toBeUndefined();
+  });
+
+  test("the send-boundary recorder records the sent array, keyed by conversation, and remembers its hash", () => {
+    const ctx = makeProjectionCtx({ conversationId: "conv-live" });
+    const record = createWireToolSurfaceRecorder(ctx);
+    const sent = [makeToolDef("remember"), makeToolDef("web_search")];
+
+    record(sent);
+    record(sent);
+
     // Every provider call records; the persistence layer dedupes on the hash
-    // the resolver hands back from the previous call.
+    // handed back from the previous call.
     expect(recordedSurfaces).toEqual([
       {
         conversationId: "conv-live",
-        toolNames: ["remember", "tool_b"],
+        toolNames: ["remember", "web_search"],
         knownHash: undefined,
       },
       {
         conversationId: "conv-live",
-        toolNames: ["remember", "tool_b"],
-        knownHash: "hash:remember,tool_b",
+        toolNames: ["remember", "web_search"],
+        knownHash: "hash:remember,web_search",
       },
     ]);
-    expect(ctx.recordedToolSurfaceHash).toBe("hash:remember,tool_b");
+    expect(ctx.recordedToolSurfaceHash).toBe("hash:remember,web_search");
   });
 
   test("a failed record is swallowed and still counts as recorded", () => {
     recordSurfaceThrows = new Error("no such table");
-    const toolDefs = [makeToolDef("remember")];
-    const ctx = makeProjectionCtx({ conversationId: "conv-live" });
-    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+    const record = createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-live" }),
+    );
 
-    expect(() => resolve(EMPTY_HISTORY)).not.toThrow();
+    expect(() => record([makeToolDef("remember")])).not.toThrow();
+    record([makeToolDef("remember")]);
 
-    expect(ctx.recordedToolSurfaceHash).toBe("hash:remember");
+    // The second call carries the hash from the failed first one, so a
+    // persistent failure is retried once per distinct surface, not per call.
+    expect(recordedSurfaces.map((r) => r.knownHash)).toEqual([
+      undefined,
+      "hash:remember",
+    ]);
+  });
+
+  test("the recorder skips arrays that are not the conversation's own surface", () => {
+    const tools = [makeToolDef("remember")];
+
+    // A replaying wake sends its source's array.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-fork", wireToolReplay: tools }),
+    )(tools);
+    // A tools-disabled call sends nothing; a fork replaying [] could never
+    // call remember.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-live" }),
+    )([]);
+    // Disk-pressure cleanup narrows the wire to cleanup tools.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-live",
+        diskPressureCleanupModeActive: true,
+      }),
+    )(tools);
+
+    expect(recordedSurfaces).toEqual([]);
   });
 
   test("replays wireToolReplay verbatim on the wire while execution still derives from the fork's own context", () => {
@@ -1227,8 +1269,6 @@ describe("createResolveToolsCallback: wire tool surface record and replay", () =
     expect(ctx.allowedToolNames).toEqual(
       new Set(["remember", "bash", "scaffold_managed_skill"]),
     );
-    // A replaying wake never overwrites a recorded surface.
-    expect(recordedSurfaces).toEqual([]);
   });
 
   test("replay returns a fresh array each call so the loop cannot mutate the recorded one", () => {
