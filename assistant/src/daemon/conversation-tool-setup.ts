@@ -22,6 +22,10 @@ import {
 import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import {
+  hashConversationToolSurface,
+  recordConversationToolSurface,
+} from "../persistence/conversation-tool-surface.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
 import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
@@ -962,6 +966,34 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
 }
 
 /**
+ * Record the wire tool array a turn sends so a later fork wake can replay it
+ * (`recordConversationToolSurface`). Best-effort: a failed write is logged
+ * and the array still counts as recorded, so a persistent failure logs once
+ * per distinct surface rather than once per provider call.
+ */
+function recordWireToolSurface(
+  ctx: Conversation,
+  wireDefs: ToolDefinition[],
+): void {
+  if (!ctx.conversationId) {
+    return;
+  }
+  try {
+    ctx.recordedToolSurfaceHash = recordConversationToolSurface(
+      ctx.conversationId,
+      wireDefs,
+      ctx.recordedToolSurfaceHash,
+    );
+  } catch (err) {
+    log.warn(
+      { err, conversationId: ctx.conversationId },
+      "failed to record the conversation's wire tool surface; continuing",
+    );
+    ctx.recordedToolSurfaceHash = hashConversationToolSurface(wireDefs);
+  }
+}
+
+/**
  * Build a resolveTools callback that merges base tool definitions with
  * dynamically projected skill tools on each agent turn. Also updates
  * allowedToolNames so newly-activated skill tools aren't blocked by
@@ -1255,6 +1287,17 @@ export function createResolveToolsCallback(
 
     ctx.allowedToolNames = turnAllowed;
 
-    return applyActivityField(allBaseDefs);
+    // A wake replaying its source's recorded surface sends that array
+    // verbatim: the wire tool block is the first tier of the provider cache
+    // prefix (tools → system → messages), so only the same bytes read the
+    // source's cached prefix instead of rewriting it. Execution is unaffected:
+    // `allowedToolNames` above and the executor's allowlist gate still decide
+    // what may run.
+    if (ctx.wireToolReplay) {
+      return [...ctx.wireToolReplay];
+    }
+    const wireDefs = applyActivityField(allBaseDefs);
+    recordWireToolSurface(ctx, wireDefs);
+    return wireDefs;
   };
 }

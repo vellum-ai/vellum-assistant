@@ -118,7 +118,7 @@ import {
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
 import type { SystemPromptPersonaOverride } from "../prompts/system-prompt.js";
-import type { Message } from "../providers/types.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
 import {
   type UntrustedContentSource,
   wrapUntrustedContent,
@@ -350,6 +350,17 @@ export interface WakeOptions {
    * skill-management authoring tools callable directly.
    */
   preactivateSkillIds?: readonly string[];
+  /**
+   * Tool definitions to send verbatim as the wake's wire tool array, in place
+   * of the ones the conversation would resolve for itself. Used by fork-based
+   * memory retrospectives to replay the SOURCE conversation's recorded surface
+   * (`getConversationToolSurface`) so the provider prompt-cache prefix matches
+   * the source's live turns byte for byte. Definitions only: what may execute
+   * is still decided by `allowedTools` and the turn's own active set. Applied
+   * and restored alongside `allowedTools`; ignored when `allowedTools` is
+   * absent.
+   */
+  wireToolDefinitions?: readonly ToolDefinition[];
   /**
    * Explicit persona/channel slugs for the wake's system-prompt build,
    * applied to the conversation for the duration of the run and restored
@@ -1422,9 +1433,12 @@ export async function wakeAgentForOpportunity(
         restoreWakeToolScope = scopeWakeAllowedTools(
           conversation,
           new Set(opts.allowedTools),
-          opts.toolGateMode,
-          opts.toolContextPin,
-          opts.preactivateSkillIds,
+          {
+            gateMode: opts.toolGateMode,
+            toolContextPin: opts.toolContextPin,
+            preactivateSkillIds: opts.preactivateSkillIds,
+            wireToolDefinitions: opts.wireToolDefinitions,
+          },
         );
         return true;
       } catch (err) {

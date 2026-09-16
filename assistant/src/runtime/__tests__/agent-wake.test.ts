@@ -501,6 +501,13 @@ function makeWakeConversation(options: {
         `tools:${snapshotAllowedTools()?.join(",") ?? "all"}`,
       );
     },
+    // Mirrors Conversation.setPreactivatedSkillIds; the wake's tool-scope
+    // restore calls it, and a double without it throws inside the restore
+    // closure, leaving every field restored after it untouched.
+    preactivatedSkillIds: undefined as string[] | undefined,
+    setPreactivatedSkillIds(ids: string[] | undefined) {
+      this.preactivatedSkillIds = ids;
+    },
     get wakePersonaOverride() {
       return wakePersonaOverride;
     },
@@ -1355,6 +1362,42 @@ describe("wakeAgentForOpportunity", () => {
     });
     // ...and restored alongside the allowlist + gate mode after the wake.
     expect(conversation.toolContextPin).toBeUndefined();
+  });
+
+  test("applies wireToolDefinitions alongside the allowlist and restores it after the wake", async () => {
+    const replay = [
+      { name: "remember", description: "Save", input_schema: {} },
+      { name: "bell_jingle", description: "Ring", input_schema: {} },
+    ];
+    let replayDuringRun: unknown;
+    const conversation = makeWakeConversation({
+      runImpl: async (input) => {
+        replayDuringRun = conversation.wireToolReplay;
+        return runResult([
+          ...input,
+          { role: "assistant", content: [{ type: "text", text: "Saved." }] },
+        ]);
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "review for memories",
+        source: "memory-retrospective",
+        allowedTools: ["remember"],
+        toolGateMode: "execution",
+        wireToolDefinitions: replay,
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result).toEqual({ invoked: true, producedToolCalls: false });
+    // The replay array is live on the conversation for the duration of the
+    // run (the tool resolver returns it as the wire array)...
+    expect(replayDuringRun).toEqual(replay);
+    // ...and cleared alongside the allowlist + gate mode after the wake.
+    expect(conversation.wireToolReplay).toBeUndefined();
   });
 
   test("defaults to the wire gate mode when toolGateMode is absent", async () => {

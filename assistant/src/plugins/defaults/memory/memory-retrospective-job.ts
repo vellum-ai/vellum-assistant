@@ -48,6 +48,7 @@ import {
   deleteConversation,
   getConversation,
   getConversationProcessingStartedAt,
+  getConversationToolSurface,
   isConversationProcessing,
 } from "@vellumai/plugin-api";
 
@@ -500,10 +501,9 @@ export async function runForkBasedRetrospective(
   // Persona + tool-context parity pins derived from the source conversation
   // (see `resolveSourceParityPins`), both passed unconditionally. The persona
   // override keeps the system-prompt prefix in parity (and is a review-quality
-  // fix on its own); the tool-context pin keeps the wire tool surface in
-  // parity — the fork always runs execution gate mode below, so the source's
-  // full tool surface stays on the wire while the allowlist holds at
-  // execution time.
+  // fix on its own); the tool-context pin resolves the fork's execution-side
+  // tool inventory under the source's client context and carries the wire
+  // surface when the source has no recorded one (`sourceToolSurface` below).
   // Warm both guardian-delivery cache keys (vellum + unfiltered) so the sync
   // slug resolution inside resolveSourceParityPins (resolveUserSlug(undefined)),
   // including its any-channel fallback, hits fresh keys instead of falling
@@ -513,6 +513,16 @@ export async function runForkBasedRetrospective(
     sourceConversation,
     newMessages,
   );
+
+  // The tools array the source's most recent live turn actually sent,
+  // replayed verbatim on the fork. The wire tool block is the first tier of
+  // the provider cache prefix (tools → system → messages), and re-deriving it
+  // on the fork cannot reproduce the source's bytes: this worker's registry
+  // has no user-plugin tools, host-tool gates read connected clients the
+  // worker never has, and presence derived from a persisted interface stamp
+  // misreads clientless turns. `null` (no live turn has recorded a surface)
+  // leaves the pin's derivation as the wire surface.
+  const sourceToolSurface = await readSourceToolSurface(sourceConversationId);
 
   // `skipHintInjection: true` because the instruction is already a
   // persisted message — the wake's hint sandwich would only duplicate it.
@@ -542,16 +552,18 @@ export async function runForkBasedRetrospective(
             "find_similar_skills",
           ]
         : ["remember"],
-      // Always keep the source's full tool surface on the wire and resolve it
-      // under the source's client context (`toolContextPin`). The wire tool
-      // block is the first tier of the provider cache prefix
-      // (tools → system → messages), so a wire filter busts cache parity with
-      // the source's live turns — re-creating the cached prefix instead of
+      // Keep the source's full tool surface on the wire: replay the array its
+      // last live turn sent when one is recorded, otherwise resolve the fork's
+      // own surface under the source's client context (`toolContextPin`). The
+      // wire tool block is the first tier of the provider cache prefix
+      // (tools → system → messages), so any wire difference busts cache parity
+      // with the source's live turns, re-creating the cached prefix instead of
       // reading it. The allowlist still holds at execution time: non-allowlisted
       // calls are rejected before any executor or side effect runs. See
       // {@link SubagentToolGateMode} and {@link WakeToolContextPin}.
       toolGateMode: "execution" as const,
       toolContextPin,
+      ...(sourceToolSurface ? { wireToolDefinitions: sourceToolSurface } : {}),
       // Preactivate skill-management so its authoring tools (`find_similar_skills`
       // / `scaffold_managed_skill` / the `skill_load` target) are in the turn's
       // active set from turn 1; the checker's origin-scoped grant then makes them
@@ -729,6 +741,24 @@ function enqueueFollowUpJobs(): string[] {
     }
   }
   return followUpJobIds;
+}
+
+/**
+ * The source's recorded wire tool array, or `null` when none is recorded or
+ * the read fails (logged; the fork then derives its wire surface).
+ */
+async function readSourceToolSurface(
+  sourceConversationId: string,
+): ReturnType<typeof getConversationToolSurface> {
+  try {
+    return await getConversationToolSurface(sourceConversationId);
+  } catch (err) {
+    log.warn(
+      { err, sourceConversationId },
+      "memory-retrospective (fork): failed to read the source's recorded tool surface; deriving the wire surface instead",
+    );
+    return null;
+  }
 }
 
 /**
