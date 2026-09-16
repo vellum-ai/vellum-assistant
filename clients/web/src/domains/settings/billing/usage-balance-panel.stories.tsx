@@ -12,10 +12,8 @@
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { frameWidthDecorator } from "@/domains/settings/billing/story-frame-width";
 import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
-
-/** The width the billing Plan row gives the current-plan tile. */
-const TILE_WIDTH_PX = 420;
 
 /** The instant a subscriber's billing cycle ends on. */
 const PERIOD_END_AT = "2026-09-20T12:00:00Z";
@@ -32,21 +30,7 @@ const meta = {
   argTypes: {
     ratio: { control: { type: "range", min: 0, max: 1, step: 0.01 } },
   },
-  decorators: [
-    (Story, context) => (
-      // The panel fills whatever column the plan tile gives it, so pin that
-      // width rather than letting the centered layout shrink-wrap it.
-      <div
-        style={{
-          width:
-            (context.parameters["frameWidth"] as number | undefined) ??
-            TILE_WIDTH_PX,
-        }}
-      >
-        <Story />
-      </div>
-    ),
-  ],
+  decorators: [frameWidthDecorator],
 } satisfies Meta<typeof UsageBalancePanel>;
 
 export default meta;
@@ -61,7 +45,7 @@ export const MidCycle: Story = {};
  * line.
  */
 export const Subscriber: Story = {
-  args: { periodEnd: { at: PERIOD_END_AT, resets: true } },
+  args: { periodEnd: { at: PERIOD_END_AT, kind: "resets" } },
 };
 
 /**
@@ -71,7 +55,7 @@ export const Subscriber: Story = {
  */
 export const SubscriberNoBundle: Story = {
   name: "Subscriber without a bundle",
-  args: { periodEnd: { at: PERIOD_END_AT, resets: false } },
+  args: { periodEnd: { at: PERIOD_END_AT, kind: "renews" } },
 };
 
 /**
@@ -103,12 +87,13 @@ export const ExhaustedWithoutCta: Story = {
 };
 
 /**
- * The tile at full card width, which is what a current plan with no next tile
- * beside it gets. The bar sits a fixed gap after the title instead of at the
- * far edge, and the slack falls to the right of the percentage. The reset line
- * makes the title block two lines, which the bar centres against.
+ * The subscriber's panel at full card width, which is what a current plan with
+ * no next tile beside it gets. The bar sits a fixed gap after the title
+ * instead of at the far edge, with the slack to the right of the percentage,
+ * and the reset line makes the title block two lines that the bar centres
+ * against.
  */
 export const WideTile: Story = {
+  ...Subscriber,
   parameters: { frameWidth: 940 },
-  args: { periodEnd: { at: PERIOD_END_AT, resets: true } },
 };

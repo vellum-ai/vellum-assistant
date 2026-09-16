@@ -21,7 +21,10 @@ import {
   packageSpecs,
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
-import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
+import {
+  UsageBalancePanel,
+  type UsagePeriodEnd,
+} from "@/domains/settings/billing/usage-balance-panel";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -407,8 +410,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     Boolean(subscription.cancel_at);
   const isCanceled = subscription.status === "canceled";
   const cancelDate = getEffectiveCancelDate(subscription);
-  const showRenewal =
-    !isCancelling && !isCanceled && subscription.current_period_end;
   const showCancellation = isCancelling && !isCanceled && cancelDate;
 
   const proPlan = findProPlan(plans);
@@ -499,11 +500,14 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // renews, which the header's cancellation line already says. A sub's credit
   // bundle turns over at the period end, while a sub holding no bundle only
   // renews.
-  const usagePeriodEnd =
-    !isFreePlan && showRenewal && subscription.current_period_end
+  const usagePeriodEnd: UsagePeriodEnd | null =
+    !isFreePlan &&
+    !isCancelling &&
+    !isCanceled &&
+    subscription.current_period_end
       ? {
           at: subscription.current_period_end,
-          resets: subscription.selected_credit_tier != null,
+          kind: subscription.selected_credit_tier != null ? "resets" : "renews",
         }
       : null;
   const usagePanel = usage ? (

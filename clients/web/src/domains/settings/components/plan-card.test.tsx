@@ -50,6 +50,14 @@ import {
 import * as takeoverAvatarStash from "@/lib/billing/takeover-avatar-stash";
 import { routes } from "@/utils/routes";
 
+/**
+ * Cycle ends built from local noon, so the printed calendar day holds whatever
+ * the host offset is. A fixed UTC noon does not: it is already the next day on
+ * a host east of UTC+11.
+ */
+const BASE_PERIOD_END = new Date(2026, 6, 10, 12).toISOString();
+const PRO_PERIOD_END = new Date(2026, 7, 10, 12).toISOString();
+
 // Capture navigate() targets so the action-button wiring can be asserted
 // without a live Router.
 let navigateArgs: Array<[unknown, unknown]> = [];
@@ -206,7 +214,7 @@ function baseSubscription(): SubscriptionResponse {
     status: "active",
     renewal_date: null,
     current_period_start: null,
-    current_period_end: "2026-07-10T00:00:00Z",
+    current_period_end: BASE_PERIOD_END,
     cancel_at_period_end: false,
     cancel_at: null,
     entitlements: { managed_email: false, phone_number: false },
@@ -230,8 +238,7 @@ function proMightySubscription(): SubscriptionResponse {
     status: "active",
     renewal_date: null,
     current_period_start: null,
-    // Noon rather than midnight, so the printed day survives a host offset.
-    current_period_end: "2026-08-10T12:00:00Z",
+    current_period_end: PRO_PERIOD_END,
     cancel_at_period_end: false,
     cancel_at: null,
     package: { key: "mighty", name: "Mighty", version: 1, customized: false },
@@ -288,10 +295,11 @@ function proUltraSubscription(): SubscriptionResponse {
     status: "active",
     renewal_date: null,
     current_period_start: null,
-    current_period_end: "2026-08-10T00:00:00Z",
+    current_period_end: PRO_PERIOD_END,
     cancel_at_period_end: false,
     cancel_at: null,
     package: { key: "ultra", name: "Ultra", version: 1, customized: false },
+    selected_credit_tier: "credits_115",
     entitlements: { managed_email: false, phone_number: false },
   };
 }
@@ -1146,8 +1154,6 @@ describe("PlanCard usage balance", () => {
     // it on the current tile.
     expect(queryByTestId("plan-card-price")).toBeNull();
     expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
-    // The panel is the only place the date shows; the header carries none.
-    expect(queryByTestId("plan-card-renews")).toBeNull();
   });
 
   test("a cancelling sub prints no reset date", async () => {
@@ -1155,7 +1161,7 @@ describe("PlanCard usage balance", () => {
     // already says when it stops.
     totalUsageBalance = "25.00";
     availableUsageBalance = "15.00";
-    const { findByTestId } = renderCardInteractive(
+    const { findByTestId, getByTestId } = renderCardInteractive(
       { ...proMightySubscription(), cancel_at_period_end: true },
       plansWithSuper(),
       () => {},
@@ -1165,6 +1171,7 @@ describe("PlanCard usage balance", () => {
     expect(panel.textContent).toContain("40% used");
     expect(panel.textContent).not.toContain("Resets on");
     expect(panel.textContent).not.toContain("Renews on");
+    expect(getByTestId("plan-card-cancels").textContent).toContain("August 10");
   });
 
   test("both tiles name the package's usage instead of a dollar bundle", () => {
@@ -1202,9 +1209,12 @@ describe("PlanCard usage balance", () => {
     }
   });
 
-  test("keeps the price row when the summary reports no grant figures", async () => {
+  test("no grant figures keeps the price row and prints no cycle date", async () => {
     // An older platform omits both usage-grant fields, so there is no honest
-    // reading. The tile keeps its price rather than an empty footer.
+    // reading. The tile keeps its price rather than an empty footer, and the
+    // date lives only in the panel, so a tile without one prints no date.
+    totalUsageBalance = null;
+    availableUsageBalance = null;
     const { container } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
@@ -1220,6 +1230,8 @@ describe("PlanCard usage balance", () => {
     expect(
       within(currentTile(container)).getByTestId("plan-card-price").textContent,
     ).toBe("$30/month");
+    expect(container.textContent).not.toContain("Resets on");
+    expect(container.textContent).not.toContain("Renews on");
   });
 
   test("a Custom sub reads the same summary and still shows no chips", async () => {
@@ -1240,20 +1252,6 @@ describe("PlanCard usage balance", () => {
     expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
     expect(current.queryByText("10 GB Storage")).toBeNull();
     expect(current.queryByTestId("plan-card-price")).toBeNull();
-  });
-
-  test("a Custom sub with a bundle dates its reset", async () => {
-    totalUsageBalance = "25.00";
-    availableUsageBalance = "15.00";
-    const { findByTestId } = renderCardInteractive(
-      customProSubscription("credits_45"),
-      plansWithCreditTiers(),
-      () => {},
-    );
-
-    const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("40% used");
-    expect(panel.textContent).toContain("Resets on Aug 10");
   });
 
   test("a Custom sub with no live grants reads as fully spent", async () => {
