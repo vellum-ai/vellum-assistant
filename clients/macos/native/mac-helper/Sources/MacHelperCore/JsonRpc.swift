@@ -7,6 +7,10 @@ public enum JsonRpcErrorCode {
     public static let methodNotFound = -32601
     public static let invalidParams = -32602
     public static let internalError = -32603
+    /// A request the helper could not answer because macOS has not granted it
+    /// the privacy permission the request needs. In the range JSON-RPC leaves
+    /// to the server, so a caller can tell a refusal from a fault by code.
+    public static let permissionDenied = -32001
 }
 
 public enum JsonRpcDispatchError: Error, Equatable {

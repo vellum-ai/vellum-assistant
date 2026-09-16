@@ -79,7 +79,10 @@ export type {
   ModifierHoldRegistrationResult,
 };
 
-export type MacHelperPermissionKind = "speechRecognition" | "inputMonitoring";
+export type MacHelperPermissionKind =
+  | "speechRecognition"
+  | "inputMonitoring"
+  | "screen";
 
 export type MacHelperPermissionStatus =
   | "unknown"
@@ -545,6 +548,11 @@ export const requestMacHelperSpeechRecognitionPermission =
 export const requestMacHelperInputMonitoringPermission =
   async (): Promise<void> => {
     await openMacHelperApp(["--request-input-monitoring"]);
+  };
+
+export const requestMacHelperScreenRecordingPermission =
+  async (): Promise<void> => {
+    await openMacHelperApp(["--request-screen-recording"]);
   };
 
 const queryBundledMacHelperPermission = async (

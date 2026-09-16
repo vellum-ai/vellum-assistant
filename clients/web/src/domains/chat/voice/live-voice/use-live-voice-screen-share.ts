@@ -199,7 +199,9 @@ export function useLiveVoiceScreenShare(): void {
     /**
      * Not filed: a window that closed or a permission not granted is the
      * desktop's answer, not a fault. Lowering the ask is what tells the
-     * control, and this effect's own cleanup ends the run.
+     * control, and this effect's own cleanup ends the run. A missing grant
+     * is told to the user by main, which sends them to it when it sees the
+     * helper refuse the frame.
      */
     const lowerShare = (): void => {
       console.warn(
