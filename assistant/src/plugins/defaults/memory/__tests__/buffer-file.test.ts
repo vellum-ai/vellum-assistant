@@ -214,13 +214,14 @@ describe("consumeBufferEntries", () => {
 /**
  * The cross-process invariant. A child appends `count` tagged entries as
  * fast as it can through `appendFileSync`; this process consumes the leading
- * entries in a loop through `consume`. Returns the tags that were neither
- * consumed by a pass nor left in the buffer: the entries the consume
- * destroyed.
+ * entries (up to `passSize` at a time) in a loop through `consume`. Returns
+ * the tags that were neither consumed by a pass nor left in the buffer: the
+ * entries the consume destroyed.
  */
 async function lostUnder(
   consume: (path: string, pass: BufferEntryLines[]) => Promise<unknown>,
   count: number,
+  passSize: number,
 ): Promise<{ lost: string[]; duplicated: string[]; passes: number }> {
   const tag = `t${Math.random().toString(36).slice(2, 8)}`;
   writeFileSync(bufferPath, "");
@@ -242,7 +243,7 @@ async function lostUnder(
   });
   while (!childDone) {
     const snapshot = entries(readFileSync(bufferPath, "utf-8"));
-    const pass = snapshot.slice(0, 5);
+    const pass = snapshot.slice(0, passSize);
     if (pass.length === 0) {
       await Bun.sleep(1);
       continue;
@@ -291,10 +292,15 @@ describe("consumeBufferEntries under a concurrent appender in another process", 
   const APPENDS = 4000;
 
   test("no entry appended during consumption is lost or duplicated", async () => {
+    // Runs the consume exactly as production does, grace window included:
+    // the window is what makes the invariant hold, and a loaded machine
+    // can deschedule the appender between its open and its write for
+    // longer than a token grace would cover. Larger passes keep the run
+    // short with the full grace paid per pass.
     const outcome = await lostUnder(
-      (path, pass) =>
-        consumeBufferEntries(path, pass, { lateAppendGraceMs: 2 }),
+      (path, pass) => consumeBufferEntries(path, pass),
       APPENDS,
+      500,
     );
     expect(outcome.passes).toBeGreaterThan(0);
     expect(outcome.lost).toEqual([]);
@@ -304,7 +310,7 @@ describe("consumeBufferEntries under a concurrent appender in another process", 
   test("the naive read-modify-write consume loses entries under the same load", async () => {
     // Sensitivity check for the harness: the mechanism above is only
     // evidence if this shape, run identically, fails.
-    const outcome = await lostUnder(naiveConsume, APPENDS);
+    const outcome = await lostUnder(naiveConsume, APPENDS, 500);
     expect(outcome.passes).toBeGreaterThan(0);
     expect(outcome.lost.length).toBeGreaterThan(0);
   }, 60_000);
