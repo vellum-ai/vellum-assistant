@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { EventEmitter } from "node:events";
 
 import {
   companionAnnotationInkSchema,
@@ -133,6 +134,9 @@ const surface = {
 
 type Invoker = (args: unknown[]) => unknown;
 
+/** The renderer behind IPC sends, including the lifecycle a running call owns. */
+const mainRenderer = new EventEmitter();
+
 /** Channel to handler, with the channel's schema applied the way `on` does. */
 const listeners = new Map<string, Invoker>();
 const invocable = new Map<string, Invoker>();
@@ -142,9 +146,11 @@ const register =
   (
     channel: string,
     schema: { parse: (input: unknown) => unknown },
-    fn: (args: never) => unknown,
+    fn: (args: never, event: { sender: EventEmitter }) => unknown,
   ): void => {
-    into.set(channel, (args) => fn(schema.parse(args) as never));
+    into.set(channel, (args) =>
+      fn(schema.parse(args) as never, { sender: mainRenderer }),
+    );
   };
 
 /**
@@ -3615,6 +3621,74 @@ describe("popoverBoundsFor", () => {
     );
 
     expect(bounds.x).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/**
+ * The app's window owns the live session while main only holds the snapshot
+ * drawn on this surface. If that owner disappears, its socket and microphone
+ * disappear with it and the snapshot must not keep claiming a call is live.
+ */
+describe("the call's renderer ownership", () => {
+  beforeEach(() => {
+    mainWindowOpen = true;
+    send("vellum:voiceActivity:end");
+  });
+
+  test("is given up when the window is destroyed", () => {
+    send("vellum:voiceActivity:start", START);
+    expect(state().call).toEqual(START);
+    const before = pushes.length;
+
+    mainWindowOpen = false;
+    fireVisibilityChange();
+
+    expect(state().call).toBeNull();
+    expect(pushes.length).toBeGreaterThan(before);
+    expect(pushes.at(-1)?.call).toBeNull();
+  });
+
+  test("survives the window merely being hidden", () => {
+    send("vellum:voiceActivity:start", START);
+
+    mainWindowVisible = false;
+    fireVisibilityChange();
+
+    expect(state().call).toEqual(START);
+    send("vellum:voiceActivity:end");
+  });
+
+  test("is given up when its renderer loads a new document", () => {
+    send("vellum:voiceActivity:start", START);
+
+    mainRenderer.emit("did-start-navigation", {
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+
+    expect(state().call).toBeNull();
+    expect(pushes.at(-1)?.call).toBeNull();
+  });
+
+  test("is given up when its renderer process exits", () => {
+    send("vellum:voiceActivity:start", START);
+
+    mainRenderer.emit("render-process-gone");
+
+    expect(state().call).toBeNull();
+    expect(pushes.at(-1)?.call).toBeNull();
+  });
+
+  test("survives same-document app navigation", () => {
+    send("vellum:voiceActivity:start", START);
+
+    mainRenderer.emit("did-start-navigation", {
+      isMainFrame: true,
+      isSameDocument: true,
+    });
+
+    expect(state().call).toEqual(START);
+    send("vellum:voiceActivity:end");
   });
 });
 

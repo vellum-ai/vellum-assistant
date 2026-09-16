@@ -9,6 +9,7 @@ import {
   type Display,
   type MenuItemConstructorOptions,
   type Rectangle,
+  type WebContents,
 } from "electron";
 import { z } from "zod";
 
@@ -476,6 +477,12 @@ const finishIntro = (): void => {
  * read as "the call dropped and came back".
  */
 let call: VoiceActivityState | null = null;
+
+/** The renderer document whose socket and microphone drive `call`. */
+let callOwner: WebContents | null = null;
+
+/** Detach the lifecycle listeners installed on {@link callOwner}. */
+let detachCallOwner: (() => void) | null = null;
 
 /**
  * How long a dial is drawn with no session answering it.
@@ -1206,7 +1213,8 @@ const currentPopoverView = (): CompanionPopoverView | undefined => {
   }
   if (
     !companionPopoverHasRow(popover) ||
-    (popoverViewFor?.view === "expanded" && popoverViewFor.kind === popover.kind)
+    (popoverViewFor?.view === "expanded" &&
+      popoverViewFor.kind === popover.kind)
   ) {
     return "expanded";
   }
@@ -2491,6 +2499,67 @@ const syncCallSurface = (): void => {
   glideAvatarTo(win, home, displayUnder(home).workArea);
 };
 
+/** Stop listening to the renderer that owns the current call. */
+const releaseCallOwner = (): void => {
+  detachCallOwner?.();
+  detachCallOwner = null;
+  callOwner = null;
+};
+
+/**
+ * Drop the running call and invalidate work that belongs to its row.
+ *
+ * The caller owns the surface synchronization and state push so it can combine
+ * this change with any other claims that end in the same transition.
+ */
+const clearCall = (): boolean => {
+  if (call === null) {
+    return false;
+  }
+  releaseCallOwner();
+  call = null;
+  pickGeneration += 1;
+  return true;
+};
+
+/**
+ * Tie the call snapshot to the renderer document that drives it.
+ *
+ * A window close is handled by the main-window lifecycle below. These signals
+ * also cover a renderer crash or full document reload inside the same window.
+ */
+const ownCall = (owner: WebContents): void => {
+  if (callOwner === owner) {
+    return;
+  }
+  releaseCallOwner();
+  callOwner = owner;
+
+  const endOwnedCall = (): void => {
+    if (callOwner !== owner || !clearCall()) {
+      return;
+    }
+    syncCallSurface();
+    pushState();
+  };
+  const endOnNavigation = (
+    event: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
+  ): void => {
+    if (event.isMainFrame && !event.isSameDocument) {
+      endOwnedCall();
+    }
+  };
+
+  owner.once("destroyed", endOwnedCall);
+  owner.on("render-process-gone", endOwnedCall);
+  owner.on("did-start-navigation", endOnNavigation);
+  detachCallOwner = () => {
+    owner.off("destroyed", endOwnedCall);
+    owner.off("render-process-gone", endOwnedCall);
+    owner.off("did-start-navigation", endOnNavigation);
+  };
+};
+
 /**
  * Have the edges' window built and hidden over a display, ready to show.
  *
@@ -3449,12 +3518,13 @@ export const installCompanionWindow = (): void => {
   on(
     "vellum:voiceActivity:start",
     z.tuple([voiceActivityStartSchema]),
-    ([start]) => {
+    ([start], event) => {
       // Taken whole, redundant or not. The mirror re-syncs on mount and the
       // session controller remounts across layout-level route changes while the
       // store persists, so a second start for a call already on screen is
       // expected traffic; every field it carries is current, so there is
       // nothing on the running call worth preserving against it.
+      ownCall(event.sender);
       call = start;
       // The session is the answer the dial was waiting for. Cleared before the
       // push rather than through `setDialing`, so the surface sees one state
@@ -3484,14 +3554,10 @@ export const installCompanionWindow = (): void => {
     // first-run card to answer, an assistant with no voice, a request spent
     // some other way. Each has shown the user something else, so the dial ends
     // and the pill closes.
-    if (call === null) {
+    if (!clearCall()) {
       setDialing(false);
       return;
     }
-    call = null;
-    // The row the pick was made from is gone with the call, so a pick still
-    // resolving must not start a session over a bar that is not there.
-    pickGeneration += 1;
     syncCallSurface();
     pushState();
   });
@@ -3536,8 +3602,8 @@ export const installCompanionWindow = (): void => {
   );
 
   /**
-   * The window that publishes `watching` is gone, so stop claiming a screen is
-   * being read.
+   * The window that owns the live sessions is gone, so give up every claim tied
+   * to it.
    *
    * The session lives in the app's window: the socket and the microphone go
    * down with the renderer when it is destroyed, which is exactly why nothing
@@ -3552,10 +3618,10 @@ export const installCompanionWindow = (): void => {
    * leaves the renderer alive and its session running, and must not clear
    * anything.
    *
-   * The watch flag and the dictation, which are the two things in the context
-   * that claim a microphone or a socket is open in that window. The name and
-   * the tail are a record of what was said and this surface is still where it
-   * is read, the same bargain `working` is given by `clearCompanionWorking`.
+   * The call, watch flag, share, dictation and pending controls each claim a
+   * microphone, socket or handler is alive in that window. The name and the
+   * tail are a record of what was said and this surface is still where it is
+   * read, the same bargain `working` is given by `clearCompanionWorking`.
    */
   onMainWindowVisibilityChange(() => {
     if (currentMainWindow() !== null) {
@@ -3564,6 +3630,7 @@ export const installCompanionWindow = (): void => {
     // A dial is a claim on that window too: the request it carries is gone
     // with the renderer that parked it.
     const claiming =
+      call !== null ||
       context.watching === true ||
       context.screenShare !== undefined ||
       context.dictating !== undefined ||
@@ -3575,6 +3642,7 @@ export const installCompanionWindow = (): void => {
     }
     disarmDial();
     dialing = false;
+    clearCall();
     syncCallSurface();
     context = {
       ...context,
