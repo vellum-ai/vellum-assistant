@@ -15,12 +15,17 @@ import type {
 import { currentLocale, useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 
+/**
+ * A value as text. Whitespace is kept as written: a tool argument such as a
+ * path can depend on repeated or edge spaces, which normal collapsing would
+ * hide.
+ */
 function ValueText({ children }: { children: ReactNode }) {
   return (
     <Typography
       variant="body-medium-default"
       as="span"
-      className="[overflow-wrap:anywhere] text-[var(--content-default)]"
+      className="whitespace-pre-wrap [overflow-wrap:anywhere] text-[var(--content-default)]"
     >
       {children}
     </Typography>
