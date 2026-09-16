@@ -49,6 +49,11 @@ type SlackMessageShape = {
    * people are) even though Slack names no room kind for it.
    */
   isDirectMessage?: boolean;
+  /**
+   * The message addresses the assistant by name. Slack proves it by sending
+   * the event as an `app_mention`; a plain `message` states nothing.
+   */
+  botMentioned?: boolean;
 };
 
 /**
@@ -140,6 +145,9 @@ function buildNormalizedSlackMessage(
           : shape.chatType
             ? { isDirectMessage: shape.chatType === "im" }
             : {}),
+        ...(shape.botMentioned !== undefined
+          ? { botMentioned: shape.botMentioned }
+          : {}),
         ...(() => {
           const conversationType = slackConversationVisibility(
             channel,
@@ -366,7 +374,12 @@ export function normalizeSlackAppMention(
     routing,
     msg.channel,
     msg.user,
-    { stampTeam: true, fallbackThreadToTs: true, isDirectMessage: false },
+    {
+      stampTeam: true,
+      fallbackThreadToTs: true,
+      isDirectMessage: false,
+      botMentioned: true,
+    },
     botToken,
     renderContext,
   );
