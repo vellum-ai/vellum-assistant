@@ -35,7 +35,9 @@ function fixture() {
   const started = mock(async () => {});
   const released = mock(() => {});
   const releaseBrowser = mock(async () => {});
+  const notify = mock(async () => {});
   const lease = new DesktopAutomationLease({
+    notify,
     enabled: () => enabled,
     ready: () => ready,
     ensureReady,
@@ -50,6 +52,7 @@ function fixture() {
   cleanups.push(lease);
   return {
     lease,
+    notify,
     ensureReady,
     install,
     failSetup: () => setup.reject(new Error("download failed")),
@@ -128,6 +131,7 @@ test("cancellation stops running and queued browser commands without blocking a 
   const callback = mock(operation);
   const queued = f.lease.runBrowser(context, callback);
   abort.abort();
+  expect(f.lease.isActive).toBe(false);
   expect(await running).toBeInstanceOf(Error);
   expect((await queued).isError).toBe(true);
   expect(callback).not.toHaveBeenCalled();
@@ -205,4 +209,22 @@ test("disabled, unidentified, cancelled and released browser calls cannot instal
   f.disable();
   await expect(f.lease.runBrowser(context, operation)).rejects.toThrow();
   expect(f.ensureReady).not.toHaveBeenCalled();
+});
+
+test("activity follows the browser lease and clears before failed cleanup", async () => {
+  const f = fixture();
+  expect(f.lease.isActive).toBe(false);
+  await f.lease.runBrowser(context, operation);
+  expect(f.lease.isActive).toBe(true);
+  expect(f.notify).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(context, operation);
+  expect(f.notify).toHaveBeenCalledTimes(1);
+  f.releaseBrowser.mockRejectedValueOnce(new Error("cleanup failed"));
+  await expect(f.lease.runBrowser(context, operation, true)).rejects.toThrow(
+    "cleanup failed",
+  );
+  expect(f.lease.isActive).toBe(false);
+  expect(f.notify).toHaveBeenCalledTimes(2);
+  await f.lease.runBrowser(context, operation, true);
+  expect(f.notify).toHaveBeenCalledTimes(2);
 });

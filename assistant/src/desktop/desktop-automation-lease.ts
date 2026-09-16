@@ -1,4 +1,6 @@
 import { getConfig } from "../config/loader.js";
+import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { desktopDependencyInstaller } from "./desktop-dependencies.js";
@@ -35,13 +37,27 @@ export class DesktopAutomationLease {
       ready: () => boolean;
       ensureReady: (signal: AbortSignal) => Promise<void>;
       manager: () => DesktopSessionManager;
+      notify: () => Promise<unknown>;
     } = {
       enabled: () => isVirtualDesktopEnabled(getConfig()),
       ready: () => desktopDependencyInstaller.getStatus().state === "ready",
       ensureReady: (signal) => desktopDependencyInstaller.ensureReady(signal),
       manager: getDesktopSessionManager,
+      notify: () => publishSyncInvalidation([SYNC_TAGS.assistantDesktop]),
     },
   ) {}
+
+  get isActive(): boolean {
+    return this.owner !== null && !this.owner.abort.signal.aborted;
+  }
+
+  private notify(): void {
+    void this.deps
+      .notify()
+      .catch((err) =>
+        log.warn({ err }, "Desktop browser activity notification failed"),
+      );
+  }
 
   private exclusive<T>(run: () => Promise<T>): Promise<T> {
     const next = this.tail.then(run, run);
@@ -122,6 +138,10 @@ export class DesktopAutomationLease {
       throw new Error("The desktop is busy or shutting down");
     }
     this.owner = owner;
+    owner.abort.signal.addEventListener("abort", () => this.notify(), {
+      once: true,
+    });
+    this.notify();
     this.bindCancellation(owner, context.signal);
     const cancel = () => this.cancel(owner);
     this.watchdog = setInterval(() => {

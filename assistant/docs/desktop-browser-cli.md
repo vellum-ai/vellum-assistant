@@ -31,3 +31,5 @@ The client records key and mouse presses before dispatch. On release it opens a 
 `--use-active-tab` and personal browser targeting are rejected with `--virtual-desktop`. Download waiting is unsupported. Browser operations are bounded to two minutes and share the desktop lease's action budget and idle expiry.
 
 Validation: focused client tests exercise shared snapshot/click behavior, namespace isolation, stale references, target changes, cancellation and uncertain-input cleanup. Lease tests cover browser ownership, cancellation and cleanup independently of native input. The Linux smoke script exercises real Chrome, the CLI and visible pointer feedback.
+
+The desktop header icon pulses red while a browser automation lease is active, including between browser commands. Reduced-motion clients show solid red. Setup status exposes the optional `automationActive` field; `assistant:self:desktop` invalidations refresh it on acquisition and cancellation or release. The indicator reads status without starting installation, and reconnects refetch the current lease state.

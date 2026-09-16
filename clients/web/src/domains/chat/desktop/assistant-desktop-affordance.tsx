@@ -7,6 +7,7 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { usePointerCoarse } from "@/utils/pointer";
 
 import { useDesktopPreviewStore } from "./desktop-preview-store";
+import { useDesktopSetupStatus } from "./use-desktop-setup";
 import { useVirtualDesktopEnabled } from "./use-virtual-desktop-enabled";
 
 export function AssistantDesktopAffordance({
@@ -36,7 +37,7 @@ export function AssistantDesktopAffordance({
     <Button
       variant="ghost"
       active={open}
-      iconOnly={<Monitor />}
+      iconOnly={<DesktopActivityIcon assistantId={assistantId} />}
       aria-label={label}
       tooltip={label}
       aria-expanded={open}
@@ -47,6 +48,19 @@ export function AssistantDesktopAffordance({
         useDesktopPreviewStore.getState().toggle(assistantId);
         onToggle?.();
       }}
+    />
+  );
+}
+
+function DesktopActivityIcon({ assistantId }: { assistantId: string }) {
+  const { query } = useDesktopSetupStatus(assistantId);
+  return (
+    <Monitor
+      className={
+        query.data?.automationActive
+          ? "text-[var(--system-negative-strong)] motion-safe:animate-pulse"
+          : undefined
+      }
     />
   );
 }

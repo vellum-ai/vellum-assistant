@@ -11941,6 +11941,8 @@ paths:
                       - ready
                       - failed
                       - unsupported
+                  automationActive:
+                    type: boolean
                   stage:
                     type: string
                     enum:
@@ -11971,6 +11973,8 @@ paths:
                       - ready
                       - failed
                       - unsupported
+                  automationActive:
+                    type: boolean
                   stage:
                     type: string
                     enum:
