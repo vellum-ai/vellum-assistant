@@ -62,6 +62,12 @@ export interface PeekingEyesProps {
    * knock the integration-step coin up). Omit to leave out the bump layer.
    */
   bumpNonce?: number;
+  /**
+   * Let the eyes drift toward the cursor. On by default, for the stages where
+   * the eyes are the scene; off for a small panel inside a form, where eyes
+   * that wander read as a distraction rather than a presence.
+   */
+  followCursor?: boolean;
 }
 
 export function PeekingEyes({
@@ -71,13 +77,14 @@ export function PeekingEyes({
   entranceDelay = 0,
   restSinkFraction = 0,
   bumpNonce,
+  followCursor = true,
 }: PeekingEyesProps) {
   const reduce = useReducedMotion();
   const { w, h } = stage;
 
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   useEffect(() => {
-    if (reduce) {
+    if (reduce || !followCursor) {
       return;
     }
     const onMove = (e: MouseEvent) => {
@@ -88,7 +95,7 @@ export function PeekingEyes({
     };
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
-  }, [reduce]);
+  }, [reduce, followCursor]);
 
   const playEntrance = entrance && !reduce;
 
