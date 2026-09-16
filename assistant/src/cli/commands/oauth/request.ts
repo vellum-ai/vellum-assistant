@@ -142,22 +142,38 @@ export async function runAuthenticatedRequest(params: {
   const { providerKey, url, opts, cmd } = params;
   const jsonMode = shouldOutputJson(cmd);
 
-  // Helper: write info to stderr (respects -s)
-  const writeInfo = (msg: string): void => {
-    if (!opts.silent) {
-      process.stderr.write(msg + "\n");
+  // The command exits itself, once its last write on either stream has
+  // drained. Running the route in-process leaves handles open that the event
+  // loop waits on (the lazy CES connection the credential resolves through is
+  // never closed by the CLI), so returning from the action would leave the
+  // process alive after a complete response. A bare `process.exit()` is not
+  // the answer either: with a pipe on the other end, Bun flushes what the
+  // pipe accepts and drops the rest, so the exit rides write callbacks, which
+  // fire when the bytes are out. Stdout's last write carries `exit` itself;
+  // stderr's writes are counted, so an exit requested while one is still in
+  // flight waits for it. The pipe's capacity is not a bound to lean on: a
+  // busy host can shrink an unprivileged pipe to a single page.
+  let stderrInFlight = 0;
+  let exitRequested = false;
+  const exit = (): void => {
+    exitRequested = true;
+    if (stderrInFlight === 0) {
+      process.exit(Number(process.exitCode ?? 0));
     }
   };
 
-  // The command exits itself, once its last write has drained. Running the
-  // route in-process leaves handles open that the event loop waits on (the
-  // lazy CES connection the credential resolves through is never closed by
-  // the CLI), so returning from the action would leave the process alive
-  // after a complete response. A bare `process.exit()` is not the answer
-  // either: with stdout on a pipe, Bun flushes 64 KB and drops the rest, so
-  // the exit rides the write callback, which fires when the bytes are out.
-  const exit = (): void => {
-    process.exit(Number(process.exitCode ?? 0));
+  // Helper: write info to stderr (respects -s)
+  const writeInfo = (msg: string): void => {
+    if (opts.silent) {
+      return;
+    }
+    stderrInFlight += 1;
+    process.stderr.write(msg + "\n", () => {
+      stderrInFlight -= 1;
+      if (exitRequested) {
+        exit();
+      }
+    });
   };
 
   try {
