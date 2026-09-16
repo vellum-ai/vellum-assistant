@@ -51,6 +51,41 @@ function newManager(
   return harness;
 }
 
+test("CPU budget wraps every desktop child including dock restarts", async () => {
+  let preparations = 0;
+  const h = newManager({
+    exitOnTerm: true,
+    panelRestartDelayMs: 1,
+    renderWallpaper: async () => Buffer.from("wallpaper"),
+    prepareCpuBudget: async () => {
+      preparations++;
+      return { wrapCommand: (command) => ["budget-launcher", ...command] };
+    },
+  });
+  await h.manager.ensureDesktopRunning();
+  await waitFor(() => h.count("browser") === 1 && h.count("wallpaper") === 1);
+  h.child("panel").exit(1);
+  await waitFor(() => h.count("panel") === 2);
+  expect(preparations).toBe(1);
+  expect(
+    h.spawned.every((child) => child.request.cmd[0] === "budget-launcher"),
+  ).toBe(true);
+  await h.manager.destroy();
+});
+
+test("shutdown during CPU preparation cannot launch a delayed desktop", async () => {
+  const preparing = Promise.withResolvers<{
+    wrapCommand: (command: readonly string[]) => readonly string[];
+  }>();
+  const h = newManager({ prepareCpuBudget: () => preparing.promise });
+  const started = h.manager.ensureDesktopRunning();
+  await settle();
+  await h.manager.destroy();
+  preparing.resolve({ wrapCommand: (command) => command });
+  await expect(started).rejects.toThrow("torn down");
+  expect(h.spawned).toHaveLength(0);
+});
+
 describe("desktop wallpaper lifecycle", () => {
   test("applies the rendered wallpaper and refreshes it on reconnect without restarting X", async () => {
     let current = Buffer.from("first wallpaper");

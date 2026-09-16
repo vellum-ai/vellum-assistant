@@ -27,6 +27,10 @@ import {
 import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
 import { configureDesktopChromeFrame } from "./desktop-chrome-session.js";
 import {
+  type DesktopCpuBudget,
+  prepareDesktopCpuBudget,
+} from "./desktop-cpu-budget.js";
+import {
   desktopChromePath,
   resolveDesktopBinaries,
 } from "./desktop-dependencies.js";
@@ -164,6 +168,7 @@ type ViewerSlotResult =
   | { readonly ok: false; readonly loss: DesktopLoss };
 
 interface DesktopSessionManagerOptions {
+  readonly prepareCpuBudget?: () => Promise<DesktopCpuBudget>;
   readonly allocateDebugPort?: () => Promise<number>;
   readonly spawn?: (
     role: DesktopChildRole,
@@ -198,6 +203,8 @@ interface DesktopSessionManagerOptions {
 type DesktopBinaries = ReturnType<typeof resolveDesktopBinaries>;
 
 export class DesktopSessionManager {
+  private cpuBudget: DesktopCpuBudget | null = null;
+  private readonly prepareCpuBudget: () => Promise<DesktopCpuBudget>;
   private readonly children = new Map<DesktopChildRole, DesktopChild>();
   private starting: Promise<void> | null = null;
   /** The kill of the last tree, which a new start waits out. */
@@ -312,6 +319,7 @@ export class DesktopSessionManager {
   private readonly writeWindowManagerConfig: (configDir: string) => string;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
+    this.prepareCpuBudget = options.prepareCpuBudget ?? prepareDesktopCpuBudget;
     this.allocateDebugPort =
       options.allocateDebugPort ?? allocateDesktopDebugPort;
     this.spawn = options.spawn ?? spawnDetached;
@@ -453,6 +461,11 @@ export class DesktopSessionManager {
     const generation = this.generation;
     let env: Record<string, string>;
     try {
+      const cpuBudget = await this.prepareCpuBudget();
+      if (this.generation !== generation || this.ingressClosed) {
+        throw new Error("Desktop was torn down while preparing its CPU budget");
+      }
+      this.cpuBudget = cpuBudget;
       this.binaries = resolveDesktopBinaries(this.which);
       env = this.childEnv();
       this.launch("x-server", xServerCommand(this.binaries.xServer), env);
@@ -675,7 +688,10 @@ export class DesktopSessionManager {
       log.warn({ role, pid: stale.pid }, "Desktop process already running");
       void this.killAll(new Map([[role, stale]]));
     }
-    const child = this.spawn(role, { cmd, env });
+    const child = this.spawn(role, {
+      cmd: this.cpuBudget?.wrapCommand(cmd) ?? cmd,
+      env,
+    });
     this.children.set(role, child);
     child.exited.then(
       (code) => this.onChildExit(role, child, code),

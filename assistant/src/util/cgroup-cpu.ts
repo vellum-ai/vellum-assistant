@@ -75,9 +75,19 @@ export function parseK8sCpuCores(value: string): number | null {
  *    report the node's CPU count rather than the sandbox limit.
  * 2. cgroups v2 cpu.max (quota / period → fractional cores).
  * 3. cgroups v1 cpu.cfs_quota_us / cpu.cfs_period_us.
- * 4. os.cpus().length as last resort.
+ * 4. Affinity-aware os.availableParallelism(), then os.cpus().length.
+ * Every resolved limit is bounded by the available CPU count.
  */
 export function getContainerCpuCores(): number {
+  const available = getAvailableCpuCores();
+  const limit = readContainerCpuLimit();
+  if (limit === null) {
+    return available;
+  }
+  return available > 0 ? Math.min(limit, available) : limit;
+}
+
+function readContainerCpuLimit(): number | null {
   // 1. Prefer the explicit env var set by the platform StatefulSet template.
   try {
     const envLimit = getCpuLimit();
@@ -131,9 +141,20 @@ export function getContainerCpuCores(): number {
     /* not available */
   }
 
-  // 4. Fall back to the visible CPU count; 0 when even that syscall fails.
+  return null;
+}
+
+function getAvailableCpuCores(): number {
   try {
-    return cpus().length || availableParallelism();
+    const available = availableParallelism();
+    if (Number.isFinite(available) && available > 0) {
+      return available;
+    }
+  } catch {
+    /* affinity information is unavailable */
+  }
+  try {
+    return cpus().length;
   } catch {
     return 0;
   }

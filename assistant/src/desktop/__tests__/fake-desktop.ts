@@ -1,6 +1,7 @@
 import { join } from "node:path";
 
 import { sleep } from "../../util/retry.js";
+import type { DesktopCpuBudget } from "../desktop-cpu-budget.js";
 import {
   type DesktopChild,
   type DesktopChildRole,
@@ -36,6 +37,7 @@ export const LINGER_MS = 20;
 export const KILL_GRACE_MS = 20;
 
 export interface FakeDesktopOptions {
+  prepareCpuBudget?: () => Promise<DesktopCpuBudget>;
   profileDir: string;
   /** Defaults inside `profileDir`, for tests that ignore the dock's config. */
   panelConfigDir?: string;
@@ -58,6 +60,9 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
   let vncReady = true;
   let chromiumPath: () => Promise<string> = async () => "/fake/chromium";
   const manager = new DesktopSessionManager({
+    prepareCpuBudget:
+      options.prepareCpuBudget ??
+      (async () => ({ wrapCommand: (command) => command })),
     allocateDebugPort: async () => 9222,
     spawn: (role, request) => {
       if (options.failSpawn?.includes(role)) {
