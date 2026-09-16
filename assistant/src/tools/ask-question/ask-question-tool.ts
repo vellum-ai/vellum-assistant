@@ -333,22 +333,35 @@ export const askQuestionTool = {
       };
     }
 
+    let finishDesktopHelp: ((resume: boolean) => Promise<void>) | undefined;
     if (desktopHelp) {
       const { prepareDesktopHelp } =
         await import("../../desktop/desktop-help.js");
-      const unavailable = await prepareDesktopHelp(context);
-      if (unavailable) {
-        return unavailable;
+      const prepared = await prepareDesktopHelp(context);
+      if (typeof prepared !== "function") {
+        return prepared;
       }
+      finishDesktopHelp = prepared;
     }
 
     const prompter = new QuestionPrompter();
-    const result = await prompter.prompt({
-      conversationId: context.conversationId,
-      questions,
-      toolUseId: context.toolUseId,
-      signal: context.signal,
-    });
+    let result: QuestionPromptOutcome;
+    let resumeDesktop = false;
+    try {
+      result = await prompter.prompt({
+        conversationId: context.conversationId,
+        questions,
+        toolUseId: context.toolUseId,
+        signal: context.signal,
+      });
+      const answer = result.entries[0];
+      resumeDesktop =
+        result.overall === "completed" &&
+        (answer?.decision === "free_text" ||
+          (answer?.decision === "option" && answer.optionId === "done"));
+    } finally {
+      await finishDesktopHelp?.(resumeDesktop);
+    }
 
     // Format the aggregated transcript. Each line is keyed by the original
     // question text (not the daemon-assigned id) — the LLM never sees those

@@ -22,6 +22,7 @@ type Owner = {
   actions: number;
   lastActivity: number;
   desktopLost: boolean;
+  humanHelp?: symbol;
 };
 
 export class DesktopAutomationLease {
@@ -48,7 +49,11 @@ export class DesktopAutomationLease {
   ) {}
 
   get isActive(): boolean {
-    return this.owner !== null && !this.owner.abort.signal.aborted;
+    return (
+      this.owner !== null &&
+      !this.owner.humanHelp &&
+      !this.owner.abort.signal.aborted
+    );
   }
 
   private notify(): void {
@@ -163,7 +168,8 @@ export class DesktopAutomationLease {
     this.watchdog = setInterval(() => {
       try {
         if (
-          Date.now() - owner.lastActivity > IDLE_TIMEOUT_MS ||
+          (!owner.humanHelp &&
+            Date.now() - owner.lastActivity > IDLE_TIMEOUT_MS) ||
           !this.deps.enabled() ||
           !this.deps.ready()
         ) {
@@ -192,6 +198,44 @@ export class DesktopAutomationLease {
     }
   }
 
+  async reserveForHuman(
+    context: ToolContext,
+  ): Promise<(resume: boolean) => Promise<void>> {
+    let reservedOwner: Owner | undefined;
+    const reservation = Symbol("human-help");
+    const result = await this.runBrowser(context, async () => {
+      await this.deps.manager().browser.release();
+      reservedOwner = this.owner!;
+      reservedOwner.humanHelp = reservation;
+      this.notify();
+      return { content: "", isError: false };
+    });
+    if (result.isError || !reservedOwner) {
+      throw new Error(
+        "Desktop help was interrupted before control could be handed over.",
+      );
+    }
+    const owner = reservedOwner;
+    return (resume) =>
+      this.exclusive(async () => {
+        if (this.owner !== owner || owner.humanHelp !== reservation) {
+          return;
+        }
+        if (resume && !owner.abort.signal.aborted) {
+          owner.humanHelp = undefined;
+          owner.lastActivity = Date.now();
+          this.notify();
+        } else {
+          try {
+            await this.release();
+          } catch (error) {
+            this.releaseCancelledOwner(owner);
+            throw error;
+          }
+        }
+      });
+  }
+
   runBrowser(
     context: ToolContext,
     operation: (signal: AbortSignal) => Promise<ToolExecutionResult>,
@@ -214,6 +258,11 @@ export class DesktopAutomationLease {
           this.owner.actorId !== context.sourceActorPrincipalId)
       ) {
         throw new Error("Another conversation is controlling the desktop");
+      }
+      if (this.owner?.humanHelp) {
+        throw new Error(
+          "The desktop is reserved while the user is helping. Wait for Done or Skip.",
+        );
       }
       if (done) {
         await this.release();

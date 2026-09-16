@@ -60,7 +60,7 @@ export function AssistantDesktopPreview() {
 
   return (
     <AnimatePresence initial={false} key={assistantId}>
-      {(session?.assistantId === assistantId || inlineContainer) && (
+      {session?.assistantId === assistantId && (
         <DesktopPreviewFrame
           key={assistantId}
           fullscreen={Boolean(inlineContainer) || fullscreen}

@@ -1996,6 +1996,7 @@
     "timeUnavailable": "時間無法取得"
   },
   "desktopHelpCard": {
+    "showPreview": "顯示即時預覽",
     "needsHelp": "虛擬桌面需要你的協助。",
     "stepIn": "接管",
     "done": "完成",

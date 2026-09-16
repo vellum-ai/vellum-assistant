@@ -15,7 +15,11 @@ import type { ToolContext } from "../types.js";
 // `mock.module` is hoisted by bun before any static import of the tool
 // runs, so the import below sees the stubbed prompter even though
 // `askQuestionTool` captures the symbol at module-eval time.
-const prepareDesktopHelp = mock(async (_context: ToolContext) => undefined);
+const finishDesktopHelp = mock(async (_resume: boolean) => {});
+const prepareDesktopHelp = mock(
+  async (_context: ToolContext) => finishDesktopHelp,
+);
+let promptError: Error | undefined;
 mock.module("../../desktop/desktop-help.js", () => ({ prepareDesktopHelp }));
 
 const calls: QuestionPromptParams[] = [];
@@ -31,6 +35,9 @@ mock.module("../../permissions/question-prompter.js", () => ({
   QuestionPrompter: class {
     async prompt(params: QuestionPromptParams): Promise<QuestionPromptOutcome> {
       calls.push(params);
+      if (promptError) {
+        throw promptError;
+      }
       // Mirror the real prompter: it mints the request id and assigns the
       // per-question `q1..qN` ids, then returns them alongside the resolution.
       return {
@@ -65,6 +72,8 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 beforeEach(() => {
   calls.length = 0;
   prepareDesktopHelp.mockClear();
+  finishDesktopHelp.mockClear();
+  promptError = undefined;
   nextResult = {
     entries: [{ questionId: "q1", decision: "skipped" }],
     overall: "completed",
@@ -829,7 +838,7 @@ describe("answered-question record", () => {
 });
 
 describe("virtual desktop help", () => {
-  test("releases control before waiting and records Done in the transcript", async () => {
+  test("reserves the desktop before waiting and resumes control after Done", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "done" }));
     const result = await askQuestionTool.execute(
       {
@@ -842,6 +851,7 @@ describe("virtual desktop help", () => {
       makeContext(),
     );
     expect(prepareDesktopHelp).toHaveBeenCalledTimes(1);
+    expect(finishDesktopHelp).toHaveBeenCalledWith(true);
     expect(calls[0]?.questions[0]?.presentation).toBe("virtual_desktop");
     expect(result.content).toContain("fresh browser snapshot");
     expect(result.answeredQuestion?.responses[0]).toEqual({
@@ -866,6 +876,7 @@ describe("virtual desktop help", () => {
       },
       makeContext(),
     );
+    expect(finishDesktopHelp).toHaveBeenCalledWith(false);
     expect(result.content).toContain("obstacle may still be present");
     expect(result.isError).toBe(false);
   });
@@ -941,4 +952,38 @@ test("desktop help does not park on a guardian channel without desktop controls"
   expect(result.content).toContain("continue in the Vellum app");
   expect(prepareDesktopHelp).not.toHaveBeenCalled();
   expect(calls).toHaveLength(0);
+});
+
+for (const overall of ["closed", "timed_out", "aborted"] as const) {
+  test(`desktop reservation ends when the question is ${overall}`, async () => {
+    setNextResult({ overall, entries: [] });
+    await askQuestionTool.execute(
+      {
+        desktopHelp: {
+          message: "Complete verification.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
+      makeContext(),
+    );
+    expect(finishDesktopHelp).toHaveBeenCalledWith(false);
+  });
+}
+
+test("desktop reservation ends when presenting the question throws", async () => {
+  promptError = new Error("delivery failed");
+  await expect(
+    askQuestionTool.execute(
+      {
+        desktopHelp: {
+          message: "Complete verification.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
+      makeContext(),
+    ),
+  ).rejects.toThrow("delivery failed");
+  expect(finishDesktopHelp).toHaveBeenCalledWith(false);
 });

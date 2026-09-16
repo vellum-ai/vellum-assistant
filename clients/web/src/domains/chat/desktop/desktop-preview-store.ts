@@ -11,6 +11,7 @@ interface DesktopPreviewState {
 interface DesktopPreviewActions {
   setInlinePreview: (preview: DesktopPreviewState["inlinePreview"]) => void;
   openFullscreen: (assistantId: string) => void;
+  openPreview: (assistantId: string) => void;
   setPosition: (position: { x: number; y: number }) => void;
   toggle: (assistantId: string) => void;
   setFullscreen: (fullscreen: boolean) => void;
@@ -21,6 +22,8 @@ export const useDesktopPreviewStore = createSelectors(
   create<DesktopPreviewState & DesktopPreviewActions>()((set) => ({
     inlinePreview: null,
     setInlinePreview: (inlinePreview) => set({ inlinePreview }),
+    openPreview: (assistantId) =>
+      set({ session: { assistantId, view: "preview" } }),
     openFullscreen: (assistantId) =>
       set({ session: { assistantId, view: "fullscreen" } }),
     session: null,

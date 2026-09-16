@@ -48,7 +48,7 @@ export function DesktopPreviewContent({
   );
   const setFullscreen = (open: boolean) => {
     const store = useDesktopPreviewStore.getState();
-    if (!open && fullscreenOnly) {
+    if (!open && fullscreenOnly && !previewContainer) {
       store.close();
     } else if (open) {
       store.openFullscreen(assistantId);

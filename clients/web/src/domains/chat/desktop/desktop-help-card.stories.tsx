@@ -12,7 +12,9 @@ import { useDesktopPreviewStore } from "./desktop-preview-store";
 
 function PreviewFixture() {
   const preview = useDesktopPreviewStore.use.inlinePreview();
+  const session = useDesktopPreviewStore.use.session();
   useLayoutEffect(() => {
+    const initialSession = useDesktopPreviewStore.getState().session;
     const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
     const assistantDesktop =
       useAssistantFeatureFlagStore.getState().assistantDesktop;
@@ -25,6 +27,7 @@ function PreviewFixture() {
       assistantState: { kind: "active", isLocal: false, health: "healthy" },
     });
     return () => {
+      useDesktopPreviewStore.setState({ session: initialSession });
       useResolvedAssistantsStore.setState({ activeAssistantId: assistantId });
       useAssistantFeatureFlagStore.setState({ assistantDesktop });
       useAssistantLifecycleStore.setState({ assistantState });
@@ -32,6 +35,7 @@ function PreviewFixture() {
   }, []);
   return (
     preview &&
+    session?.assistantId === preview.assistantId &&
     createPortal(
       <div className="flex h-full flex-col bg-white text-neutral-800">
         <div className="bg-neutral-100 px-3 py-2 text-xs">example.com</div>

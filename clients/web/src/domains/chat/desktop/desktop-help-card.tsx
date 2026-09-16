@@ -38,6 +38,7 @@ export function DesktopHelpCard({
   }, [entry.question, expanded]);
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const enabled = useVirtualDesktopEnabled();
+  const session = useDesktopPreviewStore.use.session();
   const attachPreview = useCallback(
     (container: HTMLDivElement | null) => {
       useDesktopPreviewStore
@@ -87,7 +88,20 @@ export function DesktopHelpCard({
         <div
           ref={attachPreview}
           className="aspect-video w-full overflow-hidden bg-black"
-        />
+        >
+          {session?.assistantId !== assistantId && (
+            <Button
+              variant="ghost"
+              disabled={isSubmitting}
+              className="h-full w-full rounded-none text-white"
+              onClick={() =>
+                useDesktopPreviewStore.getState().openPreview(assistantId)
+              }
+            >
+              {t("desktopHelpCard.showPreview")}
+            </Button>
+          )}
+        </div>
       ) : (
         <Typography variant="body-small-default" className="px-3 pb-3">
           {t("assistantDesktop.unavailable")}

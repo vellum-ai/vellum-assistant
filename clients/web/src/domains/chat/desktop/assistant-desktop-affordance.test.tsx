@@ -422,6 +422,8 @@ test.each([false, true])(
         <AssistantDesktopPreview />
       </>,
     );
+    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show live preview" }));
     const panel = await screen.findByTestId("desktop-panel");
     expect(panel.getAttribute("data-view-only")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Step In" }));
@@ -450,7 +452,7 @@ test("desktop help disables all actions while its response is submitting", () =>
   render(
     <DesktopHelpCard entry={helpEntry} isSubmitting onSubmit={() => {}} />,
   );
-  for (const name of ["Step In", "Done", "Skip"]) {
+  for (const name of ["Show live preview", "Step In", "Done", "Skip"]) {
     expect(
       (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
     ).toBe(true);
@@ -501,6 +503,7 @@ test("desktop help releases its viewer when another app window takes focus", asy
   );
   expect(screen.queryByTestId("desktop-panel")).toBeNull();
   act(() => publish("app.attention", { attended: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Show live preview" }));
   await screen.findByTestId("desktop-panel");
   act(() => publish("app.attention", { attended: false }));
   expect(screen.queryByTestId("desktop-panel")).toBeNull();
@@ -531,6 +534,7 @@ test("windows without attention reporting release the viewer on browser focus ch
     expect(screen.queryByTestId("desktop-panel")).toBeNull();
     focused = true;
     fireEvent(window, new Event("focus"));
+    fireEvent.click(screen.getByRole("button", { name: "Show live preview" }));
     await screen.findByTestId("desktop-panel");
     fireEvent.click(screen.getByRole("button", { name: "Step In" }));
     expect(screen.getByRole("dialog")).toBeTruthy();
@@ -575,6 +579,8 @@ test("desktop help renders in the transcript only and submits through the questi
         <AssistantDesktopPreview />
       </>,
     );
+    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show live preview" }));
     await screen.findByTestId("desktop-panel");
     const messages = within(screen.getByRole("region", { name: "Messages" }));
     expect(messages.getByRole("button", { name: "Step In" })).toBeTruthy();
@@ -621,4 +627,26 @@ test("desktop icon pulses during automation and clears when it ends", () => {
   rerender(<DesktopHarness />);
   expect(icon().getAttribute("stroke")).toBe("currentColor");
   expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(false);
+});
+
+test("a help request does not claim a viewer until this client selects Step In", async () => {
+  render(
+    <>
+      <DesktopHelpCard
+        entry={helpEntry}
+        isSubmitting={false}
+        onSubmit={() => {}}
+      />
+      <AssistantDesktopPreview />
+    </>,
+  );
+  expect(screen.queryByTestId("desktop-panel")).toBeNull();
+  expect(useDesktopPreviewStore.getState().session).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+  const panel = await screen.findByTestId("desktop-panel");
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(panel.getAttribute("data-view-only")).toBe("false");
+  fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+  expect(screen.getByTestId("desktop-panel")).toBe(panel);
+  expect(panelUnmounts).toBe(0);
 });
