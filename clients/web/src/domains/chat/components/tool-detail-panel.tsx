@@ -130,7 +130,7 @@ export function ToolDetailBody({
         </div>
       )}
 
-      {/* Output — the final result once present, else the live streamed tail
+      {/* Output: the final result once present, else the live streamed tail
           while running, else a bare running placeholder. Suppressed for tools
           whose renderer already presents the result itself. */}
       {!renderer?.ownsOutput && (
@@ -142,7 +142,7 @@ export function ToolDetailBody({
                 ? (result as string)
                 : (streamedOutput ?? "")
             }
-            isDenied={isDenied && !hasResult}
+            isDenied={isDenied}
             isRunning={isRunning}
             isError={isError}
           />

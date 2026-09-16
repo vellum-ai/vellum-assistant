@@ -896,6 +896,15 @@
     "actionsAria": "Действия навыка",
     "moreTooltip": "Ещё"
   },
+  "skillLoadDetail": {
+    "failed": "Не удалось загрузить",
+    "loading": "Загрузка навыка…",
+    "loadingAria": "Загрузка навыка",
+    "notApproved": "Не одобрено",
+    "provides": "Предоставляет",
+    "unnamedSkill": "Навык",
+    "usedSkill": "Использованный навык"
+  },
   "skillsTab": {
     "callLink": "Вызов {number}",
     "emptyBody": "На этой вкладке перечислены все вызовы инструмента <code>skill_load</code> в диалоге. В записанных вызовах LLM их не нашли.",

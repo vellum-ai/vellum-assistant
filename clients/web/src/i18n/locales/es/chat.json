@@ -1584,8 +1584,12 @@
     "view": "Ver"
   },
   "skillLoadDetail": {
+    "failed": "No se pudo cargar",
+    "loading": "Cargando habilidad…",
     "loadingAria": "Cargando habilidad",
+    "notApproved": "No aprobada",
     "provides": "Proporciona",
+    "unnamedSkill": "Habilidad",
     "usedSkill": "Habilidad usada"
   },
   "skillLoadOutput": {
