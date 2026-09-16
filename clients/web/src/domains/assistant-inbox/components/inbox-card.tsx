@@ -14,10 +14,6 @@ const TITLE_STYLE: CSSProperties = {
 export interface InboxCardProps {
   title: string;
   subtitle: string;
-  /** Sits above the title, centred: an avatar, a glyph. */
-  leading?: ReactNode;
-  /** The decoration layer, positioned against this card's edges. */
-  decoration?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   /** Where the footer's actions sit. A single action reads best centred. */
@@ -27,15 +23,11 @@ export interface InboxCardProps {
 
 /**
  * The centred card the inbox draws before there is any mail to show: the
- * serif title with its supporting line, a body, and a trailing action row.
- * Overflow is hidden so anything the decoration layer hangs off the edges
- * is clipped the way the onboarding cards clip it.
+ * serif title with its supporting line, a body, and an action row.
  */
 export function InboxCard({
   title,
   subtitle,
-  leading,
-  decoration,
   children,
   footer,
   footerAlign = "end",
@@ -48,20 +40,13 @@ export function InboxCard({
         className,
       )}
     >
-      {decoration}
-      <div
-        className={cn(
-          "relative flex flex-col gap-6 px-8 pb-6",
-          leading ? "pt-8" : "pt-12",
-        )}
-      >
+      <div className="relative flex flex-col gap-6 px-8 pb-6 pt-12">
         <header className="flex flex-col items-center gap-2 text-center">
-          {leading ? <div className="mb-2">{leading}</div> : null}
           <h2 className="text-[var(--content-emphasised)]" style={TITLE_STYLE}>
             {title}
           </h2>
-          {/* Capped short of the edges so a longer line wraps before it
-              runs under anything looking in from the right. */}
+          {/* Capped short of the edges so a longer line wraps well before
+              the card's. */}
           <p className="max-w-[380px] text-[14px] text-[var(--content-secondary)]">
             {subtitle}
           </p>

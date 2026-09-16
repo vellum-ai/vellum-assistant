@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { useState } from "react";
 
-import { Button } from "@vellumai/design-library";
+import { Button, panelItemWashStyle } from "@vellumai/design-library";
 
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -11,8 +11,8 @@ import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailAddressFields } from "./email-address-fields";
 import { InboxCard } from "./inbox-card";
 
-const AVATAR_SIZE = 44;
-const DISC_SIZE = 64;
+const AVATAR_SIZE = 28;
+const DISC_SIZE = 36;
 
 export interface AssistantInboxSetupCardProps {
   /** Whose address this creates; the card shows their avatar. */
@@ -29,9 +29,10 @@ export interface AssistantInboxSetupCardProps {
  * The inbox on an entitled plan with no address yet. One decision is left,
  * the local part of the address, because onboarding already fixed the
  * handle, so that is the one field here: the handle and domain read as
- * text after the `@`. Everything is centred under the assistant's avatar,
- * and there is one way out, forward. Skipping would leave the inbox with
- * nothing to show, so the card does not offer it.
+ * text after the `@`, with the assistant's avatar leading the line, since
+ * the address is theirs. The line sits on a panel washed in the assistant's
+ * accent, the same wash the New Chat pill wears. There is one way out,
+ * forward: skipping would leave the inbox with nothing to show.
  */
 export function AssistantInboxSetupCard({
   assistantId,
@@ -45,14 +46,14 @@ export function AssistantInboxSetupCard({
     useAssistantAvatar(assistantId);
   const [prefix, setPrefix] = useState("hi");
 
+  const wash = accentHex ? panelItemWashStyle(accentHex) : null;
+  const panelStyle: CSSProperties = wash
+    ? { backgroundColor: String(wash["--panel-item-bg"]) }
+    : {};
   const discStyle: CSSProperties = {
     width: DISC_SIZE,
     height: DISC_SIZE,
-    ...(accentHex
-      ? {
-          backgroundColor: `color-mix(in oklab, ${accentHex} 28%, var(--surface-active))`,
-        }
-      : {}),
+    ...(wash ? { backgroundColor: String(wash["--panel-item-hover"]) } : {}),
   };
 
   return (
@@ -61,20 +62,6 @@ export function AssistantInboxSetupCard({
         <InboxCard
           title={t("assistantInboxSetupCard.title")}
           subtitle={t("assistantInboxSetupCard.subtitle")}
-          leading={
-            <span
-              aria-hidden="true"
-              className="flex items-center justify-center rounded-full bg-[var(--surface-active)]"
-              style={discStyle}
-            >
-              <ChatAvatar
-                components={components}
-                traits={traits}
-                customImageUrl={customImageUrl}
-                size={AVATAR_SIZE}
-              />
-            </span>
-          }
           footerAlign="center"
           footer={
             <Button
@@ -86,16 +73,33 @@ export function AssistantInboxSetupCard({
             </Button>
           }
         >
-          <div className="flex flex-col items-center gap-2">
-            <EmailAddressFields
-              prefix={prefix}
-              handle={handle}
-              rootDomain={rootDomain}
-              onPrefixChange={setPrefix}
-              disabled={busy}
-              autoFocus
-            />
-            <p className="text-center text-body-small-lighter text-[var(--content-tertiary)]">
+          <div
+            className="flex flex-col items-center gap-3 rounded-xl bg-[var(--surface-sunken)] px-5 py-5"
+            style={panelStyle}
+          >
+            <div className="flex items-center gap-3">
+              <span
+                aria-hidden="true"
+                className="flex shrink-0 items-center justify-center rounded-full bg-[var(--surface-active)]"
+                style={discStyle}
+              >
+                <ChatAvatar
+                  components={components}
+                  traits={traits}
+                  customImageUrl={customImageUrl}
+                  size={AVATAR_SIZE}
+                />
+              </span>
+              <EmailAddressFields
+                prefix={prefix}
+                handle={handle}
+                rootDomain={rootDomain}
+                onPrefixChange={setPrefix}
+                disabled={busy}
+                autoFocus
+              />
+            </div>
+            <p className="text-center text-body-small-lighter text-[var(--content-secondary)]">
               {t("assistantInboxSetupCard.addressPreview", {
                 address: `${prefix || "hi"}@${handle}.${rootDomain}`,
               })}
