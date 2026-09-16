@@ -52,7 +52,7 @@
   "assistantInboxSetupCard": {
     "title": "Correo del asistente",
     "subtitle": "Configura un correo para tu asistente.",
-    "immutableNotice": "No podrás cambiar el identificador una vez establecido.",
+    "addressPreview": "La dirección de tu asistente será {address}.",
     "skip": "Omitir",
     "next": "Siguiente"
   }

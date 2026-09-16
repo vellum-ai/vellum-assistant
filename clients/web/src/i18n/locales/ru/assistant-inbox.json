@@ -52,7 +52,7 @@
   "assistantInboxSetupCard": {
     "title": "Почта ассистента",
     "subtitle": "Настройте почту для вашего ассистента.",
-    "immutableNotice": "После установки имя изменить нельзя.",
+    "addressPreview": "Адрес вашего ассистента будет {address}.",
     "skip": "Пропустить",
     "next": "Далее"
   }

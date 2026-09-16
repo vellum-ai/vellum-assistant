@@ -9,15 +9,20 @@ export interface EmailAddressFieldsProps {
   handle: string;
   rootDomain: string;
   onPrefixChange: (value: string) => void;
-  onHandleChange: (value: string) => void;
+  /**
+   * Omit to lock the handle: it is drawn as the fixed domain after the `@`
+   * rather than as a field, for the surfaces where onboarding has already
+   * set it and only the prefix is still the user's to choose.
+   */
+  onHandleChange?: (value: string) => void;
   disabled?: boolean;
-  /** Focus the handle on mount, for the card where it is the one decision. */
-  autoFocusHandle?: boolean;
+  /** Focus the first editable field on mount. */
+  autoFocus?: boolean;
 }
 
 /**
- * `prefix @ handle .root`: the address builder both the upgrade state and
- * the setup card share, so the two never disagree on what an address looks
+ * `prefix @ handle .root`: the address builder the upgrade state and the
+ * setup card share, so the two never disagree on what an address looks
  * like. Input is lowercased and trimmed as typed, matching the platform's
  * subdomain rules.
  */
@@ -28,9 +33,10 @@ export function EmailAddressFields({
   onPrefixChange,
   onHandleChange,
   disabled = false,
-  autoFocusHandle = false,
+  autoFocus = false,
 }: EmailAddressFieldsProps) {
   const { t } = useTranslation("assistant-inbox");
+  const handleLocked = !onHandleChange;
 
   return (
     <div className="flex items-end gap-2">
@@ -45,6 +51,7 @@ export function EmailAddressFields({
             onPrefixChange(event.target.value.toLowerCase().trim())
           }
           disabled={disabled}
+          autoFocus={autoFocus && handleLocked}
           placeholder={t("emailAddressFields.prefixPlaceholder")}
           className={`${FIELD_CLASSES} w-24`}
         />
@@ -52,25 +59,33 @@ export function EmailAddressFields({
       <span className="flex h-9 items-center text-[var(--content-secondary)]">
         @
       </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <label htmlFor="assistant-inbox-handle" className={LABEL_CLASSES}>
-          {t("emailAddressFields.handleLabel")}
-        </label>
-        <input
-          id="assistant-inbox-handle"
-          value={handle}
-          onChange={(event) =>
-            onHandleChange(event.target.value.toLowerCase().trim())
-          }
-          disabled={disabled}
-          autoFocus={autoFocusHandle}
-          placeholder={t("emailAddressFields.handlePlaceholder")}
-          className={`${FIELD_CLASSES} w-full min-w-0`}
-        />
-      </div>
-      <span className="flex h-9 shrink-0 items-center text-[14px] text-[var(--content-tertiary)]">
-        .{rootDomain}
-      </span>
+      {handleLocked ? (
+        <span className="flex h-9 min-w-0 items-center truncate text-[14px] font-medium text-[var(--content-default)]">
+          {handle}.{rootDomain}
+        </span>
+      ) : (
+        <>
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <label htmlFor="assistant-inbox-handle" className={LABEL_CLASSES}>
+              {t("emailAddressFields.handleLabel")}
+            </label>
+            <input
+              id="assistant-inbox-handle"
+              value={handle}
+              onChange={(event) =>
+                onHandleChange(event.target.value.toLowerCase().trim())
+              }
+              disabled={disabled}
+              autoFocus={autoFocus}
+              placeholder={t("emailAddressFields.handlePlaceholder")}
+              className={`${FIELD_CLASSES} w-full min-w-0`}
+            />
+          </div>
+          <span className="flex h-9 shrink-0 items-center text-[14px] text-[var(--content-tertiary)]">
+            .{rootDomain}
+          </span>
+        </>
+      )}
     </div>
   );
 }

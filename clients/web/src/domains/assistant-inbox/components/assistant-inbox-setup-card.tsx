@@ -1,32 +1,32 @@
 import { useState } from "react";
 
-import { Button, Notice } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
 import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailAddressFields } from "./email-address-fields";
 import { InboxCard } from "./inbox-card";
-import { InboxCreatures } from "./inbox-creatures";
 
 export interface AssistantInboxSetupCardProps {
-  /** The assistant's handle, prefilled as the subdomain. */
+  /** The assistant's handle, set during onboarding; shown, not edited. */
   handle: string;
   rootDomain: string;
-  onNext: (draft: { prefix: string; handle: string }) => void;
+  onNext: (draft: { prefix: string }) => void;
   onSkip: () => void;
   /** The registration is in flight; both actions hold. */
   busy?: boolean;
 }
 
 /**
- * The inbox on an entitled plan with no address yet: the email onboarding
- * card, drawn inline in the inbox's frame instead of over the billing page.
- * Same fields, same immutability warning, same Skip and Next, so a user who
- * skipped it at checkout meets the same card here.
+ * The inbox on an entitled plan with no address yet. One decision is left,
+ * the local part of the address, because onboarding already fixed the
+ * handle, so that is the one field here: the handle and domain read as
+ * text after the `@`. No creatures; the card is a form, and it should be
+ * as quiet as one.
  */
 export function AssistantInboxSetupCard({
-  handle: initialHandle,
+  handle,
   rootDomain,
   onNext,
   onSkip,
@@ -34,7 +34,6 @@ export function AssistantInboxSetupCard({
 }: AssistantInboxSetupCardProps) {
   const { t } = useTranslation("assistant-inbox");
   const [prefix, setPrefix] = useState("hi");
-  const [handle, setHandle] = useState(initialHandle);
 
   return (
     <AssistantInboxShell>
@@ -42,7 +41,6 @@ export function AssistantInboxSetupCard({
         <InboxCard
           title={t("assistantInboxSetupCard.title")}
           subtitle={t("assistantInboxSetupCard.subtitle")}
-          decoration={<InboxCreatures variant="top" />}
           footer={
             <>
               <Button variant="outlined" disabled={busy} onClick={onSkip}>
@@ -50,31 +48,29 @@ export function AssistantInboxSetupCard({
               </Button>
               <Button
                 variant="primary"
-                disabled={!handle || busy}
-                onClick={() => onNext({ prefix, handle })}
+                disabled={!prefix || busy}
+                onClick={() => onNext({ prefix })}
               >
                 {t("assistantInboxSetupCard.next")}
               </Button>
             </>
           }
         >
-          <EmailAddressFields
-            prefix={prefix}
-            handle={handle}
-            rootDomain={rootDomain}
-            onPrefixChange={setPrefix}
-            onHandleChange={setHandle}
-            disabled={busy}
-            autoFocusHandle
-          />
-          <Notice
-            tone="info"
-            className="border-transparent bg-[var(--surface-active)]"
-          >
-            <span className="font-medium text-[var(--content-tertiary)]">
-              {t("assistantInboxSetupCard.immutableNotice")}
-            </span>
-          </Notice>
+          <div className="flex flex-col gap-2">
+            <EmailAddressFields
+              prefix={prefix}
+              handle={handle}
+              rootDomain={rootDomain}
+              onPrefixChange={setPrefix}
+              disabled={busy}
+              autoFocus
+            />
+            <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+              {t("assistantInboxSetupCard.addressPreview", {
+                address: `${prefix || "hi"}@${handle}.${rootDomain}`,
+              })}
+            </p>
+          </div>
         </InboxCard>
       </div>
     </AssistantInboxShell>

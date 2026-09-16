@@ -52,7 +52,7 @@
   "assistantInboxSetupCard": {
     "title": "助手邮箱",
     "subtitle": "为你的助手设置一个邮箱。",
-    "immutableNotice": "用户名设置后将无法更改。",
+    "addressPreview": "你的助手的邮箱地址将是 {address}。",
     "skip": "跳过",
     "next": "下一步"
   }

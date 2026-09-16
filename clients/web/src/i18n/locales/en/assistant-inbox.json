@@ -52,7 +52,7 @@
   "assistantInboxSetupCard": {
     "title": "Assistant Email",
     "subtitle": "Set up an email for your assistant.",
-    "immutableNotice": "You won't be able to change the handle once set.",
+    "addressPreview": "Your assistant's address will be {address}.",
     "skip": "Skip",
     "next": "Next"
   }

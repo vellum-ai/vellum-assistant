@@ -1,9 +1,11 @@
 import { Inbox } from "lucide-react";
 
 import {
+  cn,
   PanelItem,
   panelItemWashStyle,
-  SideMenu,
+  SIDE_MENU_TILE_SIZE,
+  Tooltip,
   type CustomPropertyStyle,
 } from "@vellumai/design-library";
 
@@ -14,7 +16,6 @@ import { useTranslation } from "@/i18n";
 export interface AssistantInboxNavItemProps {
   /** Whose inbox this opens; the pill wears that assistant's accent. */
   assistantId: string | null;
-  active: boolean;
   collapsed: boolean;
   onSelect?: () => void;
 }
@@ -23,17 +24,25 @@ export interface AssistantInboxNavItemProps {
  * The sidebar entry that opens the Assistant Inbox. It sits directly above
  * Preferences at the foot of the rail, but it is drawn the way the New Chat
  * row under the identity pill is drawn, not the way Preferences is: washed
- * in the assistant's accent with the glyph in that same colour. Preferences
- * is about the app; this entry, like New Chat, is about the assistant, so
- * it carries the assistant's colour. A content-width pill when the rail is
- * expanded, the round tile the rail reduces every pill to when it collapses.
+ * in the assistant's accent, with the glyph in that same colour, and the
+ * wash deepening on hover. Preferences is about the app; this entry, like
+ * New Chat, is about the assistant, so it carries the assistant's colour.
+ *
+ * Like New Chat it takes no `active` state. The pill's selected treatment
+ * recolours the glyph to the default ink, which would undo the accent, and
+ * its selected surface is the same raised mix hover uses, so the two would
+ * be indistinguishable. The inbox taking over the main area is what says
+ * where you are.
+ *
+ * Collapsed, it is the same hand-drawn round tile New Chat collapses to
+ * rather than the shared tile row, because that row pins its glyph to the
+ * tertiary gray and the accent could not reach it.
  *
  * With no character avatar to draw a hue from, the wash is omitted and the
  * entry falls back to the plain pill surface the rest of the rail uses.
  */
 export function AssistantInboxNavItem({
   assistantId,
-  active,
   collapsed,
   onSelect,
 }: AssistantInboxNavItemProps) {
@@ -50,15 +59,33 @@ export function AssistantInboxNavItem({
 
   if (collapsed) {
     return (
-      <SideMenu.Item
-        icon={Inbox}
-        label={label}
-        showCollapsedTooltip
-        shape="tile"
-        active={active}
-        onSelect={onSelect}
-        style={tint}
-      />
+      <Tooltip content={label} side="right">
+        <button
+          type="button"
+          onClick={onSelect}
+          aria-label={label}
+          className={cn(
+            "group relative flex shrink-0 cursor-pointer select-none items-center justify-center self-center overflow-hidden rounded-full",
+            "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
+            "transition-colors duration-150 active:scale-[0.98]",
+            "bg-[var(--panel-item-bg,var(--surface-lift))]",
+            "[@media(hover:hover)]:hover:bg-[var(--panel-item-hover,var(--surface-hover))]",
+          )}
+          style={{
+            ...tint,
+            width: SIDE_MENU_TILE_SIZE,
+            height: SIDE_MENU_TILE_SIZE,
+          }}
+        >
+          <Inbox
+            aria-hidden="true"
+            className="h-3.5 w-3.5"
+            style={{
+              color: "var(--panel-item-icon-fg, var(--content-tertiary))",
+            }}
+          />
+        </button>
+      </Tooltip>
     );
   }
 
@@ -67,7 +94,6 @@ export function AssistantInboxNavItem({
       shape="pill"
       icon={Inbox}
       label={label}
-      active={active}
       onSelect={onSelect}
       style={tint}
       className={SIDEBAR_PILL_GAP_CLASSES}

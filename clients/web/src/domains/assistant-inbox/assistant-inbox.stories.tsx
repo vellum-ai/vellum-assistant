@@ -138,7 +138,6 @@ const shellDecorator: Decorator<InboxStoryArgs> = function ChatShell(
               <div className="flex flex-col gap-2">
                 <AssistantInboxNavItem
                   assistantId={ASSISTANT_ID}
-                  active
                   collapsed={collapsed}
                   onSelect={() => {}}
                 />
