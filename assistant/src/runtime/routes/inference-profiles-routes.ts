@@ -25,14 +25,14 @@ import {
   resolveDefaultProfileForProvider,
 } from "../../config/default-profile-catalog.js";
 import {
-  nonTextConversationProfileMessage,
-  profileSupportsTextGeneration,
-} from "../../config/profile-text-generation.js";
-import {
   getConfig,
   getConfigReadOnly,
   loadRawConfig,
 } from "../../config/loader.js";
+import {
+  nonTextConversationProfileMessage,
+  profileSupportsTextGeneration,
+} from "../../config/profile-text-generation.js";
 import {
   ProfileEntry,
   routingIdentityModelIssue,
