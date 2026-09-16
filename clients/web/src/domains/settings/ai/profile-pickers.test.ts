@@ -53,6 +53,21 @@ describe("isDispatchableProfile", () => {
     expect(isDispatchableProfile(profiles[2]!, profiles, STRICT)).toBe(false);
   });
 
+  test("false when the catalog model does not produce chat text", () => {
+    expect(
+      isDispatchableProfile(
+        {
+          name: "jev",
+          label: "Jev",
+          provider: "jev",
+          model: "jev-latest",
+        },
+        profiles,
+        STRICT,
+      ),
+    ).toBe(false);
+  });
+
   test("false when either half of the pair is missing", () => {
     expect(
       isDispatchableProfile(
@@ -213,6 +228,24 @@ describe("visibleProfilesForPicker", () => {
     ).map((p) => p.name);
     expect(names).toEqual(["balanced", "quality"]);
   });
+
+  test("hides a non-text catalog profile unless it is the current selection", () => {
+    const withJev: ProfilePickerEntry[] = [
+      ...profiles,
+      {
+        name: "jev",
+        label: "Jev",
+        provider: "jev",
+        model: "jev-latest",
+      },
+    ];
+    expect(
+      visibleProfilesForPicker(withJev, [], STRICT).map((p) => p.name),
+    ).not.toContain("jev");
+    expect(
+      visibleProfilesForPicker(withJev, ["jev"], STRICT).map((p) => p.name),
+    ).toContain("jev");
+  });
 });
 
 describe("profilePickerLabel", () => {
@@ -281,6 +314,18 @@ describe("undispatchableProfileReason", () => {
       mix: [{ profile: "halfmade", weight: 1 }],
     });
     expect(reason).toContain("some turns");
+  });
+
+  test("a non-text catalog model names structured answers, not missing fields", () => {
+    const reason = undispatchableProfileReason({
+      name: "jev",
+      label: "Jev",
+      provider: "jev",
+      model: "jev-latest",
+    });
+    expect(reason).toContain("Jev");
+    expect(reason).toContain("structured answers");
+    expect(reason).not.toContain("no provider and model");
   });
 });
 

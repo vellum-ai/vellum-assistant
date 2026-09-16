@@ -73,6 +73,13 @@ export interface CatalogModel {
    */
   supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
+  /**
+   * Whether the model produces free-form chat text. Omit (or true) for
+   * ordinary chat models. False for structured-decision models that return
+   * answers rather than generated text; those stay out of conversation
+   * pickers and cannot be the conversation model.
+   */
+  supportsText?: boolean;
   supportsEffort?: boolean;
   /**
    * Whether this provider/model serving surface accepts a forced OpenAI
@@ -2548,6 +2555,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: false,
         supportsVision: false,
         supportsToolUse: false,
+        supportsText: false,
         pricing: { inputPer1mTokens: 0.042, outputPer1mTokens: 0 },
       },
     ],
@@ -2592,6 +2600,24 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] =
     // the Platform auth-type dropdown in the clients.
     supportsPlatformAuth: PLATFORM_PROVIDER_META[entry.id]?.managed === true,
   }));
+
+/**
+ * Whether a catalog model produces free-form chat text. Unlisted providers
+ * and model ids default to true so custom endpoints and unknown snapshots
+ * stay usable as conversation models.
+ */
+export function catalogModelSupportsText(
+  provider: string | null | undefined,
+  modelId: string | null | undefined,
+): boolean {
+  if (typeof provider !== "string" || typeof modelId !== "string") {
+    return true;
+  }
+  const model = PROVIDER_CATALOG.find((p) => p.id === provider)?.models.find(
+    (m) => m.id === modelId,
+  );
+  return model?.supportsText !== false;
+}
 
 /** Check if a model ID is in the catalog for a given provider. */
 export function isModelInCatalog(provider: string, modelId: string): boolean {

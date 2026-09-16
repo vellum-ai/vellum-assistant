@@ -35,6 +35,12 @@ export interface LlmCatalogModel {
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
   thinkingFloor?: "minimal" | "low";
+  /**
+   * Whether the model produces free-form chat text. Omit (or true) for
+   * ordinary chat models. False for structured-decision models that stay
+   * out of conversation pickers.
+   */
+  supportsText?: boolean;
   longContextPricingThresholdTokens?: number;
   /** When set, the model is hidden unless that assistant flag is on. */
   featureFlag?: string;
@@ -1154,6 +1160,7 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 32_000,
       defaultContextWindowTokens: 32_000,
       maxOutputTokens: 4_096,
+      supportsText: false,
     },
   ],
   vellum: [
@@ -1397,6 +1404,44 @@ export function getVisibleModelsForProvider(
   return getModelsForProvider(provider).filter((model) =>
     isCatalogModelVisible(model, enabledFlags),
   );
+}
+
+/**
+ * Whether a catalog model produces free-form chat text. Unlisted providers
+ * and model ids default to true so custom endpoints and unknown snapshots
+ * stay usable as conversation models.
+ */
+export function catalogModelSupportsText(
+  provider: string | null | undefined,
+  modelId: string | null | undefined,
+): boolean {
+  if (!provider || !modelId) {
+    return true;
+  }
+  const model = getModelsForProvider(provider).find((m) => m.id === modelId);
+  return model?.supportsText !== false;
+}
+
+/** Visible catalog models that can back a conversation or call-site pin. */
+export function getTextGenerationModelsForProvider(
+  provider: string,
+  enabledFlags: Readonly<Record<string, boolean>>,
+): readonly LlmCatalogModel[] {
+  return getVisibleModelsForProvider(provider, enabledFlags).filter(
+    (model) => model.supportsText !== false,
+  );
+}
+
+/**
+ * Whether a provider has at least one chat-text model. Empty catalogs
+ * (custom endpoints) default to true because their models are user-defined.
+ */
+export function providerOffersTextGeneration(provider: string): boolean {
+  const models = getModelsForProvider(provider);
+  if (models.length === 0) {
+    return true;
+  }
+  return models.some((model) => model.supportsText !== false);
 }
 
 export function getModelsForProvider(

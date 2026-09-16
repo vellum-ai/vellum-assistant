@@ -9,6 +9,7 @@
  * the trigger with an empty label and the user wondering what's in effect.
  */
 
+import { catalogModelSupportsText } from "@/assistant/llm-model-catalog";
 import { resolveModelDisplayName } from "@/assistant/model-display";
 import type {
   ProfileEntry,
@@ -55,7 +56,10 @@ function isDispatchableStandardProfile(
   if (p.status === "disabled") {
     return false;
   }
-  return requireOwnProviderAndModel ? !!p.provider && !!p.model : true;
+  if (requireOwnProviderAndModel && (!p.provider || !p.model)) {
+    return false;
+  }
+  return catalogModelSupportsText(p.provider, p.model);
 }
 
 /**
@@ -190,6 +194,9 @@ export function undispatchableProfileReason(p: ProfilePickerEntry): string {
   const base = p.label ?? p.name;
   if (p.mix != null) {
     return `"${base}" mixes a profile that has no provider and model, so some turns would fall back to another profile.`;
+  }
+  if (p.provider && p.model && !catalogModelSupportsText(p.provider, p.model)) {
+    return `"${base}" uses a model that returns structured answers rather than chat text, so it cannot be the conversation model.`;
   }
   return `"${base}" has no provider and model, so it cannot be used and the action falls back to another profile.`;
 }

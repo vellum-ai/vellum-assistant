@@ -2454,6 +2454,7 @@
           "supportsCaching": false,
           "supportsVision": false,
           "supportsToolUse": false,
+          "supportsText": false,
           "pricing": {
             "inputPer1mTokens": 0.042,
             "outputPer1mTokens": 0

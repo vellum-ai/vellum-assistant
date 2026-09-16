@@ -5916,7 +5916,6 @@ paths:
                     - atlascloud
                     - baseten
                     - poolside
-                    - jev
                 connectionName:
                   type: string
                   minLength: 1
@@ -38614,7 +38613,6 @@ components:
                     - atlascloud
                     - baseten
                     - poolside
-                    - jev
                 connectionName:
                   type: string
                   minLength: 1
@@ -39003,7 +39001,6 @@ components:
                 - atlascloud
                 - baseten
                 - poolside
-                - jev
             - type: "null"
         connectionName:
           type: string

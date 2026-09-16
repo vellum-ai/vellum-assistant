@@ -4,7 +4,10 @@ import {
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   ROUTING_IDENTITY_PROVIDERS,
 } from "../../providers/inference/auth.js";
-import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
+import {
+  catalogModelSupportsText,
+  PROVIDER_CATALOG,
+} from "../../providers/model-catalog.js";
 import { isCodexSubscriptionModel } from "../../providers/openai/codex-models.js";
 import {
   getManagedUpstream,
@@ -100,7 +103,8 @@ export const DEFAULT_PROVIDER_CHOICES: readonly LLMProvider[] = [
       (entry) =>
         entry.setupMode === "api-key" &&
         !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(entry.id) &&
-        entry.defaultModel !== "",
+        entry.defaultModel !== "" &&
+        catalogModelSupportsText(entry.id, entry.defaultModel),
     )
       .map((entry) => entry.id)
       // A catalog provider outside the known provider set cannot be

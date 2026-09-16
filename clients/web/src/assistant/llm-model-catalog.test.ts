@@ -27,8 +27,11 @@ import {
   PROVIDER_SUPPORTS_PLATFORM_AUTH,
   getModelsForProvider,
   catalogEnabledFlags,
+  catalogModelSupportsText,
   getVisibleModelsForProvider,
+  getTextGenerationModelsForProvider,
   getManagedUpstreamForModel,
+  providerOffersTextGeneration,
   VELLUM_SERVED_PROVIDERS,
   type LlmProviderId,
 } from "./llm-model-catalog";
@@ -47,6 +50,7 @@ interface MetaCatalogModel {
   supportsThinking?: boolean;
   adaptiveThinkingOnly?: boolean;
   thinkingFloor?: "minimal" | "low";
+  supportsText?: boolean;
 }
 
 interface MetaCatalogProvider {
@@ -75,6 +79,8 @@ const META_CATALOG_PATH = join(
  * so only the shared subset is compared. `supportsThinking` and
  * `adaptiveThinkingOnly` are normalized to booleans because the web mirror
  * omits them when false while the meta JSON may carry an explicit `false`.
+ * `supportsText` is the inverse: omitted means true, and only an explicit
+ * `false` is compared.
  */
 function comparableModel(model: MetaCatalogModel) {
   return {
@@ -87,6 +93,7 @@ function comparableModel(model: MetaCatalogModel) {
     supportsThinking: model.supportsThinking === true,
     adaptiveThinkingOnly: model.adaptiveThinkingOnly === true,
     thinkingFloor: model.thinkingFloor,
+    supportsText: model.supportsText !== false,
   };
 }
 
@@ -178,6 +185,24 @@ describe("parity with meta/llm-provider-catalog.json", () => {
         "vellum",
         catalogEnabledFlags({ hostedInference: true }),
       ).some((model) => model.id === "qwen/qwen3-8b"),
+    ).toBe(true);
+  });
+
+  test("structured-decision models stay visible on the provider row but not in text pickers", () => {
+    expect(
+      getModelsForProvider("jev").some((model) => model.id === "jev-latest"),
+    ).toBe(true);
+    expect(catalogModelSupportsText("jev", "jev-latest")).toBe(false);
+    expect(providerOffersTextGeneration("jev")).toBe(false);
+    expect(providerOffersTextGeneration("anthropic")).toBe(true);
+    expect(providerOffersTextGeneration("openai-compatible")).toBe(true);
+    expect(
+      getTextGenerationModelsForProvider("jev", catalogEnabledFlags({})),
+    ).toEqual([]);
+    expect(
+      getVisibleModelsForProvider("jev", catalogEnabledFlags({})).some(
+        (model) => model.id === "jev-latest",
+      ),
     ).toBe(true);
   });
 
