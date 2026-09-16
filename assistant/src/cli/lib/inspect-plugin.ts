@@ -27,7 +27,10 @@ import {
   type InstalledPluginInfo,
   readInstalledPlugin,
 } from "./list-installed-plugins.js";
-import { readBundledLocalPluginCatalog } from "./plugin-catalog-local.js";
+import {
+  arePlatformFeaturesEnabled,
+  readBundledLocalPluginCatalog,
+} from "./plugin-catalog-local.js";
 import { DEFAULT_PLUGIN_REF } from "./plugin-constants.js";
 import {
   compareFingerprint,
@@ -338,17 +341,21 @@ export async function inspectPlugin(
   let remote: PluginRemoteInfo | null = null;
   let remoteError: string | null = null;
   const installedLocalSource = local?.source?.kind === "local";
+  const useBundledLocalCatalog =
+    installedLocalSource || (!installed && !arePlatformFeaturesEnabled());
   try {
-    if (installedLocalSource) {
+    if (useBundledLocalCatalog) {
       const catalog = deps.localCatalog ?? readBundledLocalPluginCatalog();
       const match = catalog.matches.find(
         (candidate) =>
           candidate.name === name &&
           candidate.source.kind === "local" &&
-          candidate.source.path === local.source?.path,
+          (!installedLocalSource ||
+            candidate.source.path === local.source?.path),
       );
       remote = match ? readLocalPackageRemote(match, catalog.ref) : null;
-    } else {
+    }
+    if (!remote && !installedLocalSource) {
       const entries = await fetchMarketplaceEntries(
         { fetch: deps.fetch },
         { ref: marketplaceRef },

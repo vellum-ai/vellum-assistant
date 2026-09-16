@@ -238,11 +238,18 @@ export function registerPluginsCommand(program: Command): void {
               const platformEnabled =
                 libs.catalogLocal.arePlatformFeaturesEnabled();
               if (platformEnabled) {
-                const match = (
-                  await libs.catalogCache.getPluginCatalog(DEFAULT_PLUGIN_REF, {
-                    fetch: globalThis.fetch.bind(globalThis),
-                  })
-                ).matches.find((candidate) => candidate.name === nameOrUrl);
+                let match;
+                try {
+                  match = (
+                    await libs.catalogCache.getPluginCatalog(
+                      DEFAULT_PLUGIN_REF,
+                      { fetch: globalThis.fetch.bind(globalThis) },
+                    )
+                  ).matches.find((candidate) => candidate.name === nameOrUrl);
+                } catch {
+                  // The install endpoint remains authoritative and can succeed
+                  // independently when catalog discovery is unavailable.
+                }
                 if (match?.source.kind === "local") {
                   result = await libs.installGitHub.installPlugin(
                     {
