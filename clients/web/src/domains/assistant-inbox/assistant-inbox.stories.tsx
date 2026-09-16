@@ -182,6 +182,7 @@ export const UpgradeRequired: Story = {
   name: "1 · Upgrade required",
   render: () => (
     <AssistantInboxUpgradeState
+      assistantId={ASSISTANT_ID}
       assistantName={MOCK_ASSISTANT_NAME}
       rootDomain={MOCK_ROOT_DOMAIN}
       onUpgrade={fn().mockName("onUpgrade")}
