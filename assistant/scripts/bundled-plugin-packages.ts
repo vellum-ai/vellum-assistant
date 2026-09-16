@@ -1,15 +1,15 @@
-import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
 import {
   AGENT_PLUGINS_MCP_SCHEMA_URL,
   SpecMcpDocumentSchema,
   SpecMcpServerSchema,
-} from "../assistant/src/mcp/spec-schema.js";
+} from "../src/mcp/spec-schema.js";
 import {
   readPluginManifest,
   STANDARD_PLUGIN_MANIFEST,
-} from "../assistant/src/util/plugin-manifest.js";
+} from "../src/util/plugin-manifest.js";
 
 export interface BundledPackageFile {
   path: string;

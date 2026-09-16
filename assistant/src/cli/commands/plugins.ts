@@ -1419,8 +1419,11 @@ function driftLine(changes: FingerprintComparison | null): string {
   return parts.join(", ");
 }
 
-/** Build the GitHub web URL for a remote pin's location (repo, or repo subtree). */
+/** Build the display location for a bundled package or GitHub pin. */
 function remoteLocation(remote: PluginRemoteInfo): string {
+  if (remote.kind === "local") {
+    return `bundled:${remote.path}`;
+  }
   const base = `https://github.com/${remote.repo}`;
   return remote.path ? `${base}/tree/${remote.commit}/${remote.path}` : base;
 }

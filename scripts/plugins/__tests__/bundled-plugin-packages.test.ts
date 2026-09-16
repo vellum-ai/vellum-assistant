@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { buildBundledPluginPackages } from "../../../meta/bundled-plugin-packages.js";
+import { buildBundledPluginPackages } from "../../../assistant/scripts/bundled-plugin-packages.js";
 
 const roots: string[] = [];
 

@@ -62,7 +62,6 @@ clients/macos/src
 !plugins/mcp-catalog/**
 !meta/
 !meta/sync-bundled-copies.ts
-!meta/bundled-plugin-packages.ts
 
 # Exclude local dependencies and build outputs from included directories.
 assistant/dist/

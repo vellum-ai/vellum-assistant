@@ -16,11 +16,11 @@ errors still fail the catalog request and are never replaced by a stale or
 offline response. When platform features are disabled, the full bundled
 manifest supplies the catalog.
 
-`meta/sync-bundled-copies.ts` validates every local package and generates the
-embedded file map used by the installer. A local package must be a standard
-plugin with matching name and version, a valid `mcp.json`, canonical paths, and
-no symlinks. Build and Docker packaging fail if any declared package is invalid
-or unavailable.
+`assistant/scripts/generate-bundled-plugin-packages.ts` validates every local
+package and generates the embedded file map used by the installer. A local
+package must be a standard plugin with matching name and version, a valid
+`mcp.json`, canonical paths, and no symlinks. Build and Docker packaging fail if
+any declared package is invalid or unavailable.
 
 The normal plugin installer handles both source kinds and records the exact
 source in the install sidecar. Local update checks only versions embedded in

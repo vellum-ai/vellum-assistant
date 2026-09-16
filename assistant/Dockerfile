@@ -134,8 +134,9 @@ COPY skills /app/skills
 # The build installs with --ignore-scripts, so the postinstall sync that creates
 # these static imports in development never runs here.
 COPY plugins /app/plugins
-COPY meta/sync-bundled-copies.ts meta/bundled-plugin-packages.ts /app/meta/
-RUN cd /app && bun run meta/sync-bundled-copies.ts --plugins-only
+COPY meta/sync-bundled-copies.ts /app/meta/
+RUN cd /app && bun run meta/sync-bundled-copies.ts --plugins-only && \
+    bun run assistant/scripts/generate-bundled-plugin-packages.ts
 
 # Install assistant CLI launcher backed by the bundled assistant package
 RUN printf '#!/usr/bin/env sh\nexec bun run /app/assistant/src/index.ts "$@"\n' > /usr/local/bin/assistant && \

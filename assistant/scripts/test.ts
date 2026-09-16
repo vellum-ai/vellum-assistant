@@ -62,26 +62,28 @@ const EXPERIMENTAL_FILES = new Set([
 const KNOWN_BROKEN_FILES = new Set<string>([]);
 
 // ---------------------------------------------------------------------------
-// Feature-flag registry sync
+// Bundled catalog sync
 // ---------------------------------------------------------------------------
 
-// Ensure the bundled feature-flag-registry.json exists before running tests.
-// The canonical copy lives at meta/feature-flags/feature-flag-registry.json and
-// is synced into assistant/src/ and gateway/src/. CI runs this as a dedicated
-// step; locally postinstall handles it — but when node_modules is symlinked
-// (e.g. worktrees) postinstall never fires, so the bundled copy can be missing
-// and feature-flag-registry-bundled.test.ts fails. Running the sync here is
-// idempotent and cheap (two file copies).
-function syncFeatureFlagRegistry(): void {
+// Ensure generated catalog inputs exist before tests. Locally, postinstall may
+// not run in worktrees that share node_modules, so the static JSON imports can
+// otherwise be missing.
+function syncBundledCatalog(): void {
   const syncScript = join("..", "meta", "sync-bundled-copies.ts");
   if (!existsSync(syncScript)) {
     return;
   }
-  Bun.spawnSync(["bun", "run", "meta/sync-bundled-copies.ts"], {
-    cwd: join(process.cwd(), ".."),
+  const result = Bun.spawnSync(["bun", "run", "sync:bundled-catalog"], {
+    cwd: process.cwd(),
     stdout: "ignore",
-    stderr: "ignore",
+    stderr: "pipe",
+    windowsHide: true,
   });
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to generate bundled catalog inputs: ${result.stderr.toString()}`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -514,7 +516,7 @@ async function buildMigratedFixture(outWorkspaceDir: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  syncFeatureFlagRegistry();
+  syncBundledCatalog();
 
   let testFiles = collectTestFiles();
   if (testFiles.length === 0) {
