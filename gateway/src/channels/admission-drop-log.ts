@@ -53,14 +53,28 @@ export class AdmissionDropLog<Reason extends string> {
   /**
    * The level this drop logs at.
    *
-   * Calling this records the drop, so a promotable reason is promoted once per
-   * conversation and every repeat is `debug`. Reasons that never promote
-   * consume no budget.
+   * `conversationId` is the dedup key: calling this records the drop, so a
+   * promotable reason is promoted once per conversation and every repeat is
+   * `debug`. Reasons that never promote consume no budget.
+   *
+   * A drop that cannot name a conversation (a payload the schema rejected, a
+   * message with no chat) passes `undefined` and is promoted every time.
+   * There is nothing to dedup it on, and collapsing every occurrence onto one
+   * shared key would let a wave of them weeks into a process log once and
+   * then vanish. The volume is bounded by the ingress itself: every channel
+   * authenticates its sender before a drop can be recorded, so only the
+   * platform can produce them.
    */
-  levelFor(reason: Reason, conversationId: string): AdmissionDropLogLevel {
+  levelFor(
+    reason: Reason,
+    conversationId: string | undefined,
+  ): AdmissionDropLogLevel {
     const severity = this.severity[reason];
     if (severity === "debug") {
       return "debug";
+    }
+    if (conversationId === undefined) {
+      return severity;
     }
 
     let conversations = this.seen.get(reason);

@@ -314,7 +314,7 @@ export function createTelegramWebhookHandler(
       };
       const level = dropLog.levelFor(
         normalization.reason,
-        normalization.chatId ?? "",
+        normalization.chatId,
       );
       if (level === "info") {
         tlog.info(

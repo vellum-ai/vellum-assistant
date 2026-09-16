@@ -174,6 +174,33 @@ describe("telegram webhook: dropped updates are visible", () => {
     expect(records.filter((r) => r["updateId"] === 9102)).toHaveLength(0);
   });
 
+  test("a drop that names no chat is written every time, not once per process", async () => {
+    // Nothing to dedup on: a message with no chat id cannot share a key with
+    // the next one, so a wave of them stays visible at any process age.
+    const { handler } = createTelegramWebhookHandler(
+      makeConfig(),
+      makeCaches(),
+    );
+
+    for (const updateId of [9401, 9402]) {
+      const res = await handler(
+        webhookRequest({
+          update_id: updateId,
+          message: { message_id: 1, text: "hi", from: { id: 42 } },
+        }),
+      );
+      expect(res.status).toBe(200);
+    }
+
+    const records = readLogRecords();
+    for (const updateId of [9401, 9402]) {
+      const dropped = records.filter((r) => r["updateId"] === updateId);
+      expect(dropped).toHaveLength(1);
+      expect(dropped[0]?.["reason"]).toBe("missing_chat");
+      expect(dropped[0]?.["level"]).toBe(30);
+    }
+  });
+
   test("ordinary unreadable traffic stays quiet", async () => {
     // A sticker is not a misconfiguration and scales with how chatty a chat
     // is, so it never promotes.
