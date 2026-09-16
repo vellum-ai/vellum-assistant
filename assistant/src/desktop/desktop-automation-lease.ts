@@ -98,17 +98,19 @@ export class DesktopAutomationLease {
     if (this.owner !== owner) {
       return;
     }
-    if (!owner.abort.signal.aborted) {
-      this.generation += 1;
-      owner.abort.abort();
-    }
+    this.generation += 1;
+    owner.abort.abort();
+    this.releaseCancelledOwner(owner);
+  }
+
+  private releaseCancelledOwner(owner: Owner): void {
     void this.exclusive(async () => {
       if (this.owner === owner) {
         await this.release();
       }
     }).catch((err) => {
       log.warn({ err }, "Desktop browser session cleanup failed");
-      const retry = setTimeout(() => this.cancel(owner), 1_000);
+      const retry = setTimeout(() => this.releaseCancelledOwner(owner), 1_000);
       retry.unref?.();
     });
   }

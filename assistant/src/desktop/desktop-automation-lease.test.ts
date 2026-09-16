@@ -331,3 +331,21 @@ test("cleanup retries preserve commands queued behind an explicit handoff", asyn
   expect(callback).toHaveBeenCalledTimes(1);
   expect(f.lease.isActive).toBe(true);
 });
+
+test("turn completion cancels commands queued behind an in-progress detach", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  const cleanup = Promise.withResolvers<void>();
+  f.releaseBrowser.mockImplementationOnce(() => cleanup.promise);
+  const detached = f.lease.runBrowser(context, operation, true);
+  await Bun.sleep(0);
+  const callback = mock(operation);
+  const queued = f.lease.runBrowser(context, callback);
+  f.lease.releaseForConversation(context.conversationId);
+  cleanup.resolve();
+  await detached;
+  expect((await queued).isError).toBe(true);
+  expect(callback).not.toHaveBeenCalled();
+  await f.lease.runBrowser(context, callback);
+  expect(callback).toHaveBeenCalledTimes(1);
+});
