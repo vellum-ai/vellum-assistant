@@ -148,16 +148,57 @@ const TelegramUpdateSchema = z.object({
 });
 
 /**
- * Normalize a Telegram webhook payload into a GatewayInboundEvent.
- * Returns null if the payload is unsupported (non-text, non-private, etc.)
- * or if the sender identity cannot be determined.
+ * Why an update produced no event. Each names the check that failed, so one
+ * logged drop is the whole diagnosis.
+ *
+ * `chat_not_private` is the deliberate scope of this integration: private
+ * chats only, with groups and supergroups a future explicit opt-in. Every
+ * other reason is a shape the normalizer cannot read.
+ */
+export type TelegramDropReason =
+  | "malformed_update"
+  | "missing_update_id"
+  | "missing_chat"
+  | "chat_not_private"
+  | "missing_sender"
+  | "no_supported_content"
+  | "callback_without_message"
+  | "callback_without_data";
+
+export type TelegramNormalization =
+  | { dropped: false; event: GatewayInboundEvent }
+  | {
+      dropped: true;
+      reason: TelegramDropReason;
+      /** Telegram's own word for the chat, when the update named one. */
+      chatType: string | undefined;
+      /** The chat the update belongs to, when it named one. */
+      chatId: string | undefined;
+    };
+
+function drop(
+  reason: TelegramDropReason,
+  chat?: { id?: number; type?: string },
+): TelegramNormalization {
+  return {
+    dropped: true,
+    reason,
+    chatType: chat?.type,
+    chatId: chat?.id != null ? String(chat.id) : undefined,
+  };
+}
+
+/**
+ * Normalize a Telegram webhook payload into a GatewayInboundEvent, or say
+ * why it could not be. A drop is never silent: the route logs the reason
+ * before acknowledging the update.
  */
 export function normalizeTelegramUpdate(
   payload: Record<string, unknown>,
-): GatewayInboundEvent | null {
+): TelegramNormalization {
   const parsed = TelegramUpdateSchema.safeParse(payload);
   if (!parsed.success) {
-    return null;
+    return drop("malformed_update");
   }
   const update = parsed.data;
   const updateId = update.update_id;
@@ -166,27 +207,30 @@ export function normalizeTelegramUpdate(
   if (update.callback_query) {
     const cbq = update.callback_query;
 
-    // Skip if callback_query has no message (edge case, e.g. inline mode)
-    if (!cbq.message?.chat?.id || updateId == null) {
-      return null;
+    // A callback_query with no message is an inline-mode edge case.
+    if (!cbq.message?.chat?.id) {
+      return drop("callback_without_message", cbq.message?.chat);
     }
-
-    // Skip if there is no callback data to forward
-    if (!cbq.data) {
-      return null;
+    if (updateId == null) {
+      return drop("missing_update_id", cbq.message.chat);
     }
 
     const chatId = String(cbq.message.chat.id);
     const chatType = cbq.message.chat.type;
 
-    // v1 is DM-only — reject callback queries from groups/channels
+    // v1 is DM-only: reject callback queries from groups/channels
     if (chatType !== "private") {
-      return null;
+      return drop("chat_not_private", cbq.message.chat);
+    }
+
+    // Skip if there is no callback data to forward
+    if (!cbq.data) {
+      return drop("callback_without_data", cbq.message.chat);
     }
 
     // Drop the update if the sender identity cannot be determined
     if (!cbq.from?.id) {
-      return null;
+      return drop("missing_sender", cbq.message.chat);
     }
 
     const actorExternalId = String(cbq.from.id);
@@ -197,7 +241,7 @@ export function normalizeTelegramUpdate(
       .join(" ")
       .trim();
 
-    return {
+    const event: GatewayInboundEvent = {
       version: "v1",
       sourceChannel: "telegram",
       receivedAt: new Date().toISOString(),
@@ -236,30 +280,39 @@ export function normalizeTelegramUpdate(
       },
       raw: payload,
     };
+    return { dropped: false, event };
   }
 
   const isEdit = !update.message && !!update.edited_message;
   const message = update.message ?? update.edited_message;
 
-  const hasContent = !!(
-    message?.text ||
-    message?.photo ||
-    message?.document ||
-    message?.voice ||
-    message?.audio
-  );
-  if (!hasContent || !message?.chat?.id || updateId == null) {
-    return null;
+  if (!message?.chat?.id) {
+    return drop("missing_chat", message?.chat);
+  }
+  if (updateId == null) {
+    return drop("missing_update_id", message.chat);
   }
 
-  // v1 is DM-only
+  // v1 is DM-only. Checked before content so a group message reports the
+  // scope it fell outside of, not the shape of what it carried.
   if (message.chat.type !== "private") {
-    return null;
+    return drop("chat_not_private", message.chat);
   }
 
   // Drop the update if the sender identity cannot be determined
   if (!message.from?.id) {
-    return null;
+    return drop("missing_sender", message.chat);
+  }
+
+  const hasContent = !!(
+    message.text ||
+    message.photo ||
+    message.document ||
+    message.voice ||
+    message.audio
+  );
+  if (!hasContent) {
+    return drop("no_supported_content", message.chat);
   }
 
   const actorExternalId = String(message.from.id);
@@ -316,7 +369,7 @@ export function normalizeTelegramUpdate(
     });
   }
 
-  return {
+  const event: GatewayInboundEvent = {
     version: "v1",
     sourceChannel: "telegram",
     receivedAt: new Date().toISOString(),
@@ -350,6 +403,7 @@ export function normalizeTelegramUpdate(
     },
     raw: payload,
   };
+  return { dropped: false, event };
 }
 
 // ---------------------------------------------------------------------------

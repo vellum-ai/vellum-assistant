@@ -28,6 +28,7 @@ import {
 } from "../../runtime/client.js";
 import { callTelegramApi } from "../../telegram/api.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
+import { createTelegramDropLog } from "../../telegram/drop-log.js";
 import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
 import { sendTelegramReply } from "../../telegram/send.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
@@ -62,6 +63,7 @@ export function createTelegramWebhookHandler(
   caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
 ) {
   const dedupCache = new DedupCache();
+  const dropLog = createTelegramDropLog();
 
   const handler = async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -284,8 +286,30 @@ export function createTelegramWebhookHandler(
     };
 
     // Normalize the update
-    const normalized = normalizeTelegramUpdate(payload);
-    if (!normalized) {
+    const normalization = normalizeTelegramUpdate(payload);
+    if (normalization.dropped) {
+      // Telegram sees a 200 either way, so this line is the only place the
+      // drop exists. Severity splits by reason and volume is capped at the
+      // first drop per reason and chat; see `telegram/drop-log.ts`.
+      const fields = {
+        updateId,
+        reason: normalization.reason,
+        chatType: normalization.chatType,
+        chatId: normalization.chatId,
+      };
+      const level = dropLog.levelFor(
+        normalization.reason,
+        normalization.chatId ?? "",
+      );
+      if (level === "info") {
+        tlog.info(
+          fields,
+          "Telegram update dropped before forwarding. Further drops for " +
+            "this reason and chat log at debug.",
+        );
+      } else {
+        tlog.debug(fields, "Telegram update dropped before forwarding");
+      }
       // If the dropped update was a callback query, acknowledge it so the
       // Telegram button spinner clears (e.g. non-DM callback queries).
       const cbqId =
@@ -297,6 +321,7 @@ export function createTelegramWebhookHandler(
       acknowledgeCallbackQuery(cbqId, "dropped_update");
       return respond({ ok: true });
     }
+    const normalized = normalization.event;
 
     tlog.info(
       {
