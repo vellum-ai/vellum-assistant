@@ -47,6 +47,12 @@
 // the file stays in append order except for a drained late append, which
 // lands after any entry appended to N in the meantime. Readers only rely
 // on the tail being recent, never on strict order, so that is harmless.
+// The same holds if a late append's bytes were split across the two
+// drains (a partial `write()` on a regular file, well below the residual
+// above): the halves land in order on N, possibly with another appender's
+// entry between them, so the entry is split rather than lost, and the
+// next pass's snapshot selection treats an unterminated tail as
+// in-flight.
 
 import {
   appendFileSync,
