@@ -48,8 +48,9 @@ export function useDesktopSetupStatus(assistantId: string) {
     queryClient.invalidateQueries({ queryKey: options.queryKey });
   useBusSubscription("sse.event", ({ message }) => {
     if (
-      message.type === "sync_changed" &&
-      message.tags.includes(SYNC_TAGS.assistantDesktop)
+      message.type === "desktop_activity_changed" ||
+      (message.type === "sync_changed" &&
+        message.tags.includes(SYNC_TAGS.assistantDesktop))
     ) {
       void refresh();
     }

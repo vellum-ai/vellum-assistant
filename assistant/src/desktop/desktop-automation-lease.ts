@@ -1,6 +1,5 @@
 import { getConfig } from "../config/loader.js";
-import { SYNC_TAGS } from "../daemon/message-types/sync.js";
-import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { desktopDependencyInstaller } from "./desktop-dependencies.js";
@@ -43,7 +42,8 @@ export class DesktopAutomationLease {
       ready: () => desktopDependencyInstaller.getStatus().state === "ready",
       ensureReady: (signal) => desktopDependencyInstaller.ensureReady(signal),
       manager: getDesktopSessionManager,
-      notify: () => publishSyncInvalidation([SYNC_TAGS.assistantDesktop]),
+      notify: async () =>
+        broadcastMessage({ type: "desktop_activity_changed" }),
     },
   ) {}
 

@@ -172,7 +172,7 @@ test("setup waits for organization readiness", async () => {
   expect(postCalls).toBe(1);
 });
 
-test("reading desktop activity never installs and refreshes on sync and reconnect", async () => {
+test("reading desktop activity never installs and refreshes on activity and reconnect", async () => {
   function Activity() {
     const { query } = useDesktopSetupStatus("assistant-123");
     return <output>{String(query.data?.automationActive)}</output>;
@@ -185,7 +185,11 @@ test("reading desktop activity never installs and refreshes on sync and reconnec
   await screen.findByText("false");
   expect(postCalls).toBe(0);
   automationActive = true;
-  notify();
+  act(() =>
+    listeners.get("sse.event")?.({
+      message: { type: "desktop_activity_changed" },
+    }),
+  );
   await screen.findByText("true");
   automationActive = false;
   act(() => listeners.get("sse.opened")?.({}));

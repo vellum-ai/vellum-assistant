@@ -79,8 +79,8 @@ describe("desktop setup route feature gate", () => {
       setOverridesForTesting({ "assistant-desktop": true });
       expect(route.handler({})).toEqual(
         route.method === "GET"
-          ? { state: "required" }
-          : { state: "installing", stage: "packages" },
+          ? { state: "required", automationActive: false }
+          : { state: "installing", stage: "packages", automationActive: false },
       );
       expect(route.method === "GET" ? status : start).toHaveBeenCalledTimes(1);
       expect(route.method === "GET" ? start : status).not.toHaveBeenCalled();
