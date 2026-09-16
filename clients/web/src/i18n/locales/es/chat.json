@@ -94,6 +94,31 @@
   "assistantContentDisclosure": {
     "earlierActivity": "Actividad anterior"
   },
+  "sessionGroupRow": {
+    "mode": {
+      "computerUse": "Sesión de uso del ordenador",
+      "browser": "Sesión del navegador",
+      "liveVision": "Sesión de visión en directo",
+      "ambient": "Sesión ambiental"
+    },
+    "durationSeconds": "{count, plural, one {# s} other {# s}}",
+    "durationMinutes": "{count, plural, one {# min} other {# min}}",
+    "working": "Trabajando",
+    "workingWithDuration": "Trabajando · {duration}",
+    "waiting": "Esperando",
+    "waitingWithDuration": "Esperando · {duration}",
+    "finishing": "Finalizando",
+    "finishingWithDuration": "Finalizando · {duration}",
+    "completedWithDurationAndEnd": "{duration} · Finalizó a las {endTime}",
+    "completedWithDuration": "{duration}",
+    "completedWithEnd": "Finalizó a las {endTime}",
+    "interrupted": "Interrumpida",
+    "interruptedWithDurationAndEnd": "Interrumpida · {duration} · Finalizó a las {endTime}",
+    "interruptedWithDurationAndLastActivity": "Interrumpida · {duration} · Última actividad a las {lastActivityTime}",
+    "interruptedWithLastActivity": "Interrumpida · Última actividad a las {lastActivityTime}",
+    "interruptedWithEnd": "Interrumpida · Finalizó a las {endTime}",
+    "timingUnavailable": "Horario no disponible"
+  },
   "assistantDesktop": {
     "fitView": "Ajustar",
     "panView": "Desplazar",

@@ -537,6 +537,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "session-groups",
+      "scope": "client",
+      "key": "session-groups",
+      "label": "Session Groups",
+      "description": "Presents recorded computer use, browser, live vision, and ambient runs as collapsible transcript groups. Rollout remains off until transcript composition and navigation acceptance are complete.",
+      "defaultEnabled": false
+    },
+    {
       "id": "assistant-desktop",
       "scope": "assistant",
       "key": "assistant-desktop",

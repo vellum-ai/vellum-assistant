@@ -17,6 +17,7 @@ key exists in `terraform/gcp/env/prod/vellum-assistant/main.tf`.
 | `paired-devices-ui` | not opened; default off |
 | `quickbooks-oauth` | not opened (Terraform entry drafted alongside the platform change); default off |
 | `schedule-result-notify` | not opened; default on |
+| `session-groups` | [vellum-assistant-platform #10577](https://github.com/vellum-ai/vellum-assistant-platform/pull/10577); default off; scope client |
 | `shopify-oauth` | not opened; default off |
 | `send-user-message` | vellum-assistant-platform #10475; default off; scope both |
 | `web-presence-suppression` | not opened; default on |

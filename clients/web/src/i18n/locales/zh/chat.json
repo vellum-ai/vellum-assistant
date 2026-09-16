@@ -94,6 +94,31 @@
   "assistantContentDisclosure": {
     "earlierActivity": "更早的活动"
   },
+  "sessionGroupRow": {
+    "mode": {
+      "computerUse": "计算机操作会话",
+      "browser": "浏览器会话",
+      "liveVision": "实时视觉会话",
+      "ambient": "环境会话"
+    },
+    "durationSeconds": "{count, plural, other {# 秒}}",
+    "durationMinutes": "{count, plural, other {# 分钟}}",
+    "working": "正在工作",
+    "workingWithDuration": "正在工作 · {duration}",
+    "waiting": "等待中",
+    "waitingWithDuration": "等待中 · {duration}",
+    "finishing": "正在结束",
+    "finishingWithDuration": "正在结束 · {duration}",
+    "completedWithDurationAndEnd": "{duration} · 结束于 {endTime}",
+    "completedWithDuration": "{duration}",
+    "completedWithEnd": "结束于 {endTime}",
+    "interrupted": "已中断",
+    "interruptedWithDurationAndEnd": "已中断 · {duration} · 结束于 {endTime}",
+    "interruptedWithDurationAndLastActivity": "已中断 · {duration} · 上次活动于 {lastActivityTime}",
+    "interruptedWithLastActivity": "已中断 · 上次活动于 {lastActivityTime}",
+    "interruptedWithEnd": "已中断 · 结束于 {endTime}",
+    "timingUnavailable": "时间不可用"
+  },
   "assistantDesktop": {
     "fitView": "适应屏幕",
     "panView": "平移",

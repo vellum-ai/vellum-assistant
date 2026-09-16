@@ -94,6 +94,31 @@
   "assistantContentDisclosure": {
     "earlierActivity": "較早的活動"
   },
+  "sessionGroupRow": {
+    "mode": {
+      "computerUse": "電腦操作工作階段",
+      "browser": "瀏覽器工作階段",
+      "liveVision": "即時視覺工作階段",
+      "ambient": "環境工作階段"
+    },
+    "durationSeconds": "{count, plural, other {# 秒}}",
+    "durationMinutes": "{count, plural, other {# 分鐘}}",
+    "working": "處理中",
+    "workingWithDuration": "處理中 · {duration}",
+    "waiting": "等待中",
+    "waitingWithDuration": "等待中 · {duration}",
+    "finishing": "即將完成",
+    "finishingWithDuration": "即將完成 · {duration}",
+    "completedWithDurationAndEnd": "{duration} · 結束於 {endTime}",
+    "completedWithDuration": "{duration}",
+    "completedWithEnd": "結束於 {endTime}",
+    "interrupted": "已中斷",
+    "interruptedWithDurationAndEnd": "已中斷 · {duration} · 結束於 {endTime}",
+    "interruptedWithDurationAndLastActivity": "已中斷 · {duration} · 上次活動於 {lastActivityTime}",
+    "interruptedWithLastActivity": "已中斷 · 上次活動於 {lastActivityTime}",
+    "interruptedWithEnd": "已中斷 · 結束於 {endTime}",
+    "timingUnavailable": "時間資訊無法使用"
+  },
   "assistantDesktop": {
     "fitView": "符合螢幕",
     "panView": "平移",
