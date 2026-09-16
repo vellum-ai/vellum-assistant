@@ -14,9 +14,11 @@
  * every file tool at once.
  */
 
-import { Typography } from "@vellumai/design-library";
-
-import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
+import {
+  CodeBlock,
+  MachineText,
+  SectionLabel,
+} from "@/components/detail-primitives";
 import { FileDiffView } from "@/domains/chat/components/file-diff-view";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 import {
@@ -65,13 +67,14 @@ export function FileChangeDetail({
           : t("toolDetailPanel.requestedChanges")}
       </SectionLabel>
       {path && (
-        <Typography
-          variant="body-small-lighter"
+        <MachineText
           as="div"
-          className="mb-1.5 truncate font-mono text-[var(--content-tertiary)]"
+          tone="muted"
+          className="mb-1.5 truncate"
+          title={path}
         >
           {path}
-        </Typography>
+        </MachineText>
       )}
       {isEdit ? (
         <FileDiffView

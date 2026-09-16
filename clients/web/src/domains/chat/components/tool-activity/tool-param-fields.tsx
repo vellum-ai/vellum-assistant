@@ -7,7 +7,7 @@
 import { Typography } from "@vellumai/design-library";
 import type { ReactNode } from "react";
 
-import { CodeBlock } from "@/components/detail-primitives";
+import { CodeBlock, MachineText } from "@/components/detail-primitives";
 import type {
   ToolParamField,
   ToolParamFieldList,
@@ -16,19 +16,20 @@ import { currentLocale, useTranslation } from "@/i18n";
 import { cn } from "@/utils/misc";
 
 /**
- * A value as text. Whitespace is kept as written: a tool argument such as a
- * path can depend on repeated or edge spaces, which normal collapsing would
- * hide.
+ * An inline value. Set as machine text, the same as a long value's code block,
+ * so a value reads the same whatever its length. Whitespace is kept as
+ * written: a tool argument such as a path can depend on repeated or edge
+ * spaces, which normal collapsing would hide. A block element, so its lines
+ * take the machine text's own leading rather than the field's.
  */
 function ValueText({ children }: { children: ReactNode }) {
   return (
-    <Typography
-      variant="body-medium-default"
-      as="span"
-      className="whitespace-pre-wrap [overflow-wrap:anywhere] text-[var(--content-default)]"
+    <MachineText
+      as="div"
+      className="whitespace-pre-wrap [overflow-wrap:anywhere]"
     >
       {children}
-    </Typography>
+    </MachineText>
   );
 }
 
@@ -92,7 +93,7 @@ export function ToolParamFields({
       <dl className={cn("flex min-w-0 flex-col", gap)}>
         {list.fields.map((field) => (
           <div key={field.label} className="flex min-w-0 flex-col gap-0.5">
-            <dt className="text-label-medium-default [overflow-wrap:anywhere] text-[var(--content-tertiary)]">
+            <dt className="text-label-medium-default leading-4 [overflow-wrap:anywhere] text-[var(--content-tertiary)]">
               {field.label}
             </dt>
             <dd className="min-w-0">

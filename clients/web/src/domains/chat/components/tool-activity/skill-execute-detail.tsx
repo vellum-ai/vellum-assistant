@@ -12,6 +12,7 @@ import { Plug } from "lucide-react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { MachineText } from "@/components/detail-primitives";
 import { ToolInputParameters } from "@/domains/chat/components/tool-activity/tool-input-parameters";
 import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
 import { parseSkillExecuteActivity } from "@/domains/chat/utils/skill-activity";
@@ -46,14 +47,15 @@ export function SkillExecuteDetail({
             {heading}
           </Typography>
           {innerToolName && (
-            <Typography
-              variant="body-small-lighter"
+            <MachineText
               as="div"
-              className="mt-0.5 truncate font-mono text-[var(--content-tertiary)]"
+              tone="muted"
+              className="mt-0.5 truncate"
+              title={innerToolName}
             >
               {innerToolName}
               {isRunning ? t("skillExecuteDetail.runningSuffix") : ""}
-            </Typography>
+            </MachineText>
           )}
         </div>
       </div>
