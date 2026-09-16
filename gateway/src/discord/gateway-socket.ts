@@ -739,6 +739,7 @@ export class DiscordGatewayClient {
       ...(parentChannelId !== undefined ? { parentChannelId } : {}),
       raw: (data ?? {}) as Record<string, unknown>,
       edit: { revision: message.edited_timestamp },
+      botUserId: this.botUserId,
     });
     if (!normalized) {
       log.warn(
@@ -980,6 +981,7 @@ export class DiscordGatewayClient {
     const normalized = normalizeDiscordMessage(message, {
       ...(parentChannelId !== undefined ? { parentChannelId } : {}),
       raw: (data ?? {}) as Record<string, unknown>,
+      botUserId: this.botUserId,
     });
     if (!normalized) {
       log.warn(

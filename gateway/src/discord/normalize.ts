@@ -67,12 +67,24 @@ export function normalizeDiscordMessage(
      * `source.messageId` keeps naming the message the edit rewrites.
      */
     edit?: { revision: string };
+    /**
+     * The bot's own user snowflake. When known, the event states whether the
+     * message mentions the bot, read from the same `mentions` array the
+     * admission gate keys on; when unknown, the fact is left unstated.
+     */
+    botUserId?: string;
   },
 ): DiscordInboundEvent | null {
   const authorId = message.author?.id;
   if (!message.id || !message.channel_id || !authorId) {
     return null;
   }
+  const botMentioned =
+    options.botUserId !== undefined
+      ? (message.mentions ?? []).some(
+          (mention) => mention.id === options.botUserId,
+        )
+      : undefined;
 
   const inThread = options.parentChannelId !== undefined;
   // Discord marks a DM only by the absence of a guild, and a DM channel is
@@ -116,6 +128,7 @@ export function normalizeDiscordMessage(
       // proven in both directions, so `isDirectMessage` is always stated.
       isDirectMessage,
       ...(isDirectMessage ? { conversationType: "dm" as const } : {}),
+      ...(botMentioned !== undefined ? { botMentioned } : {}),
       ...(inThread ? { threadId: message.channel_id } : {}),
     },
     raw: options.raw,

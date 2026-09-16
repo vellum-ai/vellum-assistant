@@ -5042,7 +5042,7 @@ paths:
                           type: string
                       required:
                         - type
-                    slackBotMentioned:
+                    botMentioned:
                       type: boolean
                     slackEditedTs:
                       type: string

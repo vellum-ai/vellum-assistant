@@ -1531,8 +1531,7 @@ export async function handleChannelInbound({
         sourceMetadata.account.length > 0
           ? sourceMetadata.account
           : undefined;
-      const slackBotMentioned =
-        sourceChannel === "slack" && sourceMetadata?.slackBotMentioned === true;
+      const botMentioned = sourceMetadata?.botMentioned === true;
 
       // ── DM cold-start backfill ──
       // First time a Slack DM without thread_ts lands in a conversation that
@@ -1625,7 +1624,7 @@ export async function handleChannelInbound({
         approvalCopyGenerator,
         chatType: sourceChatType,
         clientTimezone: inboundClientTimezone,
-        slackBotMentioned,
+        botMentioned,
         slackInbound,
         channelInbound,
       });
