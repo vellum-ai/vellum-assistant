@@ -1294,11 +1294,9 @@
     "powerUpFor": "Power Up for +{amount}/month",
     "usageBalanceAddCredits": "Add",
     "usageBalanceBarRenews": "Current Usage, renews on {date}",
-    "usageBalanceBarResets": "Current Usage, resets on {date}",
     "usageBalanceExhausted": "Add credits to continue using your assistant",
     "usageBalancePctUsed": "{pct}% used",
     "usageBalanceRenews": "Renews on {date}",
-    "usageBalanceResets": "Resets on {date}",
     "usageBalanceTitle": "Current Usage",
     "usageChip": "{name} usage, reset monthly",
     "viewAllPlans": "View All Plans"

@@ -1149,7 +1149,7 @@ describe("PlanCard usage balance", () => {
     // $10 of the $25 the cycle granted is gone.
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("Current Usage");
-    expect(panel.textContent).toContain("Resets on Aug 10");
+    expect(panel.textContent).toContain("Renews on Aug 10");
     expect(panel.textContent).toContain("40% used");
     // The bar is the replacement, so the monthly price must not stand beside
     // it on the current tile.
@@ -1157,7 +1157,7 @@ describe("PlanCard usage balance", () => {
     expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
   });
 
-  test("a cancelling sub prints no reset date", async () => {
+  test("a cancelling sub prints no renewal date", async () => {
     // A sub that is ending does not renew, and the header's cancellation line
     // already says when it stops.
     totalUsageBalance = "25.00";
@@ -1176,6 +1176,22 @@ describe("PlanCard usage balance", () => {
     expect(getByTestId("plan-card-cancels").textContent).toContain(
       formatGraceDate(PRO_PERIOD_END),
     );
+  });
+
+  test("a non-entitlement-status sub prints no renewal date", async () => {
+    // An `unpaid` sub keeps the `current_period_end` it last held, but the
+    // platform bears it no entitlement, so nothing renews on that date.
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "15.00";
+    const { findByTestId, queryByTestId } = renderCardInteractive(
+      { ...proMightySubscription(), status: "unpaid" },
+      plansWithSuper(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("40% used");
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
   });
 
   test("both tiles receive their package's spec chips", () => {
@@ -1239,7 +1255,7 @@ describe("PlanCard usage balance", () => {
   });
 
   test("a Custom sub with no live grants reads as fully spent", async () => {
-    // Every grant is spent: a full bar, dated a renewal per `UsagePeriodEnd`.
+    // Every grant is spent: a full bar, still dated the sub's renewal.
     totalUsageBalance = "0.00";
     availableUsageBalance = "0.00";
     const { findByTestId, queryByTestId, queryByText } = renderCardInteractive(

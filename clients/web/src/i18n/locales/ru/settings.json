@@ -1279,11 +1279,9 @@
     "powerUpFor": "Усилить за +{amount}/мес",
     "usageBalanceAddCredits": "Добавить",
     "usageBalanceBarRenews": "Текущее использование, продлится {date}",
-    "usageBalanceBarResets": "Текущее использование, сброс {date}",
     "usageBalanceExhausted": "Добавление кредитов, чтобы продолжить пользоваться ассистентом",
     "usageBalancePctUsed": "использовано {pct}%",
     "usageBalanceRenews": "Продлится {date}",
-    "usageBalanceResets": "Сброс {date}",
     "usageBalanceTitle": "Текущее использование",
     "usageChip": "Использование {name}, сброс каждый месяц",
     "viewAllPlans": "Все планы"

@@ -21,10 +21,7 @@ import {
   packageSpecs,
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
-import {
-  UsageBalancePanel,
-  type UsagePeriodEnd,
-} from "@/domains/settings/billing/usage-balance-panel";
+import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -66,6 +63,7 @@ import {
 import {
   extractMutationError,
   isPackageSwitchEligible,
+  TIER_CHANGE_ELIGIBLE_STATUSES,
 } from "./adjust-plan-utils";
 
 export interface PlanCardProps {
@@ -496,17 +494,19 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // for chat banners, where a BYOK route never spends the managed wallet.
   const walletEmpty = balance != null && Number(balance) <= 0;
   const creditsExhausted = usage != null && usage.ratio >= 1 && walletEmpty;
-  // No date for the free plan, whose grant is one-time, nor for a sub that is
-  // ending rather than renewing, which the header's cancellation line says.
-  const usagePeriodEnd: UsagePeriodEnd | undefined =
+  // The line dates a renewal, so it is printed only where one is coming: not
+  // for the free plan, whose grant is one-time, not for a sub that is ending
+  // rather than renewing, which the header's cancellation line already dates,
+  // and not for a status the platform bears no entitlement for (`unpaid`,
+  // `incomplete`, `paused`, a null status), which keeps its last
+  // `current_period_end` without renewing on it.
+  const usagePeriodEnd: string | undefined =
     !isFreePlan &&
     !isCancelling &&
-    !isCanceled &&
+    subscription.status != null &&
+    TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status) &&
     subscription.current_period_end
-      ? {
-          at: subscription.current_period_end,
-          kind: subscription.selected_credit_tier != null ? "resets" : "renews",
-        }
+      ? subscription.current_period_end
       : undefined;
   const usagePanel = usage ? (
     <UsageBalancePanel

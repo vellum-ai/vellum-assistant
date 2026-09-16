@@ -7,23 +7,16 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { useTranslation } from "@/i18n";
 import { formatMonthDay } from "@/utils/format-date";
 
-/**
- * The end of the billing cycle the panel dates itself by. A sub holding a
- * credit bundle turns that bundle over then ("resets"); a sub without one only
- * renews, because nothing it holds turns over. This is the one statement of
- * that distinction; every other site points here.
- */
-export interface UsagePeriodEnd {
-  /** ISO instant the current cycle ends on. */
-  at: string;
-  kind: "resets" | "renews";
-}
-
 export interface UsageBalancePanelProps {
   /** Used share of the granted usage credit, already clamped to 0..1. */
   ratio: number;
-  /** The cycle end printed under the title; see {@link UsagePeriodEnd}. */
-  periodEnd?: UsagePeriodEnd;
+  /**
+   * ISO instant the subscription's current period ends on. The meter
+   * aggregates grants with different lifetimes, so the line dates the
+   * subscription's renewal and never claims the meter resets. Omitted for the
+   * free plan and for a sub that is not renewing.
+   */
+  periodEnd?: string;
   /**
    * The wallet behind the spent bundle is empty too, so the next turn has
    * nothing to draw on. Raises the add-credits strip, and only that: the bar
@@ -37,7 +30,7 @@ export interface UsageBalancePanelProps {
 /**
  * The current-plan tile's footer, in place of the price row: how much of the
  * usage credit the account was granted it has already used, over the date the
- * subscription's cycle turns that grant over.
+ * subscription renews.
  */
 export function UsageBalancePanel({
   ratio,
@@ -49,26 +42,15 @@ export function UsageBalancePanel({
   const title = t("planCard.usageBalanceTitle");
   // An instant that will not parse leaves no date to print, so both labels
   // fall back to the undated wording.
-  const periodEndDate = periodEnd ? formatMonthDay(periodEnd.at) : null;
-  const turnsOver = periodEnd?.kind === "resets";
+  const periodEndDate = periodEnd ? formatMonthDay(periodEnd) : null;
   const periodEndLabel = periodEndDate
-    ? t(
-        turnsOver
-          ? "planCard.usageBalanceResets"
-          : "planCard.usageBalanceRenews",
-        { date: periodEndDate },
-      )
+    ? t("planCard.usageBalanceRenews", { date: periodEndDate })
     : null;
-  // The bar's accessible name is one complete message per variant rather than
-  // the title and the date line joined here: the joining punctuation is the
+  // The bar's accessible name is one complete message rather than the title
+  // and the date line joined here: the joining punctuation is the
   // translator's, not ours.
   const barLabel = periodEndDate
-    ? t(
-        turnsOver
-          ? "planCard.usageBalanceBarResets"
-          : "planCard.usageBalanceBarRenews",
-        { date: periodEndDate },
-      )
+    ? t("planCard.usageBalanceBarRenews", { date: periodEndDate })
     : title;
   const pct = Math.round(ratio * 100);
   // Spending the whole bundle is the negative reading in its own right,

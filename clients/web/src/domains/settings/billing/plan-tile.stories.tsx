@@ -201,7 +201,7 @@ export const CurrentPaid: Story = {
  * The paid tile with a usage reading. At a half-card tile this wide the usage
  * sentence drops to its own line below the machine and storage chips;
  * `SideBySideWide` shows the inline case. The price footer gives way to the
- * Current Usage bar, dated with the day the sub's bundle turns over. Props
+ * Current Usage bar, dated with the day the subscription renews. Props
  * only, so the ratio here is a fixture rather than a live usage read.
  */
 export const CurrentPaidUsageBalance: Story = {
