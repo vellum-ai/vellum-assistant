@@ -1999,6 +1999,7 @@
     "stepIn": "接管",
     "done": "完成",
     "skip": "略過",
-    "description": "請在虛擬桌面中完成操作，然後選擇「完成」，讓助理繼續。"
+    "showMore": "展開",
+    "showLess": "收起"
   }
 }

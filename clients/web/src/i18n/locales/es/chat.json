@@ -1933,6 +1933,7 @@
     "stepIn": "Intervenir",
     "done": "Listo",
     "skip": "Omitir",
-    "description": "Ayuda en el escritorio virtual y elige Listo para que el asistente pueda continuar."
+    "showMore": "Mostrar más",
+    "showLess": "Mostrar menos"
   }
 }

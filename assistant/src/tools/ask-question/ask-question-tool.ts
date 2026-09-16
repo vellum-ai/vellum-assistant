@@ -10,6 +10,7 @@ import {
   type QuestionPromptParamsEntry,
 } from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { DESKTOP_HELP_GUIDANCE } from "../../util/browser-human-verification.js";
 import {
   invalidToolInputResult,
   toToolInputSchema,
@@ -82,7 +83,9 @@ export const askQuestionInputSchema = z
         message: z
           .string()
           .min(1)
-          .describe("Explain what the user should do, in their language."),
+          .describe(
+            "Use one short sentence to explain the needed human action, in the user's language.",
+          ),
         doneLabel: z
           .string()
           .min(1)
@@ -93,7 +96,7 @@ export const askQuestionInputSchema = z
           .describe("The label for Skip in the user's language."),
       })
       .describe(
-        "Request human interaction in the virtual desktop, such as a CAPTCHA or native dialog. For logins, use saved credentials or securely prompt for missing credentials first. Explain what the user should do. Shows a live preview with Step In, Done and Skip. Pass this instead of questions.",
+        "Immediately request human interaction for any CAPTCHA or bot-detection challenge, including sliders and press-and-hold checks. Also use for native dialogs requiring user interaction. For logins, use saved credentials or securely prompt for missing credentials first. Explain what the user should do. Shows a live preview with Step In, Done and Skip. Pass this instead of questions.",
       )
       .optional(),
     questions: z
@@ -117,14 +120,9 @@ export type AskQuestionInput = z.infer<typeof askQuestionInputSchema>;
 // ── Tool description ────────────────────────────────────────────────
 
 const DESCRIPTION = [
-  "When virtual desktop browsing needs human interaction (a CAPTCHA or",
-  "native dialog), call this tool with desktopHelp explaining the task",
-  "instead of questions. It releases browser control and waits for Done or Skip.",
+  DESKTOP_HELP_GUIDANCE,
   "For logins, use saved credentials first. Securely collect missing credentials",
   "with assistant credentials prompt, then fill the login form yourself.",
-  "Use desktopHelp only for steps that require the user to interact directly.",
-  "After Done, inspect a fresh browser snapshot before continuing. Skip does",
-  "not mean the obstacle was resolved; use another approach or explain the blocker.",
   "",
   "Use this tool whenever a request is ambiguous and can be resolved",
   "by 2–4 plausible interpretations or discrete choices. Prefer it over",

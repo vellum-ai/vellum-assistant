@@ -17,6 +17,7 @@ import type {
   BrowserOperationMeta,
   OperationField,
 } from "../../browser/types.js";
+import { DESKTOP_HELP_GUIDANCE } from "../../util/browser-human-verification.js";
 import type {
   CliCommandHelp,
   CliOptionHelp,
@@ -161,11 +162,7 @@ end automation. Run assistant browser --virtual-desktop detach when finished or
 blocked. Chrome stays running.
 For logins, use saved credentials first. Securely collect missing credentials
 with assistant credentials prompt, then fill the login form yourself.
-When a CAPTCHA or other step requires direct human interaction, call ask_question
-with desktopHelp: { message, doneLabel, skipLabel } in the user's language. This releases browser control
-and shows a chat card with a desktop preview, Step In, Done and Skip.
-Wait for the response. After Done, take a fresh snapshot and verify the result.
-Skip leaves the obstacle unresolved; use another approach or explain the blocker.
+${DESKTOP_HELP_GUIDANCE}
 Each subcommand maps to a browser operation and communicates
 with the assistant process.
 

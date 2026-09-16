@@ -177,6 +177,14 @@ The response includes a `screenshots` array with `mediaType` and `data` (base64)
 6. `assistant browser extract` or `assistant browser screenshot --output <path>` to capture results
 7. **Always** `assistant browser detach` when you are done — this releases the debugger so the user can browse freely
 
+## Human verification
+
+Treat every CAPTCHA and bot-detection challenge as a request for human help, including drag-to-verify sliders, press-and-hold checks, verification checkboxes and image puzzles. Stop before interacting with the challenge, even if its controls look easy to automate. Do not try it yourself, retry it, or script a solution.
+
+In the virtual desktop, request the desktop-help card immediately, using one short sentence for the needed action. Wait for Done or Skip. After Done, take a fresh snapshot; if verification remains, ask for help again. On other browser backends, ask the user to complete verification in their browser and wait for confirmation.
+
+For ordinary logins, use saved credentials or securely prompt for missing credentials, then fill the form yourself. A CAPTCHA on a login page still requires human help.
+
 ## Interaction Strategies
 
 **Date pickers / calendars:** Click the date input to open the picker, re-snapshot to see calendar controls, click month navigation arrows to reach the target month, then click the target date. For `<input type="date">`, use `type` with `YYYY-MM-DD` format.

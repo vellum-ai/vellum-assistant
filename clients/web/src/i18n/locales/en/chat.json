@@ -1999,6 +1999,7 @@
     "stepIn": "Step In",
     "done": "Done",
     "skip": "Skip",
-    "description": "Help in the virtual desktop, then choose Done so the assistant can continue."
+    "showMore": "Show more",
+    "showLess": "Show less"
   }
 }

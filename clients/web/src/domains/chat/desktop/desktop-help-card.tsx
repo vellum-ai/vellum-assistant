@@ -1,5 +1,5 @@
 import { Button, Card, Typography } from "@vellumai/design-library";
-import { useCallback } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { useTranslation } from "@/i18n";
@@ -21,6 +21,21 @@ export function DesktopHelpCard({
   onSubmit,
 }: DesktopHelpCardProps) {
   const { t } = useTranslation("chat");
+  const [expanded, setExpanded] = useState(false);
+  const [canExpand, setCanExpand] = useState(false);
+  const messageRef = useRef<HTMLParagraphElement>(null);
+  useLayoutEffect(() => {
+    const message = messageRef.current;
+    if (!message || expanded) {
+      return;
+    }
+    const measure = () =>
+      setCanExpand(message.scrollHeight > message.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(message);
+    return () => observer.disconnect();
+  }, [entry.question, expanded]);
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const enabled = useVirtualDesktopEnabled();
   const attachPreview = useCallback(
@@ -37,17 +52,36 @@ export function DesktopHelpCard({
   );
 
   return (
-    <Card.Root noPadding className="overflow-hidden">
-      <div className="space-y-1 p-3">
-        <Typography variant="body-medium-default" className="font-medium">
+    <Card.Root noPadding className="w-full max-w-sm overflow-hidden">
+      <div className="p-3">
+        <Typography
+          as="p"
+          ref={messageRef}
+          variant="body-small-default"
+          className={
+            expanded
+              ? "break-words leading-normal"
+              : "line-clamp-3 break-words leading-normal"
+          }
+        >
           {entry.question}
         </Typography>
-        <Typography
-          variant="body-small-default"
-          className="text-[var(--content-secondary)]"
-        >
-          {t("desktopHelpCard.description")}
-        </Typography>
+        {canExpand && (
+          <Button
+            variant="ghost"
+            size="compact"
+            expandOnMobile={false}
+            aria-expanded={expanded}
+            className="mt-1"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {t(
+              expanded
+                ? "desktopHelpCard.showLess"
+                : "desktopHelpCard.showMore",
+            )}
+          </Button>
+        )}
       </div>
       {enabled && assistantId ? (
         <div
@@ -61,6 +95,7 @@ export function DesktopHelpCard({
       )}
       <div className="flex items-center gap-2 p-3">
         <Button
+          size="compact"
           expandOnMobile={false}
           variant="outlined"
           disabled={isSubmitting || !enabled || !assistantId}
@@ -73,6 +108,7 @@ export function DesktopHelpCard({
           {t("desktopHelpCard.stepIn")}
         </Button>
         <Button
+          size="compact"
           expandOnMobile={false}
           disabled={isSubmitting}
           onClick={() =>
@@ -84,6 +120,7 @@ export function DesktopHelpCard({
           {t("desktopHelpCard.done")}
         </Button>
         <Button
+          size="compact"
           expandOnMobile={false}
           variant="ghost"
           className="ml-auto"

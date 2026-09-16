@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { useEffect, useState } from "react";
 
@@ -537,5 +538,62 @@ test("windows without attention reporting release the viewer on browser focus ch
     expect(screen.getByRole("dialog")).toBeTruthy();
   } finally {
     document.hasFocus = originalHasFocus;
+  }
+});
+
+const submitQuestion = mock(() => {});
+mock.module("@/domains/chat/question-actions", () => ({
+  handleQuestionResponse: submitQuestion,
+  handleDismissPendingQuestion: mock(() => {}),
+}));
+const { useInteractionStore } =
+  await import("@/domains/chat/interaction-store");
+const { PendingDesktopHelpRow } =
+  await import("@/domains/chat/transcript/pending-desktop-help-row");
+const { QuestionPromptSlot } =
+  await import("@/domains/chat/components/question-prompt-slot");
+
+test("desktop help renders in the transcript only and submits through the question lifecycle", async () => {
+  useInteractionStore.setState({
+    pendingQuestion: { requestId: "req-help", entries: [helpEntry] },
+  });
+  try {
+    render(
+      <>
+        <section aria-label="Messages">
+          <PendingDesktopHelpRow requestId="req-help" />
+        </section>
+        <footer data-testid="composer">
+          <QuestionPromptSlot />
+        </footer>
+        <AssistantDesktopPreview />
+      </>,
+    );
+    await screen.findByTestId("desktop-panel");
+    const messages = within(screen.getByRole("region", { name: "Messages" }));
+    expect(messages.getByRole("button", { name: "Step In" })).toBeTruthy();
+    expect(
+      within(screen.getByTestId("composer")).queryByRole("button"),
+    ).toBeNull();
+    fireEvent.click(messages.getByRole("button", { name: "Done" }));
+    expect(submitQuestion).toHaveBeenCalledWith([
+      { questionId: "q1", kind: "option", optionId: "done" },
+    ]);
+    act(() => useInteractionStore.setState({ pendingQuestion: null }));
+    expect(messages.queryByRole("button", { name: "Step In" })).toBeNull();
+  } finally {
+    act(() => useInteractionStore.setState({ pendingQuestion: null }));
+  }
+});
+
+test("an older transcript row cannot show a newer help request", () => {
+  useInteractionStore.setState({
+    pendingQuestion: { requestId: "req-new", entries: [helpEntry] },
+  });
+  try {
+    render(<PendingDesktopHelpRow requestId="req-old" />);
+    expect(screen.queryByRole("button", { name: "Step In" })).toBeNull();
+  } finally {
+    act(() => useInteractionStore.setState({ pendingQuestion: null }));
   }
 });
