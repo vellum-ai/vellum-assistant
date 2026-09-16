@@ -134,7 +134,8 @@ function notifyBackgroundSkillUpdate(args: {
     sourceEventName: "activity.complete",
     dedupeKey: `skill-updated:${args.skillId}:${day}`,
     contextPayload: {
-      // `summary` feeds the copy composer; `title`/`body` are the home feed's
+      // `summary` feeds the copy composer and `title` is the headline both
+      // it and the home feed keep; `title`/`body` are also the feed's
       // fallback when no channel copy was rendered. Without them a fully
       // suppressed delivery (the intended shape for this signal: low urgency,
       // background, no interruption) leaves the feed writer with no summary
