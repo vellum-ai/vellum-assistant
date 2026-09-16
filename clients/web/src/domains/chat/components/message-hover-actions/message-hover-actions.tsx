@@ -11,7 +11,7 @@ import {
   Square,
   Volume2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useMessageReadAloudStore } from "@/domains/chat/message-read-aloud-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -21,7 +21,7 @@ import {
   useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
@@ -139,8 +139,9 @@ export function MessageHoverActions({
     [message],
   );
 
-  const [showCopied, setShowCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { copy, copied: showCopied } = useCopyToClipboard({
+    errorMessage: t("messageHoverActions.copyFailed"),
+  });
   // Stable fallback so history messages (which lack a client-side timestamp)
   // still display one without re-computing on every render.
   const [fallbackTimestamp] = useState(() => Date.now());
@@ -148,29 +149,7 @@ export function MessageHoverActions({
 
   const hasCopyableText = showTextActions && content.trim().length > 0;
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = useCallback(() => {
-    copyToClipboard(content, {
-      errorMessage: t("messageHoverActions.copyFailed"),
-      onCopied: () => {
-        setShowCopied(true);
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-        }
-        timerRef.current = setTimeout(() => {
-          setShowCopied(false);
-          timerRef.current = null;
-        }, 1500);
-      },
-    });
-  }, [content, t]);
+  const handleCopy = useCallback(() => copy(content), [copy, content]);
 
   return (
     // The timestamp and these controls are chrome, not message content: a

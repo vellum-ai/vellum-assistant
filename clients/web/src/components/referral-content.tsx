@@ -1,12 +1,12 @@
 import { Check, Coins, Copy, Loader2, Users } from "lucide-react";
-import { type ReactNode, useCallback, useId, useState } from "react";
+import { type ReactNode, useCallback, useId } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
 import { referralCodesMeRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
 import { useHoverCapable } from "@/hooks/use-hover-affordance";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { cn } from "@vellumai/design-library";
 import { Button } from "@vellumai/design-library/components/button";
 import { Notice } from "@vellumai/design-library/components/notice";
@@ -56,21 +56,12 @@ export function ReferralContent() {
     referralCodesMeRetrieveOptions(),
   );
 
-  const [copied, setCopied] = useState(false);
+  const { copy, copied } = useCopyToClipboard({
+    successMessage: t("referralContent.copySuccess"),
+    errorMessage: t("referralContent.copyError"),
+  });
 
-  const handleCopy = useCallback(
-    (url: string) => {
-      copyToClipboard(url, {
-        successMessage: t("referralContent.copySuccess"),
-        errorMessage: t("referralContent.copyError"),
-        onCopied: () => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-        },
-      });
-    },
-    [t],
-  );
+  const handleCopy = useCallback((url: string) => copy(url), [copy]);
 
   const creditsGated = data?.is_eligible_for_credits === false;
   const hoverCapable = useHoverCapable();
