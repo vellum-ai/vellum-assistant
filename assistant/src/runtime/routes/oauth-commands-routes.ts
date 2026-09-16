@@ -1001,11 +1001,31 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
       `used "${selected}". Pass --account to select a specific one.`;
   }
 
-  if (response.status === 401 || response.status === 403) {
+  const botChannel = channelForBotProvider(b.provider);
+  const apiHost = parseUrl(providerRow.baseUrl)?.hostname;
+  const requestHost = baseUrl ? parseUrl(baseUrl)?.hostname : apiHost;
+  if (
+    response.status === 403 &&
+    apiHost !== undefined &&
+    requestHost !== undefined &&
+    requestHost !== apiHost
+  ) {
+    // A 403 from a host the provider serves beside its API (a file host) is
+    // about the resource, not the credential: the same token is what the API
+    // host accepts, and the resource is simply not visible to this identity.
+    // Blaming the credential sends the caller off to reconnect one that works.
+    const identity = botChannel ? `${botChannel} bot` : "connected account";
+    result.hint =
+      `Request returned HTTP 403 from ${requestHost}, not from the API host. ` +
+      `That usually means the ${identity} cannot see this resource: it is not shared with it, or the scope it needs is missing (a Slack file needs files:read). ` +
+      `Check the resource's access before treating the credential as revoked; ` +
+      (botChannel
+        ? `'assistant channels get ${botChannel}' reports the credential itself.`
+        : `'assistant oauth status ${b.provider}' reports the credential itself.`);
+  } else if (response.status === 401 || response.status === 403) {
     // The recovery steps follow the credential's kind, not the door the
     // request came through: a channel bot's token was stored by the channel's
     // setup, so the OAuth status and connect commands cannot repair it.
-    const botChannel = channelForBotProvider(b.provider);
     result.hint = botChannel
       ? `Request returned HTTP ${response.status}. The ${botChannel} bot credential was rejected; it may have been revoked or reinstalled with fewer scopes.\n\n` +
         `Run 'assistant channels get ${botChannel}' to re-probe the channel and see what it reports.\n` +

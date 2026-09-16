@@ -669,6 +669,41 @@ describe("POST oauth/request", () => {
   // bot's token is stored by the channel's setup, so the OAuth status and
   // connect commands cannot repair it; the hint must name the channel's own
   // diagnostics, through whichever door the request came.
+  // A 403 from the file host is the resource refusing this identity, not the
+  // credential failing: the same token serves the API host. The hint names
+  // the resource's access, and never tells the caller to reconnect.
+  test("403 from a resource host names the resource's access, not the credential", async () => {
+    mockProviders.slack_channel = seededProvider("slack_channel");
+    mockResolveResponse = {
+      status: 403,
+      headers: { "content-type": "text/html; charset=utf-8" },
+      body: "<html><title>Slack</title></html>",
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "slack_channel",
+          url: "https://files.slack.com/files-pri/T0123-F0456/download/shot.png",
+        },
+      }),
+    )) as { ok: boolean; status: number; hint?: string };
+    expect(result.ok).toBe(false);
+    expect(result.hint).toContain("from files.slack.com");
+    expect(result.hint).toContain("cannot see this resource");
+    expect(result.hint).toContain("files:read");
+    expect(result.hint).not.toContain("was rejected");
+    expect(result.hint).not.toContain("setup skill");
+
+    // The same status from the API host keeps the credential reading.
+    mockResolveRequests = [];
+    const apiResult = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: { provider: "slack_channel", url: "/conversations.history" },
+      }),
+    )) as { hint?: string };
+    expect(apiResult.hint).toContain("slack bot credential was rejected");
+  });
+
   test("401 as a channel bot points at the channel's diagnostics, never the OAuth commands", async () => {
     mockProviders.slack_channel = {
       ...baseProvider,
