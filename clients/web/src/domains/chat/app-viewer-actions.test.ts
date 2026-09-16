@@ -40,7 +40,7 @@ describe("handleAppViewerAction — relay_prompt", () => {
   it("relays to the active conversation without touching the view", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
     showOpenAppRoute({ conversationId: "conv-1", mainView: "app-editing" });
-    const ctx = makeCtx();
+    const ctx = makeCtx(false, appEntryStateFor("conv-1"));
 
     handleAppViewerAction(ctx, "relay_prompt", { prompt: "hello" });
 
@@ -50,11 +50,15 @@ describe("handleAppViewerAction — relay_prompt", () => {
     expect(url).toContain("prompt=hello");
     // The relay is in-app, so it may send; a bare URL would only pre-fill.
     expect(hasAutoSendPromptState(options?.state)).toBe(true);
+    // It stands in for the app entry it is dispatched from, which keeps that
+    // entry's recording so the close still pops.
+    expect(options?.replace).toBe(true);
+    expect(options?.state).toMatchObject(appEntryStateFor("conv-1"));
   });
 
   it("conversation 'new' starts a fresh draft and relays into it", () => {
     useConversationStore.setState({ activeConversationId: "conv-1" });
-    const ctx = makeCtx();
+    const ctx = makeCtx(false, appEntryStateFor("conv-1"));
 
     handleAppViewerAction(ctx, "relay_prompt", {
       prompt: "hi",
@@ -64,10 +68,14 @@ describe("handleAppViewerAction — relay_prompt", () => {
     const newId = useConversationStore.getState().activeConversationId;
     expect(newId).toBeTruthy();
     expect(newId).not.toBe("conv-1");
-    expect(ctx.navigate.mock.calls[0][0]).toContain(
-      `/assistant/conversations/${newId}?`,
-    );
-    expect(ctx.navigate.mock.calls[0][0]).toContain("prompt=hi");
+    const [url, options] = ctx.navigate.mock.calls[0];
+    expect(url).toContain(`/assistant/conversations/${newId}?`);
+    expect(url).toContain("prompt=hi");
+    expect(options?.replace).toBe(true);
+    expect(hasAutoSendPromptState(options?.state)).toBe(true);
+    // The entry now names another conversation, so a recording that returns to
+    // the one it left cannot ride along.
+    expect(options?.state).not.toHaveProperty("appEntry");
   });
 
   it("keeps a full-width app in the URL of the draft it relays into", () => {
@@ -92,10 +100,14 @@ describe("handleAppViewerAction — relay_prompt", () => {
     handleAppViewerAction(ctx, "relay_prompt", { prompt: "refresh" });
     handleAppViewerAction(ctx, "relay_prompt", { prompt: "refresh" });
 
-    const first = ctx.navigate.mock.calls[0][0];
-    const second = ctx.navigate.mock.calls[1][0];
+    const [first, firstOptions] = ctx.navigate.mock.calls[0];
+    const [second, secondOptions] = ctx.navigate.mock.calls[1];
     expect(first).toContain("relay=");
     expect(first).not.toBe(second);
+    // Both replace, so a repeat overwrites the relay entry rather than
+    // stacking one for Back to land on.
+    expect(firstOptions?.replace).toBe(true);
+    expect(secondOptions?.replace).toBe(true);
   });
 
   it("drops when no conversation is active", () => {

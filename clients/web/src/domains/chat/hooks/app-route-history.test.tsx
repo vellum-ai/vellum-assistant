@@ -39,14 +39,18 @@ import {
   useParams,
 } from "react-router";
 
+import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { LocationMirror } from "@/hooks/router-probe.test-helper";
 import { liveViewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { carriedAppEntryState } from "@/utils/app-navigation";
+import { hasAutoSendPromptState } from "@/utils/auto-send-prompt";
 import {
   closeAppRoute,
+  currentEntryState,
   navigateToConversation,
 } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
@@ -248,6 +252,36 @@ async function waitForAppOpen(): Promise<void> {
   );
 }
 
+type TestRouter = ReturnType<typeof renderHistory>;
+
+/** What the chat page hands an app action: its navigate and the entry it is on. */
+function appActionContext(router: TestRouter) {
+  return {
+    navigate: router.navigate,
+    isMobile: false,
+    state: router.state.location.state,
+  };
+}
+
+/** Counts the entries `run` pushes, for a move that is meant to push none. */
+async function pushesDuring(
+  router: TestRouter,
+  run: () => Promise<void>,
+): Promise<number> {
+  let pushes = 0;
+  const unsubscribe = router.subscribe((state) => {
+    if (state.historyAction === NavigationType.Push) {
+      pushes++;
+    }
+  });
+  try {
+    await run();
+  } finally {
+    unsubscribe();
+  }
+  return pushes;
+}
+
 describe("app route history", () => {
   test("Back closes the app and Forward reopens it from the route", async () => {
     const router = renderHistory([CONVERSATION_PATH]);
@@ -435,6 +469,105 @@ describe("app route history", () => {
 
     await act(async () => router.navigate(-1));
     expect(router.state.location.pathname).toBe(LIBRARY_PATH);
+
+    router.dispose();
+  });
+
+  test("relays from the app stay on its entry and the close still pops", async () => {
+    const router = renderHistory([LIBRARY_PATH, CONVERSATION_PATH]);
+
+    click("Open app");
+    await waitForAppOpen();
+    const opened = {
+      appEntry: { appId: APP_ID, returnTo: CONVERSATION_PATH },
+    };
+    expect(router.state.location.state).toEqual(opened);
+
+    const pushes = await pushesDuring(router, async () => {
+      for (const prompt of ["one", "two"]) {
+        await act(async () => {
+          handleAppViewerAction(appActionContext(router), "relay_prompt", {
+            prompt,
+          });
+        });
+      }
+    });
+
+    // Each relay stands in for the entry it is dispatched from, so the stack
+    // is the depth the open left it at and Back reaches no earlier relay.
+    expect(pushes).toBe(0);
+    expect(router.state.location.pathname).toBe(APP_PATH);
+    expect(router.state.location.search).toContain("prompt=two");
+    expect(router.state.location.search).toContain("relay=");
+    expect(hasAutoSendPromptState(router.state.location.state)).toBe(true);
+    expect(router.state.location.state).toMatchObject(opened);
+
+    await act(async () => {
+      handleAppViewerAction(appActionContext(router), "set_view", {
+        view: "chat",
+      });
+    });
+
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(CONVERSATION_PATH),
+    );
+    expect(router.state.historyAction).toBe(NavigationType.Pop);
+
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.pathname).toBe(LIBRARY_PATH);
+
+    router.dispose();
+  });
+
+  test("a relay into a new conversation closes onto the conversation it started", async () => {
+    const router = renderHistory([LIBRARY_PATH, CONVERSATION_PATH]);
+
+    click("Open app");
+    await waitForAppOpen();
+
+    await act(async () => {
+      handleAppViewerAction(appActionContext(router), "relay_prompt", {
+        prompt: "start something",
+        conversation: "new",
+      });
+    });
+    const draftId = useConversationStore.getState().activeConversationId;
+    expect(draftId).not.toBe(CONV_ID);
+    expect(router.state.location.pathname).toBe(
+      routes.conversation(draftId!, APP_ID),
+    );
+
+    /* The draft's first send mints the row's id, records the replacement, and
+       rewrites this entry in place, re-keying what the entry records to the
+       conversation it now names. */
+    await act(async () => {
+      const conversation = useConversationStore.getState();
+      conversation.recordDraftReplacement(draftId!, SERVER_CONV_ID);
+      conversation.setActiveConversationId(SERVER_CONV_ID);
+      void router.navigate(routes.conversation(SERVER_CONV_ID, APP_ID), {
+        replace: true,
+        state: carriedAppEntryState(currentEntryState(), SERVER_CONV_ID),
+      });
+    });
+
+    await act(async () => {
+      handleAppViewerAction(appActionContext(router), "set_view", {
+        view: "chat",
+      });
+    });
+
+    /* The relay started this conversation, so the close stays on it. A pop
+       would land on the conversation the app was opened from and leave the
+       one the user is talking in reachable only by Forward. */
+    await waitFor(() =>
+      expect(router.state.historyAction).toBe(NavigationType.Replace),
+    );
+    expect(router.state.location.pathname).toBe(
+      routes.conversation(SERVER_CONV_ID),
+    );
+
+    await act(async () => router.navigate(-1));
+    expect(router.state.location.pathname).toBe(CONVERSATION_PATH);
 
     router.dispose();
   });

@@ -9,8 +9,13 @@
  *   conversation) or `"new"` (a fresh draft). It never touches the layout, so
  *   the app the viewer keeps on screen rides along in the URL's app segment.
  *   Each relay carries a unique token so the auto-send dedupe re-fires even
- *   when the same prompt is relayed repeatedly. No-op for `"active"` when no
- *   conversation is open.
+ *   when the same prompt is relayed repeatedly. The relay replaces the entry
+ *   it is dispatched from, so repeated relays stay one entry, and it carries
+ *   that entry's recorded return only when it relays into the conversation the
+ *   entry names, which leaves the close popping through the recording. A relay
+ *   into another conversation drops the recording, so the close lands on the
+ *   conversation the relay started. No-op for `"active"` when no conversation
+ *   is open.
  *
  * - `open_conversation` ({ conversationId }) — navigates to an existing
  *   conversation by ID without sending a message. On a wide viewport the
@@ -36,12 +41,13 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { autoSendPromptState } from "@/utils/auto-send-prompt";
 import {
   closeAppRoute,
+  currentPathname,
   exitAppSplit,
   keepOpenAppBesideConversation,
   keptAppId,
   type PathNavigate,
 } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
+import { conversationIdForPath, routes } from "@/utils/routes";
 
 export interface AppViewerActionContext {
   /** Navigation from the route component, keeping this module framework-agnostic. */
@@ -72,6 +78,8 @@ function relayPrompt(
     return;
   }
 
+  const staysOnEntry =
+    conversationId === conversationIdForPath(currentPathname());
   ctx.navigate(
     routes.conversationWithPrompt(
       conversationId,
@@ -79,7 +87,10 @@ function relayPrompt(
       crypto.randomUUID(),
       keptAppId(),
     ),
-    { state: autoSendPromptState() },
+    {
+      replace: true,
+      state: autoSendPromptState(staysOnEntry ? ctx.state : undefined),
+    },
   );
 }
 
