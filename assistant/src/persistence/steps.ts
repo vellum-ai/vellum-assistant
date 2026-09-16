@@ -1614,5 +1614,13 @@ export const migrationSteps: MigrationStep[] = [
     dependsOn: ["migrateCreateSubagentsTable"],
   },
   migrateCreateConversationToolSurfaces,
-  migrateOAuthProvidersResponseOkField,
+  {
+    name: "migrateOAuthProvidersResponseOkField",
+    run: migrateOAuthProvidersResponseOkField,
+    // The column guard reads the table's columns, and an `ALTER` on a missing
+    // table throws, so the table must be checkpointed first or a repair flow
+    // that failed to create it would either fail this step needlessly or, if
+    // the error were swallowed, checkpoint it as done against no table.
+    dependsOn: ["createOAuthTables"],
+  },
 ];
