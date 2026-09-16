@@ -1178,21 +1178,21 @@ describe("PlanCard usage balance", () => {
     );
   });
 
-  test("both tiles keep their chips in one wrapping row", () => {
+  test("both tiles receive their package's spec chips", () => {
     const { container } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
       () => {},
     );
 
+    // How those chips lay out belongs to the tile; plan-tile.test.tsx owns it.
     for (const [tile, labels] of [
       [currentTile(container), MIGHTY_CHIPS],
       [nextTile(container), SUPER_CHIPS],
     ] as const) {
-      // Child 0 is the header row; child 1 is the wrap row.
-      const wrapRow = tile.children[1] as HTMLElement;
-      expect(wrapRow.childElementCount).toBe(labels.length);
-      expect(wrapRow.textContent).toBe(labels.join(""));
+      for (const label of labels) {
+        expect(within(tile).getByText(label)).toBeTruthy();
+      }
     }
   });
 
@@ -1200,7 +1200,7 @@ describe("PlanCard usage balance", () => {
     // An older platform omits both usage-grant fields, so there is no honest
     // reading. The tile keeps its price rather than an empty footer, and the
     // date lives only in the panel, so a tile without one prints no date.
-    const { container } = renderCardInteractive(
+    const { container, queryByTestId } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
       () => {},
@@ -1212,6 +1212,7 @@ describe("PlanCard usage balance", () => {
     expect(
       container.querySelector('[data-testid="plan-usage-balance"]'),
     ).toBeNull();
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
     expect(
       within(currentTile(container)).getByTestId("plan-card-price").textContent,
     ).toBe("$30/month");
@@ -1238,10 +1239,7 @@ describe("PlanCard usage balance", () => {
   });
 
   test("a Custom sub with no live grants reads as fully spent", async () => {
-    // Every grant this sub ever held is used or expired, so the summary's
-    // total is zero. The plan has nothing left to give, which is a full bar
-    // dated as a renewal, not a missing one: a sub holding no bundle has
-    // nothing that turns over.
+    // Every grant is spent: a full bar, dated a renewal per `UsagePeriodEnd`.
     totalUsageBalance = "0.00";
     availableUsageBalance = "0.00";
     const { findByTestId, queryByTestId, queryByText } = renderCardInteractive(
