@@ -60,9 +60,7 @@ export class McpServerManager {
             "HTTP transport: OAuth provider will be available if server requires authentication",
           );
         }
-        // The server's own origin decides whether it may resolve
-        // `mcp:<serverId>:*` from the credential store.
-        const client = new McpClient(serverId, serverConfig.source, () => {
+        const client = new McpClient(serverId, serverConfig, () => {
           if (this.clients.get(serverId) !== client) {
             return;
           }

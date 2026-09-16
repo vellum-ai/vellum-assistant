@@ -8,11 +8,9 @@
  *
  * 1. A workspace entry of the same id wins. Getting precedence backwards
  *    would let a plugin redirect a server the user configured by hand.
- * 2. A plugin server is never health-checked. `McpClient.connect` resolves
- *    `mcp:<serverId>:headers` and `mcp:<serverId>:tokens` from the
- *    credential store, and a plugin controls both its server key and its
- *    URL, so probing one would send a workspace credential to an endpoint
- *    the plugin chose whenever an id happens to match a stored key.
+ * 2. A plugin server is never health-checked as a side effect of listing.
+ *    OAuth status is read from the plugin and endpoint-scoped credential
+ *    identity, while workspace static headers remain isolated.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -20,6 +18,12 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, jest, mock, test } from "bun:test";
 
 const getServerState = jest.fn();
+const hasMcpOAuthTokens = jest.fn(async (target: any) => {
+  if (target.source === "plugin" && target.url === "not a url") {
+    throw new TypeError("invalid URL");
+  }
+  return true;
+});
 
 mock.module("../mcp/client.js", () => ({
   McpClient: class {
@@ -45,9 +49,7 @@ mock.module("../mcp/mcp-auth-state.js", () => ({
 }));
 
 mock.module("../mcp/mcp-oauth-provider.js", () => ({
-  // Stand in for a credential store that holds tokens for every id, which
-  // is the condition under which a leak would be observable.
-  hasMcpOAuthTokens: async () => true,
+  hasMcpOAuthTokens,
   deleteMcpOAuthCredentials: async () => ({ ok: true, failedKeys: [] }),
 }));
 
@@ -130,6 +132,7 @@ async function listServers(): Promise<ListedServer[]> {
 describe("internal_mcp_list, plugin-declared servers", () => {
   beforeEach(() => {
     getServerState.mockReset();
+    hasMcpOAuthTokens.mockClear();
     rmSync(getWorkspacePluginsDir(), { recursive: true, force: true });
     mkdirSync(getWorkspacePluginsDir(), { recursive: true });
   });
@@ -198,13 +201,21 @@ describe("internal_mcp_list, plugin-declared servers", () => {
     expect(plugin.status).toBe("connected");
   });
 
-  test("plugin servers report no assistant-owned auth even when the store has some", async () => {
+  test("plugin servers report endpoint-scoped OAuth without static auth", async () => {
     writePlugin("unabyss", unabyssManifest());
 
     const plugin = (await listServers()).find((s) => s.id === "unabyss")!;
-    expect(plugin.hasOAuth).toBe(false);
+    expect(plugin.hasOAuth).toBe(true);
     expect(plugin.hasStaticAuth).toBe(false);
     expect(plugin.authType).toEqual("none");
+    expect(hasMcpOAuthTokens).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "plugin",
+        pluginName: "unabyss",
+        serverKey: "unabyss",
+        url: "https://mcp.unabyss.com",
+      }),
+    );
   });
 
   test("workspace servers keep reporting their auth state", async () => {
@@ -243,6 +254,20 @@ describe("internal_mcp_list, plugin-declared servers", () => {
 
     const ids = (await listServers()).map((s) => s.id);
     expect(ids).toContain("from-workspace");
+  });
+
+  test("an invalid plugin transport URL does not break the listing", async () => {
+    writePlugin("bad-url", {
+      mcpServers: {
+        remote: { type: "streamable-http", url: "not a url" },
+      },
+    });
+
+    const servers = await listServers();
+    expect(servers.find((s) => s.id === "bad-url__remote")?.hasOAuth).toBe(
+      false,
+    );
+    expect(servers.some((s) => s.id === "from-workspace")).toBe(true);
   });
 
   test("no plugins installed leaves the listing unchanged", async () => {

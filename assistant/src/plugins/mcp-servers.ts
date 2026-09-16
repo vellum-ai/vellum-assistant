@@ -21,19 +21,11 @@
  * disables only that entry. Neither ever throws, because a malformed file
  * in one plugin must not remove another plugin's servers from a listing.
  *
- * Authentication is deliberately absent. Agent Plugins 1.0.0 defines no
- * portable OAuth or credential-reference fields; authentication is
- * client-managed, and any `headers` in the file are literal package data.
- * A plugin therefore cannot ship a credential, and the assistant's own
- * credential store stays the only place secrets live.
- *
- * Consumers must not resolve a plugin server's id against the
- * `mcp:<serverId>:*` credential namespace. Those keys belong to
- * workspace-configured servers, and a plugin controls both its server key
- * and its URL, so honoring them for a plugin-declared server would send a
- * workspace credential to an endpoint the plugin chose. Every config built
- * here carries `source: "plugin"`, which is what `McpClient` reads to
- * decide, so the rule travels with the server rather than with the caller.
+ * Authentication is client-managed. Agent Plugins 1.0.0 defines no portable
+ * OAuth or credential-reference fields, and any `headers` in the file are
+ * literal package data. Runtime configs carry the declaring plugin directory
+ * name and original server key so OAuth credentials can be isolated from the
+ * public server id and from workspace credentials.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -257,6 +249,8 @@ export function readPluginMcpServers(
         config: {
           transport: projectTransport(entry.data, plugin.target),
           source: "plugin",
+          pluginName: plugin.name,
+          serverKey,
         },
       });
     }

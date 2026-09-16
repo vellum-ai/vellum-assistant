@@ -666,11 +666,16 @@ export function registerPluginsCommand(program: Command): void {
             // when the daemon is unreachable (a transport error carries no
             // `statusCode`); an operator can still uninstall while it's stopped,
             // and `shutdown` then runs in this process, the only one available.
-            const daemon = await cliIpcCall<{ name: string; target: string }>(
-              "plugins_uninstall",
-              { pathParams: { name } },
-            );
-            let result: { name: string; target: string };
+            const daemon = await cliIpcCall<{
+              name: string;
+              target: string;
+              warnings?: string[];
+            }>("plugins_uninstall", { pathParams: { name } });
+            let result: {
+              name: string;
+              target: string;
+              warnings?: string[];
+            };
             if (daemon.ok && daemon.result) {
               result = daemon.result;
             } else if (daemon.statusCode === undefined) {
@@ -693,6 +698,9 @@ export function registerPluginsCommand(program: Command): void {
             console.log(
               `Uninstalled plugin "${result.name}" from ${result.target}`,
             );
+            for (const warning of result.warnings ?? []) {
+              console.warn(`Warning: ${warning}`);
+            }
           } catch (err) {
             if (err instanceof libs.installGitHub.InvalidPluginNameError) {
               console.error(err.message);

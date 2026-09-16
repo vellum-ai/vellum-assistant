@@ -16,9 +16,11 @@ import { join } from "node:path";
 
 import { runShutdownHook } from "../../hooks/hook-loader.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
+import { PLUGIN_MCP_MANIFEST } from "../../plugins/mcp-servers.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   InvalidPluginNameError,
+  readInstallMeta,
   sanitizePluginName,
 } from "./install-from-github.js";
 
@@ -45,6 +47,8 @@ export interface UninstallPluginResult {
   readonly name: string;
   /** Absolute path that was removed. */
   readonly target: string;
+  /** Non-fatal cleanup limitations callers should show to the user. */
+  readonly warnings?: string[];
 }
 
 /**
@@ -87,6 +91,41 @@ export async function uninstallPlugin(
     throw new PluginNotInstalledError(name, target);
   }
 
+  const hasCurrentMcpManifest = existsSync(join(target, PLUGIN_MCP_MANIFEST));
+  const recordedFiles = readInstallMeta(target)?.fingerprint?.files;
+  const hasRecordedMcpManifest =
+    recordedFiles !== undefined &&
+    Object.hasOwn(recordedFiles, PLUGIN_MCP_MANIFEST);
+  const warnings: string[] = [];
+  const { deletePluginMcpOAuthCredentials } =
+    await import("../../mcp/mcp-oauth-provider.js");
+  let credentialsReachable = true;
+  let cleanup:
+    | Awaited<ReturnType<typeof deletePluginMcpOAuthCredentials>>
+    | undefined;
+  try {
+    cleanup = await deletePluginMcpOAuthCredentials(name);
+    credentialsReachable = !cleanup.unreachable;
+  } catch {
+    credentialsReachable = false;
+  }
+  if (cleanup && !cleanup.unreachable && !cleanup.ok) {
+    throw new Error(
+      `Plugin "${name}" was not removed because its MCP OAuth credentials could not be deleted.`,
+    );
+  }
+
+  if (!credentialsReachable) {
+    if (hasCurrentMcpManifest || hasRecordedMcpManifest) {
+      throw new Error(
+        `Plugin "${name}" was not removed because credential storage is unavailable and its MCP OAuth credentials could not be checked.`,
+      );
+    }
+    warnings.push(
+      "Credential storage is unavailable, so historical plugin MCP OAuth credentials could not be checked.",
+    );
+  }
+
   // Skip the shutdown hook when the plugin is disabled. A `.disabled` plugin
   // is never loaded — no hooks, tools, or init — so its shutdown was never
   // paired with an init. Running it on uninstall would be the first and only
@@ -98,7 +137,11 @@ export async function uninstallPlugin(
   }
 
   rmSync(target, { recursive: true, force: true });
-  return { name, target };
+  return {
+    name,
+    target,
+    ...(warnings.length > 0 && { warnings }),
+  };
 }
 
 export { InvalidPluginNameError };

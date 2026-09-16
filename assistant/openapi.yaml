@@ -26544,6 +26544,11 @@ paths:
                   target:
                     type: string
                     description: Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.
+                  warnings:
+                    description: Non-fatal cleanup limitations that should be shown with the uninstall result.
+                    type: array
+                    items:
+                      type: string
                 required:
                   - name
                   - target

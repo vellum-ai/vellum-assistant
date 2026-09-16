@@ -367,8 +367,12 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
 
   const removeMutation = usePluginsByNameDeleteMutation({
     onMutate: (variables) => setRemovingName(variables.path.name),
-    onSuccess: (_data, variables) =>
-      toast.success(t("pluginToast.removed", { name: variables.path.name })),
+    onSuccess: (result, variables) => {
+      toast.success(t("pluginToast.removed", { name: variables.path.name }));
+      for (const warning of result.warnings ?? []) {
+        toast.warning(warning);
+      }
+    },
     onError: () => toast.error(PLUGIN_REMOVE_ERROR),
     onSettled: (_data, _error, variables) => {
       setRemovingName(null);

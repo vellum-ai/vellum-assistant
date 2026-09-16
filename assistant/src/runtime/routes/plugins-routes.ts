@@ -255,6 +255,12 @@ const pluginUninstallResponseSchema = z.object({
     .describe(
       "Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.",
     ),
+  warnings: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Non-fatal cleanup limitations that should be shown with the uninstall result.",
+    ),
 });
 
 const pluginDetailsResponseSchema = z.object({
@@ -1134,7 +1140,11 @@ async function handleUninstallPlugin({
     const result = await uninstallPlugin({ name: rawName });
     await reconcilePluginSourcesNow();
     publishPluginsChanged(getOriginClientId(headers));
-    return { name: result.name, target: result.target };
+    return {
+      name: result.name,
+      target: result.target,
+      ...(result.warnings && { warnings: result.warnings }),
+    };
   } catch (err) {
     if (err instanceof InvalidPluginNameError) {
       throw new BadRequestError(err.message);

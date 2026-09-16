@@ -104,9 +104,12 @@ export function usePluginDetail(
   });
 
   const removeMutation = usePluginsByNameDeleteMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
       invalidate();
       onRemoved?.();
+      for (const warning of result.warnings ?? []) {
+        toast.warning(warning);
+      }
     },
   });
 
