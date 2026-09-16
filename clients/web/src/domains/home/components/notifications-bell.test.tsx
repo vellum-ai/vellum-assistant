@@ -773,6 +773,18 @@ describe("NotificationsBell panel", () => {
     expect(filter.parentElement?.className).toContain("--aux-white");
   });
 
+  test("uses the active assistant's readable accent surface for the count", async () => {
+    feedRef.items = [bellItem({ status: "new" })];
+
+    await openBell();
+
+    const count = screen.getByTestId("notifications-bell-count");
+    expect(count.parentElement?.className).toContain("--avatar-accent-fill");
+    expect(count.parentElement?.className).toContain("--system-positive-weak");
+    expect(count.className).toContain("--avatar-accent-ink");
+    expect(count.className).toContain("--system-positive-on-weak");
+  });
+
   test("preserves the filter through detail and back", async () => {
     feedRef.items = [
       bellItem({ id: "unread", status: "new", title: "Unread item" }),

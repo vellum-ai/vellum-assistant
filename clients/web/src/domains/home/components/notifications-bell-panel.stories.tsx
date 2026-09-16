@@ -19,6 +19,7 @@ import { NotificationsBellList } from "@/domains/home/components/notifications-b
 import { NotificationsBellPanel } from "@/domains/home/components/notifications-bell-panel";
 import { feedItem } from "@/domains/home/feed-test-fixtures";
 import { clearAllArgs, markAllReadArgs } from "@/domains/home/utils";
+import { avatarAccentVars } from "@/hooks/use-avatar-accent-var";
 import { useTranslation } from "@/i18n";
 import type { FeedItem } from "@vellumai/assistant-api";
 import { Typography } from "@vellumai/design-library";
@@ -299,20 +300,13 @@ const DESIGN_FEED = [
 function PopoverFrame({
   children,
   accent = "#6366f1",
-  accentGlyph = "#ffffff",
 }: {
   children: ReactNode;
-  accent?: string;
-  accentGlyph?: string;
+  accent?: string | null;
 }) {
   return (
     <div
-      style={
-        {
-          "--avatar-accent": accent,
-          "--avatar-accent-glyph": accentGlyph,
-        } as CSSProperties
-      }
+      style={avatarAccentVars(accent) as CSSProperties}
       className="flex w-[435px] max-w-full min-w-0 flex-col rounded-[var(--radius-xl)] bg-[var(--surface-lift)] shadow-[var(--shadow-popover)]"
     >
       {children}
@@ -340,8 +334,7 @@ interface PanelStoryArgs {
   isBulkPending: boolean;
   isDecisionPending: boolean;
   initialUnreadOnly: boolean;
-  accent: string;
-  accentGlyph: string;
+  accent: string | null;
 }
 
 function PanelPreview({
@@ -351,7 +344,6 @@ function PanelPreview({
   isDecisionPending,
   initialUnreadOnly,
   accent,
-  accentGlyph,
 }: PanelStoryArgs) {
   const { t } = useTranslation("home");
   const [unreadOnly, setUnreadOnly] = useState(initialUnreadOnly);
@@ -362,7 +354,7 @@ function PanelPreview({
   const canClearAll = clearAllArgs(items).ids.length > 0;
 
   return (
-    <PopoverFrame accent={accent} accentGlyph={accentGlyph}>
+    <PopoverFrame accent={accent}>
       <NotificationsBellPanel
         count={displayedItems.length}
         canMarkAllRead={canMarkAllRead}
@@ -409,7 +401,6 @@ const meta = {
     isDecisionPending: false,
     initialUnreadOnly: true,
     accent: "#6366f1",
-    accentGlyph: "#ffffff",
   },
   render: (args) => <PanelPreview {...args} />,
 } satisfies Meta<PanelStoryArgs>;
@@ -428,7 +419,20 @@ export const Default: Story = {};
 export const LightAccent: Story = {
   args: {
     accent: "#E9C91A",
-    accentGlyph: "#111214",
+  },
+};
+
+/** A pink accent colors the checked switch and the count's readable fill. */
+export const PinkAccent: Story = {
+  args: {
+    accent: "#DB4B77",
+  },
+};
+
+/** No avatar color keeps the notification badge's semantic fallback. */
+export const NoAccent: Story = {
+  args: {
+    accent: null,
   },
 };
 
