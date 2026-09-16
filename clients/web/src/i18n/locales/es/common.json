@@ -188,8 +188,10 @@
     "captureNothing": "Nada que mostrar",
     "capturePicker": "Qué enseñar",
     "captureScreen": "Pantalla {n}",
+    "captureScreenRecordingOff": "La grabación de pantalla está desactivada",
     "captureScreens": "Pantallas",
     "captureTabs": "Pestañas de Chrome",
+    "captureTurnOnScreenRecording": "Activar",
     "captureWindows": "Ventanas",
     "draw": "Dibujar",
     "clearMarks": "Borrar marcas",
@@ -240,6 +242,10 @@
   "conversationTitle": {
     "untitled": "Sin título"
   },
+  "copyButton": {
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar al portapapeles."
+  },
   "createAssistantDialog": {
     "cancel": "Cancelar",
     "create": "Crear",
@@ -276,7 +282,6 @@
     "tooltip": "Detener"
   },
   "detailPrimitives": {
-    "copied": "Copiado",
     "copy": "Copiar",
     "showLess": "Mostrar menos",
     "showMore": "Mostrar más"

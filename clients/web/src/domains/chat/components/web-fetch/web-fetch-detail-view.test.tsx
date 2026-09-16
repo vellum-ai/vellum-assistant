@@ -179,6 +179,28 @@ describe("WebFetchDetailView", () => {
     expect(queryByText("cnbc.com")).toBeNull();
   });
 
+  test("a refused fetch says it was not approved, not that it failed", () => {
+    // The daemon answers a refusal with an error result addressed to the model.
+    const refusal =
+      'Permission denied. The "web_fetch" tool was not allowed. Do NOT retry this tool call immediately.';
+    const { getByText, queryByText } = render(
+      <WebFetchDetailView
+        detail={payload({ status: "denied", result: refusal })}
+        result={refusal}
+        streamedOutput={undefined}
+        isRunning={false}
+        isError
+        isDenied
+      />,
+    );
+
+    expect(
+      getByText("This tool call was not approved, so it did not run."),
+    ).toBeDefined();
+    expect(queryByText(/Do NOT retry/)).toBeNull();
+    expect(queryByText("cnbc.com")).toBeNull();
+  });
+
   test("shows a result that lands while the drawer is already open", () => {
     // The drawer opened mid-fetch, so the payload snapshot is still running and
     // empty; the live result is what `ToolDetailBody` resolved since.

@@ -284,13 +284,20 @@ export async function runConversationTurn(
   const { resolveChannelCapabilities } =
     await import("../daemon/conversation-runtime-assembly.js");
 
-  // Plugin-driven turns run as the guardian: plugins are installed by the
-  // guardian, so their conversations inherit guardian trust. This lets the
-  // existing non-interactive auto-approve machinery handle tool permissions
-  // (the conversation is already non-interactive via `isInteractive: false`
-  // below) without requiring a client to approve prompts.
+  // Channel-addressed turns are inbound: the gateway classifies the sender
+  // and the turn runs only if that actor clears the channel admission floor.
+  // Internal plugin jobs (no channel address) use guardian trust because they
+  // are assistant-owned work, not an external sender.
   const { INTERNAL_GUARDIAN_TRUST_CONTEXT } =
     await import("../daemon/trust-context.js");
+  const { resolvePluginChannelTurnTrust } =
+    await import("./plugin-channel-turn-trust.js");
+  const { prepareChannelInboundContent } =
+    await import("../runtime/routes/inbound-stages/inbound-content-prep.js");
+
+  const trustContext = options.channel
+    ? await resolvePluginChannelTurnTrust(options.channel)
+    : INTERNAL_GUARDIAN_TRUST_CONTEXT;
 
   // A channel address resolves through the same binding an inbound message
   // uses, so a turn addressed by chat lands in that chat's conversation
@@ -311,7 +318,7 @@ export async function runConversationTurn(
     ? !channelConversation.created
     : getConversation(conversationId) != null;
   const conversation = await getOrCreateConversation(conversationId, {
-    trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
+    trustContext,
     ...(options.conversationType
       ? { conversationType: options.conversationType }
       : {}),
@@ -336,10 +343,23 @@ export async function runConversationTurn(
 
   // Convert ContentBlock[] input to the text + attachments shape the
   // conversation's processMessage path expects.
-  const { text, attachments } = extractContentAndAttachments(
+  const { text: rawText, attachments } = extractContentAndAttachments(
     options.content,
     resolveMediaSourceData,
   );
+  const inboundContent = options.channel
+    ? prepareChannelInboundContent({
+        trimmedContent: rawText,
+        trustClass: trustContext.trustClass,
+        sourceChannel: options.channel.sourceChannel,
+        requesterIdentifier:
+          options.channel.username ??
+          options.channel.externalUserId ??
+          undefined,
+      })
+    : { content: rawText, displayContent: undefined };
+  const text = inboundContent.content;
+  const displayContent = inboundContent.displayContent;
 
   // The channel this turn speaks on. Runtime assembly reads the per-turn
   // context first and falls back to the conversation's `originChannel`, then
@@ -409,6 +429,8 @@ export async function runConversationTurn(
       requestId,
       isInteractive: false,
       metadata,
+      trustContext,
+      ...(displayContent ? { displayContent } : {}),
     });
     if (enqueueResult.rejected) {
       throw new Error(
@@ -432,6 +454,8 @@ export async function runConversationTurn(
     onEvent,
     isInteractive: false,
     metadata,
+    trustContext,
+    ...(displayContent ? { displayContent } : {}),
     ...(options.callSite ? { callSite: options.callSite } : {}),
   });
 

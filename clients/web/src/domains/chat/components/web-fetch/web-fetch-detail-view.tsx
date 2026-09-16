@@ -17,6 +17,7 @@ import { Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { CodeBlock } from "@/components/detail-primitives";
+import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import { SiteFavicon } from "@/domains/chat/components/web-search/site-favicon";
 import { extractDomain } from "@/domains/chat/utils/web-search-result-text";
 import { readToolInputString } from "@/domains/chat/utils/tool-input";
@@ -150,6 +151,7 @@ export function WebFetchDetailView({
   result,
   isRunning,
   isError,
+  isDenied,
 }: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
   const [showRaw, setShowRaw] = useState(false);
@@ -164,6 +166,14 @@ export function WebFetchDetailView({
     () => parseWebFetchResult(body, fallbackUrl),
     [body, fallbackUrl],
   );
+
+  // A refused fetch never ran: its result is the daemon's note to the model,
+  // which reads as a failed fetch if shown, so the refusal is what it says.
+  if (isDenied) {
+    return (
+      <ToolOutputBody text="" isDenied isRunning={false} isError={false} />
+    );
+  }
 
   // A failed fetch has no parseable body, so its error shows verbatim.
   if (isError) {

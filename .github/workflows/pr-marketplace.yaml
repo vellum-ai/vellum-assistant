@@ -5,9 +5,12 @@ on:
     types: [labeled, synchronize, opened, reopened]
     paths:
       - 'plugins/marketplace.json'
+      - 'plugins/mcp-catalog/**'
       - 'scripts/check-marketplace-prefix.mjs'
       - 'meta/feature-flags/feature-flag-registry.json'
       - 'meta/sync-bundled-copies.ts'
+      - 'assistant/scripts/bundled-plugin-packages.ts'
+      - 'assistant/scripts/generate-bundled-plugin-packages.ts'
       - 'assistant/src/cli/lib/bundled-marketplace.json'
       - 'clients/web/src/lib/feature-flags/feature-flag-registry.json'
       - 'plugins/assets/**'
@@ -53,6 +56,16 @@ jobs:
       - name: Verify bundled copies match canonical sources
         run: bun run meta/sync-bundled-copies.ts --check
 
+      - name: Install assistant dependencies
+        run: bun install --frozen-lockfile --ignore-scripts --filter=@vellumai/assistant
+
+      - name: Validate bundled local plugin packages
+        run: bun run assistant/scripts/generate-bundled-plugin-packages.ts --check
+
+      - name: Test bundled local plugin package generation
+        working-directory: scripts
+        run: bun test plugins/__tests__/bundled-plugin-packages.test.ts
+
   # Purely local: verifies plugins/plugin-icons.json matches the vendored PNGs
   # under plugins/assets/, so the derived manifest can't drift from the assets a
   # PR commits. Does not re-fetch upstream, so a repinned plugin whose upstream
@@ -82,4 +95,4 @@ jobs:
       # apply; guards the TS<->mjs parity of the mirrored validator/classifier.
       - name: Run plugin-icons generator tests
         working-directory: scripts
-        run: bun test plugins/__tests__/
+        run: bun test plugins/__tests__/add-plugin-icon.test.mjs plugins/__tests__/generate-plugin-icons.test.mjs

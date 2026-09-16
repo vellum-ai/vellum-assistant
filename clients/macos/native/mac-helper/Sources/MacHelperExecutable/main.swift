@@ -1041,9 +1041,14 @@ final class MacHelper: @unchecked Sendable {
                     "height": result.metadata?.screenshotHeightPx ?? 0,
                 ]))
             } catch {
+                let code = if case CaptureError.permissionDenied = error {
+                    JsonRpcErrorCode.permissionDenied
+                } else {
+                    JsonRpcErrorCode.internalError
+                }
                 self.writeResponse(JsonRpcCodec.errorResponse(
                     id: id,
-                    code: JsonRpcErrorCode.internalError,
+                    code: code,
                     message: error.localizedDescription
                 ))
             }
@@ -1512,6 +1517,7 @@ final class MacHelper: @unchecked Sendable {
     private enum PermissionKind: String {
         case speechRecognition
         case inputMonitoring
+        case screen
     }
 
     private func parsePermissionKind(_ params: Any?) throws -> PermissionKind {
@@ -1533,6 +1539,8 @@ final class MacHelper: @unchecked Sendable {
             return speechRecognitionStatus()
         case .inputMonitoring:
             return inputMonitoringStatus()
+        case .screen:
+            return screenRecordingStatus()
         }
     }
 
@@ -1571,6 +1579,18 @@ final class MacHelper: @unchecked Sendable {
         default:
             return "unknown"
         }
+    }
+
+    /// Screen Recording as this process holds it. The helper disclaims
+    /// responsibility, so this is the helper's own grant and not the app's:
+    /// the two are separate rows in System Settings.
+    ///
+    /// Never "not-determined": the preflight answers only yes or no, and a
+    /// helper that has never asked reads the same as one that was refused.
+    /// The answer is fixed for the life of a process, so a fresh read comes
+    /// from a fresh launch.
+    private func screenRecordingStatus() -> String {
+        CGPreflightScreenCaptureAccess() ? "granted" : "denied"
     }
 
     /// The keyboard tap the hold detector reads. Installed when a binding asks
@@ -1793,6 +1813,17 @@ if CommandLine.arguments.contains("--front-selection") {
         NSApplication.shared.setActivationPolicy(.prohibited)
         if IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) != kIOHIDAccessTypeGranted {
             _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        }
+        NSApplication.shared.terminate(nil)
+    }
+} else if CommandLine.arguments.contains("--request-screen-recording") {
+    // Asking is also what lists the helper under Screen Recording in System
+    // Settings, so this runs before Settings is opened even where macOS will
+    // not show its prompt again.
+    MainActor.assumeIsolated {
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        if !CGPreflightScreenCaptureAccess() {
+            _ = CGRequestScreenCaptureAccess()
         }
         NSApplication.shared.terminate(nil)
     }

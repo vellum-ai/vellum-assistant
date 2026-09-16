@@ -23,6 +23,40 @@ export function isOverlayView(mainView: MainView): boolean {
   return mainView !== "chat" && !isAppMainView(mainView);
 }
 
+export interface FullWidthAppFields {
+  mainView: MainView;
+  isMobile: boolean;
+  /** The app the URL names, held from the moment it is asked for. */
+  activeAppId: string | null;
+  /** The app loaded and ready to draw. */
+  openedAppId: string | null;
+}
+
+/**
+ * Whether the desktop full-width app viewer takes the chat's place: an app
+ * view on a wide viewport with an app to show, loaded or still loading.
+ *
+ * A released app leaves the view naming an app with neither, and the chat
+ * renders instead. Mobile shows its app through a portal overlay, so the chat
+ * stays mounted underneath.
+ *
+ * Shared by the layout that renders the branch and by
+ * {@link useComposerOnScreen}, which reports whether the composer the branch
+ * replaces is on screen, so the two cannot disagree about what is drawn.
+ */
+export function showsFullWidthApp({
+  mainView,
+  isMobile,
+  activeAppId,
+  openedAppId,
+}: FullWidthAppFields): boolean {
+  return (
+    mainView === "app" &&
+    !isMobile &&
+    (openedAppId !== null || activeAppId !== null)
+  );
+}
+
 /**
  * What the workspace shows. `"full"` and `"single"` are one picture and two
  * states: a surface filling the width, with a secondary collapsed behind it

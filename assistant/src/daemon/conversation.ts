@@ -181,6 +181,7 @@ import {
   canSpawnSubagentsForTurn,
   createResolveToolsCallback,
   createToolExecutor,
+  createWireToolSurfaceRecorder,
 } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
@@ -1053,6 +1054,7 @@ export class Conversation {
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
+      onToolsSent: createWireToolSurfaceRecorder(this),
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
         if (!conv) {

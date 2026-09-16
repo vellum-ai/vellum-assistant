@@ -11,6 +11,7 @@ import {
 
 import { companionLayoutFor } from "@/components/companion-layout";
 import { useTranslation } from "@/i18n";
+import { Button } from "@vellumai/design-library/components/button";
 import { ScrollShadow } from "@vellumai/design-library/components/scroll-shadow";
 import { SegmentControl } from "@vellumai/design-library/components/segment-control";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
@@ -141,6 +142,11 @@ export interface CompanionCapturePickerProps {
    */
   label?: string;
   onPick?: (pick: CompanionCapturePick) => void;
+  /**
+   * The press on the card's ask for Screen Recording, drawn in place of the
+   * tiles when the host says the grant is missing.
+   */
+  onAllowScreenRecording?: () => void;
 }
 
 export function CompanionCapturePicker({
@@ -152,6 +158,7 @@ export function CompanionCapturePicker({
   cardRef,
   label,
   onPick,
+  onAllowScreenRecording,
 }: CompanionCapturePickerProps) {
   const { t } = useTranslation();
   const { inUnits, lineAt, introStepOff } = companionLayoutFor(
@@ -177,11 +184,18 @@ export function CompanionCapturePicker({
         : `translate(-50%, ${stepOff}px)`,
   };
 
+  // What the host listed, while there is anything that could be drawn from
+  // it. Without Screen Recording no tile could show or share what it names,
+  // so the card asks for the grant in their place.
+  const needsGrant =
+    sources !== null && sources.screenRecordingGranted === false;
+  const listed = needsGrant ? null : sources;
+
   const kinds =
-    sources === null
+    listed === null
       ? []
-      : KIND_ORDER.filter((kind) => countOf(sources, kind) > 0);
-  const empty = sources !== null && kinds.length === 0;
+      : KIND_ORDER.filter((kind) => countOf(listed, kind) > 0);
+  const empty = listed !== null && kinds.length === 0;
 
   // The user's answer, and null until they give one. Derived rather than
   // seeded, because the card is drawn before the host has answered: a state
@@ -190,18 +204,18 @@ export function CompanionCapturePicker({
   // way, which is what a list arriving without it means.
   const [chosen, setChosen] = useState<CaptureKind | null>(null);
   const kind =
-    sources === null
+    listed === null
       ? "screens"
       : chosen !== null && kinds.includes(chosen)
         ? chosen
-        : openingKind(sources);
+        : openingKind(listed);
 
   const targets = useMemo((): { key: string; target: WatchCaptureTarget }[] => {
-    if (sources === null) {
+    if (listed === null) {
       return [];
     }
     if (kind === "screens") {
-      return sources.displays.map((display) => {
+      return listed.displays.map((display) => {
         const target: WatchCaptureTarget = {
           kind: "display",
           displayId: display.displayId,
@@ -210,7 +224,7 @@ export function CompanionCapturePicker({
       });
     }
     if (kind === "windows") {
-      return sources.windows.map((window) => {
+      return listed.windows.map((window) => {
         const target: WatchCaptureTarget = {
           kind: "window",
           windowId: window.windowId,
@@ -220,7 +234,7 @@ export function CompanionCapturePicker({
     }
     // A tab is not a window yet, so there is nothing to take a picture of.
     return [];
-  }, [kind, sources]);
+  }, [kind, listed]);
 
   /**
    * What the host has answered, per tile. A key with no entry has not been
@@ -380,9 +394,27 @@ export function CompanionCapturePicker({
       >
         <div className="flex flex-col" data-slot="capture-sources">
           {sources === null && <SkeletonGrid />}
-          {sources !== null && kind === "screens" && (
+          {needsGrant && (
+            <div
+              className="flex items-center justify-between gap-3 px-2 py-2"
+              data-slot="capture-needs-grant"
+            >
+              <span className="text-[12px] text-white/70">
+                {t("companionSurface.captureScreenRecordingOff")}
+              </span>
+              <Button
+                variant="primary"
+                size="compact"
+                className="shrink-0"
+                onClick={onAllowScreenRecording}
+              >
+                {t("companionSurface.captureTurnOnScreenRecording")}
+              </Button>
+            </div>
+          )}
+          {listed !== null && kind === "screens" && (
             <Grid>
-              {sources.displays.map((display) => {
+              {listed.displays.map((display) => {
                 const name = t("companionSurface.captureScreen", {
                   n: display.index + 1,
                 });
@@ -410,9 +442,9 @@ export function CompanionCapturePicker({
               })}
             </Grid>
           )}
-          {sources !== null && kind === "windows" && (
+          {listed !== null && kind === "windows" && (
             <Grid>
-              {sources.windows.map((window) => {
+              {listed.windows.map((window) => {
                 const key = keyOf({
                   kind: "window",
                   windowId: window.windowId,
@@ -442,9 +474,9 @@ export function CompanionCapturePicker({
               })}
             </Grid>
           )}
-          {sources !== null && kind === "tabs" && (
+          {listed !== null && kind === "tabs" && (
             <div className="flex flex-col">
-              {sources.tabs.map((tab) => (
+              {listed.tabs.map((tab) => (
                 <Row
                   key={`tab-${tab.chromeWindowId}-${tab.tabIndex}`}
                   icon={<SourceIcon icon={tab.icon} />}

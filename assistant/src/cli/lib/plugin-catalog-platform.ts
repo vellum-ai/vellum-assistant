@@ -16,7 +16,10 @@
 import { z } from "zod";
 
 import { getPlatformBaseUrl } from "../../config/env.js";
-import type { MarketplaceEntry } from "./plugin-marketplace.js";
+import {
+  type MarketplaceEntry,
+  mcpIntegrationSchema,
+} from "./plugin-marketplace.js";
 import {
   type PluginCatalog,
   PluginCatalogUnavailableError,
@@ -38,6 +41,7 @@ const platformPluginRowSchema = z.object({
   category: z.string().nullable().optional(),
   homepage: z.string().nullable().optional(),
   license: z.string().nullable().optional(),
+  integration: mcpIntegrationSchema.nullable().optional(),
 });
 
 const platformCatalogSchema = z.object({
@@ -112,6 +116,7 @@ export async function fetchPluginCatalogFromPlatform(
       category: row.category ?? undefined,
       homepage: row.homepage ?? undefined,
       license: row.license ?? undefined,
+      integration: row.integration ?? undefined,
     });
   }
 
