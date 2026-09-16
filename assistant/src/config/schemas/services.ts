@@ -157,6 +157,13 @@ export const FigmaOAuthServiceSchema = BaseServiceSchema.extend({
 });
 export type FigmaOAuthService = z.infer<typeof FigmaOAuthServiceSchema>;
 
+export const QuickBooksOAuthServiceSchema = BaseServiceSchema.extend({
+  mode: ServiceModeSchema.default("your-own"),
+});
+export type QuickBooksOAuthService = z.infer<
+  typeof QuickBooksOAuthServiceSchema
+>;
+
 export const EventbriteOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
@@ -227,6 +234,9 @@ export const ServicesSchema = z.object({
   ),
   "figma-oauth": FigmaOAuthServiceSchema.default(
     FigmaOAuthServiceSchema.parse({}),
+  ),
+  "quickbooks-oauth": QuickBooksOAuthServiceSchema.default(
+    QuickBooksOAuthServiceSchema.parse({}),
   ),
   "eventbrite-oauth": EventbriteOAuthServiceSchema.default(
     EventbriteOAuthServiceSchema.parse({}),

@@ -1021,7 +1021,7 @@ describe("AssistantConfigSchema", () => {
           maxSilenceMs: 35000,
           longOpMs: 15000,
           minGapMs: 6000,
-          generationTimeoutMs: 1500,
+          generationTimeoutMs: 5000,
         },
       },
     });

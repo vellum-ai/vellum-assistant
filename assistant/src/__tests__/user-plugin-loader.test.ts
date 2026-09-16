@@ -93,6 +93,27 @@ describe("user plugin loader", () => {
     expect(initHooks).toHaveLength(1);
   });
 
+  test("loads a plugin via a standard plugin.json manifest", async () => {
+    const pluginDir = join(PLUGINS_DIR, "standard-plugin");
+    mkdirSync(join(pluginDir, "hooks"), { recursive: true });
+    writeFileSync(
+      join(pluginDir, "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "standard-plugin",
+        version: "1.0.0",
+      }),
+    );
+    writeFileSync(
+      join(pluginDir, "hooks", "init.ts"),
+      "export default async function init(_ctx: unknown): Promise<void> {}\n",
+    );
+
+    await loadUserPlugins();
+
+    expect(await getUserHooksFor("init")).toHaveLength(1);
+  });
+
   test("per-plugin failure is isolated: other plugins still load", async () => {
     // Plugin A has a malformed package.json; the loader must isolate the
     // failure and still load the healthy sibling.

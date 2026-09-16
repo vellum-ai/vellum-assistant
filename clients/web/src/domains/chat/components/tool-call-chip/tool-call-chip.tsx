@@ -56,6 +56,7 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { perceivedStartedAt } from "@/domains/chat/utils/tool-call-status";
+import { confirmationAsk } from "@/domains/chat/utils/confirmation-ask";
 import {
   extractInputSummary,
   friendlyRunningLabel,
@@ -166,21 +167,13 @@ export function InlineConfirmationCard({
   const hasDetails = !!confirmation.input;
   const offersRule = offersRuleOption(confirmation);
 
-  // Meta-line context: what the agent was doing when it hit the gate. The
-  // live activity label wins; a custom confirmation title and the friendly
-  // tool label are fallbacks.
-  const activity = readToolInputString(toolCall.input ?? {}, ...ACTIVITY_KEYS);
-  const contextLabel =
-    activity ||
-    confirmation.title ||
-    friendlyToolLabel(
-      toolCall.name,
-      extractInputSummary(toolCall.name, toolCall.input),
-    );
-
-  // The prominent body is the human-readable ask; older daemons only send
-  // the risk reason, which reads well enough in the same slot.
-  const body = confirmation.description || confirmation.riskReason || null;
+  // Meta-line context and the prominent body: what the agent was doing when
+  // it hit the gate, and the human-readable ask.
+  const { context: contextLabel, ask: body } = confirmationAsk(
+    toolCall.name,
+    toolCall.input,
+    confirmation,
+  );
 
   return (
     <div

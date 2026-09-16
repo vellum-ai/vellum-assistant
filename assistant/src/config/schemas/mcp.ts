@@ -55,9 +55,7 @@ const McpSseTransportSchema = z
       .optional()
       .describe("Custom HTTP headers sent with SSE requests"),
   })
-  .describe(
-    "SSE transport: connects to an MCP server over Server-Sent Events",
-  );
+  .describe("SSE transport: connects to an MCP server over Server-Sent Events");
 
 const McpStreamableHttpTransportSchema = z
   .object({
@@ -114,10 +112,14 @@ export type McpConfig = z.infer<typeof McpConfigSchema>;
  */
 export type McpServerSource = "workspace" | "plugin";
 
-/** A server config with its origin resolved. */
-export interface ResolvedMcpServerConfig extends McpServerConfig {
-  readonly source: McpServerSource;
-}
+/** A server config with its runtime-only origin and credential identity. */
+export type ResolvedMcpServerConfig =
+  | (McpServerConfig & { readonly source: "workspace" })
+  | (McpServerConfig & {
+      readonly source: "plugin";
+      readonly pluginName: string;
+      readonly serverKey: string;
+    });
 
 /** The MCP config the daemon runs: both origins, every server attributed. */
 export interface ResolvedMcpConfig {

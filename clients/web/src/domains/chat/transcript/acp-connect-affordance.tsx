@@ -25,11 +25,13 @@ import { isElectron } from "@/runtime/is-electron";
 // interaction store (`pendingAcpConnect`). The transcript renders this inline
 // affordance under the failed tool call's group so the user can complete the
 // OAuth flow in one round-trip instead of reading dead error text and running a
-// CLI prompt. Because the prompt lives in the store — not on the reseed-able
-// tool-call field — it survives the routine `/messages` resync instead of
-// vanishing mid-turn. Gated on the daemon being new enough to serve the Connect
-// auth routes (see `useSupportsAcpConnect`); against an older daemon the
-// component renders nothing and the tool call keeps its plain error rendering.
+// CLI prompt. Dismiss retires this failed spawn without connecting and persists
+// that choice so a reload cannot raise the same card. Because the prompt lives
+// in the store (not on the reseed-able tool-call field) it survives the
+// routine `/messages` resync instead of vanishing mid-turn. Gated on the daemon
+// being new enough to serve the Connect auth routes (see
+// `useSupportsAcpConnect`); against an older daemon the component renders
+// nothing and the tool call keeps its plain error rendering.
 //
 // The transcript's own `assistantId` is passed in (rather than read via
 // `useActiveAssistantId()`, which throws outside `ActiveAssistantGate` — and
@@ -169,13 +171,18 @@ function AcpConnectAffordanceInner({ assistantId }: { assistantId: string }) {
     ? connection.mode === "loopback"
     : isElectron();
 
+  const handleDismiss = () => {
+    useInteractionStore.getState().dismissAcpConnect({ persist: true });
+  };
+
   return oneStep ? (
-    <OneStepCard connection={connection} />
+    <OneStepCard connection={connection} onDismiss={handleDismiss} />
   ) : (
     <TwoStepCard
       connection={connection}
       pastedCode={pastedCode}
       onPastedCodeChange={setPastedCode}
+      onDismiss={handleDismiss}
     />
   );
 }
@@ -201,6 +208,44 @@ function Title() {
   );
 }
 
+function ConnectActions({
+  canConnect,
+  busy,
+  phase,
+  onConnect,
+  onDismiss,
+  connectLabel,
+  dismissLabel,
+}: {
+  canConnect: boolean;
+  busy: boolean;
+  phase: UseConnectClaudeResult["phase"];
+  onConnect: () => void;
+  onDismiss?: () => void;
+  connectLabel: string;
+  dismissLabel: string;
+}) {
+  const canDismiss = Boolean(onDismiss) && phase !== "connected";
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      {canDismiss ? (
+        <Button variant="ghost" onClick={onDismiss}>
+          {dismissLabel}
+        </Button>
+      ) : null}
+      {canConnect ? (
+        <Button variant="primary" onClick={onConnect}>
+          {connectLabel}
+        </Button>
+      ) : busy ? (
+        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
+      ) : phase === "connected" ? (
+        <Check className="h-5 w-5 shrink-0 text-[var(--system-positive-strong)]" />
+      ) : null}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // One-step (desktop / loopback): compact single row
 // ---------------------------------------------------------------------------
@@ -209,8 +254,10 @@ function Title() {
 // directly; production callers stay within this file.
 export function OneStepCard({
   connection,
+  onDismiss,
 }: {
   connection: UseConnectClaudeResult;
+  onDismiss?: () => void;
 }) {
   const { phase, error, connect } = connection;
   const { t } = useTranslation("chat");
@@ -255,15 +302,15 @@ export function OneStepCard({
         </div>
       </div>
 
-      {canConnect ? (
-        <Button variant="primary" onClick={() => void connect()}>
-          {t("acpConnectAffordance.connectButton")}
-        </Button>
-      ) : busy ? (
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
-      ) : phase === "connected" ? (
-        <Check className="h-5 w-5 shrink-0 text-[var(--system-positive-strong)]" />
-      ) : null}
+      <ConnectActions
+        canConnect={canConnect}
+        busy={busy}
+        phase={phase}
+        onConnect={() => void connect()}
+        onDismiss={onDismiss}
+        connectLabel={t("acpConnectAffordance.connectButton")}
+        dismissLabel={t("acpConnectAffordance.dismissButton")}
+      />
     </div>
   );
 }
@@ -276,10 +323,12 @@ export function TwoStepCard({
   connection,
   pastedCode,
   onPastedCodeChange,
+  onDismiss,
 }: {
   connection: UseConnectClaudeResult;
   pastedCode: string;
   onPastedCodeChange: (value: string) => void;
+  onDismiss?: () => void;
 }) {
   const { phase, error, connect, submitPastedCode } = connection;
   const { t } = useTranslation("chat");
@@ -329,15 +378,15 @@ export function TwoStepCard({
           </div>
         </div>
 
-        {canConnect ? (
-          <Button variant="primary" onClick={() => void connect()}>
-            {t("acpConnectAffordance.connectButton")}
-          </Button>
-        ) : busy ? (
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--content-tertiary)]" />
-        ) : phase === "connected" ? (
-          <Check className="h-5 w-5 shrink-0 text-[var(--system-positive-strong)]" />
-        ) : null}
+        <ConnectActions
+          canConnect={canConnect}
+          busy={busy}
+          phase={phase}
+          onConnect={() => void connect()}
+          onDismiss={onDismiss}
+          connectLabel={t("acpConnectAffordance.connectButton")}
+          dismissLabel={t("acpConnectAffordance.dismissButton")}
+        />
       </div>
 
       {phase === "awaiting_paste" ? (

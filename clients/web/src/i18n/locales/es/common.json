@@ -155,8 +155,33 @@
       "title": "Talk"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "Permitir",
+    "confirm": "Confirmar",
+    "credentialLabel": "Credencial",
+    "defaultSuffix": "(predeterminada)",
+    "deny": "Denegar",
+    "dismiss": "Descartar",
+    "enter": "Introducir",
+    "microphoneFallback": "Micrófono {index}",
+    "microphonePermissionHint": "Permite el acceso al micrófono para ver cada micrófono por su nombre.",
+    "microphoneTitle": "Micrófono",
+    "needsCredentials": "Necesito una credencial",
+    "needsCredentialsFor": "Necesito credenciales para {service}",
+    "needsOkCount": "{count, plural, one {Necesito tu aprobación para # cosa} other {Necesito tu aprobación para # cosas}}",
+    "notNow": "Ahora no",
+    "openApp": "Abrir Vellum",
+    "pendingBadge": "{count, plural, one {# cosa necesita tu aprobación} other {# cosas necesitan tu aprobación}}",
+    "previewVoice": "Escuchar {voice}",
+    "review": "Revisar",
+    "savedMicrophone": "Micrófono guardado",
+    "savedMicrophoneNotConnected": "Micrófono guardado (no conectado)",
+    "stopPreview": "Detener",
+    "surfaceFallback": "Algo para ver",
+    "systemDefault": "Predeterminado del sistema",
+    "voiceTitle": "Voz"
+  },
+  "companionSurface": {
     "calling": "Llamando…",
     "callingNamed": "Llamando a {name}…",
     "captureKind": "Tipo de fuente",
@@ -166,7 +191,6 @@
     "captureScreens": "Pantallas",
     "captureTabs": "Pestañas de Chrome",
     "captureWindows": "Ventanas",
-    "deny": "Denegar",
     "draw": "Dibujar",
     "clearMarks": "Borrar marcas",
     "drawTools": "Herramienta de dibujo",
@@ -194,7 +218,9 @@
     "talk": "Hablar",
     "teach": "Enseñar",
     "unmuteAssistant": "Activar sonido del asistente",
-    "unmuteMicrophone": "Activar micrófono"
+    "unmuteMicrophone": "Activar micrófono",
+    "chooseMicrophone": "Elegir micrófono",
+    "chooseVoice": "Elegir voz"
   },
   "companionWatchFramePage": {
     "sharingScreen": "Compartiendo tu pantalla",
@@ -422,6 +448,22 @@
   "quickInputPage": {
     "logoAlt": "Vellum",
     "placeholder": "Pregunta lo que quieras a Vellum..."
+  },
+  "referralContent": {
+    "copied": "¡Copiado!",
+    "copyError": "No se pudo copiar el enlace de referido.",
+    "copySuccess": "¡Copiado al portapapeles!",
+    "creditsEarned": "Créditos ganados",
+    "friendsReferred": "Amigos referidos",
+    "gatedTooltip": "¡Suscríbete o compra créditos para empezar a ganar!",
+    "loadError": "No se pudo cargar la información de referidos.",
+    "loading": "Cargando...",
+    "shareLink": "Compartir enlace",
+    "subtitleDefault": "Comparte Vellum con amigos y gana créditos por cada registro.",
+    "subtitleWithAmounts": "Comparte Vellum con amigos - cada uno ganará {creditAmount} créditos cuando se registren, hasta {earningCap} en total."
+  },
+  "referralModal": {
+    "title": "Gana créditos gratis"
   },
   "removeFromDeviceDialog": {
     "confirm": "Eliminar",
@@ -665,6 +707,7 @@
     "copied": "¡Copiado!",
     "copyName": "Copiar nombre",
     "displayNameHint": "Para el nombre visible, <strong>{suggestedName}</strong> mantiene este bot alineado con tu asistente. El nombre de usuario es independiente y no tiene que coincidir.",
+    "dmOnlyNotice": "Los chats privados sí están admitidos. Los mensajes y las pulsaciones de botones en grupos, supergrupos y canales aún no están admitidos.",
     "inBotFather": "En BotFather:",
     "intro": "Los bots de Telegram se crean enviando un mensaje a <strong>@BotFather</strong>. Ábrelo, sigue las indicaciones y vuelve con el token que te dé.",
     "next": "Siguiente",
@@ -679,6 +722,10 @@
     "copyError": "No se pudo copiar el nombre. Escríbelo en BotFather en su lugar.",
     "stepConnect": "Conectar",
     "stepCreate": "Crear bot"
+  },
+  "tenantHost": {
+    "shopifyLabel": "Dominio de la tienda",
+    "shopifyPlaceholder": "tu-tienda.myshopify.com"
   },
   "terminalPanel": {
     "recoveryModeBanner": "Modo de recuperación activo: esta sesión está conectada al terminal de depuración."

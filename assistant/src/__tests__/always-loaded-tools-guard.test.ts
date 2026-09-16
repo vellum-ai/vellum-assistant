@@ -44,11 +44,11 @@ describe("always-loaded tool count", () => {
     );
     const activeNames = activeTools.map((t) => t.name).sort();
 
-    // `watch_retro_report` survives this baseline for the same reason the
-    // ui_* tools do: a watch retrospective runs clientless, so it can only
-    // report through a tool that survives this baseline. The ui_* tools are
-    // here because background UI surfaces persist and return instead of
-    // awaiting action, so they no longer need a connected client.
+    // `watch_retro_report` survives this baseline because a watch
+    // retrospective runs clientless and can only report through a tool that
+    // stays on this baseline. The ui_* tools stay here because background
+    // surfaces persist and return instead of awaiting action, so a connected
+    // client is not required for the definitions to be present.
     // Host tool definitions stay on the wire for background turns: schemas
     // are cache-stable, and the shared execution gate rejects host tools on
     // explicitly non-interactive turns before any proxy dispatch.

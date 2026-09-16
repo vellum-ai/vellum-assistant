@@ -37,7 +37,7 @@ const installSpy = mock(async (_options: unknown) => ({
   ...okResponse,
 }));
 const deleteSpy = mock(async (_options: unknown) => ({
-  data: undefined,
+  data: { name: NAME, target: `/ws/plugins/${NAME}` },
   ...okResponse,
 }));
 const upgradeSpy = mock(async (_options: unknown) => ({
@@ -78,6 +78,16 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
       ...okResponse,
     }),
   ),
+}));
+
+const toastWarningSpy = mock((_message: string) => {});
+const dlActual = await import("@vellumai/design-library");
+mock.module("@vellumai/design-library", () => ({
+  ...dlActual,
+  toast: Object.assign((_message: string) => {}, {
+    ...dlActual.toast,
+    warning: toastWarningSpy,
+  }),
 }));
 
 const { pluginsByNameGetQueryKey, pluginsByNameInspectGetQueryKey } =
@@ -181,6 +191,7 @@ beforeEach(() => {
   installSpy.mockClear();
   deleteSpy.mockClear();
   upgradeSpy.mockClear();
+  toastWarningSpy.mockClear();
 });
 
 describe("usePluginDetail", () => {
@@ -251,6 +262,26 @@ describe("usePluginDetail", () => {
       body: {},
     });
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
+  });
+
+  test("remove shows a returned credential cleanup warning", async () => {
+    deleteSpy.mockImplementationOnce(async () => ({
+      data: {
+        name: NAME,
+        target: `/ws/plugins/${NAME}`,
+        warnings: ["plugin.uninstall.mcp_oauth_credentials_unchecked"],
+      },
+      ...okResponse,
+    }));
+    const { result } = renderPluginDetail();
+
+    result.current.remove();
+
+    await waitFor(() =>
+      expect(toastWarningSpy).toHaveBeenCalledWith(
+        "Credential storage is unavailable, so historical plugin MCP OAuth credentials could not be checked.",
+      ),
+    );
   });
 
   test("hasLocalEdits reflects local.localChanges.clean", () => {

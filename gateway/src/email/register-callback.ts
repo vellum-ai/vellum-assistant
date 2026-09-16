@@ -4,6 +4,7 @@ import { credentialKey } from "../credential-key.js";
 import { fetchImpl } from "../fetch.js";
 import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
 import { getLogger } from "../logger.js";
+import { resolvePlatformAssistantIdOrUndefined } from "../platform-identity.js";
 
 const log = getLogger("email-callback");
 
@@ -45,16 +46,12 @@ export async function registerEmailCallbackRoute(caches?: {
     return undefined;
   }
 
-  const [platformBaseUrlRaw, assistantApiKeyRaw, assistantIdRaw] =
-    caches?.credentials
-      ? await Promise.all([
-          caches.credentials.get(credentialKey("vellum", "platform_base_url")),
-          caches.credentials.get(credentialKey("vellum", "assistant_api_key")),
-          caches.credentials.get(
-            credentialKey("vellum", "platform_assistant_id"),
-          ),
-        ])
-      : [undefined, undefined, undefined];
+  const [platformBaseUrlRaw, assistantApiKeyRaw] = caches?.credentials
+    ? await Promise.all([
+        caches.credentials.get(credentialKey("vellum", "platform_base_url")),
+        caches.credentials.get(credentialKey("vellum", "assistant_api_key")),
+      ])
+    : [undefined, undefined];
 
   // Fall back to env vars when managed pod credentials are not yet cached,
   // matching the daemon's resolvePlatformCallbackRegistrationContext().
@@ -69,7 +66,7 @@ export async function registerEmailCallbackRoute(caches?: {
     process.env.ASSISTANT_API_KEY?.trim() ||
     undefined;
 
-  const assistantId = assistantIdRaw?.trim() || undefined;
+  const assistantId = await resolvePlatformAssistantIdOrUndefined();
 
   if (!platformBaseUrl || !assistantCredential || !assistantId) {
     log.debug(

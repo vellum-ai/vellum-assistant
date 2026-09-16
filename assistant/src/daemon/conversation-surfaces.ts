@@ -3180,7 +3180,7 @@ export async function surfaceProxyResolver(
           : typeof input.answer === "string"
             ? input.answer
             : "Task complete";
-      hostCuProxy.reset();
+      hostCuProxy.endTask(ctx.conversationId);
       return { content: summary, isError: false };
     }
 
@@ -3346,6 +3346,11 @@ export async function surfaceProxyResolver(
 
   if (toolName === "ui_show" || toolName === "ui_update") {
     const caps = ctx.channelCapabilities;
+    // Live non-dynamic channels reject unsupported surfaces. Clientless turns
+    // skip this gate so surfaces persist for a later capable client.
+    // `canShowInteractiveUi` fails closed on clientless turns because
+    // standalone surfaces have nobody to answer them, so it is not the
+    // predicate here.
     if (
       caps &&
       !ctx.hasNoClient &&

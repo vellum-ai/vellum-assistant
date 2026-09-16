@@ -4,6 +4,9 @@ export const MAX_OUTPUT_LENGTH = 20_000;
 
 export const OUTPUT_TRUNCATED_TAG = `<output_truncated limit="20K" />`;
 
+export const SHELL_DID_NOT_START_MESSAGE =
+  "Error: the shell command did not start. No process was created, so the command did not run.";
+
 export interface ShellOutputResult {
   content: string;
   status: string | undefined;
@@ -31,8 +34,16 @@ export function formatShellOutput(
   code: number | null,
   timedOut: boolean,
   timeoutSec: number,
-  options?: { truncated?: boolean },
+  options?: { truncated?: boolean; started?: boolean },
 ): ShellOutputResult {
+  if (options?.started === false) {
+    return {
+      content: SHELL_DID_NOT_START_MESSAGE,
+      status: undefined,
+      isError: true,
+    };
+  }
+
   let output = stdout;
   if (stderr) {
     output += (output ? "\n" : "") + stderr;
@@ -137,6 +148,7 @@ export class BoundedStdioCollector {
     code: number | null,
     timedOut: boolean,
     timeoutSec: number,
+    options?: { started?: boolean },
   ): ShellOutputResult {
     return formatShellOutput(
       Buffer.concat(this.stdoutParts).toString(),
@@ -144,7 +156,7 @@ export class BoundedStdioCollector {
       code,
       timedOut,
       timeoutSec,
-      { truncated: this.truncated },
+      { truncated: this.truncated, started: options?.started },
     );
   }
 }

@@ -199,6 +199,26 @@ export function acpSpawnCredentialDenialReason(
  * mode, including a simply-absent credential, as `{ success: false,
  * reason }`, so callers choose whether a miss is fatal.
  */
+/**
+ * Vault path for `CLAUDE_CODE_OAUTH_TOKEN`. Renews first so a near-expired
+ * stored token is replaced before the broker read. Config overrides never
+ * reach here, so this does not spend the vault refresh token on a spawn
+ * that will not use it.
+ */
+async function injectClaudeOauthFromVault(
+  env: Record<string, string>,
+): Promise<string | undefined> {
+  const { ensureFreshAcpClaudeToken } =
+    await import("./claude-token-refresh.js");
+  await ensureFreshAcpClaudeToken();
+  return injectCredential(
+    env,
+    ACP_OAUTH_TOKEN_FIELD,
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
+  );
+}
+
 async function injectCredential(
   env: Record<string, string>,
   field: string,
@@ -371,12 +391,7 @@ export async function prepareAgentEnv(
     }
     let missReason: string | undefined;
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      missReason = await injectCredential(
-        env,
-        ACP_OAUTH_TOKEN_FIELD,
-        "CLAUDE_CODE_OAUTH_TOKEN",
-        ACP_CLAUDE_OAUTH_USAGE_DESCRIPTION,
-      );
+      missReason = await injectClaudeOauthFromVault(env);
     }
     // Any api-key-shaped value still standing here came from the vault read:
     // the config override was already dropped above, and the read only runs
