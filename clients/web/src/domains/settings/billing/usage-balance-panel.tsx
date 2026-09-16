@@ -5,19 +5,28 @@ import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { useTranslation } from "@/i18n";
-import { formatUsageResetDate } from "@/lib/billing/usage-reset-date";
+import { formatMonthDay } from "@/utils/format-date";
+
+/**
+ * The end of the billing cycle the panel dates itself by. A sub holding a
+ * credit bundle turns that bundle over then ("resets"); a sub without one only
+ * renews.
+ */
+export interface UsagePeriodEnd {
+  /** ISO instant the current cycle ends on. */
+  at: string;
+  kind: "resets" | "renews";
+}
 
 export interface UsageBalancePanelProps {
   /** Used share of the granted usage credit, already clamped to 0..1. */
   ratio: number;
   /**
-   * The ISO instant the current billing cycle ends on, printed under the
-   * title. `resets` is true when the sub holds a credit bundle that turns over
-   * then ("Resets on") and false when the sub renews without one ("Renews
-   * on"). Omit it or pass null for a reading with no cycle (the free plan's
-   * one-time grant) or a sub that is ending rather than renewing.
+   * The cycle end printed under the title. Omit it or pass null for a reading
+   * with no cycle (the free plan's one-time grant) or a sub that is ending
+   * rather than renewing.
    */
-  periodEnd?: { at: string; resets: boolean } | null;
+  periodEnd?: UsagePeriodEnd | null;
   /**
    * The wallet behind the spent bundle is empty too, so the next turn has
    * nothing to draw on. Raises the add-credits strip, and only that: the bar
@@ -41,14 +50,16 @@ export function UsageBalancePanel({
 }: UsageBalancePanelProps) {
   const { t } = useTranslation("settings");
   const title = t("planCard.usageBalanceTitle");
-  const periodEndLabel = periodEnd
-    ? t(
-        periodEnd.resets
-          ? "planCard.usageBalanceResets"
-          : "planCard.usageBalanceRenews",
-        { date: formatUsageResetDate(periodEnd.at) },
-      )
-    : null;
+  const periodEndDate = periodEnd ? formatMonthDay(periodEnd.at) : null;
+  const periodEndLabel =
+    periodEnd && periodEndDate
+      ? t(
+          periodEnd.kind === "resets"
+            ? "planCard.usageBalanceResets"
+            : "planCard.usageBalanceRenews",
+          { date: periodEndDate },
+        )
+      : null;
   const pct = Math.round(ratio * 100);
   // Spending the whole bundle is the negative reading in its own right,
   // whatever the wallet behind it still holds.
@@ -60,13 +71,13 @@ export function UsageBalancePanel({
       className="@container flex w-full flex-col gap-3 rounded-[10px] border border-[var(--border-base)] bg-[color-mix(in_srgb,var(--surface-overlay)_40%,transparent)] px-4 py-3"
     >
       {/*
-        On a panel at least 32rem wide the bar starts a fixed 64px after the
-        title and the percentage follows it; a narrower panel keeps the bar at
-        the right edge and lets it shrink, which is what phones need. The
-        breakpoint reads the panel's own width because the tile is half a card
-        beside a next tile and the whole card without one.
+        Container query, not a viewport breakpoint: the tile is half a card
+        beside a next tile and the whole card without one, so the viewport says
+        nothing about the panel's width. The threshold is the content box,
+        about 514px of panel, where the 64px gap and the full-length bar first
+        both fit.
       */}
-      <div className="flex w-full items-center gap-3 @lg:gap-16">
+      <div className="flex w-full items-center gap-3 @min-[30rem]:gap-16">
         <div className="flex min-w-0 flex-col">
           <Typography
             as="span"
@@ -86,11 +97,11 @@ export function UsageBalancePanel({
             </Typography>
           ) : null}
         </div>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-3 @lg:justify-start">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-3 @min-[30rem]:justify-start">
           <ProgressBar
             value={ratio}
             height={8}
-            aria-label={title}
+            aria-label={periodEndLabel ? `${title}, ${periodEndLabel}` : title}
             fillColor={spent ? "var(--system-negative-strong)" : undefined}
             className="w-full min-w-0 max-w-[249px] rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
           />

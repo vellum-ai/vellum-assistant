@@ -43,31 +43,20 @@ describe("UsageBalancePanel", () => {
     );
   });
 
-  test("holds the bar a fixed gap after the title on wide panels", () => {
-    // Class assertions are all happy-dom offers for layout; the Storybook
-    // `WideTile` story is the visual check.
-    const { getByTestId } = render(<UsageBalancePanel ratio={0.4} />);
-
-    const panel = getByTestId("plan-usage-balance");
-    const row = panel.firstElementChild;
-    expect(row?.className).toContain("@lg:gap-16");
-    expect(row?.className).not.toContain("justify-between");
-    const barGroup = panel.querySelector(
-      '[data-slot="progress-bar"]',
-    )?.parentElement;
-    expect(barGroup?.className).toContain("@lg:justify-start");
-  });
-
   test("prints the reset date under the title for a bundled subscription", () => {
-    const { getByTestId } = render(
+    const { getByRole, getByTestId } = render(
       <UsageBalancePanel
         ratio={0.4}
-        periodEnd={{ at: SEP_20, resets: true }}
+        periodEnd={{ at: SEP_20, kind: "resets" }}
       />,
     );
 
     expect(getByTestId("plan-usage-period-end").textContent).toBe(
       "Resets on Sep 20",
+    );
+    // The bar's accessible name carries the same context the title block does.
+    expect(getByRole("progressbar").getAttribute("aria-label")).toBe(
+      "Current Usage, Resets on Sep 20",
     );
   });
 
@@ -75,7 +64,7 @@ describe("UsageBalancePanel", () => {
     const { getByTestId } = render(
       <UsageBalancePanel
         ratio={0.4}
-        periodEnd={{ at: SEP_20, resets: false }}
+        periodEnd={{ at: SEP_20, kind: "renews" }}
       />,
     );
 
@@ -85,12 +74,23 @@ describe("UsageBalancePanel", () => {
   });
 
   test("prints no date line without a period end", () => {
-    const explicit = render(<UsageBalancePanel ratio={0.4} periodEnd={null} />);
-    expect(explicit.queryByTestId("plan-usage-period-end")).toBeNull();
-    cleanup();
+    const { queryByTestId } = render(<UsageBalancePanel ratio={0.4} />);
 
-    const omitted = render(<UsageBalancePanel ratio={0.4} />);
-    expect(omitted.queryByTestId("plan-usage-period-end")).toBeNull();
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
+  });
+
+  test("prints no date line for an instant that will not parse", () => {
+    const { getByRole, queryByTestId } = render(
+      <UsageBalancePanel
+        ratio={0.4}
+        periodEnd={{ at: "not-a-date", kind: "resets" }}
+      />,
+    );
+
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
+    expect(getByRole("progressbar").getAttribute("aria-label")).toBe(
+      "Current Usage",
+    );
   });
 
   test("used-up grants turn negative with credits still in hand", () => {

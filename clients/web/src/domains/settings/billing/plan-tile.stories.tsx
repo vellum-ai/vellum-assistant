@@ -25,7 +25,14 @@ import {
   packageSpecs,
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
-import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
+import {
+  frameWidthDecorator,
+  PLAN_TILE_WIDTH_PX,
+} from "@/domains/settings/billing/story-frame-width";
+import {
+  UsageBalancePanel,
+  type UsagePeriodEnd,
+} from "@/domains/settings/billing/usage-balance-panel";
 import {
   makeProPackage,
   makeSuperPackage,
@@ -45,13 +52,14 @@ preloadBundledAvatarComponents();
 const MIGHTY = makeProPackage();
 const SUPER = makeSuperPackage();
 
-/** The width the settings row gives a single tile (roughly half a card). */
-const TILE_WIDTH_PX = 420;
 /** Two tiles plus the row's `gap-4`. */
-const ROW_WIDTH_PX = TILE_WIDTH_PX * 2 + 16;
+const ROW_WIDTH_PX = PLAN_TILE_WIDTH_PX * 2 + 16;
 
 /** A subscriber's billing cycle end, which its bundle turns over on. */
-const PERIOD_END = { at: "2026-09-20T12:00:00Z", resets: true };
+const PERIOD_END: UsagePeriodEnd = {
+  at: "2026-09-20T12:00:00Z",
+  kind: "resets",
+};
 
 /** The upgrade CTA quotes the price difference, as `plan-card.tsx` composes it. */
 const UPGRADE_LABEL = `Power Up for +${formatDollars(
@@ -108,25 +116,13 @@ function upgradeCta(pending = false) {
 const meta: Meta<typeof PlanTile> = {
   title: "Settings/Billing/PlanTile",
   component: PlanTile,
-  parameters: {
-    layout: "centered",
-    // Read by the decorator below; the pair story widens it for two tiles.
-    frameWidth: TILE_WIDTH_PX,
-  },
+  parameters: { layout: "centered" },
   args: {
     tierKey: "free",
     name: "Free",
     tag: CURRENT_TAG,
   },
-  decorators: [
-    (Story, context) => (
-      // The tile fills whatever column the settings row gives it, so pin that
-      // width here rather than letting the centered layout shrink-wrap it.
-      <div style={{ width: context.parameters["frameWidth"] as number }}>
-        <Story />
-      </div>
-    ),
-  ],
+  decorators: [frameWidthDecorator],
 };
 
 export default meta;
@@ -203,7 +199,7 @@ export const CurrentPaidUsageBalance: Story = {
  */
 export const CurrentPaidNarrow: Story = {
   parameters: { frameWidth: 260 },
-  args: { ...CurrentPaidUsageBalance.args },
+  args: CurrentPaidUsageBalance.args,
 };
 
 /**

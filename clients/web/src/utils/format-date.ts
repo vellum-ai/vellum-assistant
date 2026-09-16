@@ -7,8 +7,8 @@ import { formatLocale } from "@/i18n";
  * Every formatter in this file formats in {@link formatLocale}, so one label
  * never pairs an app-locale date with a browser-locale time and a user whose
  * region differs from their language keeps their own date order. This
- * formatter and {@link formatCaptureTime} take a `locale` to pin the
- * formatting; the rest have no caller that needs one.
+ * formatter, {@link formatMonthDay} and {@link formatCaptureTime} take a
+ * `locale` to pin the formatting; the rest have no caller that needs one.
  */
 export function formatFriendlyDate(
   date: Date,
@@ -22,6 +22,25 @@ export function formatFriendlyDate(
         ? "numeric"
         : undefined,
   });
+}
+
+/**
+ * Month and day only, in the reader's formatting locale, never the year. Null
+ * for an instant that will not parse, so a caller drops its line rather than
+ * printing an ISO string.
+ */
+export function formatMonthDay(
+  iso: string,
+  locale: string = formatLocale(),
+): string | null {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+  }).format(date);
 }
 
 /** Local time, with optional seconds for closely spaced events. */
