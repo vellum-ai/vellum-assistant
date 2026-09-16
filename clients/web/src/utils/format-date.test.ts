@@ -7,6 +7,7 @@ import {
   formatCompactLocalDate,
   formatFriendlyDate,
   formatFullLocalDate,
+  formatLocalTimeWithSeconds,
   formatRelativeDate,
 } from "@/utils/format-date";
 
@@ -230,5 +231,46 @@ describe("the default locale", () => {
         delete (globalThis as { navigator?: Navigator }).navigator;
       }
     }
+  });
+});
+
+describe("seconds-resolution timestamps", () => {
+  test("distinguishes five-second intervals even on older dates", () => {
+    const date = new Date(2001, 0, 15, 14, 30, 5);
+    expect(formatLocalTimeWithSeconds(date.getTime(), "en-GB")).toBe(
+      "14:30:05",
+    );
+    expect(formatLocalTimeWithSeconds(date.getTime() + 5_000, "en-GB")).toBe(
+      "14:30:10",
+    );
+  });
+
+  test("opts in to seconds without changing the compact formatter default", () => {
+    const date = new Date(2001, 0, 15, 14, 30, 5);
+    const iso = date.toISOString();
+    const seconds = date.toLocaleTimeString(formatLocale(), {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    expect(formatCompactLocalDate(iso, { includeSeconds: true })).toBe(
+      `${formatFriendlyDate(date)}, ${seconds}`,
+    );
+    expect(formatCompactLocalDate(iso)).toBe(
+      `${formatFriendlyDate(date)}, ${localTime(date)}`,
+    );
+  });
+
+  test("uses the host region and renders epoch zero", () => {
+    underHostLanguage("en-GB", () => {
+      expect(formatLocalTimeWithSeconds(0)).toBe(
+        new Date(0).toLocaleTimeString("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hourCycle: "h23",
+        }),
+      );
+    });
   });
 });

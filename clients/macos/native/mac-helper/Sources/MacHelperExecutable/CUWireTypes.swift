@@ -18,6 +18,8 @@ struct HostCuResultPayload {
     var executionResult: String?
     var executionError: String?
     var secondaryWindows: String?
+    /// Whole milliseconds spent in each phase of the step, keyed by phase name.
+    var timings: [String: Int]?
 
     init(
         requestId: String,
@@ -30,7 +32,8 @@ struct HostCuResultPayload {
         screenHeightPt: Int? = nil,
         executionResult: String? = nil,
         executionError: String? = nil,
-        secondaryWindows: String? = nil
+        secondaryWindows: String? = nil,
+        timings: [String: Int]? = nil
     ) {
         self.requestId = requestId
         self.axTree = axTree
@@ -43,6 +46,7 @@ struct HostCuResultPayload {
         self.executionResult = executionResult
         self.executionError = executionError
         self.secondaryWindows = secondaryWindows
+        self.timings = timings
     }
 
     func toDictionary() -> [String: Any] {
@@ -57,6 +61,7 @@ struct HostCuResultPayload {
         if let executionResult { dict["executionResult"] = executionResult }
         if let executionError { dict["executionError"] = executionError }
         if let secondaryWindows { dict["secondaryWindows"] = secondaryWindows }
+        if let timings { dict["timings"] = timings }
         return dict
     }
 }

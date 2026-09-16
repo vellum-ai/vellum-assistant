@@ -237,6 +237,7 @@ async function enqueueStandaloneImagePersist(
         [ticket.attachmentId],
         ticket.content,
         uuidv7(),
+        kind,
       );
       return { ok: false };
     }
@@ -389,11 +390,18 @@ function reclaimOrDefer(
   attachmentIds: readonly string[],
   content: string,
   messageId: string,
+  kind: "photo" | "sight_frame",
 ): void {
   if (reclaimDroppedFrame(attachmentIds)) {
     return;
   }
-  deferFrameReclaimDecision(conversationId, messageId, attachmentIds, content);
+  deferFrameReclaimDecision(
+    conversationId,
+    messageId,
+    attachmentIds,
+    content,
+    kind,
+  );
 }
 
 /** Conversations with a standalone-image persist still in flight. */
@@ -429,6 +437,8 @@ interface PendingFrameReclaim {
   attachmentIds: readonly string[];
   /** Row text, so a frame found to have landed can still be announced. */
   content: string;
+  /** The echo shape used if a later recheck finds the row. */
+  kind: "photo" | "sight_frame";
   attempts: number;
 }
 
@@ -465,12 +475,14 @@ function deferFrameReclaimDecision(
   messageId: string,
   attachmentIds: readonly string[],
   content: string,
+  kind: "photo" | "sight_frame",
 ): void {
   pendingFrameReclaims.push({
     conversationId,
     messageId,
     attachmentIds,
     content,
+    kind,
     attempts: 0,
   });
   scheduleFrameReclaimRecheck();
@@ -521,6 +533,7 @@ function announceDeferredImage(pending: PendingFrameReclaim): void {
       pending.conversationId,
       pending.content,
       pending.messageId,
+      pending.kind,
     );
   } catch (err) {
     log.warn(
@@ -700,6 +713,7 @@ function persistStandaloneImage(
         uuidv7(),
         [attachmentId],
         persistOptions.content,
+        kind,
       );
     }
     return Promise.resolve({ ok: false });
@@ -715,6 +729,7 @@ function persistStandaloneImage(
         [attachmentId],
         persistOptions.content,
         uuidv7(),
+        kind,
       );
     }
     return Promise.resolve({ ok: false });
@@ -754,7 +769,7 @@ function dropReplacedImage(
     "Standalone image dropped: its conversation was replaced before the write",
   );
   if (kind === "sight_frame") {
-    reclaimOrDefer(conversationId, [attachmentId], content, uuidv7());
+    reclaimOrDefer(conversationId, [attachmentId], content, uuidv7(), kind);
   }
   return { ok: false };
 }
@@ -806,7 +821,7 @@ async function writeStandaloneImage(
         "Standalone image dropped: its conversation was deleted while it waited",
       );
       if (kind === "sight_frame") {
-        reclaimOrDefer(conversationId, [attachmentId], content, uuidv7());
+        reclaimOrDefer(conversationId, [attachmentId], content, uuidv7(), kind);
       }
       return { ok: false };
     }
@@ -831,7 +846,7 @@ async function writeStandaloneImage(
         "Standalone image timed out waiting for the conversation to go idle",
       );
       if (kind === "sight_frame") {
-        reclaimOrDefer(conversationId, [attachmentId], content, uuidv7());
+        reclaimOrDefer(conversationId, [attachmentId], content, uuidv7(), kind);
       }
       return { ok: false };
     }
@@ -882,7 +897,7 @@ async function writeStandaloneImage(
       // of.
       conversation.markHistoryStaleForForeignScope(persistOptions.trustContext);
 
-      announcePersistedImage(conversationId, content, persisted.id);
+      announcePersistedImage(conversationId, content, persisted.id, kind);
 
       return {
         ok: true,
@@ -930,7 +945,7 @@ async function writeStandaloneImage(
       // `ensureActorScopedHistory` reloads instead of reusing what it holds.
       findConversation(conversationId)?.markHistoryStale();
       try {
-        announcePersistedImage(conversationId, content, requestId);
+        announcePersistedImage(conversationId, content, requestId, kind);
       } catch (announceErr) {
         log.warn(
           { err: announceErr, conversationId, messageId: requestId },
@@ -946,6 +961,7 @@ async function writeStandaloneImage(
           [attachmentId, ...strandedClones],
           content,
           requestId,
+          kind,
         );
       } else {
         // The store would not say whether the row landed. The refusal below
@@ -957,6 +973,7 @@ async function writeStandaloneImage(
           requestId,
           [attachmentId, ...strandedClones],
           content,
+          kind,
         );
       }
     }
@@ -974,12 +991,14 @@ function announcePersistedImage(
   conversationId: string,
   text: string,
   messageId: string,
+  kind: "photo" | "sight_frame",
 ): void {
   broadcastMessage({
     type: "user_message_echo",
     text,
     conversationId,
     messageId,
+    ...(kind === "sight_frame" ? { cameraFrame: true as const } : {}),
   });
   recordConversationPersistedSeq(conversationId, getCurrentSeq());
   publishConversationMessagesChanged(conversationId);

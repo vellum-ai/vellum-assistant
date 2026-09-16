@@ -13,6 +13,8 @@ import {
 } from "react";
 
 import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
+import { CameraFrameGrid } from "@/domains/chat/components/chat-attachments/camera-frame-grid";
+import { getMessageRenderKind } from "@/domains/chat/transcript/message-render-kind";
 import { resolveAttachmentFilename } from "@vellumai/service-contracts/attachment-naming";
 
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
@@ -146,6 +148,7 @@ function safeDecodeURIComponent(value: string): string {
  */
 export function TranscriptMessageBody({
   message,
+  cameraFrames,
   conversationId,
   acpConnectInlineToolUseId,
   assistantDisplayName,
@@ -174,8 +177,9 @@ export function TranscriptMessageBody({
   const inlineAssistantIntermediates =
     useClientFeatureFlagStore.use.inlineAssistantIntermediates();
   const isSlackMessage = Boolean(message.slackMessage);
-  const isSlackReaction = message.slackMessage?.eventKind === "reaction";
+  const isSlackReaction = getMessageRenderKind(message) === "slackReaction";
   const isUser = message.role === "user";
+  const isStandaloneFrameGroup = isUser && cameraFrames?.[0]?.id === message.id;
   // Two reasons this row shows no reasoning: the transcript-wide gate, and the
   // row's own private marker. `groupOptionsForMessage` drops the settled blocks
   // for either; this is what keeps the live row from shimmering a "Thinking"
@@ -183,7 +187,8 @@ export function TranscriptMessageBody({
   const hideThinkingUi = useHideThinkingUi();
   const hidesThinking =
     hideThinkingUi || message.assistantTextVisibility === "private";
-  const hasAttachments = Boolean(message.attachments?.length);
+  const hasAttachments =
+    !isStandaloneFrameGroup && Boolean(message.attachments?.length);
   // Gated on the transcript owner: an older daemon neutralizes nothing, so
   // sentinel-shaped text in its transcripts must never chip-ify, and only the
   // active assistant's version is known (see the gate module).
@@ -193,7 +198,7 @@ export function TranscriptMessageBody({
   // User-typed thinking tags must render verbatim, and a row marked private
   // carries no reasoning the user reads.
   const groups = groupContentBlocks(
-    message.contentBlocks ?? [],
+    isStandaloneFrameGroup ? [] : (message.contentBlocks ?? []),
     groupOptionsForMessage(message, hideThinkingUi),
   );
 
@@ -245,15 +250,16 @@ export function TranscriptMessageBody({
   // on the markdown container itself (see `renderTextWithInlineSurfaces`).
   const collapsedSegmentClass = `break-words ${textBubbleWidthClass}`;
 
-  const forkMessageId = message.id;
+  const actionMessageId = isStandaloneFrameGroup
+    ? cameraFrames?.at(-1)?.id
+    : message.id;
   const forkHandler =
-    forkMessageId && onForkConversation
-      ? () => onForkConversation(forkMessageId)
+    actionMessageId && onForkConversation
+      ? () => onForkConversation(actionMessageId)
       : undefined;
-  const summarizeMessageId = message.id;
   const summarizeHandler =
-    summarizeMessageId && onSummarizeUpToHere
-      ? () => onSummarizeUpToHere(summarizeMessageId)
+    actionMessageId && onSummarizeUpToHere
+      ? () => onSummarizeUpToHere(actionMessageId)
       : undefined;
   const inspectMessageId = message.id;
   const inspectHandler =
@@ -977,20 +983,32 @@ export function TranscriptMessageBody({
     }
     flushTextRun();
 
+    const appendToLastBubble = (node: ReactNode) => {
+      const lastBubble = slots.findLast((slot) => slot.kind === "bubble");
+      if (lastBubble) {
+        lastBubble.nodes.push(node);
+      } else {
+        slots.push({ kind: "bubble", nodes: [node] });
+      }
+    };
+
     if (hasAttachments && message.attachments) {
-      const attachmentsNode = (
+      appendToLastBubble(
         <BubbleAttachments
           key="user-attachments"
           attachments={message.attachments}
           assistantId={assistantId}
-        />
+        />,
       );
-      const lastBubble = slots.findLast((slot) => slot.kind === "bubble");
-      if (lastBubble) {
-        lastBubble.nodes.push(attachmentsNode);
-      } else {
-        slots.push({ kind: "bubble", nodes: [attachmentsNode] });
-      }
+    }
+    if (cameraFrames?.length) {
+      appendToLastBubble(
+        <CameraFrameGrid
+          key="camera-frames"
+          frames={cameraFrames}
+          assistantId={assistantId}
+        />,
+      );
     }
 
     let bubbleIndex = 0;
@@ -1143,6 +1161,7 @@ export function TranscriptMessageBody({
       <div className="h-6">
         <MessageHoverActions
           message={message}
+          showTextActions={!isStandaloneFrameGroup}
           conversationId={conversationId}
           openInSlackUrl={slackMessageUrl}
           onFork={forkHandler}
@@ -1170,6 +1189,11 @@ export function TranscriptMessageBody({
     return (
       <div
         ref={wrapperRef}
+        id={
+          !isStandaloneFrameGroup && message.id
+            ? `msg-${message.id}`
+            : undefined
+        }
         data-message-id={message.id || undefined}
         data-message-role={message.role}
         onClick={handleBubbleClick}
@@ -1189,6 +1213,7 @@ export function TranscriptMessageBody({
           <div onClick={(e) => e.stopPropagation()}>
             <MessageLongPressActions
               message={message}
+              showTextActions={!isStandaloneFrameGroup}
               conversationId={conversationId}
               openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}

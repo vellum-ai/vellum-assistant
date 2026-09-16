@@ -6,6 +6,9 @@ import {
   resolveSnapshot,
 } from "@/domains/chat/transcript/rolling-snapshot";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 import type { AssistantEvent } from "@/types/event-types";
 import type {
   AnsweredQuestion,
@@ -772,5 +775,86 @@ describe("a turn that sends more than one reply", () => {
       { type: "text", text: "Found it." },
       { type: "text", text: "All done." },
     ]);
+  });
+});
+
+describe("camera-frame echoes", () => {
+  test("keeps a camera frame visible beside a typed send sharing the echo nonce", () => {
+    const optimistic: DisplayMessage = Object.freeze({
+      id: "optimistic-1",
+      role: "user",
+      clientMessageId: "client-1",
+      isOptimistic: true,
+      queueStatus: "queued",
+      queuePosition: 1,
+      ...textBody("What is on the table?"),
+    });
+    const snapshot = applyEventsToHistory(SEED, [
+      env(1, {
+        type: "user_message_echo",
+        messageId: "frame-1",
+        text: "(camera frame)",
+        cameraFrame: true,
+        clientMessageId: "client-1",
+      }),
+    ]);
+
+    const visible = selectTranscriptMessages(snapshot.messages, [optimistic]);
+
+    expect(visible.map((message) => message.id)).toEqual([
+      "frame-1",
+      "optimistic-1",
+    ]);
+    expect(visible[0]).toBe(snapshot.messages[0]);
+    expect(visible[0]).toMatchObject({
+      isCameraFrame: true,
+      ...textBody("(camera frame)"),
+    });
+    expect(visible[0]).not.toHaveProperty("clientMessageId");
+    expect(visible[1]).toBe(optimistic);
+    expect(optimistic).toMatchObject({
+      clientMessageId: "client-1",
+      isOptimistic: true,
+      queueStatus: "queued",
+      queuePosition: 1,
+    });
+
+    const confirmed = applyEventsToHistory(snapshot, [
+      env(2, {
+        type: "user_message_echo",
+        messageId: "user-1",
+        text: "What is on the table?",
+        clientMessageId: "client-1",
+      }),
+    ]);
+    expect(confirmed.messages[1]?.clientMessageId).toBe("client-1");
+    expect(selectTranscriptMessages(confirmed.messages, [optimistic])).toEqual(
+      visible,
+    );
+  });
+
+  test("preserves the marker and deterministic saved-time estimate through replay", () => {
+    const frame = env(1, {
+      type: "user_message_echo",
+      messageId: "frame-1",
+      text: "(camera frame)",
+      cameraFrame: true,
+    });
+    const events = [frame, userEcho(2, "user-1", "What is this?")];
+    const replay = applyEventsToHistory(SEED, events);
+    const incremental = events.reduce(
+      (snapshot, event) => applyEventsToHistory(snapshot, [event]),
+      SEED,
+    );
+
+    expect(replay).toEqual(incremental);
+    expect(replay.messages[0]).toMatchObject({
+      id: "frame-1",
+      isCameraFrame: true,
+      timestamp: stampOf(1),
+    });
+    expect(replay.messages[1]?.isCameraFrame).toBeUndefined();
+    expect(applyEventsToHistory(replay, events)).toEqual(replay);
+    expect(SEED.messages).toEqual([]);
   });
 });

@@ -41,7 +41,6 @@ import {
   type InterruptSensitivity,
 } from "@/stores/voice-prefs-store";
 import { VoiceTranscriptToggles } from "@/components/voice-transcript-toggles";
-import { removeLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import {
   activatorDisplayName,
   activatorsEqual,
@@ -58,8 +57,10 @@ import {
   type VoiceModeActivator,
 } from "@/utils/voice-mode-activation";
 import {
-  LS_VOICE_INPUT_DEVICE,
   getPreferredInputDeviceId,
+  listVoiceInputDevices,
+  setPreferredInputDeviceId,
+  watchPreferredInputDevice,
 } from "@/utils/voice-input-device";
 import { routes } from "@/utils/routes";
 import { VOICE_TRANSCRIPT_RECOMMENDATION } from "@/utils/voice-transcript-prefs";
@@ -231,34 +232,13 @@ function MicrophoneCard() {
     if (!navigator.mediaDevices?.enumerateDevices) {
       return;
     }
-    try {
-      const all = await navigator.mediaDevices.enumerateDevices();
-      const inputs = all.filter((device) => device.kind === "audioinput");
-      // Until mic permission is granted, browsers redact device ids and
-      // labels, so inputs exist but none are selectable — offer a
-      // permission prompt instead of a picker with only System Default.
-      setNeedsPermission(
-        inputs.length > 0 && inputs.every((device) => !device.label),
-      );
-      // Chromium lists "default"/"communications" pseudo-devices that mirror
-      // a physical device already in the list; our own System Default option
-      // covers that case without the duplicate rows.
-      setDevices(
-        inputs.filter(
-          (device) =>
-            device.deviceId !== "" &&
-            device.deviceId !== "default" &&
-            device.deviceId !== "communications",
-        ),
-      );
-      setDeviceListIsKnown(
-        inputs.length === 0 || inputs.some((d) => !!d.label),
-      );
-    } catch {
-      setDevices([]);
-      setNeedsPermission(false);
-      setDeviceListIsKnown(false);
-    }
+    const list = await listVoiceInputDevices();
+    // Until mic permission is granted, browsers redact device ids and
+    // labels, so inputs exist but none are selectable — offer a
+    // permission prompt instead of a picker with only System Default.
+    setNeedsPermission(list.needsPermission);
+    setDevices(list.devices);
+    setDeviceListIsKnown(list.known);
   }, []);
 
   const requestMicAccess = useCallback(async () => {
@@ -323,12 +303,17 @@ function MicrophoneCard() {
 
   const handleChange = useCallback((next: string) => {
     setDeviceId(next);
-    if (next === SYSTEM_DEFAULT_DEVICE) {
-      removeLocalSetting(LS_VOICE_INPUT_DEVICE);
-    } else {
-      setLocalSetting(LS_VOICE_INPUT_DEVICE, next);
-    }
+    setPreferredInputDeviceId(next);
   }, []);
+
+  // A pick from the companion's popover mid-call lands here too.
+  useEffect(
+    () =>
+      watchPreferredInputDevice(() => {
+        setDeviceId(getPreferredInputDeviceId());
+      }),
+    [],
+  );
 
   const selectedValue = deviceId === SYSTEM_DEFAULT_DEVICE ? null : deviceId;
 

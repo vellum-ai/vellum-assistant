@@ -352,7 +352,7 @@ export const computerUseOpenAppTool = {
 export const computerUseRunAppleScriptTool = {
   name: "computer_use_run_applescript",
   description:
-    "Run an AppleScript command. Prefer this over click/type when possible - it doesn't move the cursor or interrupt foreground activity. Never use 'do shell script' inside AppleScript (blocked for security).",
+    "Run an AppleScript on the Mac. Try the target app's own scripting dictionary first, asking it for the state you want rather than for the clicks that would produce it; fall back to System Events menu clicking for apps with no dictionary entry for what you need. Prefer this over click and type when the app supports it; it does not move the cursor. The result is the script's return value, and the accessibility tree may not change even when the script worked. Never use 'do shell script' inside AppleScript (blocked for security).",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -367,8 +367,7 @@ export const computerUseRunAppleScriptTool = {
       },
       reasoning: {
         type: "string",
-        description:
-          "Explanation of what this script does and why AppleScript is better than UI interaction for this step",
+        description: "What this script does",
       },
       target_client_id: {
         type: "string",
@@ -380,6 +379,112 @@ export const computerUseRunAppleScriptTool = {
   },
 
   execute: proxyExecute("computer_use_run_applescript"),
+} satisfies ToolDefinition;
+
+// ---------------------------------------------------------------------------
+// sequence
+// ---------------------------------------------------------------------------
+
+export const computerUseSequenceTool = {
+  name: "computer_use_sequence",
+  description:
+    "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest observation, so use them only for actions that act before the screen changes. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action.",
+  category: "computer-use",
+  defaultRiskLevel: RiskLevel.Low,
+  executionTarget: "host",
+  supportedClientOs: ["macos"],
+
+  input_schema: {
+    type: "object",
+    properties: {
+      actions: {
+        type: "array",
+        minItems: 1,
+        maxItems: 10,
+        description: "The actions to run, in order",
+        items: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: [
+                "key",
+                "type_text",
+                "type",
+                "click",
+                "double_click",
+                "right_click",
+                "scroll",
+                "wait",
+                "open_app",
+              ],
+              description: "The action to run",
+            },
+            key: {
+              type: "string",
+              description:
+                "key: key or shortcut to press (e.g. enter, tab, cmd+n)",
+            },
+            text: {
+              type: "string",
+              description: "type_text (or type): the text to type",
+            },
+            element_id: {
+              type: "integer",
+              description:
+                "click, double_click, right_click, scroll: the [ID] of the element from the latest accessibility tree (preferred)",
+            },
+            x: {
+              type: "integer",
+              description:
+                "click, double_click, right_click, scroll: X coordinate on screen (fallback when no element_id)",
+            },
+            y: {
+              type: "integer",
+              description:
+                "click, double_click, right_click, scroll: Y coordinate on screen (fallback when no element_id)",
+            },
+            direction: {
+              type: "string",
+              enum: ["up", "down", "left", "right"],
+              description: "scroll: scroll direction",
+            },
+            amount: {
+              type: "integer",
+              description: "scroll: scroll amount (1-10)",
+            },
+            duration_ms: {
+              type: "integer",
+              description: "wait: milliseconds to wait",
+            },
+            app_name: {
+              type: "string",
+              description:
+                'open_app: the name of the application to open (e.g. "Google Chrome")',
+            },
+            reasoning: {
+              type: "string",
+              description: "Optional: why this action",
+            },
+          },
+          required: ["action"],
+        },
+      },
+      reasoning: {
+        type: "string",
+        description:
+          "Optional: what these actions do together. Reasoning on each action works too",
+      },
+      target_client_id: {
+        type: "string",
+        description:
+          "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_cu`.",
+      },
+    },
+    required: ["actions"],
+  },
+
+  execute: proxyExecute("computer_use_sequence"),
 } satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
@@ -460,6 +565,16 @@ export const computerUseObserveTool = {
         description:
           "macOS only: capture this native CGWindowID instead of the desktop, including only its accessibility tree. Obtain a current native window ID first; do not guess or use a browser tab ID. Applies to this observation only, not subsequent actions. Requires a desktop helper with window-capture support. Screenshot coordinates are window-relative; use accessibility element IDs for later actions, not desktop scaling.",
       },
+      include_screenshot: {
+        type: "boolean",
+        description:
+          "Force a screenshot with this observation. The accessibility tree is returned every step and actions always return a screenshot of their result; ask for pixels on an observation whenever the tree is not enough to act on, such as a canvas, a game, a custom-drawn view, a window with few or unlabeled controls, or a question about layout.",
+      },
+      full_tree: {
+        type: "boolean",
+        description:
+          "Walk the accessibility tree to full depth. Observations list the tree to a limited depth and say when it was cut off; pass this when the element you need is not in the tree.",
+      },
       target_client_id: {
         type: "string",
         description:
@@ -486,6 +601,7 @@ export const allComputerUseTools: ToolDefinition[] = [
   computerUseWaitTool,
   computerUseOpenAppTool,
   computerUseRunAppleScriptTool,
+  computerUseSequenceTool,
   computerUseDoneTool,
   computerUseRespondTool,
 ];

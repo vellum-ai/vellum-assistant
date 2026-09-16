@@ -162,6 +162,7 @@ export function AppPreviewThumbnail({
   }, [loadHtml]);
 
   useEffect(() => {
+    setHtml(null);
     if (!isVisible || loadHtml == null) {
       return;
     }

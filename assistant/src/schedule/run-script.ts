@@ -1,10 +1,12 @@
 import { buildSanitizedEnv } from "../tools/terminal/safe-env.js";
 import {
   buildShellInvocation,
+  buildShellSpawnFlags,
   terminateProcessTree,
 } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 const log = getLogger("run-script");
 
@@ -63,10 +65,9 @@ export async function runScript(
   const shell = buildShellInvocation(command);
   const proc = Bun.spawn([shell.command, ...shell.args], {
     cwd,
-    detached: true,
+    ...buildShellSpawnFlags(),
     stdout: "pipe",
     stderr: "pipe",
-    windowsHide: true,
     env: {
       ...buildSanitizedEnv(),
       // __SCHEDULE_ID lets a saved command find its own dir; __SCHEDULE_RUN_ID
@@ -200,7 +201,7 @@ function truncate(text: string): string {
   if (text.length <= MAX_OUTPUT_BYTES) {
     return text;
   }
-  return text.slice(0, MAX_OUTPUT_BYTES) + "\n... (truncated)";
+  return safeStringSlice(text, 0, MAX_OUTPUT_BYTES) + "\n... (truncated)";
 }
 
 /**

@@ -119,6 +119,7 @@ import {
   applyRuntimeInjections,
   assembleSlackActiveThreadFocusBlock,
   assembleSlackChronologicalMessages,
+  buildChannelCapabilityBlock,
   buildSubagentStatusBlock,
   getSlackCompactionWatermarkForPrefix,
   getSlackWatermarkAdvanceForRowPrefix,
@@ -586,6 +587,35 @@ describe("injectChannelCapabilityContext", () => {
     expect(text).not.toContain("Do NOT use ui_show, ui_update, or app_create");
   });
 
+  test("guides non-interactive turns to persist UI for a later capable client", () => {
+    const slack: ChannelCapabilities = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+    const phone: ChannelCapabilities = {
+      channel: "phone",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    for (const caps of [slack, phone]) {
+      const text = buildChannelCapabilityBlock(caps, undefined, true)!;
+      expect(text).toContain(
+        "ui_show, ui_update, and ui_dismiss persist conversation content",
+      );
+      expect(text).not.toContain("Only use ui_show/ui_update");
+      expect(text).not.toContain(
+        "Do NOT use ui_show, ui_update, or app_create",
+      );
+      expect(text).not.toContain(
+        "Present information as well-formatted text instead of dynamic UI.",
+      );
+    }
+  });
+
   test("keeps blanket ui_show/ui_update prohibition for other non-dynamic channels", () => {
     const caps: ChannelCapabilities = {
       channel: "phone",
@@ -870,12 +900,12 @@ describe("trust-gating via channel capabilities", () => {
 
     const result = injectChannelCapabilityContext(message, caps);
 
-    // macOS clients now get osascript guidance injected
+    // macOS clients get app-scripting guidance injected
     expect(result).not.toBe(message);
     const injected = (result.content[0] as { type: "text"; text: string }).text;
     expect(injected).toContain("client_os: macos");
-    expect(injected).toContain("osascript");
-    expect(injected).toContain("host_bash");
+    expect(injected).toContain("drive apps with the computer-use skill");
+    expect(injected).toContain("`host_bash` is for shell commands");
     // No channel constraints — full desktop capabilities
     expect(injected).not.toContain("CHANNEL CONSTRAINTS");
   });

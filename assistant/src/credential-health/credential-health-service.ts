@@ -34,10 +34,7 @@ import {
   type OAuthConnectionRow,
   type OAuthProviderRow,
 } from "../oauth/oauth-store.js";
-import {
-  expectedScopesForStoredToken,
-  scopeDifference,
-} from "../oauth/scope-utils.js";
+import { missingScopesForStoredToken } from "../oauth/scope-utils.js";
 import { credentialKey } from "../security/credential-key.js";
 import {
   getSecureKeyAsync,
@@ -294,26 +291,23 @@ async function checkConnection(
   // token rather than the provider's bot-side `scope` parameter. A provider
   // asking for user scopes as well stores the user token and records that
   // token's grant, so the bot request names scopes that grant can never hold.
-  const grantedScopes = safeJsonParse<string[]>(grantedScopesRaw, []);
-  const expectedScopes = expectedScopesForStoredToken(
+  const missing = missingScopesForStoredToken(
     safeJsonParse<string[]>(defaultScopesRaw, []),
     safeJsonParse<Record<string, string> | undefined>(
       authorizeParamsRaw,
       undefined,
     ),
     scopeSeparator ?? undefined,
+    safeJsonParse<string[]>(grantedScopesRaw, []),
   );
-  if (expectedScopes.length > 0 && grantedScopes.length > 0) {
-    const missing = scopeDifference(expectedScopes, grantedScopes);
-    if (missing.length > 0) {
-      return {
-        ...base,
-        status: "missing_scopes",
-        details: `${provider} is missing required scopes: ${missing.join(", ")}. Features may not work correctly.`,
-        missingScopes: missing,
-        canAutoRecover: false,
-      };
-    }
+  if (missing.length > 0) {
+    return {
+      ...base,
+      status: "missing_scopes",
+      details: `${provider} is missing required scopes: ${missing.join(", ")}. Features may not work correctly.`,
+      missingScopes: missing,
+      canAutoRecover: false,
+    };
   }
 
   // 4. Liveness ping

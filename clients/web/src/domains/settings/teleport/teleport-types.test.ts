@@ -3,6 +3,7 @@ import { describe, expect, it } from "bun:test";
 import {
   classifyHosting,
   destinationDescriptionKey,
+  destinationLabelKey,
   parseVersionMismatch,
   resolveDestination,
 } from "./teleport-types";
@@ -61,6 +62,28 @@ describe("destination copy", () => {
       "teleportCard.dockerDescriptionWindows",
       "teleportCard.platformDescription",
       "teleportCard.localDescriptionWindows",
+    ]);
+  });
+
+  it("uses Linux description keys for local desktop destinations", () => {
+    expect(
+      (["docker", "platform", "local"] as const).map((destination) =>
+        destinationDescriptionKey(destination, "linux"),
+      ),
+    ).toEqual([
+      "teleportCard.dockerDescriptionLinux",
+      "teleportCard.platformDescription",
+      "teleportCard.localDescriptionLinux",
+    ]);
+  });
+
+  it("maps each destination to its action label key", () => {
+    expect(
+      (["docker", "platform", "local"] as const).map(destinationLabelKey),
+    ).toEqual([
+      "teleportCard.moveToDocker",
+      "teleportCard.moveToPlatform",
+      "teleportCard.moveToLocal",
     ]);
   });
 });

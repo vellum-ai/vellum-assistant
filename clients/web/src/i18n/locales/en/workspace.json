@@ -13,6 +13,10 @@
     "createTriggerTitle": "New file or folder",
     "nameLabel": "Name",
     "nameError": "Enter a single file or folder name without slashes.",
+    "nameTaken": "\"{name}\" already exists in this folder.",
+    "createFailed": "Couldn't create it. Check the name and try again.",
+    "renameFailed": "Couldn't rename it. Check the name and try again.",
+    "deleteFailed": "Couldn't delete it. Try again.",
     "cancel": "Cancel",
     "sortByNameAria": "Sort by name",
     "sortBySizeAria": "Sort by size",
@@ -43,6 +47,7 @@
     "browseFiles": "Browse files",
     "fileNotFound": "File not found",
     "saveFailed": "Save failed",
+    "unknownSize": "Unknown size",
     "downloadAria": "Download {name}"
   }
 }

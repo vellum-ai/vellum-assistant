@@ -482,6 +482,39 @@ describe("handleUserMessageEcho", () => {
     return updater(prev);
   }
 
+  it.each([undefined, "client-1"])(
+    "leaves optimistic sends intact for a camera frame with nonce %s",
+    (clientMessageId) => {
+      const optimistic: DisplayMessage = {
+        id: "optimistic-1",
+        role: "user",
+        clientMessageId,
+        isOptimistic: true,
+      };
+      useChatSessionStore.setState({
+        snapshot: seededSnapshot,
+        optimisticSends: [optimistic],
+      });
+      const ctx = makeCtx();
+
+      handleUserMessageEcho(
+        {
+          type: "user_message_echo",
+          text: "(camera frame)",
+          messageId: "frame-1",
+          cameraFrame: true,
+          clientMessageId,
+        },
+        ctx,
+      );
+
+      expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+      expect(useChatSessionStore.getState().optimisticSends).toEqual([
+        optimistic,
+      ]);
+    },
+  );
+
   it("does NOT retire the optimistic send when the snapshot is unseeded (first-message flicker guard)", () => {
     // Regression: the first message of a freshly server-minted conversation has
     // no history snapshot yet, so `applyEnvelopeToSnapshot` no-ops. Retiring the

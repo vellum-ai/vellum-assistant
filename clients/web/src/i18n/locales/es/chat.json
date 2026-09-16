@@ -23,6 +23,7 @@
   },
   "acpConnectAffordance": {
     "connectButton": "Conectar",
+    "dismissButton": "Descartar",
     "errorFallback": "No se pudo conectar Claude. Inténtalo de nuevo.",
     "pastePlaceholder": "Pega tu clave",
     "saveButton": "Guardar",
@@ -94,21 +95,28 @@
     "earlierActivity": "Actividad anterior"
   },
   "assistantDesktop": {
-    "busy": "Otro usuario está usando el escritorio.",
-    "connecting": "Conectando con el escritorio…",
-    "failed": "No se pudo iniciar el escritorio.",
-    "lost": "Se perdió la conexión con el escritorio.",
-    "openAria": "Abrir escritorio",
+    "fitView": "Ajustar",
+    "panView": "Desplazar",
+    "controlView": "Controlar",
+    "panHint": "Arrastra para desplazarte. Toca para hacer clic.",
+    "hideAria": "Ocultar escritorio virtual",
+    "closeAria": "Cerrar vista previa del escritorio virtual",
+    "moveAria": "Mover vista previa del escritorio virtual (teclas de flecha)",
+    "expandAria": "Ampliar escritorio virtual",
+    "busy": "Otro usuario está usando el escritorio virtual.",
+    "connecting": "Conectando con el escritorio virtual…",
+    "failed": "No se pudo iniciar el escritorio virtual.",
+    "lost": "Se perdió la conexión con el escritorio virtual.",
+    "openAria": "Abrir el escritorio virtual de {name}",
+    "openUnnamedAria": "Abrir escritorio virtual",
     "reconnectButton": "Reconectar",
     "title": "Escritorio",
-    "unavailable": "El escritorio no está disponible en este asistente.",
-    "installButton": "Instalar escritorio",
-    "installDescription": "Instala Google Chrome y los componentes necesarios para el escritorio de tu asistente. Esto puede tardar unos minutos.",
-    "checkingSetup": "Comprobando el escritorio…",
-    "installingPackages": "Instalando componentes del escritorio…",
+    "unavailable": "El escritorio virtual no está disponible en este asistente.",
+    "installButton": "Instalar escritorio virtual",
+    "checkingSetup": "Comprobando el escritorio virtual…",
+    "installingPackages": "Instalando componentes del escritorio virtual…",
     "installingChrome": "Instalando Google Chrome…",
     "checkingInstall": "Comprobando la instalación…",
-    "installBackground": "La instalación continúa si cierras esta ventana.",
     "installFailed": "La instalación falló. Inténtalo de nuevo para terminar.",
     "setupRequestFailed": "No se pudo comprobar la instalación. Vuelve a conectar para intentarlo de nuevo.",
     "setupUnsupported": "La instalación requiere un contenedor Linux x64 o ARM64 con acceso de administrador."
@@ -1234,6 +1242,7 @@
     "defaultDescription": "Conecta {name} para que pueda usarlo en esta tarea.",
     "dismiss": "Descartar",
     "missingDetails": "Faltan detalles del asistente o del proveedor.",
+    "tenantHostInvalid": "Introduce un {label} válido, por ejemplo {placeholder}",
     "thisAccount": "esta cuenta",
     "waiting": "Esperando...",
     "yourAssistant": "Tu asistente"
@@ -1316,6 +1325,7 @@
   },
   "preferencesMenu": {
     "admin": "Admin",
+    "earnCredits": "Gana créditos gratis",
     "preferences": "Preferencias",
     "settings": "Ajustes",
     "shareFeedback": "Compartir comentarios"
@@ -1555,10 +1565,6 @@
   },
   "singleActivity": {
     "webSearch": "Búsqueda web"
-  },
-  "skillCreatedCard": {
-    "view": "Ver",
-    "viewAria": "Ver {name}"
   },
   "skillDetailPanel": {
     "actionsAria": "Acciones de habilidad",
@@ -1919,5 +1925,12 @@
   "sidebarExpandRow": {
     "expand": "Expandir",
     "collapse": "Contraer"
+  },
+  "cameraFrameGrid": {
+    "count": "{count, plural, one {# fotograma de cámara} other {# fotogramas de cámara}}",
+    "timeRange": "Guardados de {first} a {last}",
+    "savedTime": "Guardado: {time}",
+    "pendingAria": "Fotograma de cámara, la imagen aún se está cargando. {time}",
+    "timeUnavailable": "Hora no disponible"
   }
 }

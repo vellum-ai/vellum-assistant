@@ -7,6 +7,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 import { getProvider } from "../oauth/oauth-store.js";
+import { expectedScopesForStoredToken } from "../oauth/scope-utils.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { initializeDb } from "../persistence/db-init.js";
 
@@ -20,6 +21,23 @@ describe("oauth provider profiles (DB-seeded)", () => {
     expect(provider).toBeDefined();
     const scopes = JSON.parse(provider!.defaultScopes) as string[];
     expect(scopes).toContain("https://www.googleapis.com/auth/drive");
+  });
+
+  test("slack provider row requests files:read for the token it stores", () => {
+    // The flow persists the authed_user token, and credential health measures
+    // its grant through the same function used here, so this is the scope set
+    // an integration connection must carry to fetch a file from files.slack.com.
+    const provider = getProvider("slack");
+
+    expect(provider).toBeDefined();
+    const expected = expectedScopesForStoredToken(
+      JSON.parse(provider!.defaultScopes) as string[],
+      provider!.authorizeParams
+        ? (JSON.parse(provider!.authorizeParams) as Record<string, string>)
+        : undefined,
+      provider!.scopeSeparator ?? undefined,
+    );
+    expect(expected).toContain("files:read");
   });
 
   test("google provider row contains bearer injection templates for 8 Google API hosts", () => {

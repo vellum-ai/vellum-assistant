@@ -33,6 +33,7 @@ import type {
   ScoredNode,
 } from "../../graph/types.js";
 import { isCapabilityNode } from "../../graph/types.js";
+import { safeStringSlice } from "../../host-utils.js";
 import { extractToolUse, userMessage } from "../../llm-helpers.js";
 import { getLogger } from "../../logging.js";
 import { searchGraphNodes } from "./graph-search.js";
@@ -491,7 +492,9 @@ export async function loadContextMemory(
     try {
       const queryText = opts.recentSummaries.join("\n\n");
       const truncated =
-        queryText.length > 3000 ? queryText.slice(0, 3000) : queryText;
+        queryText.length > 3000
+          ? safeStringSlice(queryText, 0, 3000)
+          : queryText;
       contextQueryText = truncated;
       const result = await embedWithRetry(opts.config, [truncated], {
         signal: opts.signal,

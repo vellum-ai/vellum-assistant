@@ -15,14 +15,27 @@
  * connection.
  */
 type McpAuthState =
-  | { status: "pending"; authUrl: string; attemptId: string; expiresAt: number }
+  | {
+      status: "pending";
+      authUrl: string;
+      attemptId: string;
+      targetKey: string;
+      expiresAt: number;
+    }
   | {
       status: "complete";
       serverId: string;
       attemptId: string;
+      targetKey: string;
       completedAt: number;
     }
-  | { status: "error"; error: string; attemptId: string; failedAt: number };
+  | {
+      status: "error";
+      error: string;
+      attemptId: string;
+      targetKey: string;
+      failedAt: number;
+    };
 
 const activeMcpAuthFlows = new Map<string, McpAuthState>();
 
@@ -41,11 +54,13 @@ export function setMcpAuthPending(
   serverId: string,
   authUrl: string,
   attemptId: string,
+  targetKey = serverId,
 ): void {
   activeMcpAuthFlows.set(serverId, {
     status: "pending",
     authUrl,
     attemptId,
+    targetKey,
     expiresAt: Date.now() + PENDING_TTL_MS,
   });
 }
@@ -59,15 +74,20 @@ export function setMcpAuthPending(
 export function setMcpAuthComplete(
   serverId: string,
   attemptId: string,
+  targetKey = serverId,
 ): boolean {
   const current = activeMcpAuthFlows.get(serverId);
-  if (current && current.attemptId !== attemptId) {
+  if (
+    current &&
+    (current.attemptId !== attemptId || current.targetKey !== targetKey)
+  ) {
     return false; // superseded
   }
   activeMcpAuthFlows.set(serverId, {
     status: "complete",
     serverId,
     attemptId,
+    targetKey,
     completedAt: Date.now(),
   });
   return true;
@@ -81,15 +101,20 @@ export function setMcpAuthError(
   serverId: string,
   error: string,
   attemptId: string,
+  targetKey = serverId,
 ): boolean {
   const current = activeMcpAuthFlows.get(serverId);
-  if (current && current.attemptId !== attemptId) {
+  if (
+    current &&
+    (current.attemptId !== attemptId || current.targetKey !== targetKey)
+  ) {
     return false; // superseded
   }
   activeMcpAuthFlows.set(serverId, {
     status: "error",
     error,
     attemptId,
+    targetKey,
     failedAt: Date.now(),
   });
   return true;
@@ -100,7 +125,10 @@ export function setMcpAuthError(
  * expired entries on every read so a long-polling CLI can never observe
  * a stale flow past its TTL.
  */
-export function getMcpAuthState(serverId: string): McpAuthState | null {
+export function getMcpAuthState(
+  serverId: string,
+  targetKey?: string,
+): McpAuthState | null {
   const now = Date.now();
   for (const [id, state] of activeMcpAuthFlows) {
     if (state.status === "pending" && now > state.expiresAt) {
@@ -117,5 +145,9 @@ export function getMcpAuthState(serverId: string): McpAuthState | null {
       activeMcpAuthFlows.delete(id);
     }
   }
-  return activeMcpAuthFlows.get(serverId) ?? null;
+  const state = activeMcpAuthFlows.get(serverId) ?? null;
+  if (state && targetKey !== undefined && state.targetKey !== targetKey) {
+    return null;
+  }
+  return state;
 }

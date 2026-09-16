@@ -1,11 +1,15 @@
 /**
  * Consolidates the three auto-send paths that fire on mount/navigation:
  *
- * 1. **URL prompt** — `?prompt=<text>` triggers an immediate send once an
- *    active conversation exists (used by "Submit Feedback" and similar
- *    deep-link flows). One-shot callers have the `prompt` stripped from the URL
- *    after dispatch so a refresh can't re-send it; relay callers keep theirs to
- *    re-fire on a new token.
+ * 1. **URL prompt**: `?prompt=<text>` is consumed once an active
+ *    conversation exists. Navigations the app issued itself carry the
+ *    `autoSendPromptState` marker (see `utils/auto-send-prompt.ts`) and send
+ *    immediately (quick input, document feedback, the app-viewer relay). A URL
+ *    without it (a link the user clicked from an email, a marketing page, or
+ *    anywhere outside the SPA) is untrusted text, so it only pre-fills the
+ *    composer and the user decides whether to send. One-shot callers have the
+ *    `prompt` stripped from the URL after dispatch so a refresh can't replay
+ *    it; relay callers keep theirs to re-fire on a new token.
  *
  * 2. **Pre-chat reachability probe** — when a pending onboarding message
  *    exists in sessionStorage, kicks off a background reachability probe
@@ -25,6 +29,7 @@ import type {
   ReachabilityProbeOptions,
   ReachabilityState,
 } from "@/assistant/use-assistant-reachability";
+import { hasAutoSendPromptState } from "@/utils/auto-send-prompt";
 
 export interface UseAutoSendEffectsOptions {
   assistantId: string | null;
@@ -37,6 +42,11 @@ export interface UseAutoSendEffectsOptions {
     attachments?: never[],
     opts?: { hidden?: boolean; scripted?: boolean },
   ) => Promise<void>;
+  /**
+   * Stage `content` in the composer for the user to send. Used for a
+   * `?prompt=` that arrived without the in-app auto-send marker.
+   */
+  prefillComposer: (content: string) => void;
   reachabilityPhase: ReachabilityState["phase"];
   reachabilityProbe: (options?: ReachabilityProbeOptions) => void;
   /** Reads the staged pre-chat initial message from sessionStorage. */
@@ -56,6 +66,7 @@ export function useAutoSendEffects({
   setSearchParams,
   navigationState,
   sendMessage,
+  prefillComposer,
   reachabilityPhase,
   reachabilityProbe,
   getPendingInitialMessage,
@@ -71,7 +82,7 @@ export function useAutoSendEffects({
   useLayoutEffect(() => {
     getPendingInitialMessageHiddenRef.current = getPendingInitialMessageHidden;
   });
-  // 1. URL ?prompt= auto-send.
+  // 1. URL ?prompt=: auto-send for in-app navigations, pre-fill otherwise.
   // Keyed by conversationId + prompt so the same text sent to different
   // draft conversations (e.g. repeated quick-input submissions) isn't deduped.
   const promptConsumedRef = useRef<string | null>(null);
@@ -89,16 +100,26 @@ export function useAutoSendEffects({
       return;
     }
     promptConsumedRef.current = key;
-    void sendMessage(prompt);
+    // Only a navigation the app issued may send on the user's behalf. A URL
+    // opened from outside the SPA carries no history state, so its prompt is
+    // staged in the composer and the user presses send (or doesn't).
+    const autoSend = hasAutoSendPromptState(navigationState);
+    if (autoSend) {
+      void sendMessage(prompt);
+    } else {
+      prefillComposer(prompt);
+    }
     // One-shot callers (no relay token) dedupe only on this component ref,
     // which resets on refresh/remount — so a deep link like the Day-2 check-in
-    // (`?prompt=…&vref=…`) would re-send on reload. Strip the prompt once
-    // dispatched so the send is durably once-only. Relay callers intentionally
-    // re-fire (each new token is a fresh dispatch), so leave their URL intact.
-    if (!relayToken) {
+    // (`?prompt=…&vref=…`) would replay on reload. Strip the prompt once
+    // dispatched so the dispatch is durably once-only. In-app relay callers
+    // intentionally re-fire (each new token is a fresh dispatch), so their URL
+    // stays intact; a relay token on an external link earns nothing.
+    if (!relayToken || !autoSend) {
       setSearchParams(
         (prev) => {
           prev.delete("prompt");
+          prev.delete("relay");
           return prev;
         },
         {
@@ -112,6 +133,7 @@ export function useAutoSendEffects({
     setSearchParams,
     activeConversationId,
     sendMessage,
+    prefillComposer,
     navigationState,
   ]);
 

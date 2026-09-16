@@ -129,7 +129,10 @@ export async function resolveOAuthConnectionWithMeta(
         accountInfo: resolution.accountLabel ?? account ?? null,
         client,
         connectionId: resolution.id,
-        baseUrl: providerRow?.baseUrl ?? undefined,
+        // A templated base URL (`https://{tenant_host}`, `.../{realm_id}`) is
+        // filled in by the platform from what it pinned to the connection;
+        // sent as-is it would fail the proxy's allowlist and shadow that.
+        baseUrl: platformProxyBaseUrl(providerRow?.baseUrl),
       });
       return {
         connection,
@@ -318,6 +321,24 @@ function hostMatchesPattern(host: string, pattern: string): boolean {
 }
 
 /**
+ * The base URL a managed connection sends to the platform proxy, or
+ * `undefined` to let the proxy use the provider's configured default.
+ *
+ * Per-tenant and per-realm providers seed a template the platform fills from
+ * the connection (`{tenant_host}`, `{realm_id}`). Forwarding the unfilled
+ * template would fail the proxy's allowlist check, so those fall through to
+ * the platform's own default.
+ */
+export function platformProxyBaseUrl(
+  seedBaseUrl: string | null | undefined,
+): string | undefined {
+  if (!seedBaseUrl || /\{[a-z_]+\}/.test(seedBaseUrl)) {
+    return undefined;
+  }
+  return seedBaseUrl;
+}
+
+/**
  * Resolve the effective API base URL for a connection, preferring per-tenant
  * values stored on the connection's `metadata` over the provider's static
  * seed value when applicable.
@@ -394,6 +415,9 @@ interface PlatformConnectionEntry {
   /** Scopes the platform actually granted this connection. May be absent for
    *  older connections or providers that don't report scopes. */
   scopes_granted?: string[] | null;
+  /** Provider-supplied values the connection is scoped by (QuickBooks'
+   *  `realm_id`). Absent from older platforms; empty for most providers. */
+  provider_params?: Record<string, string> | null;
 }
 
 interface PlatformConnectionResolution {

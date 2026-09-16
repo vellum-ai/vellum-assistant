@@ -52,6 +52,7 @@ import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOverlayEscape } from "../hooks/use-overlay-escape";
+import { autoSendPromptState } from "@/utils/auto-send-prompt";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
 import { skillDetailBackState } from "@/utils/skills";
@@ -288,6 +289,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           opened.conversationId,
           getDocumentFeedbackPrompt(snapshot.title),
         ),
+        { state: autoSendPromptState() },
       );
     });
   }, [navigate, runDocumentFeedback]);

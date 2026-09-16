@@ -21,6 +21,17 @@ mock.module("@/runtime/main-window", () => ({
   ensureMainWindowVisible: ensureMainWindowVisibleMock,
 }));
 
+/**
+ * Whether the companion is on screen to take the request in its popover,
+ * which is what decides between the popover and the raise.
+ */
+let companionOnScreen = false;
+const realCompanionSurface = await import("@/runtime/companion-surface");
+mock.module("@/runtime/companion-surface", () => ({
+  ...realCompanionSurface,
+  companionTakesPrompts: () => Promise.resolve(companionOnScreen),
+}));
+
 const {
   handleSecretRequest,
   handleConfirmationRequest,
@@ -49,6 +60,7 @@ beforeEach(() => {
   useInteractionStore.getState().resetAll();
   useChatSessionStore.getState().deleteConfirmationToolCall("cr-1");
   ensureMainWindowVisibleMock.mockClear();
+  companionOnScreen = false;
 });
 
 afterEach(() => {
@@ -166,13 +178,13 @@ describe("handleConfirmationRequest", () => {
   });
 
   /**
-   * The card that answers a confirmation is drawn in the app's window, and the
-   * turn that raised it need not have been started there: a message typed on
-   * the companion, or a scheduled run, leaves the window behind whatever the
-   * user is working in, and a request nobody can see is a run that has stopped
-   * for no visible reason.
+   * The turn that raised a confirmation need not have been started in the
+   * app's window: a call on the companion, or a scheduled run, leaves the
+   * window behind whatever the user is working in, and a request nobody can
+   * see is a run that has stopped for no visible reason. With no companion on
+   * screen to take it, the window comes forward.
    */
-  it("brings the app forward so the request can be answered", () => {
+  it("brings the app forward so the request can be answered", async () => {
     handleConfirmationRequest(
       {
         type: "confirmation_request",
@@ -186,7 +198,34 @@ describe("handleConfirmationRequest", () => {
       makeCtx(),
     );
 
+    await Promise.resolve();
+    await Promise.resolve();
+
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * With the companion on screen the request is answered in its popover, so
+   * the window stays behind the app the user is working in.
+   */
+  it("leaves the window where it is when the companion takes the request", async () => {
+    companionOnScreen = true;
+    handleConfirmationRequest(
+      {
+        type: "confirmation_request",
+        requestId: "cr-1",
+        toolName: "bash",
+        input: { command: "ls" },
+        riskLevel: "high",
+        allowlistOptions: [],
+        scopeOptions: [],
+      },
+      makeCtx(),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ensureMainWindowVisibleMock).not.toHaveBeenCalled();
   });
 });
 

@@ -12,15 +12,22 @@
  * duplicate; rehydration is the reseed hook's job, not the reducer's. (2) A
  * dismissed failure must not nag from history: `dismissAcpConnect` records the
  * tool-use id and `showAcpConnect` no-ops any later restore of it, which is
- * what makes reseed-rehydration of the permanent `errorCode` marker safe.
+ * what makes reseed-rehydration of the permanent `errorCode` marker safe. A
+ * user Dismiss also persists that id so a reload or conversation switch cannot
+ * raise the same spawn again.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import {
+  addDismissedAcpConnectId,
+  loadDismissedAcpConnectIds,
+} from "@/domains/chat/utils/dismissed-acp-connect-storage";
 import { handleToolResult } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import { appendEventToMessages } from "@/domains/chat/transcript/rolling-snapshot";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
+import { clearUserScopedOverrides } from "@/utils/typed-storage";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { AssistantEvent } from "@/types/event-types";
 import type { ToolResultEvent } from "@vellumai/assistant-api";
@@ -49,6 +56,8 @@ afterEach(() => {
     pendingAcpConnect: null,
     dismissedAcpConnectToolUseIds: new Set<string>(),
   });
+  localStorage.clear();
+  clearUserScopedOverrides();
 });
 
 describe("acp connect prompt — store lifecycle", () => {
@@ -60,6 +69,7 @@ describe("acp connect prompt — store lifecycle", () => {
 
     useInteractionStore.getState().dismissAcpConnect();
     expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+    expect(loadDismissedAcpConnectIds().size).toBe(0);
   });
 
   test("a dismissed failure is not resurrected by a later restore (no history nag)", () => {
@@ -122,12 +132,77 @@ describe("acp connect prompt — store lifecycle", () => {
     useInteractionStore.getState().dismissAcpConnect();
     useInteractionStore.getState().resetAll();
 
-    // After a conversation switch the suppression is cleared, so a cold reseed
-    // of the same conversation restores the card (matches "cold reload shows").
+    // After a conversation switch the session-only suppression is cleared, so
+    // a cold reseed of the same conversation restores the card unless the
+    // user persisted the dismissal.
     useInteractionStore.getState().showAcpConnect({ toolUseId: "tc-1" });
     expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
       toolUseId: "tc-1",
     });
+  });
+
+  test("a persisted user dismiss survives resetAll and a cold store (reload)", () => {
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tc-persist-reload",
+    });
+    useInteractionStore.getState().dismissAcpConnect({ persist: true });
+    expect(loadDismissedAcpConnectIds().has("tc-persist-reload")).toBe(true);
+
+    useInteractionStore.getState().resetAll();
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tc-persist-reload",
+    });
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+
+    // Empty store is a full reload: no in-memory dismissed set, only storage.
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+    });
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tc-persist-reload",
+    });
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
+  test("a persisted dismiss does not suppress a different failed spawn", () => {
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tc-persist-old",
+    });
+    useInteractionStore.getState().dismissAcpConnect({ persist: true });
+
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+    });
+    useInteractionStore.getState().showAcpConnect({
+      toolUseId: "tc-persist-new",
+    });
+    expect(useInteractionStore.getState().pendingAcpConnect).toEqual({
+      toolUseId: "tc-persist-new",
+    });
+  });
+
+  test("a live failure supersedes a persisted dismiss of the same spawn", () => {
+    addDismissedAcpConnectId("tc-persist-resumed");
+    useInteractionStore.setState({
+      pendingAcpConnect: null,
+      dismissedAcpConnectToolUseIds: new Set<string>(),
+    });
+
+    useInteractionStore.getState().showAcpConnect(
+      {
+        toolUseId: "tc-persist-resumed",
+        reason: "auth_required",
+        conversationId: "conv-1",
+      },
+      { supersedesDismissal: true },
+    );
+
+    expect(useInteractionStore.getState().pendingAcpConnect?.toolUseId).toBe(
+      "tc-persist-resumed",
+    );
+    expect(loadDismissedAcpConnectIds().has("tc-persist-resumed")).toBe(false);
   });
 });
 

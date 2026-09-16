@@ -9,7 +9,6 @@ import {
   INSUFFICIENT_CREDITS_PATTERNS,
 } from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
-import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
 import {
   clampProviderString,
   isDecodableTextMimeType,
@@ -199,43 +198,6 @@ export function deriveAnthropicReason(
     return "bad_request";
   }
   return "unknown";
-}
-
-/** Rate-limit the orphaned-surrogate warning so a single bad stream can't flood logs. */
-const ORPHAN_WARNING_THROTTLE_MS = 60_000;
-let lastOrphanWarningMs = 0;
-
-function logOrphanedSurrogateWarning(
-  fixedStringCount: number,
-  messages: Anthropic.MessageParam[],
-): void {
-  const now = Date.now();
-  if (now - lastOrphanWarningMs < ORPHAN_WARNING_THROTTLE_MS) {
-    return;
-  }
-  lastOrphanWarningMs = now;
-  const blockTypes = new Set<string>();
-  for (const msg of messages) {
-    if (!Array.isArray(msg.content)) {
-      continue;
-    }
-    for (const block of msg.content) {
-      if (typeof block !== "object" || block == null) {
-        continue;
-      }
-      const type = (block as { type?: string }).type;
-      if (type) {
-        blockTypes.add(type);
-      }
-    }
-  }
-  log.warn(
-    {
-      fixedStringCount,
-      blockTypes: Array.from(blockTypes),
-    },
-    "stripped orphaned UTF-16 surrogates from outbound Anthropic request — upstream truncation is not surrogate-aware",
-  );
 }
 
 /**
@@ -1298,15 +1260,6 @@ export class AnthropicProvider implements Provider {
       // the tail), or the tail alone (volatile first turn, where no
       // previous turn exists to anchor). At most two message-level
       // breakpoints are placed, so the total can't drift past 4.
-
-      // Strip orphaned UTF-16 surrogates so the Anthropic JSON parser never
-      // sees invalid strings produced by upstream surrogate-splitting `.slice()` calls.
-      const sanitized = stripOrphanedSurrogatesDeep(params);
-      if (sanitized.changed) {
-        logOrphanedSurrogateWarning(sanitized.fixedStringCount, sentMessages);
-        params = sanitized.value;
-        sentMessages = params.messages;
-      }
 
       // Callers can stamp `cache_control` on message blocks before the
       // provider sees them. Two repairs apply:

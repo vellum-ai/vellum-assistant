@@ -445,6 +445,10 @@ export function handleSubscribeAssistantEvents(
                 ? ["host_cu_window_capture" as const]
                 : []),
               ...(interfaceId === "macos" &&
+              headers?.["x-vellum-cu-sequence"] === "1"
+                ? ["host_cu_sequence" as const]
+                : []),
+              ...(interfaceId === "macos" &&
               headers?.["x-vellum-cu-annotate"] === "1"
                 ? ["host_cu_annotate" as const]
                 : []),

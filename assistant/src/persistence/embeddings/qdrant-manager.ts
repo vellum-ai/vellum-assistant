@@ -33,6 +33,116 @@ const SHUTDOWN_GRACE_MS = 5_000;
 const STDOUT_CAPTURE_LIMIT = 16_384;
 const STDERR_CAPTURE_LIMIT = 4_096;
 
+/**
+ * Which step of a local start failed. `install` covers the download, checksum
+ * and extraction of the binary; `spawn` the OS refusing to run it; `exited`
+ * the process dying before `/readyz` answered; `not_ready` the readiness
+ * deadline passing with the process still alive (or, in external mode, the
+ * remote instance never answering).
+ */
+export type QdrantStartFailureKind =
+  | "install"
+  | "spawn"
+  | "exited"
+  | "not_ready";
+
+/**
+ * A failed `QdrantManager.start()`. The message keeps the captured output for
+ * the log line; the fields carry the same facts in a form a reporter can use
+ * without parsing that message.
+ */
+export class QdrantStartError extends Error {
+  constructor(
+    message: string,
+    readonly kind: QdrantStartFailureKind,
+    readonly exitCode: number | null,
+    readonly stdout: string,
+    readonly stderr: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "QdrantStartError";
+  }
+}
+
+/**
+ * Budget for the `panic` string {@link describeQdrantStartFailure} emits, in
+ * the bytes the telemetry server counts: JSON with every code unit above 0x7E
+ * escaped as `\uXXXX` (see `jsonByteLength` in `telemetry-wire.generated.ts`).
+ * A quarter of `WATCHDOG_DETAIL_MAX_JSON_BYTES`, leaving the other fields and
+ * the event envelope far from the limit that silently drops the event.
+ */
+const PANIC_REPORT_MAX_JSON_BYTES = 1_024;
+
+/**
+ * Longest prefix of `text` whose server-side JSON size fits `maxBytes`. Each
+ * UTF-16 code unit above 0x7E costs six bytes (astral characters two units,
+ * so twelve); quotes, backslashes and control characters cost what
+ * `JSON.stringify` escapes them to. Counting characters instead would let a
+ * non-ASCII reason overshoot the budget six-fold.
+ */
+function truncateToJsonBytes(text: string, maxBytes: number): string {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    bytes += unit > 0x7e ? 6 : JSON.stringify(text[i]).length - 2;
+    if (bytes > maxBytes) {
+      return text.slice(0, i);
+    }
+  }
+  return text;
+}
+
+/** Qdrant's panic hook logs `Panic occurred <location>: <reason>` on stdout. */
+const PANIC_MARKER = "Panic occurred";
+
+/**
+ * Reduce a start failure to the metadata a `watchdog` telemetry event may
+ * carry: the failing step, the exit code, and Qdrant's own one-line reason.
+ *
+ * The reason is engine output, never conversation content, so it is in the
+ * same class as the SQLite `integrity_check` strings `db-integrity-sample.ts`
+ * already reports. The one thing in it that is not pure engine text is the
+ * absolute data directory, which is swapped for a placeholder. The panic hook
+ * prints the reason after the backtrace, so it is everything from the last
+ * marker on; when Qdrant died without panicking (a port collision logs a plain
+ * error) the last stdout line is the best available explanation. Capped by
+ * the server's own byte measure well inside the detail budget. Anything that is not a
+ * {@link QdrantStartError} reports as `unknown`, so a new throw site can never
+ * silently drop the event.
+ */
+export function describeQdrantStartFailure(
+  err: unknown,
+  dataDir: string = getDataDir(),
+): {
+  kind: QdrantStartFailureKind | "unknown";
+  exit_code: number | null;
+  panic: string | null;
+} {
+  if (!(err instanceof QdrantStartError)) {
+    return { kind: "unknown", exit_code: null, panic: null };
+  }
+  const stdout = err.stdout.trim();
+  let reason: string | null = null;
+  if (stdout) {
+    const marker = stdout.lastIndexOf(PANIC_MARKER);
+    reason =
+      marker >= 0
+        ? stdout.slice(marker)
+        : (stdout
+            .split("\n")
+            .filter((line) => line.trim())
+            .at(-1) ?? null);
+  }
+  if (reason) {
+    reason = truncateToJsonBytes(
+      reason.split(dataDir).join("<data>"),
+      PANIC_REPORT_MAX_JSON_BYTES,
+    );
+  }
+  return { kind: err.kind, exit_code: err.exitCode, panic: reason };
+}
+
 export function resolveQdrantReleaseAsset(
   os: NodeJS.Platform,
   cpu: string,
@@ -144,7 +254,11 @@ export class QdrantManager {
 
     const binaryPath = this.getBinaryPath();
     if (!existsSync(binaryPath)) {
-      await this.installBinary(binaryPath);
+      try {
+        await this.installBinary(binaryPath);
+      } catch (err) {
+        throw this.startError(err, "install");
+      }
     }
 
     const spawnPath = this.ensureVellumSymlink(binaryPath);
@@ -154,21 +268,26 @@ export class QdrantManager {
       "Starting Qdrant",
     );
 
-    const proc = Bun.spawn({
-      cmd: [spawnPath],
-      windowsHide: true,
-      env: {
-        ...process.env,
-        QDRANT__SERVICE__HOST: this.host,
-        QDRANT__SERVICE__HTTP_PORT: String(this.port),
-        QDRANT__SERVICE__GRPC_PORT: "0", // disable gRPC
-        QDRANT__TELEMETRY_DISABLED: "true",
-        QDRANT__STORAGE__STORAGE_PATH: this.storagePath,
-        QDRANT__LOG_LEVEL: "WARN",
-      },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    let proc: Subprocess<"ignore", "pipe", "pipe">;
+    try {
+      proc = Bun.spawn({
+        cmd: [spawnPath],
+        windowsHide: true,
+        env: {
+          ...process.env,
+          QDRANT__SERVICE__HOST: this.host,
+          QDRANT__SERVICE__HTTP_PORT: String(this.port),
+          QDRANT__SERVICE__GRPC_PORT: "0", // disable gRPC
+          QDRANT__TELEMETRY_DISABLED: "true",
+          QDRANT__STORAGE__STORAGE_PATH: this.storagePath,
+          QDRANT__LOG_LEVEL: "WARN",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    } catch (err) {
+      throw this.startError(err, "spawn");
+    }
     this.process = proc;
     this.drainOutputFrom(proc.stdout, proc.stderr);
 
@@ -311,6 +430,24 @@ export class QdrantManager {
     );
   }
 
+  /**
+   * Wrap a failure from a start step in a {@link QdrantStartError}. Errors the
+   * manager already classified pass through untouched.
+   */
+  private startError(err: unknown, kind: QdrantStartFailureKind): Error {
+    if (err instanceof QdrantStartError) {
+      return err;
+    }
+    return new QdrantStartError(
+      err instanceof Error ? err.message : String(err),
+      kind,
+      null,
+      this.stdoutBuffer,
+      this.stderrBuffer,
+      { cause: err },
+    );
+  }
+
   private async waitForReady(): Promise<void> {
     const start = Date.now();
     // Build a single exited-promise once so each race reuses the same handle.
@@ -327,9 +464,13 @@ export class QdrantManager {
 
     const throwOnExit = async (code: number): Promise<never> => {
       await this.outputDrained;
-      throw new Error(
+      throw new QdrantStartError(
         `Qdrant process exited with code ${code} before becoming ready` +
           this.formatCapturedOutput(),
+        "exited",
+        code,
+        this.stdoutBuffer,
+        this.stderrBuffer,
       );
     };
 
@@ -363,9 +504,13 @@ export class QdrantManager {
         await throwOnExit(sleepOutcome.code);
       }
     }
-    throw new Error(
+    throw new QdrantStartError(
       `Qdrant did not become ready within ${this.readyzTimeoutMs}ms at ${this.url}` +
         this.formatCapturedOutput(),
+      "not_ready",
+      null,
+      this.stdoutBuffer,
+      this.stderrBuffer,
     );
   }
 

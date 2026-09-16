@@ -164,10 +164,13 @@ mock.module("@/hooks/use-assistant-avatar", () => ({
 // the three states the room actually branches on are all reachable: a resolved
 // sample, a still-pending one, and an image that could not be read.
 let mockCustomFieldHex: string | null = null;
-mock.module("@/domains/chat/voice/voice-room/use-sampled-avatar-accent", () => ({
-  useSampledAvatarAccentHex: () => mockCustomFieldHex,
-  clearCustomAvatarFieldCache: () => {},
-}));
+mock.module(
+  "@/domains/chat/voice/voice-room/use-sampled-avatar-accent",
+  () => ({
+    useSampledAvatarAccentHex: () => mockCustomFieldHex,
+    clearCustomAvatarFieldCache: () => {},
+  }),
+);
 
 /** Minimal character components: one body/eye/color of each. */
 const CHARACTER_COMPONENTS = {
@@ -2166,6 +2169,145 @@ describe("VoiceRoom: camera", () => {
     } finally {
       consoleDebug.mockRestore();
     }
+  });
+
+  // A spoken "look at this" lands while the room may be down, so the ask waits
+  // in the store and the room takes it when it is up.
+  test("a spoken camera ask opens the viewfinder once the room is up, once", async () => {
+    const getUserMedia = mock(async (_constraints?: MediaStreamConstraints) =>
+      fakeStream(),
+    );
+    stubMediaDevices(getUserMedia);
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    useLiveVoiceStore.getState().setCameraLookRequest("start");
+
+    const { unmount } = render(<VoiceRoom />);
+    await waitFor(() => {
+      expect(viewfinder()).not.toBeNull();
+    });
+    expect(useLiveVoiceStore.getState().cameraLookRequest).toBeNull();
+    unmount();
+
+    // A room that comes back later does not reopen the camera for the old ask.
+    render(<VoiceRoom />);
+    await act(async () => {});
+    expect(viewfinder()).toBeNull();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  test("a spoken camera ask enters Live once the viewfinder is up", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedLiveCapableAssistant();
+    startOwnedSession("listening");
+    useLiveVoiceStore.getState().setCameraLookRequest("start");
+
+    render(<VoiceRoom />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("voice-room-shutter").getAttribute("data-mode"),
+      ).toBe("live");
+    });
+  });
+
+  // The ask belongs to the open it started. A camera the user opens later is
+  // theirs, for photos, and must not enter Live and start sending frames on
+  // the strength of an ask whose open already failed.
+  test("a spoken camera ask whose open fails does not put a later manual open into Live", async () => {
+    let refuse = true;
+    const getUserMedia = mock(async (_constraints?: MediaStreamConstraints) => {
+      if (refuse) {
+        throw new DOMException("denied", "NotAllowedError");
+      }
+      return fakeStream();
+    });
+    stubMediaDevices(getUserMedia);
+    seedLiveCapableAssistant();
+    startOwnedSession("listening");
+    useLiveVoiceStore.getState().setCameraLookRequest("start");
+
+    render(<VoiceRoom />);
+    await waitFor(() => {
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+    });
+    await act(async () => {});
+    expect(viewfinder()).toBeNull();
+
+    refuse = false;
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    await act(async () => {});
+
+    expect(viewfinder()).not.toBeNull();
+    expect(
+      screen.getByTestId("voice-room-shutter").getAttribute("data-mode"),
+    ).toBe("photo");
+  });
+
+  // A press on the camera control while the spoken open is still acquiring
+  // starts an open of its own, which supersedes the first. That camera is the
+  // user's, for photos, however the older open settles afterwards.
+  test("a camera press during a pending spoken open keeps the press's camera out of Live", async () => {
+    let releaseSpokenOpen!: (stream: MediaStream) => void;
+    let calls = 0;
+    const getUserMedia = mock(async (_constraints?: MediaStreamConstraints) => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise<MediaStream>((resolve) => {
+          releaseSpokenOpen = resolve;
+        });
+      }
+      return fakeStream();
+    });
+    stubMediaDevices(getUserMedia);
+    seedLiveCapableAssistant();
+    startOwnedSession("listening");
+    useLiveVoiceStore.getState().setCameraLookRequest("start");
+
+    render(<VoiceRoom />);
+    await waitFor(() => {
+      expect(getUserMedia).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    await waitFor(() => {
+      expect(viewfinder()).not.toBeNull();
+    });
+
+    await act(async () => {
+      releaseSpokenOpen(fakeStream());
+    });
+    await act(async () => {});
+
+    expect(
+      screen.getByTestId("voice-room-shutter").getAttribute("data-mode"),
+    ).toBe("photo");
+  });
+
+  test("a spoken stop closes an open viewfinder and leaves the call running", async () => {
+    stubMediaDevices(async () => fakeStream());
+    seedCameraCapableAssistant();
+    startOwnedSession("listening");
+    render(<VoiceRoom />);
+
+    await act(async () => {
+      fireEvent.click(cameraToggle()!);
+    });
+    expect(viewfinder()).not.toBeNull();
+
+    await act(async () => {
+      useLiveVoiceStore.getState().setCameraLookRequest("stop");
+    });
+
+    await waitFor(() => {
+      expect(viewfinder()).toBeNull();
+    });
+    expect(useLiveVoiceStore.getState().cameraLookRequest).toBeNull();
+    expect(controls.stop).not.toHaveBeenCalled();
   });
 
   test("closing the camera leaves the session alone", async () => {

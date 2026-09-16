@@ -158,6 +158,7 @@ const SKILL_TOOLS: GuardedTool[] = [
   proxied("computer_use_drag"),
   proxied("computer_use_open_app"),
   proxied("computer_use_run_applescript"),
+  proxied("computer_use_sequence"),
   proxied("computer_use_respond"),
 
   { name: "contact_merge", input: { keep_id: "c-1", merge_id: "c-2" } },

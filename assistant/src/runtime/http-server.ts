@@ -32,12 +32,12 @@ import {
 } from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
 import { makeAddrInUseError } from "../daemon/startup-error.js";
-import { isAssistantDesktopEnabled } from "../desktop/desktop-feature.js";
 import {
   DESKTOP_CLOSE,
   destroyDesktopSessionManager,
 } from "../desktop/desktop-session-manager.js";
 import { DesktopStreamBridge } from "../desktop/desktop-stream-bridge.js";
+import { isVirtualDesktopEnabled } from "../desktop/virtual-desktop-feature.js";
 import {
   createLiveVoiceConnection,
   type LiveVoiceConnection,
@@ -252,9 +252,9 @@ type AllWebSocketData =
   | WatchStreamWebSocketData
   | DesktopStreamWebSocketData;
 
-function assistantDesktopEnabled(): boolean {
+function virtualDesktopEnabled(): boolean {
   try {
-    return isAssistantDesktopEnabled(getConfig());
+    return isVirtualDesktopEnabled(getConfig());
   } catch (err) {
     log.warn({ err }, "Failed to read config for desktop stream gate");
     return false;
@@ -453,15 +453,15 @@ export class RuntimeHttpServer {
           }
           if (data.wsType === "desktop-stream") {
             log.info("Desktop stream WebSocket opened");
-            if (!assistantDesktopEnabled()) {
+            if (!virtualDesktopEnabled()) {
               ws.close(
                 DESKTOP_CLOSE.unavailable,
-                "Desktop is not available on this assistant",
+                "Virtual desktop is available only on enabled platform-hosted assistants",
               );
               return;
             }
             const bridge = new DesktopStreamBridge(ws, {
-              isEnabled: assistantDesktopEnabled,
+              isEnabled: virtualDesktopEnabled,
             });
             data.bridge = bridge;
             void bridge.start();

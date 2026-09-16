@@ -23,6 +23,7 @@
   },
   "acpConnectAffordance": {
     "connectButton": "连接",
+    "dismissButton": "忽略",
     "errorFallback": "连接 Claude 失败。请重试。",
     "pastePlaceholder": "粘贴您的密钥",
     "saveButton": "保存",
@@ -94,24 +95,31 @@
     "earlierActivity": "更早的活动"
   },
   "assistantDesktop": {
-    "busy": "桌面正在被其他用户使用。",
-    "connecting": "正在连接桌面…",
-    "failed": "桌面无法启动。",
-    "lost": "与桌面的连接已断开。",
-    "openAria": "打开桌面",
+    "fitView": "适应屏幕",
+    "panView": "平移",
+    "controlView": "控制",
+    "panHint": "拖动以平移，轻点以单击。",
+    "hideAria": "隐藏虚拟桌面",
+    "closeAria": "关闭虚拟桌面预览",
+    "moveAria": "移动虚拟桌面预览（方向键）",
+    "expandAria": "展开虚拟桌面",
+    "busy": "虚拟桌面正在被其他用户使用。",
+    "connecting": "正在连接虚拟桌面…",
+    "failed": "虚拟桌面无法启动。",
+    "lost": "与虚拟桌面的连接已断开。",
+    "openAria": "打开 {name} 的虚拟桌面",
+    "openUnnamedAria": "打开虚拟桌面",
     "reconnectButton": "重新连接",
     "title": "桌面",
-    "unavailable": "此助理不支持桌面。",
-    "installButton": "安装桌面",
-    "installDescription": "安装 Google Chrome 和助手桌面所需的组件。这可能需要几分钟。",
-    "checkingSetup": "正在检查桌面设置…",
-    "installingPackages": "正在安装桌面组件…",
+    "unavailable": "此助理不支持虚拟桌面。",
+    "installButton": "安装虚拟桌面",
+    "checkingSetup": "正在检查虚拟桌面设置…",
+    "installingPackages": "正在安装虚拟桌面组件…",
     "installingChrome": "正在安装 Google Chrome…",
     "checkingInstall": "正在检查安装…",
-    "installBackground": "关闭此窗口后，安装仍会继续。",
     "installFailed": "安装失败。请重试以完成设置。",
-    "setupRequestFailed": "无法检查桌面设置。请重新连接后重试。",
-    "setupUnsupported": "桌面安装需要具有管理员权限的 Linux x64 或 ARM64 容器。"
+    "setupRequestFailed": "无法检查虚拟桌面设置。请重新连接后重试。",
+    "setupUnsupported": "虚拟桌面安装需要具有管理员权限的 Linux x64 或 ARM64 容器。"
   },
   "assistantNavItem": {
     "newChat": "新建聊天"
@@ -1272,6 +1280,7 @@
     "defaultDescription": "连接 {name}，以便我能将其用于此任务。",
     "dismiss": "忽略",
     "missingDetails": "缺少助手或提供商详细信息。",
+    "tenantHostInvalid": "请输入有效的{label}，例如 {placeholder}",
     "thisAccount": "此账户",
     "waiting": "等待中...",
     "yourAssistant": "您的助手"
@@ -1354,6 +1363,7 @@
   },
   "preferencesMenu": {
     "admin": "管理",
+    "earnCredits": "赚取免费积分",
     "preferences": "偏好设置",
     "settings": "设置",
     "shareFeedback": "分享反馈"
@@ -1593,10 +1603,6 @@
   },
   "singleActivity": {
     "webSearch": "网页搜索"
-  },
-  "skillCreatedCard": {
-    "view": "查看",
-    "viewAria": "查看 {name}"
   },
   "skillDetailPanel": {
     "actionsAria": "技能操作",
@@ -1985,5 +1991,12 @@
   },
   "coachmarkPress": {
     "turn": "我点击了 {label}。接下来呢？"
+  },
+  "cameraFrameGrid": {
+    "count": "{count, plural, other {# 个摄像头画面}}",
+    "timeRange": "保存时间：{first} 至 {last}",
+    "savedTime": "保存于 {time}",
+    "pendingAria": "摄像头画面，图像仍在加载。{time}",
+    "timeUnavailable": "时间不可用"
   }
 }

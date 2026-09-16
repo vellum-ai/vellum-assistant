@@ -41,9 +41,11 @@ import {
   listConnections,
   type OAuthProviderRow,
 } from "../../oauth/oauth-store.js";
+import { missingScopesForStoredToken } from "../../oauth/scope-utils.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import { withValidToken } from "../../security/token-manager.js";
 import { matchHostPattern } from "../../tools/credentials/host-pattern-match.js";
+import { parseJsonSafe } from "../../util/json.js";
 import { getLogger } from "../../util/logger.js";
 import {
   findContentTypeHeader,
@@ -64,6 +66,7 @@ interface PlatformConnectionEntry {
   id: string;
   account_label?: string;
   scopes_granted?: string[];
+  provider_params?: Record<string, string> | null;
   status?: string;
 }
 
@@ -228,6 +231,31 @@ function assertOAuthRequestUrlAllowed(
       `OAuth request URL host "${parsedUrl.hostname}" is not allowed for "${providerRow.provider}". Allowed hosts: ${allowedHostPatterns.join(", ")}.`,
     );
   }
+}
+
+/**
+ * Required scopes the resolved connection's stored grant lacks. Credential
+ * health measures the same thing on the heartbeat; measuring it on the
+ * request names the gap at the moment a call may depend on it, since a
+ * connection made before a scope was required keeps working for every call
+ * that does not need it. A managed connection has no local row and reports
+ * nothing.
+ */
+function missingScopesForConnection(
+  providerRow: OAuthProviderRow,
+  connectionId: string,
+): string[] {
+  const row = getConnection(connectionId);
+  if (!row) {
+    return [];
+  }
+  return missingScopesForStoredToken(
+    parseJsonSafe<string[]>(providerRow.defaultScopes ?? "[]") ?? [],
+    parseJsonSafe<Record<string, string>>(providerRow.authorizeParams ?? "") ??
+      undefined,
+    providerRow.scopeSeparator,
+    parseJsonSafe<string[]>(row.grantedScopes ?? "[]") ?? [],
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -547,6 +575,9 @@ async function handleStatus({ queryParams = {} }: RouteHandlerArgs) {
       account: c.account_label ?? null,
       grantedScopes: c.scopes_granted ?? [],
       status: c.status ?? "ACTIVE",
+      // Values the provider scopes the connection by (QuickBooks' realm id),
+      // so a caller can address resources the proxy's base URL does not.
+      providerParams: c.provider_params ?? {},
     }));
 
     return {
@@ -1002,6 +1033,15 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
       `(e.g. https://host/full/path) so the host and full path are set explicitly.`;
   }
 
+  const missingScopes = missingScopesForConnection(providerRow, connection.id);
+  if (missingScopes.length > 0) {
+    const scopeHint =
+      `The ${b.provider} connection is missing required scopes: ${missingScopes.join(", ")}. ` +
+      `It was connected before they were required, so calls that need them fail. ` +
+      `Reconnect it from Integrations, or run 'assistant oauth connect ${b.provider}', to grant them.`;
+    result.hint = result.hint ? `${scopeHint}\n\n${result.hint}` : scopeHint;
+  }
+
   return result;
 }
 
@@ -1024,6 +1064,8 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
     provider: string;
     scopes?: string[];
     redirect_after_connect?: string;
+    /** Per-tenant providers (Shopify): the customer's own host. */
+    tenant_host?: string;
   };
 
   if (!b.provider) {
@@ -1040,6 +1082,13 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
   }
   reqBody.redirect_after_connect =
     b.redirect_after_connect ?? "/account/oauth/complete";
+  // Only forwarded when present: the platform validates it against the
+  // provider's pattern and rejects per-tenant providers that omit it.
+  const tenantHost =
+    typeof b.tenant_host === "string" ? b.tenant_host.trim() : "";
+  if (tenantHost) {
+    reqBody.tenant_host = tenantHost;
+  }
 
   const response = await client.fetch(startPath, {
     method: "POST",
@@ -1086,6 +1135,7 @@ async function handleManagedConnectPoll({
       id: e.id,
       account_label: e.account_label ?? null,
       scopes_granted: e.scopes_granted ?? [],
+      provider_params: e.provider_params ?? {},
     })),
   };
 }

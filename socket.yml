@@ -1,7 +1,6 @@
 # Socket.dev supply-chain policy. Gates the `socket-security` GitHub App
 # checks on every PR.
 # Schema is booleans — `{ action: ... }` is silently rejected.
-# See docs/socket.md.
 
 version: 2
 

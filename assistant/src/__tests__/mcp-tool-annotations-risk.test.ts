@@ -32,10 +32,12 @@ const { RiskLevel } = await import("../permissions/types.js");
 type ServerSource = "workspace" | "plugin";
 
 function serverConfig(source: ServerSource) {
-  return {
+  const base = {
     transport: { type: "stdio" as const, command: "echo", args: [] },
-    source,
   };
+  return source === "workspace"
+    ? { ...base, source }
+    : { ...base, source, pluginName: "plugin", serverKey: "server" };
 }
 
 interface RiskAnnotations {

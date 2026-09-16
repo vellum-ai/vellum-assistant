@@ -28,6 +28,7 @@ import {
   unwrapExternalContentForDisplay,
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
+import { safeStringSlice } from "../util/unicode.js";
 
 /**
  * Slack-style emoji names render in colon form. Anything else (a unicode
@@ -53,7 +54,7 @@ function snippetOf(text: string): string {
   if (flat.length <= TARGET_SNIPPET_MAX_CHARS) {
     return flat;
   }
-  return `${flat.slice(0, TARGET_SNIPPET_MAX_CHARS)}...`;
+  return `${safeStringSlice(flat, 0, TARGET_SNIPPET_MAX_CHARS)}...`;
 }
 
 /**

@@ -41,6 +41,7 @@ mock.module("../../mcp/mcp-header-store.js", () => ({
 }));
 
 mock.module("../../config/loader.js", () => ({
+  getConfig: () => ({}),
   invalidateConfigCache: () => {},
 }));
 

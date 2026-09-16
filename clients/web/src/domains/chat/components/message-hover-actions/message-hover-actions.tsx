@@ -28,6 +28,8 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 export type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
   message: DisplayMessage;
+  /** Hide Copy and Read aloud when the rendered row has no message text. */
+  showTextActions?: boolean;
   /** Conversation the message belongs to. Required for the bookmark toggle —
    *  the bookmark API keys on (messageId, conversationId). */
   conversationId?: string | null;
@@ -112,6 +114,7 @@ function latestMessageActivityTimestamp(
 
 export function MessageHoverActions({
   message,
+  showTextActions = true,
   conversationId,
   openInSlackUrl,
   onFork,
@@ -143,7 +146,7 @@ export function MessageHoverActions({
   const [fallbackTimestamp] = useState(() => Date.now());
   const displayTimestamp = timestamp ?? fallbackTimestamp;
 
-  const hasCopyableText = content.trim().length > 0;
+  const hasCopyableText = showTextActions && content.trim().length > 0;
 
   useEffect(() => {
     return () => {

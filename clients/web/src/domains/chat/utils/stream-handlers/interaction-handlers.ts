@@ -14,6 +14,7 @@ import type {
 } from "@vellumai/assistant-api";
 import { normalizeQuestionRequest } from "@/domains/chat/api/event-types";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
+import { companionTakesPrompts } from "@/runtime/companion-surface";
 
 export function handleSecretRequest(
   event: SecretRequestEvent,
@@ -53,21 +54,21 @@ export function handleConfirmationRequest(
   };
   useInteractionStore.getState().showConfirmation(confData);
 
-  // **And the window comes forward.** A confirmation is the one thing the
-  // assistant cannot get past on its own, and the card that answers it is drawn
-  // in the app's window. A turn started from the companion, or by a schedule,
-  // or from anywhere else while the user is working in another app, leaves that
-  // window behind whatever is in front of it, so the run stops on a question
-  // nobody can see and the assistant reads as having gone quiet.
+  // **Somewhere the user can see it.** A confirmation is the one thing the
+  // assistant cannot get past on its own. A turn started from the companion,
+  // by a schedule, or from anywhere else while the user is working in another
+  // app leaves this window behind whatever is in front of it, so the run
+  // would stop on a question nobody can see.
   //
-  // Off Electron this is a no-op (`main-window` wraps a host capability the web
-  // and iOS builds do not have), and a window already frontmost is raised to
-  // where it already is. Fire and forget: nothing below waits on it.
-  //
-  // The better end state is answering the request on the companion itself,
-  // which is not this: the surface holds no interaction store and no way to
-  // send a decision, only the words of a message and the tail of a reply.
-  void ensureMainWindowVisible();
+  // The companion answers it in its popover when it is on screen (the mirror
+  // publishes the approval from the store written above). Otherwise the
+  // window comes forward. Off Electron both are no-ops. Fire and forget:
+  // nothing below waits on it.
+  void companionTakesPrompts().then((taken) => {
+    if (!taken) {
+      void ensureMainWindowVisible();
+    }
+  });
 
   // The reducer folds the inline confirmation marker onto the tool-call row in
   // the snapshot. Here we only need the matched tool-call id for the

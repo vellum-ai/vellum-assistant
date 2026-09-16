@@ -257,7 +257,17 @@ export async function observeHostScreen(
             // conversation is attached.
             conversationId: options.stateKey ?? "",
             toolName: "computer_use_observe",
-            input: captureTargetInput(options.captureTarget),
+            // An unscoped request tells the helper up front when no
+            // screenshot is wanted, so it can skip capturing and uploading
+            // one. The helper always captures a scoped observation, so the
+            // flag is not sent there. The strip below removes the picture in
+            // both cases.
+            input: {
+              ...captureTargetInput(options.captureTarget),
+              ...(includeScreenshot || options.captureTarget !== undefined
+                ? {}
+                : { includeScreenshot: false }),
+            },
             stepNumber: 1,
           },
           undefined,

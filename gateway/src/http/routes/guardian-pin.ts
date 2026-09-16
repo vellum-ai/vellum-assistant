@@ -18,8 +18,8 @@
  * - **Through velay.** Velay validates the browser's token, strips any
  *   client-supplied copies of the `X-Velay-*` headers, and injects the
  *   authenticated caller. That attestation proves the caller is *a* platform
- *   user who traversed velay, so it is cross-checked against the stored
- *   `platform_user_id` by {@link requireManagedGuardian}. A gateway takes
+ *   user who traversed velay, so it is cross-checked against the bound
+ *   platform user id by {@link requireManagedGuardian}. A gateway takes
  *   this path when {@link acceptsVelayAttestation} says it has a velay tunnel
  *   at all: a managed pod, or a locally hosted assistant whose gateway dialed
  *   velay so the mobile app can reach it.
@@ -100,7 +100,7 @@ export function extractVelayAttestedContext(
 
 /**
  * Managed-mode guardian check: cross-check a velay-attested caller's platform
- * user id against the stored `platform_user_id` credential, the same guard the
+ * user id against the bound platform user id, the same guard the
  * edge-auth middleware applies to guardian routes under the platform bypass.
  *
  * Returns null when the caller is the guardian, else a 403/503 Response.
@@ -116,15 +116,15 @@ export async function requireManagedGuardian(
     storedUserId = result.userId;
     unreachable = result.unreachable;
   } catch (err) {
-    log.error({ err }, "guardian pin: platform_user_id lookup failed");
+    log.error({ err }, "guardian pin: platform user id lookup failed");
     return new Response("Service Unavailable", { status: 503 });
   }
   if (unreachable) {
-    log.warn("guardian pin: platform_user_id credential store unreachable");
+    log.warn("guardian pin: platform identity prerequisites unreachable");
     return new Response("Service Unavailable", { status: 503 });
   }
   if (!storedUserId) {
-    log.warn("guardian pin: no platform_user_id stored on this assistant");
+    log.warn("guardian pin: no platform user id bound on this assistant");
     return new Response("Forbidden", { status: 403 });
   }
   if (storedUserId !== velayUserId) {

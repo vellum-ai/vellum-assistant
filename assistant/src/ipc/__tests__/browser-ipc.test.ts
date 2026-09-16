@@ -6,8 +6,19 @@
  * state or the daemon conversation store.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
+import { desktopDependencyInstaller } from "../../desktop/desktop-dependencies.js";
+import * as desktopFeature from "../../desktop/virtual-desktop-feature.js";
+import { browserManager } from "../../tools/browser/browser-manager.js";
 import type { ToolExecutionResult } from "../../tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -31,7 +42,10 @@ let mockOperationCalls: Array<{
 let mockConversation: {
   trustContext?: { trustClass: string };
   transportInterface?: string;
+  currentTurnClientOs?: string;
+  clientOs?: string;
   getTurnActorPrincipalId?: () => string | undefined;
+  abortController?: AbortController;
 } | null = null;
 
 let mockFindConversationCalls: string[] = [];
@@ -66,6 +80,47 @@ mock.module("../../daemon/conversation-registry.js", () => ({
   },
 }));
 
+let desktopEnabled = false;
+let desktopReady = false;
+let desktopFailure = false;
+const enabledSpy = spyOn(
+  desktopFeature,
+  "isVirtualDesktopEnabled",
+).mockImplementation(() => desktopEnabled);
+const readySpy = spyOn(
+  desktopDependencyInstaller,
+  "getStatus",
+).mockImplementation(() => ({ state: desktopReady ? "ready" : "required" }));
+afterAll(() => {
+  enabledSpy.mockRestore();
+  readySpy.mockRestore();
+});
+
+let desktopContext: import("../../tools/types.js").ToolContext | undefined;
+mock.module("../../desktop/desktop-browser-operations.js", () => ({
+  executeDesktopBrowserTabs: async (
+    _params: unknown,
+    context: import("../../tools/types.js").ToolContext,
+  ) => {
+    desktopContext = context;
+    return {
+      content: JSON.stringify({ ok: true, tabs: [{ tabId: 1 }] }),
+      isError: false,
+    };
+  },
+  executeDesktopBrowserOperation: async (
+    _operation: string,
+    _input: Record<string, unknown>,
+    context: import("../../tools/types.js").ToolContext,
+  ) => {
+    desktopContext = context;
+    return {
+      content: desktopFailure ? "Desktop is busy" : "desktop",
+      isError: desktopFailure,
+    };
+  },
+}));
+
 // Import after mocking — now from the shared routes location
 const { ROUTES, browserCliConversationKey } =
   await import("../../runtime/routes/browser-routes.js");
@@ -92,6 +147,11 @@ function callHandler(
 // ---------------------------------------------------------------------------
 
 afterEach(() => {
+  desktopEnabled = false;
+  desktopReady = false;
+  desktopFailure = false;
+  desktopContext = undefined;
+  browserManager.clearPreferredBackendKind("conv-default-browser");
   mockOperationResult = { content: "ok", isError: false };
   mockOperationCalls = [];
   mockConversation = null;
@@ -421,4 +481,172 @@ describe("browser_execute route", () => {
     expect(mockOperationCalls).toHaveLength(1);
     expect(mockOperationCalls[0].input).toEqual({});
   });
+});
+
+test("desktop route preserves guardian ownership and live-turn cancellation", async () => {
+  const abortController = new AbortController();
+  mockConversation = {
+    trustContext: { trustClass: "guardian" },
+    getTurnActorPrincipalId: () => "user-123",
+    abortController,
+  };
+  const result = await callHandler(
+    { operation: "snapshot", desktop: true, conversationId: "conv-desktop" },
+    { "x-vellum-actor-principal-id": "user-other" },
+  );
+  expect(result).toMatchObject({ content: "desktop" });
+  expect(mockOperationCalls).toHaveLength(0);
+  expect(desktopContext).toMatchObject({
+    conversationId: "conv-desktop",
+    sourceActorPrincipalId: "user-123",
+    trustClass: "guardian",
+  });
+  expect(desktopContext?.signal?.aborted).toBe(false);
+  abortController.abort();
+  expect(desktopContext?.signal?.aborted).toBe(true);
+});
+
+function webConversation(clientOs = "web") {
+  desktopEnabled = true;
+  desktopReady = true;
+  mockConversation = {
+    trustContext: { trustClass: "guardian" },
+    transportInterface: "web",
+    currentTurnClientOs: clientOs,
+    getTurnActorPrincipalId: () => "user-123",
+  };
+}
+
+test("web browser commands default to the installed streamed Chrome", async () => {
+  webConversation();
+  const result = await callHandler({
+    operation: "navigate",
+    input: { url: "https://example.com" },
+    conversationId: "conv-default-browser",
+  });
+  expect(result).toMatchObject({ content: "desktop", isError: false });
+  expect(mockOperationCalls).toHaveLength(0);
+  expect(desktopContext?.clientOs).toBe("web");
+});
+
+test.each(["macos", "windows"])(
+  "%s renderer uses the personal browser despite its web transport",
+  async (clientOs) => {
+    webConversation(clientOs);
+    await callHandler({
+      operation: "snapshot",
+      conversationId: "conv-default-browser",
+    });
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(desktopContext).toBeUndefined();
+  },
+);
+
+test("browser selection uses the active turn rather than a queued message's OS", async () => {
+  webConversation("macos");
+  mockConversation!.clientOs = "web";
+  await callHandler({
+    operation: "snapshot",
+    conversationId: "conv-default-browser",
+  });
+  expect(mockOperationCalls).toHaveLength(1);
+  expect(desktopContext).toBeUndefined();
+});
+
+test.each(["flag", "guardian", "actor"])(
+  "web preserves the existing browser when %s is unavailable",
+  async (missing) => {
+    webConversation();
+    if (missing === "flag") {
+      desktopEnabled = false;
+    }
+    if (missing === "guardian") {
+      mockConversation!.trustContext = { trustClass: "unknown" };
+    }
+    if (missing === "actor") {
+      mockConversation!.getTurnActorPrincipalId = () => undefined;
+    }
+    await callHandler({
+      operation: "snapshot",
+      conversationId: "conv-default-browser",
+    });
+    expect(mockOperationCalls).toHaveLength(1);
+    expect(desktopContext).toBeUndefined();
+  },
+);
+
+test.each([
+  { browser_mode: "local" },
+  { browser_mode: "playwright" },
+  { browser_mode: "extension" },
+  { browser_mode: "cdp-inspect" },
+  { target_client_id: "client-123" },
+  { use_active_tab: true },
+])("explicit browser choice %j wins over the web default", async (input) => {
+  webConversation();
+  await callHandler({
+    operation: "snapshot",
+    input,
+    conversationId: "conv-default-browser",
+  });
+  expect(mockOperationCalls).toHaveLength(1);
+  expect(desktopContext).toBeUndefined();
+});
+
+test("follow-up web commands retain an existing personal browser session", async () => {
+  webConversation();
+  browserManager.setPreferredBackendKind("conv-default-browser", "extension");
+  await callHandler({
+    operation: "snapshot",
+    conversationId: "conv-default-browser",
+  });
+  expect(mockOperationCalls).toHaveLength(1);
+  expect(desktopContext).toBeUndefined();
+});
+
+test("native clients can explicitly select the streamed browser", async () => {
+  webConversation("windows");
+  const result = await callHandler({
+    operation: "snapshot",
+    desktop: true,
+    conversationId: "conv-default-browser",
+  });
+  expect(result).toMatchObject({ content: "desktop" });
+  expect(desktopContext?.clientOs).toBe("windows");
+  expect(mockOperationCalls).toHaveLength(0);
+});
+
+test("web tab commands share the streamed browser default", async () => {
+  webConversation();
+  const { ROUTES } =
+    await import("../../runtime/routes/browser-tabs-routes.js");
+  const result = await ROUTES[0].handler({
+    body: { command: "list", conversationId: "conv-default-browser" },
+  });
+  expect(result).toEqual({ ok: true, tabs: [{ tabId: 1 }] });
+  expect(desktopContext?.clientOs).toBe("web");
+});
+
+test("a streamed browser failure does not switch to Playwright or personal Chrome", async () => {
+  webConversation();
+  desktopFailure = true;
+  const result = await callHandler({
+    operation: "click",
+    input: { selector: "#submit" },
+    conversationId: "conv-default-browser",
+  });
+  expect(result).toMatchObject({ isError: true, content: "Desktop is busy" });
+  expect(mockOperationCalls).toHaveLength(0);
+});
+
+test("first web browser use routes to virtual desktop setup before installation", async () => {
+  webConversation();
+  desktopReady = false;
+  await callHandler({
+    operation: "navigate",
+    input: { url: "https://example.com" },
+    conversationId: "conv-default-browser",
+  });
+  expect(desktopContext?.clientOs).toBe("web");
+  expect(mockOperationCalls).toHaveLength(0);
 });
