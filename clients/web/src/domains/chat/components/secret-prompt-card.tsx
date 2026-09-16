@@ -1,6 +1,8 @@
 import {
   AlertTriangle,
   CheckCircle,
+  Eye,
+  EyeOff,
   Globe,
   Info,
   Loader2,
@@ -76,6 +78,8 @@ export function SecretPromptCard({
 }: SecretPromptCardProps) {
   const { t } = useTranslation("chat");
   const [value, setValue] = useState("");
+  const [revealed, setRevealed] = useState(false);
+  const isRevealed = revealed && !isSubmitting && !saved;
 
   const trimmedValue = value.trim();
   const canSubmit = trimmedValue.length > 0 && !isSubmitting && !saved;
@@ -93,6 +97,7 @@ export function SecretPromptCard({
     if (!canSubmit) {
       return;
     }
+    setRevealed(false);
     onSave(trimmedValue);
   };
 
@@ -141,15 +146,36 @@ export function SecretPromptCard({
               {secret.description}
             </p>
           )}
-          <Input
-            label={inputLabel}
-            type="password"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder={secret.placeholder || t("secretPromptCard.placeholder")}
-            disabled={isSubmitting || saved}
-            fullWidth
-          />
+          <div className="relative">
+            <Input
+              label={inputLabel}
+              type={isRevealed ? "text" : "password"}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder={secret.placeholder || t("secretPromptCard.placeholder")}
+              disabled={isSubmitting || saved}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              data-private
+              className="pr-10"
+              fullWidth
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              iconOnly={isRevealed ? <EyeOff /> : <Eye />}
+              expandOnMobile={false}
+              className="absolute right-0 bottom-0"
+              aria-label={t(
+                isRevealed
+                  ? "secretPromptCard.hideValue"
+                  : "secretPromptCard.showValue",
+              )}
+              onClick={() => setRevealed((current) => !current)}
+              disabled={isSubmitting || saved}
+            />
+          </div>
           <p className="text-body-small-lighter text-[var(--content-disabled)]">
             {t("secretPromptCard.storedSecurelyNote")}
           </p>
@@ -197,6 +223,7 @@ export function SecretPromptCard({
                     if (!canSubmit) {
                       return;
                     }
+                    setRevealed(false);
                     onSendOnce(trimmedValue);
                   }}
                   disabled={!canSubmit}

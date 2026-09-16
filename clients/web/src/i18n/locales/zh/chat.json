@@ -1558,6 +1558,8 @@
     "submitFailed": "提交密钥失败。请重试。"
   },
   "secretPromptCard": {
+    "showValue": "显示值",
+    "hideValue": "隐藏值",
     "cancel": "取消",
     "domains": "域：{list}",
     "placeholder": "输入密钥值...",

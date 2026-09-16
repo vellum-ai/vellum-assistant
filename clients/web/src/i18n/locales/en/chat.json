@@ -1569,6 +1569,8 @@
     "submitFailed": "Failed to submit secret. Please try again."
   },
   "secretPromptCard": {
+    "showValue": "Show value",
+    "hideValue": "Hide value",
     "cancel": "Cancel",
     "domains": "Domains: {list}",
     "placeholder": "Enter secret value...",

@@ -1520,6 +1520,8 @@
     "submitFailed": "No se pudo enviar el secreto. Inténtalo de nuevo."
   },
   "secretPromptCard": {
+    "showValue": "Mostrar valor",
+    "hideValue": "Ocultar valor",
     "cancel": "Cancelar",
     "domains": "Dominios: {list}",
     "placeholder": "Introduce el valor secreto...",

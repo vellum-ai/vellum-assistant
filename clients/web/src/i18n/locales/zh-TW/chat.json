@@ -1558,6 +1558,8 @@
     "submitFailed": "提交金鑰失敗。請再試一次。"
   },
   "secretPromptCard": {
+    "showValue": "顯示值",
+    "hideValue": "隱藏值",
     "cancel": "取消",
     "domains": "網域：{list}",
     "placeholder": "輸入金鑰值...",
