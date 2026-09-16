@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
 import type { TurnDetectorConfig } from "../../calls/media-turn-detector.js";
 import type {
@@ -17,7 +17,13 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import { __resetRegistryForTesting } from "../../tools/registry.js";
+import { computerUseObserveTool } from "../../tools/computer-use/definitions.js";
+import {
+  __resetRegistryForTesting,
+  registerSkillTools,
+  unregisterSkillTools,
+} from "../../tools/registry.js";
+import { finalizeTool } from "../../tools/tool-defaults.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import type { LiveVoiceContinuationLabeler } from "../continuation-label.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
@@ -202,6 +208,9 @@ function createHarness(options: {
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
   detachTeardownSettleTimeoutMs?: number;
   continuationAnnounceSilenceMs?: number;
+  hostTaskResumeSilenceMs?: number;
+  hostTaskMaxSuspendedMs?: number;
+  hostTaskMaxInterveningTurns?: number;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -290,6 +299,17 @@ function createHarness(options: {
           continuationAnnounceSilenceMs: options.continuationAnnounceSilenceMs,
         }
       : {}),
+    ...(options.hostTaskResumeSilenceMs !== undefined
+      ? { hostTaskResumeSilenceMs: options.hostTaskResumeSilenceMs }
+      : {}),
+    ...(options.hostTaskMaxSuspendedMs !== undefined
+      ? { hostTaskMaxSuspendedMs: options.hostTaskMaxSuspendedMs }
+      : {}),
+    ...(options.hostTaskMaxInterveningTurns !== undefined
+      ? {
+          hostTaskMaxInterveningTurns: options.hostTaskMaxInterveningTurns,
+        }
+      : {}),
   };
   const session = options.viaFactory
     ? createLiveVoiceSession(context, {
@@ -308,6 +328,22 @@ function frameTypes(frames: LiveVoiceServerFrame[]): string[] {
 
 function countType(frames: LiveVoiceServerFrame[], type: string): number {
   return frames.filter((frame) => frame.type === type).length;
+}
+
+function hostTaskStateOf(session: LiveVoiceSession): {
+  phase: string;
+  interveningTurns?: number;
+  resumePending?: boolean;
+} | null {
+  return (
+    session as unknown as {
+      hostTaskState: {
+        phase: string;
+        interveningTurns?: number;
+        resumePending?: boolean;
+      } | null;
+    }
+  ).hostTaskState;
 }
 
 function makeTtsChunk(text: string): LiveVoiceTtsAudioChunk {
@@ -463,11 +499,74 @@ async function startForegroundWinsScenario(): Promise<{
   };
 }
 
+async function startHostTaskBargeInScenario(options?: {
+  hostTaskMaxInterveningTurns?: number;
+  hostTaskMaxSuspendedMs?: number;
+  hostTaskResumeSilenceMs?: number;
+}): Promise<{
+  calls: VoiceTurnOptions[];
+  frames: LiveVoiceServerFrame[];
+  session: LiveVoiceSession;
+  spawnBackgroundContinuation: ReturnType<typeof mock>;
+}> {
+  const calls: VoiceTurnOptions[] = [];
+  const startVoiceTurn = mock(async (turn: VoiceTurnOptions) => {
+    calls.push(turn);
+    return {
+      turnId: `bridge-turn-${calls.length}`,
+      abort: mock(),
+      discard: mock(async () => {}),
+    };
+  });
+  const spawnBackgroundContinuation = mock(async () => "");
+  const { frames, session } = createHarness({
+    finals: ["change the title", "what title is there now"],
+    startVoiceTurn,
+    streamTtsAudio: mock(async (tts: LiveVoiceTtsOptions) => {
+      tts.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    }),
+    spawnBackgroundContinuation,
+    hostTaskResumeSilenceMs: options?.hostTaskResumeSilenceMs ?? 20,
+    ...(options?.hostTaskMaxInterveningTurns !== undefined
+      ? {
+          hostTaskMaxInterveningTurns: options.hostTaskMaxInterveningTurns,
+        }
+      : {}),
+    ...(options?.hostTaskMaxSuspendedMs !== undefined
+      ? { hostTaskMaxSuspendedMs: options.hostTaskMaxSuspendedMs }
+      : {}),
+  });
+
+  await session.start();
+  await session.handleBinaryAudio(LOUD_CHUNK);
+  await waitFor(() => calls.length === 1);
+
+  calls[0]?.callbacks?.assistant_text_delta?.(makeTextDelta("[1] One moment."));
+  calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+  await waitFor(() => calls.length === 2);
+
+  calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+    toolUseId: "tool-1",
+    input: { tool: "computer_use_observe", input: {} },
+  });
+  await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+  await waitFor(() => calls.length === 3);
+
+  return { calls, frames, session, spawnBackgroundContinuation };
+}
+
 describe("LiveVoiceSession server VAD", () => {
   // The foreground-wins classification consults the tool registry's owner map
   // (a tool is only provably read-only when it is the trusted built-in);
   // register the core baseline so built-in names resolve like in the daemon.
-  beforeAll(() => __resetRegistryForTesting());
+  beforeAll(() => {
+    __resetRegistryForTesting();
+    registerSkillTools("computer-use-test", [
+      finalizeTool(computerUseObserveTool),
+    ]);
+  });
+  afterAll(() => unregisterSkillTools("computer-use-test"));
 
   test("ready echoes turnDetection server_vad", async () => {
     const { frames, session } = createHarness({});
@@ -579,6 +678,222 @@ describe("LiveVoiceSession server VAD", () => {
     });
     expect(countType(frames, "utterance_end")).toBe(2);
   });
+
+  test("a barged-in skill host tool stays on the parent and resumes after the front door answers", async () => {
+    const { calls, frames, session, spawnBackgroundContinuation } =
+      await startHostTaskBargeInScenario();
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+
+    const frontDoorAnswer = calls[2];
+    expect(frontDoorAnswer?.routingLeg).toBe("front-door");
+    expect(frontDoorAnswer?.voiceControlPrompt).toContain("[TASK:STOP]");
+    expect(frontDoorAnswer?.voiceControlPrompt).toContain("change the title");
+
+    // A direct answer cannot accidentally end the task. Once its speech has
+    // drained, the task resumes on the strong, tool-capable leg.
+    frontDoorAnswer?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("The title is Project Alpha."),
+    );
+    frontDoorAnswer?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 4);
+
+    const resume = calls[3];
+    expect(resume).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    expect(resume?.content).toContain("change the title");
+    expect(resume?.content).toContain("[TASK:STOP]");
+    expect(
+      frames.filter((frame) => frame.type === "thinking").length,
+    ).toBeGreaterThanOrEqual(3);
+
+    // The strong leg can decline a stale resume silently and clear ownership.
+    const spokenBeforeStop = countType(frames, "assistant_text_delta");
+    resume?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
+    resume?.callbacks?.message_complete?.(makeMessageComplete());
+    await flushAsyncCallbacks();
+    expect(countType(frames, "assistant_text_delta")).toBe(spokenBeforeStop);
+    expect(hostTaskStateOf(session)).toBeNull();
+  });
+
+  test("a front-door task-stop answer abandons the suspended host task", async () => {
+    const { calls, frames, session } = await startHostTaskBargeInScenario();
+
+    const frontDoorAnswer = calls[2];
+    frontDoorAnswer?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("Okay, stopping. [TASK:STOP]"),
+    );
+    frontDoorAnswer?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(calls).toHaveLength(3);
+    expect(hostTaskStateOf(session)).toBeNull();
+    expect(
+      frames.filter((frame) => frame.type === "assistant_text_delta").at(-1),
+    ).toMatchObject({ text: "Okay, stopping. " });
+  });
+
+  test("barging into completed host-task speech does not revive the task", async () => {
+    const calls: VoiceTurnOptions[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      calls.push(options);
+      return { turnId: `bridge-turn-${calls.length}`, abort: mock() };
+    });
+    let releaseDoneTts: (() => void) | undefined;
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      if (options.text.includes("Done")) {
+        await new Promise<void>((resolve) => {
+          releaseDoneTts = resolve;
+        });
+      }
+      return makeTtsResult("assistant audio");
+    });
+    const { session } = createHarness({
+      finals: ["change the title", "one more thing"],
+      startVoiceTurn,
+      streamTtsAudio,
+      hostTaskResumeSilenceMs: 20,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 1);
+    calls[0]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] One moment."),
+    );
+    calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 2);
+    calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+      toolUseId: "tool-1",
+      input: { tool: "computer_use_observe", input: {} },
+    });
+    calls[1]?.callbacks?.assistant_text_delta?.(makeTextDelta("Done."));
+    calls[1]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => releaseDoneTts !== undefined);
+
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => calls.length === 3);
+    await waitFor(() => hostTaskStateOf(session) === null);
+    calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("Sure."));
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    releaseDoneTts?.();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    expect(calls).toHaveLength(3);
+  });
+
+  test("too many intervening answers abandon a suspended host task", async () => {
+    const { calls, session } = await startHostTaskBargeInScenario({
+      hostTaskMaxInterveningTurns: 1,
+      hostTaskResumeSilenceMs: 60_000,
+    });
+
+    calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("First answer."));
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => hostTaskStateOf(session)?.interveningTurns === 1);
+
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => calls.length === 4);
+    calls[3]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("Second answer."),
+    );
+    calls[3]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => hostTaskStateOf(session) === null);
+
+    expect(calls).toHaveLength(4);
+    await session.close("client_end");
+  });
+
+  test("an old suspended host task is not revived", async () => {
+    const { calls, session } = await startHostTaskBargeInScenario({
+      hostTaskMaxSuspendedMs: 1,
+      hostTaskResumeSilenceMs: 20,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    calls[2]?.callbacks?.assistant_text_delta?.(makeTextDelta("Answer."));
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => hostTaskStateOf(session) === null);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    expect(calls).toHaveLength(3);
+  });
+
+  test.each(["hold_verdict", "speech_resumed"] as const)(
+    "a discarded speculative front-door turn leaves host ownership suspended: %s",
+    async (discardReason) => {
+      const calls: VoiceTurnOptions[] = [];
+      const discards: Array<ReturnType<typeof mock>> = [];
+      const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+        calls.push(options);
+        const discard = mock(async () => {});
+        discards.push(discard);
+        if (
+          discardReason === "hold_verdict" &&
+          options.unifiedVerdict === true
+        ) {
+          setTimeout(() => {
+            options.callbacks?.assistant_text_delta?.(makeTextDelta("[0]"));
+            options.callbacks?.message_complete?.(makeMessageComplete());
+          }, 0);
+        }
+        return {
+          turnId: `bridge-turn-${calls.length}`,
+          abort: mock(),
+          discard,
+        };
+      });
+      const spawnBackgroundContinuation = mock(async () => "");
+      const { session, transcribers } = createHarness({
+        finals: ["change the title", "actually just change it"],
+        startVoiceTurn,
+        streamTtsAudio: mock(async (tts: LiveVoiceTtsOptions) => {
+          tts.onAudioChunk(makeTtsChunk("assistant audio"));
+          return makeTtsResult("assistant audio");
+        }),
+        spawnBackgroundContinuation,
+        holdStopEventsFor: [1],
+        turnDetectorConfig: { silenceThresholdMs: 120 },
+        hostTaskResumeSilenceMs: 60_000,
+      });
+
+      await session.start();
+      await session.handleBinaryAudio(LOUD_CHUNK);
+      await waitFor(() => calls.length === 1);
+      calls[0]?.callbacks?.assistant_text_delta?.(
+        makeTextDelta("[1] One moment."),
+      );
+      calls[0]?.callbacks?.message_complete?.(makeMessageComplete());
+      await waitFor(() => calls.length === 2);
+      calls[1]?.callbacks?.tool_use_start?.("skill_execute", {
+        toolUseId: "tool-1",
+        input: { tool: "computer_use_observe", input: {} },
+      });
+
+      await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+      await waitFor(() => transcribers.length === 2);
+      transcribers[1]?.emit({ type: "partial", text: "actually" });
+      await waitFor(() => calls.length === 3);
+      expect(calls[2]?.unifiedVerdict).toBe(true);
+
+      if (discardReason === "speech_resumed") {
+        await session.handleBinaryAudio(LOUD_CHUNK);
+      }
+      await waitFor(() => (discards[2]?.mock.calls.length ?? 0) === 1);
+
+      expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+      expect(hostTaskStateOf(session)).toMatchObject({
+        phase: "suspended",
+        interveningTurns: 0,
+        resumePending: false,
+      });
+      await session.close("client_end");
+    },
+  );
 
   test("speech while the first tts_audio send is stuck in the queue does not cancel; barge-in works once it lands", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;

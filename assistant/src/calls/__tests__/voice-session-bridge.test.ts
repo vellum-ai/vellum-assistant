@@ -842,6 +842,17 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
     expect(installed()).toContain(escalatedContinuationRule());
   });
 
+  test("a direct escalated turn keeps the caller-supplied resume prompt verbatim", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      voiceControlPrompt: LIVE_VOICE_PROMPT,
+      routingLeg: "escalated",
+      directEscalated: true,
+    });
+    expect(installed()).toBe(LIVE_VOICE_PROMPT);
+  });
+
   test("the auto-built phone prompt carries the front-door rule anchored to the caller's words", async () => {
     const installed = captureInstalledPrompt();
     await startVoiceTurn({

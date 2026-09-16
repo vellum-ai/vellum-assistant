@@ -200,7 +200,10 @@ function frontDoorRuleWithDigest(
 function routingLegRuleFor(
   opts: Pick<
     VoiceTurnOptions,
-    "routingLeg" | "unifiedVerdict" | "spokenEscalationBridge"
+    | "routingLeg"
+    | "unifiedVerdict"
+    | "spokenEscalationBridge"
+    | "directEscalated"
   >,
   callerUtterance: string,
 ): string | null {
@@ -211,7 +214,9 @@ function routingLegRuleFor(
         callerUtterance,
       );
     case "escalated":
-      return escalatedContinuationRule(opts.spokenEscalationBridge);
+      return opts.directEscalated === true
+        ? null
+        : escalatedContinuationRule(opts.spokenEscalationBridge);
     default:
       return null;
   }
@@ -533,6 +538,8 @@ export interface VoiceTurnOptions {
    * Only meaningful with `routingLeg: "escalated"`.
    */
   spokenEscalationBridge?: string;
+  /** Run the strong leg directly, without claiming a holding phrase was spoken. */
+  directEscalated?: boolean;
   /**
    * Marks this turn's `content` as an internal instruction rather than user
    * speech: it persists `hidden` so `/messages` filters it after a reload,
