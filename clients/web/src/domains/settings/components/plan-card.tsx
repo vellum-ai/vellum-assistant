@@ -21,8 +21,10 @@ import {
   packageSpecs,
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
-import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
-import { formatMonthDay } from "@/utils/format-date";
+import {
+  UsageBalancePanel,
+  usageRenewalLabels,
+} from "@/domains/settings/billing/usage-balance-panel";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -488,14 +490,14 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     subscription.current_period_end
       ? subscription.current_period_end
       : undefined;
-  const renewalDate = usagePeriodEnd ? formatMonthDay(usagePeriodEnd) : null;
+  const renewal = usageRenewalLabels(usagePeriodEnd, t);
   // The footer while there is no reading to chart: the catalog price, with
-  // the renewal date beside it so a renewing sub keeps its date rather than
-  // losing it to a summary that has not loaded. Either alone still makes the
-  // row: a Custom or catalog-less sub has no price to quote but a renewal to
-  // date all the same.
+  // the renewal line beside it, worded by the panel's own helper, so a
+  // renewing sub keeps its date rather than losing it to a summary that has
+  // not loaded. Either alone still makes the row: a Custom or catalog-less
+  // sub has no price to quote but a renewal to date all the same.
   const footerRow =
-    priceLabel || renewalDate ? (
+    priceLabel || renewal ? (
       <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
         {priceLabel ? (
           <Typography
@@ -507,14 +509,14 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
             {priceLabel}
           </Typography>
         ) : null}
-        {renewalDate ? (
+        {renewal ? (
           <Typography
             as="span"
             variant="body-small-default"
             className="whitespace-nowrap text-[var(--content-tertiary)]"
             data-testid="plan-card-renews"
           >
-            {t("planCard.usageBalanceRenews", { date: renewalDate })}
+            {renewal.line}
           </Typography>
         ) : null}
       </div>

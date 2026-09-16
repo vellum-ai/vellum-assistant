@@ -4,7 +4,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ProgressBar } from "@vellumai/design-library/components/progress-bar";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import { useTranslation } from "@/i18n";
+import { type TFunction, useTranslation } from "@/i18n";
 import { formatMonthDay } from "@/utils/format-date";
 
 export interface UsageBalancePanelProps {
@@ -27,6 +27,31 @@ export interface UsageBalancePanelProps {
   onAddCredits?: () => void;
 }
 
+/** The renewal wording: the line under the title, and the bar's accessible name folding it in. */
+export interface UsageRenewalLabels {
+  line: string;
+  barLabel: string;
+}
+
+/**
+ * The renewal wording the panel and the tile's price row share, so the label
+ * reads the same whether or not a usage reading loaded. Null when there is no
+ * instant to date, or one that will not parse, so a caller drops the line.
+ */
+export function usageRenewalLabels(
+  periodEnd: string | undefined,
+  t: TFunction<"settings">,
+): UsageRenewalLabels | null {
+  const date = periodEnd ? formatMonthDay(periodEnd) : null;
+  if (!date) {
+    return null;
+  }
+  return {
+    line: t("planCard.usageBalanceRenews", { date }),
+    barLabel: t("planCard.usageBalanceBarRenews", { date }),
+  };
+}
+
 /**
  * The current-plan tile's footer, in place of the price row: how much of the
  * usage credit the account was granted it has already used, over the date the
@@ -40,18 +65,11 @@ export function UsageBalancePanel({
 }: UsageBalancePanelProps) {
   const { t } = useTranslation("settings");
   const title = t("planCard.usageBalanceTitle");
-  // An instant that will not parse leaves no date to print, so both labels
-  // fall back to the undated wording.
-  const periodEndDate = periodEnd ? formatMonthDay(periodEnd) : null;
-  const periodEndLabel = periodEndDate
-    ? t("planCard.usageBalanceRenews", { date: periodEndDate })
-    : null;
+  const renewal = usageRenewalLabels(periodEnd, t);
   // The bar's accessible name is one complete message rather than the title
   // and the date line joined here: the joining punctuation is the
   // translator's, not ours.
-  const barLabel = periodEndDate
-    ? t("planCard.usageBalanceBarRenews", { date: periodEndDate })
-    : title;
+  const barLabel = renewal?.barLabel ?? title;
   const pct = Math.round(ratio * 100);
   // Spending the whole bundle is the negative reading in its own right,
   // whatever the wallet behind it still holds.
@@ -81,14 +99,14 @@ export function UsageBalancePanel({
           >
             {title}
           </Typography>
-          {periodEndLabel ? (
+          {renewal ? (
             <Typography
               as="span"
               variant="body-small-default"
               className="text-[var(--content-tertiary)]"
               data-testid="plan-usage-period-end"
             >
-              {periodEndLabel}
+              {renewal.line}
             </Typography>
           ) : null}
         </div>

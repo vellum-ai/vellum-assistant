@@ -30,7 +30,10 @@ import {
   PLAN_TILE_WIDTH_PX,
   STORY_PERIOD_END,
 } from "@/domains/settings/billing/billing-story-frame";
-import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
+import {
+  UsageBalancePanel,
+  usageRenewalLabels,
+} from "@/domains/settings/billing/usage-balance-panel";
 import {
   makeProPackage,
   makeSuperPackage,
@@ -40,7 +43,7 @@ import {
   priceLabelFromCents,
 } from "@/domains/settings/components/tier-pricing";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
-import { formatMonthDay } from "@/utils/format-date";
+import { useTranslation } from "@/i18n";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 // Every story here draws a creature avatar, so warm the bundled-component
@@ -75,9 +78,18 @@ const NEXT_PLAN_TAG = (
 /**
  * The current-plan tile's footer when there is no usage reading to chart, as
  * `plan-card.tsx` lays it out: a rule, the monthly price where the catalog
- * has one, and the renewal date beside it for a sub that has one.
+ * has one, and the renewal line for a sub that has one, worded by the panel's
+ * own helper so the story reads exactly as the card does.
  */
-function priceFooter(label: string | null, renewal?: string) {
+function PriceFooter({
+  label,
+  periodEnd,
+}: {
+  label: string | null;
+  periodEnd?: string;
+}) {
+  const { t } = useTranslation("settings");
+  const renewal = usageRenewalLabels(periodEnd, t);
   return (
     <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
       {label ? (
@@ -95,7 +107,7 @@ function priceFooter(label: string | null, renewal?: string) {
           variant="body-small-default"
           className="whitespace-nowrap text-[var(--content-tertiary)]"
         >
-          {renewal}
+          {renewal.line}
         </Typography>
       ) : null}
     </div>
@@ -176,7 +188,7 @@ export const CurrentFree: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: freePlanSpecs(),
-    footer: priceFooter("Free Forever"),
+    footer: <PriceFooter label="Free Forever" />,
   },
 };
 
@@ -210,9 +222,11 @@ export const CurrentPaid: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`),
-    footer: priceFooter(
-      priceLabelFromCents(MIGHTY.total_price_cents),
-      `Renews on ${formatMonthDay(STORY_PERIOD_END)}`,
+    footer: (
+      <PriceFooter
+        label={priceLabelFromCents(MIGHTY.total_price_cents)}
+        periodEnd={STORY_PERIOD_END}
+      />
     ),
   },
 };
@@ -276,7 +290,7 @@ export const CurrentCustom: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: null,
-    footer: priceFooter(null, `Renews on ${formatMonthDay(STORY_PERIOD_END)}`),
+    footer: <PriceFooter label={null} periodEnd={STORY_PERIOD_END} />,
   },
 };
 
