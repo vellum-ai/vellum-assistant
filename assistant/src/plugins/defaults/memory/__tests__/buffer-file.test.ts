@@ -293,9 +293,9 @@ function accountFor(
 }
 
 /**
- * The read-modify-write the production consume replaces. `betweenReadAndWrite`
- * runs after the read and before the write, which is the window an append
- * from another process lands in to be destroyed.
+ * A read-modify-write consume, the shape the production consume is measured
+ * against: an append that lands between its read and its write is destroyed.
+ * `betweenReadAndWrite` runs in exactly that window.
  */
 async function naiveConsume(
   path: string,
