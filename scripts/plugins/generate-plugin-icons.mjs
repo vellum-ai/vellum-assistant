@@ -3,9 +3,9 @@
  * Resolve, validate, and vendor marketplace plugin `icon.png` files, then
  * emit the derived `plugins/plugin-icons.json` index.
  *
- * WRITE mode (default): for each entry in `plugins/marketplace.json`, fetch
- * `<source.path>/icon.png` at the pinned `source.ref` via the GitHub Contents
- * API, validate the bytes against the icon contract, and — on success —
+ * WRITE mode (default): for each GitHub entry in `plugins/marketplace.json`,
+ * fetch `<source.path>/icon.png` at the pinned `source.ref` via the GitHub
+ * Contents API, validate the bytes against the icon contract, and on success
  * vendor them to `plugins/assets/<name>/icon.png` and index the plugin in
  * `plugins/plugin-icons.json`. Invalid, oversized, or missing (404) icons are
  * fail-closed: skipped, pruned, and omitted from the manifest. A genuine non-404
@@ -230,8 +230,9 @@ function serializeManifest(versionsByName) {
 
 /**
  * Resolve, validate, and vendor every marketplace plugin's `icon.png`, then
- * write the derived manifest. Prunes asset dirs for plugins that no longer
- * ship a valid icon. Returns `{ vendored, skipped }` name lists.
+ * write the derived manifest. Local sources keep their icon in the package and
+ * are handled by `sync-local-plugin-icons.mjs`. Prunes assets absent from the
+ * valid GitHub inventory. Returns `{ vendored, skipped }` name lists.
  */
 export async function generatePluginIcons({
   fetch: fetchImpl = globalThis.fetch,
@@ -264,6 +265,16 @@ export async function generatePluginIcons({
         `Aborting icon generation: invalid plugin name ${JSON.stringify(entry.name)} ` +
           `in ${marketplacePath}. Names must match ${PLUGIN_NAME_RE} ` +
           `(single kebab-case segment). No assets or manifest were modified.`,
+      );
+    }
+
+    if (entry.source?.source === "local") {
+      continue;
+    }
+    if (entry.source?.source !== "github") {
+      throw new Error(
+        `Aborting icon generation: unsupported source for ${entry.name}. ` +
+          `No assets or manifest were modified.`,
       );
     }
 

@@ -584,7 +584,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/fathom",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search meeting transcripts and summaries.",
       "homepage": "https://developers.fathom.ai/mcp-docs",
@@ -599,7 +599,7 @@
           "mode": "oauth",
           "instructions": "Sign in with the Fathom account whose meetings you want to use."
         },
-        "logo": "fathom.png"
+        "logo": "fathom-mcp.png"
       }
     },
     {
@@ -607,7 +607,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/brex",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Review expenses, cards, and company spending.",
       "homepage": "https://www.brex.com/support/using-brex-in-ai-apps",
@@ -622,7 +622,7 @@
           "mode": "oauth",
           "instructions": "A Brex admin must enable AI assistant access and accept the Developer API agreement."
         },
-        "logo": "brex.svg"
+        "logo": "brex-mcp.png"
       }
     },
     {
@@ -630,7 +630,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/ramp",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Explore expenses, bills, and company spending.",
       "homepage": "https://agents.ramp.com/docs/guides/connecting",
@@ -645,7 +645,7 @@
           "mode": "manual",
           "instructions": "Ask Ramp to allowlist this client or gateway's exact OAuth redirect URI before connecting."
         },
-        "logo": "ramp.ico"
+        "logo": "ramp-mcp.png"
       }
     },
     {
@@ -653,7 +653,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/linear",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Find issues, projects, and team updates.",
       "homepage": "https://linear.app/docs/mcp",
@@ -668,7 +668,7 @@
           "mode": "oauth",
           "instructions": "Choose the Linear workspace to authorize; access follows your account permissions."
         },
-        "logo": "linear-light-logo.svg",
+        "logo": "linear-mcp.png",
         "oauthProvider": "linear"
       }
     },
@@ -677,7 +677,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/notion",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search and work with workspace pages and databases.",
       "homepage": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
@@ -692,7 +692,7 @@
           "mode": "oauth",
           "instructions": "Authorize the Notion workspace and content you want to use."
         },
-        "logo": "notion.svg",
+        "logo": "notion-mcp.png",
         "oauthProvider": "notion"
       }
     },
@@ -701,7 +701,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/sentry",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Investigate errors, issues, and application performance.",
       "homepage": "https://github.com/getsentry/sentry-mcp",
@@ -716,7 +716,7 @@
           "mode": "oauth",
           "instructions": "Sign in to Sentry and authorize the organizations you want to use."
         },
-        "logo": "sentry.svg"
+        "logo": "sentry-mcp.png"
       }
     },
     {
@@ -724,7 +724,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/stripe",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Explore payments, customers, and account activity.",
       "homepage": "https://docs.stripe.com/mcp",
@@ -739,7 +739,7 @@
           "mode": "oauth",
           "instructions": "Authorize the intended Stripe account and environment; your administrator may need to enable MCP access."
         },
-        "logo": "stripe.svg"
+        "logo": "stripe-mcp.png"
       }
     },
     {
@@ -747,7 +747,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/atlassian",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search Jira, Confluence, and connected Atlassian products.",
       "homepage": "https://atlassian.github.io/atlassian-mcp-server/",
@@ -762,7 +762,7 @@
           "mode": "oauth",
           "instructions": "Requires an Atlassian Cloud site and access allowed by your organization."
         },
-        "logo": "atlassian.svg"
+        "logo": "atlassian-mcp.png"
       }
     },
     {
@@ -770,7 +770,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/amplemarket",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Find and enrich prospects, then manage outreach sequences.",
       "homepage": "https://knowledge.amplemarket.com/articles/8022685319-connecting-to-the-amplemarket-mcp-server",
@@ -785,7 +785,7 @@
           "mode": "oauth",
           "instructions": "Sign in to the Amplemarket workspace you want to use."
         },
-        "logo": "amplemarket.png"
+        "logo": "amplemarket-mcp.png"
       }
     },
     {
@@ -793,7 +793,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/ashby",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search candidates, prepare interviews, and manage recruiting pipelines.",
       "homepage": "https://docs.ashbyhq.com/ashby-mcp-server-beta",
@@ -808,7 +808,7 @@
           "mode": "oauth",
           "instructions": "An organization admin must enable MCP. Analytics-only organizations are not supported."
         },
-        "logo": "ashby.png"
+        "logo": "ashby-mcp.png"
       }
     },
     {
@@ -816,7 +816,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/attio",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search and update CRM records, lists, notes, and tasks.",
       "homepage": "https://docs.attio.com/mcp/overview",
@@ -831,7 +831,7 @@
           "mode": "oauth",
           "instructions": "Authorize the Attio workspace you want to use."
         },
-        "logo": "attio.ico"
+        "logo": "attio-mcp.png"
       }
     },
     {
@@ -839,7 +839,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/calendly",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Review availability, scheduling links, and planned events.",
       "homepage": "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
@@ -854,7 +854,7 @@
           "mode": "oauth",
           "instructions": "Sign in to Calendly. Available actions depend on your plan and account permissions."
         },
-        "logo": "calendly.svg"
+        "logo": "calendly-mcp.png"
       }
     },
     {
@@ -862,7 +862,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/circleback",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search meeting notes, transcripts, and action items.",
       "homepage": "https://support.circleback.ai/en/articles/13249081-circleback-mcp",
@@ -877,7 +877,7 @@
           "mode": "oauth",
           "instructions": "Sign in with the Circleback account whose meetings you want to use."
         },
-        "logo": "circleback.ico"
+        "logo": "circleback-mcp.png"
       }
     },
     {
@@ -885,7 +885,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/clay",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Research, enrich, and update people and company records.",
       "homepage": "https://university.clay.com/docs/connect-to-clay-mcp",
@@ -900,7 +900,7 @@
           "mode": "oauth",
           "instructions": "Requires workspace access. A workspace admin may need to allow MCP connections."
         },
-        "logo": "clay.png"
+        "logo": "clay-mcp.png"
       }
     },
     {
@@ -908,7 +908,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/craft",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search and work with documents in your Craft workspace.",
       "homepage": "https://www.craft.do/imagine/guide/mcp",
@@ -923,7 +923,7 @@
           "mode": "oauth",
           "instructions": "Authorize the Craft workspace and documents you want to use."
         },
-        "logo": "craft.png"
+        "logo": "craft-mcp.png"
       }
     },
     {
@@ -931,7 +931,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/customer-io",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Explore campaigns, broadcasts, segments, and customer activity.",
       "homepage": "https://docs.customer.io/ai/mcp/get-started/",
@@ -946,7 +946,7 @@
           "mode": "oauth",
           "instructions": "An account admin must enable MCP and choose permissions. This endpoint serves US-region accounts."
         },
-        "logo": "customer-io.png"
+        "logo": "customer-io-mcp.png"
       }
     },
     {
@@ -954,7 +954,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/fireflies",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search meeting transcripts, summaries, and conversation insights.",
       "homepage": "https://docs.fireflies.ai/getting-started/mcp-configuration",
@@ -969,7 +969,7 @@
           "mode": "oauth",
           "instructions": "Some tools are experimental or require an Enterprise plan."
         },
-        "logo": "fireflies.ico"
+        "logo": "fireflies-mcp.png"
       }
     },
     {
@@ -977,7 +977,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/gamma",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Create presentations, documents, and social posts.",
       "homepage": "https://developers.gamma.app/mcp/gamma-mcp-server.md",
@@ -992,7 +992,7 @@
           "mode": "oauth",
           "instructions": "Requires a Gamma account. Generations consume account credits."
         },
-        "logo": "gamma.png"
+        "logo": "gamma-mcp.png"
       }
     },
     {
@@ -1000,7 +1000,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/guru",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search trusted company knowledge and source documents.",
       "homepage": "https://developer.getguru.com/docs/guru-mcp-server-overview",
@@ -1015,7 +1015,7 @@
           "mode": "oauth",
           "instructions": "Sign in to the Guru workspace you want to search."
         },
-        "logo": "guru.png"
+        "logo": "guru-mcp.png"
       }
     },
     {
@@ -1023,7 +1023,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/interactive-brokers",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Review portfolios, market data, and brokerage account activity.",
       "homepage": "https://www.interactivebrokers.com/en/trading/ai-integrations.php",
@@ -1038,7 +1038,7 @@
           "mode": "oauth",
           "instructions": "Authorize one Interactive Brokers account. This integration is unavailable to customers in India or Japan."
         },
-        "logo": "interactive-brokers.png"
+        "logo": "interactive-brokers-mcp.png"
       }
     },
     {
@@ -1046,7 +1046,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/intercom",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search conversations, contacts, tickets, and help center content.",
       "homepage": "https://developers.intercom.com/docs/guides/mcp",
@@ -1061,7 +1061,7 @@
           "mode": "oauth",
           "instructions": "This endpoint serves US-hosted Intercom workspaces. Australian workspaces are not supported."
         },
-        "logo": "intercom.png"
+        "logo": "intercom-mcp.png"
       }
     },
     {
@@ -1069,7 +1069,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/jotform",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Find forms, submissions, reports, and workspace data.",
       "homepage": "https://www.jotform.com/mcp/",
@@ -1084,7 +1084,7 @@
           "mode": "oauth",
           "instructions": "A workspace admin must install the Jotform MCP app before individual authorization."
         },
-        "logo": "jotform.png"
+        "logo": "jotform-mcp.png"
       }
     },
     {
@@ -1092,7 +1092,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/juicebox",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search talent profiles and market intelligence.",
       "homepage": "https://docs.juicebox.ai/juicebox-mcp",
@@ -1107,7 +1107,7 @@
           "mode": "oauth",
           "instructions": "Requires a paid Juicebox plan. Some exports count against plan limits."
         },
-        "logo": "juicebox.png"
+        "logo": "juicebox-mcp.png"
       }
     },
     {
@@ -1115,7 +1115,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/klaviyo",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Analyze campaigns, profiles, segments, and marketing performance.",
       "homepage": "https://developers.klaviyo.com/en/docs/klaviyo_mcp_server",
@@ -1130,7 +1130,7 @@
           "mode": "oauth",
           "instructions": "Requires an Owner, Admin, or Manager role in Klaviyo."
         },
-        "logo": "klaviyo.png"
+        "logo": "klaviyo-mcp.png"
       }
     },
     {
@@ -1138,7 +1138,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/mailerlite",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Manage subscribers, groups, campaigns, and automations.",
       "homepage": "https://developers.mailerlite.com/mcp",
@@ -1153,7 +1153,7 @@
           "mode": "oauth",
           "instructions": "Authorize the MailerLite account you want to use."
         },
-        "logo": "mailerlite.png"
+        "logo": "mailerlite-mcp.png"
       }
     },
     {
@@ -1161,7 +1161,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/meltwater",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Research media coverage, social conversations, and brand insights.",
       "homepage": "https://developer.meltwater.com/guides/meltwater-mcp/overview/",
@@ -1176,7 +1176,7 @@
           "mode": "oauth",
           "instructions": "Your Meltwater subscription must include the MCP package."
         },
-        "logo": "meltwater.ico"
+        "logo": "meltwater-mcp.png"
       }
     },
     {
@@ -1184,7 +1184,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/mem",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search, create, and organize notes in Mem.",
       "homepage": "https://docs.mem.ai/mcp/overview",
@@ -1199,7 +1199,7 @@
           "mode": "oauth",
           "instructions": "Authorize the Mem account and content you want to use."
         },
-        "logo": "mem.png"
+        "logo": "mem-mcp.png"
       }
     },
     {
@@ -1207,7 +1207,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/mercury",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Review accounts, transactions, payments, and company finances.",
       "homepage": "https://docs.mercury.com/docs/what-is-mercury-mcp",
@@ -1222,7 +1222,7 @@
           "mode": "oauth",
           "instructions": "Sign in to the Mercury organization whose financial data you want to use."
         },
-        "logo": "mercury.png"
+        "logo": "mercury-mcp.png"
       }
     },
     {
@@ -1230,7 +1230,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/navan",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search business travel, expenses, and company policy information.",
       "homepage": "https://developer.navan.com/mcp/",
@@ -1245,7 +1245,7 @@
           "mode": "oauth",
           "instructions": "A Navan admin must enable MCP for your organization."
         },
-        "logo": "navan.ico"
+        "logo": "navan-mcp.png"
       }
     },
     {
@@ -1253,7 +1253,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/otter",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search meeting conversations and transcripts.",
       "homepage": "https://help.otter.ai/hc/en-us/articles/35287607569687-Otter-MCP-Server",
@@ -1268,7 +1268,7 @@
           "mode": "oauth",
           "instructions": "Sign in with the Otter account whose conversations you want to use."
         },
-        "logo": "otter.png"
+        "logo": "otter-mcp.png"
       }
     },
     {
@@ -1276,7 +1276,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/profound",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Analyze brand visibility and performance in AI search.",
       "homepage": "https://docs.tryprofound.com/mcp/overview",
@@ -1291,7 +1291,7 @@
           "mode": "oauth",
           "instructions": "Authorize the Profound workspace you want to analyze."
         },
-        "logo": "profound.png"
+        "logo": "profound-mcp.png"
       }
     },
     {
@@ -1299,7 +1299,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/readwise",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search highlights, documents, and reading notes.",
       "homepage": "https://docs.readwise.io/tools/mcp",
@@ -1314,7 +1314,7 @@
           "mode": "oauth",
           "instructions": "Authorize the Readwise library you want to use."
         },
-        "logo": "readwise.ico"
+        "logo": "readwise-mcp.png"
       }
     },
     {
@@ -1322,7 +1322,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/semrush",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Research keywords, competitors, backlinks, and site performance.",
       "homepage": "https://developer.semrush.com/api/v4/introduction/semrush-mcp/",
@@ -1337,7 +1337,7 @@
           "mode": "oauth",
           "instructions": "Your Semrush plan must include API units. Requests consume those units."
         },
-        "logo": "semrush.svg"
+        "logo": "semrush-mcp.png"
       }
     },
     {
@@ -1345,7 +1345,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/todoist",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Find and manage tasks, projects, sections, and comments.",
       "homepage": "https://github.com/Doist/todoist-mcp",
@@ -1360,7 +1360,7 @@
           "mode": "oauth",
           "instructions": "Authorize the Todoist account whose tasks and projects you want to use."
         },
-        "logo": "todoist.svg"
+        "logo": "todoist-mcp.png"
       }
     },
     {
@@ -1368,7 +1368,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/typeform",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Create and analyze forms, responses, and workspaces.",
       "homepage": "https://developers.typeform.com/developers/get-started/mcp/",
@@ -1383,7 +1383,7 @@
           "mode": "oauth",
           "instructions": "This endpoint serves standard Typeform accounts. EU-hosted accounts use a separate regional endpoint."
         },
-        "logo": "typeform.png"
+        "logo": "typeform-mcp.png"
       }
     },
     {
@@ -1391,7 +1391,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/upwork",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Search talent and manage hiring work on Upwork.",
       "homepage": "https://www.upwork.com/ai/mcp",
@@ -1406,7 +1406,7 @@
           "mode": "oauth",
           "instructions": "Sign in to the Upwork account you want to use."
         },
-        "logo": "upwork.svg"
+        "logo": "upwork-mcp.png"
       }
     },
     {
@@ -1414,7 +1414,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/webull",
-        "version": "1.0.0"
+        "version": "1.0.1"
       },
       "description": "Review brokerage accounts, orders, positions, and market data.",
       "homepage": "https://developer.webull.com/apis/docs/AI-friendly-Resources/mcp/",
@@ -1429,7 +1429,7 @@
           "mode": "oauth",
           "instructions": "Authorize specific accounts and capabilities. Hong Kong accounts use a separate regional endpoint."
         },
-        "logo": "webull.ico"
+        "logo": "webull-mcp.png"
       }
     }
   ]

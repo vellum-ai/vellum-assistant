@@ -29,62 +29,15 @@ so the parent Stripe `S` is not a stand-in for it.
 
 ## MCP catalog additions
 
-Reviewed on 2026-09-10:
+Each bundled local MCP plugin owns its canonical `icon.png` and an
+`ICON_ATTRIBUTION.md` file under `plugins/mcp-catalog/<name>/`. The attribution
+file ships with the installed plugin and records the reviewed source URL,
+ownership, license when known, and any format conversion or background
+treatment.
 
-| Assets                                                  | Source                                                                                                                                                                                 | Licence and treatment                                                                            |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `brex.svg`, `sentry.svg`, `stripe.svg`, `atlassian.svg` | [Simple Icons, commit 5d5d4d1d28cbb00b21770bb69d8112da52211a95](https://github.com/simple-icons/simple-icons/tree/5d5d4d1d28cbb00b21770bb69d8112da52211a95/icons)                      | CC0-1.0; original paths, catalog brand colors, and an added white background for theme contrast. |
-| `fathom.png`                                            | [Fathom's official 48px favicon](https://cdn.prod.website-files.com/6899da9beccbdbe92be49b5d/6a4283d54cfdfb8a454f218b_fathom_favicon.png), linked from [fathom.ai](https://fathom.ai/) | Unmodified provider asset, trademark of Fathom; used only to identify this integration.          |
-| `ramp.ico`                                              | [Ramp's official favicon](https://ramp.com/favicon.ico)                                                                                                                                | Unmodified provider asset, trademark of Ramp; used only to identify this integration.            |
-
-Reviewed on 2026-09-11:
-
-| Asset                     | Official source                                                                                                                                      |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `amplemarket.png`         | [Amplemarket website favicon](https://cdn.prod.website-files.com/6350808bc45bd0c902af10e6/66e071f879134c9c648e3608_Size%3D32%2C%20Type%3DSocial.png) |
-| `ashby.png`               | [Ashby website favicon](https://www.ashbyhq.com/favicon.png)                                                                                         |
-| `attio.ico`               | [Attio website favicon](https://attio.com/favicon.ico)                                                                                               |
-| `circleback.ico`          | [Circleback website favicon](https://circleback.ai/favicon.ico)                                                                                      |
-| `clay.png`                | [Clay website favicon](https://cdn.prod.website-files.com/61477f2c24a826836f969afe/6a3a92ab03ef81bab42cb009_dot-com_favicon_2026_512.png)            |
-| `craft.png`               | [Craft website favicon](https://www.craft.do/favicon.ico)                                                                                            |
-| `customer-io.png`         | [Customer.io website favicon](https://customer.io/favicon-48x48.png)                                                                                 |
-| `fireflies.ico`           | [Fireflies website favicon](https://fireflies.ai/favicon.ico)                                                                                        |
-| `gamma.png`               | [Gamma developer documentation favicon](https://developers.gamma.app/)                                                                               |
-| `guru.png`                | [Guru website favicon](https://cdn.prod.website-files.com/5d8d029013ffd80bbb91320d/6216a216ddeacc2132e5b448_Guru_G_Black%20332.png)                  |
-| `interactive-brokers.png` | [Interactive Brokers 128px website icon](https://www.interactivebrokers.com/images/web/favicons/home-screen-icon-128x128.png)                          |
-| `intercom.png`            | [Intercom 32px website favicon](https://www.intercom.com/intercom-marketing-site/favicons/favicon-32x32.png)                                           |
-| `jotform.png`             | [Jotform website favicon](https://cdn.jotfor.ms/assets/img/favicons/favicon-2021-light.png)                                                          |
-| `juicebox.png`            | [Juicebox website favicon](https://framerusercontent.com/images/E4wC49UrgwZ4xQdRKtKpjXJ18rM.png)                                                     |
-| `klaviyo.png`             | [Klaviyo website favicon](https://www.klaviyo.com/icons/icon-48x48.png)                                                                              |
-| `mailerlite.png`          | [MailerLite website favicon](https://assets.mailerlite.com/images/favicon-48x48.png)                                                                 |
-| `meltwater.ico`           | [Meltwater website favicon](https://www.meltwater.com/favicon.ico)                                                                                   |
-| `mem.png`                 | [Mem website favicon](https://mem.ai/favicons/favicon-96x96.png)                                                                                     |
-| `mercury.png`             | [Mercury website favicon](https://mercury.com/favicon.ico)                                                                                           |
-| `navan.ico`               | [Navan website favicon](https://navan.com/favicon.ico)                                                                                               |
-| `otter.png`               | [Otter website favicon](https://cdn.prod.website-files.com/618e9316785b3582a5178502/618e94bcbca88b51e2ad81f7_favicon.png)                            |
-| `profound.png`            | [Profound website favicon](https://www.tryprofound.com/favicon.ico)                                                                                  |
-| `readwise.ico`            | [Readwise website favicon](https://readwise.io/favicon.ico)                                                                                          |
-| `typeform.png`            | [Typeform website icon](https://cdn.prod.website-files.com/66ffe2174aa8e8d5661c2708/68b6f00951eb33cd19b77288_Frame%201867174.png)                    |
-| `webull.ico`              | [Webull website favicon](https://www.webull.com/favicon.ico)                                                                                         |
-
-These files are provider assets and trademarks of their respective owners.
-They are used only to identify catalog integrations. `juicebox.png` adds an
-opaque white background behind the official mark. `craft.png` and
-`profound.png` extract the official favicons' 32px frames and add the same
-background. `mercury.png` extracts the official favicon's 48px frame and adds
-the same background. The remaining provider assets are unmodified.
-
-`semrush.svg` and `upwork.svg` come from the same pinned Simple Icons commit
-above under CC0-1.0. Their original paths use the catalog brand color on an
-added white background for theme contrast. Simple Icons records their sources
-as [Semrush](https://www.semrush.com) and
-[Upwork press](https://www.upwork.com/press/).
-
-Simple Icons records the logo sources as [Brex press](https://www.brex.com/journal/press), [Sentry branding](https://sentry.io/branding/), [Stripe newsroom](https://stripe.com/newsroom/information), and [Atlassian logo resources](https://atlassian.design/resources/logo-library). Linear and Notion reuse the existing bundled assets. Notion has an added white background for dark theme contrast; its original source remains unverified as recorded below. Stripe uses its own mark, separate from the existing Stripe Link product icon.
-
-These assets are curated Vellum catalog presentation branding. They are not
-plugin-supplied images, and portable Agent Plugins definitions do not define
-an icon or logo field.
+The `<name>-mcp.png` files in this directory are byte-identical derived copies
+for the web integration catalog. Generate them with
+`node scripts/plugins/sync-local-plugin-icons.mjs`. Do not edit them directly.
 
 ## Unrecorded provenance
 

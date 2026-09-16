@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "atlassian",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Connect AI agents to Atlassian products including Jira and Confluence, with reusable skills for common workflows.",
   "author": {
     "name": "Atlassian",

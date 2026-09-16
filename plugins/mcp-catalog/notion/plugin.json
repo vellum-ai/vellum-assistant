@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "notion",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Search and work with workspace pages and databases.",
   "homepage": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
   "license": "MIT"

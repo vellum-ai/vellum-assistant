@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { marketplaceManifestSchema } from "../../../assistant/src/cli/lib/plugin-marketplace.js";
 import { buildBundledPluginPackages } from "../../../assistant/scripts/bundled-plugin-packages.js";
+import { readValidatedPluginIcon } from "../../../assistant/src/cli/lib/plugin-icon-file.js";
+import { marketplaceManifestSchema } from "../../../assistant/src/cli/lib/plugin-marketplace.js";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 
@@ -76,14 +77,19 @@ describe("bundled MCP marketplace inventory", () => {
     ).toEqual(["linear", "notion"]);
 
     for (const entry of integrations) {
+      const pluginRoot = join(REPO_ROOT, entry.source.path);
+      const plugin = JSON.parse(
+        readFileSync(join(pluginRoot, "plugin.json"), "utf8"),
+      ) as { version: string };
       expect(entry.source).toEqual({
         source: "local",
         path: `plugins/mcp-catalog/${entry.name}`,
-        version: "1.0.0",
+        version: plugin.version,
       });
       expect(entry.integration).toBeDefined();
+      expect(readValidatedPluginIcon(pluginRoot).hasIcon).toBe(true);
       expect(
-        existsSync(
+        readFileSync(
           join(
             REPO_ROOT,
             "clients",
@@ -93,7 +99,7 @@ describe("bundled MCP marketplace inventory", () => {
             "integrations",
             entry.integration!.logo,
           ),
-        ),
+        ).equals(readFileSync(join(pluginRoot, "icon.png"))),
       ).toBe(true);
 
       const mcp = JSON.parse(

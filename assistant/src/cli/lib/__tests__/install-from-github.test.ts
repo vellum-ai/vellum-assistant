@@ -39,6 +39,7 @@ import {
   resolveTreeRefPath,
   sanitizePluginName,
 } from "../install-from-github.js";
+import { readValidatedPluginIcon } from "../plugin-icon-file.js";
 
 const CANON_REPO = "vellum-ai/vellum-assistant";
 /** Synthetic host the fixtures use for Contents API `download_url`s. */
@@ -327,7 +328,7 @@ describe("installPlugin — install lifecycle", () => {
         trustedSource: {
           kind: "local",
           path: "plugins/mcp-catalog/fathom",
-          version: "1.0.0",
+          version: "1.0.1",
         },
       },
       {
@@ -341,10 +342,10 @@ describe("installPlugin — install lifecycle", () => {
 
     expect(result).toMatchObject({
       name: "fathom",
-      fileCount: 2,
-      ref: "1.0.0",
+      ref: "1.0.1",
       commit: null,
     });
+    expect(readValidatedPluginIcon(result.target).hasIcon).toBe(true);
     expect(
       readPluginMcpServers({ workspacePluginsDir: pluginsDir }).servers,
     ).toEqual([
