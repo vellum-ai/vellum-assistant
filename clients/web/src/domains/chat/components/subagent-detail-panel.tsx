@@ -30,7 +30,7 @@ import {
   useSubagentStore,
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
-import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useSubagentHistory } from "@/domains/chat/hooks/use-subagent-history";
 import { subagentTraits } from "@/utils/avatar-subagent";
 import { isActiveStatus } from "@/utils/subagent-status";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -161,26 +161,8 @@ export function SubagentDetailPanel({
     [entry.subagentId],
   );
 
-  // The history those calls live in is fetched when the panel shows it, and
-  // again whenever it is missing: after a failed fetch, or after a stream gap
-  // dropped it.
-  const activeAssistantId = useResolvedAssistantsStore(
-    (s) => s.activeAssistantId,
-  );
-  const historyAssistantId = assistantId ?? activeAssistantId;
-  const historyMissing = entry.history === null;
-  useEffect(() => {
-    if (historyMissing && historyAssistantId) {
-      void useSubagentStore
-        .getState()
-        .loadHistoryIfNeeded(historyAssistantId, entry.subagentId);
-    }
-  }, [
-    historyMissing,
-    historyAssistantId,
-    entry.subagentId,
-    entry.conversationId,
-  ]);
+  // The history those calls live in, kept loaded while the panel shows it.
+  const loadHistory = useSubagentHistory(entry, assistantId);
 
   // Which step's detail (if any) is shown nested inside this panel: a tool
   // call's id or a thinking segment's key, or `null` to show the timeline.
@@ -193,21 +175,17 @@ export function SubagentDetailPanel({
   // Read the openable targets through refs so the click handler below stays
   // identity-stable while events stream: both change on most streamed events,
   // and a changing handler passed to the memoized `SubagentPhaseRow`s would
-  // re-render every row on each event. Assigned during render (not in an
-  // effect) so the handler always sees the latest values.
+  // re-render every row on each event. Synced in a layout effect, so a click
+  // after commit always reads the committed values.
   const stepDetailsRef = useRef(stepDetails);
-  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest map
-  stepDetailsRef.current = stepDetails;
   const historyRef = useRef(entry.history);
-  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest history
-  historyRef.current = entry.history;
-  const historyAssistantIdRef = useRef(historyAssistantId);
-  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest assistant
-  historyAssistantIdRef.current = historyAssistantId;
   const subagentId = entry.subagentId;
   const shownSubagentIdRef = useRef(subagentId);
-  // eslint-disable-next-line react-hooks/refs -- render-phase sync so a late fetch cannot open a pill on the next subagent
-  shownSubagentIdRef.current = subagentId;
+  useLayoutEffect(() => {
+    stepDetailsRef.current = stepDetails;
+    historyRef.current = entry.history;
+    shownSubagentIdRef.current = subagentId;
+  }, [stepDetails, entry.history, subagentId]);
   const handleStepDetailClick = useCallback(
     (key: string) => {
       if (
@@ -219,25 +197,21 @@ export function SubagentDetailPanel({
       }
       // A tool pill whose history is missing (a fetch that failed) retries the
       // fetch and opens once the call is there.
-      const assistant = historyAssistantIdRef.current;
-      if (historyRef.current !== null || !assistant) {
+      if (historyRef.current !== null) {
         return;
       }
-      void useSubagentStore
-        .getState()
-        .loadHistoryIfNeeded(assistant, subagentId)
-        .then(() => {
-          const messages =
-            useSubagentStore.getState().byId[subagentId]?.history?.messages;
-          if (
-            shownSubagentIdRef.current === subagentId &&
-            findToolCall(messages ?? [], key)
-          ) {
-            setSelectedDetailKey(key);
-          }
-        });
+      void loadHistory().then(() => {
+        const messages =
+          useSubagentStore.getState().byId[subagentId]?.history?.messages;
+        if (
+          shownSubagentIdRef.current === subagentId &&
+          findToolCall(messages ?? [], key)
+        ) {
+          setSelectedDetailKey(key);
+        }
+      });
     },
-    [subagentId],
+    [loadHistory, subagentId],
   );
 
   // Which timeline groups are expanded. Lifted out of `SubagentPhaseTimeline`

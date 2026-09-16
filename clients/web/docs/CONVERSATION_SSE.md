@@ -3,7 +3,9 @@
 How the web client turns the assistant's Server-Sent Event stream into the rendered
 chat transcript. This is the one subsystem that intentionally keeps a
 client-owned materialized view of server data, because the source of truth comes from
-two APIs: the snapshot (GET /messages) and the stream (GET /events). Everywhere else, [server data has one owner: its query cache](./STATE_MANAGEMENT.md).
+two APIs: the snapshot (GET /messages) and the stream (GET /events). It keeps that
+view for the active conversation and, with the same reducer and seed rule, for each
+subagent's child conversation (see [Subagent histories](#subagent-histories)). Everywhere else, [server data has one owner: its query cache](./STATE_MANAGEMENT.md).
 
 ## The shape
 
@@ -86,7 +88,8 @@ later can't be ring-replayed. The recovery path is a refetch:
 - Every committed `/messages` fetch **reseeds** the snapshot (`seedSnapshot`):
   it replays the buffered event tail with `seq > snapshot.seq` onto the fresh
   server snapshot (`resolveSnapshot`), so events that raced the fetch aren't
-  lost. A buffer gap (eviction) falls back to the fetched snapshot alone.
+  lost. The drop rules below live in `resolveSeed`, which subagent histories
+  share. A buffer gap (eviction) falls back to the fetched snapshot alone.
   An **anchor-less** fetch (`seq: null` — the daemon has persisted no stream
   content yet, e.g. a fresh conversation's first turn racing the 1s
   partial-persist debounce) is **dropped** when the live view has already
@@ -116,7 +119,7 @@ tool calls are the canonical `ChatMessageToolCall` the main chat renders.
 - Each `SubagentEntry` holds `history: PaginatedHistoryResult | null` in the
   subagent store. `use-event-stream` unwraps every `subagent_event` for the
   active conversation and folds the inner event into that entry's history
-  (`applySubagentEnvelope`). The parent's fold still ignores `subagent_event`.
+  (`applySubagentEnvelope`). The parent's fold ignores `subagent_event`.
 - The child's `seq` and the wrapper's `seq` come from the same assistant-wide
   counter, so the child's `/messages` anchor and the wrapped events are
   idempotent against each other exactly as the parent's are.
