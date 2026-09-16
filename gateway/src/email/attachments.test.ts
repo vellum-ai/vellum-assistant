@@ -150,7 +150,10 @@ describe("ingestEmailAttachments", () => {
       silentLog,
     );
     expect(result.attachmentIds).toEqual([]);
-    expect(result.failedAttachmentNames).toEqual(["over.pdf"]);
+    expect(result.failedAttachmentNames).toEqual([]);
+    expect(result.oversizedAttachments).toEqual([
+      { name: "over.pdf", fileSize: 20, limit: 10 },
+    ]);
   });
 });
 
