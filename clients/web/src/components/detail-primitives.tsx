@@ -106,8 +106,9 @@ interface DetailBlockProps {
  * It owns the conditions its parts depend on. The clamp's fade is painted in
  * `--surface-overlay`, so the block is that colour. The copy button is
  * absolutely positioned, so the block is its containing block, and it reserves
- * the button's width on the right so text never runs under it: 24px on
- * desktop, 40px where the button grows to a touch target.
+ * the button's room so it neither covers text nor overhangs the block: 24px on
+ * the right on desktop, and where the button grows to a 40px touch target,
+ * 40px on the right plus a height that holds it below its 8px inset.
  */
 export function DetailBlock({
   variant = "outlined",
@@ -123,7 +124,7 @@ export function DetailBlock({
       className={cn(
         "relative bg-[var(--surface-overlay)] p-3",
         DETAIL_BLOCK_VARIANT_CLASSES[variant],
-        hasCopy && "pr-10 touch-mobile:pr-14",
+        hasCopy && "pr-10 touch-mobile:min-h-14 touch-mobile:pr-14",
       )}
     >
       <ClampedContent length={length}>{children}</ClampedContent>
