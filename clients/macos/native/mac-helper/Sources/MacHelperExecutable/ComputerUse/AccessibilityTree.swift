@@ -638,7 +638,8 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         var interactive: [String] = []
         var staticTexts: [String] = []
         var prunedCount = 0
-        collectFormatted(elements: elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+        var clippedCount = 0
+        collectFormatted(elements: elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount)
 
         if !interactive.isEmpty {
             lines.append("Interactive elements:")
@@ -647,6 +648,13 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
             }
             if prunedCount > 0 {
                 lines.append("  (\(prunedCount) unlabeled elements hidden)")
+            }
+            if clippedCount > 0 {
+                // Said rather than silently dropped: the count is the
+                // difference between "this list has four rows" and "this list
+                // has four rows on screen", and only the second tells the
+                // model that scrolling is what reaches the rest.
+                lines.append("  (\(clippedCount) elements scrolled out of view — scroll to bring them on screen)")
             }
         }
 
@@ -667,10 +675,52 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         "AXTextField", "AXTextArea", "AXComboBox"
     ]
 
-    private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int) {
+    /// Whether `frame` has any part of it inside what its ancestors left.
+    ///
+    /// Nil clip is nothing cropping, which is most of a tree and every tree
+    /// from an app that scrolls nothing, so everything counts. Where something
+    /// is cropping, the question is the same geometric one
+    /// {@link AXDisplayMatch} asks of a display — any overlap counts, so a row
+    /// half out of the pane stays listed, and a frame with no area is on
+    /// nothing and cannot be pointed at either way.
+    private static func isOnScreen(_ frame: CGRect, within clip: CGRect?) -> Bool {
+        guard let clip else { return true }
+        return AXDisplayMatch.frame(frame, standsOn: clip)
+    }
+
+    /// `clip` is the rectangle this level's ancestors leave, exactly as
+    /// `flattenClipped` computes it. A row scrolled out of its pane keeps the
+    /// frame it would have on screen, so without this every row of a long list
+    /// is reported at a real-looking position that nothing is drawn at — a
+    /// Finder window of 700 files listed all 700, of which ~45 were on screen.
+    ///
+    /// A tree with nothing cropping in it (no `AXScrollArea` ancestor) keeps a
+    /// nil clip the whole way down and is reported exactly as before.
+    private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int, clippedCount: inout Int, clip: CGRect? = nil) {
         for element in elements {
             let isInteractiveRole = interactiveRoles.contains(element.role)
             let isText = textRoles.contains(element.role)
+            // Narrowed on entering the element, so children are measured
+            // against what this element leaves while the element itself is
+            // measured against what its own ancestors left it.
+            let inner = AXClip.narrowed(
+                clip,
+                by: element.frame,
+                clips: clippingRoles.contains(element.role)
+            )
+
+            if !isOnScreen(element.frame, within: clip) {
+                // Counted once for anything that would have been listed, so the
+                // tally matches what is missing rather than how deep the
+                // subtree under it went. Descend anyway rather than pruning:
+                // a container can report a frame that its children sit outside
+                // of, and the child is the thing being judged.
+                if isInteractiveRole || isText {
+                    clippedCount += 1
+                }
+                collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
+                continue
+            }
 
             if isInteractiveRole {
                 // Skip unlabeled non-text elements — the model can't meaningfully target
@@ -682,7 +732,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
 
                 if !hasTitle && !isTextInput && !element.isFocused && !hasPlaceholder && !hasUrl {
                     prunedCount += 1
-                    collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+                    collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
                     continue
                 }
 
@@ -716,7 +766,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 }
             }
 
-            collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+            collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount, clippedCount: &clippedCount, clip: inner)
         }
     }
 
