@@ -1067,7 +1067,6 @@
     "moreActions": "Другие действия для {serverId}",
     "reconnect": "Переподключить",
     "removeServer": "Удалить",
-    "statusConnected": "Подключён",
     "statusNeedsAttention": "Требует внимания",
     "viewDetails": "Подробнее"
   },

@@ -1081,7 +1081,6 @@
     "moreActions": "{serverId} 的更多操作",
     "reconnect": "重新连接",
     "removeServer": "移除",
-    "statusConnected": "已连接",
     "statusNeedsAttention": "需要处理",
     "viewDetails": "查看详情"
   },

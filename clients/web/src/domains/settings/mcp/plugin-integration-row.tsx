@@ -36,12 +36,8 @@ export function PluginIntegrationRow({
       title={method.definition.displayName}
       subtitle={method.definition.description}
       status={
-        summary.configured ? (
-          <Tag tone={summary.needsAttention ? "negative" : "positive"}>
-            {summary.needsAttention
-              ? t("integrationRow.needsAttention")
-              : t("integrationRow.connected")}
-          </Tag>
+        summary.needsAttention ? (
+          <Tag tone="negative">{t("integrationRow.needsAttention")}</Tag>
         ) : undefined
       }
       primaryAction={

@@ -1081,7 +1081,6 @@
     "moreActions": "More actions for {serverId}",
     "reconnect": "Reconnect",
     "removeServer": "Remove",
-    "statusConnected": "Connected",
     "statusNeedsAttention": "Needs attention",
     "viewDetails": "View details"
   },

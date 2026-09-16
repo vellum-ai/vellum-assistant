@@ -36,7 +36,6 @@ export function McpServerCard({
     !pluginOwned &&
     server.status === "needs-auth" &&
     server.transport.type !== "stdio";
-  const isConnected = server.status === "connected";
   const actionLabel = pluginOwned
     ? t("mcpServerCard.managePlugin")
     : isAuthenticating
@@ -53,11 +52,9 @@ export function McpServerCard({
       title={server.id}
       subtitle={pluginOwned ? server.pluginName : integrationHostname(server)}
       status={
-        <Tag tone={isConnected ? "positive" : "negative"}>
-          {isConnected
-            ? t("mcpServerCard.statusConnected")
-            : t("mcpServerCard.statusNeedsAttention")}
-        </Tag>
+        server.status === "connected" ? undefined : (
+          <Tag tone="negative">{t("mcpServerCard.statusNeedsAttention")}</Tag>
+        )
       }
       primaryAction={
         <Button

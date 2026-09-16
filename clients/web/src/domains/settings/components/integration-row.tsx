@@ -42,8 +42,10 @@ export function IntegrationRow({
   const { t } = useTranslation("settings");
   const { connectedCount: connectedAccountCount } =
     summarizeOAuthConnections(connections);
-  const { connectedCount, needsAttention, configured } =
-    summarizeIntegrationConnections(connections, mcpMethods);
+  const { needsAttention, configured } = summarizeIntegrationConnections(
+    connections,
+    mcpMethods,
+  );
 
   return (
     <IntegrationListRow
@@ -65,9 +67,7 @@ export function IntegrationRow({
           : description
       }
       status={
-        connectedCount > 0 ? (
-          <Tag tone="positive">{t("integrationRow.connected")}</Tag>
-        ) : needsAttention ? (
+        needsAttention ? (
           <Tag tone="negative">{t("integrationRow.needsAttention")}</Tag>
         ) : undefined
       }

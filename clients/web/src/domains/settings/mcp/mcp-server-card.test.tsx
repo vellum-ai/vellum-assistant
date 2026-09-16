@@ -38,6 +38,7 @@ describe("McpServerCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Configure" }));
     expect(handlers.onConfigure).toHaveBeenCalledWith("example-meeting-notes");
+    expect(screen.queryByText("Connected")).toBeNull();
     expect(screen.queryByText("Authenticated")).toBeNull();
     expect(screen.queryByText("streamable-http")).toBeNull();
     expect(
