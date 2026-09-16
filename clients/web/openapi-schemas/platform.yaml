@@ -1020,6 +1020,52 @@ paths:
           description: No response body
       x-vellum-api-clients:
       - platform
+  /v1/assistants/{assistant_id}/domains/{id}/provision/:
+    post:
+      operationId: assistants_domains_provision_create
+      description: Provision an existing managed domain with the email provider and
+        DNS.
+      parameters:
+      - in: path
+        name: assistant_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - assistants
+      security:
+      - VellumAPIKey: []
+      - SDKCompatibleAssistantKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainVerificationStatus'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+        '502':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetailResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/assistants/{assistant_id}/domains/{id}/verification-status/:
     get:
       operationId: assistants_domains_verification_status_retrieve
