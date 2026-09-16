@@ -6,11 +6,13 @@ interface DesktopPreviewState {
   inlinePreview: { assistantId: string; container: HTMLDivElement } | null;
   session: { assistantId: string; view: "preview" | "fullscreen" } | null;
   sessionBeforeHelp: DesktopPreviewState["session"];
+  submittedHelpRequestId: string | null;
   position: { x: number; y: number } | null;
   width: number;
 }
 
 interface DesktopPreviewActions {
+  markHelpSubmitted: (requestId: string) => void;
   setInlinePreview: (preview: DesktopPreviewState["inlinePreview"]) => void;
   openFullscreen: (assistantId: string) => void;
   openPreview: (assistantId: string) => void;
@@ -25,6 +27,9 @@ export const useDesktopPreviewStore = createSelectors(
   create<DesktopPreviewState & DesktopPreviewActions>()((set) => ({
     inlinePreview: null,
     sessionBeforeHelp: null,
+    submittedHelpRequestId: null,
+    markHelpSubmitted: (submittedHelpRequestId) =>
+      set({ submittedHelpRequestId }),
     setInlinePreview: (inlinePreview) =>
       set((state) => {
         if (inlinePreview) {

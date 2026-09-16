@@ -102,7 +102,11 @@ beforeEach(() => {
   attentionSupported = true;
   platformHosted = true;
   automationActive = false;
-  useDesktopPreviewStore.setState({ position: null, width: 320 });
+  useDesktopPreviewStore.setState({
+    position: null,
+    width: 320,
+    submittedHelpRequestId: null,
+  });
   panelUnmounts = 0;
   desktopEnabled = true;
   assistantId = "asst-1";
@@ -801,7 +805,7 @@ test.each([false, true])(
   },
 );
 
-test("submitting desktop help disables input before the request resolves", async () => {
+test("submitted help stays read-only after a failed response and reopening", async () => {
   useInteractionStore.setState({
     pendingQuestion: { requestId: "req-help", entries: [helpEntry] },
   });
@@ -817,6 +821,7 @@ test("submitting desktop help disables input before the request resolves", async
     expect(panel.getAttribute("data-view-only")).toBe("false");
     act(() => {
       useInteractionStore.getState().claimSubmission("question", "req-help");
+      useDesktopPreviewStore.getState().markHelpSubmitted("req-help");
     });
     expect(panel.getAttribute("data-view-only")).toBe("true");
     expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
@@ -827,7 +832,20 @@ test("submitting desktop help disables input before the request resolves", async
     act(() => {
       useInteractionStore.getState().releaseSubmission("question", "req-help");
     });
-    expect(panel.getAttribute("data-view-only")).toBe("false");
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    act(() => useDesktopPreviewStore.getState().close());
+    await waitFor(() =>
+      expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    expect(
+      (await screen.findByTestId("desktop-panel")).getAttribute(
+        "data-view-only",
+      ),
+    ).toBe("true");
   } finally {
     act(() => {
       useInteractionStore.getState().releaseSubmission("question", "req-help");

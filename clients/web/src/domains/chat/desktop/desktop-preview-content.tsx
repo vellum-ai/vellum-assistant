@@ -4,10 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { PreviewModalHeader } from "@/domains/chat/components/preview-modal-header";
-import {
-  useInteractionStore,
-  useSubmittingRequestId,
-} from "@/domains/chat/interaction-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTranslation } from "@/i18n";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import { cn } from "@/utils/misc";
@@ -32,12 +29,13 @@ export function DesktopPreviewContent({
   const { t } = useTranslation("chat");
   const isPresent = useIsPresent();
   const question = useInteractionStore.use.pendingQuestion();
-  const submittingRequestId = useSubmittingRequestId("question");
-  const submittingHelp =
+  const submittedHelpRequestId =
+    useDesktopPreviewStore.use.submittedHelpRequestId();
+  const helpInputLocked =
     !!getDesktopHelpEntry(question) &&
-    submittingRequestId === question?.requestId;
+    submittedHelpRequestId === question?.requestId;
   const modalOpen = fullscreen && isPresent;
-  const interactive = modalOpen && !submittingHelp;
+  const interactive = modalOpen && !helpInputLocked;
   const previewRef = useRef<HTMLDivElement>(null);
   // A stable portal host keeps the live session mounted across both surfaces.
   const [host] = useState(() => {

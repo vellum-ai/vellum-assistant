@@ -11,6 +11,8 @@ import { captureError } from "@/lib/sentry/capture-error";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { getDesktopHelpEntry } from "@/domains/chat/desktop/desktop-help";
+import { useDesktopPreviewStore } from "@/domains/chat/desktop/desktop-preview-store";
 import {
   clearSubmissionFailure,
   captureSubmissionRejection,
@@ -89,6 +91,10 @@ export async function handleQuestionResponse(
       .getState()
       .releaseSubmission("question", snapshot.requestId);
     return;
+  }
+
+  if (getDesktopHelpEntry(snapshot)) {
+    useDesktopPreviewStore.getState().markHelpSubmitted(snapshot.requestId);
   }
 
   try {
