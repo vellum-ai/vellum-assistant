@@ -443,15 +443,37 @@ describe("normalizeTelegramUpdate: rooms", () => {
     );
   });
 
-  it("a command addressed to the bot counts as a mention", () => {
-    const result = normalizeTelegramUpdate(
-      makeGroupMessage({
-        text: "/summary@Vellum_Bot",
-        entities: [{ type: "bot_command", offset: 0, length: 19 }],
-      }),
-      { bot: BOT },
+  it("a command addressed to the bot counts as a mention and loses its suffix", () => {
+    // `/new@bot` must reach the route's command parsers as `/new`; the
+    // username is Telegram's addressing, not part of the command.
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeGroupMessage({
+          text: "/summary@Vellum_Bot last week",
+          entities: [{ type: "bot_command", offset: 0, length: 19 }],
+        }),
+        { bot: BOT },
+      ),
     );
-    expect(result.dropped).toBe(false);
+    expect(result.message.content).toBe("/summary last week");
+  });
+
+  it("a command addressed to another bot keeps its suffix", () => {
+    // Admitted only because the text also mentions this bot; the other
+    // bot's command is content, not addressing.
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeGroupMessage({
+          text: "/stats@other_bot cc @vellum_bot",
+          entities: [
+            { type: "bot_command", offset: 0, length: 16 },
+            { type: "mention", offset: 20, length: 11 },
+          ],
+        }),
+        { bot: BOT },
+      ),
+    );
+    expect(result.message.content).toBe("/stats@other_bot cc @vellum_bot");
   });
 
   it("a mention inside a photo caption counts", () => {

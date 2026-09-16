@@ -21,8 +21,11 @@ mock.module("./api.js", () => ({
   },
 }));
 
-const { botUserIdFromToken, createTelegramBotIdentityResolver } =
-  await import("./bot-identity.js");
+const {
+  botUserIdFromToken,
+  createTelegramBotIdentityResolver,
+  DEGRADED_IDENTITY_RETRY_MS,
+} = await import("./bot-identity.js");
 
 function credentials(token: string | undefined): CredentialCache {
   return {
@@ -62,18 +65,39 @@ describe("createTelegramBotIdentityResolver", () => {
     expect(calls).toEqual(["getMe"]);
   });
 
-  test("falls back to the token's id when getMe fails", async () => {
-    // The gate then still admits replies and text mentions, and only
-    // username mentions go unrecognised until the next successful resolve.
+  test("falls back to the token's id when getMe fails, then retries after the window", async () => {
+    // Replies and text mentions still admit on the id alone; username
+    // mentions go unrecognised only until the next successful resolve, which
+    // the next room update after the window triggers.
     calls.length = 0;
+    let clock = 1_000_000;
     getMeResponse = async () => {
       throw new Error("Telegram getMe failed with status 502");
     };
-    const resolve = createTelegramBotIdentityResolver({
-      credentials: credentials("123456789:secret"),
-    });
+    const resolve = createTelegramBotIdentityResolver(
+      { credentials: credentials("123456789:secret") },
+      () => clock,
+    );
     expect(await resolve()).toEqual({ userId: "123456789" });
+
+    // Inside the window the degraded identity is reused without a call.
+    clock += DEGRADED_IDENTITY_RETRY_MS - 1;
+    expect(await resolve()).toEqual({ userId: "123456789" });
+    expect(calls).toEqual(["getMe"]);
+
+    // Past it, getMe runs again and the full identity replaces the fallback.
     getMeResponse = async () => ({ id: 123456789, username: "vellum_bot" });
+    clock += 1;
+    expect(await resolve()).toEqual({
+      userId: "123456789",
+      username: "vellum_bot",
+    });
+    expect(calls).toEqual(["getMe", "getMe"]);
+
+    // A full identity is held for the token's lifetime.
+    clock += DEGRADED_IDENTITY_RETRY_MS * 10;
+    await resolve();
+    expect(calls).toEqual(["getMe", "getMe"]);
   });
 
   test("answers nothing without a token", async () => {
