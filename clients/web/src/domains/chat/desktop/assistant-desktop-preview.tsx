@@ -69,6 +69,7 @@ export function AssistantDesktopPreview() {
             <DesktopPreviewContent
               assistantId={assistantId}
               fullscreen={fullscreen}
+              canInteract={session.view === "fullscreen"}
               fullscreenOnly={fullscreenOnly}
               previewContainer={inlineContainer}
             />

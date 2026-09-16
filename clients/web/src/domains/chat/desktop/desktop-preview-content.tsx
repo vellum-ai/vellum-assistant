@@ -14,6 +14,7 @@ import { useDesktopPreviewStore } from "./desktop-preview-store";
 interface DesktopPreviewContentProps {
   assistantId: string;
   fullscreen: boolean;
+  canInteract: boolean;
   fullscreenOnly: boolean;
   previewContainer?: HTMLDivElement | null;
 }
@@ -21,6 +22,7 @@ interface DesktopPreviewContentProps {
 export function DesktopPreviewContent({
   assistantId,
   fullscreen,
+  canInteract,
   fullscreenOnly,
   previewContainer,
 }: DesktopPreviewContentProps) {
@@ -30,7 +32,7 @@ export function DesktopPreviewContent({
     (state) => !!state.submittedHelpRequests[assistantId],
   );
   const modalOpen = fullscreen && isPresent;
-  const interactive = modalOpen && !helpInputLocked;
+  const interactive = modalOpen && canInteract && !helpInputLocked;
   const previewRef = useRef<HTMLDivElement>(null);
   // A stable portal host keeps the live session mounted across both surfaces.
   const [host] = useState(() => {

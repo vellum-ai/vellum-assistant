@@ -805,6 +805,45 @@ test.each([false, true])(
   },
 );
 
+test.each(["preview", "fullscreen"] as const)(
+  "mobile help resolution does not reactivate a preexisting %s session",
+  async (view) => {
+    touch = true;
+    render(
+      <>
+        <PendingDesktopHelpRow requestId="req-help" />
+        <DesktopHarness />
+      </>,
+    );
+    act(() =>
+      useDesktopPreviewStore.setState({
+        session: { assistantId: "asst-1", view },
+      }),
+    );
+    const panel = await screen.findByTestId("desktop-panel");
+    act(() =>
+      useInteractionStore
+        .getState()
+        .showQuestion({ requestId: "req-help", entries: [helpEntry] }),
+    );
+    if (view === "preview") {
+      fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    }
+    expect(panel.getAttribute("data-view-only")).toBe("false");
+    act(() => useInteractionStore.setState({ pendingQuestion: null }));
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    if (view === "fullscreen") {
+      await waitFor(() =>
+        expect(screen.queryByTestId("desktop-panel") === null).toBe(true),
+      );
+      expect(useDesktopPreviewStore.getState().session).toBeNull();
+    } else {
+      expect(screen.getByTestId("desktop-panel")).toBe(panel);
+      expect(useDesktopPreviewStore.getState().session?.view).toBe("preview");
+    }
+  },
+);
+
 test("submitted help stays read-only after a failed response and reopening", async () => {
   useInteractionStore.setState({
     pendingQuestion: { requestId: "req-help", entries: [helpEntry] },
