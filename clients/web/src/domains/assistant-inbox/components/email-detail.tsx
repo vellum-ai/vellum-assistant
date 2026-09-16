@@ -132,7 +132,7 @@ export function EmailDetail({
           </section>
         ) : null}
 
-        <footer className="flex items-center gap-3 border-t border-[var(--border-subtle)] pt-4">
+        <footer className="flex items-center gap-3 pt-2">
           {inbound ? (
             <Button
               variant="outlined"

@@ -71,7 +71,7 @@ export function AssistantInboxHeader({
   return (
     <header
       data-testid="assistant-inbox-header"
-      className="flex flex-wrap items-start gap-4 px-6 pb-4 pt-6"
+      className="flex flex-wrap items-start gap-4 px-2 pb-4 pt-2"
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <h1

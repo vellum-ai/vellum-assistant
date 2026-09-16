@@ -20,9 +20,12 @@ interface EmailListRowProps {
 }
 
 /**
- * One message in the list. Inbound rows lead with who wrote; outbound rows
- * lead with who it went to, since the sender is always the assistant. No
- * read state: the platform keeps none, so the list does not pretend to.
+ * One message in the list: a rounded row inside the card, the way the
+ * sidebar draws its conversations, with hover and selection as washes
+ * rather than rules between rows. Inbound rows lead with who wrote;
+ * outbound rows lead with who it went to, since the sender is always the
+ * assistant. No read state: the platform keeps none, so the list does not
+ * pretend to.
  */
 function EmailListRow({ email, selected, now, onSelect }: EmailListRowProps) {
   const { t, i18n } = useTranslation("assistant-inbox");
@@ -40,10 +43,11 @@ function EmailListRow({ email, selected, now, onSelect }: EmailListRowProps) {
         onClick={() => onSelect(email.id)}
         aria-current={selected ? "true" : undefined}
         className={cn(
-          "flex w-full items-start gap-3 px-4 py-3 text-left transition-colors duration-150",
-          "hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--border-active)]",
+          "flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150",
+          "[@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
+          "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
           selected &&
-            "bg-[var(--surface-active)] hover:bg-[var(--surface-active)]",
+            "bg-[var(--surface-active)] [@media(hover:hover)]:hover:bg-[var(--surface-active)]",
         )}
       >
         <SenderDisc participant={counterpart} className="mt-0.5" />
@@ -98,7 +102,7 @@ export function EmailList({
   return (
     <ul
       className={cn(
-        "flex min-h-0 flex-col divide-y divide-[var(--border-subtle)] overflow-y-auto",
+        "flex min-h-0 flex-col gap-0.5 overflow-y-auto p-2",
         className,
       )}
     >

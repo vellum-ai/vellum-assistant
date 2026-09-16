@@ -1,7 +1,7 @@
 import { Inbox, Search, Send } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
-import { cn, Input, Tabs } from "@vellumai/design-library";
+import { Card, cn, Input, SegmentControl } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
@@ -10,6 +10,10 @@ import { AssistantInboxHeader } from "./assistant-inbox-header";
 import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailDetail } from "./email-detail";
 import { EmailList } from "./email-list";
+
+/** The same rounded, unbordered surface the sidebar's section cards use. */
+const CARD_CLASSES =
+  "flex min-h-0 flex-col overflow-hidden rounded-[16px] bg-[var(--surface-lift)]";
 
 interface FolderEmptyStateProps {
   folder: InboxFolder;
@@ -84,13 +88,14 @@ export interface AssistantInboxPageProps {
 }
 
 /**
- * The inbox when the assistant has an address: masthead, a folder tab row
- * with a search beside it, and a list beside a reading pane. Below the `md`
- * breakpoint the two panes take turns instead, list first, with a back
- * control on the message. Selection is local; changing folder clears it so
- * a message from Inbox is never left open over the Sent list. Search is a
- * plain substring match over sender, recipient, subject, and preview, run
- * on the client over the folder already loaded.
+ * The inbox when the assistant has an address: masthead, a folder switch,
+ * and two cards on the page ground, the list with its search and the
+ * reading pane. Below the `md` breakpoint the two cards take turns instead,
+ * list first, with a back control on the message. Selection is local;
+ * changing folder clears it so a message from Received is never left open
+ * over the Sent list. Search is a plain substring match over sender,
+ * recipient, subject, and preview, run on the client over the folder
+ * already loaded.
  */
 export function AssistantInboxPage({
   assistantId,
@@ -123,12 +128,18 @@ export function AssistantInboxPage({
   );
   const selected = emails.find((email) => email.id === selectedId) ?? null;
 
-  const handleFolderChange = useCallback((next: string) => {
-    if (next === "inbox" || next === "sent") {
-      setFolder(next);
-      setSelectedId(null);
-    }
+  const handleFolderChange = useCallback((next: InboxFolder) => {
+    setFolder(next);
+    setSelectedId(null);
   }, []);
+
+  const folderItems = useMemo(
+    () => [
+      { value: "inbox" as const, label: t("assistantInboxPage.inboxTab") },
+      { value: "sent" as const, label: t("assistantInboxPage.sentTab") },
+    ],
+    [t],
+  );
 
   return (
     <AssistantInboxShell>
@@ -139,35 +150,26 @@ export function AssistantInboxPage({
         usage={usage}
       />
 
-      <Tabs.Root value={folder} onValueChange={handleFolderChange}>
-        {/* The tab list's own rule is the divider between the masthead and
-            the mail. */}
-        <Tabs.List
-          className="px-6"
-          aria-label={t("assistantInboxPage.folderAriaLabel")}
-        >
-          <Tabs.Trigger value="inbox">
-            {t("assistantInboxPage.inboxTab")}
-          </Tabs.Trigger>
-          <Tabs.Trigger value="sent">
-            {t("assistantInboxPage.sentTab")}
-          </Tabs.Trigger>
-        </Tabs.List>
-      </Tabs.Root>
+      <div className="px-2 pb-3">
+        <SegmentControl
+          items={folderItems}
+          value={folder}
+          onChange={handleFolderChange}
+          ariaLabel={t("assistantInboxPage.folderAriaLabel")}
+          className="w-auto"
+        />
+      </div>
 
-      {folderEmails.length === 0 ? (
-        <FolderEmptyState folder={folder} address={address} searching={false} />
-      ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(280px,360px)_1fr]">
-          {/* The list column owns the search: it filters this folder and
-              nothing else, so it sits at the head of the rows it narrows. */}
-          <div
-            className={cn(
-              "flex min-h-0 flex-col md:border-r md:border-[var(--border-subtle)]",
-              selected && "max-md:hidden",
-            )}
-          >
-            <div className="border-b border-[var(--border-subtle)] px-4 py-3">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 px-2 pb-2 md:grid-cols-[minmax(280px,360px)_1fr]">
+        {/* The list card owns the search: it filters this folder and
+            nothing else, so it sits at the head of the rows it narrows. */}
+        <Card
+          bordered={false}
+          noPadding
+          className={cn(CARD_CLASSES, selected && "max-md:hidden")}
+        >
+          {folderEmails.length > 0 ? (
+            <div className="px-3 pt-3 pb-1">
               <Input
                 type="text"
                 value={query}
@@ -178,17 +180,28 @@ export function AssistantInboxPage({
                 fullWidth
               />
             </div>
-            {emails.length === 0 ? (
-              <FolderEmptyState folder={folder} address={address} searching />
-            ) : (
-              <EmailList
-                emails={emails}
-                selectedId={selectedId}
-                now={clock}
-                onSelect={setSelectedId}
-              />
-            )}
-          </div>
+          ) : null}
+          {emails.length === 0 ? (
+            <FolderEmptyState
+              folder={folder}
+              address={address}
+              searching={trimmedQuery.length > 0}
+            />
+          ) : (
+            <EmailList
+              emails={emails}
+              selectedId={selectedId}
+              now={clock}
+              onSelect={setSelectedId}
+            />
+          )}
+        </Card>
+
+        <Card
+          bordered={false}
+          noPadding
+          className={cn(CARD_CLASSES, !selected && "max-md:hidden")}
+        >
           {selected ? (
             <EmailDetail
               key={selected.id}
@@ -198,12 +211,12 @@ export function AssistantInboxPage({
               onAskToReply={onAskToReply}
             />
           ) : (
-            <div className="hidden items-center justify-center p-8 text-body-small-lighter text-[var(--content-tertiary)] md:flex">
+            <div className="flex flex-1 items-center justify-center p-8 text-body-small-lighter text-[var(--content-tertiary)]">
               {t("assistantInboxPage.selectPrompt")}
             </div>
           )}
-        </div>
-      )}
+        </Card>
+      </div>
     </AssistantInboxShell>
   );
 }
