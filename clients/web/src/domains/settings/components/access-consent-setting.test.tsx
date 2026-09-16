@@ -185,6 +185,30 @@ describe("AccessConsentSetting", () => {
     await screen.findByText("Staff access ends in 24 hours.");
   });
 
+  test("an open tab refetches when the grant lapses and shows the toggle off", async () => {
+    consented = true;
+    expiresAt = new Date(Date.now() + 1_500).toISOString();
+    renderSetting();
+
+    const toggle = await screen.findByRole("switch");
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("true"),
+    );
+    expect(getCalls).toHaveLength(1);
+
+    // The server now reports the grant as lapsed; the page must ask again.
+    consented = false;
+    await waitFor(() => expect(getCalls.length).toBeGreaterThan(1), {
+      timeout: 5_000,
+    });
+    await waitFor(() =>
+      expect(toggle.getAttribute("aria-checked")).toBe("false"),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Extend 24 hours" }),
+    ).toBeNull();
+  });
+
   test("with no active assistant the toggle is disabled and nothing is requested", async () => {
     useResolvedAssistantsStore.getState().setActiveAssistantId(null);
     renderSetting();

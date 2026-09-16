@@ -22,6 +22,9 @@ import { Button } from "@vellumai/design-library/components/button";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 
+// setTimeout caps at 2^31-1 ms; a week-long grant fits, but clamp anyway.
+const MAX_REFETCH_DELAY_MS = 2 ** 31 - 1;
+
 export function AccessConsentSetting() {
   const { t } = useTranslation("settings");
   // platformHostedOnly: this consent toggle is per-assistant — Vellum
@@ -56,6 +59,16 @@ export function AccessConsentSetting() {
       path: { id: assistantId ?? "" },
     }),
     enabled: canQuery,
+    // Refetch once the grant lapses so an open tab flips to off on its own
+    // instead of showing a toggle the server no longer honors.
+    refetchInterval: (query) => {
+      const ends = query.state.data?.access_consent_expires_at;
+      if (!query.state.data?.access_consented || !ends) {
+        return false;
+      }
+      const msUntilEnd = new Date(ends).getTime() - Date.now() + 1_000;
+      return Math.min(Math.max(msUntilEnd, 1_000), MAX_REFETCH_DELAY_MS);
+    },
   });
 
   // A grant lapses on its own (24h by default). Extending is just enabling
