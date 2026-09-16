@@ -1,5 +1,28 @@
 import { describe, it, expect } from "bun:test";
-import { normalizeTelegramUpdate } from "./normalize.js";
+import type { GatewayInboundEvent } from "../types.js";
+import {
+  normalizeTelegramUpdate,
+  type TelegramDropReason,
+  type TelegramNormalization,
+} from "./normalize.js";
+
+/** The event a normalization produced, failing the test if it dropped. */
+function eventOf(result: TelegramNormalization): GatewayInboundEvent {
+  if (result.dropped) {
+    throw new Error(`expected an event, got drop: ${result.reason}`);
+  }
+  return result.event;
+}
+
+function expectDrop(
+  result: TelegramNormalization,
+  reason: TelegramDropReason,
+): void {
+  expect(result.dropped).toBe(true);
+  if (result.dropped) {
+    expect(result.reason).toBe(reason);
+  }
+}
 
 function makeCallbackQueryPayload(overrides?: {
   chatType?: string;
@@ -27,54 +50,57 @@ function makeCallbackQueryPayload(overrides?: {
 
 describe("normalizeTelegramUpdate — private-chat topics", () => {
   it("maps message_thread_id to source.threadId", () => {
-    const result = normalizeTelegramUpdate({
-      update_id: 500,
-      message: {
-        message_id: 50,
-        message_thread_id: 777,
-        text: "hello topic",
-        chat: { id: 42, type: "private" },
-        from: { id: 42, first_name: "Alice" },
-      },
-    });
+    const result = eventOf(
+      normalizeTelegramUpdate({
+        update_id: 500,
+        message: {
+          message_id: 50,
+          message_thread_id: 777,
+          text: "hello topic",
+          chat: { id: 42, type: "private" },
+          from: { id: 42, first_name: "Alice" },
+        },
+      }),
+    );
 
-    expect(result).not.toBeNull();
-    expect(result!.source.threadId).toBe("777");
-    expect(result!.message.content).toBe("hello topic");
+    expect(result.source.threadId).toBe("777");
+    expect(result.message.content).toBe("hello topic");
   });
 
   it("leaves source.threadId undefined for messages outside a topic", () => {
-    const result = normalizeTelegramUpdate({
-      update_id: 501,
-      message: {
-        message_id: 51,
-        text: "plain dm",
-        chat: { id: 42, type: "private" },
-        from: { id: 42, first_name: "Alice" },
-      },
-    });
+    const result = eventOf(
+      normalizeTelegramUpdate({
+        update_id: 501,
+        message: {
+          message_id: 51,
+          text: "plain dm",
+          chat: { id: 42, type: "private" },
+          from: { id: 42, first_name: "Alice" },
+        },
+      }),
+    );
 
-    expect(result).not.toBeNull();
-    expect(result!.source.threadId).toBeUndefined();
+    expect(result.source.threadId).toBeUndefined();
   });
 
   it("maps callback_query message_thread_id to source.threadId", () => {
-    const result = normalizeTelegramUpdate({
-      update_id: 502,
-      callback_query: {
-        id: "cbq-topic",
-        from: { id: 42, first_name: "Alice" },
-        message: {
-          message_id: 52,
-          message_thread_id: 777,
-          chat: { id: 42, type: "private" },
+    const result = eventOf(
+      normalizeTelegramUpdate({
+        update_id: 502,
+        callback_query: {
+          id: "cbq-topic",
+          from: { id: 42, first_name: "Alice" },
+          message: {
+            message_id: 52,
+            message_thread_id: 777,
+            chat: { id: 42, type: "private" },
+          },
+          data: "apr:run1:approve",
         },
-        data: "apr:run1:approve",
-      },
-    });
+      }),
+    );
 
-    expect(result).not.toBeNull();
-    expect(result!.source.threadId).toBe("777");
+    expect(result.source.threadId).toBe("777");
   });
 
   it("still rejects group messages even when they carry message_thread_id", () => {
@@ -89,52 +115,55 @@ describe("normalizeTelegramUpdate — private-chat topics", () => {
       },
     });
 
-    expect(result).toBeNull();
+    expectDrop(result, "chat_not_private");
   });
 });
 
 describe("normalizeTelegramUpdate: event kinds", () => {
   it("classifies an edited_message as an edit", () => {
-    const result = normalizeTelegramUpdate({
-      update_id: 600,
-      edited_message: {
-        message_id: 60,
-        text: "fixed",
-        chat: { id: 42, type: "private" },
-        from: { id: 42, first_name: "Alice" },
-      },
-    });
+    const result = eventOf(
+      normalizeTelegramUpdate({
+        update_id: 600,
+        edited_message: {
+          message_id: 60,
+          text: "fixed",
+          chat: { id: 42, type: "private" },
+          from: { id: 42, first_name: "Alice" },
+        },
+      }),
+    );
 
-    expect(result).not.toBeNull();
-    expect(result!.message.eventKind).toBe("edit");
-    expect(result!.message.eventKind).toBe("edit");
+    expect(result.message.eventKind).toBe("edit");
+    expect(result.message.eventKind).toBe("edit");
   });
 
   it("classifies a plain message as a message", () => {
-    const result = normalizeTelegramUpdate({
-      update_id: 601,
-      message: {
-        message_id: 61,
-        text: "hello",
-        chat: { id: 42, type: "private" },
-        from: { id: 42, first_name: "Alice" },
-      },
-    });
+    const result = eventOf(
+      normalizeTelegramUpdate({
+        update_id: 601,
+        message: {
+          message_id: 61,
+          text: "hello",
+          chat: { id: 42, type: "private" },
+          from: { id: 42, first_name: "Alice" },
+        },
+      }),
+    );
 
-    expect(result).not.toBeNull();
-    expect(result!.message.eventKind).toBe("message");
+    expect(result.message.eventKind).toBe("message");
   });
 });
 
 describe("normalizeTelegramUpdate — callback_query DM-only guard", () => {
   it("accepts callback_query from private chat", () => {
-    const result = normalizeTelegramUpdate(
-      makeCallbackQueryPayload({ chatType: "private" }),
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeCallbackQueryPayload({ chatType: "private" }),
+      ),
     );
-    expect(result).not.toBeNull();
-    expect(result!.message.callbackQueryId).toBe("cbq-1");
-    expect(result!.message.eventKind).toBe("button");
-    expect(result!.message.callbackData).toBe("apr:run1:approve");
+    expect(result.message.callbackQueryId).toBe("cbq-1");
+    expect(result.message.eventKind).toBe("button");
+    expect(result.message.callbackData).toBe("apr:run1:approve");
   });
 
   it("forwards the button message's id so the card can be edited later", () => {
@@ -142,39 +171,38 @@ describe("normalizeTelegramUpdate — callback_query DM-only guard", () => {
     // holding the inline keyboard. Dropping this id would leave stale
     // buttons on every decided card, silently: the daemon's interception
     // reads it off sourceMetadata.messageId.
-    const result = normalizeTelegramUpdate(makeCallbackQueryPayload());
+    const result = eventOf(normalizeTelegramUpdate(makeCallbackQueryPayload()));
 
-    expect(result).not.toBeNull();
-    expect(result!.source.messageId).toBe("10");
-    expect(result!.message.eventKind).toBe("button");
+    expect(result.source.messageId).toBe("10");
+    expect(result.message.eventKind).toBe("button");
   });
 
   it("rejects callback_query from group chat", () => {
     const result = normalizeTelegramUpdate(
       makeCallbackQueryPayload({ chatType: "group" }),
     );
-    expect(result).toBeNull();
+    expectDrop(result, "chat_not_private");
   });
 
   it("rejects callback_query from supergroup chat", () => {
     const result = normalizeTelegramUpdate(
       makeCallbackQueryPayload({ chatType: "supergroup" }),
     );
-    expect(result).toBeNull();
+    expectDrop(result, "chat_not_private");
   });
 
   it("rejects callback_query from channel chat", () => {
     const result = normalizeTelegramUpdate(
       makeCallbackQueryPayload({ chatType: "channel" }),
     );
-    expect(result).toBeNull();
+    expectDrop(result, "chat_not_private");
   });
 
   it("rejects callback_query when chat type is undefined", () => {
     const result = normalizeTelegramUpdate(
       makeCallbackQueryPayload({ chatType: undefined as unknown as string }),
     );
-    expect(result).toBeNull();
+    expectDrop(result, "chat_not_private");
   });
 });
 
@@ -235,10 +263,9 @@ function makeAudioPayload(overrides?: {
 
 describe("normalizeTelegramUpdate — voice messages", () => {
   it("voice message produces an audio attachment with empty content", () => {
-    const result = normalizeTelegramUpdate(makeVoicePayload());
-    expect(result).not.toBeNull();
-    expect(result!.message.content).toBe("");
-    expect(result!.message.attachments).toEqual([
+    const result = eventOf(normalizeTelegramUpdate(makeVoicePayload()));
+    expect(result.message.content).toBe("");
+    expect(result.message.attachments).toEqual([
       {
         type: "audio",
         fileId: "voice-file-id-123",
@@ -252,23 +279,24 @@ describe("normalizeTelegramUpdate — voice messages", () => {
     const result = normalizeTelegramUpdate(
       makeVoicePayload({ chatType: "group" }),
     );
-    expect(result).toBeNull();
+    expectDrop(result, "chat_not_private");
   });
 
   it("voice message with missing sender is rejected", () => {
     const result = normalizeTelegramUpdate(makeVoicePayload({ fromId: null }));
-    expect(result).toBeNull();
+    expectDrop(result, "missing_sender");
   });
 });
 
 describe("normalizeTelegramUpdate — audio messages", () => {
   it("audio message with caption produces audio attachment and caption as content", () => {
-    const result = normalizeTelegramUpdate(
-      makeAudioPayload({ caption: "Check out this song" }),
+    const result = eventOf(
+      normalizeTelegramUpdate(
+        makeAudioPayload({ caption: "Check out this song" }),
+      ),
     );
-    expect(result).not.toBeNull();
-    expect(result!.message.content).toBe("Check out this song");
-    expect(result!.message.attachments).toEqual([
+    expect(result.message.content).toBe("Check out this song");
+    expect(result.message.attachments).toEqual([
       {
         type: "audio",
         fileId: "audio-file-id-456",
@@ -280,23 +308,22 @@ describe("normalizeTelegramUpdate — audio messages", () => {
   });
 
   it("audio message without caption has empty content", () => {
-    const result = normalizeTelegramUpdate(makeAudioPayload());
-    expect(result).not.toBeNull();
-    expect(result!.message.content).toBe("");
-    expect(result!.message.attachments).toHaveLength(1);
-    expect(result!.message.attachments![0].type).toBe("audio");
+    const result = eventOf(normalizeTelegramUpdate(makeAudioPayload()));
+    expect(result.message.content).toBe("");
+    expect(result.message.attachments).toHaveLength(1);
+    expect(result.message.attachments![0].type).toBe("audio");
   });
 
   it("audio message from non-private chat is rejected", () => {
     const result = normalizeTelegramUpdate(
       makeAudioPayload({ chatType: "supergroup" }),
     );
-    expect(result).toBeNull();
+    expectDrop(result, "chat_not_private");
   });
 
   it("audio message with missing sender is rejected", () => {
     const result = normalizeTelegramUpdate(makeAudioPayload({ fromId: null }));
-    expect(result).toBeNull();
+    expectDrop(result, "missing_sender");
   });
 });
 
@@ -313,40 +340,42 @@ describe("normalizeTelegramUpdate — malformed input is validated, not trusted"
         from: { id: 42, first_name: "Alice" },
       },
     });
-    expect(result).toBeNull();
+    expectDrop(result, "missing_chat");
   });
 
   it("ignores a non-array photo instead of treating it like an array", () => {
     // A non-array photo must be ignored: `.length` on a string would otherwise
     // produce a garbage single-character attachment with an undefined fileId.
-    const result = normalizeTelegramUpdate({
-      update_id: 601,
-      message: {
-        message_id: 61,
-        text: "caption text",
-        photo: "not-an-array",
-        chat: { id: 42, type: "private" },
-        from: { id: 42, first_name: "Alice" },
-      },
-    });
-    expect(result).not.toBeNull();
-    expect(result!.message.content).toBe("caption text");
-    expect(result!.message.attachments).toBeUndefined();
+    const result = eventOf(
+      normalizeTelegramUpdate({
+        update_id: 601,
+        message: {
+          message_id: 61,
+          text: "caption text",
+          photo: "not-an-array",
+          chat: { id: 42, type: "private" },
+          from: { id: 42, first_name: "Alice" },
+        },
+      }),
+    );
+    expect(result.message.content).toBe("caption text");
+    expect(result.message.attachments).toBeUndefined();
   });
 
   it("drops a non-numeric message_thread_id rather than stringifying it", () => {
-    const result = normalizeTelegramUpdate({
-      update_id: 602,
-      message: {
-        message_id: 62,
-        message_thread_id: { bad: true },
-        text: "hi",
-        chat: { id: 42, type: "private" },
-        from: { id: 42, first_name: "Alice" },
-      },
-    });
-    expect(result).not.toBeNull();
-    expect(result!.source.threadId).toBeUndefined();
+    const result = eventOf(
+      normalizeTelegramUpdate({
+        update_id: 602,
+        message: {
+          message_id: 62,
+          message_thread_id: { bad: true },
+          text: "hi",
+          chat: { id: 42, type: "private" },
+          from: { id: 42, first_name: "Alice" },
+        },
+      }),
+    );
+    expect(result.source.threadId).toBeUndefined();
   });
 
   it("preserves the original payload verbatim as `raw`, unknown keys included", () => {
@@ -361,8 +390,7 @@ describe("normalizeTelegramUpdate — malformed input is validated, not trusted"
       // The schema strips this from the parsed working copy; `raw` must keep it.
       unknown_future_field: { anything: 1 },
     };
-    const result = normalizeTelegramUpdate(payload);
-    expect(result).not.toBeNull();
-    expect(result!.raw).toEqual(payload);
+    const result = eventOf(normalizeTelegramUpdate(payload));
+    expect(result.raw).toEqual(payload);
   });
 });
