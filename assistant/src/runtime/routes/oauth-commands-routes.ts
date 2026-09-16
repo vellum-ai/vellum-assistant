@@ -58,6 +58,7 @@ import {
 } from "../../util/oauth-request-body.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
+import { composeRequestHint } from "./oauth-request-hints.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("oauth-commands-routes");
@@ -1040,77 +1041,21 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
       `used "${selected}". Pass --account to select a specific one.`;
   }
 
-  const botChannel = channelForBotProvider(b.provider);
-  if (verdict.reportedFailure) {
-    // The body carries the provider's own error code, so the hint says only
-    // why a 2xx is being reported as a failure.
-    result.hint = `${verdict.reportedFailure} in the response body. The body names the error.`;
-  } else if (response.status === 403 && isHtmlResponse(response.headers)) {
-    // An API refuses with JSON. A 403 carrying an HTML page is a resource
-    // host (a file host, a sign-in page) refusing this identity: the same
-    // token is what the API accepts, and the resource is simply not visible
-    // to it. Blaming the credential sends the caller off to reconnect one
-    // that works.
-    const identity = botChannel ? `${botChannel} bot` : "connected account";
-    const requestHost = parseUrl(baseUrl ?? providerRow.baseUrl)?.hostname;
-    result.hint =
-      `Request returned HTTP 403 with an HTML page${requestHost ? ` from ${requestHost}` : ""}, not an API error. ` +
-      `That usually means the ${identity} cannot see this resource: it is not shared with it, or the scope it needs is missing. ` +
-      `Check the resource's access before treating the credential as revoked; ` +
-      (botChannel
-        ? `'assistant channels get ${botChannel}' reports the credential itself.`
-        : `'assistant oauth status ${b.provider}' reports the credential itself.`);
-  } else if (response.status === 401 || response.status === 403) {
-    // The recovery steps follow the credential's kind, not the door the
-    // request came through: a channel bot's token was stored by the channel's
-    // setup, so the OAuth status and connect commands cannot repair it.
-    result.hint = botChannel
-      ? `Request returned HTTP ${response.status}. The ${botChannel} bot credential was rejected; it may have been revoked or reinstalled with fewer scopes.\n\n` +
-        `Run 'assistant channels get ${botChannel}' to re-probe the channel and see what it reports.\n` +
-        `To reconnect, run the channel's setup skill again.`
-      : managed
-        ? `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-          `Run 'assistant oauth status ${b.provider}' to check connection health.\n` +
-          `To reconnect, run 'assistant oauth connect --help'.`
-        : `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-          `Run 'assistant oauth status ${b.provider}' to check connection status.\n` +
-          `To reconnect, run 'assistant oauth connect --help'.`;
-  } else if (response.status === 404 && isHtmlResponse(response.headers)) {
-    // An HTML 404 (rather than a JSON API error) is the signature of a request
-    // reaching a valid host but a path that host does not serve — e.g. a
-    // relative path resolved against a base URL that points at the wrong
-    // product. Surface the resolved base so the caller can tell where the path
-    // landed, and steer them to an absolute URL for non-default services.
-    const resolvedBaseUrl =
-      baseUrl ?? providerRow.baseUrl ?? "(none configured)";
-    result.hint =
-      `Request returned HTTP ${response.status} with an HTML body, which usually means ` +
-      `the path does not exist on the base URL it resolved against.\n\n` +
-      `This request used base URL "${resolvedBaseUrl}" (relative paths are joined onto it). ` +
-      `If you meant a different service on this provider, pass an absolute URL ` +
-      `(e.g. https://host/full/path) so the host and full path are set explicitly.`;
-  }
-
-  const missingScopes = missingScopesForConnection(providerRow, connection.id);
-  if (missingScopes.length > 0) {
-    const scopeHint =
-      `The ${b.provider} connection is missing required scopes: ${missingScopes.join(", ")}. ` +
-      `It was connected before they were required, so calls that need them fail. ` +
-      `Reconnect it from Integrations, or run 'assistant oauth connect ${b.provider}', to grant them.`;
-    result.hint = result.hint ? `${scopeHint}\n\n${result.hint}` : scopeHint;
+  const hint = composeRequestHint({
+    provider: b.provider,
+    status: response.status,
+    headers: response.headers,
+    reportedFailure: verdict.reportedFailure,
+    botChannel: channelForBotProvider(b.provider),
+    managed,
+    resolvedBaseUrl: baseUrl ?? providerRow.baseUrl ?? undefined,
+    missingScopes: missingScopesForConnection(providerRow, connection.id),
+  });
+  if (hint) {
+    result.hint = hint;
   }
 
   return result;
-}
-
-/** True when the response's Content-Type header indicates an HTML body. */
-function isHtmlResponse(headers: Record<string, string>): boolean {
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === "content-type") {
-      return value.toLowerCase().includes("text/html");
-    }
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------
