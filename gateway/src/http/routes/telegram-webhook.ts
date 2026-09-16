@@ -30,7 +30,10 @@ import { callTelegramApi } from "../../telegram/api.js";
 import { createTelegramBotIdentityResolver } from "../../telegram/bot-identity.js";
 import { downloadTelegramFile } from "../../telegram/download.js";
 import { createTelegramDropLog } from "../../telegram/drop-log.js";
-import { normalizeTelegramUpdate } from "../../telegram/normalize.js";
+import {
+  normalizeTelegramUpdate,
+  telegramUpdateChatType,
+} from "../../telegram/normalize.js";
 import { sendTelegramReply } from "../../telegram/send.js";
 import { verifyWebhookSecret } from "../../telegram/verify.js";
 import {
@@ -288,12 +291,15 @@ export function createTelegramWebhookHandler(
     };
 
     // Normalize the update. The bot's own identity is what lets the
-    // admission gate recognise a room message that addresses it; resolved
-    // once per token and cached, so this costs a call only on the first
+    // admission gate recognise a room message that addresses it. A private
+    // chat is admitted without one, so it is resolved only for other chat
+    // kinds; cached per token, it then costs a call only on the first room
     // update after start or a token rotation.
-    const normalization = normalizeTelegramUpdate(payload, {
-      bot: await resolveBotIdentity(),
-    });
+    const bot =
+      telegramUpdateChatType(payload) === "private"
+        ? undefined
+        : await resolveBotIdentity();
+    const normalization = normalizeTelegramUpdate(payload, { bot });
     if (normalization.dropped) {
       // Telegram sees a 200 either way, so this line is the only place the
       // drop exists. Severity splits by reason and volume is capped at the
