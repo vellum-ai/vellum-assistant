@@ -363,6 +363,7 @@ export interface VoiceRunEventSink {
     toolName: string,
     input: Record<string, unknown>,
     toolUseId?: string,
+    allowedToolNames?: ReadonlySet<string>,
   ): void;
   onToolResult(event: VoiceToolResultEvent): void;
 }
@@ -377,7 +378,11 @@ export interface VoiceTurnCallbacks {
   /** Fired when the agent run starts a definitive tool use this turn. */
   tool_use_start?: (
     toolName: string,
-    detail?: { toolUseId?: string; input?: Record<string, unknown> },
+    detail?: {
+      toolUseId?: string;
+      input?: Record<string, unknown>;
+      allowedToolNames?: ReadonlySet<string>;
+    },
   ) => void;
   /** Fired when a tool invocation finishes. */
   tool_result?: (event: VoiceToolResultEvent) => void;
@@ -928,9 +933,13 @@ export async function startVoiceTurn(
     onError: (message) => {
       opts.onError?.(message);
     },
-    onToolUse: (toolName, input, toolUseId) => {
+    onToolUse: (toolName, input, toolUseId, allowedToolNames) => {
       log.debug({ toolName, input }, "Voice turn tool_use event");
-      opts.callbacks?.tool_use_start?.(toolName, { toolUseId, input });
+      opts.callbacks?.tool_use_start?.(toolName, {
+        toolUseId,
+        input,
+        ...(allowedToolNames !== undefined ? { allowedToolNames } : {}),
+      });
     },
     onToolResult: (event) => {
       opts.callbacks?.tool_result?.(event);
@@ -2088,7 +2097,12 @@ export async function startVoiceTurn(
           } else if (msg.type === "conversation_error") {
             eventSink.onError(msg.userMessage);
           } else if (msg.type === "tool_use_start") {
-            eventSink.onToolUse(msg.toolName, msg.input, msg.toolUseId);
+            eventSink.onToolUse(
+              msg.toolName,
+              msg.input,
+              msg.toolUseId,
+              conversation.allowedToolNames,
+            );
           } else if (msg.type === "tool_result") {
             eventSink.onToolResult({
               toolName: msg.toolName,

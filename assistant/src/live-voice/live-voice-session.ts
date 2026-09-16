@@ -739,6 +739,9 @@ interface ActiveAssistantTurn {
   // turn commits or on the synthetic resume turn; speculative discards never
   // mutate the session's task state.
   hostTaskEpoch: number | null;
+  // Snapshot retained while a tool-capable leg owns suspended work. If that
+  // leg fails asynchronously, the task returns to the same suspension budget.
+  hostTaskSuspensionSnapshot: SuspendedHostTask | null;
   // Set when a barge-in handed the interrupted work to a background subagent:
   // that request's transcript, so the model can tell the user the work is
   // still running instead of appearing to have dropped it.
@@ -1120,10 +1123,11 @@ function foregroundToolContendsWithContinuation(
 function hostInteractiveToolName(
   toolName: string,
   input?: Record<string, unknown>,
+  allowedToolNames?: ReadonlySet<string>,
 ): string | null {
   const effectiveToolName =
     toolName === "skill_execute"
-      ? resolveSkillExecuteInvocation(input ?? {}).name
+      ? resolveSkillExecuteInvocation(input ?? {}, allowedToolNames).name
       : toolName;
   return getTool(effectiveToolName)?.executionTarget === "host"
     ? effectiveToolName
@@ -3437,6 +3441,41 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return true;
   }
 
+  private rearmHostTaskAfterLegFailure(turn: ActiveAssistantTurn): boolean {
+    const epoch = turn.hostTaskEpoch;
+    if (epoch === null) {
+      return false;
+    }
+    const current = this.hostTaskState;
+    if (current?.phase === "suspended" && current.epoch === epoch) {
+      return this.markHostTaskResumePending(epoch);
+    }
+    const snapshot = turn.hostTaskSuspensionSnapshot;
+    if (
+      current?.phase !== "owned" ||
+      current.epoch !== epoch ||
+      current.ownerToken !== turn.token ||
+      snapshot?.epoch !== epoch
+    ) {
+      return false;
+    }
+    const next: SuspendedHostTask = {
+      ...snapshot,
+      resumePending: true,
+    };
+    const expired = this.hostTaskSuspensionExpired(next);
+    if (expired !== null) {
+      this.clearHostTask(`suspended_${expired}`);
+      return false;
+    }
+    this.hostTaskState = next;
+    log.info(
+      { turnId: turn.turnId, epoch },
+      "Host task re-armed after tool-capable leg failure",
+    );
+    return true;
+  }
+
   private clearHostTaskResumeTimer(): void {
     if (this.hostTaskResumeTimer !== null) {
       clearTimeout(this.hostTaskResumeTimer);
@@ -5637,6 +5676,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       lookFollowUp: opts?.lookFollowUp ?? null,
       hiddenPrompt: opts?.hiddenPrompt === true,
       hostTaskEpoch,
+      hostTaskSuspensionSnapshot:
+        suspendedHostTask?.epoch === hostTaskEpoch
+          ? { ...suspendedHostTask }
+          : null,
       deltaEpoch: 0,
       frontDoor: null,
       ttsBuffer: "",
@@ -6073,6 +6116,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             const effectiveHostTool = hostInteractiveToolName(
               toolName,
               detail?.input,
+              detail?.allowedToolNames,
             );
             if (effectiveHostTool !== null) {
               this.noteHostToolStarted(current, effectiveHostTool);
@@ -6163,7 +6207,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             if (currentTurn?.token !== token) {
               return;
             }
+            const hostTaskResumeRearmed =
+              !leg.frontDoor &&
+              !currentTurn.discardRequested &&
+              !currentTurn.abortController.signal.aborted &&
+              this.rearmHostTaskAfterLegFailure(currentTurn);
             await this.finalizeAssistantTurn(currentTurn, "cancelled", "error");
+            if (hostTaskResumeRearmed) {
+              this.scheduleHostTaskResume();
+            }
           })();
         },
       });
@@ -6219,10 +6271,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       const hostTaskResumeRearmed =
         !leg.frontDoor &&
         leg.directEscalated !== true &&
-        activeTurn.hostTaskEpoch !== null &&
         !activeTurn.discardRequested &&
         !activeTurn.abortController.signal.aborted &&
-        this.markHostTaskResumePending(activeTurn.hostTaskEpoch);
+        this.rearmHostTaskAfterLegFailure(activeTurn);
       this.clearFillerTimers(activeTurn);
       this.clearActiveAssistantTurn(token);
       if (hostTaskResumeRearmed) {

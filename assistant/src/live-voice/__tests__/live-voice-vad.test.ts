@@ -507,6 +507,7 @@ async function startHostTaskBargeInScenario(options?: {
   hostTaskMaxSuspendedMs?: number;
   hostTaskResumeSilenceMs?: number;
   skillExecuteInput?: Record<string, unknown>;
+  skillExecuteAllowedToolNames?: ReadonlySet<string>;
 }): Promise<{
   calls: VoiceTurnOptions[];
   frames: LiveVoiceServerFrame[];
@@ -556,6 +557,9 @@ async function startHostTaskBargeInScenario(options?: {
       tool: "computer_use_observe",
       input: {},
     },
+    ...(options?.skillExecuteAllowedToolNames !== undefined
+      ? { allowedToolNames: options.skillExecuteAllowedToolNames }
+      : {}),
   });
   await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
   await waitFor(() => calls.length === 3);
@@ -572,6 +576,7 @@ describe("LiveVoiceSession server VAD", () => {
     registerSkillTools("computer-use-test", [
       finalizeTool(computerUseKeyTool),
       finalizeTool(computerUseObserveTool),
+      finalizeTool({ ...computerUseObserveTool, name: "read_file" }),
     ]);
   });
   afterAll(() => unregisterSkillTools("computer-use-test"));
@@ -752,6 +757,18 @@ describe("LiveVoiceSession server VAD", () => {
     await session.close("client_end");
   });
 
+  test("preserves an allowed host tool whose name is also an alias", async () => {
+    const { session, spawnBackgroundContinuation } =
+      await startHostTaskBargeInScenario({
+        skillExecuteInput: { tool: "read_file", input: {} },
+        skillExecuteAllowedToolNames: new Set(["read_file"]),
+      });
+
+    expect(spawnBackgroundContinuation).not.toHaveBeenCalled();
+    expect(hostTaskStateOf(session)).toMatchObject({ phase: "suspended" });
+    await session.close("client_end");
+  });
+
   test("retries suspended host work when the handed-off leg fails to start", async () => {
     const calls: VoiceTurnOptions[] = [];
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
@@ -797,6 +814,29 @@ describe("LiveVoiceSession server VAD", () => {
     await waitFor(() => calls.length === 5);
 
     expect(calls[3]).toMatchObject({ routingLeg: "escalated" });
+    expect(calls[4]).toMatchObject({
+      routingLeg: "escalated",
+      directEscalated: true,
+      hiddenSyntheticPrompt: true,
+    });
+    calls[4]?.callbacks?.assistant_text_delta?.(makeTextDelta("[TASK:STOP]"));
+    calls[4]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => hostTaskStateOf(session) === null);
+  });
+
+  test("retries suspended host work when the handed-off leg fails asynchronously", async () => {
+    const { calls, session } = await startHostTaskBargeInScenario();
+
+    calls[2]?.callbacks?.assistant_text_delta?.(
+      makeTextDelta("[1] I will continue."),
+    );
+    calls[2]?.callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => calls.length === 4);
+    await waitFor(() => hostTaskStateOf(session)?.phase === "owned");
+
+    calls[3]?.onError?.("strong leg failed");
+    await waitFor(() => calls.length === 5);
+
     expect(calls[4]).toMatchObject({
       routingLeg: "escalated",
       directEscalated: true,

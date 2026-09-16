@@ -1977,7 +1977,7 @@ describe("startVoiceTurn tool-event forwarding", () => {
     fakeConversation = fake.conversation;
   }
 
-  test("tool_use_start delivers the tool name, toolUseId, and input", async () => {
+  test("tool_use_start delivers the tool name, input, and active allowlist", async () => {
     makeEventEmittingConversation([
       {
         type: "tool_use_start",
@@ -1986,6 +1986,11 @@ describe("startVoiceTurn tool-event forwarding", () => {
         toolUseId: "toolu-1",
       },
     ]);
+    (
+      fakeConversation as typeof fakeConversation & {
+        allowedToolNames?: Set<string>;
+      }
+    ).allowedToolNames = new Set(["web_search"]);
 
     const starts: Array<{ toolName: string; detail?: unknown }> = [];
     await startVoiceTurn({
@@ -1999,7 +2004,11 @@ describe("startVoiceTurn tool-event forwarding", () => {
     expect(starts).toEqual([
       {
         toolName: "web_search",
-        detail: { toolUseId: "toolu-1", input: { query: "weather" } },
+        detail: {
+          toolUseId: "toolu-1",
+          input: { query: "weather" },
+          allowedToolNames: new Set(["web_search"]),
+        },
       },
     ]);
   });
