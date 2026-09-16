@@ -489,31 +489,36 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       ? subscription.current_period_end
       : undefined;
   const renewalDate = usagePeriodEnd ? formatMonthDay(usagePeriodEnd) : null;
-  const priceRow = priceLabel ? (
-    <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
-      <Typography
-        as="span"
-        variant="body-large-default"
-        className="text-[var(--content-tertiary)]"
-        data-testid="plan-card-price"
-      >
-        {priceLabel}
-      </Typography>
-      {renewalDate ? (
-        // The price row is the footer only while there is no reading to
-        // chart, so a renewing sub keeps its date here rather than losing it
-        // to a summary that has not loaded.
-        <Typography
-          as="span"
-          variant="body-small-default"
-          className="whitespace-nowrap text-[var(--content-tertiary)]"
-          data-testid="plan-card-renews"
-        >
-          {t("planCard.usageBalanceRenews", { date: renewalDate })}
-        </Typography>
-      ) : null}
-    </div>
-  ) : undefined;
+  // The footer while there is no reading to chart: the catalog price, with
+  // the renewal date beside it so a renewing sub keeps its date rather than
+  // losing it to a summary that has not loaded. Either alone still makes the
+  // row: a Custom or catalog-less sub has no price to quote but a renewal to
+  // date all the same.
+  const footerRow =
+    priceLabel || renewalDate ? (
+      <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
+        {priceLabel ? (
+          <Typography
+            as="span"
+            variant="body-large-default"
+            className="text-[var(--content-tertiary)]"
+            data-testid="plan-card-price"
+          >
+            {priceLabel}
+          </Typography>
+        ) : null}
+        {renewalDate ? (
+          <Typography
+            as="span"
+            variant="body-small-default"
+            className="whitespace-nowrap text-[var(--content-tertiary)]"
+            data-testid="plan-card-renews"
+          >
+            {t("planCard.usageBalanceRenews", { date: renewalDate })}
+          </Typography>
+        ) : null}
+      </div>
+    ) : undefined;
   // The add-credits strip is only warranted once the wallet behind the bundle
   // is empty too: a sub at 100% whose purchased credits still cover the next
   // turn has nothing to buy. The bar goes red either way.
@@ -534,9 +539,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // The tile trades its price for the usage balance, so the two never state
   // the same allowance twice. With no bar to trade for (a free account that
   // was never granted usage, or a platform whose summary reports no grant
-  // figures), the price row stays as the footer rather than leaving the tile
-  // with an empty bottom slot, and dates the renewal itself.
-  const currentFooter: ReactNode = usagePanel ?? priceRow;
+  // figures), the footer row stays rather than leaving the tile with an empty
+  // bottom slot.
+  const currentFooter: ReactNode = usagePanel ?? footerRow;
 
   return (
     <Card padding="md">

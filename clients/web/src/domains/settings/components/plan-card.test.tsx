@@ -655,6 +655,8 @@ describe("PlanCard", () => {
       expect(html).not.toContain(label);
     }
     expect(html).not.toContain("plan-card-price");
+    // The renewal date is the subscription's own, so it survives the miss.
+    expect(html).toContain("plan-card-renews");
   });
 
   test("a clean pin on an older package version shows no chips or price", () => {
@@ -674,6 +676,11 @@ describe("PlanCard", () => {
       expect(current.queryByText(label)).toBeNull();
     }
     expect(current.queryByTestId("plan-card-price")).toBeNull();
+    // The renewal date is the subscription's own, so the footer keeps it even
+    // with no price to quote beside it.
+    expect(current.getByTestId("plan-card-renews").textContent).toBe(
+      "Renews on Aug 10",
+    );
     // Super is still the next package up, but its CTA quotes no delta.
     const next = within(nextTile(host));
     expect(next.getByText("Super")).toBeTruthy();

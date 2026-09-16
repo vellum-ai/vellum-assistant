@@ -73,20 +73,22 @@ const NEXT_PLAN_TAG = (
 );
 
 /**
- * The current-plan tile's footer: a rule and the monthly price, with the
- * renewal date beside it for a sub that has one, as `plan-card.tsx` lays it
- * out when there is no usage reading to chart instead.
+ * The current-plan tile's footer when there is no usage reading to chart, as
+ * `plan-card.tsx` lays it out: a rule, the monthly price where the catalog
+ * has one, and the renewal date beside it for a sub that has one.
  */
-function priceFooter(label: string, renewal?: string) {
+function priceFooter(label: string | null, renewal?: string) {
   return (
     <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
-      <Typography
-        as="span"
-        variant="body-large-default"
-        className="text-[var(--content-tertiary)]"
-      >
-        {label}
-      </Typography>
+      {label ? (
+        <Typography
+          as="span"
+          variant="body-large-default"
+          className="text-[var(--content-tertiary)]"
+        >
+          {label}
+        </Typography>
+      ) : null}
       {renewal ? (
         <Typography
           as="span"
@@ -263,7 +265,8 @@ export const CurrentPaidExhausted: Story = {
  * A Custom subscriber, whose tier configuration matches no catalog package.
  * `"custom"` is not in the creature trait table, so `PlanTierAvatar` falls back
  * to the Free creature. There is no package to enumerate and no catalog price
- * to quote, so the tile carries neither chips nor a footer.
+ * to quote, so the tile carries no chips, and until its usage reading arrives
+ * the footer holds only the renewal date.
  */
 export const CurrentCustom: Story = {
   args: {
@@ -273,6 +276,7 @@ export const CurrentCustom: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: null,
+    footer: priceFooter(null, `Renews on ${formatMonthDay(STORY_PERIOD_END)}`),
   },
 };
 
