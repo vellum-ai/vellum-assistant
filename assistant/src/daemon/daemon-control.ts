@@ -258,15 +258,11 @@ async function getDaemonStatus(): Promise<{
   return { running: true, pid };
 }
 
-function getStartupLockPath(): string {
-  return getDaemonStartupLockPath();
-}
-
 /** Attempt to acquire a startup lock. Returns true on success. Stale locks
  *  (older than STARTUP_LOCK_STALE_MS) are forcibly removed to prevent
  *  permanent deadlocks from a crashed caller. */
 function acquireStartupLock(): boolean {
-  const lockPath = getStartupLockPath();
+  const lockPath = getDaemonStartupLockPath();
   try {
     // Ensure the root directory exists before attempting the lock file write.
     // On a first-time run, getRootDir() may not exist yet, and writeFileSync
@@ -293,7 +289,7 @@ function acquireStartupLock(): boolean {
 
 function releaseStartupLock(): void {
   try {
-    unlinkSync(getStartupLockPath());
+    unlinkSync(getDaemonStartupLockPath());
   } catch {
     /* already removed */
   }
