@@ -106,6 +106,7 @@ describe("consumeBufferEntries", () => {
       alreadyAbsent: 0,
       lateAppendBytesRecovered: 0,
       unrecoveredLateAppendBytes: 0,
+      lateAppendDrainFailed: false,
     });
     expect(readFileSync(bufferPath, "utf-8")).toBe(file(C, D));
   });
@@ -147,6 +148,7 @@ describe("consumeBufferEntries", () => {
       alreadyAbsent: 1,
       lateAppendBytesRecovered: 0,
       unrecoveredLateAppendBytes: 0,
+      lateAppendDrainFailed: false,
     });
     expect(existsSync(bufferPath)).toBe(false);
   });
@@ -204,6 +206,7 @@ describe("consumeBufferEntries", () => {
       expect(result.removed).toBe(1);
       expect(result.lateAppendBytesRecovered).toBe(0);
       expect(result.unrecoveredLateAppendBytes).toBe(file(C).length);
+      expect(result.lateAppendDrainFailed).toBe(false);
       expect(texts()).toEqual([B]);
     } finally {
       chmodSync(bufferPath, 0o644);

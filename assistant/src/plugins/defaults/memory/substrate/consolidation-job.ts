@@ -173,6 +173,9 @@ const CONSOLIDATION_DURABLE_TOOLS: ReadonlySet<string> = new Set([
   "delete_memory_page",
 ]);
 
+/** The shell on the consolidation surface, counted for diagnosis only. */
+const SHELL_TOOLS: ReadonlySet<string> = new Set(["bash"]);
+
 /**
  * Durable checkpoint tracking consecutive consolidation run failures.
  *
@@ -604,7 +607,11 @@ export async function memoryV2ConsolidateJob(
     // removes exactly the pass's entries and leaves every other entry
     // (deferred past the cap, or appended during the run) in place.
     let consumed: ConsumeBufferEntriesResult | null = null;
-    let evidence: RunEvidence = { durableWrites: 0, concluded: false };
+    let evidence: RunEvidence = {
+      durableWrites: 0,
+      shellCalls: 0,
+      concluded: false,
+    };
     if (runResult.skipReason === undefined) {
       evidence = await readRunEvidence(runResult.conversationId);
       if (evidence.durableWrites > 0 && evidence.concluded) {
@@ -621,6 +628,12 @@ export async function memoryV2ConsolidateJob(
       }
     }
     const noProgress = consumed === null;
+    if (consumed !== null && consumed.lateAppendDrainFailed) {
+      log.error(
+        { conversationId: runResult.conversationId },
+        "consolidation: the replaced buffer inode could not be read after the rewrite; any entry appended during it is in the daily archive only",
+      );
+    }
     if (consumed !== null && consumed.unrecoveredLateAppendBytes > 0) {
       // The pass is consumed (the rename committed) but bytes an appender
       // landed on the replaced inode could not be copied back. Those
@@ -677,10 +690,13 @@ export async function memoryV2ConsolidateJob(
           cutoff,
           passEntries: pass.length,
           durableWrites: evidence.durableWrites,
+          shellCalls: evidence.shellCalls,
           concluded: evidence.concluded,
           skipReason: runResult.skipReason,
         },
-        "consolidation run completed without a verified page write and a closing reply; buffer left intact, follow-ups skipped",
+        evidence.durableWrites === 0 && evidence.shellCalls > 0
+          ? "consolidation run wrote no pages through the file tools (it used the shell); buffer left intact, follow-ups skipped"
+          : "consolidation run completed without a verified page write and a closing reply; buffer left intact, follow-ups skipped",
       );
       return {
         kind: "invoked",
@@ -881,6 +897,12 @@ interface RunEvidence {
   /** Page-writing tool calls whose execution verifiably succeeded. */
   durableWrites: number;
   /**
+   * Shell calls the run made, successful or not. Never evidence of filing
+   * (a shell call carries no record of what it did); reported so a run
+   * that wrote its pages through the shell is diagnosable from the log.
+   */
+  shellCalls: number;
+  /**
    * The run's final row is an assistant reply in its own words, with no
    * tool call on it: the shape of a run the model ended itself.
    */
@@ -904,7 +926,7 @@ async function readRunEvidence(conversationId: string): Promise<RunEvidence> {
       { err, conversationId },
       "consolidation: failed to load the run's messages; treating the run as having filed nothing",
     );
-    return { durableWrites: 0, concluded: false };
+    return { durableWrites: 0, shellCalls: 0, concluded: false };
   }
   return {
     durableWrites: countDurableToolUses(
@@ -912,6 +934,7 @@ async function readRunEvidence(conversationId: string): Promise<RunEvidence> {
       CONSOLIDATION_DURABLE_TOOLS,
       collectSuccessfulToolResultIds(messages),
     ),
+    shellCalls: countDurableToolUses(messages, SHELL_TOOLS, null),
     concluded: endsWithTextReply(messages),
   };
 }

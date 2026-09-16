@@ -155,6 +155,12 @@ export interface ConsumeBufferEntriesResult {
    * committed); these entries remain only in the daily archive.
    */
   unrecoveredLateAppendBytes: number;
+  /**
+   * The replaced inode could not be inspected or read after the rename, so
+   * any append that landed on it is unaccounted for (not even counted in
+   * `unrecoveredLateAppendBytes`). The pass is consumed regardless.
+   */
+  lateAppendDrainFailed: boolean;
 }
 
 /**
@@ -195,6 +201,7 @@ export async function consumeBufferEntries(
         alreadyAbsent: pending.length,
         lateAppendBytesRecovered: 0,
         unrecoveredLateAppendBytes: 0,
+        lateAppendDrainFailed: false,
       };
     }
     throw err;
@@ -231,35 +238,28 @@ export async function consumeBufferEntries(
 
     // Drain: appends that landed on the replaced inode after the read. The
     // rename has committed, so from here nothing throws: a copy that fails
-    // is retried, and bytes that cannot be copied are reported, not raised.
+    // is retried, bytes that cannot be copied are reported, and a replaced
+    // inode that cannot even be read is reported, all without raising.
     let lateAppendBytesRecovered = 0;
     let unrecoveredLateAppendBytes = 0;
-    const drain = async (): Promise<void> => {
-      const size = fstatSync(fd).size;
-      if (size <= drainedTo) {
-        return;
-      }
-      const late = Buffer.alloc(size - drainedTo);
-      const read = readSync(fd, late, 0, late.length, drainedTo);
-      const bytes = late.subarray(0, read);
+    let lateAppendDrainFailed = false;
+    const copyBack = async (bytes: Buffer): Promise<void> => {
       for (let attempt = 1; ; attempt++) {
         try {
           appendFileSync(bufferPath, bytes);
-          drainedTo += read;
-          lateAppendBytesRecovered += read;
+          lateAppendBytesRecovered += bytes.length;
           return;
         } catch (err) {
           if (attempt >= LATE_APPEND_COPY_ATTEMPTS) {
             log.error(
-              { err, bufferPath, bytes: read, attempt },
+              { err, bufferPath, bytes: bytes.length, attempt },
               "buffer consume: could not copy entries appended during the rewrite back into the buffer; giving them up",
             );
-            drainedTo += read;
-            unrecoveredLateAppendBytes += read;
+            unrecoveredLateAppendBytes += bytes.length;
             return;
           }
           log.warn(
-            { err, bufferPath, bytes: read, attempt },
+            { err, bufferPath, bytes: bytes.length, attempt },
             "buffer consume: copying late-appended entries failed; retrying",
           );
           await new Promise((resolve) =>
@@ -268,11 +268,34 @@ export async function consumeBufferEntries(
         }
       }
     };
+    const drain = async (): Promise<void> => {
+      let late: Buffer;
+      try {
+        const size = fstatSync(fd).size;
+        if (size <= drainedTo) {
+          return;
+        }
+        late = Buffer.alloc(size - drainedTo);
+        const read = readSync(fd, late, 0, late.length, drainedTo);
+        late = late.subarray(0, read);
+        drainedTo += read;
+      } catch (err) {
+        log.error(
+          { err, bufferPath },
+          "buffer consume: could not read the replaced inode for entries appended during the rewrite",
+        );
+        lateAppendDrainFailed = true;
+        return;
+      }
+      await copyBack(late);
+    };
     await drain();
     if (graceMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, graceMs));
     }
-    await drain();
+    if (!lateAppendDrainFailed) {
+      await drain();
+    }
     if (lateAppendBytesRecovered > 0) {
       log.info(
         { bufferPath, lateAppendBytesRecovered },
@@ -285,6 +308,7 @@ export async function consumeBufferEntries(
       alreadyAbsent: pending.length,
       lateAppendBytesRecovered,
       unrecoveredLateAppendBytes,
+      lateAppendDrainFailed,
     };
   } finally {
     closeSync(fd);
