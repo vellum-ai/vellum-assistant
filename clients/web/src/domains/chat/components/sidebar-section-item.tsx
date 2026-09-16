@@ -13,6 +13,12 @@
  * a custom group adds rename/delete/copy-id, Chats and the channel sections add
  * the channel-grouping toggle.
  *
+ * The one shell difference is the assistant's section, which drops the header
+ * chevron: it is not a card in the list with an open state of its own, it is
+ * mounted and unmounted by the round chat toggle beside the assistant pill, so
+ * that toggle is its only open/close control and the "…" is all its header
+ * carries (see `collapsible` below).
+ *
  * The row list is the one real exception: every section caps and scrolls
  * within itself, except Pinned (grows to fit its own rows instead, see
  * `unbounded` on `ConversationRowList`) and the bottom-most section (may
@@ -141,7 +147,7 @@ export function SidebarSectionItem({
       }
       /* On the rail, the whole header on its own surface: the New Chat
          pill's exact wash (PANEL_ITEM_WASH rest = a 15% accent mix into
-         --surface-lift), spanning glyph, label, unread dot, and chevron
+         --surface-lift), spanning glyph, label, unread dot, and the "…"
          edge to edge - one pill, not a pill with the controls stranded
          outside it. 36px stands it at the height of a collapsed side-menu
          item, whose full roundness is likewise half of 36. The glyph keeps
@@ -232,6 +238,15 @@ export function SidebarSectionItem({
       // rest). It is the one section that never caps/scrolls internally:
       // it grows to fit its own rows instead.
       unbounded={section.type === "pinned"}
+      /* The assistant's section is the one that cannot collapse. It is not a
+         card standing in the list with its own open state: it is mounted by
+         the round chat toggle beside the assistant pill and unmounted by the
+         same press, so a chevron on its header would offer a second, weaker
+         way to dismiss it - one that leaves a bare "From me" strip hanging
+         under the pill where the user expected the card gone. Dropping the
+         chevron leaves the "…" as the header's only control, and the toggle
+         as the only thing that opens and closes the container. */
+      collapsible={!isAssistantSection}
       isLast={isLast}
       maxHeight={isAssistantSection ? ASSISTANT_SECTION_MAX_HEIGHT : undefined}
       expandable={section.type === "recents" || section.type === "channel"}

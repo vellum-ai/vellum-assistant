@@ -553,17 +553,17 @@ export function AssistantSideMenu({
   /* Mounted only while open: closed, the toggle is the section's whole
      presence, so nothing of the card (not even a collapsed header) is drawn
      beneath the pill. Its own accordion root, because the card is not in the
-     list's; the header chevron still closes it through the same state. Not
-     draggable and never the fill section: it hangs off the pill, not the
-     list. */
+     list's; the root is held permanently open because the toggle beside the
+     pill is the only control over this card's presence - the card itself
+     carries no chevron and cannot collapse (see `collapsible` in
+     `SidebarSectionItem`), so pressing the same chat glyph again is what
+     dismisses it. Not draggable and never the fill section: it hangs off the
+     pill, not the list. */
   const assistantSectionCard =
     assistantSection && !isCollapsedRail && assistantSectionOpen ? (
       <CollapsibleNavSection.Root
         type="multiple"
         value={[ASSISTANT_SECTION_KEY]}
-        onValueChange={(next) =>
-          setAssistantSectionOpen(next.includes(ASSISTANT_SECTION_KEY))
-        }
       >
         <SidebarSectionItem
           section={assistantSection}

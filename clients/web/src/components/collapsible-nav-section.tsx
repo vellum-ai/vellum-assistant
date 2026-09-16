@@ -198,7 +198,7 @@ interface CollapsibleNavSectionSectionProps extends Omit<
   /**
    * Extra classes for the whole header row - for a section that draws its
    * header on its own surface (the assistant-initiated section's
-   * accent-tinted pill, which spans disc, label, indicator, and chevron).
+   * accent-tinted pill, which spans disc, label, indicator, and the "…").
    * The title's horizontal geometry is inline style from
    * `sidebar-nav-geometry`, so a header surface that needs different insets
    * overrides them with `!` utilities against the title slot.
@@ -405,9 +405,18 @@ function CollapsibleNavSectionSection({
         // Non-collapsible: no chevron, no toggle affordance, just the icon
         // slot (if given) and the label, always at rest. Half the usual
         // mobile bottom padding: the gap to the first row below reads as too
-        // large at the full py-3.
+        // large at the full py-3 - but only off a card, whose own inset
+        // already spaces the header from its rows and whose header row is a
+        // fixed height that extra padding would push past.
+        //
+        // Carries the same `data-slot` the trigger branch does: a caller
+        // that restyles the title row (the assistant section's pill, which
+        // zeroes its padding and pulls its glyph in to the pill's inset)
+        // addresses it through that slot, and must reach it whichever
+        // element the row turned out to be.
         <SideMenu.SectionHeader
-          className={cn(titleClasses, "max-md:pt-3 max-md:pb-1.5")}
+          data-slot="collapsible-nav-section-title"
+          className={cn(titleClasses, !card && "max-md:pt-3 max-md:pb-1.5")}
           style={titleStyle}
         >
           {titleContent}

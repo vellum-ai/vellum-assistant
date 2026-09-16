@@ -198,6 +198,42 @@ describe("SidebarSectionItem — the assistant-initiated section", () => {
     );
   });
 
+  /* The card is mounted and unmounted by the round chat toggle beside the
+     assistant pill, so that toggle is its only open/close control. A chevron
+     on the header would be a second, weaker one: pressing it would leave a
+     bare "From me" strip hanging under the pill where the user expected the
+     container gone. */
+  test("carries no chevron, so the toggle is its only way closed", () => {
+    const { container } = renderSection(assistantSection());
+
+    expect(
+      container.querySelector('[data-slot="collapsible-nav-section-chevron"]'),
+    ).toBeNull();
+  });
+
+  test("keeps the … menu, the one control its header does carry", () => {
+    const { container } = renderSection(assistantSection());
+
+    expect(
+      container.querySelector('[data-slot="collapsible-nav-section-trailing"]'),
+    ).not.toBeNull();
+  });
+
+  /* Its header is a plain row rather than a disclosure trigger now, and the
+     accent pill's insets are written against the title slot - so the slot has
+     to survive the branch, or the pill loses its 8px lead-in and its zeroed
+     padding and the header stands taller and further right than the New Chat
+     pill beside it. */
+  test("names its title row the same way the collapsible branch does", () => {
+    const { container } = renderSection(assistantSection());
+
+    const title = container.querySelector(
+      '[data-slot="collapsible-nav-section-title"]',
+    );
+    expect(title).not.toBeNull();
+    expect(title?.tagName).not.toBe("BUTTON");
+  });
+
   test("shows the empty state in place of the rows when it has none", () => {
     renderSection(assistantSection());
 
@@ -230,5 +266,20 @@ describe("SidebarSectionItem — every other section", () => {
 
     expect(screen.queryByText("Nothing on my mind yet.")).toBeNull();
     expect(screen.getByText("Chats")).toBeTruthy();
+  });
+
+  /* The assistant's section is the only one that drops the chevron: every
+     other section is a card standing in the list with an open state of its
+     own, and the header is how that state is reached. */
+  test("keeps its chevron and its collapsible header", () => {
+    const { container } = renderSection(chatsSection());
+
+    expect(
+      container.querySelector('[data-slot="collapsible-nav-section-chevron"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-slot="collapsible-nav-section-title"]')
+        ?.tagName,
+    ).toBe("BUTTON");
   });
 });
