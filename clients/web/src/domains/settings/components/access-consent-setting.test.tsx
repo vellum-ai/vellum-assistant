@@ -31,9 +31,10 @@ interface RequestArgs {
 let consented = false;
 const getCalls: RequestArgs[] = [];
 const patchCalls: RequestArgs[] = [];
-// When null, PATCH responses wait until the test releases them, so a test
-// can change the active assistant while a write is still in flight.
-let releasePatch: (() => void) | null = () => {};
+// When `release` is null, PATCH responses wait until the test releases
+// them, so a test can change the active assistant while a write is still in
+// flight. Held in an object so TypeScript does not narrow it across awaits.
+const patchGate: { release: (() => void) | null } = { release: () => {} };
 
 mock.module("@/generated/api/client.gen", () => ({
   client: {
@@ -46,9 +47,9 @@ mock.module("@/generated/api/client.gen", () => ({
     },
     patch: async (args: RequestArgs) => {
       patchCalls.push(args);
-      if (releasePatch === null) {
+      if (patchGate.release === null) {
         await new Promise<void>((resolve) => {
-          releasePatch = resolve;
+          patchGate.release = resolve;
         });
       }
       consented = args.body?.access_consented ?? consented;
@@ -98,7 +99,7 @@ describe("AccessConsentSetting", () => {
     consented = false;
     getCalls.length = 0;
     patchCalls.length = 0;
-    releasePatch = () => {};
+    patchGate.release = () => {};
     useResolvedAssistantsStore.getState().setActiveAssistantId(ASSISTANT_ID);
   });
 
@@ -139,15 +140,15 @@ describe("AccessConsentSetting", () => {
     await waitFor(() => expect(isDisabled(toggle)).toBe(false));
 
     // Hold the PATCH open, click, then switch the active assistant.
-    releasePatch = null;
+    patchGate.release = null;
     fireEvent.click(toggle);
     await waitFor(() => expect(patchCalls).toHaveLength(1));
     expect(patchCalls[0].path?.id).toBe(ASSISTANT_ID);
     useResolvedAssistantsStore.getState().setActiveAssistantId(OTHER_ID);
 
     // Let the original write settle.
-    await waitFor(() => expect(releasePatch).not.toBeNull());
-    releasePatch?.();
+    await waitFor(() => expect(patchGate.release).not.toBeNull());
+    patchGate.release?.();
 
     // The response belongs to the first assistant. The second assistant's
     // query fetched its own value (false) and must not inherit true.
