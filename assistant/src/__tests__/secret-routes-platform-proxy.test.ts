@@ -270,32 +270,38 @@ describe("secret routes managed proxy registry sync", () => {
     expect(providerRefreshCalls).toBe(2);
   });
 
-  test("deleting vellum:assistant_api_key clears managed fallback providers immediately", async () => {
+  test("deleting a vellum credential is rejected without touching the vault", async () => {
     secureKeyStore[ASSISTANT_API_KEY_PATH] = "ast-managed-key";
+    secureKeyStore[PLATFORM_BASE_URL_PATH] = "https://managed.example.com";
+    platformBaseUrlOverride = "https://managed.example.com";
+    platformAssistantIdOverride = "asst-1";
     await initializeProviders(getConfig());
 
-    for (const provider of MANAGED_PROVIDERS) {
-      expect(listProviders()).toContain(provider);
-      expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
+    for (const name of [
+      "vellum:assistant_api_key",
+      "vellum:platform_base_url",
+      "vellum:webhook_secret",
+      "vellum:platform_assistant_id",
+    ]) {
+      await expect(deleteCredential(name)).rejects.toThrow(
+        "Vellum credentials cannot be deleted",
+      );
     }
 
-    await deleteCredential("vellum:assistant_api_key");
-
-    expect(secureKeyStore[ASSISTANT_API_KEY_PATH]).toBeUndefined();
-    expect(metadataDeletes).toEqual([
-      { service: "vellum", field: "assistant_api_key" },
-    ]);
-    expect(listProviders()).toEqual([]);
+    expect(secureKeyStore[ASSISTANT_API_KEY_PATH]).toBe("ast-managed-key");
+    expect(secureKeyStore[PLATFORM_BASE_URL_PATH]).toBe(
+      "https://managed.example.com",
+    );
+    expect(platformBaseUrlOverride).toBe("https://managed.example.com");
+    expect(platformAssistantIdOverride).toBe("asst-1");
+    expect(metadataDeletes).toEqual([]);
+    expect(providerRefreshCalls).toBe(0);
   });
 
   test("managed proxy credential writes notify live-conversation refresh listeners", async () => {
     await addCredential("vellum:assistant_api_key", "ast-managed-key");
 
     expect(providerRefreshCalls).toBe(1);
-
-    await deleteCredential("vellum:assistant_api_key");
-
-    expect(providerRefreshCalls).toBe(2);
   });
 
   /**
@@ -450,18 +456,5 @@ describe("secret routes managed proxy registry sync", () => {
       expect(providers).toContain(provider);
       expect(getProviderRoutingSource(provider)).toBe("managed-proxy");
     }
-  });
-
-  test("deleting vellum:platform_base_url clears override and re-initializes providers", async () => {
-    secureKeyStore[PLATFORM_BASE_URL_PATH] = "https://managed.example.com";
-    platformBaseUrlOverride = "https://managed.example.com";
-
-    await deleteCredential("vellum:platform_base_url");
-
-    expect(secureKeyStore[PLATFORM_BASE_URL_PATH]).toBeUndefined();
-    expect(platformBaseUrlOverride).toBeUndefined();
-    expect(metadataDeletes).toEqual([
-      { service: "vellum", field: "platform_base_url" },
-    ]);
   });
 });

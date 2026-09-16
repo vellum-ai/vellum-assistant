@@ -16,10 +16,7 @@ import {
 } from "../../acp/acp-credentials.js";
 import {
   getPlatformAssistantId,
-  setPlatformAssistantId,
   setPlatformBaseUrl,
-  setPlatformOrganizationId,
-  setPlatformUserId,
 } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import { maybeDefaultSpeechToManaged } from "../../config/managed-speech-defaults.js";
@@ -595,6 +592,9 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
         );
       }
       const service = name.slice(0, colonIdx);
+      if (service === "vellum") {
+        throw new BadRequestError("Vellum credentials cannot be deleted");
+      }
       const field = name.slice(colonIdx + 1);
       assertMetadataWritable();
       const key = credentialKey(service, field);
@@ -610,20 +610,6 @@ async function handleDeleteSecret({ body }: RouteHandlerArgs) {
         );
       }
       deleteCredentialMetadata(service, field);
-      if (service === "vellum") {
-        if (field === "platform_base_url") {
-          setPlatformBaseUrl(undefined);
-        } else if (field === "platform_assistant_id") {
-          setPlatformAssistantId(undefined);
-        } else if (field === "platform_organization_id") {
-          setPlatformOrganizationId(undefined);
-        } else if (field === "platform_user_id") {
-          setPlatformUserId(undefined);
-        }
-        if (isPlatformManagedCredential(service, field)) {
-          await refreshProvidersAfterSecretChange();
-        }
-      }
       invalidateConnectionsAfterCredentialDelete(affectedConnections);
       log.info({ service, field }, "Credential deleted via HTTP");
       return { success: true, type, name };
