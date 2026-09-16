@@ -119,6 +119,12 @@ import {
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
+import { getPermissionsService } from "./permissions-service";
+import {
+  answerScreenRecordingRefusal,
+  isScreenRecordingRefusal,
+  screenRecordingGranted,
+} from "./screen-recording-permission";
 import {
   current as currentMainWindow,
   dispatchToMain,
@@ -2907,6 +2913,30 @@ export const companionContextMenuTemplate = (
   },
 ];
 
+/**
+ * Whether a share may start, as far as the grant goes. A read that fails
+ * says yes: the capture itself is the final word, and a check that cannot
+ * run is no reason to refuse a share that might work.
+ */
+const screenRecordingAllowed = (): Promise<boolean> =>
+  screenRecordingGranted().catch((err: unknown) => {
+    log.warn("[companion] could not read the Screen Recording grant:", err);
+    return true;
+  });
+
+/**
+ * Send the user to Screen Recording in System Settings, with the helper
+ * listed there to turn on. Settings opening is itself the message: the share
+ * cannot happen until that row is on.
+ */
+const askForScreenRecording = async (): Promise<void> => {
+  try {
+    await getPermissionsService()?.openSettings("screen");
+  } catch (err) {
+    log.warn("[companion] could not open Screen Recording settings:", err);
+  }
+};
+
 export const installCompanionWindow = (): void => {
   if (installed) {
     return;
@@ -3045,11 +3075,17 @@ export const installCompanionWindow = (): void => {
    * on demand: the desktop changes under every push, and the list is only
    * worth anything at the moment it is drawn.
    */
-  handle("vellum:companion:listCaptureSources", z.tuple([]), () => {
+  handle("vellum:companion:listCaptureSources", z.tuple([]), async () => {
     // A picker opening again is the user starting over: whatever pick was
     // still resolving belonged to the choice they just left.
     pickGeneration += 1;
-    return listCaptureSources();
+    // Read beside the list so the picker can ask for the grant in place of
+    // tiles nothing could be shown from.
+    const [sources, granted] = await Promise.all([
+      listCaptureSources(),
+      screenRecordingAllowed(),
+    ]);
+    return { ...sources, screenRecordingGranted: granted };
   });
 
   /**
@@ -3073,12 +3109,29 @@ export const installCompanionWindow = (): void => {
         return;
       }
       const generation = ++pickGeneration;
-      void resolveCapturePick(pick).then((target) => {
-        if (target === null || generation !== pickGeneration) {
-          return;
-        }
-        dispatchWithoutRaising({ kind: "setScreenShare", target });
-      });
+      // The grant first, before a tab is raised for a share that cannot
+      // start. Without it every frame would be refused and the share would
+      // stop itself a moment after it began, so the press sends the user to
+      // the grant instead. The keyboard's share reaches here with no picker
+      // to have asked, which is why this is not left to the picker.
+      void screenRecordingAllowed()
+        .then(async (granted) => {
+          if (generation !== pickGeneration) {
+            return;
+          }
+          if (!granted) {
+            await askForScreenRecording();
+            return;
+          }
+          const target = await resolveCapturePick(pick);
+          if (target === null || generation !== pickGeneration) {
+            return;
+          }
+          dispatchWithoutRaising({ kind: "setScreenShare", target });
+        })
+        .catch((err: unknown) => {
+          log.warn("[companion] could not start the share:", err);
+        });
     },
   );
 
@@ -3201,7 +3254,15 @@ export const installCompanionWindow = (): void => {
   handle(
     "vellum:companion:captureScreen",
     z.tuple([watchCaptureTargetSchema]),
-    ([target]) => captureTargetFrame(target),
+    ([target]) =>
+      // A refusal for want of the grant is the one miss the user must hear
+      // about: every frame after it would be refused too. The renderer still
+      // gets its null and stops the share.
+      captureTargetFrame(target, (err) => {
+        if (isScreenRecordingRefusal(err)) {
+          void answerScreenRecordingRefusal(askForScreenRecording);
+        }
+      }),
   );
 
   /**
