@@ -81,9 +81,8 @@ export function NotificationsBellList({
       // it instead of showing it through.
       className="flex flex-col gap-[var(--app-spacing-md)] overflow-y-auto px-[var(--app-spacing-lg)] pt-[var(--app-spacing-lg)] [--swipe-item-surface:var(--surface-lift)]"
     >
-      {/* The rule between rows lives here rather than on the row, so the
-          last row can drop it: the panel's footer draws its own rule right
-          underneath, and two would double up. */}
+      {/* The rule between rows lives here rather than on the row so the last
+          row can end cleanly at the panel edge. */}
       {items.map((item) => (
         <div
           key={item.id}

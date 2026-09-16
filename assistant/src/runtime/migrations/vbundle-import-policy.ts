@@ -172,6 +172,20 @@ export function formatRuntimeCompatibilityMessage(
   return `Cannot import: bundle requires runtime ${range}, but this runtime is ${runtimeVersion}. Update your runtime before importing.`;
 }
 
+/**
+ * Whether `version` names a runtime built from a source checkout: the
+ * `<pkg.version>-local.<timestamp>.<sha>` `APP_VERSION` that the platform
+ * repo's `vel up` stamps on the assistant images it builds for its local
+ * minikube cluster. The triple is the checkout's package.json version,
+ * which only moves on release cuts, so it says nothing about whether the
+ * checkout is newer or older than a release. A CLI hatch from a checkout
+ * without an explicit `APP_VERSION` runs as the plain package version and
+ * is not covered.
+ */
+export function isLocalDevRuntimeVersion(version: string): boolean {
+  return /^\d+\.\d+\.\d+-local\./.test(version);
+}
+
 export function evaluateRuntimeCompatibility(
   compat: RuntimeCompatibility,
   runtimeVersion: string,
@@ -179,17 +193,25 @@ export function evaluateRuntimeCompatibility(
   if (compat.min_runtime_version === LEGACY_RUNTIME_VERSION_SENTINEL) {
     return { ok: true };
   }
-  const minCmp = compareSemver(runtimeVersion, compat.min_runtime_version);
-  if (minCmp === null) {
-    return { ok: true };
-  }
-  if (minCmp < 0) {
-    return {
-      ok: false,
-      reason: "version_incompatible",
-      bundle_compat: compat,
-      runtime_version: runtimeVersion,
-    };
+  // A local dev build skips the minimum bound, like an unparsable version
+  // does below: its triple is not comparable to release versions (see
+  // isLocalDevRuntimeVersion), so "runtime older than the bundle" cannot be
+  // decided from it. The maximum bound still applies: it is an explicit
+  // ceiling the bundle's producer recorded, and a local triple above it is
+  // as good a signal as any release's.
+  if (!isLocalDevRuntimeVersion(runtimeVersion)) {
+    const minCmp = compareSemver(runtimeVersion, compat.min_runtime_version);
+    if (minCmp === null) {
+      return { ok: true };
+    }
+    if (minCmp < 0) {
+      return {
+        ok: false,
+        reason: "version_incompatible",
+        bundle_compat: compat,
+        runtime_version: runtimeVersion,
+      };
+    }
   }
   if (compat.max_runtime_version !== null) {
     const maxCmp = compareSemver(runtimeVersion, compat.max_runtime_version);

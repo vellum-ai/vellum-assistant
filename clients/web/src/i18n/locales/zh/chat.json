@@ -65,8 +65,17 @@
     "backAria": "返回所有步骤",
     "backTooltip": "所有步骤",
     "closeSteps": "关闭步骤",
+    "screenshotAria": "预览来自“{activity}”的屏幕截图",
+    "screenshotFallbackAria": "预览电脑屏幕截图",
+    "screenshotFallbackTitle": "电脑屏幕截图",
+    "screenshotTitle": "来自“{activity}”的屏幕截图",
     "thinkingTitle": "思考中",
     "viewThinkingAria": "查看思考过程"
+  },
+  "computerUseScreenshotPreview": {
+    "unavailable": "最新屏幕截图不可用。",
+    "unavailableShowingPrevious": "最新屏幕截图不可用。正在显示上一张屏幕截图。",
+    "updating": "正在更新屏幕截图..."
   },
   "addToChatSheet": {
     "camera": "相机",
@@ -99,28 +108,28 @@
     "panView": "平移",
     "controlView": "控制",
     "panHint": "拖动以平移，轻点以单击。",
-    "hideAria": "隐藏桌面",
-    "closeAria": "关闭桌面预览",
-    "moveAria": "移动桌面预览（方向键）",
-    "expandAria": "展开桌面",
-    "busy": "桌面正在被其他用户使用。",
-    "connecting": "正在连接桌面…",
-    "failed": "桌面无法启动。",
-    "lost": "与桌面的连接已断开。",
-    "openAria": "打开 {name} 的电脑",
-    "openUnnamedAria": "打开助手的电脑",
+    "hideAria": "隐藏虚拟桌面",
+    "closeAria": "关闭虚拟桌面预览",
+    "moveAria": "移动虚拟桌面预览（方向键）",
+    "resizeAria": "调整虚拟桌面预览大小（方向键）",
+    "expandAria": "展开虚拟桌面",
+    "busy": "虚拟桌面正在被其他用户使用。",
+    "connecting": "正在连接虚拟桌面…",
+    "failed": "虚拟桌面无法启动。",
+    "lost": "与虚拟桌面的连接已断开。",
+    "openAria": "打开 {name} 的虚拟桌面",
+    "openUnnamedAria": "打开虚拟桌面",
     "reconnectButton": "重新连接",
     "title": "桌面",
-    "unavailable": "此助理不支持桌面。",
-    "installButton": "安装桌面",
-    "installDescription": "安装 Google Chrome 和助手桌面所需的组件。这可能需要几分钟。",
-    "checkingSetup": "正在检查桌面设置…",
-    "installingPackages": "正在安装桌面组件…",
+    "unavailable": "此助理不支持虚拟桌面。",
+    "installButton": "安装虚拟桌面",
+    "checkingSetup": "正在检查虚拟桌面设置…",
+    "installingPackages": "正在安装虚拟桌面组件…",
     "installingChrome": "正在安装 Google Chrome…",
     "checkingInstall": "正在检查安装…",
     "installFailed": "安装失败。请重试以完成设置。",
-    "setupRequestFailed": "无法检查桌面设置。请重新连接后重试。",
-    "setupUnsupported": "桌面安装需要具有管理员权限的 Linux x64 或 ARM64 容器。"
+    "setupRequestFailed": "无法检查虚拟桌面设置。请重新连接后重试。",
+    "setupUnsupported": "虚拟桌面安装需要具有管理员权限的 Linux x64 或 ARM64 容器。"
   },
   "assistantNavItem": {
     "newChat": "新建聊天"
@@ -683,10 +692,6 @@
   "copyBlockSurface": {
     "copied": "已复制",
     "copy": "复制"
-  },
-  "copyButton": {
-    "copied": "已复制",
-    "copyFailed": "无法复制到剪贴板。"
   },
   "copyIdToClipboard": {
     "conversationCopied": "对话ID已复制到剪贴板。",
@@ -1623,8 +1628,12 @@
     "view": "查看"
   },
   "skillLoadDetail": {
+    "failed": "加载失败",
+    "loading": "正在加载技能…",
     "loadingAria": "正在加载技能",
+    "notApproved": "未获批准",
     "provides": "提供",
+    "unnamedSkill": "技能",
     "usedSkill": "已用技能"
   },
   "skillLoadOutput": {

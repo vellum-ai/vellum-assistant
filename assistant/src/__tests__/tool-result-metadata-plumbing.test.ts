@@ -27,6 +27,7 @@ mock.module("../persistence/llm-request-log-store.js", () => ({
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────
 import type { AssistantEvent } from "../api/index.js";
+import { toolImageFilename } from "../daemon/assistant-attachments.js";
 import type {
   EventHandlerDeps,
   EventHandlerState,
@@ -34,6 +35,7 @@ import type {
 import {
   createEventHandlerState,
   handleToolResult,
+  handleToolUse,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 
@@ -137,5 +139,66 @@ describe("tool_result activityMetadata plumbing", () => {
     );
     expect(toolResultEvent).toBeDefined();
     expect(toolResultEvent?.activityMetadata).toBeUndefined();
+  });
+});
+
+describe("computer-use screenshot capture", () => {
+  test("tracks direct and wrapped invocations but excludes their images from ordinary promotion", () => {
+    const state = createEventHandlerState();
+    const { deps } = createCollectorDeps();
+
+    handleToolUse(state, deps, {
+      type: "tool_use",
+      id: "direct-call",
+      name: "computer_use_click",
+      input: { x: 10, y: 20 },
+    });
+    handleToolUse(state, deps, {
+      type: "tool_use",
+      id: "wrapped-call",
+      name: "skill_execute",
+      input: { tool: "computer_use_scroll" },
+    });
+    handleToolUse(state, deps, {
+      type: "tool_use",
+      id: "ordinary-call",
+      name: "browser_screenshot",
+      input: {},
+    });
+    handleToolResult(state, deps, {
+      type: "tool_result",
+      toolUseId: "wrapped-call",
+      content: "scrolled",
+      isError: false,
+      contentBlocks: [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "c2NyZWVuc2hvdA==",
+          },
+        },
+      ],
+    });
+
+    expect(state.computerUseToolUseIds).toEqual([
+      "direct-call",
+      "wrapped-call",
+    ]);
+    expect(state.computerUseToolNames).toEqual(
+      new Map([
+        ["direct-call", "computer_use_click"],
+        ["wrapped-call", "computer_use_scroll"],
+      ]),
+    );
+    expect(
+      toolImageFilename(
+        "image/png",
+        state.computerUseToolNames.get("wrapped-call"),
+      ),
+    ).toBe("computer-use-scroll.png");
+    expect(state.computerUseScreenshotBlocks.has("wrapped-call")).toBe(true);
+    expect(state.accumulatedToolContentBlocks).toEqual([]);
   });
 });

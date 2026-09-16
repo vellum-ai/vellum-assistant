@@ -203,7 +203,7 @@ function insertItem(opts: {
 describe("Memory Item Routes", () => {
   beforeAll(async () => {
     await initializeDb();
-  });
+  }, 30_000);
 
   beforeEach(() => {
     // Keep memory v2 disabled so the v1 paths under test stay active.

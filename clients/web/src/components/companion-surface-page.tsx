@@ -55,6 +55,10 @@ import {
   toggleCompanionWatch,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import {
+  openSystemPermissionSettings,
+  subscribeToSystemPermissions,
+} from "@/runtime/system-permissions";
 import { supportsChords } from "@/runtime/hotkey";
 import { callChordHints } from "@/domains/chat/voice/live-voice/call-chord-keys";
 import { useTranslation } from "@/i18n";
@@ -440,6 +444,29 @@ export function CompanionSurfacePage() {
       withoutPicker();
     });
   };
+
+  // A card asking for Screen Recording lists again once the grant lands, so
+  // the tiles replace the ask without the user reopening it. The host pushes
+  // permission state while it waits on Settings, which is what this hears.
+  const needsScreenRecording =
+    picking && captureSources?.screenRecordingGranted === false;
+  useEffect(() => {
+    if (!needsScreenRecording) {
+      return;
+    }
+    return subscribeToSystemPermissions((state) => {
+      if (state.screen?.status !== "granted") {
+        return;
+      }
+      const request = ++sourcesRequestRef.current;
+      void listCompanionCaptureSources().then((listed) => {
+        if (request !== sourcesRequestRef.current || listed === null) {
+          return;
+        }
+        setCaptureSources(listed);
+      });
+    });
+  }, [needsScreenRecording]);
 
   const onTeach = () => {
     if (!watchTargets) {
@@ -1087,6 +1114,11 @@ export function CompanionSurfacePage() {
                   : undefined
               }
               onPick={onPick}
+              onAllowScreenRecording={() => {
+                void openSystemPermissionSettings("screen").catch(
+                  () => undefined,
+                );
+              }}
             />
           ) : null
         }

@@ -14,7 +14,7 @@ You help users interact with their Slack workspace.
 
 **Sending text is its own command: `assistant channels send`.** It posts through the same path a reply takes, so the message is threaded where you name a thread, rendered the way your other messages are, and recorded in the chat's conversation once Slack acknowledges it. That record is what lets you see later what you said, and what lets a reaction or an edit on that post find it again.
 
-**Everything else is the Slack Web API via `assistant oauth request`**: reading, searching, reactions, opening a DM, uploading a file, and any method with no first-class command. Use relative Slack API method paths such as `/conversations.history`; the provider supplies the Slack host.
+**Everything else is the Slack Web API, through one of two doors.** As the assistant's own bot: `assistant channels request slack <path>`, which resolves the bot credential from the channel so you never name a provider (`assistant oauth request --provider slack_channel` is the same bot door under its provider name). As the person who connected the `slack` integration: `assistant oauth request --provider slack <path>`, for `search.messages` and anything that needs the installer's reach. Reading, reactions, opening a DM, uploading a file, and any method with no first-class command go through them. Use relative Slack API method paths such as `/conversations.history`; the provider supplies the Slack host.
 
 A message posted with `/chat.postMessage` reaches Slack but is not recorded in the chat's conversation, so `recall` will not find it (reading Slack back will) and nothing can resolve a reaction to it. Use the send command for text, and reach for `chat.postMessage` only for a shape the send command does not carry, such as Block Kit.
 
@@ -68,11 +68,11 @@ The command refuses a channel it cannot address before anything is sent, and rep
 
 ## Making Slack API Calls
 
-Use `assistant oauth request` to call any Slack Web API method. Auth is handled transparently: the provider injects its own token, which is the bot's for `slack_channel` and the installer's for `slack`. Pass relative method paths; do not include a host.
+Two commands reach the Slack Web API, and both send the token from inside the assistant. `assistant channels request slack <path>` acts as the bot, resolving the bot credential from the channel id. `assistant oauth request --provider <key> <path>` names the credential by provider: `slack_channel` is that same bot token, stored by the setup wizard with no OAuth flow involved; `slack` is the separate OAuth integration that acts as the person who connected it. Pass relative method paths; do not include a host.
 
-This is the only way to call the Slack Web API. Never fetch a Slack token yourself (`assistant credentials reveal`, an environment variable, a pasted value) and never call `slack.com/api` with `curl` or any other HTTP client: a token that reaches a shell command line is written into the transcript and the tool log, where no redaction applies. `assistant oauth request` sends the token from inside the assistant and never shows it to you. The command's name is the name of the authenticated-request command, not a description of the credential: for `slack_channel` it sends the bot token the setup wizard stored, and no OAuth flow is involved; `slack` is the separate OAuth integration that acts as the person who connected it.
+These two commands are the only way to call the Slack Web API. Never fetch a Slack token yourself (`assistant credentials reveal`, an environment variable, a pasted value) and never call `slack.com/api` with `curl` or any other HTTP client: a token that reaches a shell command line is written into the transcript and the tool log, where no redaction applies. The doors send the token from inside the assistant and never show it to you.
 
-The examples below use `slack_channel`, since reading a channel the bot has joined is what it is for. See [Which provider to pass](#which-provider-to-pass) before reaching for one on a workspace that has no bot, or for `search.messages`.
+The examples below use `assistant oauth request --provider slack_channel`, the bot door under its provider name, since reading a channel the bot has joined is what it is for; `assistant channels request slack` makes the same call. See [Which provider to pass](#which-provider-to-pass) before reaching for one on a workspace that has no bot, or for `search.messages`.
 
 General pattern:
 

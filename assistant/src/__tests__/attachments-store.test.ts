@@ -478,9 +478,9 @@ describe("createInlineAttachment (workspace_ref persistence)", () => {
     expect(filePath).toBeTruthy();
     expect(result.filename).toBeDefined();
     expect(filePath!.endsWith(result.filename!)).toBe(true);
-    expect(result.filename!.startsWith(`${OVERSIZED_CONTENT_FILENAME_PREFIX}-`)).toBe(
-      true,
-    );
+    expect(
+      result.filename!.startsWith(`${OVERSIZED_CONTENT_FILENAME_PREFIX}-`),
+    ).toBe(true);
     expect(readFileSync(filePath!).toString("utf8")).toBe(original);
   });
 });
@@ -596,6 +596,25 @@ describe("linkAttachmentToMessage + getAttachmentsForMessage", () => {
     expect(linked).toHaveLength(2);
     expect(linked[0].originalFilename).toBe("first.txt");
     expect(linked[1].originalFilename).toBe("second.txt");
+  });
+
+  test("reuses a repeated message attachment link with its original position", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "assistant", "One file");
+    const stored = await uploadAttachment("frame.png", "image/png", "AAAA");
+
+    expect(linkAttachmentToMessage(msg.id, stored.id, 4)).toBe(stored.id);
+    expect(linkAttachmentToMessage(msg.id, stored.id, 0)).toBe(stored.id);
+
+    const links = rawGet<{ count: number; position: number }>(
+      "test:repeatedAttachmentLink",
+      `SELECT COUNT(*) AS count, MIN(position) AS position
+       FROM message_attachments
+       WHERE message_id = ? AND attachment_id = ?`,
+      msg.id,
+      stored.id,
+    );
+    expect(links).toEqual({ count: 1, position: 4 });
   });
 
   test("returns empty for message with no attachments", async () => {

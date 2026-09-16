@@ -259,6 +259,11 @@ Examples:
                 "Dot-notation path to a boolean field that must be truthy for the response to be valid",
             },
             {
+              flags: "--response-ok-field <field>",
+              description:
+                "Dot-notation path to the boolean every response body carries to report success (Slack: ok); an explicit false under a 2xx fails the request",
+            },
+            {
               flags: "--setup-notes <json>",
               description:
                 "JSON array of setup instruction notes shown during guided setup",
@@ -429,6 +434,11 @@ Examples:
             {
               flags: "--identity-ok-field <field>",
               description: "Dot-notation path to a boolean ok field",
+            },
+            {
+              flags: "--response-ok-field <field>",
+              description:
+                "Dot-notation path to the boolean every response body carries to report success",
             },
             {
               flags: "--setup-notes <json>",

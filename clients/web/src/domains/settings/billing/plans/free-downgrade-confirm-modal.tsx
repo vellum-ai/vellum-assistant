@@ -1,5 +1,12 @@
 import { AlertTriangle } from "lucide-react";
+import { useState } from "react";
 
+import {
+  CancelReasonSurvey,
+  type CancelReasonSurveyValue,
+  EMPTY_CANCEL_REASON,
+  isCancelReasonComplete,
+} from "@/domains/settings/billing/cancel-reason-survey";
 import { useTranslation } from "@/i18n";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
@@ -21,26 +28,27 @@ export interface FreeDowngradeConfirmModalProps {
   /** The cancellation request is in flight; the actions are disabled. */
   pending: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  /**
+   * The cancel survey the user filled in. Empty (no reason) on the portal
+   * handoff, where Stripe's own cancel page asks instead.
+   */
+  onConfirm: (survey: CancelReasonSurveyValue) => void;
 }
 
 /**
  * Reconfirm dialog for cancelling Pro ("Downgrade to Base") from the plans
  * takeover. Mirrors the adjust-plan modal's step of the same name: it lists
- * the Pro features that will be lost before the cancellation is scheduled via
- * the subscription-cancel endpoint. Layout-only; the parent owns the cancel
- * mutation.
+ * the Pro features that will be lost and asks why before the cancellation is
+ * scheduled via the subscription-cancel endpoint. The parent owns the cancel
+ * mutation; the survey form state lives in the dialog content, which Radix
+ * unmounts on close, so a reopened confirm starts blank.
  */
 export function FreeDowngradeConfirmModal({
   open,
-  lostFeatures,
-  viaPortal,
   pending,
   onCancel,
-  onConfirm,
+  ...contentProps
 }: FreeDowngradeConfirmModalProps) {
-  const { t } = useTranslation("settings");
-  const hasLostFeatures = lostFeatures.length > 0;
   return (
     <Modal.Root
       open={open}
@@ -51,49 +59,79 @@ export function FreeDowngradeConfirmModal({
       }}
     >
       <Modal.Content size="md" hideCloseButton>
-        <Modal.Header icon={AlertTriangle}>
-          <Modal.Title>{t("freeDowngradeConfirmModal.title")}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Typography
-            as="p"
-            variant="body-medium-default"
-            className="text-(--content-secondary)"
-          >
-            {viaPortal
-              ? hasLostFeatures
-                ? t("freeDowngradeConfirmModal.bodyWithFeaturesPortal")
-                : t("freeDowngradeConfirmModal.bodyCancelOnlyPortal")
-              : hasLostFeatures
-                ? t("freeDowngradeConfirmModal.bodyWithFeatures")
-                : t("freeDowngradeConfirmModal.bodyCancelOnly")}
-          </Typography>
-          {hasLostFeatures ? (
-            <ul className="mt-4 list-disc space-y-2 pl-5">
-              {lostFeatures.map((feature) => (
-                <li key={feature}>
-                  <Typography as="span" variant="body-medium-default">
-                    {feature}
-                  </Typography>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="outlined" onClick={onCancel} disabled={pending}>
-            {t("freeDowngradeConfirmModal.cancel")}
-          </Button>
-          <Button
-            variant="danger"
-            onClick={onConfirm}
-            disabled={pending}
-            data-testid="confirm-free-downgrade-button"
-          >
-            {t("freeDowngradeConfirmModal.confirm")}
-          </Button>
-        </Modal.Footer>
+        <FreeDowngradeConfirmContent
+          pending={pending}
+          onCancel={onCancel}
+          {...contentProps}
+        />
       </Modal.Content>
     </Modal.Root>
+  );
+}
+
+function FreeDowngradeConfirmContent({
+  lostFeatures,
+  viaPortal,
+  pending,
+  onCancel,
+  onConfirm,
+}: Omit<FreeDowngradeConfirmModalProps, "open">) {
+  const { t } = useTranslation("settings");
+  const hasLostFeatures = lostFeatures.length > 0;
+  const [survey, setSurvey] = useState(EMPTY_CANCEL_REASON);
+  // The in-app cancel needs a reason; the portal collects its own.
+  const canConfirm = viaPortal || isCancelReasonComplete(survey);
+  return (
+    <>
+    <Modal.Header icon={AlertTriangle}>
+      <Modal.Title>{t("freeDowngradeConfirmModal.title")}</Modal.Title>
+    </Modal.Header>
+    <Modal.Body>
+      <Typography
+        as="p"
+        variant="body-medium-default"
+        className="text-(--content-secondary)"
+      >
+        {viaPortal
+          ? hasLostFeatures
+            ? t("freeDowngradeConfirmModal.bodyWithFeaturesPortal")
+            : t("freeDowngradeConfirmModal.bodyCancelOnlyPortal")
+          : hasLostFeatures
+            ? t("freeDowngradeConfirmModal.bodyWithFeatures")
+            : t("freeDowngradeConfirmModal.bodyCancelOnly")}
+      </Typography>
+      {hasLostFeatures ? (
+        <ul className="mt-4 list-disc space-y-2 pl-5">
+          {lostFeatures.map((feature) => (
+            <li key={feature}>
+              <Typography as="span" variant="body-medium-default">
+                {feature}
+              </Typography>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {viaPortal ? null : (
+        <CancelReasonSurvey
+          value={survey}
+          onChange={setSurvey}
+          disabled={pending}
+        />
+      )}
+    </Modal.Body>
+    <Modal.Footer>
+      <Button variant="outlined" onClick={onCancel} disabled={pending}>
+        {t("freeDowngradeConfirmModal.cancel")}
+      </Button>
+      <Button
+        variant="danger"
+        onClick={() => onConfirm(survey)}
+        disabled={pending || !canConfirm}
+        data-testid="confirm-free-downgrade-button"
+      >
+        {t("freeDowngradeConfirmModal.confirm")}
+      </Button>
+    </Modal.Footer>
+    </>
   );
 }

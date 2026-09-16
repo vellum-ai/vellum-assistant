@@ -154,6 +154,46 @@ export function splitBufferEntries(
   return groups;
 }
 
+/**
+ * Split a whole buffer FILE into entries. The file is newline-terminated
+ * (every append ends in `\n`), so the terminator ends the last line rather
+ * than opening an empty one: an entry's lines are the same whether it is
+ * currently last in the file or has since been followed by more entries.
+ * That stability is what lets a consumer match an entry it snapshotted
+ * earlier against the live file by exact text.
+ */
+export function splitBufferContent(content: string): BufferEntryLines[] {
+  if (content.length === 0) {
+    return [];
+  }
+  const lines = content.split("\n");
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  return splitBufferEntries(lines);
+}
+
+/**
+ * One entry's verbatim text: its lines joined, without a terminating
+ * newline. The identity a consumer matches on.
+ */
+export function bufferEntryText(entry: BufferEntryLines): string {
+  return entry.lines.join("\n");
+}
+
+/**
+ * Inverse of {@link splitBufferContent}: entries back to newline-terminated
+ * file content, or the empty string when there are none.
+ */
+export function joinBufferEntries(
+  entries: readonly BufferEntryLines[],
+): string {
+  if (entries.length === 0) {
+    return "";
+  }
+  return `${entries.map(bufferEntryText).join("\n")}\n`;
+}
+
 /** One entry's verbatim lines, as returned by {@link splitBufferEntries}. */
 export interface BufferEntryLines {
   /** `null` for the headless group before the first entry opening. */

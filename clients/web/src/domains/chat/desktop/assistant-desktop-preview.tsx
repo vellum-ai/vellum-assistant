@@ -2,12 +2,12 @@ import { AnimatePresence } from "motion/react";
 import { lazy, useEffect } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { usePointerCoarse } from "@/utils/pointer";
 
 import { DesktopPreviewFrame } from "./desktop-preview-frame";
 import { useDesktopPreviewStore } from "./desktop-preview-store";
+import { useVirtualDesktopEnabled } from "./use-virtual-desktop-enabled";
 
 const DesktopPreviewContent = lazy(() =>
   import("./desktop-preview-content").then((module) => ({
@@ -16,7 +16,7 @@ const DesktopPreviewContent = lazy(() =>
 );
 
 export function AssistantDesktopPreview() {
-  const enabled = useAssistantFeatureFlagStore.use.assistantDesktop();
+  const enabled = useVirtualDesktopEnabled();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const session = useDesktopPreviewStore.use.session();
   const fullscreenOnly = usePointerCoarse();

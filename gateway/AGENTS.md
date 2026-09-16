@@ -90,6 +90,8 @@ Gateway inbound events use a channel-discriminated union model (`GatewayInboundE
 
 Trust/guardian decisions must be keyed on `actorExternalId` only — never fall back to `conversationExternalId` for actor identity.
 
+**Room admission is one verdict, two adapter halves.** Whether the gateway acts on an inbound message at all is decided by `channels/room-admission.ts` over a neutral candidate: self and bot authors drop first, a direct chat is admitted on its own lane without a mention, a room only when the message addresses the bot, a chat kind the product does not serve is refused, and an unknown bot identity drops rather than admits. Each channel builds the candidate from its own facts (`discord/admit.ts`, `telegram/admit.ts`): how the platform proves a chat is direct (guild absence, `chat.type`) and how it proves a message is addressed (a mentions array, text entities, a reply to the bot's post). Extend the verdict, never a copy of it; a platform-only rule rides a neutral fact (Discord's legacy allow-list is `roomAllowed`). A drop is never silent: every channel logs it through `channels/admission-drop-log.ts`, one promoted line per reason and conversation, with a drop that names no conversation promoted every time. Slack's socket filter predates this and still carries the same rules inline; converging it is queued with the Slack envelope work.
+
 Physical DB column names (`externalUserId`, `externalChatId`) are unchanged; the rename is at the API/type layer only.
 
 **Provider words that are not our words.** A Discord **guild** is what Discord's
@@ -193,7 +195,7 @@ Both the flat (`/v1/channel-admission-policy/...`) and assistant-scoped (`/v1/as
 
 - **Gateway kill switch** — `handle-inbound.ts` enforces the `no_one` floor before forwarding. Zero contact-table lookups, zero daemon I/O, true kill.
 - **Runtime floor** — every other policy flows through the gateway unchanged; the runtime evaluates rank-vs-floor inside `admission-policy.ts`. This keeps the canonical gateway classifier (`gateway/src/risk/trust-verdict-resolver.ts`) as the single source of `TrustClass` truth (no fork): the runtime consumes the stamped verdict; the daemon's `actor-trust-resolver.ts` is only a residual sync guardian-or-unknown view for the vellum reset-drift path.
-- **Gateway vs runtime reciprocity** — the gateway section in `gateway/CLAUDE.md` records _which channels the gateway enforces_; the assistant section records _how the runtime classifies_. Either side getting out of sync is a bug, not an over-defended boundary.
+- **Gateway vs runtime reciprocity**: this section records _which channels the gateway enforces_; the runtime's evaluation lives in `assistant/src/runtime/routes/inbound-stages/admission-policy.ts`, which reads `TRUST_CLASS_RANK` and `ADMISSION_FLOOR` from the shared contract. Either side getting out of sync is a bug, not an over-defended boundary.
 
 **Adding a new policy**: extend the `AdmissionPolicy` union in `packages/gateway-client/src/admission-policy-contract.ts`, add its floor in `ADMISSION_FLOOR`, update the openapi schema, and update `gateway/src/__tests__/channel-admission-policy-routes.test.ts` + `assistant/src/runtime/routes/inbound-stages/admission-policy.test.ts`. Do not add a 6th floor without also bumping the `TRUST_CLASS_RANK` ceiling to match.
 

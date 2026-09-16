@@ -15,6 +15,7 @@ import {
   isConfigArchivePath,
   isCredentialMetadataArchivePath,
   isLegacyPersonaArchivePath,
+  isLocalDevRuntimeVersion,
   isWorkspaceNamespacedArchivePath,
   LEGACY_USER_MD_ARCHIVE_PATH,
   partitionWorkspacePreserveSkipDirs,
@@ -256,5 +257,93 @@ describe("evaluateRuntimeCompatibility", () => {
         "0.7.1",
       ),
     ).toEqual({ ok: true });
+  });
+
+  // A `vel up` minikube assistant image is stamped
+  // `<pkg.version>-local.<ts>.<sha>` from the checkout's package.json,
+  // which only moves on release cuts, so the minimum bound cannot be
+  // decided from it; the explicit maximum ceiling still applies.
+  test("local dev runtime build skips the minimum bound", () => {
+    expect(
+      evaluateRuntimeCompatibility(
+        { min_runtime_version: "0.12.2-staging.4", max_runtime_version: null },
+        "0.12.1-local.20260916144827.2f409056e6",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  test("local dev runtime build within an explicit range passes", () => {
+    expect(
+      evaluateRuntimeCompatibility(
+        { min_runtime_version: "0.12.2", max_runtime_version: "0.12.5" },
+        "0.12.1-local.20260916144827.2f409056e6",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  test("local dev runtime build above max still fails", () => {
+    const compat = {
+      min_runtime_version: "0.7.0",
+      max_runtime_version: "0.7.5",
+    };
+    const runtime = "0.12.1-local.20260916144827.2f409056e6";
+    expect(evaluateRuntimeCompatibility(compat, runtime)).toEqual({
+      ok: false,
+      reason: "version_incompatible",
+      bundle_compat: compat,
+      runtime_version: runtime,
+    });
+  });
+
+  test("local dev runtime build with unparsable max fails open", () => {
+    expect(
+      evaluateRuntimeCompatibility(
+        { min_runtime_version: "0.7.0", max_runtime_version: "garbage" },
+        "0.12.1-local.20260916144827.2f409056e6",
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  test("other prerelease builds are still gated", () => {
+    const compat = {
+      min_runtime_version: "0.12.2-staging.4",
+      max_runtime_version: null,
+    };
+    for (const runtime of [
+      "0.12.1-dev.202609151913.a151da3",
+      "0.12.1-staging.9",
+      "0.12.1",
+    ]) {
+      expect(evaluateRuntimeCompatibility(compat, runtime)).toEqual({
+        ok: false,
+        reason: "version_incompatible",
+        bundle_compat: compat,
+        runtime_version: runtime,
+      });
+    }
+  });
+});
+
+describe("isLocalDevRuntimeVersion", () => {
+  test("matches the local hatch / minikube version stamp", () => {
+    expect(
+      isLocalDevRuntimeVersion("0.12.1-local.20260916144827.2f409056e6"),
+    ).toBe(true);
+    expect(isLocalDevRuntimeVersion("0.0.0-local.1789584535000")).toBe(true);
+  });
+
+  test("rejects release, dev and staging builds and lookalikes", () => {
+    for (const version of [
+      "0.12.1",
+      "0.12.1-dev.202609151913.a151da3",
+      "0.12.2-staging.4",
+      "0.0.0-dev",
+      "0.0.0-legacy",
+      "0.12.1-localhost.1",
+      "local.0.12.1",
+      "",
+    ]) {
+      expect(isLocalDevRuntimeVersion(version)).toBe(false);
+    }
   });
 });

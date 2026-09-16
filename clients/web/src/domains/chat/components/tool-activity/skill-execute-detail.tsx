@@ -1,7 +1,7 @@
 /**
  * Purpose-built activity UI for a `skill_execute` call (LUM-2999).
  *
- * `skill_execute` is an envelope — `{ tool, input, activity }` — so the generic
+ * `skill_execute` is an envelope (`{ tool, input, activity }`), so the generic
  * JSON dump buried the thing the reader actually cares about (which tool ran,
  * with which parameters) one level down, wrapped in machine plumbing. This
  * renderer unwraps it: the inner tool leads, the activity sentence explains it,
@@ -84,7 +84,7 @@ export function SkillExecuteDetail({
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Inner tool identity — the tool that actually ran, not the envelope. */}
+      {/* Inner tool identity: the tool that actually ran, not the envelope. */}
       <div className="flex items-center gap-2.5">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-overlay)]">
           <Plug className="h-4 w-4 text-[var(--content-secondary)]" />

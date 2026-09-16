@@ -221,7 +221,7 @@ These invariants are enforced by guard tests and code review:
 4. **Grants and audit logs are CES-internal**: The assistant cannot read CES grant tables or audit logs directly. CES exposes grant status and audit summaries via RPC responses.
 5. **No generic authenticated HTTP clients in secure commands**: `curl`, `wget`, `httpie`, interpreters, and shell trampolines are structurally denied as secure command entrypoints. This is checked at manifest validation and re-checked at execution time.
 6. **Managed CES container runs as non-root**: The CES Docker image runs as `uid 1001` (user `ces`). The CES data volume is owned by this user.
-7. **Single active bootstrap connection**: In managed mode, CES accepts one connection on the bootstrap socket and unlinks the socket path while that connection is live, so no second process can connect concurrently. CES is a long-lived sidecar: when the active session ends (the assistant disconnects or its container restarts), CES re-binds the socket and awaits the assistant's reconnection rather than shutting down. At most one connection is ever active; the sidecar only exits on SIGTERM/SIGINT.
+7. **Multi-connection bootstrap socket**: In managed mode, CES listens on the bootstrap socket as a concurrent multi-connection server and keeps the path bound. The assistant and its child processes each open their own RPC connection. CES is a long-lived sidecar: it stays up across assistant restarts and only exits on SIGTERM/SIGINT.
 
 ## Guarantees by deployment mode
 

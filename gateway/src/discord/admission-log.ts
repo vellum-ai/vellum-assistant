@@ -1,100 +1,16 @@
 /**
- * Log-level policy for admission-gate drops.
- *
- * Severity and volume are separate questions, and this module answers them
- * separately.
- *
- * Severity splits by reason ({@link DROP_LOG_SEVERITY}). One denial means an
- * operator misconfigured something, some mean a person aimed a message
- * somewhere policy does not serve, and the rest are machine traffic the gate
- * exists to swallow. Only the first kind is worth an operator's attention.
- *
- * Volume is capped by promoting only the first drop for a given reason and
- * channel; repeats log at `debug`. One denied message carries the whole
- * diagnosis, since the reason names the check that failed and the channel
- * names where, so later identical drops add nothing.
- *
- * Both matter because every gateway log stream is built at `level: "info"`
- * (see `logger.ts`). A `debug` line reaches no sink, so a gate that denies
- * every message while logging only at `debug` is indistinguishable from a
- * gateway receiving nothing. A gate that promotes every denial is equally
- * useless in the other direction: a bot in a community guild sees every
- * message in every channel it can view, and promoting all of them floods the
- * stream the gate exists to keep quiet.
+ * Discord's admission-drop log. Every reason Discord produces is a shared
+ * room-admission reason, so its severity table is the shared one; the policy
+ * (one promoted line per reason and channel, repeats at debug) is
+ * `channels/admission-drop-log.ts`.
  */
 
-import type { AdmissionDropReason } from "./admit.js";
+import { AdmissionDropLog } from "../channels/admission-drop-log.js";
+import {
+  ROOM_ADMISSION_DROP_LOG_SEVERITY,
+  type RoomAdmissionDropReason,
+} from "../channels/room-admission.js";
 
-/** Levels this policy selects between. Both exist on the gateway logger. */
-export type AdmissionDropLogLevel = "info" | "debug";
-
-/**
- * The level a reason logs at on its first occurrence for a channel.
- *
- * Every remaining reason is ordinary traffic rather than a misconfiguration:
- * which rooms the bot can see is Discord's decision, expressed as channel
- * permissions, so a message it never receives produces no denial here to log.
- *
- * `bot_not_mentioned` is a person making a channel remark that does not
- * address the bot. It is not a fault, but it is evidence that events reach the
- * client at all.
- *
- * `channel_not_allowed` exists only under a legacy install's persisted
- * allow-list, where dropping unlisted rooms is the configured behavior
- * rather than a fault, so it surfaces like ordinary denied traffic.
- *
- * `self_authored` and `bot_authored` never promote. They are the bot's own
- * echo and other machines' traffic, they scale with how chatty a room is, and
- * no misconfiguration produces them, so a visible line would carry no signal.
- */
-const DROP_LOG_SEVERITY: Record<AdmissionDropReason, AdmissionDropLogLevel> = {
-  bot_not_mentioned: "info",
-  channel_not_allowed: "info",
-  self_authored: "debug",
-  bot_authored: "debug",
-};
-
-/**
- * Channels tracked per reason before that reason stops promoting.
- *
- * The budget is per reason rather than shared because reasons differ in key
- * cardinality, and a shared budget would let a flood of one reason exhaust
- * it and silence another. Separate budgets mean a flood of one reason can
- * only ever silence itself.
- */
-const MAX_TRACKED_CHANNELS_PER_REASON = 512;
-
-export class AdmissionDropLog {
-  private readonly seen = new Map<AdmissionDropReason, Set<string>>();
-
-  /**
-   * The level this drop logs at.
-   *
-   * Calling this records the drop, so a promotable reason is promoted once per
-   * channel and every repeat is `debug`. Reasons that never promote consume no
-   * budget.
-   */
-  levelFor(
-    reason: AdmissionDropReason,
-    channelId: string,
-  ): AdmissionDropLogLevel {
-    const severity = DROP_LOG_SEVERITY[reason];
-    if (severity === "debug") {
-      return "debug";
-    }
-
-    let channels = this.seen.get(reason);
-    if (!channels) {
-      channels = new Set();
-      this.seen.set(reason, channels);
-    }
-    if (
-      channels.has(channelId) ||
-      channels.size >= MAX_TRACKED_CHANNELS_PER_REASON
-    ) {
-      return "debug";
-    }
-    channels.add(channelId);
-    return severity;
-  }
+export function createDiscordAdmissionDropLog(): AdmissionDropLog<RoomAdmissionDropReason> {
+  return new AdmissionDropLog(ROOM_ADMISSION_DROP_LOG_SEVERITY);
 }

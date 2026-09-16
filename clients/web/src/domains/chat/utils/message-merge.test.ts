@@ -276,6 +276,82 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     ]);
   });
 
+  test("preserves donor automatic screenshot provenance without mutating inputs", () => {
+    const survivor = makeAssistant({
+      id: "anchor",
+      slackMessage: {
+        channelId: "channel-1",
+        channelTs: "100.1",
+      },
+      attachments: [
+        {
+          id: "explicit-file",
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 20,
+          previewUrl: null,
+        },
+      ],
+      contentBlocks: [
+        {
+          type: "attachment",
+          attachment: {
+            id: "explicit-file",
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 20,
+            kind: "document",
+          },
+        },
+      ],
+    });
+    const donor = makeAssistant({
+      id: "reply-donor",
+      attachments: [
+        {
+          id: "cloned-image",
+          filename: "computer-use-click.png",
+          mimeType: "image/png",
+          sizeBytes: 10,
+          previewUrl: null,
+          computerUseScreenshot: true,
+        },
+      ],
+      contentBlocks: [
+        {
+          type: "attachment",
+          attachment: {
+            id: "cloned-image",
+            filename: "computer-use-click.png",
+            mimeType: "image/png",
+            sizeBytes: 10,
+            kind: "image",
+            computerUseScreenshot: true,
+          },
+        },
+      ],
+    });
+    const original = structuredClone([survivor, donor]);
+
+    const result = mergeAdjacentAssistantMessages([survivor, donor]);
+
+    expect(
+      result[0]?.attachments?.map((attachment) => ({
+        id: attachment.id,
+        computerUseScreenshot: attachment.computerUseScreenshot,
+      })),
+    ).toEqual([
+      { id: "explicit-file", computerUseScreenshot: undefined },
+      { id: "cloned-image", computerUseScreenshot: true },
+    ]);
+    expect(result[0]?.contentBlocks).toEqual([
+      survivor.contentBlocks![0],
+      donor.contentBlocks![0],
+    ]);
+    expect(result[0]?.slackMessage).toEqual(survivor.slackMessage);
+    expect([survivor, donor]).toEqual(original);
+  });
+
   // Server history payloads reference toolCalls / surfaces *positionally*
   // ("0", "1", "2"). When the donor's positional reference would otherwise
   // resolve to the survivor's same-indexed member after concat, we must

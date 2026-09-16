@@ -3,7 +3,7 @@
  *
  * Uses react-testing-library + bun:test so we can fire a real `error` event on
  * the `<img>` to exercise the `useState`-driven monogram fallback. Mirrors the
- * FaviconChip test style — no jest-dom matchers, just className / DOM assertions.
+ * FaviconChip test style: no jest-dom matchers, just className / DOM assertions.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";

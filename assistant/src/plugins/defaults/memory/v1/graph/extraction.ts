@@ -13,6 +13,7 @@ import type { ContentBlock, ImageContent, Message } from "@vellumai/plugin-api";
 import {
   getConfiguredProvider,
   getConversationDirPath,
+  safeStringSlice,
 } from "@vellumai/plugin-api";
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 
@@ -46,7 +47,7 @@ import type {
   SourceType,
   TriggerType,
 } from "../../graph/types.js";
-import { BackendUnavailableError, safeStringSlice } from "../../host-utils.js";
+import { BackendUnavailableError } from "../../host-utils.js";
 import { extractToolUse, userMessage } from "../../llm-helpers.js";
 import { getLogger } from "../../logging.js";
 import { buildIdentityContext } from "../identity-context.js";

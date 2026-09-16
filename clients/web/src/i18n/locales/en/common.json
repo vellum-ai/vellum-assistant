@@ -188,8 +188,10 @@
     "captureNothing": "Nothing to show",
     "capturePicker": "What to teach from",
     "captureScreen": "Screen {n}",
+    "captureScreenRecordingOff": "Screen Recording is off",
     "captureScreens": "Screens",
     "captureTabs": "Chrome tabs",
+    "captureTurnOnScreenRecording": "Turn on",
     "captureWindows": "Windows",
     "dictating": "Listening",
     "draw": "Draw",
@@ -242,6 +244,10 @@
   "conversationTitle": {
     "untitled": "Untitled"
   },
+  "copyButton": {
+    "copied": "Copied",
+    "copyFailed": "Could not copy to the clipboard."
+  },
   "createAssistantDialog": {
     "cancel": "Cancel",
     "create": "Create",
@@ -278,7 +284,6 @@
     "tooltip": "Stop"
   },
   "detailPrimitives": {
-    "copied": "Copied",
     "copy": "Copy",
     "showLess": "Show less",
     "showMore": "Show more"
@@ -709,7 +714,7 @@
     "copied": "Copied!",
     "copyName": "Copy name",
     "displayNameHint": "For the display name, <strong>{suggestedName}</strong> keeps this bot matching your assistant. The username is separate and does not have to match.",
-    "dmOnlyNotice": "Private chats are supported. Group, supergroup, and channel messages and button taps are not supported yet.",
+    "chatScopeNotice": "Private chats and groups are supported. In a group, the assistant replies when it is mentioned or when someone replies to it. Broadcast channels are not supported.",
     "inBotFather": "In BotFather:",
     "intro": "Telegram bots are created by messaging <strong>@BotFather</strong>. Open it, run through the prompts, then come back with the token it gives you.",
     "next": "Next",

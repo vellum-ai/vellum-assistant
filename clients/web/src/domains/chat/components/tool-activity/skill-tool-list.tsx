@@ -3,7 +3,7 @@
  * "## Available Tools" markdown block with a scannable list (LUM-2999).
  *
  * Deliberately minimal: a tool's name and one-line description answer the only
- * question this panel exists to answer — what can the assistant do now that it
+ * question this panel exists to answer: what can the assistant do now that it
  * couldn't a moment ago. The manifest's parameter schemas are model-facing API
  * surface (the user is never going to call `app_create(name, template)`
  * themselves), so they're parsed but not rendered; showing them tripled each

@@ -17,6 +17,7 @@ import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { toDisplayAttachments } from "@/utils/display-attachments";
 import type {
   ConversationContentBlock,
+  GenerationHandoffEvent,
   MessageCompleteEvent,
 } from "@vellumai/assistant-api";
 import {
@@ -371,7 +372,7 @@ export function finalizeOnIdle(
  */
 export function finalizeMessageComplete(
   prev: DisplayMessage[],
-  event: MessageCompleteEvent,
+  event: MessageCompleteEvent | GenerationHandoffEvent,
   at: number = Date.now(),
 ): DisplayMessage[] {
   const last = prev[prev.length - 1];

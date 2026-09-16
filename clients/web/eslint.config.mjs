@@ -52,10 +52,7 @@ import { noUntranslatedStrings } from "./eslint-rules/no-untranslated-strings.mj
 const TYPOGRAPHY_VARIANTS = [
   ...readFileSync(
     fileURLToPath(
-      new URL(
-        "../../packages/design-library/src/tokens.css",
-        import.meta.url,
-      ),
+      new URL("../../packages/design-library/src/tokens.css", import.meta.url),
     ),
     "utf8",
   ).matchAll(/@utility\s+text-((?:title|body|label|chat)[a-z-]*)\s*\{/g),
@@ -307,6 +304,16 @@ const emDashEnforcedPaths = [
   "src/components/midline-dot.tsx",
   "src/hooks/use-share-app*.{ts,tsx}",
   "src/utils/share-app-with-toast.ts",
+  // Tool detail: the drawer panel, the per-tool renderers it hosts, and the
+  // shared shell, primitives, and copy button they are built from.
+  "src/domains/chat/components/tool-activity/**/*.{ts,tsx}",
+  "src/domains/chat/components/web-fetch/**/*.{ts,tsx}",
+  "src/domains/chat/components/web-search/**/*.{ts,tsx}",
+  "src/domains/chat/components/tool-detail-panel*.{ts,tsx}",
+  "src/domains/chat/components/tool-detail-story-fixtures.ts",
+  "src/components/detail-primitives.tsx",
+  "src/components/copy-button*.tsx",
+  "src/components/detail-shell*.tsx",
 ];
 
 const eslintConfig = defineConfig([

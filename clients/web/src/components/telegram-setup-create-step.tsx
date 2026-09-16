@@ -47,7 +47,9 @@ export function TelegramSetupCreateStep({
         />
       </Typography>
 
-      <Notice tone="info">{t("telegramSetupCreateStep.dmOnlyNotice")}</Notice>
+      <Notice tone="info">
+        {t("telegramSetupCreateStep.chatScopeNotice")}
+      </Notice>
 
       <div className="flex flex-wrap items-center gap-3">
         <Button

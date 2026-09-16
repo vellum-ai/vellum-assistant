@@ -396,6 +396,19 @@
     "providerLabel": "Провайдер",
     "unavailableOption": "{name} (недоступно)"
   },
+  "cancelReasonSurvey": {
+    "optionCustomerService": "Плохой опыт общения с поддержкой",
+    "optionLowQuality": "Качество не оправдало ожиданий",
+    "optionMissingFeatures": "Не хватает нужных функций",
+    "optionOther": "Другое",
+    "optionSwitchedService": "Переход на другой сервис",
+    "optionTooComplex": "Слишком сложно",
+    "optionTooExpensive": "Слишком дорого",
+    "optionUnused": "Редко пользуюсь",
+    "otherLabel": "Расскажите подробнее",
+    "otherPlaceholder": "Что мы могли бы сделать лучше?",
+    "title": "Почему вы отменяете подписку?"
+  },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "Вам или администратору команды может потребоваться включить авторизацию по коду устройства <settingsLink>в настройках ChatGPT</settingsLink>.",
     "connected": "Подписка ChatGPT успешно подключена.",
@@ -1267,11 +1280,14 @@
     "nextPlan": "Следующий план",
     "powerUp": "Усилить",
     "powerUpFor": "Усилить за +{amount}/мес",
-    "renewsOn": "Ежемесячная оплата • Подписка автоматически продлится {date}.",
     "usageBalanceAddCredits": "Добавить",
+    "usageBalanceBarRenews": "Текущее использование, продлится {date}",
+    "usageBalanceBarResets": "Текущее использование, сброс {date}",
     "usageBalanceExhausted": "Добавление кредитов, чтобы продолжить пользоваться ассистентом",
     "usageBalancePctUsed": "использовано {pct}%",
-    "usageBalanceTitle": "Баланс использования",
+    "usageBalanceRenews": "Продлится {date}",
+    "usageBalanceResets": "Сброс {date}",
+    "usageBalanceTitle": "Текущее использование",
     "usageChip": "Использование {name}, сброс каждый месяц",
     "viewAllPlans": "Все планы"
   },

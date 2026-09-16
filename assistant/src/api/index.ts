@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+export {
+  isComputerUseToolCall,
+  resolveComputerUseToolName,
+} from "./computer-use-tool.js";
+
 import { AcpAuthRequiredEventSchema } from "./events/acp-auth-required.js";
 import { AcpSessionCompletedEventSchema } from "./events/acp-session-completed.js";
 import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
@@ -34,6 +39,7 @@ import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationInferenceProfileUpdatedEventSchema } from "./events/conversation-inference-profile-updated.js";
 import { ConversationNoticeEventSchema } from "./events/conversation-notice.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
+import { DesktopActivityChangedEventSchema } from "./events/desktop-activity-changed.js";
 import { DiskPressureStatusChangedEventSchema } from "./events/disk-pressure-status-changed.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
 import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
@@ -342,6 +348,10 @@ export {
   type ConversationTitleUpdatedEvent,
   ConversationTitleUpdatedEventSchema,
 } from "./events/conversation-title-updated.js";
+export {
+  type DesktopActivityChangedEvent,
+  DesktopActivityChangedEventSchema,
+} from "./events/desktop-activity-changed.js";
 export {
   type DiskPressureBlockedCapability,
   DiskPressureBlockedCapabilitySchema,
@@ -1000,6 +1010,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ConversationInferenceProfileUpdatedEventSchema,
   ConversationNoticeEventSchema,
   ConversationTitleUpdatedEventSchema,
+  DesktopActivityChangedEventSchema,
   DiskPressureStatusChangedEventSchema,
   DocumentCommentCreatedEventSchema,
   DocumentCommentDeletedEventSchema,

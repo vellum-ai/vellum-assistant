@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PassThrough } from "node:stream";
 
+import { resolveIpcEndpoint } from "@vellumai/ipc-server-utils";
 import {
   CES_PROTOCOL_VERSION,
   type HandshakeAck,
@@ -399,35 +400,48 @@ describe("CES data paths", () => {
     expect(root).not.toMatch(/workspace/);
   });
 
-  test("getBootstrapSocketPath defaults to /run/ces-bootstrap/ces.sock", () => {
-    const saved = process.env["CES_BOOTSTRAP_SOCKET"];
-    delete process.env["CES_BOOTSTRAP_SOCKET"];
-    try {
-      expect(getBootstrapSocketPath()).toBe("/run/ces-bootstrap/ces.sock");
-    } finally {
-      if (saved !== undefined) process.env["CES_BOOTSTRAP_SOCKET"] = saved;
-    }
-  });
-
-  test("getBootstrapSocketPath respects CES_BOOTSTRAP_SOCKET env var", () => {
-    const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
+  test("getBootstrapSocketPath defaults to /run/ces-bootstrap", () => {
     const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    // CES_BOOTSTRAP_SOCKET_DIR takes precedence; clear it so the
-    // CES_BOOTSTRAP_SOCKET fallback is actually exercised.
     delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
-    process.env["CES_BOOTSTRAP_SOCKET"] = "/tmp/test-ces.sock";
     try {
-      expect(getBootstrapSocketPath()).toBe("/tmp/test-ces.sock");
+      expect(getBootstrapSocketPath()).toBe(
+        resolveIpcEndpoint("ces", {
+          workspaceDir: "/run/ces-bootstrap",
+        }).path,
+      );
     } finally {
-      if (savedSocket !== undefined) {
-        process.env["CES_BOOTSTRAP_SOCKET"] = savedSocket;
-      } else {
-        delete process.env["CES_BOOTSTRAP_SOCKET"];
-      }
       if (savedDir !== undefined) {
         process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
       } else {
         delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+      }
+    }
+  });
+
+  test("getBootstrapSocketPath uses CES_BOOTSTRAP_SOCKET_DIR via resolveIpcEndpoint", () => {
+    const savedDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+    const savedWorkspace = process.env["VELLUM_WORKSPACE_DIR"];
+    process.env["CES_BOOTSTRAP_SOCKET_DIR"] = "/tmp/ces-bootstrap";
+    process.env["VELLUM_WORKSPACE_DIR"] = "/tmp/ces-ws";
+    try {
+      expect(getBootstrapSocketPath()).toBe(
+        resolveIpcEndpoint("ces", {
+          workspaceDir: "/tmp/ces-bootstrap",
+        }).path,
+      );
+      expect(getBootstrapSocketPath()).not.toBe(
+        resolveIpcEndpoint("ces", { workspaceDir: "/tmp/ces-ws" }).path,
+      );
+    } finally {
+      if (savedDir !== undefined) {
+        process.env["CES_BOOTSTRAP_SOCKET_DIR"] = savedDir;
+      } else {
+        delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+      }
+      if (savedWorkspace !== undefined) {
+        process.env["VELLUM_WORKSPACE_DIR"] = savedWorkspace;
+      } else {
+        delete process.env["VELLUM_WORKSPACE_DIR"];
       }
     }
   });

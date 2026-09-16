@@ -1,6 +1,6 @@
 /**
  * Tests for the credit figure the balance surfaces name: the wallet less
- * whatever is still unused on the usage grants, since the Usage Balance bar
+ * whatever is still unused on the usage grants, since the Current Usage bar
  * already measures those.
  */
 

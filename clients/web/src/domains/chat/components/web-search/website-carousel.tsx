@@ -5,14 +5,14 @@ import { FaviconChip } from "@/domains/chat/components/web-search/favicon-chip";
 
 /**
  * Items consumed by `WebsiteCarousel`. The shape matches the inputs `FaviconChip`
- * needs to render a single search result — keep this in sync with that prop set.
+ * needs to render a single search result; keep this in sync with that prop set.
  */
 export interface WebsiteCarouselItem {
-  /** Absolute favicon URL. Optional — `FaviconChip` falls back to a monogram. */
+  /** Absolute favicon URL. Optional: `FaviconChip` falls back to a monogram. */
   faviconUrl?: string;
   /** The site's title for the chip's label. */
   title: string;
-  /** Site domain — used for the monogram fallback and as part of the rotation key. */
+  /** Site domain, used for the monogram fallback and as part of the rotation key. */
   domain?: string;
 }
 
@@ -38,7 +38,7 @@ export interface WebsiteCarouselProps {
  * `minDwellMs` and rapid bursts of new results don't flash by.
  *
  * Mirrors the motion vocabulary used by `surfaces/card-surface.tsx`
- * (`InProgressDetail`) — `AnimatePresence` with `mode="popLayout"`, a per-entry
+ * (`InProgressDetail`): `AnimatePresence` with `mode="popLayout"`, a per-entry
  * `motion.div`, and a y-axis fade.
  *
  * Honours `prefers-reduced-motion`: when set, the transition becomes an
@@ -62,7 +62,7 @@ export function WebsiteCarousel({
   // Walk `currentIndex` toward the latest item one step at a time, each step
   // gated by `minDwellMs` so every intermediate site stays visible long enough.
   // When the parent appends a newer result `target` grows, this effect re-runs,
-  // and the walk resumes — always converging on (and then holding) the most
+  // and the walk resumes, always converging on (and then holding) the most
   // recently searched site. Once caught up we hold and schedule nothing.
   useEffect(() => {
     if (currentIndex >= target) {
@@ -89,7 +89,7 @@ export function WebsiteCarousel({
   const animate = reduce ? { opacity: 1 } : { y: 0, opacity: 1 };
   const exit = reduce ? { opacity: 0 } : { y: 28, opacity: 0 };
 
-  // Single-item branch: no AnimatePresence, no timer — render the chip
+  // Single-item branch: no AnimatePresence, no timer. Render the chip
   // directly so the wrapper still has the same height for layout stability.
   if (items.length === 1) {
     const item = items[0]!;

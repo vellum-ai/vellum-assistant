@@ -10,6 +10,7 @@ import type { ContentBlock, ImageContent } from "@vellumai/plugin-api";
 import {
   getConfiguredProvider,
   resolveMediaSourceData,
+  safeStringSlice,
 } from "@vellumai/plugin-api";
 import { selectedBackendSupportsMultimodal } from "@vellumai/plugin-api";
 
@@ -33,7 +34,6 @@ import type {
   ScoredNode,
 } from "../../graph/types.js";
 import { isCapabilityNode } from "../../graph/types.js";
-import { safeStringSlice } from "../../host-utils.js";
 import { extractToolUse, userMessage } from "../../llm-helpers.js";
 import { getLogger } from "../../logging.js";
 import { searchGraphNodes } from "./graph-search.js";

@@ -19,7 +19,8 @@
  * concept pages or seeded skill entries change.
  */
 
-import { safeStringSlice } from "../host-utils.js";
+import { safeStringSlice } from "@vellumai/plugin-api";
+
 import { getLogger } from "../logging.js";
 import {
   CLI_COMMAND_SLUG_PREFIX,

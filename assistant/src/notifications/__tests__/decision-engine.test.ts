@@ -736,3 +736,178 @@ describe("schedule.result pass-through in notification decision engine", () => {
     expect(decision.shouldNotify).toBe(true);
   });
 });
+
+const SCHEDULER_OWNED_REPORT = [
+  "# Daily briefing",
+  "",
+  "## Overnight",
+  "- Calendar is clear until 10:00.",
+  "- Two pull requests are waiting on review.",
+  "",
+  "## Account security",
+  "- Urgent: a sign-in from a new device needs confirmation before the weekly sync.",
+  "",
+  "## This week",
+  "- Project kickoff on Wednesday.",
+  "- Weekly planning on Friday.",
+  "- Follow up on the draft status update.",
+].join("\n");
+
+function makeSchedulerShareSignal(
+  overrides?: Partial<NotificationSignal>,
+): NotificationSignal {
+  return {
+    signalId: "sig-scheduler-share-test-1",
+    createdAt: Date.now(),
+    sourceChannel: "scheduler",
+    sourceContextId: "conv-xyz",
+    sourceEventName: "assistant.share",
+    contextPayload: {
+      requestedMessage: SCHEDULER_OWNED_REPORT,
+      requestedBySource: "scheduler",
+      requestedTitle: "Your day",
+    },
+    attentionHints: {
+      requiresAction: true,
+      urgency: "high",
+      isAsyncBackground: true,
+      visibleInSourceNow: false,
+    },
+    ...overrides,
+  };
+}
+
+describe("scheduler requested-message pass-through in notification decision engine", () => {
+  beforeEach(() => {
+    persistedDecisions = [];
+  });
+
+  test("keeps a scheduler-owned report verbatim on every urgency-selected channel", async () => {
+    const available = [
+      "vellum",
+      "telegram",
+      "platform",
+    ] as NotificationChannel[];
+    const decision = await evaluateSignal(
+      makeSchedulerShareSignal(),
+      available,
+    );
+
+    expect(decision.shouldNotify).toBe(true);
+    expect(decision.selectedChannels).toEqual(available);
+    expect(decision.reasoningSummary).toBe(
+      "scheduler requested-message pass-through",
+    );
+    expect(decision.verbatimCopy).toBe(true);
+    expect(decision.fallbackUsed).toBe(false);
+    for (const ch of available) {
+      expect(decision.renderedCopy[ch]?.title).toBe("Your day");
+      expect(decision.renderedCopy[ch]?.body).toBe(SCHEDULER_OWNED_REPORT);
+      expect(decision.renderedCopy[ch]?.conversationSeedMessage).toBe(
+        SCHEDULER_OWNED_REPORT,
+      );
+    }
+  });
+
+  test("copies the complete report onto the urgency-narrowed channel set", async () => {
+    const available = [
+      "vellum",
+      "telegram",
+      "platform",
+    ] as NotificationChannel[];
+    const decision = await evaluateSignal(
+      makeSchedulerShareSignal({
+        attentionHints: {
+          requiresAction: false,
+          urgency: "medium",
+          isAsyncBackground: true,
+          visibleInSourceNow: false,
+        },
+      }),
+      available,
+    );
+
+    expect(decision.shouldNotify).toBe(true);
+    expect(decision.selectedChannels).toEqual(["vellum"]);
+    expect(decision.reasoningSummary).toBe(
+      "scheduler requested-message pass-through",
+    );
+    expect(decision.renderedCopy.vellum?.body).toBe(SCHEDULER_OWNED_REPORT);
+    expect(decision.renderedCopy.vellum?.conversationSeedMessage).toBe(
+      SCHEDULER_OWNED_REPORT,
+    );
+    expect(decision.renderedCopy.telegram?.body).toBe(SCHEDULER_OWNED_REPORT);
+    expect(decision.renderedCopy.platform?.body).toBe(SCHEDULER_OWNED_REPORT);
+  });
+
+  test("leaves an unowned scheduler requestedMessage on the model path", async () => {
+    const previousSendMessage = providerSendMessage;
+    let providerCalled = false;
+    providerSendMessage = async () => {
+      providerCalled = true;
+      return {};
+    };
+
+    try {
+      const decision = await evaluateSignal(
+        makeSchedulerShareSignal({
+          contextPayload: {
+            requestedMessage: SCHEDULER_OWNED_REPORT,
+            requestedTitle: "Your day",
+          },
+        }),
+        ["vellum", "telegram", "platform"] as NotificationChannel[],
+      );
+
+      expect(providerCalled).toBe(true);
+      expect(decision.verbatimCopy).toBeUndefined();
+      expect(decision.reasoningSummary).not.toBe(
+        "scheduler requested-message pass-through",
+      );
+    } finally {
+      providerSendMessage = previousSendMessage;
+    }
+  });
+
+  test("leaves scheduler notify-mode without the ownership marker on the model path", async () => {
+    const previousSendMessage = providerSendMessage;
+    let providerCalled = false;
+    providerSendMessage = async () => {
+      providerCalled = true;
+      return {};
+    };
+
+    try {
+      const decision = await evaluateSignal(
+        {
+          signalId: "sig-schedule-notify-test-1",
+          createdAt: Date.now(),
+          sourceChannel: "scheduler",
+          sourceContextId: "sched-notify-1",
+          sourceEventName: "schedule.notify",
+          contextPayload: {
+            scheduleId: "sched-notify-1",
+            label: "Take out the trash",
+            message: "Take out the trash",
+          },
+          attentionHints: {
+            requiresAction: true,
+            urgency: "high",
+            isAsyncBackground: false,
+            visibleInSourceNow: false,
+          },
+        },
+        ["vellum", "telegram", "platform"] as NotificationChannel[],
+      );
+
+      expect(providerCalled).toBe(true);
+      expect(decision.verbatimCopy).toBeUndefined();
+      expect(decision.reasoningSummary).not.toBe(
+        "scheduler requested-message pass-through",
+      );
+      expect(decision.reasoningSummary).not.toBe("schedule_result pass-through");
+    } finally {
+      providerSendMessage = previousSendMessage;
+    }
+  });
+});

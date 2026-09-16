@@ -10,7 +10,7 @@
 // (same format as extraction) that is applied to the graph.
 // ---------------------------------------------------------------------------
 
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
 import { getMemoryDb } from "../../../../../persistence/db-connection.js";
@@ -26,7 +26,7 @@ import {
 } from "../../graph/store.js";
 import type { MemoryNode } from "../../graph/types.js";
 import { isCapabilityNode } from "../../graph/types.js";
-import { BackendUnavailableError, safeStringSlice } from "../../host-utils.js";
+import { BackendUnavailableError } from "../../host-utils.js";
 import { extractToolUse, userMessage } from "../../llm-helpers.js";
 import { getLogger } from "../../logging.js";
 import {

@@ -35,7 +35,7 @@ import {
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { paneState } from "@/stores/pane-state";
+import { paneState, showsFullWidthApp } from "@/stores/pane-state";
 import { WorkspacePanes } from "@/domains/chat/components/workspace-panes";
 import { useDeployStore } from "@/stores/deploy-store";
 import {
@@ -52,7 +52,9 @@ import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useOverlayEscape } from "../hooks/use-overlay-escape";
+import { useAppViewerRouteHandlers } from "../hooks/use-app-viewer-route-handlers";
 import { autoSendPromptState } from "@/utils/auto-send-prompt";
+import { exitAppSplit } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
 import { skillDetailBackState } from "@/utils/skills";
@@ -156,6 +158,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const documentEditorRef = useRef<DocumentViewerContainerHandle>(null);
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
+  const activeAppId = useViewerStore.use.activeAppId();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const editingConversationId =
@@ -225,26 +228,11 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const editApp = useEditApp();
 
   // -------------------------------------------------------------------------
-  // Side-panel callbacks (store operations only — no hook-local state)
+  // Side-panel callbacks: navigation and store operations, no hook-local state
   // -------------------------------------------------------------------------
 
-  const handleCloseApp = useCallback(() => {
-    useViewerStore.getState().closeApp();
-    useConversationStore.getState().setEditingConversationId(null);
-  }, []);
-
-  const handleNavigateAppRoute = useCallback(
-    (href: string) => {
-      handleCloseApp();
-      navigate(href);
-    },
-    [handleCloseApp, navigate],
-  );
-
-  const handleCloseEditPanel = useCallback(() => {
-    useConversationStore.getState().setEditingConversationId(null);
-    useViewerStore.getState().exitAppEditing();
-  }, []);
+  const { handleCloseApp, handleNavigateAppRoute } =
+    useAppViewerRouteHandlers();
 
   const handleEditApp = useCallback(() => {
     const oas = useViewerStore.getState().openedAppState;
@@ -273,8 +261,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const handleAppAction = useCallback(
     (actionId: string, data?: Record<string, unknown>) =>
-      handleAppViewerAction({ navigate, isMobile }, actionId, data),
-    [navigate, isMobile],
+      handleAppViewerAction(
+        { navigate, isMobile, state: location.state },
+        actionId,
+        data,
+      ),
+    [navigate, isMobile, location.state],
   );
 
   const handleCloseDocument = documentRoute.closeDocument;
@@ -488,7 +480,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             assistantId={assistantId ?? ""}
             onClose={handleCloseApp}
             onNavigateAppRoute={handleNavigateAppRoute}
-            onEdit={handleCloseEditPanel}
+            onEdit={exitAppSplit}
             onShare={handleShareApp}
             isSharing={isSharing}
             onDeploy={handleDeployApp}
@@ -503,7 +495,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // Desktop full-width app viewer (non-editing). Mobile uses the
   // portal-based MobileAppOverlay — this branch is desktop-only.
-  if (mainView === "app" && !isMobile) {
+  if (
+    showsFullWidthApp({
+      mainView,
+      isMobile,
+      activeAppId,
+      openedAppId: openedAppState?.appId ?? null,
+    })
+  ) {
     if (!openedAppState) {
       return (
         <div className="flex flex-1 items-center justify-center">
@@ -656,13 +655,6 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       rightPanel = (
         <LazyBoundary>
           <ActivityStepsPanel
-            // Re-key per group so the drill-in level resets when a different
-            // group's header is clicked while the panel is already open.
-            key={`${activeActivitySteps.messageId ?? "snapshot"}:${
-              activeActivitySteps.groupIndex ??
-              activeActivitySteps.toolCalls[0]?.id ??
-              ""
-            }`}
             payload={activeActivitySteps}
             onClose={closeActivitySteps}
             assistantId={assistantId}

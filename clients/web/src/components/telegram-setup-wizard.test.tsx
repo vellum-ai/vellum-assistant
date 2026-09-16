@@ -70,7 +70,7 @@ function renderWizard(ui: React.ReactElement) {
 }
 
 describe("TelegramSetupWizard step flow", () => {
-  test("create step states the private-chat limitation", () => {
+  test("create step states which chats are supported and how a group is addressed", () => {
     renderWizard(
       <TelegramSetupWizard
         assistantId="asst-test"
@@ -80,7 +80,7 @@ describe("TelegramSetupWizard step flow", () => {
 
     expect(
       screen.queryByText(
-        /Private chats are supported\. Group, supergroup, and channel messages and button taps are not supported yet\./i,
+        /Private chats and groups are supported\. In a group, the assistant replies when it is mentioned or when someone replies to it\. Broadcast channels are not supported\./i,
       ),
     ).not.toBeNull();
   });

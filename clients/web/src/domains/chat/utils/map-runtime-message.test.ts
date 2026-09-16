@@ -97,6 +97,40 @@ describe("text-segment cleaning", () => {
 });
 
 describe("mapRuntimeToDisplayMessage", () => {
+  test("preserves screenshot provenance in flat and structured attachments", () => {
+    const automatic = {
+      id: "shot-1",
+      filename: "computer-use-click.png",
+      mimeType: "image/png",
+      sizeBytes: 10,
+      kind: "image",
+      computerUseScreenshot: true,
+    };
+    const explicit = {
+      id: "explicit-1",
+      filename: "report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 20,
+      kind: "document",
+    };
+    const display = mapRuntimeToDisplayMessage(
+      makeMessage({
+        attachments: [automatic, explicit],
+        contentBlocks: [
+          { type: "attachment", attachment: automatic },
+          { type: "attachment", attachment: explicit },
+        ],
+      }),
+    );
+
+    expect(display.attachments?.[0]?.computerUseScreenshot).toBe(true);
+    expect(display.attachments?.[1]?.computerUseScreenshot).toBeUndefined();
+    expect(display.contentBlocks).toEqual([
+      { type: "attachment", attachment: automatic },
+      { type: "attachment", attachment: explicit },
+    ]);
+  });
+
   test("preserves queued-message state from history", () => {
     const display = mapRuntimeToDisplayMessage(
       makeMessage({

@@ -12,8 +12,12 @@ import { useDesktopPreviewStore } from "./desktop-preview-store";
 export function useDesktopPreviewDrag() {
   const boundsRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLElement>(null);
+  const width = useDesktopPreviewStore.use.width();
   const position = useDesktopPreviewStore.use.position();
   const gesture = useRef<{
+    kind: "move" | "resize";
+    width: number;
+    height: number;
     id: number;
     x: number;
     y: number;
@@ -37,6 +41,39 @@ export function useDesktopPreviewDrag() {
       useDesktopPreviewStore.getState().setPosition(next);
     }
   }, []);
+
+  const resize = (
+    nextWidth: number,
+    start: { width: number; height: number; left: number; top: number },
+  ) => {
+    const bounds = boundsRef.current;
+    if (!bounds) {
+      return;
+    }
+    const chromeHeight = start.height - (start.width * 9) / 16;
+    const maxWidth = Math.max(
+      0,
+      Math.min(
+        1000,
+        bounds.clientWidth,
+        ((bounds.clientHeight - chromeHeight) * 16) / 9,
+      ),
+    );
+    const store = useDesktopPreviewStore.getState();
+    const preferredWidth = Math.min(1000, Math.max(320, nextWidth));
+    const next = Math.min(maxWidth, preferredWidth);
+    const height = (next * 9) / 16 + chromeHeight;
+    store.resize(preferredWidth, {
+      x: Math.max(
+        0,
+        Math.min(start.left + start.width - next, bounds.clientWidth - next),
+      ),
+      y: Math.max(
+        0,
+        Math.min(start.top + start.height - height, bounds.clientHeight - height),
+      ),
+    });
+  };
 
   useLayoutEffect(() => {
     const keepInBounds = () => {
@@ -69,7 +106,14 @@ export function useDesktopPreviewDrag() {
     if (event.target.closest("[data-desktop-close]")) {
       return;
     }
+    const resizing = Boolean(event.target.closest("[data-desktop-resize]"));
+    if (resizing) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
     gesture.current = {
+      kind: resizing ? "resize" : "move",
+      width: event.currentTarget.offsetWidth,
+      height: event.currentTarget.offsetHeight,
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
@@ -93,7 +137,19 @@ export function useDesktopPreviewDrag() {
     }
     dragged.current = true;
     event.currentTarget.setPointerCapture(event.pointerId);
-    move(start.left + dx, start.top + dy);
+    if (start.kind === "resize") {
+      const delta =
+        Math.abs(dx) >= Math.abs((dy * 16) / 9) ? dx : (dy * 16) / 9;
+      const nextWidth = start.width - delta;
+      resize(
+        delta <= 0
+          ? Math.max(useDesktopPreviewStore.getState().width, nextWidth)
+          : nextWidth,
+        start,
+      );
+    } else {
+      move(start.left + dx, start.top + dy);
+    }
   };
   const endGesture = () => {
     gesture.current = null;
@@ -126,8 +182,31 @@ export function useDesktopPreviewDrag() {
     }
   };
 
+  const onResizeKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const frame = frameRef.current;
+    const direction = {
+      ArrowLeft: 1,
+      ArrowUp: 1,
+      ArrowRight: -1,
+      ArrowDown: -1,
+    }[event.key];
+    if (!frame || !direction) {
+      return;
+    }
+    event.preventDefault();
+    const currentWidth = useDesktopPreviewStore.getState().width;
+    resize(currentWidth + direction * (event.shiftKey ? 40 : 16), {
+      width: frame.offsetWidth,
+      height: frame.offsetHeight,
+      left: frame.offsetLeft,
+      top: frame.offsetTop,
+    });
+  };
+
   return {
     boundsRef,
+    width,
+    onResizeKeyDown,
     frameRef,
     position,
     onPointerDownCapture,

@@ -39,6 +39,7 @@ class FakeRFB {
   channel: unknown;
   scaleViewport = false;
   resizeSession = false;
+  viewOnly = false;
   clipViewport = true;
   dragViewport = false;
   disconnectCalls = 0;
@@ -223,7 +224,7 @@ describe("DesktopViewer", () => {
 
     expect(status()).toBe("busy");
     expect(
-      screen.getByText("The desktop is in use by another viewer."),
+      screen.getByText("The virtual desktop is in use by another viewer."),
     ).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
   });
@@ -243,7 +244,9 @@ describe("DesktopViewer", () => {
     act(() => socket().serverClose(4011));
 
     expect(status()).toBe("failed");
-    expect(screen.getByText("The desktop couldn't start.")).not.toBeNull();
+    expect(
+      screen.getByText("The virtual desktop couldn't start."),
+    ).not.toBeNull();
     expect(screen.getByRole("button", { name: "Reconnect" })).not.toBeNull();
   });
 
@@ -398,6 +401,23 @@ afterAll(() => {
   globalThis.WebSocket = originalWebSocket;
 });
 
+test("expanding the view-only preview enables input without reconnecting", async () => {
+  const { rerender } = render(
+    <DesktopViewer assistantId="assistant-123" viewOnly />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const rfb = FakeRFB.instances.at(-1)!;
+  expect(rfb.viewOnly).toBe(true);
+  expect(rfb.resizeSession).toBe(false);
+  const count = FakeRFB.instances.length;
+  rerender(<DesktopViewer assistantId="assistant-123" viewOnly={false} />);
+  expect(rfb.viewOnly).toBe(false);
+  expect(rfb.resizeSession).toBe(false);
+  expect(FakeRFB.instances).toHaveLength(count);
+});
+
 test("touch viewport controls switch modes without reconnecting the live session", async () => {
   touch = true;
   const { rerender } = render(<DesktopViewer assistantId="asst-1" />);
@@ -457,6 +477,8 @@ test("preview suppresses clipboard traffic and expands without reconnecting", as
   expect(rfb().pasted).toEqual([selected]);
   expect(FakeRFB.instances).toHaveLength(1);
   expect(rfb().disconnectCalls).toBe(0);
-  expect(screen.queryByRole("button", { name: "Expand desktop" })).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Expand virtual desktop" }),
+  ).toBeNull();
   node.remove();
 });

@@ -2091,6 +2091,12 @@ export interface CompanionCaptureSources {
   displays: Extract<CompanionCaptureSource, { kind: "display" }>[];
   tabs: Extract<CompanionCaptureSource, { kind: "tab" }>[];
   windows: Extract<CompanionCaptureSource, { kind: "window" }>[];
+  /**
+   * False when the process that takes every capture has no Screen Recording
+   * grant, so nothing listed could be shown or shared until the user allows
+   * it. Absent on a shell that predates the check, which reads as granted.
+   */
+  screenRecordingGranted?: boolean;
 }
 
 /**

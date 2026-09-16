@@ -111,4 +111,54 @@ describe("referenceMediaBlocksForPersist", () => {
     expect(referenced).toEqual(blocks);
     expect(getAttachmentsForMessage(msg.id)).toHaveLength(0);
   });
+
+  test("retries unresolved materialization and applies the computer-use filename", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(conv.id, "user", "tool results");
+    const blocks: ContentBlock[] = [
+      {
+        type: "tool_result",
+        tool_use_id: "computer-use-call",
+        content: "clicked",
+        contentBlocks: [
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: IMAGE_B64,
+            },
+          },
+        ],
+      },
+    ];
+    const toolNames = new Map([["computer-use-call", "computer_use_click"]]);
+
+    const unresolved = await referenceMediaBlocksForPersist(
+      conv.id,
+      conv.createdAt,
+      "missing-message",
+      blocks,
+      toolNames,
+    );
+    expect(unresolved).toEqual(blocks);
+
+    const recovered = await referenceMediaBlocksForPersist(
+      conv.id,
+      conv.createdAt,
+      msg.id,
+      unresolved,
+      toolNames,
+    );
+    const nested = (
+      recovered[0] as Extract<ContentBlock, { type: "tool_result" }>
+    ).contentBlocks?.[0];
+    if (!nested || nested.type !== "image") {
+      throw new Error("expected recovered image");
+    }
+    expect(nested.source.type).toBe("workspace_ref");
+    expect(getAttachmentsForMessage(msg.id)).toEqual([
+      expect.objectContaining({ originalFilename: "computer-use-click.png" }),
+    ]);
+  });
 });
