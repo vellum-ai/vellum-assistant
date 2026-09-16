@@ -60,13 +60,7 @@ export function useDesktopPreviewDrag() {
       ),
     );
     const store = useDesktopPreviewStore.getState();
-    const preferredWidth = Math.min(
-      1000,
-      Math.max(
-        320,
-        nextWidth >= start.width ? Math.max(store.width, nextWidth) : nextWidth,
-      ),
-    );
+    const preferredWidth = Math.min(1000, Math.max(320, nextWidth));
     const next = Math.min(maxWidth, preferredWidth);
     const height = (next * 9) / 16 + chromeHeight;
     store.resize(preferredWidth, {
@@ -146,7 +140,13 @@ export function useDesktopPreviewDrag() {
     if (start.kind === "resize") {
       const delta =
         Math.abs(dx) >= Math.abs((dy * 16) / 9) ? dx : (dy * 16) / 9;
-      resize(start.width - delta, start);
+      const nextWidth = start.width - delta;
+      resize(
+        delta <= 0
+          ? Math.max(useDesktopPreviewStore.getState().width, nextWidth)
+          : nextWidth,
+        start,
+      );
     } else {
       move(start.left + dx, start.top + dy);
     }

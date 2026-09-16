@@ -364,7 +364,7 @@ describe("AssistantDesktopAffordance", () => {
     expect(frame.offsetWidth).toBe(1000);
   });
 
-  test("keyboard enlargement accumulates while the viewport constrains the frame", async () => {
+  test("keyboard resizing accumulates while the viewport constrains the frame", async () => {
     await openDesktop();
     act(() => useDesktopPreviewStore.getState().resize(600, { x: 0, y: 0 }));
     const frame = mockPreviewGeometry(400, 400);
@@ -374,8 +374,9 @@ describe("AssistantDesktopAffordance", () => {
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
     expect(frame.offsetWidth).toBe(400);
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
     mockPreviewGeometry();
-    expect(frame.offsetWidth).toBe(632);
+    expect(frame.offsetWidth).toBe(616);
   });
 
   test("a narrow viewport does not lower the preferred minimum size", async () => {
