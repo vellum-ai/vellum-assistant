@@ -289,6 +289,27 @@ function drop(
   };
 }
 
+/**
+ * The chat kind an update belongs to, read before normalization so the
+ * route can decide whether it needs the bot's identity at all: a private
+ * chat is admitted without one, so a private-only deployment never pays the
+ * `getMe` call.
+ */
+export function telegramUpdateChatType(
+  payload: Record<string, unknown>,
+): string | undefined {
+  const parsed = TelegramUpdateSchema.safeParse(payload);
+  if (!parsed.success) {
+    return undefined;
+  }
+  const update = parsed.data;
+  return (
+    update.callback_query?.message?.chat?.type ??
+    update.message?.chat?.type ??
+    update.edited_message?.chat?.type
+  );
+}
+
 export interface TelegramNormalizeOptions {
   /**
    * Who the bot is, for the admission gate to recognise a room message that

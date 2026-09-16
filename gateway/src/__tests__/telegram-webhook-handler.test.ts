@@ -824,6 +824,25 @@ describe("telegram webhook handler: rooms", () => {
     );
   });
 
+  test("a private-chat message never asks Telegram who the bot is", async () => {
+    // Private chats are admitted without the identity, so a deployment that
+    // only ever sees them makes no getMe call at all.
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "12345", assistantId: "assistant-a" },
+      ],
+    });
+    installFetchMock();
+    const { handler } = createTelegramWebhookHandler(config, makeCaches());
+
+    await handler(makeWebhookRequest(makeTelegramPayload("hello", 5301)));
+
+    expect(fetchCalls.filter((c) => c.url.endsWith("/getMe"))).toHaveLength(0);
+    expect(fetchCalls.filter((c) => c.url.includes("/inbound"))).toHaveLength(
+      1,
+    );
+  });
+
   test("a supergroup message that does not address the bot never reaches the runtime", async () => {
     const config = makeConfig({
       routingEntries: [
