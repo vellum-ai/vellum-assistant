@@ -138,7 +138,7 @@ function parseMessageBlocks(
 /**
  * Scan an array of message rows for `tool_use` blocks where `name` is
  * `"remember"` and return the `input.content` strings in order. Robust to
- * malformed content JSON — unparseable rows are skipped, not propagated.
+ * malformed content JSON: unparseable rows are skipped, not propagated.
  */
 export function extractRememberContents(
   messages: MessageLike[],

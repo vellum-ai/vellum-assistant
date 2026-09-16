@@ -1052,18 +1052,17 @@ describe("memoryV2ConsolidateJob: runtime-owned consumption", () => {
     expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
   });
 
-  test("a snapshot that ends mid-append leaves its last entry for the next pass", async () => {
+  test("a snapshot that caught an append mid-write leaves its last entry for the next pass", async () => {
     // An append is one write ending in a newline; a snapshot without one
-    // caught an append in flight. Its last entry is not handed to the run.
+    // may have caught an append in flight. The job re-reads after a short
+    // settle: the rest of the append lands in that window here, so the
+    // entry is incomplete and is not handed to the run.
     writeFileSync(
       bufferPath(),
       "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
         "- [Apr 27, 9:05 AM] Alice ships at end of",
     );
-    runnerImpl = async () => {
-      appendFileSync(bufferPath(), " day.\n");
-      return { conversationId: "conv-1", ok: true };
-    };
+    setTimeout(() => appendFileSync(bufferPath(), " day.\n"), 10);
 
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
@@ -1076,6 +1075,44 @@ describe("memoryV2ConsolidateJob: runtime-owned consumption", () => {
     expect(readFileSync(bufferPath(), "utf-8")).toBe(
       "- [Apr 27, 9:05 AM] Alice ships at end of day.\n",
     );
+  });
+
+  test("a stable buffer without a terminating newline is filed whole", async () => {
+    // A buffer last rewritten without a trailing newline (an agent's
+    // file_write under an older prompt, a hand edit) is a persisted shape
+    // that must keep working: nothing is mid-write, so after the settle
+    // re-read its last entry is complete, filed, and consumed, and the
+    // rewrite leaves the buffer newline-terminated.
+    writeFileSync(
+      bufferPath(),
+      "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n" +
+        "- [Apr 27, 9:05 AM] Alice ships at end of day.",
+    );
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.consumedEntries).toBe(2);
+    expect(runnerLastArgs?.prompt as string).toContain(
+      "Alice ships at end of day.",
+    );
+    expect(readFileSync(bufferPath(), "utf-8")).toBe("");
+  });
+
+  test("a single unterminated entry is not deferred forever", async () => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Only entry, no newline");
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.consumedEntries).toBe(1);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe("");
   });
 
   test("hand-written prose before the first entry is filed with the pass", async () => {

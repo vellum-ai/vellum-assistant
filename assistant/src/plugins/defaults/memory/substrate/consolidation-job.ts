@@ -41,8 +41,8 @@
  *      cutoff minute. Those entries are rendered verbatim into the prompt,
  *      so what the agent files and what the job later removes are the same
  *      set by construction. An entry appended after the snapshot is never in
- *      it, and a snapshot that ends mid-append (no terminating newline)
- *      leaves its last entry for the next pass. Nothing eligible → bail.
+ *      it, and a snapshot that caught an append mid-write leaves its last
+ *      entry for the next pass. Nothing eligible → bail.
  *   5. Hand off to `runBackgroundJob()` with the templated prompt. The runner
  *      handles bootstrap + processMessage + timeout + error classification,
  *      and (because we set `suppressFailureNotifications: true`) does NOT
@@ -504,7 +504,7 @@ export async function memoryV2ConsolidateJob(
     const pass = selectPassEntries(
       snapshot,
       cutoff,
-      bufferContent.endsWith("\n"),
+      await snapshotIsComplete(bufferPath, bufferContent),
     );
     if (pass.length === 0) {
       log.info(
@@ -823,10 +823,9 @@ function readBufferContent(bufferPath: string): string {
  * Prose before the first entry opening (a hand-written buffer) is filed too,
  * when it holds any text; otherwise the buffer could never drain.
  *
- * An append is one write ending in a newline, so a snapshot that does not
- * end in one (`snapshotIsComplete` false) caught an append mid-write; its
- * last entry is incomplete and is left for the next pass rather than filed
- * and removed in a truncated form.
+ * A snapshot that caught an append mid-write (`snapshotIsComplete` false,
+ * see {@link snapshotIsComplete}) has an incomplete last entry, which is
+ * left for the next pass rather than filed and removed in a truncated form.
  */
 function selectPassEntries(
   snapshot: readonly BufferEntryLines[],
@@ -855,6 +854,38 @@ function selectPassEntries(
     pass.pop();
   }
   return pass;
+}
+
+/**
+ * How long an unterminated snapshot is given to settle before it is read
+ * again. An in-flight append completes within microseconds; a re-read that
+ * still returns the same bytes after this is a stable file.
+ */
+const UNTERMINATED_SNAPSHOT_SETTLE_MS = 100;
+
+/**
+ * Whether the snapshot ends on a complete entry. An append is one write
+ * ending in a newline, so content that ends in one is complete. Content
+ * that does not is either an append caught mid-write or a buffer whose last
+ * rewrite left no terminator (an agent's `file_write` under an older prompt,
+ * a hand edit): a persisted shape that must keep working. The two are told
+ * apart by time: after a short settle the file is read again, and identical
+ * bytes mean nothing was mid-write, so the last entry is complete and may be
+ * filed. Grown or changed bytes mean an append was in flight, and the
+ * snapshot's last entry waits for the next pass. Consuming rewrites the
+ * buffer newline-terminated, so the unterminated shape does not recur.
+ */
+async function snapshotIsComplete(
+  bufferPath: string,
+  content: string,
+): Promise<boolean> {
+  if (content.endsWith("\n")) {
+    return true;
+  }
+  await new Promise((resolve) =>
+    setTimeout(resolve, UNTERMINATED_SNAPSHOT_SETTLE_MS),
+  );
+  return readBufferContent(bufferPath) === content;
 }
 
 /**
