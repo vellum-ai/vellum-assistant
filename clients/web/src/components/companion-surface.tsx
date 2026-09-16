@@ -2077,12 +2077,14 @@ function TeachButton({
   watching,
   watchEnabled,
   picking,
+  dimmed,
   onWatch,
   onTeach,
 }: {
   watching: boolean;
   watchEnabled: boolean;
   picking: boolean;
+  dimmed?: boolean;
   onWatch?: () => void;
   onTeach?: () => void;
 }) {
@@ -2094,6 +2096,7 @@ function TeachButton({
     <PillButton
       icon={<Eye className="size-4" />}
       label={t("companionSurface.teach")}
+      dimmed={dimmed}
       // Held down for the session and for the choice before it alike: both
       // are states this press is in the middle of, and the second press ends
       // either one.
@@ -2312,6 +2315,7 @@ function CallBody({
         watching={watching}
         watchEnabled={watchEnabled}
         picking={picking}
+        dimmed={spotlight !== undefined}
         onWatch={onWatch}
         onTeach={onTeach}
       />
@@ -2324,6 +2328,7 @@ function CallBody({
         sharePicking={sharePicking}
         shortcut={shareEnabled ? shortcuts?.share : undefined}
         spotlit={spotlight === "share"}
+        dimmed={spotlight !== undefined && spotlight !== "share"}
         onShare={onShare}
         onStopShare={onStopShare}
       />
@@ -2333,6 +2338,7 @@ function CallBody({
         sharing={sharing}
         annotating={annotating}
         spotlit={spotlight === "draw"}
+        dimmed={spotlight !== undefined && spotlight !== "draw"}
         shortcut={shareEnabled ? shortcuts?.draw : undefined}
         tool={annotationTool}
         placement={drawToolsPlacement}
@@ -2346,6 +2352,7 @@ function CallBody({
       <ClearButton
         sharing={sharing}
         marked={marked}
+        dimmed={spotlight !== undefined}
         onClearMarks={onClearMarks}
       />
       <PillButton
@@ -2360,6 +2367,7 @@ function CallBody({
         shortcut={shortcuts?.muteMicrophone}
         control="mute"
         spotlit={spotlight === "mute"}
+        dimmed={spotlight !== undefined && spotlight !== "mute"}
         onClick={() => {
           onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
         }}
@@ -2378,13 +2386,14 @@ function CallBody({
             : t("companionSurface.muteAssistant")
         }
         shortcut={shortcuts?.muteAssistant}
+        dimmed={spotlight !== undefined}
         onClick={() => {
           onControl?.(
             outputMuted ? "unmuteAssistantAudio" : "muteAssistantAudio",
           );
         }}
       />
-      <EndCallButton onControl={onControl} />
+      <EndCallButton dimmed={spotlight !== undefined} onControl={onControl} />
     </>
   );
 }
@@ -2452,6 +2461,7 @@ function ShareButton({
   sharePicking,
   shortcut,
   spotlit,
+  dimmed,
   onShare,
   onStopShare,
 }: {
@@ -2460,6 +2470,7 @@ function ShareButton({
   sharePicking: boolean;
   shortcut?: string;
   spotlit?: boolean;
+  dimmed?: boolean;
   onShare?: () => void;
   onStopShare?: () => void;
 }) {
@@ -2474,6 +2485,7 @@ function ShareButton({
       shortcut={shortcut}
       control="share"
       spotlit={spotlit}
+      dimmed={dimmed}
       pressed={sharing || sharePicking}
       onClick={sharing ? onStopShare : onShare}
     />
@@ -2507,6 +2519,7 @@ function DrawButton({
   annotating,
   shortcut,
   spotlit,
+  dimmed,
   tool,
   placement,
   toolsRef,
@@ -2517,6 +2530,7 @@ function DrawButton({
   annotating: boolean;
   shortcut?: string;
   spotlit?: boolean;
+  dimmed?: boolean;
   /** Absent on a shell with only the pencil, which draws no strip. */
   tool?: CompanionAnnotationTool;
   placement: DrawToolsPlacement;
@@ -2536,6 +2550,7 @@ function DrawButton({
         shortcut={shortcut}
         control="draw"
         spotlit={spotlit}
+        dimmed={dimmed}
         pressed={annotating}
         // The anchor the strip hangs off. See `.companion-draw-anchor`.
         className="companion-draw-anchor"
@@ -2662,10 +2677,12 @@ function DrawTools({
 function ClearButton({
   sharing,
   marked,
+  dimmed,
   onClearMarks,
 }: {
   sharing: boolean;
   marked: boolean;
+  dimmed?: boolean;
   onClearMarks?: () => void;
 }) {
   const { t } = useTranslation();
@@ -2676,6 +2693,7 @@ function ClearButton({
     <PillButton
       icon={<Eraser className="size-4" />}
       label={t("companionSurface.clearMarks")}
+      dimmed={dimmed}
       onClick={() => {
         onClearMarks?.();
       }}
@@ -2690,8 +2708,10 @@ function ClearButton({
  * included: there it is the press that takes the request back.
  */
 function EndCallButton({
+  dimmed,
   onControl,
 }: {
+  dimmed?: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
 }) {
   const { t } = useTranslation();
@@ -2700,6 +2720,7 @@ function EndCallButton({
       icon={<X className="size-4" strokeWidth={2.5} />}
       label={t("companionSurface.endSession")}
       tone="negative"
+      dimmed={dimmed}
       onClick={() => {
         onControl?.("endSession");
       }}
@@ -2868,6 +2889,7 @@ function PillButton({
   showLabel = false,
   pressed,
   spotlit = false,
+  dimmed = false,
   control,
   className = "",
   onClick,
@@ -2880,10 +2902,17 @@ function PillButton({
   showLabel?: boolean;
   pressed?: boolean;
   /**
-   * Lit for the beat of the introduction that is about this control, with no
-   * pointer on it. See {@link CompanionSurfaceSpotlight}.
+   * Drawn as the control in use, for the beat of the introduction that is
+   * about it: the same held-down look a press gives it, with no pointer on it.
+   * See {@link CompanionSurfaceSpotlight}.
    */
   spotlit?: boolean;
+  /**
+   * Stood down, because the introduction is describing a different control.
+   * Every other control on the row dims rather than staying at full strength,
+   * so the one being described is the only live thing on the bar.
+   */
+  dimmed?: boolean;
   /**
    * Which control this is, in the introduction's vocabulary, written onto the
    * element as `data-control`. The introduction's card finds it there to aim
@@ -2908,15 +2937,9 @@ function PillButton({
       onPointerDown={(event) => {
         event.stopPropagation();
       }}
-      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${className} ${
-        pressed === true ? "bg-white/15" : ""
-      } ${
-        // The beat of the introduction that is about this control: lit, not
-        // captioned. The card is what names it, and it points at this with a
-        // beak of its own, so a second label in between would be the same
-        // word twice with an arrow through it.
-        spotlit ? "ring-1 ring-white/45 ring-offset-0" : ""
-      } ${
+      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-[background-color,opacity] duration-200 hover:bg-white/15 ${className} ${
+        pressed === true || spotlit ? "bg-white/15" : ""
+      } ${dimmed ? "opacity-35" : ""} ${
         tone === "negative"
           ? "text-[#ff6b6b]"
           : tone === "positive"

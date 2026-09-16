@@ -391,6 +391,22 @@ export function CompanionIntro({
         )}
       </p>
       <p className="text-[12px] leading-[1.45] text-white/70">{t(copy.body)}</p>
+      {/* **The permission is asked for where it is explained.** The beat
+          pointing at Share is the one moment the user has a reason to grant
+          screen recording, so the ask is here rather than at some later moment
+          they would have to connect back to this.
+          Beside the sentence and not in place of Next: an Allow that took the
+          primary control's spot made the first press on that spot do something
+          other than move on, which reads as a Next that did not work. */}
+      {asking && (
+        <button
+          type="button"
+          className="self-start rounded-full bg-white/15 px-2.5 py-1 text-[12px] text-white transition-colors hover:bg-white/25"
+          onClick={onGrantScreen}
+        >
+          {t("companionIntro.share.allow")}
+        </button>
+      )}
       <div className="flex items-center justify-between pt-0.5">
         {/* Where the run is, as dots rather than "2 of 3". The count is not
             information anyone acts on; that it is nearly over is. */}
@@ -422,30 +438,13 @@ export function CompanionIntro({
               {t("companionIntro.skip")}
             </button>
           )}
-          {/* **The permission is asked for where it is explained.** The beat
-              pointing at Share is the one moment the user has a reason to
-              grant screen recording, so the ask is the beat's own primary
-              control rather than a prompt at some later moment they have to
-              connect back to this. Granted, the control goes back to being
-              Next: an Allow for something already allowed is a button that
-              does nothing, and one this card cannot answer for. */}
-          {asking ? (
-            <button
-              type="button"
-              className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
-              onClick={onGrantScreen}
-            >
-              {t("companionIntro.share.allow")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
-              onClick={() => onAdvance?.("next")}
-            >
-              {isLast ? t("companionIntro.done") : t("companionIntro.next")}
-            </button>
-          )}
+          <button
+            type="button"
+            className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+            onClick={() => onAdvance?.("next")}
+          >
+            {isLast ? t("companionIntro.done") : t("companionIntro.next")}
+          </button>
         </div>
       </div>
     </div>
