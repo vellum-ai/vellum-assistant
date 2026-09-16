@@ -1,10 +1,11 @@
 /**
  * Code-owned MCP tool-count caps and the selection used when they bind.
  *
- * Caps live here, not in workspace config: migration 153 strips
- * `maxTools` / `globalMaxTools` from `config.json`. The numbers are a
- * context-window budget, not a permission gate. Allowlists and risk
- * still decide what a turn may call.
+ * The shipped global cap is {@link MCP_GLOBAL_MAX_TOOLS}. A workspace may
+ * raise or lower it with `tools.mcpGlobalMaxTools` in config.json. The
+ * per-server cap stays code-owned. These numbers are a context-window
+ * budget, not a permission gate. Allowlists and risk still decide what
+ * a turn may call.
  *
  * The global cap is applied by a deterministic round-robin across
  * servers sorted by id. Insertion order must not empty a later server
@@ -15,6 +16,7 @@ import {
   MCP_GLOBAL_MAX_TOOLS,
   MCP_MAX_TOOLS_PER_SERVER,
 } from "../config/schemas/mcp.js";
+import type { ToolsConfig } from "../config/schemas/tools.js";
 
 export interface McpServerToolSet<T> {
   serverId: string;
@@ -37,6 +39,12 @@ export interface McpToolCapResult<T> {
   globalCap: number;
   perServerCap: number;
   decisions: McpToolCapDecision[];
+}
+
+export function resolveMcpGlobalMaxTools(
+  tools?: Pick<ToolsConfig, "mcpGlobalMaxTools">,
+): number {
+  return tools?.mcpGlobalMaxTools ?? MCP_GLOBAL_MAX_TOOLS;
 }
 
 export function applyMcpToolCaps<T>(

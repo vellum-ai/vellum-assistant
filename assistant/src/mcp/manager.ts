@@ -50,7 +50,10 @@ export class McpServerManager {
     this.onUnexpectedClose = handler;
   }
 
-  async start(config: ResolvedMcpConfig): Promise<McpStartResult> {
+  async start(
+    config: ResolvedMcpConfig,
+    caps?: { globalMax?: number; perServerMax?: number },
+  ): Promise<McpStartResult> {
     const entries = Object.entries(config.servers);
     log.info(
       { configuredServerCount: entries.length },
@@ -78,6 +81,7 @@ export class McpServerManager {
         serverId: result.serverId,
         tools: result.tools,
       })),
+      caps,
     );
     const keptByServer = new Map(
       capped.servers.map((server) => [server.serverId, server.tools]),

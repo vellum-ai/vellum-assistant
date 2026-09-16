@@ -18,7 +18,8 @@ export const PLUGIN_MCP_RISK_LEVEL = "low" as const;
 export const MCP_MAX_TOOLS_PER_SERVER = 20;
 
 /**
- * Cap on tools registered across every MCP server. Selection is a
+ * Cap on tools registered across every MCP server when the workspace
+ * does not set `tools.mcpGlobalMaxTools` in config.json. Selection is a
  * deterministic round-robin by server id (see `mcp/tool-caps.ts`), so a
  * later server is not emptied just because earlier ones filled the budget.
  */

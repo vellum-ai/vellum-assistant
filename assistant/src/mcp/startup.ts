@@ -13,7 +13,7 @@
  * further process that starts hosting turns has one call to make.
  */
 
-import { invalidateConfigCache } from "../config/loader.js";
+import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { McpConfig } from "../config/schemas/mcp.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
@@ -23,6 +23,7 @@ import { getMcpServerManager, stopMcpServerManager } from "./manager.js";
 import {
   EMPTY_MCP_STARTUP_SNAPSHOT,
   type McpStartupSnapshot,
+  resolveMcpGlobalMaxTools,
 } from "./tool-caps.js";
 import { loadWorkspaceMcpConfig } from "./workspace-mcp-config.js";
 
@@ -63,7 +64,9 @@ export async function startConfiguredMcpServers(
     }
 
     const manager = getMcpServerManager();
-    const started = await manager.start(mcpConfig);
+    const started = await manager.start(mcpConfig, {
+      globalMax: resolveMcpGlobalMaxTools(getConfig().tools),
+    });
     let registered = 0;
     for (const { serverId, serverConfig, tools } of started.servers) {
       const mcpTools = createMcpToolsFromServer(

@@ -108,4 +108,28 @@ describe("McpServerManager tool selection", () => {
     ).toBe(true);
     await manager.stop();
   });
+
+  test("a workspace global-max override raises how many tools are kept", async () => {
+    const ids = Array.from(
+      { length: 8 },
+      (_, i) => `server-${String(i + 1).padStart(2, "0")}`,
+    );
+    for (const id of ids) {
+      toolsByServer.set(
+        id,
+        Array.from({ length: 10 }, (_, i) => ({ name: `tool_${i}` })),
+      );
+    }
+
+    const manager = new McpServerManager();
+    const started = await manager.start(configWith(ids), { globalMax: 80 });
+
+    expect(started.discoveredToolCount).toBe(80);
+    expect(started.keptToolCount).toBe(80);
+    expect(started.droppedToolCount).toBe(0);
+    expect(started.servers.every((server) => server.tools.length === 10)).toBe(
+      true,
+    );
+    await manager.stop();
+  });
 });

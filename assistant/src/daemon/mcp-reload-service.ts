@@ -5,7 +5,7 @@
  * file is detected, so the daemon automatically reconnects MCP servers.
  */
 
-import { invalidateConfigCache } from "../config/loader.js";
+import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import {
   buildEffectiveMcpConfig,
   pluginMcpServersChangedSinceLastBuild,
@@ -13,6 +13,7 @@ import {
 import { getMcpServerManager } from "../mcp/manager.js";
 import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
 import { signalMcpReloaded } from "../mcp/reload-signal.js";
+import { resolveMcpGlobalMaxTools } from "../mcp/tool-caps.js";
 import { loadWorkspaceMcpConfig } from "../mcp/workspace-mcp-config.js";
 import { publishMcpChanged } from "../runtime/sync/resource-sync-events.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
@@ -116,7 +117,9 @@ async function doReload(): Promise<McpReloadResult> {
     const servers: McpReloadServerResult[] = [];
 
     if (serverIds.length > 0) {
-      const { servers: serverToolInfos } = await manager.start(mcpConfig);
+      const { servers: serverToolInfos } = await manager.start(mcpConfig, {
+        globalMax: resolveMcpGlobalMaxTools(getConfig().tools),
+      });
       for (const { serverId, serverConfig, tools } of serverToolInfos) {
         const mcpTools = createMcpToolsFromServer(
           tools,
