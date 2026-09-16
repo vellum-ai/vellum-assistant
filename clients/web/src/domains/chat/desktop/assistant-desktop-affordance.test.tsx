@@ -504,12 +504,38 @@ test("desktop help releases its viewer when another app window takes focus", asy
   expect(screen.getByRole("dialog")).toBeTruthy();
 });
 
-test("older desktop shells can still open a viewer without window attention", async () => {
+test("windows without attention reporting release the viewer on browser focus changes", async () => {
   attended = false;
   attentionSupported = false;
-  await openDesktop();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Expand virtual desktop" }),
-  );
-  expect(screen.getByRole("dialog")).toBeTruthy();
+  let focused = false;
+  const originalHasFocus = document.hasFocus;
+  document.hasFocus = () => focused;
+  try {
+    render(
+      <>
+        <DesktopHelpCard
+          entry={helpEntry}
+          isSubmitting={false}
+          onSubmit={() => {}}
+        />
+        <AssistantDesktopPreview />
+      </>,
+    );
+    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    focused = true;
+    fireEvent(window, new Event("focus"));
+    await screen.findByTestId("desktop-panel");
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    focused = false;
+    fireEvent(window, new Event("blur"));
+    expect(screen.queryByTestId("desktop-panel")).toBeNull();
+    expect(panelUnmounts).toBe(1);
+    focused = true;
+    fireEvent(window, new Event("focus"));
+    await screen.findByTestId("desktop-panel");
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  } finally {
+    document.hasFocus = originalHasFocus;
+  }
 });

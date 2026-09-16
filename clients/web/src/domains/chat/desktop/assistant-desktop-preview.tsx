@@ -26,10 +26,23 @@ export function AssistantDesktopPreview() {
   const session = useDesktopPreviewStore.use.session();
   const inlinePreview = useDesktopPreviewStore.use.inlinePreview();
   const fullscreenOnly = usePointerCoarse();
-  const [attended, setAttended] = useState(
-    () => !supportsWindowAttention() || isWindowAttended(),
+  const [attended, setAttended] = useState(() =>
+    supportsWindowAttention() ? isWindowAttended() : document.hasFocus(),
   );
   useBusSubscription("app.attention", ({ attended }) => setAttended(attended));
+  useEffect(() => {
+    if (supportsWindowAttention()) {
+      return;
+    }
+    const updateFocus = () => setAttended(document.hasFocus());
+    updateFocus();
+    window.addEventListener("focus", updateFocus);
+    window.addEventListener("blur", updateFocus);
+    return () => {
+      window.removeEventListener("focus", updateFocus);
+      window.removeEventListener("blur", updateFocus);
+    };
+  }, []);
 
   useEffect(() => {
     return () => useDesktopPreviewStore.getState().close();
