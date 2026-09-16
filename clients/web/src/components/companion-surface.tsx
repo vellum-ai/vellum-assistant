@@ -250,6 +250,26 @@ type CaptionSide = "above" | "left" | "right";
  */
 const CaptionSideContext = createContext<CaptionSide>("above");
 
+/**
+ * Where the creature is standing, as a fraction across the canvas, or `null`
+ * when it is on its own spot.
+ *
+ * **The introduction moves the creature rather than pointing at things.** A
+ * beat about one control on the bar used to be a card with an arrow reaching
+ * across to it; now the creature walks over and stands above the control it is
+ * talking about, and the card hangs off the creature as it always has. One
+ * object moves, nothing has to be aimed, and what the card is about is
+ * whatever the creature is standing on.
+ *
+ * Provided here rather than passed, because the card is handed to this
+ * component as an element the host built (`intro`), so props cannot reach it.
+ */
+const AvatarPerchContext = createContext<number | null>(null);
+
+/** Where the creature is standing, for anything drawn off it. */
+export const useAvatarPerch = (): number | null =>
+  useContext(AvatarPerchContext);
+
 /** Fallback accent, used until the assistant's own avatar colour is known. */
 const DEFAULT_ACCENT = "#5eead4";
 
@@ -508,6 +528,16 @@ export interface CompanionCallShortcuts {
   muteAssistant: string;
 }
 
+/**
+ * A control drawn as though the pointer were on it, for the beat of the
+ * introduction that is about it: the name and the key are revealed with no
+ * hover and no dwell.
+ *
+ * `talk` is the creature itself, which is the call button and carries its name
+ * above it; the rest are controls on the call's bar.
+ */
+export type CompanionSurfaceSpotlight = "talk" | "share" | "draw" | "mute";
+
 export interface CompanionSurfaceProps {
   phase: CompanionSurfacePhase;
   /**
@@ -635,7 +665,7 @@ export interface CompanionSurfaceProps {
    * room, where a hand reaching for the creature is the whole point of the
    * frame.
    */
-  spotlight?: "talk";
+  spotlight?: CompanionSurfaceSpotlight;
   /**
    * Start or stop the session that reads the screen, which is what Watch does.
    *
@@ -967,6 +997,58 @@ export function CompanionSurface({
     phase === "summary" ||
     phase === "watching";
   /**
+   * Where the creature stands while a beat of the introduction is about one
+   * control: over that control, rather than on its own spot.
+   *
+   * Measured from the control's own element, because which controls the bar
+   * carries depends on the session's state, so their positions are not
+   * something this component can derive from the two boxes it is drawn at. The
+   * measurement is repeated across the pill's 300ms width animation and then
+   * left alone, so a beat that arrives while the bar is still unfurling ends
+   * up over the right control rather than over where it used to be.
+   */
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [perch, setPerch] = useState<number | null>(null);
+  const perchFor = spotlight === "talk" ? undefined : spotlight;
+  useEffect(() => {
+    if (perchFor === undefined) {
+      setPerch(null);
+      return;
+    }
+    let frame = 0;
+    const startedAt = performance.now();
+    const measure = (): void => {
+      const box = boxRef.current;
+      // Searched from the box rather than from the pill, which the host owns
+      // the ref to: the controls are inside this box either way, and one
+      // element cannot carry two refs without the merge being written out by
+      // hand on every render.
+      const target = box?.querySelector<HTMLElement>(
+        `[data-control="${perchFor}"]`,
+      );
+      if (box !== null && target !== null && target !== undefined) {
+        const boxBox = box.getBoundingClientRect();
+        const targetBox = target.getBoundingClientRect();
+        // Client rects are in screen px and this box is drawn scaled, so the
+        // offset is divided back into the units everything inside is
+        // authored in.
+        const scaleNow =
+          boxBox.width === 0 ? 1 : box.offsetWidth / boxBox.width;
+        setPerch(
+          (targetBox.left + targetBox.width / 2 - boxBox.left) * scaleNow,
+        );
+      }
+      if (performance.now() - startedAt < 500) {
+        frame = requestAnimationFrame(measure);
+      }
+    };
+    measure();
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [perchFor, phase, sharing]);
+
+  /**
    * Whether the hand has dwelt on the creature long enough to be told its
    * name for a press.
    *
@@ -1203,17 +1285,25 @@ export function CompanionSurface({
    * duration, so the two read as one object changing shape.
    */
   const creatureLeft =
-    inCall && !vertical
-      ? `calc(50% - ${width / 2 + inUnits(avatarHalf + gap)}px)`
-      : "50%";
+    perch !== null && !vertical
+      ? `${perch}px`
+      : inCall && !vertical
+        ? `calc(50% - ${width / 2 + inUnits(avatarHalf + gap)}px)`
+        : "50%";
   /**
    * The same step, read up the column: on a side dock the creature stands at
    * the column's top end, across the gap, and the column is centred on the
    * creature's point vertically the way the row is horizontally.
    */
-  const creatureTop = vertical
-    ? `calc(50% - ${height / 2 + inUnits(avatarHalf + gap)}px)`
-    : avatarLine;
+  const creatureTop =
+    perch !== null && !vertical
+      ? // Standing on the bar's own top edge, a gap and its own half box up,
+        // which is the same step the pill takes off the creature everywhere
+        // else read the other way round.
+        `calc(${avatarLine} - ${inUnits(avatarHalf + gap) + 22}px)`
+      : vertical
+        ? `calc(50% - ${height / 2 + inUnits(avatarHalf + gap)}px)`
+        : avatarLine;
 
   return (
     // The box the whole surface is drawn in: the canvas divided by the options
@@ -1226,6 +1316,7 @@ export function CompanionSurface({
     // animates from state to state and be clipped by the pill's own rounding,
     // and beside it they all hang off the same fixed avatar position.
     <div
+      ref={boxRef}
       className="absolute top-0 left-0 origin-top-left"
       style={{
         width: `${100 / scale}%`,
@@ -1322,6 +1413,7 @@ export function CompanionSurface({
                 <CallBody
                   call={call}
                   assistantName={assistantName}
+                  spotlight={spotlight}
                   watching={watching}
                   watchEnabled={watchEnabled}
                   picking={picking}
@@ -1529,14 +1621,23 @@ export function CompanionSurface({
           // bar.
           transition: reduce
             ? undefined
-            : "left 300ms cubic-bezier(.2,.8,.2,1), top 300ms cubic-bezier(.2,.8,.2,1)",
+            : perch === null
+              ? "left 300ms cubic-bezier(.2,.8,.2,1), top 300ms cubic-bezier(.2,.8,.2,1)"
+              : // Walking to a control the introduction is about, which
+                // overshoots and settles: the creature hops onto the control
+                // rather than sliding to a halt over it. A call's own glide
+                // keeps its easing above, where the creature and the bar are
+                // one shape moving and an overshoot would pull them apart.
+                "left 420ms cubic-bezier(.34,1.56,.64,1), top 420ms cubic-bezier(.34,1.56,.64,1)",
         }}
         elementRef={avatarRef}
         onPointerDown={onSurfacePointerDown}
         onContextMenu={onSurfaceContextMenu}
         onClick={onAvatarClick}
       />
-      {intro}
+      {/* Anything hanging off the creature is told where it is standing, so
+          the card walks with it. See {@link AvatarPerchContext}. */}
+      <AvatarPerchContext value={perch}>{intro}</AvatarPerchContext>
       {picker}
       {offer}
     </div>
@@ -2089,6 +2190,7 @@ function SummaryBody({
 function CallBody({
   call,
   assistantName,
+  spotlight,
   watching,
   watchEnabled,
   picking,
@@ -2139,6 +2241,7 @@ function CallBody({
   onAnnotate?: (annotating: boolean) => void;
   onClearMarks?: () => void;
   shortcuts?: CompanionCallShortcuts;
+  spotlight?: CompanionSurfaceSpotlight;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -2220,6 +2323,7 @@ function CallBody({
         shareEnabled={shareEnabled}
         sharePicking={sharePicking}
         shortcut={shareEnabled ? shortcuts?.share : undefined}
+        spotlit={spotlight === "share"}
         onShare={onShare}
         onStopShare={onStopShare}
       />
@@ -2228,6 +2332,7 @@ function CallBody({
       <DrawButton
         sharing={sharing}
         annotating={annotating}
+        spotlit={spotlight === "draw"}
         shortcut={shareEnabled ? shortcuts?.draw : undefined}
         tool={annotationTool}
         placement={drawToolsPlacement}
@@ -2253,6 +2358,8 @@ function CallBody({
             : t("companionSurface.muteMicrophone")
         }
         shortcut={shortcuts?.muteMicrophone}
+        control="mute"
+        spotlit={spotlight === "mute"}
         onClick={() => {
           onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
         }}
@@ -2344,6 +2451,7 @@ function ShareButton({
   shareEnabled,
   sharePicking,
   shortcut,
+  spotlit,
   onShare,
   onStopShare,
 }: {
@@ -2351,6 +2459,7 @@ function ShareButton({
   shareEnabled: boolean;
   sharePicking: boolean;
   shortcut?: string;
+  spotlit?: boolean;
   onShare?: () => void;
   onStopShare?: () => void;
 }) {
@@ -2363,6 +2472,8 @@ function ShareButton({
       icon={<ScreenShare className="size-4" />}
       label={t("companionSurface.share")}
       shortcut={shortcut}
+      control="share"
+      spotlit={spotlit}
       pressed={sharing || sharePicking}
       onClick={sharing ? onStopShare : onShare}
     />
@@ -2395,6 +2506,7 @@ function DrawButton({
   sharing,
   annotating,
   shortcut,
+  spotlit,
   tool,
   placement,
   toolsRef,
@@ -2404,6 +2516,7 @@ function DrawButton({
   sharing: boolean;
   annotating: boolean;
   shortcut?: string;
+  spotlit?: boolean;
   /** Absent on a shell with only the pencil, which draws no strip. */
   tool?: CompanionAnnotationTool;
   placement: DrawToolsPlacement;
@@ -2421,6 +2534,8 @@ function DrawButton({
         icon={<Pencil className="size-4" />}
         label={t("companionSurface.draw")}
         shortcut={shortcut}
+        control="draw"
+        spotlit={spotlit}
         pressed={annotating}
         // The anchor the strip hangs off. See `.companion-draw-anchor`.
         className="companion-draw-anchor"
@@ -2752,6 +2867,8 @@ function PillButton({
   tone,
   showLabel = false,
   pressed,
+  spotlit = false,
+  control,
   className = "",
   onClick,
 }: {
@@ -2762,6 +2879,18 @@ function PillButton({
   tone?: "positive" | "negative";
   showLabel?: boolean;
   pressed?: boolean;
+  /**
+   * Lit for the beat of the introduction that is about this control, with no
+   * pointer on it. See {@link CompanionSurfaceSpotlight}.
+   */
+  spotlit?: boolean;
+  /**
+   * Which control this is, in the introduction's vocabulary, written onto the
+   * element as `data-control`. The introduction's card finds it there to aim
+   * its beak at, which is a measurement rather than a layout the card could
+   * derive: this row's controls come and go with the session's state.
+   */
+  control?: CompanionSurfaceSpotlight;
   /** A name for the stylesheet, for a control something else is placed against. */
   className?: string;
   onClick?: () => void;
@@ -2772,6 +2901,7 @@ function PillButton({
       type="button"
       aria-label={label}
       aria-pressed={pressed}
+      data-control={control}
       onClick={onClick}
       // A press on a control is not the start of a drag. Without this the
       // surface would move under a click meant to activate something on it.
@@ -2780,6 +2910,12 @@ function PillButton({
       }}
       className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${className} ${
         pressed === true ? "bg-white/15" : ""
+      } ${
+        // The beat of the introduction that is about this control: lit, not
+        // captioned. The card is what names it, and it points at this with a
+        // beak of its own, so a second label in between would be the same
+        // word twice with an arrow through it.
+        spotlit ? "ring-1 ring-white/45 ring-offset-0" : ""
       } ${
         tone === "negative"
           ? "text-[#ff6b6b]"

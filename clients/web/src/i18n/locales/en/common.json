@@ -138,12 +138,11 @@
   },
   "companionIntro": {
     "ariaLabel": "Introducing your companion",
-    "controls": {
-      "body": "Show me your screen, or mute either of us.",
-      "line": "Listening",
-      "title": "This is a call"
-    },
     "done": "Got it",
+    "draw": {
+      "body": "Circle or point at anything on your screen while I'm looking.",
+      "title": "Draw on it"
+    },
     "meet": {
       "body": "I stay on your desktop, even when Vellum isn’t visible.",
       "title": "This is me",
@@ -153,17 +152,21 @@
       "body": "That’s where you hide me or change my size.",
       "title": "Right-click me"
     },
+    "mute": {
+      "body": "Mute yourself here, or mute me with the speaker beside it.",
+      "title": "Mute either of us"
+    },
     "next": "Next",
+    "share": {
+      "allow": "Allow",
+      "body": "In a call, this shows me your screen so I can see what you mean.",
+      "line": "Listening",
+      "title": "Show me your screen"
+    },
     "skip": "Skip",
     "talk": {
-      "body": "Start a voice conversation.",
+      "body": "Click me or double tap Fn to start a conversation.",
       "title": "Talk"
-    },
-    "try": {
-      "body": "I can talk it through with you, and see your screen if you want.",
-      "later": "Not now",
-      "now": "Try it now",
-      "title": "Want to try a call?"
     }
   },
   "companionSurface": {

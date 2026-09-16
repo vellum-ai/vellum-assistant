@@ -485,8 +485,8 @@ const cancelIntroLanding = (): void => {
 /**
  * The introduction after a press, which is `null` once it is over.
  *
- * `dismiss` and `call` both end it wherever it is; `next` walks to the
- * following beat and falls off the end into `null`. Resolved against the beat main is actually on
+ * `dismiss` ends it wherever it is; `next` walks to the following beat and
+ * falls off the end into `null`. Resolved against the beat main is actually on
  * rather than one the renderer names, so a press from a renderer a beat behind
  * lands where the user could see that it would.
  *
@@ -496,10 +496,7 @@ export const introOnAdvance = (
   current: CompanionIntroBeat | null,
   action: CompanionIntroAction,
 ): CompanionIntroBeat | null => {
-  // `call` ends the run as `dismiss` does: the user asked for the real thing,
-  // and a card captioning a session over the top of one is the state the run
-  // gives way to everywhere else.
-  if (current === null || action === "dismiss" || action === "call") {
+  if (current === null || action === "dismiss") {
     return null;
   }
   const next =
@@ -3123,17 +3120,6 @@ export const installCompanionWindow = (): void => {
         intro = next;
       }
       pushState();
-      // **A `call` answer is a press on Talk, made from the card.** The run is
-      // over either way, and `introOnAdvance` has already ended it; what is
-      // left is the session the user asked for, started the same way the
-      // creature's own press starts one so the dial is drawn in this beat
-      // rather than after a round trip.
-      if (action === "call") {
-        if (dialOnTalk(call)) {
-          setDialing(true);
-        }
-        dispatchWithoutRaising({ kind: "startVoice" });
-      }
     },
   );
 

@@ -12,7 +12,7 @@ import { CompanionDictationOffer } from "@/components/companion-dictation-offer"
 import {
   CompanionIntro,
   INTRO_DEMO_SHORTCUTS,
-  introDemoCall,
+  introDemoState,
   introPhase,
   introSpotlight,
 } from "@/components/companion-intro";
@@ -46,6 +46,10 @@ import {
   toggleCompanionWatch,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import {
+  getSystemPermissionsState,
+  requestSystemPermission,
+} from "@/runtime/system-permissions";
 import { supportsChords } from "@/runtime/hotkey";
 import { callChordHints } from "@/domains/chat/voice/live-voice/call-chord-keys";
 import { useTranslation } from "@/i18n";
@@ -537,12 +541,39 @@ export function CompanionSurfacePage() {
    * Only while the card is actually on screen: a beat main still holds behind
    * a real call must not put a second, fictional bar over the real one.
    */
-  const demoCall =
-    introShown && intro === "controls"
-      ? introDemoCall(t("companionIntro.controls.line"))
-      : null;
+  const demo = introShown
+    ? introDemoState(intro, t("companionIntro.share.line"))
+    : null;
+  /**
+   * Whether the desktop can be shown to a call, for the share beat's Allow.
+   *
+   * Read while that beat is up and then polled, because the grant can be made
+   * in System Settings, which reports nothing back: without the poll the card
+   * would keep offering to ask for something the user has just granted. Null
+   * until the first read lands and on every shell without a permission to
+   * check, which the card draws as nothing to ask for.
+   */
+  const [screenGranted, setScreenGranted] = useState<boolean | null>(null);
+  const asking = intro === "share" && introShown;
+  useEffect(() => {
+    if (!asking) {
+      return;
+    }
+    const read = (): void => {
+      void getSystemPermissionsState().then((state) => {
+        setScreenGranted(
+          state === null ? null : state.screen.status === "granted",
+        );
+      });
+    };
+    read();
+    const timer = setInterval(read, 2_000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [asking]);
   /** Whether what the pill is drawing is that demonstration. */
-  const demoing = demoCall !== null;
+  const demoing = demo !== null;
   const phase: CompanionSurfacePhase =
     call !== null || dialing
       ? "call"
@@ -771,7 +802,7 @@ export function CompanionSurfacePage() {
         // session: every handler is withheld while it is drawn, so the bar is
         // a picture of one. A real call always wins, since one arriving
         // withdraws the card anyway.
-        call={call ?? demoCall ?? undefined}
+        call={call ?? demo?.call ?? undefined}
         // For the dial, which names who is being called. The call itself
         // carries its own name once it arrives.
         assistantName={assistantName}
@@ -854,6 +885,16 @@ export function CompanionSurfacePage() {
               // one there is no name to introduce it by.
               assistantName={assistantName === "" ? undefined : assistantName}
               cardRef={introRef}
+              // The permission the beat pointing at Share is about. Undefined
+              // rather than false while the first read is out, so the card
+              // does not flash an Allow for a permission that is already
+              // granted.
+              screenGranted={screenGranted ?? undefined}
+              onGrantScreen={() => {
+                void requestSystemPermission("screen").then((item) => {
+                  setScreenGranted(item?.status === "granted");
+                });
+              }}
               onAdvance={advanceCompanionIntro}
             />
           )
@@ -936,7 +977,9 @@ export function CompanionSurfacePage() {
         picking={picking && pickingFor === "teach"}
         // The share, from main, and the two presses that move it. The stop
         // leaves this window the way a pick does, carrying nothing.
-        sharing={sharing}
+        // The demonstration is showing a screen from the Draw beat on, since
+        // Draw acts on what is shared and is not drawn before there is one.
+        sharing={demo?.sharing ?? sharing}
         // Armed for the demonstration whatever the desktop can actually do:
         // the beat is about what a call offers, and a Share that is not drawn
         // is a sentence about a control the user cannot see.

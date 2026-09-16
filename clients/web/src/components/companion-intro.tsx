@@ -12,10 +12,12 @@ import type { CSSProperties, Ref } from "react";
 import { useTranslation } from "@/i18n";
 
 import { companionLayoutFor } from "@/components/companion-layout";
+import { useAvatarPerch } from "@/components/companion-surface";
 import type {
   CompanionSurfaceCardGrowth,
   CompanionSurfaceGrowth,
   CompanionSurfacePhase,
+  CompanionSurfaceSpotlight,
 } from "@/components/companion-surface";
 
 /**
@@ -80,13 +82,17 @@ const INTRO_COPY_KEYS = {
     title: "companionIntro.talk.title",
     body: "companionIntro.talk.body",
   },
-  try: {
-    title: "companionIntro.try.title",
-    body: "companionIntro.try.body",
+  share: {
+    title: "companionIntro.share.title",
+    body: "companionIntro.share.body",
   },
-  controls: {
-    title: "companionIntro.controls.title",
-    body: "companionIntro.controls.body",
+  draw: {
+    title: "companionIntro.draw.title",
+    body: "companionIntro.draw.body",
+  },
+  mute: {
+    title: "companionIntro.mute.title",
+    body: "companionIntro.mute.body",
   },
   menu: {
     title: "companionIntro.menu.title",
@@ -105,9 +111,27 @@ const INTRO_COPY_KEYS = {
  * pill stands for. Shared with the page and the stories so a beat cannot be
  * introduced in one place and spotlighted in another.
  */
+/**
+ * Which control on the pill the beat is about, drawn as though the pointer
+ * were on it: its name and its key are revealed, so the sentence on the card
+ * has the thing it names lit beside it.
+ *
+ * One beat, one control. A beat that lit two would be a beat about two things,
+ * and the run exists to take them one at a time.
+ */
 export const introSpotlight = (
   beat: CompanionIntroBeat | null,
-): "talk" | undefined => (beat === "talk" ? beat : undefined);
+): CompanionSurfaceSpotlight | undefined => {
+  switch (beat) {
+    case "talk":
+    case "share":
+    case "draw":
+    case "mute":
+      return beat;
+    default:
+      return undefined;
+  }
+};
 
 /**
  * The session the `controls` beat draws the pill around: a call that is not
@@ -137,13 +161,27 @@ export const introDemoCall = (label: string): VoiceActivityState => ({
   assistantName: "",
 });
 
-/** The keys the `controls` beat's captions name, as the host arms them. */
+/** The keys the call beats name, as the host arms them. */
 export const INTRO_DEMO_SHORTCUTS = {
   share: "⌥S",
   draw: "⌥D",
   muteMicrophone: "⌥M",
   muteAssistant: "⌥A",
 } as const;
+
+/**
+ * The key the beat's own control answers, or undefined for a beat about
+ * something no key reaches.
+ *
+ * On the card rather than in a caption beside the control: the card is already
+ * naming that control and pointing at it, and a caption in between would be
+ * the same word again with the beak running through it.
+ */
+const BEAT_SHORTCUTS: Partial<Record<CompanionIntroBeat, string>> = {
+  share: INTRO_DEMO_SHORTCUTS.share,
+  draw: INTRO_DEMO_SHORTCUTS.draw,
+  mute: INTRO_DEMO_SHORTCUTS.muteMicrophone,
+};
 
 /**
  * The phase the surface holds while a beat is on screen, or `null` to leave the
@@ -162,12 +200,36 @@ export const introPhase = (
   if (beat === null || beat === "meet") {
     return null;
   }
-  // The beat about the call's controls is drawn as a call, which is the only
-  // state those controls exist in. See {@link INTRO_DEMO_CALL}.
-  if (beat === "controls") {
+  // The beats about the call's controls are drawn as a call, which is the only
+  // state those controls exist in. See {@link introDemoCall}.
+  if (beat === "share" || beat === "draw" || beat === "mute") {
     return "call";
   }
   return "hover";
+};
+
+/**
+ * The session the call beats draw the pill around, and how much of one each
+ * needs, or `null` on a beat that is not about a call.
+ *
+ * Share is offered on any call, so the first of the three is a call with
+ * nothing being shown yet. Draw exists only while something is: it acts on the
+ * shared surface, and before there is one it is not a control that is
+ * unavailable, it is a control that is not there. So the demonstration starts
+ * showing the screen from that beat on, which is also the order the real thing
+ * happens in: show, then draw on what is shown.
+ *
+ * One table, read by the surface's own page and by the stories, so a beat
+ * cannot be introduced in one and drawn differently in the other.
+ */
+export const introDemoState = (
+  beat: CompanionIntroBeat | null,
+  label: string,
+): { call: VoiceActivityState; sharing: boolean } | null => {
+  if (beat !== "share" && beat !== "draw" && beat !== "mute") {
+    return null;
+  }
+  return { call: introDemoCall(label), sharing: beat !== "share" };
 };
 
 export interface CompanionIntroProps {
@@ -210,6 +272,16 @@ export interface CompanionIntroProps {
   /** Advance or end the run. Absent leaves the controls inert, which is what
    *  Storybook wants. */
   onAdvance?: (action: CompanionIntroAction) => void;
+  /**
+   * Whether the desktop may already be shown to a call, which decides whether
+   * the share beat asks for the permission or moves on. Undefined where the
+   * answer is not known, which reads as nothing to ask for: a card that
+   * offered to fix a permission it cannot see is worse than one that stays
+   * quiet.
+   */
+  screenGranted?: boolean;
+  /** Raise the system's screen-recording prompt. Absent offers no Allow. */
+  onGrantScreen?: () => void;
 }
 
 export function CompanionIntro({
@@ -222,11 +294,22 @@ export function CompanionIntro({
   assistantName,
   cardRef,
   onAdvance,
+  screenGranted,
+  onGrantScreen,
 }: CompanionIntroProps) {
   const { t } = useTranslation();
   const index = COMPANION_INTRO_BEATS.indexOf(beat);
   const isLast = index === COMPANION_INTRO_BEATS.length - 1;
   const copy = INTRO_COPY_KEYS[beat];
+  // The one beat with a permission to ask for, and only while it is missing
+  // and there is something here able to ask.
+  const asking =
+    beat === "share" && screenGranted === false && onGrantScreen !== undefined;
+
+  // Where the creature is standing, when a beat has walked it over a control.
+  // The card hangs off the creature, so this is all it needs to travel with
+  // it. See `AvatarPerchContext`.
+  const perch = useAvatarPerch();
 
   // The same derivation `CompanionSurface` places the pill by, so the card and
   // the pill are arranged around one creature rather than two readings of it.
@@ -242,16 +325,29 @@ export function CompanionIntro({
   // window around and the point the pill is measured from too. Not off the
   // pill: that box changes width from beat to beat as controls are spotlighted,
   // and a card pinned to it would slide about while being read.
-  const placement: CSSProperties = edgeAt(growth, -avatarHalf);
+  const placement: CSSProperties =
+    perch === null
+      ? edgeAt(growth, -avatarHalf)
+      : // Centred over the creature rather than hung off its side: it is
+        // standing on the control the beat is about, so the card belongs
+        // above that control too.
+        { left: perch };
 
   // The vertical half: sit on the avatar's own line, then step off it far
   // enough to clear what is drawn there.
   const anchor: CSSProperties = {
-    top: lineAt(cardGrowth, 0),
-    transform:
+    top:
+      perch === null
+        ? lineAt(cardGrowth, 0)
+        : `calc(${lineAt(cardGrowth, 0)} - ${stepOff}px)`,
+    transform: [
+      perch === null ? null : "translateX(-50%)",
       cardGrowth === "up"
         ? `translateY(calc(-100% - ${stepOff}px))`
         : `translateY(${stepOff}px)`,
+    ]
+      .filter((part) => part !== null)
+      .join(" "),
   };
 
   return (
@@ -277,15 +373,22 @@ export function CompanionIntro({
           and its height is borrowed from the canvas main reserves for it, so a
           title free to wrap is a title free to grow the card past what it was
           drawn into. Two lines holds every name worth reading. */}
-      <p className="line-clamp-2 text-[13px] leading-tight font-medium text-white">
+      <p className="flex items-center gap-1.5 text-[13px] leading-tight font-medium text-white">
         {/* The first beat is the introduction proper, so it is the one that
             says the name. Two keys rather than one with an empty argument: a
             sentence built around a name that is not there reads as a bug, and
             the unnamed version is a different sentence rather than the same one
             with a hole in it. */}
-        {beat === "meet" && assistantName !== undefined
-          ? t("companionIntro.meet.titleNamed", { name: assistantName })
-          : t(copy.title)}
+        <span className="line-clamp-2">
+          {beat === "meet" && assistantName !== undefined
+            ? t("companionIntro.meet.titleNamed", { name: assistantName })
+            : t(copy.title)}
+        </span>
+        {BEAT_SHORTCUTS[beat] === undefined ? null : (
+          <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-normal text-white/70">
+            {BEAT_SHORTCUTS[beat]}
+          </span>
+        )}
       </p>
       <p className="text-[12px] leading-[1.45] text-white/70">{t(copy.body)}</p>
       <div className="flex items-center justify-between pt-0.5">
@@ -306,49 +409,42 @@ export function CompanionIntro({
           ))}
         </div>
         <div className="flex items-center gap-1">
-          {/* The question beat answers itself: a real session or a look at
-              what one offers. Neither is Skip, and there is no Next to press
-              past a question, so this beat carries its own pair. */}
-          {beat === "try" ? (
-            <>
-              <button
-                type="button"
-                className="h-7 rounded-full px-2.5 text-[12px] text-white/55 transition-colors hover:bg-white/10 hover:text-white/80"
-                onClick={() => onAdvance?.("next")}
-              >
-                {t("companionIntro.try.later")}
-              </button>
-              <button
-                type="button"
-                className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
-                onClick={() => onAdvance?.("call")}
-              >
-                {t("companionIntro.try.now")}
-              </button>
-            </>
+          {/* Skip is offered only while there is something left to skip. On
+              the last beat the primary control already ends the run, and two
+              buttons that do the same thing is a choice the user has to stop
+              and read. */}
+          {!isLast && (
+            <button
+              type="button"
+              className="h-7 rounded-full px-2.5 text-[12px] text-white/55 transition-colors hover:bg-white/10 hover:text-white/80"
+              onClick={() => onAdvance?.("dismiss")}
+            >
+              {t("companionIntro.skip")}
+            </button>
+          )}
+          {/* **The permission is asked for where it is explained.** The beat
+              pointing at Share is the one moment the user has a reason to
+              grant screen recording, so the ask is the beat's own primary
+              control rather than a prompt at some later moment they have to
+              connect back to this. Granted, the control goes back to being
+              Next: an Allow for something already allowed is a button that
+              does nothing, and one this card cannot answer for. */}
+          {asking ? (
+            <button
+              type="button"
+              className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+              onClick={onGrantScreen}
+            >
+              {t("companionIntro.share.allow")}
+            </button>
           ) : (
-            <>
-              {/* Skip is offered only while there is something left to skip.
-                  On the last beat the primary control already ends the run,
-                  and two buttons that do the same thing is a choice the user
-                  has to stop and read. */}
-              {!isLast && (
-                <button
-                  type="button"
-                  className="h-7 rounded-full px-2.5 text-[12px] text-white/55 transition-colors hover:bg-white/10 hover:text-white/80"
-                  onClick={() => onAdvance?.("dismiss")}
-                >
-                  {t("companionIntro.skip")}
-                </button>
-              )}
-              <button
-                type="button"
-                className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
-                onClick={() => onAdvance?.("next")}
-              >
-                {isLast ? t("companionIntro.done") : t("companionIntro.next")}
-              </button>
-            </>
+            <button
+              type="button"
+              className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+              onClick={() => onAdvance?.("next")}
+            >
+              {isLast ? t("companionIntro.done") : t("companionIntro.next")}
+            </button>
           )}
         </div>
       </div>

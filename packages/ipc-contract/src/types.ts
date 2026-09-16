@@ -2100,8 +2100,9 @@ export const WATCH_FLAG = "teach";
 export const COMPANION_INTRO_BEATS = [
   "meet",
   "talk",
-  "try",
-  "controls",
+  "share",
+  "draw",
+  "mute",
   "menu",
 ] as const;
 
@@ -2115,11 +2116,11 @@ export type CompanionIntroBeat = (typeof COMPANION_INTRO_BEATS)[number];
  * main resolves it against the beat it is actually on. A stale press from a
  * renderer a beat behind then lands where the user could see it would.
  *
- * `call` is the `try` beat's own answer: the user asked for a real session
- * rather than a demonstration of one, so the run ends and a call starts, which
- * only main can do.
+ * A permission ask is not among them: the surface's own renderer holds the
+ * permissions bridge, so the share beat's Allow goes straight out through that
+ * and never moves the run.
  */
-export const COMPANION_INTRO_ACTIONS = ["next", "dismiss", "call"] as const;
+export const COMPANION_INTRO_ACTIONS = ["next", "dismiss"] as const;
 
 export type CompanionIntroAction = (typeof COMPANION_INTRO_ACTIONS)[number];
 
