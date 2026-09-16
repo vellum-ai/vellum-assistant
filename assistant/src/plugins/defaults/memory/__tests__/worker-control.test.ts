@@ -231,18 +231,26 @@ describe("spawnMemoryWorkerProcess", () => {
     }
   });
 
-  test("reuses an already-running worker without spawning", async () => {
-    // A live PID file (this test process) makes the probe report running.
+  test("spawns when the PID file names an unrelated live process", async () => {
     writeFileSync(pidPath, String(process.pid));
     let spawned = false;
     const restore = stubBunSpawn(() => {
       spawned = true;
-      return { unref: () => {}, kill: () => {}, pid: 1, exited: neverExits() };
+      writeFileSync(pidPath, "4242");
+      return {
+        unref: () => {},
+        kill: () => {},
+        pid: 4242,
+        exited: neverExits(),
+      };
     });
     try {
-      const result = await spawnMemoryWorkerProcess({ pidWaitTimeoutMs: 100 });
-      expect(result).toEqual({ pid: process.pid, alreadyRunning: true });
-      expect(spawned).toBe(false);
+      const result = await spawnMemoryWorkerProcess({
+        pidWaitTimeoutMs: 1_000,
+        pidPollIntervalMs: 10,
+      });
+      expect(result).toEqual({ pid: 4242, alreadyRunning: false });
+      expect(spawned).toBe(true);
     } finally {
       restore();
     }
@@ -250,6 +258,11 @@ describe("spawnMemoryWorkerProcess", () => {
 });
 
 describe("probeMemoryWorker", () => {
+  test("reports not_running when the PID file names a live process that is not this worker", () => {
+    writeFileSync(pidPath, String(process.pid));
+    expect(probeMemoryWorker()).toEqual({ status: "not_running" });
+  });
+
   test("reports running (not throws) when the process exists but is not signalable (EPERM)", () => {
     writeFileSync(pidPath, "4321");
     const restore = stubProcessKill(new Set(), new Set([4321]));

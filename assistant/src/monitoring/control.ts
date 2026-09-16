@@ -15,19 +15,29 @@ import {
   spawnWorkerProcess,
   type SpawnWorkerProcessOptions,
   stopWorkerProcess,
+  workerKindSignature,
   WorkerProcessSpawnError,
   type WorkerProcessStatus,
 } from "../util/worker-process.js";
+
+const MONITORING_WORKER_ENTRY = new URL("./worker.ts", import.meta.url);
+
+function monitoringWorkerSignature(): readonly string[] {
+  return workerKindSignature(MONITORING_WORKER_ENTRY, "monitoring");
+}
 
 const log = getLogger("monitoring-control");
 
 /**
  * Read the PID file and report liveness. A missing or malformed file reports
- * not_running; a file pointing at a dead process is cleaned up and reported as
- * not_running.
+ * not_running; a file pointing at a dead process, or at a live process that
+ * is not this worker, is cleaned up and reported as not_running.
  */
 export function probeMonitoringWorker(): WorkerProcessStatus {
-  return probeWorkerPidFile(getMonitoringPidPath());
+  return probeWorkerPidFile(
+    getMonitoringPidPath(),
+    monitoringWorkerSignature(),
+  );
 }
 
 export class MonitoringWorkerSpawnError extends WorkerProcessSpawnError {}
@@ -44,7 +54,7 @@ export async function spawnMonitoringWorkerProcess(
   try {
     return await spawnWorkerProcess({
       pidPath: getMonitoringPidPath(),
-      entry: new URL("./worker.ts", import.meta.url),
+      entry: MONITORING_WORKER_ENTRY,
       packagedEntry: "monitoring",
       workerLabel: "Resource monitor",
       options: opts,
@@ -63,7 +73,10 @@ export async function spawnMonitoringWorkerProcess(
  * (e.g. EPERM) — a not-running monitor is a no-op.
  */
 export function stopMonitoringWorkerProcess(): WorkerProcessStatus {
-  return stopWorkerProcess(getMonitoringPidPath());
+  return stopWorkerProcess(
+    getMonitoringPidPath(),
+    monitoringWorkerSignature(),
+  );
 }
 
 /**

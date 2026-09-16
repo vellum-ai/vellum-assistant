@@ -24,6 +24,7 @@ import {
   spawnWorkerProcess,
   type SpawnWorkerProcessOptions,
   stopWorkerProcess,
+  workerKindSignature,
   WorkerProcessSpawnError,
   type WorkerProcessStatus,
 } from "../util/worker-process.js";
@@ -44,13 +45,19 @@ function routeHostPidPath(): string {
   return getProcPidPath(ROUTE_HOST_PROC_NAME);
 }
 
+const ROUTE_HOST_ENTRY = new URL("./worker.ts", import.meta.url);
+
+function routeHostSignature(): readonly string[] {
+  return workerKindSignature(ROUTE_HOST_ENTRY, "routes");
+}
+
 /**
  * Read the PID file and report liveness. A missing or malformed file reports
- * not_running; a file pointing at a dead process is cleaned up and reported as
- * not_running.
+ * not_running; a file pointing at a dead process, or at a live process that
+ * is not this worker, is cleaned up and reported as not_running.
  */
 export function probeRouteHostWorker(): WorkerProcessStatus {
-  return probeWorkerPidFile(routeHostPidPath());
+  return probeWorkerPidFile(routeHostPidPath(), routeHostSignature());
 }
 
 export class RouteHostSpawnError extends WorkerProcessSpawnError {}
@@ -67,7 +74,7 @@ export async function spawnRouteHostWorkerProcess(
   try {
     return await spawnWorkerProcess({
       pidPath: routeHostPidPath(),
-      entry: new URL("./worker.ts", import.meta.url),
+      entry: ROUTE_HOST_ENTRY,
       packagedEntry: "routes",
       workerLabel: "Route host",
       options: opts,
@@ -86,7 +93,7 @@ export async function spawnRouteHostWorkerProcess(
  * (e.g. EPERM) — a not-running host is a no-op.
  */
 export function stopRouteHostWorkerProcess(): WorkerProcessStatus {
-  return stopWorkerProcess(routeHostPidPath());
+  return stopWorkerProcess(routeHostPidPath(), routeHostSignature());
 }
 
 /**

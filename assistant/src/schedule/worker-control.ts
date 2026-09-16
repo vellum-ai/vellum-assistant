@@ -15,9 +15,16 @@ import {
   spawnWorkerProcess,
   type SpawnWorkerProcessOptions,
   stopWorkerProcess,
+  workerKindSignature,
   WorkerProcessSpawnError,
   type WorkerProcessStatus,
 } from "../util/worker-process.js";
+
+const SCHEDULE_WORKER_ENTRY = new URL("./worker.ts", import.meta.url);
+
+function scheduleWorkerSignature(): readonly string[] {
+  return workerKindSignature(SCHEDULE_WORKER_ENTRY, "schedule");
+}
 
 const log = getLogger("schedule-worker-control");
 
@@ -42,11 +49,14 @@ export function setScheduleWorkerAdministrativelyStopped(value: boolean): void {
 
 /**
  * Inspect the PID file to determine whether the schedule worker process is
- * alive. A stale PID file (pointing at a dead process) is cleaned up and
- * reported as not_running.
+ * alive. A stale PID file (pointing at a dead process, or at a live process
+ * that is not this worker) is cleaned up and reported as not_running.
  */
 export function probeScheduleWorker(): WorkerProcessStatus {
-  return probeWorkerPidFile(getScheduleWorkerPidPath());
+  return probeWorkerPidFile(
+    getScheduleWorkerPidPath(),
+    scheduleWorkerSignature(),
+  );
 }
 
 export class ScheduleWorkerSpawnError extends WorkerProcessSpawnError {}
@@ -95,7 +105,7 @@ async function spawnScheduleWorkerProcessUncoalesced(
   try {
     return await spawnWorkerProcess({
       pidPath: getScheduleWorkerPidPath(),
-      entry: new URL("./worker.ts", import.meta.url),
+      entry: SCHEDULE_WORKER_ENTRY,
       packagedEntry: "schedule",
       workerLabel: "Schedule worker",
       options: opts,
@@ -114,7 +124,10 @@ async function spawnScheduleWorkerProcessUncoalesced(
  * `process.kill` itself fails (e.g. EPERM) — a not-running worker is a no-op.
  */
 export function stopScheduleWorkerProcess(): WorkerProcessStatus {
-  return stopWorkerProcess(getScheduleWorkerPidPath());
+  return stopWorkerProcess(
+    getScheduleWorkerPidPath(),
+    scheduleWorkerSignature(),
+  );
 }
 
 /**
