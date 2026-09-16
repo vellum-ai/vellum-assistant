@@ -198,6 +198,57 @@
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
   },
+  "companionWelcome": {
+    "back": "Back",
+    "done": "Done",
+    "find": {
+      "body": "Click me to talk. Drag me anywhere you like, and right-click me to resize or hide.",
+      "title": "You’ll find me on your desktop"
+    },
+    "keys": {
+      "body": "You don’t need to open Vellum for any of these. They work in every app.",
+      "call": "Start or end a call",
+      "dictate": "Dictate or ask",
+      "doubleTap": "Double-tap",
+      "draw": "Draw on your screen in a call",
+      "hold": "Hold",
+      "share": "Share your screen in a call",
+      "title": "Reach me from anywhere"
+    },
+    "later": "Maybe later",
+    "meet": {
+      "body": "I can now live on your desktop, not just in this window. I’m always available at the bottom of your screen, even if the Vellum app isn’t visible.",
+      "title": "Meet your ambient assistant",
+      "titleNamed": "Meet {name}, right where you work"
+    },
+    "next": "Continue",
+    "progress": "Step {current} of {total}",
+    "setup": {
+      "allow": "Allow",
+      "allowed": "Allowed",
+      "body": "Two permissions let me hear you and see what you’re working on. You can change these any time in Settings.",
+      "microphone": "Microphone",
+      "microphoneHint": "So you can talk to me",
+      "openSettings": "Open Settings",
+      "screen": "Screen recording",
+      "screenHint": "So I can see what you’re pointing at",
+      "title": "Let me hear and see"
+    },
+    "skipTry": "Skip for now",
+    "talk": {
+      "body": "I work best by voice. If you can talk now, we’ll try it together.",
+      "no": "Not right now",
+      "noHint": "I’ll show you the keys to try later",
+      "title": "Can you talk right now?",
+      "yes": "Yes, let’s try it",
+      "yesHint": "Takes about ten seconds"
+    },
+    "try": {
+      "body": "Hold Fn, say a sentence, and let go. Your words land wherever your cursor is.",
+      "placeholder": "Your words will appear here",
+      "title": "Hold Fn and say something"
+    }
+  },
   "companionWatchFramePage": {
     "sharingScreen": "Sharing your screen",
     "sharingScreenNamed": "Sharing your screen with {name}",
