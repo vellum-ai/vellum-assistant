@@ -153,7 +153,7 @@ export const TelegramUpdateSchema = z.object({
 // above stay the sole runtime validators. Its only job is to make TypeScript
 // prove, via the shared `webhook-crosscheck` helpers, that a drift from the
 // real Bot API shape fails `tsc` instead of silently mis-parsing a live
-// webhook — e.g. a field-name typo like `messsage_thread_id` (which would
+// webhook, e.g. a field-name typo like `messsage_thread_id` (which would
 // otherwise always parse to `undefined`) or a wrong primitive (`chat.id` as a
 // string).
 type TelegramFrom = NonNullable<z.infer<typeof TelegramFromSchema>>;
