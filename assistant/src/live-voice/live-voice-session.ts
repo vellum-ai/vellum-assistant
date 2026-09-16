@@ -3624,6 +3624,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // own it leaves manual mode blind to a user who is talking right now and
     // has no text yet — hence the captured-audio flag, which manual ingress
     // sets from the first chunk.
+    //
+    // A partial counts only when it has words. Deepgram Flux sends interim
+    // updates through silence too, each an empty partial, and one of those
+    // would otherwise hold the floor until the user next spoke.
     if (
       utterance !== null &&
       !utterance.completed &&
@@ -3631,7 +3635,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         utterance.assistantTurnStarted ||
         (utterance.manualAudioCaptured && opts?.ignoreManualCapture !== true) ||
         utterance.finalTranscriptSegments.length > 0 ||
-        utterance.latestPartialText !== null)
+        (utterance.latestPartialText?.trim() ?? "").length > 0)
     ) {
       return "utterance_in_flight";
     }
