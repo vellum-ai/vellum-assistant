@@ -18,13 +18,13 @@ describe("parseCallbackData", () => {
     expect(result!.source).toBe("button");
   });
 
-  // A retired action id is not an approval. Mapping one onto `approve_once`
-  // would let a future scoped action id degrade silently to one-shot.
+  // The parser never maps one action id onto another: an id outside the
+  // approval vocabulary is no action, whatever it resembles.
   test.each([
     "apr:req-123:approve_10m",
     "apr:req-123:approve_conversation",
     "apr:req-123:approve_always",
-  ])('returns null for the retired action id in "%s"', (data) => {
+  ])('returns null for the unrecognized action id in "%s"', (data) => {
     expect(parseCallbackData(data)).toBeNull();
   });
 
