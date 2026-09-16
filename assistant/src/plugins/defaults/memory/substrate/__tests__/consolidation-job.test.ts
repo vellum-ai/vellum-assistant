@@ -78,8 +78,9 @@ let runnerImpl: () => Promise<{
 // ── plugin-api mock: the run's persisted messages ──────────────────
 //
 // The consume gate reads the run conversation's messages for a page-writing
-// tool call whose result is not an error. `runMessages` is what that read
-// returns; the default is one successful `file_write`.
+// tool call whose result is not an error and for a closing reply as the
+// final row. `runMessages` is what that read returns; the default is one
+// successful `file_write` followed by the pass summary.
 type RunMessage = { role: string; content: unknown[] };
 const FILED_ONE_PAGE: RunMessage[] = [
   {
@@ -91,6 +92,10 @@ const FILED_ONE_PAGE: RunMessage[] = [
   {
     role: "user",
     content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+  },
+  {
+    role: "assistant",
+    content: [{ type: "text", text: "Filed both entries into alice.md." }],
   },
 ];
 let runMessages: RunMessage[] = FILED_ONE_PAGE;
@@ -942,7 +947,6 @@ describe("memoryV2ConsolidateJob: runtime-owned consumption", () => {
         role: "assistant",
         content: [
           { type: "tool_use", id: "t1", name: "file_write", input: {} },
-          { type: "text", text: "Nothing to file." },
         ],
       },
       {
@@ -956,6 +960,10 @@ describe("memoryV2ConsolidateJob: runtime-owned consumption", () => {
           },
         ],
       },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Nothing to file." }],
+      },
     ];
 
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
@@ -968,6 +976,43 @@ describe("memoryV2ConsolidateJob: runtime-owned consumption", () => {
     expect(result.consumedEntries).toBe(0);
     expect(readFileSync(bufferPath(), "utf-8")).toBe(TWO_ENTRIES);
     expect(result.followUpJobIds).toEqual([]);
+    expect(enqueuedJobs).toHaveLength(0);
+  });
+
+  test("a run that wrote a page but stopped mid-work consumes nothing", async () => {
+    // A repair-step page fix satisfies the write half of the gate; the run
+    // then ends on a tool call with no closing reply. It never filed its
+    // pass, so the pass stays.
+    runMessages = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "t1", name: "file_write", input: {} },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "t2", name: "file_read", input: {} }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "t2", content: "..." }],
+      },
+    ];
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind !== "invoked") {
+      throw new Error("unreachable");
+    }
+    expect(result.noProgress).toBe(true);
+    expect(result.consumedEntries).toBe(0);
+    expect(readFileSync(bufferPath(), "utf-8")).toBe(TWO_ENTRIES);
     expect(enqueuedJobs).toHaveLength(0);
   });
 
@@ -986,6 +1031,10 @@ describe("memoryV2ConsolidateJob: runtime-owned consumption", () => {
           { type: "tool_result", tool_use_id: "t1", content: "..." },
           { type: "tool_result", tool_use_id: "t2", content: "..." },
         ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Read everything, filed nothing." }],
       },
     ];
 

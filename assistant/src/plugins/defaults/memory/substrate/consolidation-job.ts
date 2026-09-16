@@ -53,10 +53,13 @@
  *      which bounds any operator-provided override to a regular file under
  *      1 MiB before substitution.
  *   6. Consume the pass's entries, and only then. `runResult.ok` only means
- *      the background run completed; the run's persisted messages must
- *      hold at least one page-writing tool call whose result is not an
- *      error before the job removes anything (the same evidence bar the
- *      retrospective's cursor advance uses). With that evidence the job
+ *      the background run completed; before the job removes anything the
+ *      run's persisted messages must hold at least one page-writing tool
+ *      call whose result is not an error AND end with the agent's own
+ *      closing reply (the pass summary the prompt mandates), the same two
+ *      evidence shapes the retrospective's cursor advance uses. A run that
+ *      wrote a page and then stopped mid-work has not filed its pass. With
+ *      that evidence the job
  *      removes exactly the pass's entries from the live buffer through
  *      `consumeBufferEntries`, which leaves deferred entries and anything
  *      appended during the run in place. A run with no verified write, or
@@ -129,6 +132,7 @@ import { getLogger } from "../logging.js";
 import {
   collectSuccessfulToolResultIds,
   countDurableToolUses,
+  hasCommittedTextReply,
 } from "../memory-run-evidence.js";
 import { getWorkspaceDir } from "../paths.js";
 import {
@@ -623,18 +627,22 @@ export async function memoryV2ConsolidateJob(
 
     // Step 5: consume the pass's entries, gated on evidence. `runResult.ok`
     // only means the background run completed. Before removing anything the
-    // job requires that the run's persisted messages hold at least one
-    // page-writing tool call whose result is not an error: a run that
-    // answered in prose, or whose writes all failed, filed nothing, and
-    // consuming its entries would delete them unfiled. A skipped run never
-    // invoked the agent, so it consumes nothing either. With evidence, the
-    // consume removes exactly the pass's entries and leaves every other
-    // entry (deferred past the cap, or appended during the run) in place.
+    // job requires two things of the run's persisted messages: at least one
+    // page-writing tool call whose result is not an error (a run that
+    // answered in prose, or whose writes all failed, filed nothing), and a
+    // closing reply in the agent's own words as the run's final row (a run
+    // that wrote a page, say a repair-step fix, and then stopped mid-work
+    // has not filed its pass; the prompt mandates the pass summary, so its
+    // absence is the run ending before it finished). Either missing, and
+    // consuming would delete entries unfiled. A skipped run never invoked
+    // the agent, so it consumes nothing either. With both, the consume
+    // removes exactly the pass's entries and leaves every other entry
+    // (deferred past the cap, or appended during the run) in place.
     let consumed: ConsumeBufferEntriesResult | null = null;
-    let durableWrites = 0;
+    let evidence: RunEvidence = { durableWrites: 0, concluded: false };
     if (runResult.skipReason === undefined) {
-      durableWrites = await countDurablePageWrites(runResult.conversationId);
-      if (durableWrites > 0) {
+      evidence = await readRunEvidence(runResult.conversationId);
+      if (evidence.durableWrites > 0 && evidence.concluded) {
         try {
           consumed = await consumeBufferEntries(bufferPath, pass);
         } catch (err) {
@@ -688,10 +696,11 @@ export async function memoryV2ConsolidateJob(
           conversationId: runResult.conversationId,
           cutoff,
           passEntries: pass.length,
-          durableWrites,
+          durableWrites: evidence.durableWrites,
+          concluded: evidence.concluded,
           skipReason: runResult.skipReason,
         },
-        "consolidation run completed without a verified page write; buffer left intact, follow-ups skipped",
+        "consolidation run completed without a verified page write and a closing reply; buffer left intact, follow-ups skipped",
       );
       return {
         kind: "invoked",
@@ -888,29 +897,40 @@ async function snapshotIsComplete(
   return readBufferContent(bufferPath) === content;
 }
 
+interface RunEvidence {
+  /** Page-writing tool calls whose execution verifiably succeeded. */
+  durableWrites: number;
+  /** The run's final assistant row is a reply in its own words. */
+  concluded: boolean;
+}
+
 /**
- * Page-writing tool calls in the run's conversation whose execution
- * verifiably succeeded (a matching non-error `tool_result` persisted).
- * A consolidation conversation is bootstrapped fresh per run, so every
- * message in it is the run's own. A load failure reports zero: the consume
- * gate then fails closed and the buffer waits for the next pass.
+ * What the run's conversation proves it did: page-writing tool calls with
+ * a matching non-error `tool_result`, and whether the run ended by replying
+ * (the pass summary) rather than stopping mid-tool-loop. A consolidation
+ * conversation is bootstrapped fresh per run, so every message in it is
+ * the run's own. A load failure reports nothing: the consume gate then
+ * fails closed and the buffer waits for the next pass.
  */
-async function countDurablePageWrites(conversationId: string): Promise<number> {
+async function readRunEvidence(conversationId: string): Promise<RunEvidence> {
   let messages: Awaited<ReturnType<typeof getMessages>>;
   try {
     messages = await getMessages(conversationId);
   } catch (err) {
     log.warn(
       { err, conversationId },
-      "consolidation: failed to load the run's messages; treating the run as having written nothing",
+      "consolidation: failed to load the run's messages; treating the run as having filed nothing",
     );
-    return 0;
+    return { durableWrites: 0, concluded: false };
   }
-  return countDurableToolUses(
-    messages,
-    CONSOLIDATION_DURABLE_TOOLS,
-    collectSuccessfulToolResultIds(messages),
-  );
+  return {
+    durableWrites: countDurableToolUses(
+      messages,
+      CONSOLIDATION_DURABLE_TOOLS,
+      collectSuccessfulToolResultIds(messages),
+    ),
+    concluded: hasCommittedTextReply(messages),
+  };
 }
 
 /**

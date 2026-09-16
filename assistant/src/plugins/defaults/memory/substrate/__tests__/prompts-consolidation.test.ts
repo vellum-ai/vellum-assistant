@@ -861,6 +861,9 @@ describe("resolveConsolidationPrompt: buffer entries for this pass", () => {
       expect(template).not.toContain("Buffer trimmed");
       expect(template).not.toContain("Trimmed `memory/buffer.md`");
       expect(template).not.toContain("Rewrite to contain ONLY");
+      // The closing reply is the runtime's proof the pass finished, so both
+      // templates mandate it.
+      expect(template).toContain("Finish by reporting, in your own words");
     }
   });
 

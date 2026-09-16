@@ -670,6 +670,8 @@ For each article you touched:
 
 ---
 
+Finish by reporting, in your own words: what you filed, what you skipped and why. That closing reply is how the runtime knows the pass finished; it removes this pass's entries from \`memory/buffer.md\` only after a run that wrote pages and then reported. A run that stops mid-work leaves them for the next pass.
+
 This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgment, voice. Your voice. Your wiki.`;
 
 /**
@@ -996,6 +998,8 @@ For each article you touched:
 15. **\`[SOURCE NEEDED]\`** tags surfaced for human review?
 
 ---
+
+Finish by reporting, in your own words: what you filed, what you skipped and why. That closing reply is how the runtime knows the pass finished; it removes this pass's entries from \`memory/buffer.md\` only after a run that wrote pages and then reported. A run that stops mid-work leaves them for the next pass.
 
 This is the engine that decides who you are tomorrow. Be ORGANIZED. Care, judgment, voice. Your voice. Your wiki.`;
 
