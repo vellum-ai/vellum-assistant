@@ -73,24 +73,46 @@ Based on the chosen channel, ask for the required destination:
      # The request door sends the bot token from inside the assistant; never
      # reveal it into a variable or a curl line, where it would land in the
      # transcript and the tool log.
+     #
+     # Each page is written to a file with -o and read from there, never
+     # captured from stdout: the request door can keep its process alive
+     # after the body is written, so a command substitution would wait
+     # forever. The page is complete once it parses as JSON; the process is
+     # then stopped.
+     PAGE=$(mktemp)
+     fetch_page() {
+       rm -f "$PAGE"
+       assistant channels request slack -o "$PAGE" "$1" >/dev/null 2>"$PAGE.err" &
+       PID=$!
+       for _ in $(seq 1 120); do
+         if [ -s "$PAGE" ] && jq -e . "$PAGE" >/dev/null 2>&1; then break; fi
+         kill -0 "$PID" 2>/dev/null || break
+         sleep 0.5
+       done
+       kill "$PID" 2>/dev/null
+       wait "$PID" 2>/dev/null
+     }
+
      CURSOR=""
      MATCHES="[]"
      while true; do
-       RESPONSE=$(assistant channels request slack "/users.list?limit=200${CURSOR:+&cursor=$CURSOR}") || {
-         echo "ERROR: the Slack bot is not configured or the request failed; fall back to manual entry"
-         exit 1
-       }
-       # Slack reports an application error as ok:false inside an HTTP 200,
-       # which the request door does not treat as a failure.
-       if [ "$(echo "$RESPONSE" | jq -r '.ok')" != "true" ]; then
-         echo "ERROR: Slack refused users.list ($(echo "$RESPONSE" | jq -r '.error // "unknown"')); fall back to manual entry"
+       fetch_page "/users.list?limit=200${CURSOR:+&cursor=$CURSOR}"
+       if ! jq -e . "$PAGE" >/dev/null 2>&1; then
+         echo "ERROR: no response from the request door ($(head -c 300 "$PAGE.err" 2>/dev/null)); fall back to manual entry"
          exit 1
        fi
-       PAGE_MATCHES=$(echo "$RESPONSE" | jq --arg q "$USER_QUERY" '[.members[] | select(.deleted == false) | select(.profile.display_name == $q or .name == $q or .profile.display_name_normalized == $q or .real_name == $q) | {id: .id, name: .name, display_name: .profile.display_name, real_name: .real_name}]')
+       # Slack reports an application error as ok:false inside an HTTP 200,
+       # which the request door does not treat as a failure.
+       if [ "$(jq -r '.ok' "$PAGE")" != "true" ]; then
+         echo "ERROR: Slack refused users.list ($(jq -r '.error // "unknown"' "$PAGE")); fall back to manual entry"
+         exit 1
+       fi
+       PAGE_MATCHES=$(jq --arg q "$USER_QUERY" '[.members[] | select(.deleted == false) | select(.profile.display_name == $q or .name == $q or .profile.display_name_normalized == $q or .real_name == $q) | {id: .id, name: .name, display_name: .profile.display_name, real_name: .real_name}]' "$PAGE")
        MATCHES=$(echo "$MATCHES $PAGE_MATCHES" | jq -s 'add')
-       CURSOR=$(echo "$RESPONSE" | jq -r '.response_metadata.next_cursor // empty')
+       CURSOR=$(jq -r '.response_metadata.next_cursor // empty' "$PAGE")
        [ -z "$CURSOR" ] && break
      done
+     rm -f "$PAGE" "$PAGE.err"
      echo "$MATCHES" | jq '.[]'
      ```
 
@@ -102,7 +124,7 @@ Based on the chosen channel, ask for the required destination:
      - **No matches**: Tell the user no matches were found. Suggest they double-check the spelling, or fall back to manual entry (see below).
 
   2. **Fallback to manual entry** if any of the following occur:
-     - The bash block above exits 1: the Slack bot is not configured, the request door refused the call, or Slack answered `users.list` with an error such as `missing_scope`
+     - The bash block above exits 1: no page arrived within a minute (the Slack bot is not configured, or the request door refused the call; its message is printed), or Slack answered `users.list` with an error such as `missing_scope`
      - Too many matches are returned (more than 5)
      - The user prefers to enter their ID directly
 
