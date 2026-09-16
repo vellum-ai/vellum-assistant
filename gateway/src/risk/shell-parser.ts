@@ -166,6 +166,11 @@ const SENSITIVE_PATH_PREFIXES = [
   "/usr/bin/",
 ];
 
+// Bash resolves redirect targets under these prefixes to live sockets
+// (`/dev/tcp/<host>/<port>`, `/dev/udp/<host>/<port>`), so a redirect alone
+// opens a network connection with no network command on the line to classify.
+const NETWORK_DEVICE_PREFIXES = ["/dev/tcp/", "/dev/udp/"];
+
 // Expected SHA-256 checksums for WASM binaries.
 // Update these when intentionally upgrading web-tree-sitter or tree-sitter-bash.
 // Generate with: shasum -a 256 node_modules/web-tree-sitter/web-tree-sitter.wasm node_modules/tree-sitter-bash/tree-sitter-bash.wasm
@@ -593,6 +598,16 @@ function detectDangerousPatterns(
       const dest = n.lastChild;
       if (dest) {
         const destText = dest.text;
+        const destPath = destText.replace(/^["']|["']$/g, "");
+        if (
+          NETWORK_DEVICE_PREFIXES.some((prefix) => destPath.startsWith(prefix))
+        ) {
+          patterns.push({
+            type: "network_redirect",
+            description: `Redirect to network pseudo-device: ${destText}`,
+            text: n.text,
+          });
+        }
         for (const prefix of SENSITIVE_PATH_PREFIXES) {
           if (
             destText.startsWith(prefix) ||
