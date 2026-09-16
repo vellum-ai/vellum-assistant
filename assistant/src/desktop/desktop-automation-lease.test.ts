@@ -280,3 +280,34 @@ test("turn completion cancels running and queued desktop work", async () => {
   await f.lease.runBrowser(context, callback);
   expect(callback).toHaveBeenCalledTimes(1);
 });
+
+test("turn handoff retries failed cleanup without another turn or restart", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  f.releaseBrowser.mockRejectedValueOnce(new Error("Chrome cleanup timed out"));
+  f.lease.releaseForConversation(context.conversationId);
+  expect(f.lease.isActive).toBe(false);
+  await Bun.sleep(0);
+  expect(f.released).not.toHaveBeenCalled();
+  await Bun.sleep(1_100);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  const nextContext = { ...context, conversationId: "conv-456" };
+  expect((await f.lease.runBrowser(nextContext, operation)).isError).toBe(
+    false,
+  );
+  await f.lease.runBrowser(nextContext, operation, true);
+});
+
+test("a delayed cleanup retry cannot release a replacement owner", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  f.releaseBrowser.mockRejectedValueOnce(new Error("Chrome cleanup timed out"));
+  f.lease.releaseForConversation(context.conversationId);
+  await f.lease.runBrowser(context, operation, true);
+  const nextContext = { ...context, conversationId: "conv-456" };
+  await f.lease.runBrowser(nextContext, operation);
+  await Bun.sleep(1_100);
+  expect(f.lease.isActive).toBe(true);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(nextContext, operation, true);
+});

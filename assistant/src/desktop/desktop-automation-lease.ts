@@ -100,9 +100,15 @@ export class DesktopAutomationLease {
     }
     this.generation += 1;
     owner.abort.abort();
-    void this.exclusive(() => this.release()).catch((err) =>
-      log.warn({ err }, "Desktop browser session cleanup failed"),
-    );
+    void this.exclusive(async () => {
+      if (this.owner === owner) {
+        await this.release();
+      }
+    }).catch((err) => {
+      log.warn({ err }, "Desktop browser session cleanup failed");
+      const retry = setTimeout(() => this.cancel(owner), 1_000);
+      retry.unref?.();
+    });
   }
 
   releaseForConversation(conversationId: string): void {
