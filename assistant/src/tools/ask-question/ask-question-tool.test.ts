@@ -712,7 +712,7 @@ describe("askQuestionTool definition (batched schema)", () => {
 
     expect(questions?.items?.required).toEqual(["question", "options"]);
 
-    expect(schema.properties.desktopHelp?.type).toBe("string");
+    expect(schema.properties.desktopHelp?.type).toBe("object");
 
     // The legacy flat fields are gone.
     expect(schema.properties.question).toBeUndefined();
@@ -832,7 +832,13 @@ describe("virtual desktop help", () => {
   test("releases control before waiting and records Done in the transcript", async () => {
     setNextResult(singleCompleted({ decision: "option", optionId: "done" }));
     const result = await askQuestionTool.execute(
-      { desktopHelp: "Please complete the CAPTCHA." },
+      {
+        desktopHelp: {
+          message: "Please complete the CAPTCHA.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
       makeContext(),
     );
     expect(prepareDesktopHelp).toHaveBeenCalledTimes(1);
@@ -851,7 +857,13 @@ describe("virtual desktop help", () => {
   ])("does not claim the obstacle was solved after Skip: %j", async (entry) => {
     setNextResult(singleCompleted(entry));
     const result = await askQuestionTool.execute(
-      { desktopHelp: "Please complete the CAPTCHA." },
+      {
+        desktopHelp: {
+          message: "Please complete the CAPTCHA.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
       makeContext(),
     );
     expect(result.content).toContain("obstacle may still be present");
@@ -860,7 +872,13 @@ describe("virtual desktop help", () => {
 
   test("does not wait for a user in a background turn", async () => {
     await askQuestionTool.execute(
-      { desktopHelp: "Please complete the CAPTCHA." },
+      {
+        desktopHelp: {
+          message: "Please complete the CAPTCHA.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
       makeContext({ isInteractive: false }),
     );
     expect(prepareDesktopHelp).not.toHaveBeenCalled();
@@ -869,10 +887,58 @@ describe("virtual desktop help", () => {
 
   test("rejects mixing desktop help with a question batch", async () => {
     const result = await askQuestionTool.execute(
-      { ...validInput, desktopHelp: "Please complete the CAPTCHA." },
+      {
+        ...validInput,
+        desktopHelp: {
+          message: "Please complete the CAPTCHA.",
+          doneLabel: "Done",
+          skipLabel: "Skip",
+        },
+      },
       makeContext(),
     );
     expect(result.isError).toBe(true);
     expect(calls).toHaveLength(0);
   });
+});
+
+test("desktop help preserves model-localized fallback labels in history", async () => {
+  setNextResult(singleCompleted({ decision: "option", optionId: "done" }));
+  const result = await askQuestionTool.execute(
+    {
+      desktopHelp: {
+        message: "Completa la verificación.",
+        doneLabel: "Listo",
+        skipLabel: "Omitir",
+      },
+    },
+    makeContext(),
+  );
+  expect(calls[0]?.questions[0]?.options).toEqual([
+    { id: "done", label: "Listo" },
+    { id: "skip", label: "Omitir" },
+  ]);
+  expect(result.answeredQuestion?.questions[0]?.options).toEqual(
+    calls[0]?.questions[0]?.options,
+  );
+});
+
+test("desktop help does not park on a guardian channel without desktop controls", async () => {
+  const result = await askQuestionTool.execute(
+    {
+      desktopHelp: {
+        message: "Please sign in.",
+        doneLabel: "Done",
+        skipLabel: "Skip",
+      },
+    },
+    makeContext({
+      supportsDynamicUi: false,
+      supportsGuardianQuestionCards: true,
+    }),
+  );
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain("continue in the Vellum app");
+  expect(prepareDesktopHelp).not.toHaveBeenCalled();
+  expect(calls).toHaveLength(0);
 });

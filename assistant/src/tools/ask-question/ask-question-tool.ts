@@ -4,7 +4,6 @@ import type {
   AnsweredQuestion,
   AnsweredQuestionResponse,
 } from "../../api/events/question-answered.js";
-import { t } from "../../i18n/index.js";
 import {
   QuestionPrompter,
   type QuestionPromptOutcome,
@@ -79,8 +78,20 @@ const MAX_QUESTIONS_PER_BATCH = 5;
 export const askQuestionInputSchema = z
   .looseObject({
     desktopHelp: z
-      .string()
-      .min(1)
+      .object({
+        message: z
+          .string()
+          .min(1)
+          .describe("Explain what the user should do, in their language."),
+        doneLabel: z
+          .string()
+          .min(1)
+          .describe("The label for Done in the user's language."),
+        skipLabel: z
+          .string()
+          .min(1)
+          .describe("The label for Skip in the user's language."),
+      })
       .describe(
         "Request human interaction in the virtual desktop, such as a CAPTCHA, sign-in or native dialog. Explain what the user should do. Shows a live preview with Step In, Done and Skip. Pass this instead of questions.",
       )
@@ -243,7 +254,10 @@ export const askQuestionTool = {
   category: "interaction",
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
-  input_schema: toToolInputSchema(askQuestionInputSchema),
+  input_schema: {
+    ...toToolInputSchema(askQuestionInputSchema),
+    oneOf: [{ required: ["questions"] }, { required: ["desktopHelp"] }],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -258,11 +272,10 @@ export const askQuestionTool = {
     const questions: QuestionPromptParamsEntry[] = desktopHelp
       ? [
           {
-            question: desktopHelp,
-            description: t("desktop.help.description"),
+            question: desktopHelp.message,
             options: [
-              { id: "done", label: t("desktop.help.done") },
-              { id: "skip", label: t("desktop.help.skip") },
+              { id: "done", label: desktopHelp.doneLabel },
+              { id: "skip", label: desktopHelp.skipLabel },
             ],
             presentation: "virtual_desktop",
           },
@@ -280,6 +293,14 @@ export const askQuestionTool = {
           ? "No interactive user is present to help in the virtual desktop. The obstacle remains unresolved."
           : "No interactive user is present to answer; proceeding with reasonable defaults.",
         isError: false,
+      };
+    }
+
+    if (desktopHelp && context.supportsDynamicUi === false) {
+      return {
+        content:
+          "This channel cannot show the virtual desktop preview or Step In. Ask the user to continue in the Vellum app to complete this step. The obstacle remains unresolved.",
+        isError: true,
       };
     }
 

@@ -160,7 +160,7 @@ stop and wait. Take a fresh snapshot before resuming. Closing the viewer does no
 end automation. Run assistant browser --virtual-desktop detach when finished or
 blocked. Chrome stays running.
 When a CAPTCHA, sign-in or other step needs human interaction, call ask_question
-with desktopHelp explaining what the user should do. This releases browser control
+with desktopHelp: { message, doneLabel, skipLabel } in the user's language. This releases browser control
 and shows a chat card with a desktop preview, Step In, Done and Skip.
 Wait for the response. After Done, take a fresh snapshot and verify the result.
 Skip leaves the obstacle unresolved; use another approach or explain the blocker.
