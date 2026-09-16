@@ -402,6 +402,7 @@ type GlowWindow = {
   close: () => void;
   isDestroyed: () => boolean;
   on: () => void;
+  once: (event: string, listener: () => void) => void;
   /** Whether the frame is on screen: hidden while its window is not. */
   visible: boolean;
   hide: () => void;
@@ -476,6 +477,12 @@ const openGlow = (options: {
     },
     isDestroyed: () => false,
     on: () => {},
+    // Painted at once: the real window's first paint is the renderer's.
+    once: (event, listener) => {
+      if (event === "ready-to-show") {
+        listener();
+      }
+    },
     visible: true,
     hide: () => {
       window.visible = false;

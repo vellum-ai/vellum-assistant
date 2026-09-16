@@ -1590,6 +1590,12 @@ const framesTheShare = (): boolean =>
 let frameScrolling = false;
 
 /**
+ * The frame window that has not painted yet, so nothing shows it before its
+ * first paint does. See `showWhenReady` in {@link placeWatchFrame}.
+ */
+let frameAwaitingPaint: BrowserWindow | null = null;
+
+/**
  * Give the frame the mouse, or give it back to the desktop.
  *
  * Forwarded mouse-move only while the frame has stepped aside for a scroll:
@@ -1626,7 +1632,11 @@ const applyFrameMouse = (): void => {
   }
   frame.setIgnoreMouseEvents(false);
   frame.setFocusable(true);
-  frame.focus();
+  // `focus` puts a window on screen, and a frame still waiting on its first
+  // paint must stay off it. The paint runs this again.
+  if (frame !== frameAwaitingPaint) {
+    frame.focus();
+  }
 };
 
 /**
@@ -2215,7 +2225,9 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       // frame, so the presses are measured out again on the new bounds.
       armCoachmarkPressWatch();
     }
-    if (!existing.isVisible()) {
+    // A frame still waiting on its first paint is shown by that paint.
+    // Shown any earlier, it is the frame that never reaches the screen.
+    if (!existing.isVisible() && existing !== frameAwaitingPaint) {
       existing.showInactive();
     }
     return;
@@ -2225,6 +2237,13 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     route: WATCH_FRAME_ROUTE,
     width: bounds.width,
     height: bounds.height,
+    // **Shown once its page has painted, never before.** A frame put on
+    // screen while its page is still loading stays blank on a whole display:
+    // the page draws the border and the label, and the screen keeps showing
+    // the empty window until something makes macOS take it again (Mission
+    // Control, or showing the window a second time). Moving it, resizing it
+    // and repainting the page do not.
+    showWhenReady: true,
     ignoreMouseEvents: true,
     position: { x: bounds.x, y: bounds.y },
     browserWindow: {
@@ -2246,6 +2265,15 @@ const placeWatchFrame = (bounds: Rectangle): void => {
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
+  frameAwaitingPaint = win;
+  win.once("ready-to-show", () => {
+    if (frameAwaitingPaint === win) {
+      frameAwaitingPaint = null;
+    }
+    // Key status is lent with a `focus` that would have shown the window
+    // early, so a mode that was on when this frame opened takes it now.
+    applyFrameMouse();
+  });
   // A frame opened while the mode is already on is one the user is expecting
   // to draw on: the mode outlives the window, which is replaced whenever the
   // share moves to another target. A scroll the old window stepped aside for
