@@ -2,7 +2,8 @@
  * User plugin loader — discovers plugins under `<workspaceDir>/plugins/*` and
  * populates the mtime cache.
  *
- * A plugin directory is recognized by a `package.json` manifest. The loader
+ * A plugin directory is recognized by a legacy `package.json` or standard
+ * `plugin.json` manifest. The loader
  * delegates to the mtime cache's `populateCacheAtBoot`, which builds each
  * plugin via `buildExternalPlugin` and stores it keyed by mtime. The cache
  * is the single source of truth for user plugin state — the registry is no

@@ -118,7 +118,7 @@ async function checkLiveVoiceAuth(
         // turn with the guardian's trust context. The velay attestation proves
         // the caller is *a* platform user who traversed velay, not that they
         // are THIS assistant's guardian, so cross-check the velay user id
-        // against the stored `platform_user_id` (the same guardian check the
+        // against the bound platform user id (the same guardian check the
         // edge-auth middleware applies to guardian routes under the managed
         // bypass). Without it, any velay-authorized org user reaching this
         // assistant would be stamped guardian downstream.

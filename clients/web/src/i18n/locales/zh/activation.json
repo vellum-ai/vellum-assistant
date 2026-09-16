@@ -10,7 +10,6 @@
     "failed": "无法启动任务，请重试。",
     "noAssistant": "当前未连接任何助理。",
     "openConversation": "打开对话",
-    "running": "正在侧边栏中运行",
     "unknownTask": "该任务已不再可用。"
   },
   "menu": {

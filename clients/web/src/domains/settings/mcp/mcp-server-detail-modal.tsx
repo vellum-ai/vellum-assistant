@@ -10,9 +10,7 @@ import { useTranslation } from "@/i18n";
 
 type AuthType = "none" | "bearer" | "api-key";
 
-type SettingsTranslate = ReturnType<
-  typeof useTranslation<"settings">
->["t"];
+type SettingsTranslate = ReturnType<typeof useTranslation<"settings">>["t"];
 
 const AUTH_OPTION_VALUES: AuthType[] = ["none", "bearer", "api-key"];
 
@@ -30,6 +28,9 @@ function authOptionLabel(authType: AuthType, t: SettingsTranslate): string {
 interface McpServerDetailModalProps {
   server: McpServerEntry | null;
   toolsSummary: McpToolsSummaryServer | undefined;
+  toolsLoading?: boolean;
+  toolsError?: boolean;
+  readOnly?: boolean;
   onClose: () => void;
   onSave: (
     serverId: string,
@@ -44,6 +45,9 @@ interface McpServerDetailModalProps {
 export function McpServerDetailModal({
   server,
   toolsSummary,
+  toolsLoading = false,
+  toolsError = false,
+  readOnly = false,
   onClose,
   onSave,
   isPending,
@@ -57,7 +61,7 @@ export function McpServerDetailModal({
   useEffect(() => {
     if (server) {
       setAuthType(server.authType);
-      // Credential store never returns raw values — reset secret fields.
+      // Credential store never returns raw values. Reset secret fields.
       // Preserve the non-secret header name for API-key auth rotations.
       setBearerToken("");
       setApiKeyHeader(server.authHeaderName ?? "X-API-Key");
@@ -66,7 +70,7 @@ export function McpServerDetailModal({
   }, [server]);
 
   const handleSave = useCallback(() => {
-    if (!server) {
+    if (!server || readOnly) {
       return;
     }
 
@@ -108,6 +112,7 @@ export function McpServerDetailModal({
     apiKeyHeader,
     apiKeyValue,
     onSave,
+    readOnly,
   ]);
 
   const handleClose = useCallback(() => {
@@ -142,7 +147,7 @@ export function McpServerDetailModal({
 
         <Modal.Body>
           <div className="space-y-5">
-            {server.transport.type !== "stdio" ? (
+            {!readOnly && server.transport.type !== "stdio" ? (
               <>
                 {server.hasOAuth ? (
                   <div className="flex items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-3 py-2">
@@ -196,7 +201,7 @@ export function McpServerDetailModal({
                       onChange={(e) => setBearerToken(e.target.value)}
                       placeholder={
                         server.hasStaticAuth && server.authType === "bearer"
-                          ? t("mcpServerDetailModal.bearerTokenPlaceholderKeep")
+                          ? t("mcpServerDetailModal.savedBearerPlaceholder")
                           : t("mcpServerDetailModal.bearerTokenPlaceholder")
                       }
                       fullWidth
@@ -238,7 +243,7 @@ export function McpServerDetailModal({
                         onChange={(e) => setApiKeyValue(e.target.value)}
                         placeholder={
                           server.hasStaticAuth && server.authType === "api-key"
-                            ? t("mcpServerDetailModal.apiKeyPlaceholderKeep")
+                            ? t("mcpServerDetailModal.savedApiCredentialPlaceholder")
                             : t("mcpServerDetailModal.apiKeyPlaceholder")
                         }
                         fullWidth
@@ -249,70 +254,90 @@ export function McpServerDetailModal({
               </>
             ) : null}
 
-            {toolsSummary && toolsSummary.tools.length > 0 ? (
-              <div className="space-y-2">
-                <h3 className="text-body-medium-default text-[var(--content-default)]">
-                  {t("mcpServerDetailModal.registeredToolsHeading", {
-                    count: toolsSummary.toolCount,
-                  })}
-                </h3>
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  {t("mcpServerDetailModal.tokenOverhead", {
-                    count: toolsSummary.estimatedTokens.toLocaleString(),
-                  })}
-                </p>
-                <div className="max-h-64 overflow-y-auto rounded-lg border border-[var(--border-base)]">
-                  <table className="w-full text-body-small-default">
-                    <thead>
-                      <tr className="border-b border-[var(--border-base)] bg-[var(--surface-base)]">
-                        <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">
-                          {t("mcpServerDetailModal.tableTool")}
-                        </th>
-                        <th className="px-3 py-2 text-left font-medium text-[var(--content-secondary)]">
-                          {t("mcpServerDetailModal.tableDescription")}
-                        </th>
-                        <th className="px-3 py-2 text-right font-medium text-[var(--content-secondary)]">
-                          {t("mcpServerDetailModal.tableTokens")}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {toolsSummary.tools.map((tool) => (
-                        <tr
-                          key={tool.name}
-                          className="border-b border-[var(--border-base)] last:border-b-0"
-                        >
-                          <td className="px-3 py-2 font-medium text-[var(--content-default)]">
-                            {tool.name}
-                          </td>
-                          <td className="max-w-xs truncate px-3 py-2 text-[var(--content-tertiary)]">
-                            {tool.description ||
-                              t("mcpServerDetailModal.emptyDescription")}
-                          </td>
-                          <td className="px-3 py-2 text-right text-[var(--content-tertiary)]">
-                            {t("mcpServerDetailModal.toolEstimatedTokens", {
-                              count: tool.estimatedTokens.toLocaleString(),
-                            })}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+            {server.transport.url || server.transport.command ? (
+              <dl className="space-y-1 text-body-small-default">
+                <dt className="text-[var(--content-secondary)]">
+                  {server.transport.type === "stdio"
+                    ? t("mcpServerDetailModal.command")
+                    : t("mcpServerDetailModal.endpoint")}
+                </dt>
+                <dd className="text-[var(--content-tertiary)] [overflow-wrap:anywhere]">
+                  {server.transport.url ?? server.transport.command}
+                </dd>
+              </dl>
             ) : null}
+
+            <section className="space-y-2">
+              <h3 className="text-body-medium-default text-[var(--content-default)]">
+                {t("mcpServerDetailModal.toolsHeading")}
+              </h3>
+              {toolsLoading ? (
+                <p
+                  role="status"
+                  className="text-body-small-default text-[var(--content-tertiary)]"
+                >
+                  {t("mcpServerDetailModal.toolsLoading")}
+                </p>
+              ) : toolsError ? (
+                <p
+                  role="alert"
+                  className="text-body-small-default text-[var(--content-tertiary)]"
+                >
+                  {t("mcpServerDetailModal.toolsError")}
+                </p>
+              ) : toolsSummary && toolsSummary.tools.length > 0 ? (
+                <>
+                  <p className="text-body-small-default text-[var(--content-tertiary)]">
+                    {t("mcpServerDetailModal.tokenOverhead", {
+                      count: toolsSummary.estimatedTokens.toLocaleString(),
+                    })}
+                  </p>
+                  <ul className="divide-y divide-[var(--border-base)] rounded-lg border border-[var(--border-base)]">
+                    {toolsSummary.tools.map((tool) => (
+                      <li key={tool.name} className="space-y-1 px-3 py-3">
+                        <p className="text-body-small-default text-[var(--content-default)] [overflow-wrap:anywhere]">
+                          {tool.name}
+                        </p>
+                        {tool.description ? (
+                          <p className="whitespace-pre-wrap text-body-small-default text-[var(--content-secondary)] [overflow-wrap:anywhere]">
+                            {tool.description}
+                          </p>
+                        ) : null}
+                        <p className="text-body-small-default text-[var(--content-tertiary)]">
+                          {t("mcpServerDetailModal.toolEstimatedTokens", {
+                            count: tool.estimatedTokens.toLocaleString(),
+                          })}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  {t("mcpServerDetailModal.toolsEmpty")}
+                </p>
+              )}
+            </section>
           </div>
         </Modal.Body>
 
         <Modal.Footer>
-          <Button variant="ghost" onClick={handleClose} disabled={isPending}>
-            {t("mcpServerDetailModal.cancel")}
+          <Button
+            variant={readOnly ? "primary" : "ghost"}
+            onClick={handleClose}
+            disabled={isPending}
+          >
+            {readOnly
+              ? t("mcpServerDetailModal.close")
+              : t("mcpServerDetailModal.cancel")}
           </Button>
-          <Button variant="primary" onClick={handleSave} disabled={isPending}>
-            {isPending
-              ? t("mcpServerDetailModal.saving")
-              : t("mcpServerDetailModal.save")}
-          </Button>
+          {!readOnly ? (
+            <Button variant="primary" onClick={handleSave} disabled={isPending}>
+              {isPending
+                ? t("mcpServerDetailModal.saving")
+                : t("mcpServerDetailModal.save")}
+            </Button>
+          ) : null}
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>

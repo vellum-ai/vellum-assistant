@@ -118,14 +118,15 @@ export function AppReopenCard({
 }: AppReopenCardProps) {
   const summary = useAppDisplaySummary(appId, assistantId, conversationId);
   const { pinnedAppIds, togglePin } = usePinnedApps(assistantId);
+  const updatedAt = summary?.updatedAt;
 
-  // The thumbnail is a live mini-iframe of the app, loaded lazily when the card
-  // scrolls into view. Same cache the inline preview read, so a card that
-  // replaces a preview in the same session paints from a warm entry.
+  // Load each app revision lazily when the card scrolls into view.
   const loadHtml = useMemo(
     () =>
-      assistantId ? () => getCachedAppHtml(assistantId, appId) : undefined,
-    [assistantId, appId],
+      assistantId
+        ? () => getCachedAppHtml(assistantId, appId, updatedAt)
+        : undefined,
+    [assistantId, appId, updatedAt],
   );
 
   const handlePin = useCallback(() => {

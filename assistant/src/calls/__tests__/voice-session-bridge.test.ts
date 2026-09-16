@@ -2146,6 +2146,68 @@ describe("front-door leg tool suppression", () => {
   });
 });
 
+describe("desktop skill preactivation", () => {
+  async function preactivatedFor(turn: Record<string, unknown>): Promise<{
+    skillIds: string[];
+    proxyInterfaces: unknown[];
+    skillIdsDuringLoop: string[];
+  }> {
+    const skillIds: string[] = [];
+    const proxyInterfaces: unknown[] = [];
+    let skillIdsDuringLoop: string[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: async () => {
+        skillIdsDuringLoop = [...skillIds];
+      },
+    });
+    Object.assign(fake.conversation, {
+      addPreactivatedSkillId: (id: string) => {
+        skillIds.push(id);
+      },
+      ensureHostProxiesForTurn: (sourceInterface: unknown) => {
+        proxyInterfaces.push(sourceInterface);
+      },
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-desktop-skills"),
+      userMessageInterface: "macos",
+      ...turn,
+    });
+    await flushMicrotasks();
+    return { skillIds, proxyInterfaces, skillIdsDuringLoop };
+  }
+
+  test("an escalated leg of a macOS desktop session starts with computer use active", async () => {
+    const result = await preactivatedFor({
+      routingLeg: "escalated",
+      macosDesktopSession: true,
+    });
+
+    expect(result.skillIdsDuringLoop).toContain("computer-use");
+    expect(result.proxyInterfaces).toEqual(["macos"]);
+  });
+
+  test("a session from any other client leaves the desktop skills to be loaded", async () => {
+    const result = await preactivatedFor({ routingLeg: "escalated" });
+
+    expect(result.skillIds).toEqual([]);
+    expect(result.proxyInterfaces).toEqual([]);
+  });
+
+  test("the toolless front-door leg is never preactivated", async () => {
+    const result = await preactivatedFor({
+      routingLeg: "front-door",
+      macosDesktopSession: true,
+    });
+
+    expect(result.skillIds).toEqual([]);
+    expect(result.proxyInterfaces).toEqual([]);
+  });
+});
+
 describe("cutFrontDoorContentAtVerdict", () => {
   test("null when the content carries no verdict token (committed answer)", () => {
     expect(
@@ -2510,6 +2572,25 @@ describe("transcript hygiene (teardown pass)", () => {
     ]);
     expect(crudLog.deletes).toHaveLength(0);
     // The clean row must reach in-memory history and sync consumers.
+    expect(events).toContain("loadFromDb");
+  });
+
+  test("a row ending with a session control marker persists with it stripped", async () => {
+    const { events } = makeReservedRowConversation();
+    getMessageByIdImpl = () =>
+      makeRow("Muting you for thirty seconds. [MUTE:30]");
+
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    await flushMicrotasks();
+
+    expect(crudLog.updates).toEqual([
+      {
+        messageId: "assistant-row-1",
+        content: JSON.stringify([
+          { type: "text", text: "Muting you for thirty seconds." },
+        ]),
+      },
+    ]);
     expect(events).toContain("loadFromDb");
   });
 

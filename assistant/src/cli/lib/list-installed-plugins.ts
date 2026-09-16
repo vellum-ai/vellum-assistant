@@ -17,6 +17,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import {
+  LEGACY_PLUGIN_MANIFEST,
+  readPluginManifest,
+} from "../../util/plugin-manifest.js";
 import { parsePluginIcon } from "./plugin-artifact.js";
 import { readValidatedPluginIcon } from "./plugin-icon-file.js";
 
@@ -51,10 +55,13 @@ export interface InstalledPluginInfo {
   readonly name: string;
   /** Absolute path to the plugin directory. */
   readonly target: string;
-  /** Parsed `package.json` content, when present and parseable. */
+  /**
+   * Metadata from the selected manifest. The API exposes this field as
+   * `packageJson`.
+   */
   readonly packageJson: PluginPackageMetadata | null;
   /**
-   * Non-fatal issues with this entry (missing `package.json`, malformed
+   * Non-fatal issues with this entry (missing or malformed selected manifest,
    * JSON, unexpected type, etc.). Empty when the entry parses cleanly.
    */
   readonly issues: readonly string[];
@@ -143,51 +150,30 @@ function readPluginEntry(
   name: string,
 ): InstalledPluginInfo {
   const target = join(pluginsDir, name);
-  const pkgJsonPath = join(target, "package.json");
   const issues: string[] = [];
 
   // Icon validation is independent of package.json parsing, so resolve it
   // once and attach to every return below (including error paths).
   const iconFields = pluginIconFields(target);
 
-  if (!existsSync(pkgJsonPath)) {
-    issues.push("missing package.json");
-    return { name, target, packageJson: null, issues, ...iconFields };
-  }
-
-  let raw: string;
+  let manifest: ReturnType<typeof readPluginManifest>;
   try {
-    raw = readFileSync(pkgJsonPath, "utf8");
+    manifest = readPluginManifest(target);
   } catch (err) {
-    issues.push(
-      `package.json unreadable: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    issues.push(err instanceof Error ? err.message : String(err));
     return { name, target, packageJson: null, issues, ...iconFields };
   }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    issues.push(
-      `package.json invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return { name, target, packageJson: null, issues, ...iconFields };
-  }
-
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    issues.push("package.json is not an object");
-    return { name, target, packageJson: null, issues, ...iconFields };
-  }
-
-  const meta = parsed as Record<string, unknown>;
-  const icon = parsePluginIcon(meta);
+  const meta = manifest.raw;
+  const icon =
+    manifest.source === LEGACY_PLUGIN_MANIFEST
+      ? parsePluginIcon(meta)
+      : undefined;
   const packageJson: PluginPackageMetadata = {
-    name: typeof meta.name === "string" ? meta.name : undefined,
-    version: typeof meta.version === "string" ? meta.version : undefined,
-    description:
-      typeof meta.description === "string" ? meta.description : undefined,
+    name: manifest.name,
+    version: manifest.version,
+    description: manifest.description,
     peerDependencies:
+      manifest.source === LEGACY_PLUGIN_MANIFEST &&
       typeof meta.peerDependencies === "object" &&
       meta.peerDependencies !== null &&
       !Array.isArray(meta.peerDependencies)

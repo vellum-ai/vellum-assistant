@@ -4,13 +4,14 @@ import {
   Download,
   FileIcon,
   Loader2,
-  X,
 } from "lucide-react";
 import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Button, Typography } from "@vellumai/design-library";
+
+import { PreviewModalHeader } from "@/domains/chat/components/preview-modal-header";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
@@ -374,42 +375,15 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       onKeyDown={handleKeyDown}
       onClick={handleBackdropClick}
     >
-      {/* Top chrome: file size (left), filename (center), download + close
-          (right). Absolute children anchor to the overlay's padding box, so the
-          parent's safe-area paddingTop does not offset them — the bar carries
-          the top inset itself to clear the notch/status bar.
-
-          The bar spans the full width above the preview, so it stays
-          click-through except for its own controls: on a short viewport the
-          preview's top edge reaches under it, and an opaque bar would eat
-          clicks on whatever the preview renders there (a link in a scrolled
-          text preview, for instance). Same treatment as the gallery chevrons
-          below. */}
-      <div
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4"
-        style={{
-          paddingTop:
-            "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 1rem)",
-        }}
-      >
-        <Typography
-          variant="body-small-default"
-          className="pointer-events-auto w-11 shrink-0 truncate text-white/50"
-        >
-          {formatAttachmentSize(attachment.sizeBytes)}
-        </Typography>
-        <Typography
-          as="div"
-          variant="body-medium-lighter"
-          className="min-w-0 flex-1 truncate text-center text-white/90"
-        >
-          {/* The centred label is only as wide as its text, but its flex track
-              spans the whole middle of the bar. Take pointer events on the text
-              itself so it stays selectable and inert, and leave the empty track
-              either side click-through to whatever sits beneath. */}
-          <span className="pointer-events-auto">{attachment.filename}</span>
-        </Typography>
-        <div className="pointer-events-auto flex shrink-0 items-center gap-2">
+      <PreviewModalHeader
+        title={attachment.filename}
+        onClose={onClose}
+        leading={
+          <Typography variant="body-small-default" className="text-white/50">
+            {formatAttachmentSize(attachment.sizeBytes)}
+          </Typography>
+        }
+        actions={
           <Button
             variant="ghost"
             iconOnly={<Download />}
@@ -422,17 +396,8 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
             className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
             tintColor="currentColor"
           />
-          <Button
-            variant="ghost"
-            iconOnly={<X />}
-            expandOnMobile={false}
-            onClick={onClose}
-            aria-label={t("attachmentPreviewModal.closePreviewAria")}
-            className="h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
-            tintColor="currentColor"
-          />
-        </div>
-      </div>
+        }
+      />
 
       {hasGallery && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">

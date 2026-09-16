@@ -167,9 +167,9 @@ export function SelfImprovingSkillsContent() {
           </p>
           <p className="mb-0 text-zinc-600">
             When Vellum learns a genuinely new skill, the source conversation
-            shows an &ldquo;I just learned how to do...&rdquo; card. Opening the
-            card takes you to the learned skill so you can inspect what was
-            preserved. Routine memory updates and refinements that do not create
+            shows an &ldquo;I just learned how to do...&rdquo; card. You can review
+            the learned skill from Skills to inspect what was preserved.
+            Routine memory updates and refinements that do not create
             a distinct new skill do not produce this card.
           </p>
         </section>

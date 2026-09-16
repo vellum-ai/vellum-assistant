@@ -8,11 +8,13 @@
  * stored. These pin the rules the reopen path depends on.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "@/domains/chat/utils/acp-connect";
+import { addDismissedAcpConnectId } from "@/domains/chat/utils/dismissed-acp-connect-storage";
 import { raiseAcpConnectFromSnapshot } from "@/domains/chat/hooks/use-acp-run-rehydration";
+import { clearUserScopedOverrides } from "@/utils/typed-storage";
 
 function run(overrides: Record<string, unknown> = {}) {
   return {
@@ -24,6 +26,11 @@ function run(overrides: Record<string, unknown> = {}) {
     ...overrides,
   } as any;
 }
+
+afterEach(() => {
+  localStorage.clear();
+  clearUserScopedOverrides();
+});
 
 describe("raiseAcpConnectFromSnapshot", () => {
   beforeEach(() => {
@@ -68,6 +75,14 @@ describe("raiseAcpConnectFromSnapshot", () => {
     useInteractionStore.setState({
       dismissedAcpConnectToolUseIds: new Set(["tool-1"]),
     });
+
+    raiseAcpConnectFromSnapshot([run()]);
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+  });
+
+  test("does not resurrect a prompt the user dismissed across reload", () => {
+    addDismissedAcpConnectId("tool-1");
 
     raiseAcpConnectFromSnapshot([run()]);
 

@@ -7,8 +7,12 @@
  */
 import { readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
-import { pathListDelimiter } from "@vellumai/environments/shell";
+import {
+  pathListDelimiter,
+  prependUniquePathEntries,
+} from "@vellumai/environments/shell";
 
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
 import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
@@ -284,6 +288,7 @@ function appendUniquePathEntries(
 export function buildSanitizedEnv(
   hostPlatform: NodeJS.Platform = process.platform,
   sourceEnv: NodeJS.ProcessEnv = process.env,
+  options?: { execPath?: string },
 ): Record<string, string> {
   const env: Record<string, string> = {};
   const isKataRuntime = isKataFamilyRuntime(sourceEnv.VELLUM_SANDBOX_RUNTIME);
@@ -360,5 +365,29 @@ export function buildSanitizedEnv(
   if (!env.LC_ALL) {
     env.LC_ALL = utf8Locale;
   }
+  prependWindowsAssistantDir(
+    env,
+    hostPlatform,
+    options?.execPath ?? process.execPath,
+  );
   return env;
+}
+
+function prependWindowsAssistantDir(
+  env: Record<string, string>,
+  hostPlatform: NodeJS.Platform,
+  execPath: string,
+): void {
+  if (hostPlatform !== "win32") {
+    return;
+  }
+  const execDir = dirname(execPath);
+  try {
+    if (!statSync(join(execDir, "assistant.exe")).isFile()) {
+      return;
+    }
+  } catch {
+    return;
+  }
+  env.PATH = prependUniquePathEntries(env.PATH, [execDir], hostPlatform);
 }

@@ -15,7 +15,9 @@ import { navigateToNewConversation } from "@/utils/conversation-navigation";
  * Always displays the Sparkles icon to indicate LLM token usage.
  *
  * Uses the `?prompt=` URL parameter mechanism consumed by `useAutoSendEffects`
- * to auto-send the message once the new conversation mounts.
+ * to auto-send the message once the new conversation mounts. The send is
+ * authorized by the in-app navigation state `navigateToNewConversation`
+ * attaches, not by the URL alone (see `utils/auto-send-prompt.ts`).
  */
 export interface PromptLaunchButtonProps {
   /** The message to auto-send in the new conversation. */

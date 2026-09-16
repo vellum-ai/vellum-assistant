@@ -404,12 +404,7 @@ export const DISCORD_CHANNEL_CREDENTIAL_SPEC: ServiceCredentialSpec = {
 
 export const VELLUM_CREDENTIAL_SPEC: ServiceCredentialSpec = {
   service: "vellum",
-  requiredFields: [
-    "platform_base_url",
-    "assistant_api_key",
-    "platform_assistant_id",
-    "webhook_secret",
-  ],
+  requiredFields: ["platform_base_url", "assistant_api_key", "webhook_secret"],
 } as const;
 
 export const ALL_CREDENTIAL_SPECS: readonly ServiceCredentialSpec[] = [

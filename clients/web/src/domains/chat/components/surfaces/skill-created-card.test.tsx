@@ -1,27 +1,12 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router";
-
-// `mock.module` is safe for `use-is-mobile` because it's a pure
-// derived-value hook (no module-local state). Tests that don't touch
-// `isMobileRef` default to `false` (wide viewport).
-const isMobileRef = { value: false };
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => isMobileRef.value,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
-}));
+import { afterEach, describe, expect, test } from "bun:test";
+import { cleanup, render } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 
 import { SkillCreatedCard } from "@/domains/chat/components/surfaces/skill-created-card";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type { Surface } from "@/domains/chat/types/types";
-import { useViewerStore } from "@/stores/viewer-store";
 
-afterEach(() => {
-  cleanup();
-  isMobileRef.value = false;
-  // Clicks mutate the real viewer store; restore it for the next test.
-  useViewerStore.getState().reset();
-});
+afterEach(cleanup);
 
 function makeSurface(overrides: Partial<Surface> = {}): Surface {
   return {
@@ -43,30 +28,17 @@ function makeSurface(overrides: Partial<Surface> = {}): Surface {
   };
 }
 
-/** Exposes the router's current URL and state so tests can assert navigation. */
-function LocationProbe() {
-  const location = useLocation();
-  const state = location.state as { backTo?: string } | null;
-  return (
-    <>
-      <div data-testid="location">{`${location.pathname}${location.search}`}</div>
-      <div data-testid="location-back-to">{state?.backTo ?? ""}</div>
-    </>
-  );
-}
-
 function renderCard(surface: Surface) {
   return render(
-    <MemoryRouter initialEntries={["/assistant/conversations/conv-xyz"]}>
-      <SkillCreatedCard surface={surface} onAction={() => {}} />
-      <LocationProbe />
-    </MemoryRouter>,
+    <SkillCreatedCard surface={surface} onAction={() => {}} />,
   );
 }
 
 describe("SkillCreatedCard", () => {
   test("renders a single learned-sentence row per skill (no generic header)", () => {
-    const { getByText, getByRole, queryByText } = renderCard(makeSurface());
+    const { container, getByText, queryByRole, queryByText } = renderCard(
+      makeSurface(),
+    );
 
     // The card renders no generic header or subline: each row's title
     // carries the full learned sentence, so a header would double-announce.
@@ -78,16 +50,17 @@ describe("SkillCreatedCard", () => {
       getByText("I just learned how to do Weekly report digest"),
     ).toBeTruthy();
     expect(
-      getByText("Compile the weekly report from the usual sources."),
-    ).toBeTruthy();
-    expect(getByText("📊")).toBeTruthy();
-    expect(
-      getByRole("button", { name: "View Weekly report digest" }),
-    ).toBeTruthy();
+      queryByText("Compile the weekly report from the usual sources."),
+    ).toBeNull();
+    expect(queryByText("📊")).toBeNull();
+    expect(queryByText("View")).toBeNull();
+    expect(container.querySelector(".lucide-brain")).toBeTruthy();
+    expect(queryByRole("button")).toBeNull();
+    expect(queryByRole("link")).toBeNull();
   });
 
   test("renders multiple skills as stacked rows in a single card", () => {
-    const { container, getByText, getByRole } = renderCard(
+    const { container, getByText, queryByRole } = renderCard(
       makeSurface({
         data: {
           skills: [
@@ -100,82 +73,12 @@ describe("SkillCreatedCard", () => {
 
     expect(getByText("I just learned how to do Skill one")).toBeTruthy();
     expect(getByText("I just learned how to do Skill two")).toBeTruthy();
-    // Each row's action carries a skill-specific accessible name.
-    expect(getByRole("button", { name: "View Skill one" })).toBeTruthy();
-    expect(getByRole("button", { name: "View Skill two" })).toBeTruthy();
+    expect(queryByRole("button")).toBeNull();
     // One card (SurfaceContainer), not one per skill.
     expect(container.querySelectorAll(".rounded-lg")).toHaveLength(1);
   });
 
-  test("View opens the skill detail sidepanel on desktop without leaving the conversation", () => {
-    const { getByRole, getByTestId } = renderCard(
-      makeSurface({
-        data: {
-          skills: [
-            { skillId: "skill-1", name: "Skill one" },
-            { skillId: "skill-2", name: "Skill two" },
-          ],
-        },
-      }),
-    );
-
-    fireEvent.click(getByRole("button", { name: "View Skill two" }));
-
-    expect(useViewerStore.getState().mainView).toBe("skill-detail");
-    expect(useViewerStore.getState().activeSkillDetailId).toBe("skill-2");
-    // The panel opens in place — the conversation route is untouched.
-    expect(getByTestId("location").textContent).toBe(
-      "/assistant/conversations/conv-xyz",
-    );
-  });
-
-  test("View navigates to the skill detail page on mobile (no sidepanel on narrow viewports)", () => {
-    isMobileRef.value = true;
-    const { getByRole, getByTestId } = renderCard(
-      makeSurface({
-        data: {
-          skills: [
-            { skillId: "skill-1", name: "Skill one" },
-            { skillId: "skill-2", name: "Skill two" },
-          ],
-        },
-      }),
-    );
-
-    fireEvent.click(getByRole("button", { name: "View Skill two" }));
-
-    expect(getByTestId("location").textContent).toBe(
-      "/assistant/skills/skill-2",
-    );
-    // The conversation's location rides along as router state so the detail
-    // page's back affordances return here instead of the Superpowers list.
-    expect(getByTestId("location-back-to").textContent).toBe(
-      "/assistant/conversations/conv-xyz",
-    );
-    // The panel path is not taken on mobile.
-    expect(useViewerStore.getState().mainView).toBe("chat");
-    expect(useViewerStore.getState().activeSkillDetailId).toBeNull();
-  });
-
-  test("clicking the row body (skill name) opens the skill detail — the whole row is the control, not just the View chip", () => {
-    const { getByText } = renderCard(
-      makeSurface({
-        data: {
-          skills: [
-            { skillId: "skill-1", name: "Skill one" },
-            { skillId: "skill-2", name: "Skill two" },
-          ],
-        },
-      }),
-    );
-
-    fireEvent.click(getByText("I just learned how to do Skill two"));
-
-    expect(useViewerStore.getState().mainView).toBe("skill-detail");
-    expect(useViewerStore.getState().activeSkillDetailId).toBe("skill-2");
-  });
-
-  test("falls back to the Brain icon when a skill has no emoji", () => {
+  test("renders the Brain icon when a skill has no emoji", () => {
     const { container } = renderCard(
       makeSurface({
         data: {
@@ -202,7 +105,7 @@ describe("SkillCreatedCard", () => {
   });
 
   test("drops entries without a usable skillId or name but keeps valid ones", () => {
-    const { getByText, queryByText, getAllByRole } = renderCard(
+    const { getByText, queryByText, getAllByText } = renderCard(
       makeSurface({
         data: {
           skills: [
@@ -217,7 +120,7 @@ describe("SkillCreatedCard", () => {
 
     expect(getByText("I just learned how to do Valid skill")).toBeTruthy();
     expect(queryByText(/Missing id/)).toBeNull();
-    expect(getAllByRole("button", { name: /^View / })).toHaveLength(1);
+    expect(getAllByText(/^I just learned how to do /)).toHaveLength(1);
   });
 });
 

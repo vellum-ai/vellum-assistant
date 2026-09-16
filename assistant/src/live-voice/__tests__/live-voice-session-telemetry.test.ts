@@ -350,6 +350,25 @@ describe("live-voice turn attribution", () => {
     expect(options.assistantMessageInterface).toBe("macos");
   });
 
+  test("a session opened from the macOS desktop client asks for the desktop skills", async () => {
+    const options = await captureTurnOptions({
+      ...START_FRAME,
+      client: "macos",
+    });
+
+    expect(options.macosDesktopSession).toBe(true);
+  });
+
+  test("a session from any other client does not ask for the desktop skills", async () => {
+    for (const startFrame of [{ ...START_FRAME, client: "ios" }, START_FRAME]) {
+      const options = await captureTurnOptions(
+        startFrame as LiveVoiceClientStartFrame,
+      );
+
+      expect(options.macosDesktopSession).toBeUndefined();
+    }
+  });
+
   test("omits the client when the start frame declares none", async () => {
     const options = await captureTurnOptions(START_FRAME);
 

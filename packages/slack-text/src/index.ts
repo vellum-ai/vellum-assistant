@@ -113,7 +113,7 @@ export async function buildSlackUserLabelMap(
       // that label directly; only queue a lookup when the label is missing,
       // empty, or ID-shaped. Mirrors the channel builder below.
       const [, embeddedLabel] = splitSlackLabel(match[0].slice(1, -1));
-      const sanitizedEmbeddedLabel = sanitizeOptionalLabel(embeddedLabel);
+      const sanitizedEmbeddedLabel = sanitizeEmbeddedSlackLabel(embeddedLabel);
       if (sanitizedEmbeddedLabel && sanitizedEmbeddedLabel !== id) continue;
       if (seen.has(id)) continue;
       seen.add(id);
@@ -151,7 +151,7 @@ export async function buildSlackChannelLabelMap(
     for (const match of text.matchAll(SLACK_CHANNEL_REFERENCE_RE)) {
       const id = match[1];
       const [, embeddedLabel] = splitSlackLabel(match[0].slice(1, -1));
-      const sanitizedEmbeddedLabel = sanitizeOptionalLabel(embeddedLabel);
+      const sanitizedEmbeddedLabel = sanitizeEmbeddedSlackLabel(embeddedLabel);
       if (sanitizedEmbeddedLabel && sanitizedEmbeddedLabel !== id) continue;
       if (!seen.has(id)) {
         seen.add(id);
@@ -192,9 +192,7 @@ function renderUserMention(
   // prefer it over a lookup, mirroring renderChannelReference. The embedded
   // label is Slack-sourced (part of the token), so entities decode before
   // sanitization; the caller-resolved label below is not.
-  const embeddedLabel = sanitizeOptionalLabel(
-    label === undefined ? undefined : decodeSlackHtmlEntities(label),
-  );
+  const embeddedLabel = sanitizeEmbeddedSlackLabel(label);
   if (embeddedLabel && embeddedLabel !== id) {
     return `@${embeddedLabel}`;
   }
@@ -219,9 +217,7 @@ function renderChannelReference(
   );
   // The embedded label is Slack-sourced (part of the token), so entities
   // decode before sanitization; the caller-resolved label below is not.
-  const embeddedLabel = sanitizeOptionalLabel(
-    label === undefined ? undefined : decodeSlackHtmlEntities(label),
-  );
+  const embeddedLabel = sanitizeEmbeddedSlackLabel(label);
   if (embeddedLabel && embeddedLabel !== channelId) {
     return `#${embeddedLabel}`;
   }
@@ -318,6 +314,15 @@ export function sanitizeSlackLabel(
     .replace(/^[@#]+/, "")
     .trim();
   return sanitized || undefined;
+}
+
+// Slack-sourced labels are decoded before validation in both lookup and render.
+function sanitizeEmbeddedSlackLabel(
+  label: string | undefined,
+): string | undefined {
+  return sanitizeOptionalLabel(
+    label === undefined ? undefined : decodeSlackHtmlEntities(label),
+  );
 }
 
 function sanitizeOptionalLabel(label: string | undefined): string | undefined {

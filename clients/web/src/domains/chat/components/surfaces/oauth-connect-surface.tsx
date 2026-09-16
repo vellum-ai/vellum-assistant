@@ -21,7 +21,10 @@ import {
 
 import type { Surface } from "@/domains/chat/types/types";
 import { useManagedOAuthConnect } from "@/hooks/use-managed-oauth-connect";
+import { useTenantHostInput } from "@/hooks/use-tenant-host-input";
+import { useTenantHostRequirement } from "@/hooks/use-tenant-host-requirement";
 import { useTranslation } from "@/i18n";
+import { Input } from "@vellumai/design-library/components/input";
 
 interface OAuthConnectSurfaceProps {
   surface: Surface;
@@ -137,6 +140,10 @@ export function OAuthConnectSurface({
   const [provider, setProvider] = useState<ManagedOAuthProviderSummary | null>(
     null,
   );
+  // Connect waits for this. A per-tenant provider's requirement arrives with
+  // the summary, and a click before it lands would start a request the
+  // platform rejects for lacking the host.
+  const [providerSettled, setProviderSettled] = useState(false);
   const mountedRef = useRef(true);
   const claimedSurfaceRef = useRef<string | null>(null);
   useEffect(() => {
@@ -154,9 +161,11 @@ export function OAuthConnectSurface({
     if (!assistantId || !providerKey) {
       return;
     }
+    setProviderSettled(false);
     void fetchProvider(assistantId, providerKey).then((result) => {
       if (!cancelled) {
         setProvider(result);
+        setProviderSettled(true);
       }
     });
     return () => {
@@ -181,6 +190,13 @@ export function OAuthConnectSurface({
     providerLabel,
     requestedScopes: data.requestedScopes,
   });
+  // Per-tenant providers (Shopify) have no authorize URL until the user says
+  // which shop, so the card collects it before offering Connect.
+  const tenantHost = useTenantHostRequirement(
+    providerKey,
+    provider ? provider.tenant_host : undefined,
+  );
+  const tenantHostInput = useTenantHostInput(tenantHost);
 
   // The connection the platform reports is the outcome, whenever and wherever
   // it lands: this card, the settings integrations tab, or another device.
@@ -225,13 +241,18 @@ export function OAuthConnectSurface({
     if (!assistantId || !providerKey) {
       return;
     }
-    connect.connect();
+    connect.connect(undefined, tenantHostInput.normalized);
   };
 
   const missingConfiguration = !assistantId || !providerKey;
   const isAttempting = connect.status === "attempting";
   const isConnected = connect.status === "connected";
-  const connectDisabled = missingConfiguration || isAttempting || isConnected;
+  const connectDisabled =
+    missingConfiguration ||
+    !providerSettled ||
+    isAttempting ||
+    isConnected ||
+    !tenantHostInput.valid;
 
   return (
     <div className="rounded-lg border border-[var(--border-element)] bg-[var(--surface-lift)] p-4">
@@ -259,6 +280,32 @@ export function OAuthConnectSurface({
                 />
               </span>
             </p>
+
+            {tenantHost && (
+              <div className="mt-3 max-w-sm">
+                <Input
+                  label={tenantHost.label}
+                  type="text"
+                  value={tenantHostInput.value}
+                  onChange={(e) => tenantHostInput.setValue(e.target.value)}
+                  placeholder={tenantHost.placeholder}
+                  aria-invalid={tenantHostInput.showsInvalid || undefined}
+                  helperText={
+                    tenantHostInput.showsInvalid
+                      ? t("oauthConnectSurface.tenantHostInvalid", {
+                          label: tenantHost.label,
+                          placeholder: tenantHost.placeholder,
+                        })
+                      : undefined
+                  }
+                  disabled={isAttempting || isConnected}
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  fullWidth
+                />
+              </div>
+            )}
 
             {missingConfiguration && (
               <div className="mt-3 flex items-center gap-2 text-body-small-lighter text-[var(--system-negative-strong)]">

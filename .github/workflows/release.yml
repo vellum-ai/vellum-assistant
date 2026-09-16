@@ -2699,13 +2699,24 @@ jobs:
       version: ${{ needs.extract-version.outputs.version }}
     secrets: inherit
 
+  build-windows:
+    needs: [extract-version]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-windows.yaml
+    with:
+      environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
+      version: ${{ needs.extract-version.outputs.version }}
+    secrets: inherit
+
   # Gated on the channel's meta publish like upload-electron-updates: never
   # offer a Windows auto-update for a release that didn't publish.
   release-windows:
-    needs: [extract-version, publish-meta-prod, publish-meta-staging, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    needs: [build-windows, extract-version, publish-meta-prod, publish-meta-staging, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     if: >-
       ${{
         always() && !cancelled()
+        && needs.build-windows.result == 'success'
         && needs.extract-version.result == 'success'
         && needs.push-assistant-manifest.result == 'success'
         && needs.push-gateway-manifest.result == 'success'
@@ -2715,10 +2726,9 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/release-windows.yaml
+    uses: ./.github/workflows/publish-windows.yaml
     with:
       environment: ${{ needs.extract-version.outputs.is_staging == 'true' && 'staging' || 'production' }}
-      version: ${{ needs.extract-version.outputs.version }}
     secrets: inherit
 
   # ci-assistant runs lint/typecheck/test for the assistant service. It also
@@ -2848,7 +2858,7 @@ jobs:
   ci-web:
     needs: extract-version
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -2879,7 +2889,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, publish-npm-staging, publish-web-staging, publish-meta-staging, publish-plugin-api-staging, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, release-android, release-windows, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, publish-npm-staging, publish-web-staging, publish-meta-staging, publish-plugin-api-staging, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, release-android, build-windows, release-windows, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2909,6 +2919,11 @@ jobs:
           # individual publish job fail (or skip) while release.result can still
           # be success, so keying only off release/deploy-web-spa would report a
           # green release even though nothing reached npm.
+          WINDOWS_RESULT="${{ needs.release-windows.result }}"
+          if [ "${{ needs.build-windows.result }}" = "failure" ] \
+            || [ "${{ needs.build-windows.result }}" = "cancelled" ]; then
+            WINDOWS_RESULT="${{ needs.build-windows.result }}"
+          fi
           RELEASE_FAILED="false"
           if [ "$IS_STAGING" != "true" ] && {
             [ "${{ needs.release.result }}" != "success" ] \
@@ -2919,8 +2934,8 @@ jobs:
             || [ "${{ needs.publish-plugin-api-prod.result }}" != "success" ] \
             || { [ "${{ needs.release-android.result }}" != "success" ] \
               && [ "${{ needs.release-android.result }}" != "skipped" ]; } \
-            || { [ "${{ needs.release-windows.result }}" != "success" ] \
-              && [ "${{ needs.release-windows.result }}" != "skipped" ]; }; }; then
+            || { [ "$WINDOWS_RESULT" != "success" ] \
+              && [ "$WINDOWS_RESULT" != "skipped" ]; }; }; then
             RELEASE_FAILED="true"
           fi
 
@@ -2963,8 +2978,8 @@ jobs:
               && [ "${{ needs.release-android.result }}" != "skipped" ]; then
               STAGING_READY="false"
             fi
-            if [ "${{ needs.release-windows.result }}" != "success" ] \
-              && [ "${{ needs.release-windows.result }}" != "skipped" ]; then
+            if [ "$WINDOWS_RESULT" != "success" ] \
+              && [ "$WINDOWS_RESULT" != "skipped" ]; then
               STAGING_READY="false"
             fi
           fi
@@ -3003,7 +3018,7 @@ jobs:
           TQ=$(ci_icon "${{ needs.trigger-platform-qa.result }}")
           DI=$(ci_icon "${{ needs.release-ios.result }}")
           DA=$(ci_icon "${{ needs.release-android.result }}")
-          DW=$(ci_icon "${{ needs.release-windows.result }}")
+          DW=$(ci_icon "$WINDOWS_RESULT")
           CX=$(ci_icon "${{ needs.build-chrome-extension.result }}")
           CXP=$(ci_icon "${{ needs.publish-chrome-extension.result }}")
           MERGE_OUTCOME="${{ needs.merge-release-branch.outputs.outcome || needs.merge-release-branch.result }}"

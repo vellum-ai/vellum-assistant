@@ -7,7 +7,7 @@
  * routes. Without this handler they fall through to the runtime-proxy
  * catch-all and 404.
  *
- * The stored platform assistant UUID is used on the upstream path, not the
+ * The bound platform assistant UUID is used on the upstream path, not the
  * URL id (which may be `"self"` or a client-resolved slug). Django
  * authenticates the hop with the stored assistant API key.
  */
@@ -16,6 +16,7 @@ import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
+import { resolvePlatformAssistantIdOrUndefined } from "../../platform-identity.js";
 import { getPlatformBaseUrl } from "../../platform-url.js";
 import { errorResponse } from "../loopback-guard.js";
 
@@ -31,15 +32,14 @@ interface PlatformTarget {
 
 export function createPlatformPushProxyHandler(credentials: CredentialCache) {
   async function resolvePlatformTarget(): Promise<PlatformTarget | Response> {
-    const [platformBaseUrl, assistantApiKeyRaw, assistantIdRaw] =
+    const [platformBaseUrl, assistantApiKeyRaw, assistantId] =
       await Promise.all([
         getPlatformBaseUrl(credentials),
         credentials.get(credentialKey("vellum", "assistant_api_key")),
-        credentials.get(credentialKey("vellum", "platform_assistant_id")),
+        resolvePlatformAssistantIdOrUndefined(),
       ]);
 
     const assistantApiKey = assistantApiKeyRaw?.trim() || undefined;
-    const assistantId = assistantIdRaw?.trim() || undefined;
 
     if (!platformBaseUrl || !assistantApiKey || !assistantId) {
       return errorResponse(
@@ -135,7 +135,10 @@ export function createPlatformPushProxyHandler(credentials: CredentialCache) {
       req: Request,
       token: string,
     ): Promise<Response> {
-      return forward(req, `/live-activity/tokens/${encodeURIComponent(token)}/`);
+      return forward(
+        req,
+        `/live-activity/tokens/${encodeURIComponent(token)}/`,
+      );
     },
   };
 }

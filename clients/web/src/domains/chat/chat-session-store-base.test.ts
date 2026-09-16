@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import {
+  useComposerStore,
+  type ChatAttachment,
+} from "@/domains/chat/composer-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import {
   pushSseEvent,
   registerSseClient,
@@ -79,11 +85,31 @@ const store = () => useChatSessionStore.getState();
 
 beforeEach(() => {
   resetSseDebugStateForTests();
-  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  useChatSessionStore.setState({
+    snapshot: null,
+    optimisticSends: [],
+    previousConversationId: null,
+    previousAssistantId: null,
+    draftConversationIdResolution: false,
+  });
+  useComposerStore.getState().fullReset();
+  useComposerStore.getState().setInput("");
+  useTurnStore.getState().resetTurn();
+  useInteractionStore.getState().resetAll({ assistantChanged: true });
 });
 afterEach(() => {
   resetSseDebugStateForTests();
-  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  useChatSessionStore.setState({
+    snapshot: null,
+    optimisticSends: [],
+    previousConversationId: null,
+    previousAssistantId: null,
+    draftConversationIdResolution: false,
+  });
+  useComposerStore.getState().fullReset();
+  useComposerStore.getState().setInput("");
+  useTurnStore.getState().resetTurn();
+  useInteractionStore.getState().resetAll({ assistantChanged: true });
 });
 
 describe("chat-session-store — snapshot + optimistic", () => {
@@ -438,6 +464,116 @@ describe("chat-session-store — snapshot + optimistic", () => {
   });
 });
 
+describe("chat-session-store: conversation identity", () => {
+  const attachments: ChatAttachment[] = [
+    {
+      kind: "uploaded",
+      localId: "local-uploaded",
+      id: "attachment-uploaded",
+      filename: "photo.png",
+      mimeType: "image/png",
+      sizeBytes: 10,
+      previewUrl: "blob:photo-preview",
+      thumbnailUrl: null,
+    },
+    {
+      kind: "uploading",
+      localId: "local-uploading",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 20,
+    },
+    {
+      kind: "failed",
+      localId: "local-failed",
+      filename: "archive.zip",
+      mimeType: "application/zip",
+      sizeBytes: 30,
+      error: "Upload failed",
+    },
+  ];
+
+  test("re-entering the same session preserves ephemeral chat state", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: CONV,
+    });
+    const history = snapshot([textRow("a1", "persisted")], 1);
+    const optimistic = {
+      ...textRow("u1", "pending"),
+      role: "user" as const,
+      clientMessageId: "client-message-1",
+    };
+    store().seedSnapshot(CONV, history);
+    store().addOptimisticSend(optimistic);
+    store().setError({ message: "Temporary failure" });
+    store().setIsLoadingHistory(false);
+    store().pushPendingQueuedMessageId("queued-message-1");
+    store().setConfirmationToolCall("request-1", "tool-call-1");
+    store().setExpandedToolCallId("tool-call-1", true);
+    useComposerStore.setState({
+      attachments,
+      attachmentLastError: "Upload failed",
+    });
+    useComposerStore.getState().setInput("Unsent draft");
+    useTurnStore.getState().requestSend("turn-1");
+    useInteractionStore
+      .getState()
+      .showQuestion({ requestId: "question-1", entries: [] });
+
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: CONV,
+    });
+
+    expect(store().snapshot).toBe(history);
+    expect(store().optimisticSends).toEqual([optimistic]);
+    expect(store().error).toEqual({ message: "Temporary failure" });
+    expect(store().isLoadingHistory).toBe(false);
+    expect(store().pendingQueuedMessageIds).toEqual(["queued-message-1"]);
+    expect(store().confirmationToolCallMap.get("request-1")).toBe(
+      "tool-call-1",
+    );
+    expect(store().expandedToolCallIds).toEqual(new Set(["tool-call-1"]));
+    expect(useComposerStore.getState().attachments).toEqual(attachments);
+    expect(useComposerStore.getState().attachmentLastError).toBe(
+      "Upload failed",
+    );
+    expect(useComposerStore.getState().input).toBe("Unsent draft");
+    expect(useTurnStore.getState().activeTurnId).toBe("turn-1");
+    expect(useTurnStore.getState().phase).toBe("thinking");
+    expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+      "question-1",
+    );
+  });
+
+  test("draft resolution is consumed before a later real switch", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "draft-conversation",
+    });
+    useComposerStore.setState({ attachments });
+    store().markDraftResolution();
+
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "server-conversation",
+    });
+
+    expect(store().draftConversationIdResolution).toBe(false);
+    expect(store().previousConversationId).toBe("draft-conversation");
+    expect(useComposerStore.getState().attachments).toEqual(attachments);
+
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "other-conversation",
+    });
+
+    expect(store().previousConversationId).toBe("other-conversation");
+    expect(useComposerStore.getState().attachments).toEqual([]);
+  });
+});
+
 describe("chat-session-store: switch telemetry gate", () => {
   beforeEach(() => {
     switchStartedConversationIds.length = 0;
@@ -533,7 +669,6 @@ describe("chat-session-store: switch telemetry gate", () => {
     });
 
     expect(switchAbandonReasons).toEqual([
-      "context_change",
       "context_change",
       "context_change",
       "draft_resolution",

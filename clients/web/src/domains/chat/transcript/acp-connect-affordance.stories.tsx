@@ -38,9 +38,11 @@ function stubConnection(
 function TwoStepHarness({
   connection,
   initialPastedCode = "",
+  onDismiss,
 }: {
   connection: UseConnectClaudeResult;
   initialPastedCode?: string;
+  onDismiss?: () => void;
 }) {
   const [pastedCode, setPastedCode] = useState(initialPastedCode);
   return (
@@ -48,6 +50,7 @@ function TwoStepHarness({
       connection={connection}
       pastedCode={pastedCode}
       onPastedCodeChange={setPastedCode}
+      onDismiss={onDismiss}
     />
   );
 }
@@ -67,9 +70,11 @@ const meta: Meta = {
 export default meta;
 type Story = StoryObj;
 
-/** The resting one-step card: icon, title, subtitle, and Connect. */
+/** The resting one-step card: icon, title, subtitle, Dismiss, and Connect. */
 export const OneStepIdle: Story = {
-  render: () => <OneStepCard connection={stubConnection()} />,
+  render: () => (
+    <OneStepCard connection={stubConnection()} onDismiss={() => {}} />
+  ),
 };
 
 /** Sign-in tab opened; the action slot swaps to a spinner while polling. */
@@ -77,6 +82,7 @@ export const OneStepWaiting: Story = {
   render: () => (
     <OneStepCard
       connection={stubConnection({ phase: "awaiting_capture", isBusy: true })}
+      onDismiss={() => {}}
     />
   ),
 };
@@ -93,6 +99,7 @@ export const OneStepError: Story = {
         error:
           "Your browser blocked the sign-in tab. Allow pop-ups for this site, then click Connect again.",
       })}
+      onDismiss={() => {}}
     />
   ),
 };
@@ -106,7 +113,9 @@ export const OneStepConnected: Story = {
 
 /** The resting two-step card is identical to one-step until the flow starts. */
 export const TwoStepIdle: Story = {
-  render: () => <TwoStepHarness connection={stubConnection()} />,
+  render: () => (
+    <TwoStepHarness connection={stubConnection()} onDismiss={() => {}} />
+  ),
 };
 
 /** The paste step: subtitle flips to the instruction, key field + Save appear. */
@@ -114,6 +123,7 @@ export const TwoStepAwaitingPaste: Story = {
   render: () => (
     <TwoStepHarness
       connection={stubConnection({ phase: "awaiting_paste", mode: "manual" })}
+      onDismiss={() => {}}
     />
   ),
 };
@@ -131,6 +141,7 @@ export const TwoStepPasteError: Story = {
         error: "Check the pasted key and try again.",
       })}
       initialPastedCode="bad-code#state"
+      onDismiss={() => {}}
     />
   ),
 };

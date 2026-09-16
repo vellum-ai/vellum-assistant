@@ -33,7 +33,7 @@
     },
     {
       "name": "acp_status",
-      "description": "Get the status of a specific ACP session or list all ACP sessions. Only use this when the user explicitly asks about ACP session status - do NOT poll automatically, as you will be notified when sessions complete.",
+      "description": "Get the status of a specific ACP session or list recent ACP sessions. Cleanly completed sessions with durable resume metadata are returned as idle; use `acp_steer` to attempt follow-up work on them instead of starting over with `acp_spawn`. Only use this when the user explicitly asks about ACP session status - do NOT poll automatically, as you will be notified when sessions complete.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {
@@ -41,7 +41,7 @@
         "properties": {
           "acp_session_id": {
             "type": "string",
-            "description": "Optional ACP session ID to query. If omitted, returns all ACP sessions."
+            "description": "Optional ACP session ID to query. If omitted, returns recent ACP sessions, including active and resumable idle sessions."
           }
         },
         "required": []

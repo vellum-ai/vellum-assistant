@@ -33,7 +33,9 @@ mock.module("@/lib/backwards-compat/subagents-reconcile", () => ({
 
 let reconcileCalls = 0;
 const reconciledParents: string[] = [];
+const daemonSdk = await import("@/generated/daemon/sdk.gen");
 mock.module("@/generated/daemon/sdk.gen", () => ({
+  ...daemonSdk,
   subagentsReconcileGet: async (options: {
     query?: { parentConversationId?: string };
   }) => {

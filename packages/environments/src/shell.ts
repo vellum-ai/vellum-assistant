@@ -5,6 +5,11 @@ export interface ShellInvocation {
   args: string[];
 }
 
+export interface ShellSpawnFlags {
+  detached: boolean;
+  windowsHide: true;
+}
+
 const WINDOWS_UTF8_PREAMBLE =
   "try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}; " +
   "$OutputEncoding = [System.Text.Encoding]::UTF8; " +
@@ -41,6 +46,25 @@ export function buildShellInvocation(
     };
   }
   return { command: "bash", args: ["-c", "--", command] };
+}
+
+/**
+ * Spawn flags for assistant-owned shell children (sandbox bash, local
+ * host_bash fallback, sanitized CLI bash, skill runners, scheduled scripts).
+ *
+ * POSIX uses a new process group so timeout/abort can SIGKILL the tree via
+ * `-pid`. Windows process trees are torn down with `taskkill /T`, which does
+ * not need a detached process. Combining `DETACHED_PROCESS`,
+ * `CREATE_NO_WINDOW`, and piped stdio on Windows can emit `close` with exit
+ * 0 and empty pipes without running the encoded command.
+ */
+export function buildShellSpawnFlags(
+  hostPlatform: NodeJS.Platform = process.platform,
+): ShellSpawnFlags {
+  return {
+    detached: hostPlatform !== "win32",
+    windowsHide: true,
+  };
 }
 
 export function pathListDelimiter(

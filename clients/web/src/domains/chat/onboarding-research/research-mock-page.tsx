@@ -20,6 +20,7 @@ import { Button } from "@vellumai/design-library/components/button";
 
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
+import { autoSendPromptState } from "@/utils/auto-send-prompt";
 import { routes } from "@/utils/routes";
 import { ResearchResultsView } from "@/domains/chat/onboarding-research/research-results-view";
 import type {
@@ -99,9 +100,9 @@ export function ResearchMockPage() {
   const handleSuggestionClick = (suggestion: string) => {
     const draftId = createDraftConversationId();
     useConversationStore.getState().setActiveConversationId(draftId);
-    void navigate(
-      `${routes.conversation(draftId)}?prompt=${encodeURIComponent(suggestion)}`,
-    );
+    void navigate(routes.conversationWithPrompt(draftId, suggestion), {
+      state: autoSendPromptState(),
+    });
   };
 
   // Throwaway dev harness — keep it out of production builds without a flag.
