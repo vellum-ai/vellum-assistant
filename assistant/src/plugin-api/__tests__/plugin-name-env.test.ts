@@ -5,9 +5,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { runInPluginContext } from "../../plugins/plugin-execution-context.js";
 import {
-  PLUGIN_NAME_ENV,
   derivePluginNameFromProcess,
   derivePluginNameFromSkillScriptPath,
+  PLUGIN_NAME_ENV,
   readPluginNameFromEnv,
   resolveCallingPluginName,
 } from "../plugin-name-env.js";

@@ -30,8 +30,8 @@ import { credentialKey } from "@vellumai/credential-storage";
 
 import { getSecureKeyResultAsync } from "../security/secure-keys.js";
 import {
-  listCredentialRecordsLive,
   type CredentialMetadata,
+  listCredentialRecordsLive,
 } from "../tools/credentials/metadata-store.js";
 import { parseServiceFieldRef } from "../tools/credentials/ref-parse.js";
 import { resolveCredentialRef } from "../tools/credentials/resolve.js";
