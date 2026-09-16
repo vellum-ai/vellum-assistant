@@ -364,6 +364,20 @@ describe("AssistantDesktopAffordance", () => {
     expect(frame.offsetWidth).toBe(1000);
   });
 
+  test("keyboard enlargement accumulates while the viewport constrains the frame", async () => {
+    await openDesktop();
+    act(() => useDesktopPreviewStore.getState().resize(600, { x: 0, y: 0 }));
+    const frame = mockPreviewGeometry(400, 400);
+    const handle = screen.getByRole("button", {
+      name: "Resize desktop preview (arrow keys)",
+    });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(frame.offsetWidth).toBe(400);
+    mockPreviewGeometry();
+    expect(frame.offsetWidth).toBe(632);
+  });
+
   test("a narrow viewport does not lower the preferred minimum size", async () => {
     await openDesktop();
     const frame = mockPreviewGeometry(240, 400);

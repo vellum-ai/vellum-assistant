@@ -194,7 +194,8 @@ export function useDesktopPreviewDrag() {
       return;
     }
     event.preventDefault();
-    resize(frame.offsetWidth + direction * (event.shiftKey ? 40 : 16), {
+    const currentWidth = useDesktopPreviewStore.getState().width;
+    resize(currentWidth + direction * (event.shiftKey ? 40 : 16), {
       width: frame.offsetWidth,
       height: frame.offsetHeight,
       left: frame.offsetLeft,
