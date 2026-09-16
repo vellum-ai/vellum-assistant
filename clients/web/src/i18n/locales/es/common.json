@@ -242,6 +242,10 @@
   "conversationTitle": {
     "untitled": "Sin título"
   },
+  "copyButton": {
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar al portapapeles."
+  },
   "createAssistantDialog": {
     "cancel": "Cancelar",
     "create": "Crear",
@@ -278,7 +282,6 @@
     "tooltip": "Detener"
   },
   "detailPrimitives": {
-    "copied": "Copiado",
     "copy": "Copiar",
     "showLess": "Mostrar menos",
     "showMore": "Mostrar más"

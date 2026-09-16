@@ -18,9 +18,10 @@
  * route captured calls back to the originating conversation's probe arrays.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { DiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
+import { desktopAutomationLease } from "../../desktop/desktop-automation-lease.js";
 
 // ── Per-conversation capture registry ────────────────────────────────
 //
@@ -1559,6 +1560,47 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.pushedMessages[1]).toEqual(toolResultUserMsg);
     expect(conversation.pushedMessages[2]).toEqual(followupAssistant);
   });
+
+  for (const fails of [false, true]) {
+    test(`releases desktop control before a ${fails ? "failed" : "completed"} wake drains the queue`, async () => {
+      const conversation = makeWakeConversation({
+        scriptedAssistant: {
+          role: "assistant",
+          content: [{ type: "text", text: "reply" }],
+        },
+        ...(fails
+          ? {
+              runImpl: async () => {
+                throw new Error("wake failed");
+              },
+            }
+          : {}),
+      });
+      const release = spyOn(desktopAutomationLease, "releaseForConversation");
+      const setProcessing = conversation.setProcessing.bind(conversation);
+      conversation.setProcessing = (processing) => {
+        if (!processing) {
+          expect(release).toHaveBeenCalledWith(conversation.conversationId);
+        }
+        setProcessing(processing);
+      };
+      try {
+        const result = await wakeAgentForOpportunity(
+          {
+            conversationId: conversation.conversationId,
+            hint: "x",
+            source: "unit-test",
+          },
+          { resolveTarget: async () => conversation },
+        );
+        expect(result.invoked).toBe(!fails);
+        expect(release).toHaveBeenCalledTimes(1);
+        expect(conversation.drainQueueCalls).toBe(1);
+      } finally {
+        release.mockRestore();
+      }
+    });
+  }
 
   test("marks processing true during the run and false afterwards", async () => {
     const conversation = makeWakeConversation({

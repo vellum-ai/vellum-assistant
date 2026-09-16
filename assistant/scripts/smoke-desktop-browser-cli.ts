@@ -42,6 +42,7 @@ const manager = new DesktopSessionManager({
   renderWallpaper: async () => null,
 });
 const control = new DesktopAutomationLease({
+  notify: async () => {},
   enabled: () => true,
   ready: () =>
     !coldInstall || desktopDependencyInstaller.getStatus().state === "ready",

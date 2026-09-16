@@ -3,11 +3,10 @@ import {
   CopyBlockSurfaceDataSchema,
 } from "@vellumai/assistant-api";
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
 import { useTranslation } from "@/i18n";
 
 import type { Surface } from "@/domains/chat/types/types";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 interface CopyBlockSurfaceProps {
   surface: Surface;
@@ -27,7 +26,9 @@ export function CopyBlockSurface({ surface }: CopyBlockSurfaceProps) {
   const data: CopyBlockSurfaceData = parsed.success
     ? parsed.data
     : { text: "" };
-  const [copied, setCopied] = useState(false);
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: "Couldn't copy.",
+  });
   const text = data.text;
   const label = data.label ?? data.language;
 
@@ -35,13 +36,7 @@ export function CopyBlockSurface({ surface }: CopyBlockSurfaceProps) {
     if (!text) {
       return;
     }
-    copyToClipboard(text, {
-      errorMessage: "Couldn't copy.",
-      onCopied: () => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1600);
-      },
-    });
+    copy(text);
   };
 
   return (

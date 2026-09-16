@@ -244,6 +244,10 @@
   "conversationTitle": {
     "untitled": "Untitled"
   },
+  "copyButton": {
+    "copied": "Copied",
+    "copyFailed": "Could not copy to the clipboard."
+  },
   "createAssistantDialog": {
     "cancel": "Cancel",
     "create": "Create",
@@ -280,7 +284,6 @@
     "tooltip": "Stop"
   },
   "detailPrimitives": {
-    "copied": "Copied",
     "copy": "Copy",
     "showLess": "Show less",
     "showMore": "Show more"

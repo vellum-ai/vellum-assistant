@@ -1,7 +1,7 @@
 import { AlertCircle, Download, RefreshCw } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
+import { CopyButton } from "@/components/copy-button";
 import { useLlmLogPayload } from "@/domains/chat/inspector/inspector-payload-api";
 import { t, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -66,9 +66,7 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
               border: "1px solid var(--border-base)",
             }}
           >
-            {p === "request"
-              ? t("rawTab.request")
-              : t("rawTab.response")}
+            {p === "request" ? t("rawTab.request") : t("rawTab.response")}
           </button>
         ))}
       </div>

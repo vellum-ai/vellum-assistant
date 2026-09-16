@@ -8,6 +8,7 @@ import {
   formatFriendlyDate,
   formatFullLocalDate,
   formatLocalTimeWithSeconds,
+  formatMonthDay,
   formatRelativeDate,
 } from "@/utils/format-date";
 
@@ -32,6 +33,12 @@ const FULL_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
   minute: "2-digit",
   timeZoneName: "short",
 };
+
+/**
+ * Local noon, so the printed calendar day holds whatever the host offset is: a
+ * fixed UTC noon is already the next day from UTC+12 eastward.
+ */
+const SEP_20 = new Date(2026, 8, 20, 12).toISOString();
 
 /** Runs `assert` with the host reporting `tag`, then puts the host back. */
 function underHostLanguage(tag: string, assert: () => void): void {
@@ -160,6 +167,13 @@ describe("the default locale", () => {
     });
   });
 
+  test("formatMonthDay names the month the host's region does", () => {
+    underHostLanguage("en-GB", () => {
+      expect(formatMonthDay(SEP_20)).toBe(formatMonthDay(SEP_20, "en-GB"));
+      expect(formatMonthDay(SEP_20)).not.toBe(formatMonthDay(SEP_20, "en"));
+    });
+  });
+
   test("formatRelativeDate falls back to a date in the host's region", () => {
     underHostLanguage("en-GB", () => {
       const date = new Date(2001, 0, 15, 9, 14);
@@ -272,5 +286,15 @@ describe("seconds-resolution timestamps", () => {
         }),
       );
     });
+  });
+});
+
+describe("formatMonthDay", () => {
+  test("prints a short month and day in en-US", () => {
+    expect(formatMonthDay(SEP_20, "en-US")).toBe("Sep 20");
+  });
+
+  test("an unparseable instant leaves the caller nothing to print", () => {
+    expect(formatMonthDay("not-a-date", "en-US")).toBeNull();
   });
 });

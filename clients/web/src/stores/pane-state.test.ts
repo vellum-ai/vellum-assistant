@@ -3,11 +3,15 @@
  * properties that make one derivation worth having: a pane never holds
  * nothing while the arrangement claims two, and the arrangement never
  * disagrees with the pair.
+ *
+ * `showsFullWidthApp` is held to the branch it gates: whether the desktop app
+ * viewer takes the chat's place, which decides both what renders and whether
+ * the composer is on screen.
  */
 
 import { describe, expect, it } from "bun:test";
 
-import { paneState } from "@/stores/pane-state";
+import { paneState, showsFullWidthApp } from "@/stores/pane-state";
 import type { MainView } from "@/stores/viewer-store";
 
 const MAIN_VIEWS: readonly MainView[] = [
@@ -132,5 +136,56 @@ describe("paneState", () => {
       primary: null,
       secondary: null,
     });
+  });
+});
+
+describe("showsFullWidthApp", () => {
+  const desktopAppView = {
+    mainView: "app",
+    isMobile: false,
+    activeAppId: "app-1",
+    openedAppId: "app-1",
+  } as const;
+
+  it("covers the chat with the app it has loaded", () => {
+    expect(showsFullWidthApp(desktopAppView)).toBe(true);
+  });
+
+  it("covers the chat while the app is still loading", () => {
+    // The layout draws its spinner here, not the composer.
+    expect(showsFullWidthApp({ ...desktopAppView, openedAppId: null })).toBe(
+      true,
+    );
+  });
+
+  it("leaves the chat up for a released app the view still names", () => {
+    expect(
+      showsFullWidthApp({
+        ...desktopAppView,
+        activeAppId: null,
+        openedAppId: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("leaves the chat up on mobile, where the app overlays it", () => {
+    expect(showsFullWidthApp({ ...desktopAppView, isMobile: true })).toBe(
+      false,
+    );
+  });
+
+  it("leaves the chat up in the side-by-side split", () => {
+    expect(
+      showsFullWidthApp({ ...desktopAppView, mainView: "app-editing" }),
+    ).toBe(false);
+  });
+
+  it("leaves the chat up for the chat and for an overlay over the app", () => {
+    expect(showsFullWidthApp({ ...desktopAppView, mainView: "chat" })).toBe(
+      false,
+    );
+    expect(showsFullWidthApp({ ...desktopAppView, mainView: "document" })).toBe(
+      false,
+    );
   });
 });

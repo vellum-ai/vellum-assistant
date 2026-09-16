@@ -16,7 +16,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("FaviconChip — favicon rendering", () => {
+describe("FaviconChip: favicon rendering", () => {
   test("renders an <img> with the supplied faviconUrl when provided", () => {
     const { container } = render(
       <FaviconChip
@@ -108,7 +108,7 @@ describe("FaviconChip — favicon rendering", () => {
   });
 });
 
-describe("FaviconChip — monogram derivation", () => {
+describe("FaviconChip: monogram derivation", () => {
   test("uses the first letter of `domain` when provided (uppercased)", () => {
     const { getByText } = render(
       <FaviconChip title="Some Article" domain="acme.io" />,
@@ -122,7 +122,7 @@ describe("FaviconChip — monogram derivation", () => {
   });
 });
 
-describe("FaviconChip — title rendering", () => {
+describe("FaviconChip: title rendering", () => {
   test("renders the title text", () => {
     const { getByText } = render(
       <FaviconChip
@@ -148,7 +148,7 @@ describe("FaviconChip — title rendering", () => {
   });
 });
 
-describe("FaviconChip — layout tokens", () => {
+describe("FaviconChip: layout tokens", () => {
   test("outer pill uses --surface-base + --radius-pill", () => {
     const { container } = render(
       <FaviconChip title="Example" domain="example.com" />,

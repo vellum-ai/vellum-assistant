@@ -36,7 +36,7 @@ const RENDERERS: Record<string, ToolActivityRenderer> = {
   // `skill_load`'s result *is* the skill body, so it owns the Output section
   // rather than letting the generic one dump the same text again as a `<pre>`.
   skill_load: { Component: SkillLoadDetail, ownsOutput: true },
-  // `skill_execute` only reshapes the input envelope — the inner tool's output
+  // `skill_execute` only reshapes the input envelope; the inner tool's output
   // is ordinary text and keeps the shared Output section.
   skill_execute: { Component: SkillExecuteDetail, ownsOutput: false },
   // The fetched page is the result, presented as a page rather than as text.

@@ -149,6 +149,46 @@ describe("approval interception trust-class gates", () => {
     expect(sessionMock).toHaveBeenCalled();
   });
 
+  test("guardian apr: callback naming no approval action is consumed as a stale button, never routed as text", async () => {
+    _anchorPrincipalId = "guardian-principal-1";
+    const sessionMock = registerPendingInteraction(
+      "req-guardian-retired-1",
+      CONVERSATION_ID,
+      TOOL_NAME,
+      TOOL_INPUT,
+    );
+
+    // The channel normalizers copy callback data into the message content, so
+    // a button press arrives with both set to the same string.
+    const callbackData = "apr:req-guardian-retired-1:approve_always";
+    const result = await handleApprovalInterception({
+      conversationId: CONVERSATION_ID,
+      callbackData,
+      content: callbackData,
+      conversationExternalId: REQUESTER_CHAT,
+      sourceChannel: "telegram",
+      actorExternalId: "guardian-user-1",
+      replyCallbackUrl: "https://gateway.test/deliver",
+      trustCtx: {
+        sourceChannel: "telegram",
+        trustClass: "guardian",
+        requesterExternalUserId: "guardian-user-1",
+        guardianExternalUserId: "guardian-user-1",
+        guardianPrincipalId: "guardian-principal-1",
+      },
+      assistantId: ASSISTANT_ID,
+    });
+
+    expect(result.handled).toBe(true);
+    expect(result.type).toBe("stale_ignored");
+    // No decision, and no reply: the text parsers never saw the callback.
+    expect(sessionMock).not.toHaveBeenCalled();
+    expect(deliverSpy).not.toHaveBeenCalled();
+    expect(pendingInteractions.getByConversation(CONVERSATION_ID)).toHaveLength(
+      1,
+    );
+  });
+
   test("guardian apr: callback with a principal NOT matching the anchor is rejected before any decision", async () => {
     _anchorPrincipalId = "the-real-guardian-principal";
     const sessionMock = registerPendingInteraction(

@@ -299,6 +299,30 @@ export async function handleApprovalInterception(
 
       return { handled: true, type: "stale_ignored" };
     }
+
+    // An approval callback that names no approval action is a button press
+    // the daemon does not serve (an id outside the decision vocabulary, or an
+    // answer token aimed at a card this rail does not resolve). It is never
+    // text: the channel normalizers copy callback data into `content`, so
+    // letting it fall through would hand the raw callback to the
+    // conversational and natural-language parsers, which can read a token
+    // like `approve_always` as an approval. Consume it as a stale button.
+    if (callbackData.startsWith("apr:")) {
+      log.warn(
+        { conversationId, callbackData },
+        "Approval callback carries no approval action, ignoring stale button press",
+      );
+      if (approvalMessageId) {
+        editStaleApprovalMessage({
+          replyCallbackUrl,
+          chatId: conversationExternalId,
+          messageId: approvalMessageId,
+          assistantId,
+          conversationId,
+        });
+      }
+      return { handled: true, type: "stale_ignored" };
+    }
   }
 
   // ── Conversational approval engine for plain-text messages ──
