@@ -1002,22 +1002,17 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   }
 
   const botChannel = channelForBotProvider(b.provider);
-  const apiHost = parseUrl(providerRow.baseUrl)?.hostname;
-  const requestHost = baseUrl ? parseUrl(baseUrl)?.hostname : apiHost;
-  if (
-    response.status === 403 &&
-    apiHost !== undefined &&
-    requestHost !== undefined &&
-    requestHost !== apiHost
-  ) {
-    // A 403 from a host the provider serves beside its API (a file host) is
-    // about the resource, not the credential: the same token is what the API
-    // host accepts, and the resource is simply not visible to this identity.
-    // Blaming the credential sends the caller off to reconnect one that works.
+  if (response.status === 403 && isHtmlResponse(response.headers)) {
+    // An API refuses with JSON. A 403 carrying an HTML page is a resource
+    // host (a file host, a sign-in page) refusing this identity: the same
+    // token is what the API accepts, and the resource is simply not visible
+    // to it. Blaming the credential sends the caller off to reconnect one
+    // that works.
     const identity = botChannel ? `${botChannel} bot` : "connected account";
+    const requestHost = parseUrl(baseUrl ?? providerRow.baseUrl)?.hostname;
     result.hint =
-      `Request returned HTTP 403 from ${requestHost}, not from the API host. ` +
-      `That usually means the ${identity} cannot see this resource: it is not shared with it, or the scope it needs is missing (a Slack file needs files:read). ` +
+      `Request returned HTTP 403 with an HTML page${requestHost ? ` from ${requestHost}` : ""}, not an API error. ` +
+      `That usually means the ${identity} cannot see this resource: it is not shared with it, or the scope it needs is missing. ` +
       `Check the resource's access before treating the credential as revoked; ` +
       (botChannel
         ? `'assistant channels get ${botChannel}' reports the credential itself.`
