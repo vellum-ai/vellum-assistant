@@ -28,11 +28,9 @@ import { PlanTile } from "@/domains/settings/billing/plan-tile";
 import {
   frameWidthDecorator,
   PLAN_TILE_WIDTH_PX,
-} from "@/domains/settings/billing/story-frame-width";
-import {
-  UsageBalancePanel,
-  type UsagePeriodEnd,
-} from "@/domains/settings/billing/usage-balance-panel";
+  STORY_PERIOD_END,
+} from "@/domains/settings/billing/billing-story-frame";
+import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
 import {
   makeProPackage,
   makeSuperPackage,
@@ -54,12 +52,6 @@ const SUPER = makeSuperPackage();
 
 /** Two tiles plus the row's `gap-4`. */
 const ROW_WIDTH_PX = PLAN_TILE_WIDTH_PX * 2 + 16;
-
-/** A subscriber's billing cycle end, which its bundle turns over on. */
-const PERIOD_END: UsagePeriodEnd = {
-  at: "2026-09-20T12:00:00Z",
-  kind: "resets",
-};
 
 /** The upgrade CTA quotes the price difference, as `plan-card.tsx` composes it. */
 const UPGRADE_LABEL = `Power Up for +${formatDollars(
@@ -110,6 +102,33 @@ function upgradeCta(pending = false) {
     >
       {UPGRADE_LABEL}
     </Button>
+  );
+}
+
+/** The row `plan-card.tsx` renders, which two stories mount at two widths. */
+function PlanRow() {
+  const inverted = useDocumentTheme() === "light" ? "dark" : "light";
+  return (
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+      <PlanTile
+        testId="plan-tile-current"
+        tierKey={MIGHTY.key}
+        name={MIGHTY.name}
+        nameTestId="plan-card-name"
+        tag={CURRENT_TAG}
+        specs={packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`)}
+        footer={<UsageBalancePanel ratio={0.42} periodEnd={STORY_PERIOD_END} />}
+      />
+      <PlanTile
+        theme={inverted}
+        testId="plan-tile-next"
+        tierKey={SUPER.key}
+        name={SUPER.name}
+        tag={NEXT_PLAN_TAG}
+        specs={packageSpecs(SUPER, `${SUPER.name} usage, reset monthly`)}
+        footer={upgradeCta()}
+      />
+    </div>
   );
 }
 
@@ -188,7 +207,7 @@ export const CurrentPaid: Story = {
 export const CurrentPaidUsageBalance: Story = {
   args: {
     ...CurrentPaid.args,
-    footer: <UsageBalancePanel ratio={0.42} periodEnd={PERIOD_END} />,
+    footer: <UsageBalancePanel ratio={0.42} periodEnd={STORY_PERIOD_END} />,
   },
 };
 
@@ -214,7 +233,7 @@ export const CurrentPaidExhausted: Story = {
     footer: (
       <UsageBalancePanel
         ratio={1}
-        periodEnd={PERIOD_END}
+        periodEnd={STORY_PERIOD_END}
         exhausted
         onAddCredits={() => {}}
       />
@@ -288,29 +307,19 @@ export const SideBySide: Story = {
     controls: { disable: true },
     frameWidth: ROW_WIDTH_PX,
   },
-  render: function SideBySideRender() {
-    const inverted = useDocumentTheme() === "light" ? "dark" : "light";
-    return (
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
-        <PlanTile
-          testId="plan-tile-current"
-          tierKey={MIGHTY.key}
-          name={MIGHTY.name}
-          nameTestId="plan-card-name"
-          tag={CURRENT_TAG}
-          specs={packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`)}
-          footer={<UsageBalancePanel ratio={0.42} periodEnd={PERIOD_END} />}
-        />
-        <PlanTile
-          theme={inverted}
-          testId="plan-tile-next"
-          tierKey={SUPER.key}
-          name={SUPER.name}
-          tag={NEXT_PLAN_TAG}
-          specs={packageSpecs(SUPER, `${SUPER.name} usage, reset monthly`)}
-          footer={upgradeCta()}
-        />
-      </div>
-    );
+  render: PlanRow,
+};
+
+/**
+ * The same row on a wide monitor, where each tile is around 940px and all
+ * three chips sit inline. The 856px `SideBySide` above still wraps the usage
+ * chip onto its own line, which is what the settings page gives two tiles at
+ * desktop width.
+ */
+export const SideBySideWide: Story = {
+  parameters: {
+    controls: { disable: true },
+    frameWidth: 1900,
   },
+  render: PlanRow,
 };

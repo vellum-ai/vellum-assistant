@@ -1293,6 +1293,8 @@
     "powerUp": "升级",
     "powerUpFor": "升级至 +{amount}/月",
     "usageBalanceAddCredits": "添加",
+    "usageBalanceBarRenews": "当前使用量，{date} 续订",
+    "usageBalanceBarResets": "当前使用量，{date} 重置",
     "usageBalanceExhausted": "添加点数以继续使用您的助手",
     "usageBalancePctUsed": "已使用 {pct}%",
     "usageBalanceRenews": "{date} 续订",

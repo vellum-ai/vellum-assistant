@@ -8,9 +8,7 @@
  *
  * The date line under the title is a third independent reading: it appears
  * only when the caller hands over a `periodEnd`, and names that date a reset
- * or a renewal depending on whether the sub holds a credit bundle. Its
- * fixtures are built from local noon so the printed day holds in every host
- * timezone.
+ * or a renewal depending on whether the sub holds a credit bundle.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -33,6 +31,7 @@ describe("UsageBalancePanel", () => {
 
     const panel = getByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("40% used");
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
     expect(
       queryByText("Add credits to continue using your assistant"),
     ).toBeNull();
@@ -54,14 +53,15 @@ describe("UsageBalancePanel", () => {
     expect(getByTestId("plan-usage-period-end").textContent).toBe(
       "Resets on Sep 20",
     );
-    // The bar's accessible name carries the same context the title block does.
+    // The bar's accessible name is its own complete message, not the title and
+    // the date line stitched together.
     expect(getByRole("progressbar").getAttribute("aria-label")).toBe(
-      "Current Usage, Resets on Sep 20",
+      "Current Usage, resets on Sep 20",
     );
   });
 
   test("names the date a renewal for a subscription with no bundle", () => {
-    const { getByTestId } = render(
+    const { getByRole, getByTestId } = render(
       <UsageBalancePanel
         ratio={0.4}
         periodEnd={{ at: SEP_20, kind: "renews" }}
@@ -71,12 +71,9 @@ describe("UsageBalancePanel", () => {
     expect(getByTestId("plan-usage-period-end").textContent).toBe(
       "Renews on Sep 20",
     );
-  });
-
-  test("prints no date line without a period end", () => {
-    const { queryByTestId } = render(<UsageBalancePanel ratio={0.4} />);
-
-    expect(queryByTestId("plan-usage-period-end")).toBeNull();
+    expect(getByRole("progressbar").getAttribute("aria-label")).toBe(
+      "Current Usage, renews on Sep 20",
+    );
   });
 
   test("prints no date line for an instant that will not parse", () => {

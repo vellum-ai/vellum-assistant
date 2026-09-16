@@ -496,11 +496,9 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // for chat banners, where a BYOK route never spends the managed wallet.
   const walletEmpty = balance != null && Number(balance) <= 0;
   const creditsExhausted = usage != null && usage.ratio >= 1 && walletEmpty;
-  // The free plan's grant is one-time and a cancelling sub ends rather than
-  // renews, which the header's cancellation line already says. A sub's credit
-  // bundle turns over at the period end, while a sub holding no bundle only
-  // renews.
-  const usagePeriodEnd: UsagePeriodEnd | null =
+  // No date for the free plan, whose grant is one-time, nor for a sub that is
+  // ending rather than renewing, which the header's cancellation line says.
+  const usagePeriodEnd: UsagePeriodEnd | undefined =
     !isFreePlan &&
     !isCancelling &&
     !isCanceled &&
@@ -509,7 +507,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
           at: subscription.current_period_end,
           kind: subscription.selected_credit_tier != null ? "resets" : "renews",
         }
-      : null;
+      : undefined;
   const usagePanel = usage ? (
     <UsageBalancePanel
       ratio={usage.ratio}

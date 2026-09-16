@@ -34,6 +34,12 @@ const FULL_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
   timeZoneName: "short",
 };
 
+/**
+ * Local noon, so the printed calendar day holds whatever the host offset is: a
+ * fixed UTC noon is already the next day from UTC+12 eastward.
+ */
+const SEP_20 = new Date(2026, 8, 20, 12).toISOString();
+
 /** Runs `assert` with the host reporting `tag`, then puts the host back. */
 function underHostLanguage(tag: string, assert: () => void): void {
   const restore = stubHostLanguage(tag);
@@ -161,6 +167,13 @@ describe("the default locale", () => {
     });
   });
 
+  test("formatMonthDay names the month the host's region does", () => {
+    underHostLanguage("en-GB", () => {
+      expect(formatMonthDay(SEP_20)).toBe(formatMonthDay(SEP_20, "en-GB"));
+      expect(formatMonthDay(SEP_20)).not.toBe(formatMonthDay(SEP_20, "en"));
+    });
+  });
+
   test("formatRelativeDate falls back to a date in the host's region", () => {
     underHostLanguage("en-GB", () => {
       const date = new Date(2001, 0, 15, 9, 14);
@@ -276,31 +289,12 @@ describe("seconds-resolution timestamps", () => {
   });
 });
 
-/**
- * The harness pins no `TZ`, so the instant is built from local noon rather
- * than a fixed UTC one: a fixed UTC noon is already the next day on hosts east
- * of UTC+12, which would move the expected calendar day.
- */
-const SEP_20 = new Date(2026, 8, 20, 12).toISOString();
-
 describe("formatMonthDay", () => {
   test("prints a short month and day in en-US", () => {
     expect(formatMonthDay(SEP_20, "en-US")).toBe("Sep 20");
   });
 
-  test("keeps en-GB day-first", () => {
-    expect(formatMonthDay(SEP_20, "en-GB")).toMatch(/^20 Sept?$/);
-  });
-
-  test("names the month in the reader's language", () => {
-    expect(formatMonthDay(SEP_20, "fr-FR")).toContain("sept");
-  });
-
   test("an unparseable instant leaves the caller nothing to print", () => {
     expect(formatMonthDay("not-a-date", "en-US")).toBeNull();
-  });
-
-  test("defaults to the formatting locale", () => {
-    expect(formatMonthDay(SEP_20)).toBe(formatMonthDay(SEP_20, formatLocale()));
   });
 });

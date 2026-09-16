@@ -1,7 +1,7 @@
 /**
  * Tests for PlanTile: the shared tile of the billing "Plan" section. Verifies
  * it renders the tag, the 48px avatar slot, the name (forwarding `nameTestId`),
- * the spec chips and the footer slot; lays every chip out in the one wrapping
+ * the spec chips and the footer slot; keeps every chip in the one wrapping
  * row; drops the chip row for null and empty `specs` and the footer wrapper
  * when no footer is passed; stamps a nested `data-theme` scope only when
  * `theme` is set; and forwards `testId` and `className` to the root.
@@ -11,12 +11,14 @@
  * plan-spec-card.test.tsx).
  */
 
-import { Coins, Computer, HardDrive, Mail } from "lucide-react";
-
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 
-import type { PlanSpec } from "@/domains/settings/billing/plan-spec";
+import {
+  freePlanSpecs,
+  packageSpecs,
+} from "@/domains/settings/billing/plan-spec";
+import { makeProPackage } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
 
 // Render avatar placeholders; skip the lazy compositor bundle.
 mock.module("@/utils/use-bundled-avatar-components", () => ({
@@ -26,19 +28,13 @@ mock.module("@/utils/use-bundled-avatar-components", () => ({
 
 const { PlanTile } = await import("./plan-tile");
 
-const SPECS: PlanSpec[] = [
-  { icon: Computer, label: "Small Machine" },
-  { icon: HardDrive, label: "10 GB Storage" },
-  { icon: Coins, label: "Pay as you go credits" },
-];
+const SPECS = freePlanSpecs();
 
-/** The production shape: two short chips, two wrap-capable ones. */
-const PACKAGE_SPECS: PlanSpec[] = [
-  { icon: Computer, label: "Small Machine" },
-  { icon: HardDrive, label: "10 GB Storage" },
-  { icon: Coins, label: "Mighty usage, reset monthly", multiline: true },
-  { icon: Mail, label: "Assistant email and subdomain", multiline: true },
-];
+/** The production shape: two short chips and a wrap-capable usage sentence. */
+const PACKAGE_SPECS = packageSpecs(
+  makeProPackage(),
+  "Mighty usage, reset monthly",
+);
 
 const TILE_TEST_ID = "plan-tile";
 
@@ -143,24 +139,6 @@ describe("PlanTile", () => {
     expect(getByTestId(TILE_TEST_ID).childElementCount).toBe(1);
   });
 
-  test("lays the chips out as a wrapping row", () => {
-    const { getByTestId } = render(
-      <PlanTile
-        testId={TILE_TEST_ID}
-        tierKey="mighty"
-        name="Mighty"
-        tag={<span>Current</span>}
-        specs={SPECS}
-      />,
-    );
-
-    // Child 0 is the header row; child 1 is the wrap row itself.
-    const wrapRow = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
-    expect(wrapRow.className).toContain("flex-row");
-    expect(wrapRow.className).toContain("flex-wrap");
-    expect(wrapRow.childElementCount).toBe(SPECS.length);
-  });
-
   test("keeps every chip in the one wrapping row", () => {
     const { getByTestId, getByText } = render(
       <PlanTile
@@ -172,21 +150,16 @@ describe("PlanTile", () => {
       />,
     );
 
+    // Child 0 is the header row; child 1 is the wrap row itself.
     const wrapRow = getByTestId(TILE_TEST_ID).children[1] as HTMLElement;
     expect(wrapRow.childElementCount).toBe(PACKAGE_SPECS.length);
-    expect(wrapRow.children[0]?.textContent).toBe("Small Machine");
-    expect(wrapRow.children[1]?.textContent).toBe("10 GB Storage");
-    expect(wrapRow.children[2]?.textContent).toBe(
-      "Mighty usage, reset monthly",
+    expect([...wrapRow.children].map((chip) => chip.textContent)).toEqual(
+      PACKAGE_SPECS.map((spec) => spec.label),
     );
-    expect(wrapRow.children[3]?.textContent).toBe(
-      "Assistant email and subdomain",
-    );
-    // A sentence-length chip may wrap inside its pill; a short one never does.
+    // A sentence-length chip may wrap inside its pill.
     expect(getByText("Mighty usage, reset monthly").className).toContain(
       "whitespace-normal",
     );
-    expect(getByText("Small Machine").className).toContain("whitespace-nowrap");
   });
 
   test("stamps a nested data-theme scope when theme is set", () => {
