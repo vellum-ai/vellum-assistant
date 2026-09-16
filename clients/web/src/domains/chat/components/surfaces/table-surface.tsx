@@ -6,7 +6,7 @@ import {
   TableSurfaceDataSchema,
 } from "@vellumai/assistant-api";
 import { Check, Copy } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useTranslation } from "@/i18n";
 
@@ -15,7 +15,7 @@ import { sfSymbolToLucideIcon } from "@/domains/chat/components/surfaces/sf-symb
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
 import { useSelectionState } from "@/domains/chat/components/surfaces/use-selection-state";
 import type { Surface } from "@/domains/chat/types/types";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { cn } from "@/utils/misc";
 
 // ---------------------------------------------------------------------------
@@ -99,30 +99,14 @@ export function TableSurface({ surface, onAction }: TableSurfaceProps) {
     onAction,
   );
 
-  const [copied, setCopied] = useState(false);
-  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: "Couldn't copy the table.",
+  });
 
-  const handleCopy = useCallback(() => {
-    const md = tableToMarkdown(data.columns, data.rows);
-    copyToClipboard(md, {
-      errorMessage: "Couldn't copy the table.",
-      onCopied: () => {
-        setCopied(true);
-        if (copyTimeoutRef.current) {
-          clearTimeout(copyTimeoutRef.current);
-        }
-        copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
-      },
-    });
-  }, [data.columns, data.rows]);
-
-  useEffect(() => {
-    return () => {
-      if (copyTimeoutRef.current) {
-        clearTimeout(copyTimeoutRef.current);
-      }
-    };
-  }, []);
+  const handleCopy = useCallback(
+    () => copy(tableToMarkdown(data.columns, data.rows)),
+    [copy, data.columns, data.rows],
+  );
 
   const isSelectable = selectionMode !== "none";
 
