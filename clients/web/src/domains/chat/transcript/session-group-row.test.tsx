@@ -136,7 +136,7 @@ describe("SessionGroupRow", () => {
   });
 
   test("mounts only the latest children after closed header updates", () => {
-    const onRender = mock(() => {});
+    const onRender = mock((_label: string) => {});
     function ExpensiveChild({ label }: { label: string }) {
       onRender(label);
       return <div>{label}</div>;
