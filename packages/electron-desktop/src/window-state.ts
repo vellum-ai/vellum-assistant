@@ -217,6 +217,18 @@ export const writeCompanionIntroSeen = (): void => {
 };
 
 /**
+ * Forget that the introduction has been seen, so the next surface to open runs
+ * it again.
+ *
+ * For the developer tray's "Replay Companion Intro" only. Nothing a user can
+ * reach un-sees the run: see the one-way note on
+ * {@link writeCompanionIntroSeen}.
+ */
+export const clearCompanionIntroSeen = (): void => {
+  store().delete("companionIntroSeen");
+};
+
+/**
  * Which edge of the display the call bar rests on.
  *
  * Validated the way the sizes are: the value picks a placement and a canvas

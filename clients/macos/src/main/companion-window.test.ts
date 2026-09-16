@@ -568,6 +568,7 @@ mock.module("@vellumai/electron-desktop/window-state", () => ({
   // load-time failure for the file rather than a failing case.
   readCompanionIntroSeen: () => true,
   writeCompanionIntroSeen: () => {},
+  clearCompanionIntroSeen: () => {},
 }));
 
 // Dynamic, so the mocks above are installed before the module graph loads:
@@ -592,6 +593,7 @@ const {
   resetCompanionSurfacePosition,
   setCompanionSurfaceSize,
   shouldShowCompanionSurface,
+  surfaceAwayFor,
   showCompanionCoachmarks,
   installCompanionWindow,
 } = await import("./companion-window");
@@ -2266,6 +2268,31 @@ describe("shouldShowCompanionSurface", () => {
   // distinct from the one above rather than collapsing into it.
   test("stays away with no assistant even when not hidden", () => {
     expect(shouldShowCompanionSurface(false, true)).toBe(false);
+  });
+});
+
+/**
+ * Whether the surface steps off the screen for the app being in front, and the
+ * one exception: the introduction, which is staged on the app's own window
+ * because that is where a new user is looking.
+ */
+describe("surfaceAwayFor", () => {
+  test("steps off the screen while the app is in front", () => {
+    expect(surfaceAwayFor(true, true, false)).toBe(true);
+  });
+
+  test("stays for an app in front whose window is put away", () => {
+    expect(surfaceAwayFor(true, false, false)).toBe(false);
+  });
+
+  test("stays once the user has left the app", () => {
+    expect(surfaceAwayFor(false, true, false)).toBe(false);
+  });
+
+  // The case the flag exists for: a run explaining the surface must not be
+  // played to an empty screen.
+  test("holds a staged introduction in front of the app's own window", () => {
+    expect(surfaceAwayFor(true, true, true)).toBe(false);
   });
 });
 

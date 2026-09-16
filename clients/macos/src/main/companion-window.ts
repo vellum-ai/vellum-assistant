@@ -63,6 +63,7 @@ import {
   readSetting,
 } from "@vellumai/electron-desktop/settings";
 import {
+  clearCompanionIntroSeen,
   readCompanionCallDock,
   readCompanionHidden,
   readCompanionIntroSeen,
@@ -411,6 +412,43 @@ let geometry: CompanionGeometry = geometryFor(
 let intro: CompanionIntroBeat | null = null;
 
 /**
+ * Whether the surface is parked over the app's own window for the
+ * introduction, rather than sitting where it lives.
+ *
+ * The surface steps off the screen while Vellum is frontmost with its window
+ * showing (see {@link syncFrontmost}), which is exactly the moment a new user
+ * is looking at the app: the introduction ran on a window nobody could see,
+ * and users reported not knowing the companion existed. So a due run holds the
+ * surface on screen and stands it in the middle of the app's window, where the
+ * user already is, and the run ends by taking it home.
+ *
+ * One flag for both halves of that, because they are one state: a surface
+ * allowed to stay in front is only allowed it while it is being introduced.
+ */
+let introStaged = false;
+
+/**
+ * How long the surface stays put after landing before the ordinary
+ * frontmost rule takes it off the screen again.
+ *
+ * The flight is the answer to "where did it go": landing and vanishing in the
+ * same moment would tell the user where it lives and then take it away before
+ * they had looked at it.
+ */
+const INTRO_LANDING_GRACE_MS = 1_500;
+
+/** The timer that unstages the surface after it has landed, if one is set. */
+let introLanding: ReturnType<typeof setTimeout> | null = null;
+
+const cancelIntroLanding = (): void => {
+  if (introLanding === null) {
+    return;
+  }
+  clearTimeout(introLanding);
+  introLanding = null;
+};
+
+/**
  * The introduction after a press, which is `null` once it is over.
  *
  * `dismiss` ends it wherever it is; `next` walks to the following beat and
@@ -446,6 +484,9 @@ const finishIntro = (): void => {
   }
   intro = null;
   writeCompanionIntroSeen();
+  if (introStaged) {
+    landIntroHome();
+  }
 };
 
 /**
@@ -995,6 +1036,58 @@ const defaultCanvasOrigin = (): { x: number; y: number } => {
   );
   cardGrowth = placed.cardGrowth;
   return placed.origin;
+};
+
+/**
+ * Where the canvas opens for a staged introduction: the middle of the app's
+ * own window, so the surface is the thing the user is already looking at.
+ *
+ * The centre of the window rather than of the display, because onboarding runs
+ * in a small window that is not itself centred, and a surface in the middle of
+ * the screen beside it would read as unrelated to it. Falls back to where the
+ * surface would ordinarily open when there is no window to stand in, which is
+ * a real state: the tray can ask for a replay with the window closed.
+ */
+const stagedCanvasOrigin = (): { x: number; y: number } => {
+  const win = currentMainWindow();
+  if (win === null || win.isDestroyed()) {
+    return defaultCanvasOrigin();
+  }
+  const bounds = win.getBounds();
+  const centre = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  };
+  const { workArea } = screen.getDisplayNearestPoint({
+    x: Math.round(centre.x),
+    y: Math.round(centre.y),
+  });
+  const placed = placeCanvas(centre, workArea, geometry);
+  cardGrowth = placed.cardGrowth;
+  return placed.origin;
+};
+
+/**
+ * Take the surface from where the introduction ran to where it lives, and let
+ * the ordinary frontmost rule have it back once it is there.
+ *
+ * The same glide a call's dock uses, so the move the user watches here is the
+ * move they will see every time the bar goes home.
+ */
+const landIntroHome = (): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  cancelIntroLanding();
+  if (win === null || win.isDestroyed()) {
+    introStaged = false;
+    return;
+  }
+  const { workArea } = displayUnder(avatarCentre(win));
+  glideAvatarTo(win, defaultAvatarCentre(workArea, geometry), workArea);
+  introLanding = setTimeout(() => {
+    introLanding = null;
+    introStaged = false;
+    syncFrontmost();
+  }, COMPANION_GLIDE_MS + INTRO_LANDING_GRACE_MS);
 };
 
 const pushState = (): void => {
@@ -2406,12 +2499,27 @@ const mainWindowShowing = (): boolean => {
  * forwarding that makes the canvas hit-testable, which is what `blur` would
  * not have (see the note at `openCompanionWindow`).
  */
+/**
+ * Whether the surface belongs off the screen: the app is in front with its own
+ * window showing, and no introduction is being staged on it.
+ *
+ * Exported for its tests, as {@link shouldShowCompanionSurface} is. The rule
+ * has two inputs that pull opposite ways, and the one case worth pinning is
+ * the overlap: a due run holds the surface in front of the very window that
+ * would otherwise hide it.
+ */
+export const surfaceAwayFor = (
+  appInFront: boolean,
+  mainShowing: boolean,
+  staged: boolean,
+): boolean => appInFront && mainShowing && !staged;
+
 const syncFrontmost = (): void => {
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     return;
   }
-  const away = appActive && mainWindowShowing();
+  const away = surfaceAwayFor(appActive, mainWindowShowing(), introStaged);
   if (away === surfaceAway) {
     return;
   }
@@ -3225,6 +3333,10 @@ export const openCompanionWindow = (): void => {
   // rather than the surface appearing plain and being annotated a frame later.
   if (!readCompanionIntroSeen()) {
     intro = COMPANION_INTRO_BEATS[0];
+    // Held in front and stood over the app's window for the run, rather than
+    // opening where it lives and being hidden a frame later by the frontmost
+    // rule (see `introStaged`).
+    introStaged = true;
   }
 
   const win = createFloatingWindow({
@@ -3234,7 +3346,7 @@ export const openCompanionWindow = (): void => {
     height: geometry.canvasHeight,
     // The canvas is a click-through sheet until the pointer reaches the pill.
     ignoreMouseEvents: { forward: true },
-    position: defaultCanvasOrigin,
+    position: introStaged ? stagedCanvasOrigin : defaultCanvasOrigin,
     browserWindow: {
       // The window draws no shadow of its own: `hasShadow` would outline the
       // invisible canvas rect rather than the pill inside it. Same reason the
@@ -3288,6 +3400,10 @@ export const openCompanionWindow = (): void => {
   // still in flight has nothing left to move.
   win.on("closed", () => {
     cancelGlide();
+    // A landing owed to a window that no longer exists is one nothing can
+    // land, and the staging it was going to lift must not outlive it.
+    cancelIntroLanding();
+    introStaged = false;
     callHome = null;
     // A drag on a window that no longer exists has nothing left to drop.
     docking = null;
@@ -3335,6 +3451,25 @@ export const setCompanionSurfaceVisible = (visible: boolean): void => {
   // has already decided what they think.
   finishIntro();
   closeCompanionWindow();
+};
+
+/**
+ * Run the introduction again from the first beat, as a new user gets it.
+ *
+ * For the developer tray item. It goes through the ordinary path rather than
+ * poking the beat straight in: forgetting the record and reopening the surface
+ * is what a first run actually is, staging and flight included, so what is
+ * being tested is the thing users will get. A surface the user has hidden is
+ * brought back first, since there is nothing to introduce otherwise.
+ */
+export const replayCompanionIntro = (): void => {
+  clearCompanionIntroSeen();
+  closeCompanionWindow();
+  if (readCompanionHidden()) {
+    setCompanionSurfaceVisible(true);
+    return;
+  }
+  syncCompanionSurface();
 };
 
 /**
