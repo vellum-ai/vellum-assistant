@@ -22,9 +22,11 @@ DO NOT use this skill for runtime Telegram operations (sending, replying, readin
 
 ## Supported chats
 
-Telegram is private-chat only. The assistant receives and replies in private chats. Group, supergroup, and channel messages and button taps are not supported yet and do not reach the assistant. There is no Telegram error for those chats; they are dropped on purpose.
+Telegram works in private chats and in groups and supergroups. In a private chat the assistant answers every message. In a group it answers only a message that addresses it: an @mention of the bot's username, a command such as `/summary@botname`, or a reply to one of its posts. Every other group message is dropped on purpose and never reaches the assistant; the gateway log records each drop with the reason `bot_not_mentioned`. Broadcast channels are not supported.
 
-Tell the user this limitation during setup, when they ask why a group message vanished, and in the Step 5 summary. Do not diagnose webhook or credential failures for a group, supergroup, or channel report.
+Telegram's privacy mode (on by default) already delivers only mentions, replies, and commands to a bot. The assistant applies the same rule itself, so promoting the bot to admin or turning privacy mode off does not make it answer unaddressed messages.
+
+Tell the user this during setup and in the Step 5 summary. When a group message got no reply, first check that it mentioned the bot or replied to it, before diagnosing webhook or credential failures. Forum topics work: a reply lands in the topic the message was in.
 
 ## What happens without you
 
@@ -74,7 +76,7 @@ Call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "teleg
 
 After it returns success, tell the user:
 
-> I've opened the Telegram setup wizard in the side panel. It walks you through creating the bot with @BotFather and brings its token back. Telegram works in private chats only. Messages and button taps from groups, supergroups, and channels are not supported yet. It'll let me know when you're done, and I'll check Telegram is actually delivering.
+> I've opened the Telegram setup wizard in the side panel. It walks you through creating the bot with @BotFather and brings its token back. Telegram works in private chats and in groups. In a group, mention the bot or reply to it to get an answer; broadcast channels are not supported. It'll let me know when you're done, and I'll check Telegram is actually delivering.
 
 **Hand-off notification (phones and narrow windows).** On phone-sized clients setup opens on the Contacts page instead of a side drawer and cannot auto-notify. The client sends a hidden message like `[User action on channel_setup surface: moved the telegram setup to the Contacts page]`. When you receive it:
 
@@ -160,7 +162,7 @@ Summarize:
 - Bot connected: @{botUsername}
 - Telegram delivery: {confirmed | stored, not yet confirmed}
 - Guardian identity: {verified | skipped}
-- Supported chats: private chats only. Group, supergroup, and channel messages and button taps are not supported yet.
+- Supported chats: private chats, groups, and supergroups. In a group, mention the bot or reply to it. Broadcast channels are not supported.
 
 Use "confirmed" only for a `webhook_delivery` that passed without
 `indeterminate`. If it was indeterminate, say so in the summary rather than
