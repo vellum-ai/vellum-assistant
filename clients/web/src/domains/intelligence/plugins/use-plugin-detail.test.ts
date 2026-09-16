@@ -269,7 +269,7 @@ describe("usePluginDetail", () => {
       data: {
         name: NAME,
         target: `/ws/plugins/${NAME}`,
-        warnings: ["Credential cleanup could not be verified."],
+        warnings: ["plugin.uninstall.mcp_oauth_credentials_unchecked"],
       },
       ...okResponse,
     }));
@@ -279,7 +279,7 @@ describe("usePluginDetail", () => {
 
     await waitFor(() =>
       expect(toastWarningSpy).toHaveBeenCalledWith(
-        "Credential cleanup could not be verified.",
+        "Credential storage is unavailable, so historical plugin MCP OAuth credentials could not be checked.",
       ),
     );
   });

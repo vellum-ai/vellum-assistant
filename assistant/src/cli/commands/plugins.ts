@@ -53,6 +53,7 @@ import {
   PluginAlreadyInStateException,
   PluginDirectoryNotFoundError,
 } from "../lib/toggle-plugin.js";
+import type { PluginUninstallWarningKey } from "../lib/uninstall-plugin.js";
 import type { PluginUpgradeResult } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
 import { PLUGINS_SEARCH_INSTALL_HINT, pluginsHelp } from "./plugins.help.js";
@@ -669,12 +670,12 @@ export function registerPluginsCommand(program: Command): void {
             const daemon = await cliIpcCall<{
               name: string;
               target: string;
-              warnings?: string[];
+              warnings?: PluginUninstallWarningKey[];
             }>("plugins_uninstall", { pathParams: { name } });
             let result: {
               name: string;
               target: string;
-              warnings?: string[];
+              warnings?: PluginUninstallWarningKey[];
             };
             if (daemon.ok && daemon.result) {
               result = daemon.result;
@@ -699,7 +700,9 @@ export function registerPluginsCommand(program: Command): void {
               `Uninstalled plugin "${result.name}" from ${result.target}`,
             );
             for (const warning of result.warnings ?? []) {
-              console.warn(`Warning: ${warning}`);
+              console.warn(
+                `Warning: ${libs.uninstall.resolvePluginUninstallWarning(warning)}`,
+              );
             }
           } catch (err) {
             if (err instanceof libs.installGitHub.InvalidPluginNameError) {

@@ -15,6 +15,7 @@ import { existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { runShutdownHook } from "../../hooks/hook-loader.js";
+import { MESSAGE_KEYS, t } from "../../i18n/index.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
 import { PLUGIN_MCP_MANIFEST } from "../../plugins/mcp-servers.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
@@ -42,13 +43,27 @@ export interface UninstallPluginOptions {
   readonly workspacePluginsDir?: string;
 }
 
+export const PLUGIN_UNINSTALL_WARNING_KEYS = {
+  MCP_OAUTH_CREDENTIALS_UNCHECKED:
+    MESSAGE_KEYS.PLUGIN_MCP_OAUTH_CREDENTIALS_UNCHECKED,
+} as const;
+
+export type PluginUninstallWarningKey =
+  (typeof PLUGIN_UNINSTALL_WARNING_KEYS)[keyof typeof PLUGIN_UNINSTALL_WARNING_KEYS];
+
+export function resolvePluginUninstallWarning(
+  key: PluginUninstallWarningKey,
+): string {
+  return t(key);
+}
+
 /** Result of a successful uninstall. */
 export interface UninstallPluginResult {
   readonly name: string;
   /** Absolute path that was removed. */
   readonly target: string;
-  /** Non-fatal cleanup limitations callers should show to the user. */
-  readonly warnings?: string[];
+  /** Stable keys for non-fatal cleanup limitations. */
+  readonly warnings?: PluginUninstallWarningKey[];
 }
 
 /**
@@ -96,7 +111,7 @@ export async function uninstallPlugin(
   const hasRecordedMcpManifest =
     recordedFiles !== undefined &&
     Object.hasOwn(recordedFiles, PLUGIN_MCP_MANIFEST);
-  const warnings: string[] = [];
+  const warnings: PluginUninstallWarningKey[] = [];
   const { deletePluginMcpOAuthCredentials } =
     await import("../../mcp/mcp-oauth-provider.js");
   let credentialsReachable = true;
@@ -122,7 +137,7 @@ export async function uninstallPlugin(
       );
     }
     warnings.push(
-      "Credential storage is unavailable, so historical plugin MCP OAuth credentials could not be checked.",
+      PLUGIN_UNINSTALL_WARNING_KEYS.MCP_OAUTH_CREDENTIALS_UNCHECKED,
     );
   }
 

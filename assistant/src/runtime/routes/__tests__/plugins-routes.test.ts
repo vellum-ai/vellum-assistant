@@ -1286,7 +1286,7 @@ describe("DELETE /v1/plugins/:name", () => {
     uninstallSpy.mockImplementation(async (opts) => ({
       name: opts.name,
       target: `/workspace/.vellum/plugins/${opts.name}`,
-      warnings: ["Credential cleanup could not be verified."],
+      warnings: ["plugin.uninstall.mcp_oauth_credentials_unchecked"],
     }));
 
     const result = await invokeUninstall({
@@ -1294,7 +1294,7 @@ describe("DELETE /v1/plugins/:name", () => {
     });
 
     expect(result.warnings).toEqual([
-      "Credential cleanup could not be verified.",
+      "plugin.uninstall.mcp_oauth_credentials_unchecked",
     ]);
   });
 

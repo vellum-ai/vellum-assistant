@@ -47,6 +47,8 @@ import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import { InvalidPluginNameError } from "../install-from-github.js";
 const { PluginNotInstalledError, uninstallPlugin } =
   await import("../uninstall-plugin.js");
+const { PLUGIN_UNINSTALL_WARNING_KEYS } =
+  await import("../uninstall-plugin.js");
 
 let pluginsDir: string;
 
@@ -275,7 +277,7 @@ describe("uninstallPlugin", () => {
 
     expect(existsSync(target)).toBe(false);
     expect(result.warnings).toEqual([
-      "Credential storage is unavailable, so historical plugin MCP OAuth credentials could not be checked.",
+      PLUGIN_UNINSTALL_WARNING_KEYS.MCP_OAUTH_CREDENTIALS_UNCHECKED,
     ]);
   });
 

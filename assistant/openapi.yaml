@@ -26545,10 +26545,11 @@ paths:
                     type: string
                     description: Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.
                   warnings:
-                    description: Non-fatal cleanup limitations that should be shown with the uninstall result.
+                    description: Stable keys for non-fatal cleanup limitations that should be localized at the presentation edge.
                     type: array
                     items:
                       type: string
+                      const: plugin.uninstall.mcp_oauth_credentials_unchecked
                 required:
                   - name
                   - target

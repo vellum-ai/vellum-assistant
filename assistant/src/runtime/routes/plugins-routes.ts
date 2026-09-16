@@ -80,6 +80,7 @@ import {
   PluginDirectoryNotFoundError,
 } from "../../cli/lib/toggle-plugin.js";
 import {
+  PLUGIN_UNINSTALL_WARNING_KEYS,
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
@@ -256,10 +257,12 @@ const pluginUninstallResponseSchema = z.object({
       "Absolute path that was removed on the assistant host. Useful for audit logs and confirmation toasts.",
     ),
   warnings: z
-    .array(z.string())
+    .array(
+      z.literal(PLUGIN_UNINSTALL_WARNING_KEYS.MCP_OAUTH_CREDENTIALS_UNCHECKED),
+    )
     .optional()
     .describe(
-      "Non-fatal cleanup limitations that should be shown with the uninstall result.",
+      "Stable keys for non-fatal cleanup limitations that should be localized at the presentation edge.",
     ),
 });
 

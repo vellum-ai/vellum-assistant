@@ -17,6 +17,7 @@ import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library";
 
+import { showPluginUninstallWarnings } from "./plugin-uninstall-warnings";
 import { shortSha } from "./utils";
 
 // Re-exported so this module is also a valid import path for `shortSha`
@@ -107,9 +108,7 @@ export function usePluginDetail(
     onSuccess: (result) => {
       invalidate();
       onRemoved?.();
-      for (const warning of result.warnings ?? []) {
-        toast.warning(warning);
-      }
+      showPluginUninstallWarnings(result.warnings, t);
     },
   });
 

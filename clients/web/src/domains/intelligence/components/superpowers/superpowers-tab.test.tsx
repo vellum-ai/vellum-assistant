@@ -615,7 +615,7 @@ describe("SuperpowersTab", () => {
       data: {
         name: "simple-memory",
         target: "/ws/plugins/simple-memory",
-        warnings: ["Credential cleanup could not be verified."],
+        warnings: ["plugin.uninstall.mcp_oauth_credentials_unchecked"],
       },
       ...okResponse,
     }));
@@ -626,7 +626,7 @@ describe("SuperpowersTab", () => {
 
     await waitFor(() =>
       expect(toastWarningSpy).toHaveBeenCalledWith(
-        "Credential cleanup could not be verified.",
+        "Credential storage is unavailable, so historical plugin MCP OAuth credentials could not be checked.",
       ),
     );
   });
