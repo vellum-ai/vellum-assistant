@@ -30,7 +30,10 @@ test("confirmed absence clears the missed resolution and returns to preview", as
   expect(useDesktopPreviewStore.getState().session?.view).toBe("preview");
 });
 
-test.each([undefined, { requestId: "req-help", entries: [] }])(
+const unconfirmedQuestions: ConversationPendingInteractions["pendingQuestion"][] =
+  [undefined, { requestId: "req-help", entries: [] }];
+
+test.each(unconfirmedQuestions)(
   "keeps input locked when resolution is unconfirmed: %j",
   async (pendingQuestion) => {
     fetchPending.mockResolvedValue({ pendingQuestion });
