@@ -512,6 +512,34 @@ describe("memoryV3Injector: frozen net-new sections", () => {
     ]);
   });
 
+  test("a selector failure whose stable prefix renders nothing queues the no-memory notice", async () => {
+    liveEnabled = true;
+    // The only stable page was deleted between lane construction and this
+    // turn's render, so no block attaches and the notice must not claim the
+    // response drew on core memories.
+    turnResults.set(0, {
+      ...result(["missing-page"]),
+      selectorRan: false,
+      selectorFailure: new MemoryV3RetrievalUnavailableError(
+        "selector unavailable",
+      ),
+    });
+
+    await expect(produceSectionsWithoutCommit("conv-1", 0)).resolves.toBeNull();
+
+    expect(drainConversationNotices("conv-1")).toEqual([
+      {
+        type: "conversation_notice",
+        conversationId: "conv-1",
+        source: "memory_v3",
+        code: "UNKNOWN",
+        userMessage:
+          "Memory is temporarily unavailable, so this response may not use your saved memories. You can retry in a moment.",
+        errorCategory: "memory_v3_degraded",
+      },
+    ]);
+  });
+
   test("a selector failure carrying a billing notice queues that notice instead", async () => {
     liveEnabled = true;
     const billing = {
