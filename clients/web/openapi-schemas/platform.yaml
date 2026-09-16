@@ -1882,7 +1882,9 @@ paths:
           - monday
           - notion
           - outlook
+          - quickbooks
           - salesforce
+          - shopify
           - stripe_link
           - todoist
           - twitter
@@ -4919,7 +4921,11 @@ paths:
         ends, when Stripe terminates it and the org returns to the Base plan; no refund
         or proration is issued. Idempotent: a subscription already pending cancellation
         returns no_op. Requires an active Pro subscription with a provisioned Stripe
-        subscription.'
+        subscription. The optional body carries the cancel survey (``feedback`` from
+        Stripe''s fixed vocabulary, free-text ``comment``), forwarded to Stripe as
+        ``cancellation_details`` so the admin Revenue page''s Pending Cancellations
+        reason column is populated for in-app cancels the same way it is for Customer
+        Portal cancels.'
       parameters:
       - in: header
         name: Vellum-Organization-Id
@@ -4930,6 +4936,17 @@ paths:
           methods.
       tags:
       - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriptionCancelRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SubscriptionCancelRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SubscriptionCancelRequestRequest'
       security:
       - cookieAuth: []
       - XSessionTokenAuth: []
@@ -6216,13 +6233,15 @@ components:
   schemas:
     AccessConsent:
       type: object
-      description: Serializer for the user-controlled admin log access consent toggle.
+      description: Serializer for the user-controlled staff access consent toggle.
       properties:
         access_consented:
           type: boolean
-          description: When True, Vellum admins may view the daemon log files (/workspace/data/logs/assistant-*.log)
-            from this assistant pod for debugging. Defaults to False; the owner can
-            revoke at any time.
+          description: 'When True, Vellum staff may access this assistant and its
+            data for debugging: daemon log files, an admin terminal on the running
+            assistant, and a disposable clone of its disk. Defaults to False; the
+            owner can revoke at any time, which blocks new access and further commands
+            in open admin terminal sessions.'
       required:
       - access_consented
     AcknowledgeRequest:
@@ -6999,6 +7018,26 @@ components:
     BlankEnum:
       enum:
       - ''
+    CancellationFeedbackEnum:
+      enum:
+      - customer_service
+      - low_quality
+      - missing_features
+      - other
+      - switched_service
+      - too_complex
+      - too_expensive
+      - unused
+      type: string
+      description: |-
+        * `customer_service` - customer_service
+        * `low_quality` - low_quality
+        * `missing_features` - missing_features
+        * `other` - other
+        * `switched_service` - switched_service
+        * `too_complex` - too_complex
+        * `too_expensive` - too_expensive
+        * `unused` - unused
     CheckoutBonusClaimResponse:
       type: object
       description: POST /…/checkout-bonus/ response shape.
@@ -8701,6 +8740,10 @@ components:
           type: string
           format: date-time
           nullable: true
+        provider_params:
+          type: object
+          additionalProperties:
+            type: string
       required:
       - account_label
       - connected
@@ -8749,6 +8792,8 @@ components:
       - monday
       - figma
       - stripe_link
+      - shopify
+      - quickbooks
       type: string
       description: |-
         * `twitter` - twitter
@@ -8769,6 +8814,8 @@ components:
         * `monday` - monday
         * `figma` - figma
         * `stripe_link` - stripe_link
+        * `shopify` - shopify
+        * `quickbooks` - quickbooks
     OAuthStartRequestRequest:
       type: object
       properties:
@@ -9333,13 +9380,15 @@ components:
             $ref: '#/components/schemas/OrganizationRead'
     PatchedAccessConsentRequest:
       type: object
-      description: Serializer for the user-controlled admin log access consent toggle.
+      description: Serializer for the user-controlled staff access consent toggle.
       properties:
         access_consented:
           type: boolean
-          description: When True, Vellum admins may view the daemon log files (/workspace/data/logs/assistant-*.log)
-            from this assistant pod for debugging. Defaults to False; the owner can
-            revoke at any time.
+          description: 'When True, Vellum staff may access this assistant and its
+            data for debugging: daemon log files, an admin terminal on the running
+            assistant, and a disposable clone of its disk. Defaults to False; the
+            owner can revoke at any time, which blocks new access and further commands
+            in open admin terminal sessions.'
     PatchedAssistantPartialUpdateRequest:
       type: object
       description: |-
@@ -9941,6 +9990,27 @@ components:
         * `l` - l
         * `xl` - xl
         * `xxl` - xxl
+    SubscriptionCancelRequestRequest:
+      type: object
+      description: |-
+        Optional cancel survey forwarded to Stripe as ``cancellation_details``.
+
+        Both fields are optional and additive: the endpoint historically took no
+        body, and older native clients still post an empty one. ``feedback`` is
+        Stripe's fixed vocabulary (the same set the Customer Portal's cancel
+        survey offers; send ``null`` or omit it for "no answer"); ``comment`` is
+        free text, and a blank/whitespace-only comment is treated as not
+        provided so a client that submits an empty form sends nothing to Stripe.
+      properties:
+        feedback:
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/CancellationFeedbackEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        comment:
+          type: string
+          nullable: true
+          maxLength: 1000
     SubscriptionCancelResponse:
       type: object
       properties:

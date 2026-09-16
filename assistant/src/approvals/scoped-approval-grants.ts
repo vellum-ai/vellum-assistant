@@ -193,7 +193,10 @@ function consumeScopedApprovalGrantByRequestId(
       .get();
 
     if (!candidate) {
-      log.info(
+      // Debug, not info: the inline grant wait and the voice retry loop call
+      // this every poll, so a miss is the expected steady state while a
+      // guardian decides. The caller logs the outcome of the wait.
+      log.debug(
         {
           event: "scoped_grant_consume_miss",
           requestId,
@@ -364,7 +367,8 @@ function consumeScopedApprovalGrantByToolSignature(
       .get();
 
     if (!candidate) {
-      log.info(
+      // Debug for the same reason as the request-id miss above: polled.
+      log.debug(
         {
           event: "scoped_grant_consume_miss",
           toolName: params.toolName,

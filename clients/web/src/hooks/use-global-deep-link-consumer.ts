@@ -19,6 +19,7 @@ import { useConnectDialogStore } from "@/stores/connect-dialog-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import {
+  keptAppId,
   navigateToConversation,
   navigateToNewConversation,
   revealConversationView,
@@ -160,7 +161,7 @@ function connectAddress(
 
 export function useGlobalDeepLinkConsumer(): void {
   const navigate = useNavigate();
-  const { pathname, search, hash } = useLocation();
+  const { pathname, search, hash, state } = useLocation();
   const queryClient = useQueryClient();
   const navigateRef = useRef(navigate);
   useLayoutEffect(() => {
@@ -177,7 +178,7 @@ export function useGlobalDeepLinkConsumer(): void {
     // Same thread: skip store resets — the id doesn't change, so re-seed effects wouldn't re-run and live cards would vanish.
     if (threadId === useConversationStore.getState().activeConversationId) {
       revealConversationView(threadId);
-      navigateRef.current(routes.conversation(threadId));
+      navigateRef.current(routes.conversation(threadId, keptAppId()));
       return;
     }
     navigateToConversation(navigateRef.current, threadId);
@@ -342,10 +343,11 @@ export function useGlobalDeepLinkConsumer(): void {
       // Re-navigating to the settled conversation is a no-op when the router
       // is at rest, and cancels any in-flight transition away from it that
       // would otherwise unmount the composer this park is addressed to. The
-      // search and hash ride along so pending query-driven effects survive.
+      // search and hash ride along so pending query-driven effects survive,
+      // and the entry's state with them, so a recorded app return stands.
       navigateRef.current(
-        { pathname: routes.conversation(settledId), search, hash },
-        { replace: true },
+        { pathname: routes.conversation(settledId, keptAppId()), search, hash },
+        { replace: true, state },
       );
       targetId = settledId;
     } else {

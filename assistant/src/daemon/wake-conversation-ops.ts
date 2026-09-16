@@ -22,7 +22,7 @@ import {
 import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js";
 import { resolveMediaSourceData } from "../providers/media-resolve.js";
-import type { Message } from "../providers/types.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
@@ -351,37 +351,59 @@ export async function persistWakeTriggerMessage(
 }
 
 /**
+ * How a wake's tool allowlist is applied beyond the allowlist itself. Every
+ * field is set on the conversation together with the allowlist and restored
+ * with it.
+ */
+export interface WakeToolScopeOptions {
+  /** How the allowlist is enforced; see {@link SubagentToolGateMode}. */
+  gateMode?: SubagentToolGateMode;
+  /**
+   * Freezes the client-context inputs for tool-definition resolution
+   * (execution-gate-mode cache-parity wakes); see {@link WakeToolContextPin}.
+   * Its `requestOrigin`, when set, is stamped onto the conversation's per-turn
+   * origin so the permission checker's origin-scoped auto-grants fire.
+   */
+  toolContextPin?: WakeToolContextPin;
+  /**
+   * Skills whose bundled tools join the turn's active set
+   * (`allowedToolNames`) so they are callable without a prior `skill_load`.
+   */
+  preactivateSkillIds?: readonly string[];
+  /**
+   * Sent verbatim as the wake's wire tool array in place of the resolved one
+   * (the source conversation's recorded surface, replayed for provider
+   * prompt-cache parity). Changes nothing about what may execute.
+   */
+  wireToolDefinitions?: readonly ToolDefinition[];
+}
+
+/**
  * Temporarily restrict the tools visible/executable during a wake by
  * reusing the conversation's subagent allowlist slot. Returns a restore
  * callback that reinstates the previous allowlist so the wake can release
  * the scope before any queued user turn is drained.
- *
- * `gateMode` controls how the allowlist is enforced — see
- * {@link SubagentToolGateMode}. `toolContextPin`, when provided
- * (execution-gate-mode cache-parity wakes), freezes the client-context
- * inputs for tool-definition resolution — see {@link WakeToolContextPin}.
- * Its `requestOrigin`, when set, is stamped onto the conversation's per-turn
- * origin so the permission checker's origin-scoped auto-grants fire for the
- * wake. `preactivateSkillIds`, when non-empty, activates those skills' bundled
- * tools in the turn's active set (`allowedToolNames`) for the wake so they are
- * callable without a prior `skill_load`. All are set and restored alongside the
- * allowlist.
  */
 export function scopeWakeAllowedTools(
   conversation: Conversation,
   tools: ReadonlySet<string>,
-  gateMode: SubagentToolGateMode = "wire",
-  toolContextPin?: WakeToolContextPin,
-  preactivateSkillIds?: readonly string[],
+  {
+    gateMode = "wire",
+    toolContextPin,
+    preactivateSkillIds,
+    wireToolDefinitions,
+  }: WakeToolScopeOptions = {},
 ): () => void {
   const previous = conversation.subagentAllowedTools;
   const previousGateMode = conversation.subagentToolGateMode;
   const previousToolContextPin = conversation.toolContextPin;
   const previousRequestOrigin = conversation.currentTurnRequestOrigin;
   const previousPreactivated = conversation.preactivatedSkillIds;
+  const previousWireToolReplay = conversation.wireToolReplay;
   conversation.setSubagentAllowedTools(new Set(tools));
   conversation.subagentToolGateMode = gateMode;
   conversation.toolContextPin = toolContextPin;
+  conversation.wireToolReplay = wireToolDefinitions;
   if (toolContextPin?.requestOrigin !== undefined) {
     conversation.currentTurnRequestOrigin = toolContextPin.requestOrigin;
   }
@@ -394,5 +416,6 @@ export function scopeWakeAllowedTools(
     conversation.toolContextPin = previousToolContextPin;
     conversation.currentTurnRequestOrigin = previousRequestOrigin;
     conversation.setPreactivatedSkillIds(previousPreactivated);
+    conversation.wireToolReplay = previousWireToolReplay;
   };
 }

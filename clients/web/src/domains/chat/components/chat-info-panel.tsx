@@ -38,12 +38,13 @@ import {
   useConversationAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
 import {
-  openAppFromChat,
+  useOpenAppFromChat,
   useOpenDocumentFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useTranslation } from "@/i18n";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import {
   type ChatInfoCategory,
   type ChatInfoPayload,
@@ -65,10 +66,12 @@ export function ChatInfoPanel({
 }: ChatInfoPanelProps) {
   const { t } = useTranslation("chat");
   const { assistantId, conversationId } = payload;
+  const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const openDocument = useOpenDocumentFromChat(
     assistantId,
     useViewerStore.getState().closeChatInfo,
   );
+  const openApp = useOpenAppFromChat();
 
   // No `refreshKey`: the header trigger owns invalidation.
   const {
@@ -121,15 +124,30 @@ export function ChatInfoPanel({
     }
   }, [clearConversation, conversationId, unseenDocuments]);
 
-  // Closing first returns the viewer to whatever the panel was opened from,
-  // so the asset lands there rather than behind the panel. The app opens
-  // under the panel's own assistant, which need not be the active one.
+  // The panel is about one assistant's conversation and its tiles reach that
+  // assistant's apps, so it does not outlive a switch away from it. A cleared
+  // id is a teardown or a gap between two connects, not a switch.
+  useEffect(() => {
+    if (activeAssistantId !== null && activeAssistantId !== assistantId) {
+      useViewerStore.getState().closeChatInfo();
+    }
+  }, [activeAssistantId, assistantId]);
+
+  // An app is a route under the active assistant, so a tile opens only while
+  // this panel's assistant is that one; the dismissal above runs in an effect,
+  // so a click in the same commit still has to refuse. Closing first returns
+  // the viewer to whatever the panel was opened from, so the app lands there
+  // rather than behind the panel. The app hangs off the conversation this
+  // panel is about, not whatever the route names.
   const handleOpenApp = useCallback(
     (appId: string) => {
+      if (assistantId !== activeAssistantId) {
+        return;
+      }
       useViewerStore.getState().closeChatInfo();
-      void openAppFromChat(assistantId, appId);
+      void openApp(appId, { conversationId });
     },
-    [assistantId],
+    [activeAssistantId, assistantId, conversationId, openApp],
   );
 
   const handleOpenFile = useCallback(

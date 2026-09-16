@@ -15,7 +15,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import type { MarkdownLinkComponent } from "@vellumai/design-library";
 import { MarkdownMessage } from "@vellumai/design-library";
@@ -32,7 +32,7 @@ import type {
   ToolCallMeta,
 } from "@/domains/settings/components/panels/doctor-history";
 import { Trans, useTranslation } from "@/i18n";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 // ---------------------------------------------------------------------------
 // MessageCopyButton
@@ -40,32 +40,11 @@ import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 export function MessageCopyButton({ text }: { text: string }) {
   const { t } = useTranslation("settings");
-  const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { copy, copied } = useCopyToClipboard({
+    errorMessage: t("doctorChatBlocks.copyError"),
+  });
 
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = () => {
-    copyToClipboard(text, {
-      errorMessage: t("doctorChatBlocks.copyError"),
-      onCopied: () => {
-        setCopied(true);
-        if (timerRef.current) {
-          clearTimeout(timerRef.current);
-        }
-        timerRef.current = setTimeout(() => {
-          setCopied(false);
-          timerRef.current = null;
-        }, 1500);
-      },
-    });
-  };
+  const handleCopy = () => copy(text);
 
   return (
     <button

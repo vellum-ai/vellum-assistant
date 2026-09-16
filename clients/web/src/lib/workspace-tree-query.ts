@@ -15,6 +15,11 @@ export interface WorkspaceTreeQueryParams {
   path?: string;
   showHidden?: boolean;
   includeDirSizes?: boolean;
+  /**
+   * The whole subtree in one response. Assistants that predate the
+   * parameter answer with one level and no `truncated` field.
+   */
+  recursive?: boolean;
 }
 
 /**
@@ -38,12 +43,13 @@ export function workspaceTreeQueryOptions({
   path = "",
   showHidden = false,
   includeDirSizes = false,
+  recursive = false,
 }: WorkspaceTreeQueryParams) {
   return queryOptions<WorkspaceTreeGetResponse>({
     queryKey: [
       WORKSPACE_TREE_QUERY_KEY,
       assistantId,
-      { path, showHidden, includeDirSizes },
+      { path, showHidden, includeDirSizes, recursive },
     ],
     queryFn: async () => {
       const query: Record<string, string> = {};
@@ -55,6 +61,9 @@ export function workspaceTreeQueryOptions({
       }
       if (includeDirSizes) {
         query.includeDirSizes = "true";
+      }
+      if (recursive) {
+        query.recursive = "true";
       }
       const { data, error } = await workspaceTreeGet({
         path: { assistant_id: assistantId },

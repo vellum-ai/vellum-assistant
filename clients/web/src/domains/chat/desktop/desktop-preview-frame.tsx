@@ -56,7 +56,6 @@ export function DesktopPreviewFrame({
             <Button
               variant="ghost"
               size="regular"
-              expandOnMobile={false}
               leftIcon={<Monitor className="size-4" />}
               aria-label={t("assistantDesktop.moveAria")}
               className="min-w-0 cursor-grab justify-center hover:bg-transparent active:cursor-grabbing active:scale-100 active:bg-transparent"

@@ -34,6 +34,9 @@ gateway/src/feature-flag-registry.json
 # Generated from plugins/marketplace.json by meta/sync-bundled-copies.ts
 assistant/src/cli/lib/bundled-marketplace.json
 
+# Generated from local marketplace packages by the assistant bundle generator
+assistant/src/cli/lib/bundled-plugin-packages.json
+
 # misc
 worktrees/
 .worktrees/

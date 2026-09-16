@@ -39,7 +39,7 @@ Each entry in [`plugins/marketplace.json`](../plugins/marketplace.json) MAY carr
 }
 ```
 
-The marketplace entry schema (name, `source.{repo,ref,path}` with `ref` pinned to a **full commit SHA**, description, category, homepage, license, and the optional `icon`) is defined in [`plugin-marketplace.ts`](../assistant/src/cli/lib/plugin-marketplace.ts). The `icon` field is curated in-repo, not fetched from the third-party plugin. It is wired end to end: `marketplaceEntrySchema` carries it through `marketplaceMatch` into the catalog projection and the `assistant plugins search` response, and the platform's `/v1/plugins/` reads the same curated emoji independently to render the marketing site.
+The marketplace entry schema (name, a discriminated `source`, description, category, homepage, license, and the optional `icon`) is defined in [`plugin-marketplace.ts`](../assistant/src/cli/lib/plugin-marketplace.ts). GitHub sources pin `ref` to a **full commit SHA**; local sources name an exact package path and version embedded in the assistant distribution. The `icon` field is curated in-repo, not fetched from the third-party plugin. It is wired end to end: `marketplaceEntrySchema` carries it through `marketplaceMatch` into the catalog projection and the `assistant plugins search` response, and the platform's `/v1/plugins/` reads the same curated emoji independently to render the marketing site.
 
 ### 2. PNG — vendored asset + derived manifest
 

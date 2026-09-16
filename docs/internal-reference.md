@@ -171,13 +171,13 @@ Users control thresholds via the **Settings UI** (Permissions & Privacy tab) or 
 
 | Context                             | Default threshold | Behavior                                                   |
 | ----------------------------------- | ----------------- | ---------------------------------------------------------- |
-| `conversation` (interactive)        | `"low"`           | Low-risk tools auto-approved; Medium and High risk prompt. |
-| `background` (scheduled/guardian)   | `"medium"`        | Low and Medium risk auto-approved; High risk prompts.      |
+| `conversation` (interactive)        | `"medium"`        | Low and Medium risk auto-approved; High risk prompts.      |
+| `background` (scheduled/guardian)   | `"low"`           | Low-risk tools auto-approved; Medium and High risk prompt. |
 | `headless` (non-guardian automated) | `"none"`          | All tool invocations prompt — no implicit auto-allow.      |
 
 #### Trust rules
 
-User approval decisions are persisted as trust rules in `~/.vellum/protected/trust.json`. Rules support:
+User approval decisions are persisted as trust rules in the gateway's `trust_rules` table (`gateway/src/db/trust-rule-store.ts`); the assistant reads and writes them through the gateway's trust API, never a file. Rules support:
 
 - **Pattern matching**: Minimatch glob patterns for tool commands and file paths.
 - **Execution target binding**: Rules can be scoped to `sandbox` or `host` execution contexts.
@@ -226,7 +226,7 @@ The unified messaging layer provides platform-agnostic tools (`messaging_send`, 
 
 **Channel sends go through the channel's transport.** `messaging_send` posts to a Slack, Telegram, Discord, or WhatsApp chat through the same transport that delivers a reply, and `POST /v1/channels/send` exposes the same daemon function for the CLI and for scripts, so a post is threaded, rendered, and recorded in the chat's conversation once the channel acknowledges it. Reading, searching, reactions, and file upload on Slack stay on the Slack Web API, which the `slack` skill reaches through `assistant oauth request`; the provider injects the bot token and the model never sees it.
 
-Connect Gmail via the Settings UI or the `integration_connect` HTTP endpoint. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Slack connects via Socket Mode using a bot token and app-level token — see the `slack-app-setup` skill. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions.
+Connect Gmail via the Settings UI (Integrations) or `assistant oauth connect google`. OAuth2 tokens are stored in the credential vault; the LLM never sees raw tokens. Slack connects via Socket Mode using a bot token and app-level token: see the `slack-app-setup` skill. Telegram uses a bot token (not OAuth): see the `telegram-setup` skill for setup instructions.
 
 ### Dynamic Skill Authoring
 
@@ -234,27 +234,25 @@ The assistant can create, test, and persist new skills at runtime. This is usefu
 
 #### Workflow
 
-1. **Evaluate**: The assistant drafts a TypeScript snippet and tests it in a sandbox via `evaluate_typescript_code`. Iterates until it passes.
+1. **Evaluate**: The assistant drafts the script and runs it with `bash` in the sandbox, iterating until it works; the exact file that ran is what `scaffold_managed_skill` copies in (`copy_from`).
 2. **Persist**: After successful evaluation and explicit user consent, the assistant calls `scaffold_managed_skill` to write the skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/SKILL.md`.
 3. **Load**: The assistant calls `skill_load` with the new skill ID to load its instructions.
 4. **Delete**: To remove a managed skill, use `delete_managed_skill`.
 
-Installed managed skills are discovered from valid directories under `$VELLUM_WORKSPACE_DIR/skills/<id>/` that contain a top-level `SKILL.md` with standardized frontmatter. On startup and skill directory changes, the assistant parses that frontmatter and seeds Memory V2 entries under `skills/<id>`; those memory entries represent available skills to the assistant. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by current install or scaffold paths.
+Installed managed skills are discovered from valid directories under `$VELLUM_WORKSPACE_DIR/skills/<id>/` that contain a top-level `SKILL.md` with standardized frontmatter. On startup and skill directory changes, the assistant parses that frontmatter and seeds the skill's capabilities into the memory concept-page collection (see `assistant/docs/architecture/memory.md`); those entries represent available skills to the assistant. The legacy `SKILLS.md` index is removed by workspace migration and is no longer created by current install or scaffold paths.
 
 #### Tools
 
 | Tool                       | Risk Level | Description                                                                                                                                         |
 | -------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `evaluate_typescript_code` | High       | Run a TypeScript snippet in a sandbox. Returns structured JSON with `ok`, `exitCode`, `result`, `stdout`, `stderr`.                                 |
 | `scaffold_managed_skill`   | High       | Write a managed skill to `$VELLUM_WORKSPACE_DIR/skills/<id>/`. Creates `SKILL.md` with frontmatter, including optional `includes` for child skills. |
 | `delete_managed_skill`     | High       | Remove a managed skill directory.                                                                                                                   |
 
-All three tools require explicit user approval before execution (Risk Level = High).
+Both tools require explicit user approval before execution (Risk Level = High).
 
 #### Constraints
 
-- Snippets must export a `default` or `run` function with signature `(input: unknown) => unknown | Promise<unknown>`.
-- If evaluation fails after 3 attempts, the assistant asks for user guidance instead of retrying.
+- A script that does not work after a few attempts is a reason to ask the user for guidance rather than to keep retrying.
 - After a skill is written or deleted, capability cards reseed from the `SKILL.md` set. The next turn continues in the same conversation.
 - Managed skills appear in the macOS Settings UI with Inspect and Delete controls.
 

@@ -15,6 +15,10 @@ let desktopEnabled: boolean | undefined = true;
 let assistantId = "asst-1";
 let touch = false;
 let platformHosted = true;
+let automationActive: boolean | undefined = false;
+mock.module("./use-desktop-setup", () => ({
+  useDesktopSetupStatus: () => ({ query: { data: { automationActive } } }),
+}));
 
 mock.module("@/hooks/use-platform-gate", () => ({
   useActiveAssistantIsPlatformHosted: () => platformHosted,
@@ -85,6 +89,7 @@ beforeEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
   touch = false;
   platformHosted = true;
+  automationActive = false;
   useDesktopPreviewStore.setState({ position: null });
   panelUnmounts = 0;
   desktopEnabled = true;
@@ -366,4 +371,23 @@ test("switching to a self-hosted assistant closes the virtual desktop preview", 
   rerender(<DesktopHarness />);
   await waitFor(() => expect(screen.queryByTestId("desktop-panel")).toBeNull());
   expect(useDesktopPreviewStore.getState().session).toBeNull();
+});
+
+test("desktop icon pulses during automation and clears when it ends", () => {
+  const { rerender } = render(<DesktopHarness />);
+  const icon = () =>
+    screen
+      .getByRole("button", { name: "Open Alice's virtual desktop" })
+      .querySelector("svg")!;
+  expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(false);
+  automationActive = true;
+  rerender(<DesktopHarness />);
+  expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(true);
+  expect(icon().getAttribute("stroke")).toBe(
+    "var(--avatar-accent, var(--content-emphasised))",
+  );
+  automationActive = undefined;
+  rerender(<DesktopHarness />);
+  expect(icon().getAttribute("stroke")).toBe("currentColor");
+  expect(icon().classList.contains("motion-safe:animate-pulse")).toBe(false);
 });

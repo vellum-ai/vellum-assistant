@@ -72,7 +72,6 @@ export function SkillLoadCard({
           variant="outlined"
           onClick={() => openSkillDetail(skillId)}
           className="shrink-0"
-          expandOnMobile={false}
         >
           {t("skillLoadCard.view")}
         </Button>

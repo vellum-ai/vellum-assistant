@@ -25,6 +25,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CONSOLIDATION_PROMPT_V3,
   CORE_PAGES_CONSOLIDATION_SECTION,
+  renderBufferEntriesSection,
   renderConsolidationPrompt,
   renderDanglingLinksSection,
   renderParseFailuresSection,
@@ -54,6 +55,11 @@ const GATED_SECTIONS: Array<{
     marker: "core-pages",
   },
   {
+    name: "buffer entries for this pass (gate: the job's pass selection)",
+    section: renderBufferEntriesSection("- [Jan 1, 12:00 AM] example fact\n"),
+    marker: "<buffer_entries>",
+  },
+  {
     name: "parse-failure repair step (gate: index-reported parse failures)",
     section: renderParseFailuresSection([
       { slug: "example-page", error: "example parse error", dropped: true },
@@ -73,6 +79,7 @@ const GATED_SECTIONS: Array<{
 const ALL_GATES_OFF = {
   includeCorePagesSection: false,
   articleShape: "v2" as const,
+  bufferEntries: "",
 };
 
 /**
@@ -183,6 +190,7 @@ describe("default consolidation prompt flag-gating guard", () => {
   test("the v3 rendering teaches the v3 shape and drops the v2 summary requirement", () => {
     const v3 = renderConsolidationPrompt("Jan 1, 12:00 AM", {
       includeCorePagesSection: true,
+      bufferEntries: "",
       articleShape: "v3",
     });
     for (const marker of V3_SHAPE_MARKERS) {
@@ -202,6 +210,7 @@ describe("default consolidation prompt flag-gating guard", () => {
   test("the core-pages section renders only when its own gate is on", () => {
     const on = renderConsolidationPrompt("Jan 1, 12:00 AM", {
       includeCorePagesSection: true,
+      bufferEntries: "",
       articleShape: "v3",
     });
     expect(on).toContain(CORE_PAGES_CONSOLIDATION_SECTION);
@@ -209,6 +218,7 @@ describe("default consolidation prompt flag-gating guard", () => {
 
     const off = renderConsolidationPrompt("Jan 1, 12:00 AM", {
       includeCorePagesSection: false,
+      bufferEntries: "",
       articleShape: "v3",
     });
     expect(off).not.toContain(CORE_PAGES_CONSOLIDATION_SECTION);

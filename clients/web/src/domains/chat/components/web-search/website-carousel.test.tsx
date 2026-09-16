@@ -6,11 +6,11 @@
  * the component schedules is captured, then fired from `act()` to advance the
  * walk without real-time delays. This lets us assert that an advance only
  * happens once the `minDwellMs` timeout fires (the 0.5s floor) and that the
- * carousel walks toward the latest item and then holds — never wrapping back.
+ * carousel walks toward the latest item and then holds, never wrapping back.
  *
  * The reduced-motion path is verified by stubbing `motion/react` so that
  * `useReducedMotion()` returns `true` and `motion.div` resolves to a plain
- * `<div>` that strips animation-only props — this lets us assert on the
+ * `<div>` that strips animation-only props. This lets us assert on the
  * static DOM that no `y` transform leaked through.
  */
 
@@ -113,7 +113,7 @@ const ITEMS = [
   },
 ];
 
-describe("WebsiteCarousel — walk to latest", () => {
+describe("WebsiteCarousel: walk to latest", () => {
   test("advances one step per dwell tick toward the last item, then holds", () => {
     const { getByText } = render(
       <WebsiteCarousel items={ITEMS} minDwellMs={1000} />,
@@ -126,7 +126,7 @@ describe("WebsiteCarousel — walk to latest", () => {
     // After another tick → the last (latest) item is visible.
     // Note: `AnimatePresence mode="popLayout"` retains the previous element
     // during its exit animation, so we only assert that the new entry is in
-    // the tree — the old one may still be there mid-fade.
+    // the tree; the old one may still be there mid-fade.
     fireDwellTimer();
     expect(getByText("Charlie")).toBeTruthy();
     // Once caught up to the latest, the walk holds: no further timer is
@@ -139,7 +139,7 @@ describe("WebsiteCarousel — walk to latest", () => {
     const { getByText } = render(
       <WebsiteCarousel items={ITEMS} minDwellMs={500} />,
     );
-    // A timer is scheduled but not yet fired — still on the first item.
+    // A timer is scheduled but not yet fired, still on the first item.
     expect(getByText("Alpha")).toBeTruthy();
     expect(pendingTimeouts()).toHaveLength(1);
     expect(pendingTimeouts()[0]!.ms).toBe(500);
@@ -155,7 +155,7 @@ describe("WebsiteCarousel — walk to latest", () => {
     expect(getByText("Charlie")).toBeTruthy();
     expect(pendingTimeouts()).toHaveLength(0);
 
-    // Parent appends a newer searched site — the target grows and the walk
+    // Parent appends a newer searched site: the target grows and the walk
     // resumes toward it.
     const moreItems = [
       ...ITEMS,
@@ -179,7 +179,7 @@ describe("WebsiteCarousel — walk to latest", () => {
   });
 });
 
-describe("WebsiteCarousel — degenerate cases", () => {
+describe("WebsiteCarousel: degenerate cases", () => {
   test("with one item: renders it statically and never schedules a timer", () => {
     const { getByText } = render(
       <WebsiteCarousel items={[ITEMS[0]!]} minDwellMs={500} />,
@@ -204,7 +204,7 @@ describe("WebsiteCarousel — degenerate cases", () => {
   });
 });
 
-describe("WebsiteCarousel — layout shell", () => {
+describe("WebsiteCarousel: layout shell", () => {
   test("wrapper uses fixed 28px height and overflow hidden", () => {
     const { container } = render(<WebsiteCarousel items={ITEMS} />);
     const wrapper = container.firstElementChild as HTMLElement;
@@ -215,10 +215,10 @@ describe("WebsiteCarousel — layout shell", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Reduced-motion path — verified by stubbing `motion/react`.
+// Reduced-motion path, verified by stubbing `motion/react`.
 // ---------------------------------------------------------------------------
 
-describe("WebsiteCarousel — reduced motion", () => {
+describe("WebsiteCarousel: reduced motion", () => {
   afterEach(() => {
     mock.restore();
   });
@@ -247,7 +247,7 @@ describe("WebsiteCarousel — reduced motion", () => {
         return <div {...rest}>{children}</div>;
       };
       // The mock module bleeds across files in the same `bun test` run, so
-      // also stub `motion.span` (used by the header carousel) — otherwise
+      // also stub `motion.span` (used by the header carousel); otherwise
       // downstream suites that touch that card render
       // `undefined` and crash. Span is rendered as a passthrough since the
       // y-offset assertion only inspects `motion.div`.
@@ -274,7 +274,7 @@ describe("WebsiteCarousel — reduced motion", () => {
     // At least one motion.div should have been rendered.
     expect(motionDivCalls.length).toBeGreaterThan(0);
     const props = motionDivCalls[0]!;
-    // The reduced-motion branch must drop the y offsets — opacity-only fade.
+    // The reduced-motion branch must drop the y offsets: opacity-only fade.
     expect((props.initial as Record<string, unknown>).y).toBeUndefined();
     expect((props.animate as Record<string, unknown>).y).toBeUndefined();
     expect((props.exit as Record<string, unknown>).y).toBeUndefined();

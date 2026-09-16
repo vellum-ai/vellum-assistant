@@ -4,10 +4,9 @@ import type {
   ProviderResponse,
   ToolUseContent,
 } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import { getConfiguredProvider, safeStringSlice } from "@vellumai/plugin-api";
 
 import { redactSecrets } from "../../../../security/secret-scanner.js";
-import { safeStringSlice } from "../host-utils.js";
 import {
   buildRecallAgentPromptBundle,
   FINISH_RECALL_TOOL_DEFINITION,

@@ -141,6 +141,7 @@ function _serializeProvider(
       : null,
     identityFormat: row.identityFormat ?? null,
     identityOkField: row.identityOkField ?? null,
+    responseOkField: row.responseOkField ?? null,
     featureFlag: row.featureFlag ?? null,
     redirectUri:
       options?.redirectUri !== undefined ? options.redirectUri : null,

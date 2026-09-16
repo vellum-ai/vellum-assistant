@@ -29,13 +29,6 @@ export function requiredDecisionKeywords(
 // Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
-/** Map legacy callback actions to canonical ones for in-flight buttons. */
-const LEGACY_CALLBACK_MAP: Record<string, string> = {
-  approve_10m: "approve_once",
-  approve_conversation: "approve_once",
-  approve_always: "approve_once",
-};
-
 export function parseCallbackData(
   data: string,
   sourceChannel?: string,
@@ -45,8 +38,7 @@ export function parseCallbackData(
     return null;
   }
   const requestId = parts[1];
-  const rawAction = parts.slice(2).join(":");
-  const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
+  const action = parts.slice(2).join(":");
   if (!requestId || !isApprovalAction(action)) {
     return null;
   }

@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { minimatch } from "minimatch";
 
 import { ensureDir, pathExists } from "../../../util/fs.js";
+import { surrogateSafeWindow } from "../../../util/unicode.js";
 import { isAbortLikeError } from "../abort.js";
 import { applyEdit } from "./edit-engine.js";
 import * as Err from "./errors.js";
@@ -100,37 +101,6 @@ function truncationNotice(
   totalChars: number,
 ): string {
   return `\n\n[Truncated: characters ${start}-${end} of ${totalChars}. Read on with start_index=${end}.]`;
-}
-
-const isHighSurrogate = (code: number): boolean =>
-  code >= 0xd800 && code <= 0xdbff;
-const isLowSurrogate = (code: number): boolean =>
-  code >= 0xdc00 && code <= 0xdfff;
-
-/**
- * Character window that never splits a surrogate pair. A split leaves a lone
- * half at each edge, and each encodes to U+FFFD, so the character is lost from
- * both this window and the next one paged in after it.
- */
-export function surrogateSafeWindow(
-  total: number,
-  charCodeAt: (index: number) => number,
-  requestedStart: number,
-  maxChars: number,
-): { start: number; end: number } {
-  let start = Math.max(0, Math.min(requestedStart, total));
-  if (start > 0 && start < total && isLowSurrogate(charCodeAt(start))) {
-    start -= 1;
-  }
-
-  let end = Math.min(total, start + maxChars);
-  if (end > start && end < total && isHighSurrogate(charCodeAt(end - 1))) {
-    // Backing off would empty a one-character window, which stalls paging on
-    // the same offset, so take the whole pair instead.
-    end = end - 1 > start ? end - 1 : Math.min(total, end + 1);
-  }
-
-  return { start, end };
 }
 
 export class FileSystemOps {

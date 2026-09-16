@@ -35,7 +35,9 @@ function fixture() {
   const started = mock(async () => {});
   const released = mock(() => {});
   const releaseBrowser = mock(async () => {});
+  const notify = mock(async () => {});
   const lease = new DesktopAutomationLease({
+    notify,
     enabled: () => enabled,
     ready: () => ready,
     ensureReady,
@@ -50,6 +52,7 @@ function fixture() {
   cleanups.push(lease);
   return {
     lease,
+    notify,
     ensureReady,
     install,
     failSetup: () => setup.reject(new Error("download failed")),
@@ -128,6 +131,7 @@ test("cancellation stops running and queued browser commands without blocking a 
   const callback = mock(operation);
   const queued = f.lease.runBrowser(context, callback);
   abort.abort();
+  expect(f.lease.isActive).toBe(false);
   expect(await running).toBeInstanceOf(Error);
   expect((await queued).isError).toBe(true);
   expect(callback).not.toHaveBeenCalled();
@@ -205,4 +209,143 @@ test("disabled, unidentified, cancelled and released browser calls cannot instal
   f.disable();
   await expect(f.lease.runBrowser(context, operation)).rejects.toThrow();
   expect(f.ensureReady).not.toHaveBeenCalled();
+});
+
+test("activity follows the browser lease and clears before failed cleanup", async () => {
+  const f = fixture();
+  expect(f.lease.isActive).toBe(false);
+  await f.lease.runBrowser(context, operation);
+  expect(f.lease.isActive).toBe(true);
+  expect(f.notify).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(context, operation);
+  expect(f.notify).toHaveBeenCalledTimes(1);
+  f.releaseBrowser.mockRejectedValueOnce(new Error("cleanup failed"));
+  await expect(f.lease.runBrowser(context, operation, true)).rejects.toThrow(
+    "cleanup failed",
+  );
+  expect(f.lease.isActive).toBe(false);
+  expect(f.notify).toHaveBeenCalledTimes(2);
+  await f.lease.runBrowser(context, operation, true);
+  expect(f.notify).toHaveBeenCalledTimes(2);
+});
+
+test("turn completion releases only its own desktop before cleanup finishes", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  f.lease.releaseForConversation("conv-456");
+  expect(f.lease.isActive).toBe(true);
+  expect(f.notify).toHaveBeenCalledTimes(1);
+
+  const cleanup = Promise.withResolvers<void>();
+  f.releaseBrowser.mockImplementationOnce(() => cleanup.promise);
+  f.lease.releaseForConversation(context.conversationId);
+  expect(f.lease.isActive).toBe(false);
+  expect(f.notify).toHaveBeenCalledTimes(2);
+  await Bun.sleep(0);
+  expect(f.released).not.toHaveBeenCalled();
+
+  const callback = mock(operation);
+  const next = f.lease.runBrowser(context, callback);
+  await Bun.sleep(0);
+  expect(callback).not.toHaveBeenCalled();
+  cleanup.resolve();
+  expect((await next).isError).toBe(false);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  expect(f.started).toHaveBeenCalledTimes(2);
+  expect(f.lease.isActive).toBe(true);
+});
+
+test("turn completion cancels running and queued desktop work", async () => {
+  const f = fixture();
+  const started = Promise.withResolvers<void>();
+  const running = f.lease
+    .runBrowser(context, async (signal) => {
+      started.resolve();
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        });
+      });
+      return operation();
+    })
+    .catch((error: unknown) => error);
+  await started.promise;
+  const callback = mock(operation);
+  const queued = f.lease.runBrowser(context, callback);
+  f.lease.releaseForConversation(context.conversationId);
+  expect(f.lease.isActive).toBe(false);
+  expect(await running).toBeInstanceOf(Error);
+  expect((await queued).isError).toBe(true);
+  expect(callback).not.toHaveBeenCalled();
+  await f.lease.runBrowser(context, callback);
+  expect(callback).toHaveBeenCalledTimes(1);
+});
+
+test("turn handoff retries failed cleanup without another turn or restart", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  f.releaseBrowser.mockRejectedValueOnce(new Error("Chrome cleanup timed out"));
+  f.lease.releaseForConversation(context.conversationId);
+  expect(f.lease.isActive).toBe(false);
+  await Bun.sleep(0);
+  expect(f.released).not.toHaveBeenCalled();
+  await Bun.sleep(1_100);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  const nextContext = { ...context, conversationId: "conv-456" };
+  expect((await f.lease.runBrowser(nextContext, operation)).isError).toBe(
+    false,
+  );
+  await f.lease.runBrowser(nextContext, operation, true);
+});
+
+test("a delayed cleanup retry cannot release a replacement owner", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  f.releaseBrowser.mockRejectedValueOnce(new Error("Chrome cleanup timed out"));
+  f.lease.releaseForConversation(context.conversationId);
+  await f.lease.runBrowser(context, operation, true);
+  const nextContext = { ...context, conversationId: "conv-456" };
+  await f.lease.runBrowser(nextContext, operation);
+  await Bun.sleep(1_100);
+  expect(f.lease.isActive).toBe(true);
+  expect(f.released).toHaveBeenCalledTimes(1);
+  await f.lease.runBrowser(nextContext, operation, true);
+});
+
+test("cleanup retries preserve commands queued behind an explicit handoff", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  f.releaseBrowser.mockRejectedValueOnce(new Error("Chrome cleanup timed out"));
+  f.lease.releaseForConversation(context.conversationId);
+  await Bun.sleep(0);
+  const cleanup = Promise.withResolvers<void>();
+  f.releaseBrowser.mockImplementationOnce(() => cleanup.promise);
+  const detached = f.lease.runBrowser(context, operation, true);
+  await Bun.sleep(0);
+  const callback = mock(operation);
+  const next = f.lease.runBrowser(context, callback);
+  await Bun.sleep(1_100);
+  cleanup.resolve();
+  await detached;
+  expect((await next).isError).toBe(false);
+  expect(callback).toHaveBeenCalledTimes(1);
+  expect(f.lease.isActive).toBe(true);
+});
+
+test("turn completion cancels commands queued behind an in-progress detach", async () => {
+  const f = fixture();
+  await f.lease.runBrowser(context, operation);
+  const cleanup = Promise.withResolvers<void>();
+  f.releaseBrowser.mockImplementationOnce(() => cleanup.promise);
+  const detached = f.lease.runBrowser(context, operation, true);
+  await Bun.sleep(0);
+  const callback = mock(operation);
+  const queued = f.lease.runBrowser(context, callback);
+  f.lease.releaseForConversation(context.conversationId);
+  cleanup.resolve();
+  await detached;
+  expect((await queued).isError).toBe(true);
+  expect(callback).not.toHaveBeenCalled();
+  await f.lease.runBrowser(context, callback);
+  expect(callback).toHaveBeenCalledTimes(1);
 });

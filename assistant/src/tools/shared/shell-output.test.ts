@@ -7,6 +7,7 @@ import {
   formatShellOutput,
   MAX_OUTPUT_LENGTH,
   OUTPUT_TRUNCATED_TAG,
+  SHELL_DID_NOT_START_MESSAGE,
 } from "./shell-output.js";
 
 describe("BoundedStdioCollector", () => {
@@ -82,6 +83,15 @@ describe("attachBoundedStdio", () => {
     child.stderr.emit("data", Buffer.alloc(20_000, 0x7a));
     expect(collector.keptByteLength).toBe(MAX_OUTPUT_LENGTH);
     expect(collector.didTruncate).toBe(true);
+  });
+});
+
+describe("formatShellOutput launch start", () => {
+  test("does not report command_completed when the process never started", () => {
+    const result = formatShellOutput("", "", 0, false, 120, { started: false });
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(SHELL_DID_NOT_START_MESSAGE);
+    expect(result.content).not.toContain("<command_completed />");
   });
 });
 

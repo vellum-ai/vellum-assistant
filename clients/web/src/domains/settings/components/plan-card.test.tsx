@@ -1,6 +1,6 @@
 /**
- * Tests for the PlanCard: verifies the plan name, renewal text, the single
- * header button (base-only "View All Plans" or paid-only "Manage
+ * Tests for the PlanCard: verifies the plan name, the cancellation line, the
+ * single header button (base-only "View All Plans" or paid-only "Manage
  * Subscription"), and the side-by-side current / next plan tiles render
  * correctly, plus the header button's navigation wiring. The card shows
  * no credit bundle label and no invoices button; invoices render in an inline
@@ -47,8 +47,17 @@ import {
   makeSuperPackage,
   makeUltraPackage,
 } from "@/domains/settings/billing/plans/pro-package-test-fixtures";
+import { formatGraceDate } from "@/domains/settings/hooks/use-billing-portal-session";
 import * as takeoverAvatarStash from "@/lib/billing/takeover-avatar-stash";
 import { routes } from "@/utils/routes";
+
+/**
+ * Cycle ends built from local noon, so the printed calendar day holds whatever
+ * the host offset is. A fixed UTC noon does not: it is already the next day
+ * from UTC+12 eastward.
+ */
+const BASE_PERIOD_END = new Date(2026, 6, 10, 12).toISOString();
+const PRO_PERIOD_END = new Date(2026, 7, 10, 12).toISOString();
 
 // Capture navigate() targets so the action-button wiring can be asserted
 // without a live Router.
@@ -206,7 +215,7 @@ function baseSubscription(): SubscriptionResponse {
     status: "active",
     renewal_date: null,
     current_period_start: null,
-    current_period_end: "2026-07-10T00:00:00Z",
+    current_period_end: BASE_PERIOD_END,
     cancel_at_period_end: false,
     cancel_at: null,
     entitlements: { managed_email: false, phone_number: false },
@@ -223,17 +232,18 @@ function plansWithSuper(): PlanListResponse {
   return plans;
 }
 
-/** A subscriber currently on the Mighty Pro package. */
+/** A subscriber currently on the Mighty Pro package, bundle and all. */
 function proMightySubscription(): SubscriptionResponse {
   return {
     plan_id: "pro",
     status: "active",
     renewal_date: null,
     current_period_start: null,
-    current_period_end: "2026-08-10T00:00:00Z",
+    current_period_end: PRO_PERIOD_END,
     cancel_at_period_end: false,
     cancel_at: null,
     package: { key: "mighty", name: "Mighty", version: 1, customized: false },
+    selected_credit_tier: "credits_25",
     entitlements: { managed_email: false, phone_number: false },
   };
 }
@@ -286,10 +296,11 @@ function proUltraSubscription(): SubscriptionResponse {
     status: "active",
     renewal_date: null,
     current_period_start: null,
-    current_period_end: "2026-08-10T00:00:00Z",
+    current_period_end: PRO_PERIOD_END,
     cancel_at_period_end: false,
     cancel_at: null,
     package: { key: "ultra", name: "Ultra", version: 1, customized: false },
+    selected_credit_tier: "credits_115",
     entitlements: { managed_email: false, phone_number: false },
   };
 }
@@ -447,13 +458,12 @@ afterEach(() => {
 });
 
 describe("PlanCard", () => {
-  test("shows the plan name and renewal text for a base plan", () => {
+  test("shows the plan name for a base plan", () => {
     const html = renderCard(baseSubscription(), basePlansResponse());
     expect(html).toContain("plan-card-name");
     expect(html).toContain("Free");
     expect(html).toContain("Current");
-    expect(html).toContain("plan-card-renews");
-    expect(html).toContain("auto renew");
+    expect(html).not.toContain("plan-card-period-end");
   });
 
   test("shows the plans button for a base plan", () => {
@@ -645,6 +655,8 @@ describe("PlanCard", () => {
       expect(html).not.toContain(label);
     }
     expect(html).not.toContain("plan-card-price");
+    // The renewal date is the subscription's own, so it survives the miss.
+    expect(html).toContain("plan-card-period-end");
   });
 
   test("a clean pin on an older package version shows no chips or price", () => {
@@ -664,6 +676,11 @@ describe("PlanCard", () => {
       expect(current.queryByText(label)).toBeNull();
     }
     expect(current.queryByTestId("plan-card-price")).toBeNull();
+    // The renewal date is the subscription's own, so the footer keeps it even
+    // with no price to quote beside it.
+    expect(current.getByTestId("plan-card-period-end").textContent).toBe(
+      "Resets on Aug 10",
+    );
     // Super is still the next package up, but its CTA quotes no delta.
     const next = within(nextTile(host));
     expect(next.getByText("Super")).toBeTruthy();
@@ -1138,58 +1155,77 @@ describe("PlanCard usage balance", () => {
 
     // $10 of the $25 the cycle granted is gone.
     const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Usage Balance");
+    expect(panel.textContent).toContain("Current Usage");
+    expect(panel.textContent).toContain("Resets on Aug 10");
     expect(panel.textContent).toContain("40% used");
     // The bar is the replacement, so the monthly price must not stand beside
-    // it on the current tile.
+    // it on the current tile, and the panel dates the renewal on its own.
     expect(queryByTestId("plan-card-price")).toBeNull();
+    expect(queryByTestId("plan-card-period-end")).toBeNull();
     expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
   });
 
-  test("both tiles name the package's usage instead of a dollar bundle", () => {
-    const { container } = renderCardInteractive(
-      proMightySubscription(),
+  test("a cancelling sub prints no renewal date", async () => {
+    // A sub that is ending does not renew, and the header's cancellation line
+    // already says when it stops.
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "15.00";
+    const { findByTestId, getByTestId, queryByTestId } = renderCardInteractive(
+      { ...proMightySubscription(), cancel_at_period_end: true },
       plansWithSuper(),
       () => {},
     );
 
-    const current = within(currentTile(container));
-    expect(current.getByText("Mighty usage, reset monthly")).toBeTruthy();
-    // Machine and storage chips keep their own copy.
-    expect(current.getByText("10 GB Storage")).toBeTruthy();
-
-    const next = within(nextTile(container));
-    expect(next.getByText("Super usage, reset monthly")).toBeTruthy();
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("40% used");
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
+    // The header line formats in the runtime's default locale, so it is
+    // compared against the helper that writes it.
+    expect(getByTestId("plan-card-cancels").textContent).toContain(
+      formatGraceDate(PRO_PERIOD_END),
+    );
   });
 
-  test("both tiles wrap their short chips into a row, usage below", () => {
+  test("a non-entitlement-status sub prints no renewal date", async () => {
+    // An `unpaid` sub keeps the `current_period_end` it last held, but the
+    // platform bears it no entitlement, so nothing renews on that date.
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "15.00";
+    const { findByTestId, queryByTestId } = renderCardInteractive(
+      { ...proMightySubscription(), status: "unpaid" },
+      plansWithSuper(),
+      () => {},
+    );
+
+    const panel = await findByTestId("plan-usage-balance");
+    expect(panel.textContent).toContain("40% used");
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
+  });
+
+  test("both tiles receive their package's spec chips", () => {
     const { container } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
       () => {},
     );
 
-    for (const [tile, usageLabel] of [
-      [currentTile(container), "Mighty usage, reset monthly"],
-      [nextTile(container), "Super usage, reset monthly"],
+    // How those chips lay out belongs to the tile; plan-tile.test.tsx owns it.
+    for (const [tile, labels] of [
+      [currentTile(container), MIGHTY_CHIPS],
+      [nextTile(container), SUPER_CHIPS],
     ] as const) {
-      // Child 0 is the header row; child 1 is the chip container.
-      const chips = tile.children[1] as HTMLElement;
-      const wrapRow = chips.firstElementChild as HTMLElement;
-      expect(wrapRow.className).toContain("flex-wrap");
-      expect(wrapRow.textContent).toContain("Machine");
-      expect(wrapRow.textContent).toContain("Storage");
-      expect(wrapRow.textContent).not.toContain(usageLabel);
-      // The usage chip is the first full-width row underneath (Super's email
-      // extra takes another below it).
-      expect(chips.children[1]?.textContent).toBe(usageLabel);
+      for (const label of labels) {
+        expect(within(tile).getByText(label)).toBeTruthy();
+      }
     }
   });
 
-  test("keeps the price row when the summary reports no grant figures", async () => {
-    // An older platform omits both usage-grant fields, so there is no honest
-    // reading. The tile keeps its price rather than an empty footer.
-    const { container } = renderCardInteractive(
+  test("no grant figures keeps the price row and dates the renewal beside it", async () => {
+    // An older platform omits both usage-grant fields, or the summary has not
+    // loaded, so there is no honest reading. The tile keeps its price rather
+    // than an empty footer, and the renewal date the subscription itself
+    // carries moves beside the price instead of vanishing with the panel.
+    const { container, getByTestId, queryByTestId } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
       () => {},
@@ -1201,9 +1237,32 @@ describe("PlanCard usage balance", () => {
     expect(
       container.querySelector('[data-testid="plan-usage-balance"]'),
     ).toBeNull();
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
     expect(
       within(currentTile(container)).getByTestId("plan-card-price").textContent,
     ).toBe("$30/month");
+    expect(getByTestId("plan-card-period-end").textContent).toBe(
+      "Resets on Aug 10",
+    );
+  });
+
+  test("no grant figures on a cancelling sub prints no renewal beside the price", async () => {
+    // The price row follows the panel's rule: a sub that is ending does not
+    // renew, and the header's cancellation line already says when it stops.
+    const { container, getByTestId, queryByTestId } = renderCardInteractive(
+      { ...proMightySubscription(), cancel_at_period_end: true },
+      plansWithSuper(),
+      () => {},
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      within(currentTile(container)).getByTestId("plan-card-price").textContent,
+    ).toBe("$30/month");
+    expect(queryByTestId("plan-card-period-end")).toBeNull();
+    expect(getByTestId("plan-card-cancels")).toBeTruthy();
   });
 
   test("a Custom sub reads the same summary and still shows no chips", async () => {
@@ -1219,6 +1278,8 @@ describe("PlanCard usage balance", () => {
 
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("20% used");
+    // The Custom sub holds a bundle, so its cycle end is a reset.
+    expect(panel.textContent).toContain("Resets on Aug 10");
     // A Custom sub still enumerates nothing and still quotes no price.
     const current = within(currentTile(container));
     expect(current.queryByText("Mighty usage, reset monthly")).toBeNull();
@@ -1227,9 +1288,8 @@ describe("PlanCard usage balance", () => {
   });
 
   test("a Custom sub with no live grants reads as fully spent", async () => {
-    // Every grant this sub ever held is used or expired, so the summary's
-    // total is zero. The plan has nothing left to give, which is a full bar
-    // with no reset date, not a missing one.
+    // Every grant is spent: a full bar. With no bundle to turn over, the date
+    // names a renewal rather than a reset (see `UsagePeriodEnd`).
     totalUsageBalance = "0.00";
     availableUsageBalance = "0.00";
     const { findByTestId, queryByTestId, queryByText } = renderCardInteractive(
@@ -1240,6 +1300,7 @@ describe("PlanCard usage balance", () => {
 
     const panel = await findByTestId("plan-usage-balance");
     expect(panel.textContent).toContain("100% used");
+    expect(panel.textContent).toContain("Renews on Aug 10");
     expect(
       panel
         .querySelector('[data-slot="progress-bar-fill"]')
@@ -1397,15 +1458,18 @@ describe("PlanCard usage balance", () => {
     // takes the footer over from the price row.
     totalUsageBalance = "5.00";
     availableUsageBalance = "1.60";
-    const { container, findByTestId } = renderCardInteractive(
+    const { container, findByTestId, queryByTestId } = renderCardInteractive(
       baseSubscription(),
       basePlansResponse(),
       () => {},
     );
 
     const panel = await findByTestId("plan-usage-balance");
-    expect(panel.textContent).toContain("Usage Balance");
+    expect(panel.textContent).toContain("Current Usage");
     expect(panel.textContent).toContain("68% used");
+    // The base fixture carries a `current_period_end`, so this proves the gate
+    // is the plan rather than the field.
+    expect(queryByTestId("plan-usage-period-end")).toBeNull();
     const current = within(currentTile(container));
     expect(current.queryByTestId("plan-card-price")).toBeNull();
     expect(current.queryByText("Free Forever")).toBeNull();
@@ -1472,5 +1536,4 @@ describe("PlanCard usage balance", () => {
       queryByText("Add credits to continue using your assistant"),
     ).toBeNull();
   });
-
 });

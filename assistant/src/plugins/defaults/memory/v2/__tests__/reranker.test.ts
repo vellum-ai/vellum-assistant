@@ -10,10 +10,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantConfig } from "../../../../../config/types.js";
 
+// Spread the real module: the reranker reaches the plugin API, whose import
+// graph names more of `util/platform` than the two overrides below, and ESM
+// named-import validation rejects a partial mock.
+const realPlatform = await import("../../../../../util/platform.js");
 mock.module("../../../../../util/platform.js", () => ({
+  ...realPlatform,
   getWorkspaceDir: () => "/tmp/test-workspace",
-  // Imported by the real util/logger.js; ESM named-import validation
-  // requires it even though the silent test logger never calls it.
   getLogsDir: () => "/tmp/test-workspace/logs",
 }));
 

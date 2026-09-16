@@ -117,6 +117,17 @@ let loadedConversations: Record<string, { processing: boolean }> = {};
 // the stale-flag override's age check. Absent ids read as null (stampless).
 let processingStartedAtById: Record<string, number | null> = {};
 
+// The source conversation's recorded wire tool surface (what its last live
+// turn sent to the provider). `null` = no live turn has recorded one yet.
+let mockSourceToolSurface: Array<Record<string, unknown>> | null = null;
+let toolSurfaceReads: string[] = [];
+mock.module("../../../../persistence/conversation-tool-surface.js", () => ({
+  getConversationToolSurface: (conversationId: string) => {
+    toolSurfaceReads.push(conversationId);
+    return mockSourceToolSurface;
+  },
+}));
+
 const watchdogEvents: Array<{
   checkName: string;
   value?: number | null;
@@ -509,6 +520,8 @@ describe("memoryRetrospectiveJob", () => {
     resolveUserSlugCalls = [];
     mockV3TierActive = true;
     mockSkillImprovementActive = false;
+    mockSourceToolSurface = null;
+    toolSurfaceReads = [];
   });
 
   test("first-run happy path: no state row, no prior retrospective, both pointer fields set on success", async () => {
@@ -1840,6 +1853,39 @@ describe("memoryRetrospectiveJob", () => {
       clientOs: "web",
       requestOrigin: "memory_retrospective",
     });
+  });
+
+  test("replays the source's recorded wire tool surface verbatim on the fork wake", async () => {
+    mockSourceToolSurface = [
+      { name: "bash", description: "Run", input_schema: {} },
+      { name: "remember", description: "Save", input_schema: {} },
+      { name: "bell_jingle", description: "Ring", input_schema: {} },
+      { type: "web_search_20250305", name: "web_search", max_uses: 5 },
+    ];
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(toolSurfaceReads).toEqual(["src-conv-1"]);
+    expect(wakeCalls).toHaveLength(1);
+    // The exact recorded array rides to the wake; the fork sends it in place
+    // of the surface it would resolve for itself.
+    expect(wakeCalls[0]!.opts.wireToolDefinitions).toEqual(
+      mockSourceToolSurface,
+    );
+    // The execution-side pin still rides alongside it.
+    expect(wakeCalls[0]!.opts.toolGateMode).toBe("execution");
+    expect(wakeCalls[0]!.opts.toolContextPin).toBeDefined();
+  });
+
+  test("no recorded source surface → no wireToolDefinitions; the pin alone shapes the wire", async () => {
+    mockSourceToolSurface = null;
+
+    await memoryRetrospectiveJob(makeJob(), stubConfig);
+
+    expect(toolSurfaceReads).toEqual(["src-conv-1"]);
+    expect(wakeCalls).toHaveLength(1);
+    expect("wireToolDefinitions" in wakeCalls[0]!.opts).toBe(false);
+    expect(wakeCalls[0]!.opts.toolContextPin).toBeDefined();
   });
 
   test("execution mode is unconditional → toolContextPin rides even without a resolved profile", async () => {

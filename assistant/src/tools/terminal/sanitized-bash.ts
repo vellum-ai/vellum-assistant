@@ -11,9 +11,12 @@ import { spawn } from "node:child_process";
 
 import {
   buildShellInvocation,
+  buildShellSpawnFlags,
   terminateProcessTree,
+  watchShellProcessStart,
 } from "../../util/host-process.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { SHELL_DID_NOT_START_MESSAGE } from "../shared/shell-output.js";
 import { buildSanitizedEnv } from "./safe-env.js";
 
 export const DEFAULT_SANITIZED_BASH_TIMEOUT_MS = 30_000;
@@ -63,10 +66,10 @@ export function runSanitizedBash(
     const child = spawn(wrapped.command, wrapped.args, {
       cwd: getWorkspaceDir(),
       stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
       env: buildSanitizedEnv(),
-      windowsHide: true,
+      ...buildShellSpawnFlags(),
     });
+    const launch = watchShellProcessStart(child);
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -83,6 +86,16 @@ export function runSanitizedBash(
 
     child.on("close", (code) => {
       clearTimeout(timer);
+      if (!launch.didStart()) {
+        finish({
+          stdout: "",
+          stderr: "",
+          exitCode: null,
+          timedOut: false,
+          error: SHELL_DID_NOT_START_MESSAGE,
+        });
+        return;
+      }
       finish({
         stdout: Buffer.concat(stdoutChunks).toString(),
         stderr: Buffer.concat(stderrChunks).toString(),

@@ -1163,6 +1163,27 @@ describe("memory-v3 engine", () => {
     expect(sourceOf([])).toBe("needle");
   });
 
+  test("a turn whose selector could not run attributes no rows, so unjudged pages never feed frecency or learned edges", () => {
+    const rows = attributeSelections({
+      selections: [
+        { slug: "page-core", sections: [] },
+        { slug: "page-hot", sections: [] },
+      ],
+      lanes: {
+        core: ["page-core"],
+        hot: ["page-hot"],
+        fresh: [],
+        always: [],
+        finder: [{ slug: "page-two", descriptor: "", lane: "needle" }],
+      },
+      selectorRan: false,
+      selectorFailure: new MemoryV3RetrievalUnavailableError(
+        "selector unavailable",
+      ),
+    });
+    expect(rows).toEqual([]);
+  });
+
   test("a selection of a core page a finder also hit attributes to core (pool position wins)", () => {
     const rows = attributeSelections({
       selections: [{ slug: "page-core", sections: [] }],

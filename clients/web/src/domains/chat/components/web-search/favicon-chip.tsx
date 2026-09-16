@@ -6,13 +6,13 @@ import { Typography, cn } from "@vellumai/design-library";
  * Compact chip showing a site favicon and its title. Used in the
  * "Searching the web" loading UI to render a single search result.
  *
- * Matches Figma node 4922:104031 — a 14×14 favicon with 4px radius on a
+ * Matches Figma node 4922:104031: a 14×14 favicon with 4px radius on a
  * `--surface-overlay` square, followed by a single-line title in
  * `body-small-default` (Inter Medium 12). The whole pill sits on
  * `--surface-base` with `--radius-pill` corners.
  *
  * When `faviconUrl` is missing OR the `<img>` errors, the favicon slot
- * shows a monogram fallback (the first uppercase letter of `domain` —
+ * shows a monogram fallback (the first uppercase letter of `domain`,
  * falling back to `title`).
  *
  * Chat-scoped: import directly via
@@ -21,7 +21,7 @@ import { Typography, cn } from "@vellumai/design-library";
 export interface FaviconChipProps {
   /**
    * Absolute URL to the site's favicon. When `undefined` or empty, no
-   * `<img>` is rendered — the monogram fallback paints directly.
+   * `<img>` is rendered; the monogram fallback paints directly.
    */
   faviconUrl?: string;
   /** Visible chip label. Truncated with `max-w-[200px]`. */
@@ -83,7 +83,7 @@ export function FaviconChip({
             onError={() => setImageFailed(true)}
           />
         ) : (
-          // typography: off-scale — 10px monogram inside 14px favicon slot
+          // typography: off-scale, 10px monogram inside 14px favicon slot
           <span className="text-[10px] font-medium leading-none text-[var(--content-default)]">
             {letter}
           </span>

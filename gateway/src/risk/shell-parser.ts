@@ -166,6 +166,35 @@ const SENSITIVE_PATH_PREFIXES = [
   "/usr/bin/",
 ];
 
+// Bash resolves redirect targets under these prefixes to live sockets
+// (`/dev/tcp/<host>/<port>`, `/dev/udp/<host>/<port>`), so a redirect alone
+// opens a network connection with no network command on the line to classify.
+const NETWORK_DEVICE_PREFIXES = ["/dev/tcp/", "/dev/udp/"];
+
+// Expansions make a redirect target unknowable before execution, so a redirect
+// that carries one is opaque rather than a checkable literal path.
+const REDIRECT_EXPANSION_TYPES = new Set([
+  "simple_expansion",
+  "expansion",
+  "command_substitution",
+  "arithmetic_expansion",
+  "process_substitution",
+]);
+
+function hasExpansion(n: TSNode): boolean {
+  if (REDIRECT_EXPANSION_TYPES.has(n.type)) {
+    return true;
+  }
+  return n.children.some((child) => hasExpansion(child));
+}
+
+// The path bash opens after quote removal: quotes, the ANSI-C `$'` prefix, and
+// backslashes are syntax rather than path characters, so `/dev/t"cp"/x`,
+// `/dev/\tcp/x`, and `$'/dev/tcp/x'` all name `/dev/tcp/x`.
+function literalRedirectTarget(text: string): string {
+  return text.replace(/\$'|["'\\]/g, "");
+}
+
 // Expected SHA-256 checksums for WASM binaries.
 // Update these when intentionally upgrading web-tree-sitter or tree-sitter-bash.
 // Generate with: shasum -a 256 node_modules/web-tree-sitter/web-tree-sitter.wasm node_modules/tree-sitter-bash/tree-sitter-bash.wasm
@@ -593,10 +622,20 @@ function detectDangerousPatterns(
       const dest = n.lastChild;
       if (dest) {
         const destText = dest.text;
+        const destPath = literalRedirectTarget(destText);
+        if (
+          NETWORK_DEVICE_PREFIXES.some((prefix) => destPath.startsWith(prefix))
+        ) {
+          patterns.push({
+            type: "network_redirect",
+            description: `Redirect to network pseudo-device: ${destText}`,
+            text: n.text,
+          });
+        }
         for (const prefix of SENSITIVE_PATH_PREFIXES) {
           if (
-            destText.startsWith(prefix) ||
-            destText.startsWith(prefix.replace("~", "$HOME"))
+            destPath.startsWith(prefix) ||
+            destPath.startsWith(prefix.replace("~", "$HOME"))
           ) {
             patterns.push({
               type: "sensitive_redirect",
@@ -675,6 +714,15 @@ function detectOpaqueConstructs(
       n.type === "herestring_redirect"
     ) {
       return true;
+    }
+
+    // A redirect target expanded at runtime cannot be checked against the
+    // sensitive-path or network-device prefixes.
+    if (n.type === "file_redirect") {
+      const dest = n.lastChild;
+      if (dest && hasExpansion(dest)) {
+        return true;
+      }
     }
 
     // Variable expansion used as command name

@@ -113,6 +113,15 @@ interface InboundEventBase<C extends InboundChannelId> {
      */
     isDirectMessage?: boolean;
     /**
+     * Whether the message addresses the assistant by name, an @-mention on
+     * the platforms that have one. Stated only where the channel proved it,
+     * in whichever direction it can prove; absent means "not established".
+     * Slack states it for an `app_mention`; Discord reads its own id out of
+     * the mentions array. The runtime reads it to decide whether a reply is
+     * expected before any text exists, never to admit or deny.
+     */
+    botMentioned?: boolean;
+    /**
      * True when the platform names no actor for this event: the synthetic
      * actorExternalId identifies the channel's system, not a person, so
      * nothing downstream may treat it as an identity claim. A delete on a
