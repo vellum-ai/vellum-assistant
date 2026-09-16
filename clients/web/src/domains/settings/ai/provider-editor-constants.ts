@@ -40,6 +40,7 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   "opencode",
   "baseten",
   "poolside",
+  "jev",
   "openai-compatible",
 ];
 

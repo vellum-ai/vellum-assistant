@@ -27,6 +27,7 @@ const DEFAULT_PROVIDER_ELIGIBLE: Record<DefaultProviderId, true> = {
   atlascloud: true,
   baseten: true,
   poolside: true,
+  jev: true,
 };
 
 export function isDefaultProviderId(

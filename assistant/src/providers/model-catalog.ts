@@ -1,9 +1,7 @@
 import { PLATFORM_PROVIDER_META } from "./platform-proxy/constants.js";
 
 export type LongContextMode =
-  | "native-model"
-  | "provider-request-option"
-  | "unsupported";
+  "native-model" | "provider-request-option" | "unsupported";
 
 export interface CatalogModelPricingTier {
   /**
@@ -2525,6 +2523,37 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     defaultModel: "poolside/laguna-s-2.1",
     apiKeyUrl: "https://poolside.ai",
     apiKeyPlaceholder: "Your Poolside API key",
+  },
+  {
+    id: "jev",
+    displayName: "Jev",
+    subtitle:
+      "TypeSafe System One decision model. Returns structured answers, not generated text. Requires a TypeSafe API key.",
+    setupMode: "api-key",
+    setupHint: "Enter your TypeSafe API key to enable Jev.",
+    envVar: "TYPESAFE_API_KEY",
+    credentialsGuide: {
+      description: "Sign in to TypeSafe and create an API key.",
+      url: "https://typesafe.ai",
+      linkLabel: "Open TypeSafe",
+    },
+    models: [
+      {
+        id: "jev-latest",
+        displayName: "Jev",
+        // TypeSafe's published request budget is about 32,000 tokens.
+        contextWindowTokens: 32000,
+        maxOutputTokens: 4096,
+        supportsThinking: false,
+        supportsCaching: false,
+        supportsVision: false,
+        supportsToolUse: false,
+        pricing: { inputPer1mTokens: 0.042, outputPer1mTokens: 0 },
+      },
+    ],
+    defaultModel: "jev-latest",
+    apiKeyUrl: "https://typesafe.ai",
+    apiKeyPlaceholder: "Your TypeSafe API key",
   },
   {
     id: "vellum",
