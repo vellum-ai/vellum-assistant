@@ -184,6 +184,7 @@ export const UpgradeRequired: Story = {
     <AssistantInboxUpgradeState
       assistantId={ASSISTANT_ID}
       assistantName={MOCK_ASSISTANT_NAME}
+      handle={MOCK_ASSISTANT_HANDLE}
       rootDomain={MOCK_ROOT_DOMAIN}
       onUpgrade={fn().mockName("onUpgrade")}
       onSeePlans={fn().mockName("onSeePlans")}

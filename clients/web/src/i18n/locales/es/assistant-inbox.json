@@ -4,11 +4,13 @@
   },
   "assistantInboxHeader": {
     "title": "Bandeja de {name}",
-    "copyAddress": "Copiar dirección de correo",
-    "copied": "Copiado",
-    "copyFailed": "No se pudo copiar la dirección.",
     "subtitle": "Aquí están todos los correos que he recibido y enviado por ti.",
     "usage": "{sent} enviados hoy · {received} recibidos hoy"
+  },
+  "addressPill": {
+    "copyAddress": "Copiar dirección de correo",
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar la dirección."
   },
   "assistantInboxPage": {
     "folderAriaLabel": "Carpeta de correo",

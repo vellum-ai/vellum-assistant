@@ -4,11 +4,13 @@
   },
   "assistantInboxHeader": {
     "title": "{name}'s Inbox",
-    "copyAddress": "Copy email address",
-    "copied": "Copied",
-    "copyFailed": "Couldn't copy the address.",
     "subtitle": "Here are all the emails I've received and sent for you.",
     "usage": "{sent} sent today · {received} received today"
+  },
+  "addressPill": {
+    "copyAddress": "Copy email address",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy the address."
   },
   "assistantInboxPage": {
     "folderAriaLabel": "Mail folder",

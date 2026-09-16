@@ -7,12 +7,15 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useTranslation } from "@/i18n";
 
 import { AssistantInboxShell } from "./assistant-inbox-shell";
+import { AddressPill } from "./address-pill";
 import { InboxCard } from "./inbox-card";
 
 export interface AssistantInboxUpgradeStateProps {
   /** Whose inbox this would be; the pitch wears their accent. */
   assistantId: string;
   assistantName: string;
+  /** The handle set at onboarding, so the example address is the real one. */
+  handle: string;
   rootDomain: string;
   onUpgrade: () => void;
   onSeePlans?: () => void;
@@ -31,6 +34,7 @@ export interface AssistantInboxUpgradeStateProps {
 export function AssistantInboxUpgradeState({
   assistantId,
   assistantName,
+  handle,
   rootDomain,
   onUpgrade,
   onSeePlans,
@@ -83,6 +87,13 @@ export function AssistantInboxUpgradeState({
             </>
           }
         >
+          {/* The address the upgrade would create, drawn as the assistant so
+              the pitch shows the thing itself rather than describing it. */}
+          <AddressPill
+            assistantId={assistantId}
+            address={`${t("emailAddressFields.prefixPlaceholder")}@${handle}.${rootDomain}`}
+            className="mx-auto"
+          />
           {/* Shrink-wrapped and centred, so the panel sits on the same axis
               as the title above it and the actions below, rather than a
               full-width block with its rows hanging off the left edge. */}

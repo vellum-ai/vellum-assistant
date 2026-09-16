@@ -4,11 +4,13 @@
   },
   "assistantInboxHeader": {
     "title": "Почта {name}",
-    "copyAddress": "Скопировать адрес",
-    "copied": "Скопировано",
-    "copyFailed": "Не удалось скопировать адрес.",
     "subtitle": "Здесь все письма, которые я получил и отправил для вас.",
     "usage": "{sent} отправлено сегодня · {received} получено сегодня"
+  },
+  "addressPill": {
+    "copyAddress": "Скопировать адрес",
+    "copied": "Скопировано",
+    "copyFailed": "Не удалось скопировать адрес."
   },
   "assistantInboxPage": {
     "folderAriaLabel": "Папка почты",

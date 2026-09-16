@@ -4,11 +4,13 @@
   },
   "assistantInboxHeader": {
     "title": "{name} 的收件匣",
-    "copyAddress": "複製電子郵件地址",
-    "copied": "已複製",
-    "copyFailed": "無法複製地址。",
     "subtitle": "這裡是我為你收到和寄出的所有郵件。",
     "usage": "今天已寄出 {sent} 封 · 已收到 {received} 封"
+  },
+  "addressPill": {
+    "copyAddress": "複製電子郵件地址",
+    "copied": "已複製",
+    "copyFailed": "無法複製地址。"
   },
   "assistantInboxPage": {
     "folderAriaLabel": "郵件資料夾",
