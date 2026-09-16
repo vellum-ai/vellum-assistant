@@ -22,7 +22,11 @@ export async function fetchDesktopSetup(
   });
   if (response?.status === 404) {
     // Assistants without setup support retain their direct streaming flow.
-    return { state: "ready", automationActive: false } as const;
+    return {
+      state: "ready",
+      automationActive: false,
+      setupUnsupported: true,
+    } as const;
   }
   if (!response?.ok || !data) {
     throw response ? toApiError(error, response) : error;
@@ -42,6 +46,8 @@ export function useDesktopSetupStatus(assistantId: string) {
     enabled: orgReady,
     retry: false,
     refetchOnWindowFocus: false,
+    refetchOnMount: (query) =>
+      !query.state.data || !("setupUnsupported" in query.state.data),
     staleTime: 0,
   });
   const refresh = () =>
