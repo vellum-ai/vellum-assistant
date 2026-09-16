@@ -41,6 +41,7 @@ export function useDesktopSetupStatus(assistantId: string) {
     queryFn: ({ signal }) => fetchDesktopSetup(assistantId, signal),
     enabled: orgReady,
     retry: false,
+    refetchOnWindowFocus: false,
     staleTime: 0,
   });
   const refresh = () =>
