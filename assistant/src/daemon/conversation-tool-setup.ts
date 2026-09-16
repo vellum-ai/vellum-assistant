@@ -45,11 +45,8 @@ import {
   injectActivityField,
   stripActivityField,
 } from "../tools/schema-transforms.js";
-import {
-  augmentSkillExecuteError,
-  recoverSkillExecuteEnvelope,
-  resolveSkillExecuteInput,
-} from "../tools/skills/execute.js";
+import { augmentSkillExecuteError } from "../tools/skills/execute.js";
+import { resolveSkillExecuteInvocation } from "../tools/skills/resolve-execute-invocation.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import type {
   ProxyApprovalCallback,
@@ -535,23 +532,8 @@ export function createToolExecutor(
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
     if (executionName === "skill_execute") {
-      // Recover an envelope the provider wrapped as unparseable when MiniMax's
-      // coercion failed to JSON-decode a bare-string `input` (see
-      // recoverSkillExecuteEnvelope), then resolve the inner tool + params.
-      const envelope = recoverSkillExecuteEnvelope(executionInput);
-      const rawToolName =
-        typeof envelope.tool === "string" ? envelope.tool : "";
-      const innerSchema = rawToolName
-        ? getTool(rawToolName)?.input_schema
-        : undefined;
-      const rawToolInput = resolveSkillExecuteInput(envelope, innerSchema);
-
-      // Clone to avoid mutating shared input objects
-      const { name: toolName, input: toolInput } = resolveToolInvocationAlias(
-        rawToolName,
-        { ...rawToolInput },
-        ctx.allowedToolNames,
-      );
+      const { name: toolName, input: toolInput } =
+        resolveSkillExecuteInvocation(executionInput, ctx.allowedToolNames);
 
       if (!toolName) {
         return {
