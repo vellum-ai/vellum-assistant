@@ -35,14 +35,11 @@
   },
   "emailAddressFields": {
     "prefixLabel": "Префикс",
-    "handleLabel": "Имя (публичное)",
-    "prefixPlaceholder": "hi",
-    "handlePlaceholder": "my-assistant"
+    "prefixPlaceholder": "hi"
   },
   "assistantInboxUpgradeState": {
     "title": "Дайте {name} почтовый ящик",
     "subtitle": "Адрес, на который могут писать люди, и одно место, где можно прочитать всё, что приходит.",
-    "handleHint": "Это имя вы уже задали. Оно станет адресом {name} сразу после перехода на новый тариф.",
     "perkAddress": "Настоящий адрес на {rootDomain}",
     "perkReads": "{name} читает, сортирует и отвечает за вас",
     "perkHistory": "Каждое письмо хранится здесь: входящие и отправленные",
@@ -53,7 +50,6 @@
     "title": "Почта ассистента",
     "subtitle": "Настройте почту для вашего ассистента.",
     "addressPreview": "Адрес вашего ассистента будет {address}.",
-    "skip": "Пропустить",
-    "next": "Далее"
+    "getStarted": "Начать"
   }
 }

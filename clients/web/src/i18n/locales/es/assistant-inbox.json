@@ -35,14 +35,11 @@
   },
   "emailAddressFields": {
     "prefixLabel": "Prefijo",
-    "handleLabel": "Identificador (público)",
-    "prefixPlaceholder": "hola",
-    "handlePlaceholder": "mi-asistente"
+    "prefixPlaceholder": "hola"
   },
   "assistantInboxUpgradeState": {
     "title": "Dale una bandeja de entrada a {name}",
     "subtitle": "Una dirección de correo a la que la gente pueda escribir y un solo lugar para leer todo lo que llega.",
-    "handleHint": "Este es el identificador que ya configuraste. Se convertirá en la dirección de {name} en cuanto mejores tu plan.",
     "perkAddress": "Una dirección real en {rootDomain}",
     "perkReads": "{name} lee, ordena y responde por ti",
     "perkHistory": "Cada mensaje guardado aquí, recibidos y enviados",
@@ -53,7 +50,6 @@
     "title": "Correo del asistente",
     "subtitle": "Configura un correo para tu asistente.",
     "addressPreview": "La dirección de tu asistente será {address}.",
-    "skip": "Omitir",
-    "next": "Siguiente"
+    "getStarted": "Empezar"
   }
 }

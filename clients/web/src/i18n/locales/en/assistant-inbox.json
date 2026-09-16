@@ -35,14 +35,11 @@
   },
   "emailAddressFields": {
     "prefixLabel": "Prefix",
-    "handleLabel": "Handle (public)",
-    "prefixPlaceholder": "hi",
-    "handlePlaceholder": "my-assistant"
+    "prefixPlaceholder": "hi"
   },
   "assistantInboxUpgradeState": {
     "title": "Give {name} an inbox",
     "subtitle": "An email address people can write to, and one place to read everything that arrives.",
-    "handleHint": "This is the handle you already set. It becomes {name}'s address the moment you upgrade.",
     "perkAddress": "A real address on {rootDomain}",
     "perkReads": "{name} reads, sorts, and replies for you",
     "perkHistory": "Every message kept here, inbox and sent",
@@ -53,7 +50,6 @@
     "title": "Assistant Email",
     "subtitle": "Set up an email for your assistant.",
     "addressPreview": "Your assistant's address will be {address}.",
-    "skip": "Skip",
-    "next": "Next"
+    "getStarted": "Get started"
   }
 }

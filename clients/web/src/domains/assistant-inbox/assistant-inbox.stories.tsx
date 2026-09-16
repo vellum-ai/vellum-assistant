@@ -183,7 +183,6 @@ export const UpgradeRequired: Story = {
   render: () => (
     <AssistantInboxUpgradeState
       assistantName={MOCK_ASSISTANT_NAME}
-      handle={MOCK_ASSISTANT_HANDLE}
       rootDomain={MOCK_ROOT_DOMAIN}
       onUpgrade={fn().mockName("onUpgrade")}
       onSeePlans={fn().mockName("onSeePlans")}
@@ -196,10 +195,10 @@ export const SetUpEmail: Story = {
   name: "2 · Set up email",
   render: () => (
     <AssistantInboxSetupCard
+      assistantId={ASSISTANT_ID}
       handle={MOCK_ASSISTANT_HANDLE}
       rootDomain={MOCK_ROOT_DOMAIN}
-      onNext={fn().mockName("onNext")}
-      onSkip={fn().mockName("onSkip")}
+      onConfirm={fn().mockName("onConfirm")}
     />
   ),
 };

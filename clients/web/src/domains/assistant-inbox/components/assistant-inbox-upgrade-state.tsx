@@ -1,40 +1,31 @@
 import { Check, Sparkles } from "lucide-react";
-import { useState } from "react";
 
 import { Button } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
 import { AssistantInboxShell } from "./assistant-inbox-shell";
-import { EmailAddressFields } from "./email-address-fields";
 import { InboxCard } from "./inbox-card";
-import { InboxCreatures } from "./inbox-creatures";
 
 export interface AssistantInboxUpgradeStateProps {
   assistantName: string;
-  /** The handle the user already chose; prefilled and still editable here. */
-  handle: string;
   rootDomain: string;
-  onUpgrade: (draft: { prefix: string; handle: string }) => void;
+  onUpgrade: () => void;
   onSeePlans?: () => void;
 }
 
 /**
- * The inbox on a plan without managed email. The card sells the inbox in
- * three lines, but the address builder is live: the handle is prefilled with
- * what the user already set and stays editable, so upgrading lands on an
- * address they have already looked at rather than a form to fill in.
+ * The inbox on a plan without managed email: the pitch and the way to the
+ * plan that includes it, nothing else. The handle was fixed at onboarding
+ * and the prefix is asked for after the upgrade, so no field belongs here.
  */
 export function AssistantInboxUpgradeState({
   assistantName,
-  handle: initialHandle,
   rootDomain,
   onUpgrade,
   onSeePlans,
 }: AssistantInboxUpgradeStateProps) {
   const { t } = useTranslation("assistant-inbox");
-  const [prefix, setPrefix] = useState("hi");
-  const [handle, setHandle] = useState(initialHandle);
 
   const perks = [
     t("assistantInboxUpgradeState.perkAddress", { rootDomain }),
@@ -50,7 +41,7 @@ export function AssistantInboxUpgradeState({
             name: assistantName,
           })}
           subtitle={t("assistantInboxUpgradeState.subtitle")}
-          decoration={<InboxCreatures variant="around" />}
+          footerAlign="center"
           footer={
             <>
               {onSeePlans ? (
@@ -61,29 +52,13 @@ export function AssistantInboxUpgradeState({
               <Button
                 variant="primary"
                 leftIcon={<Sparkles />}
-                disabled={!handle}
-                onClick={() => onUpgrade({ prefix, handle })}
+                onClick={onUpgrade}
               >
                 {t("assistantInboxUpgradeState.upgradeButton")}
               </Button>
             </>
           }
         >
-          <div className="flex flex-col gap-2">
-            <EmailAddressFields
-              prefix={prefix}
-              handle={handle}
-              rootDomain={rootDomain}
-              onPrefixChange={setPrefix}
-              onHandleChange={setHandle}
-            />
-            <p className="text-body-small-lighter text-[var(--content-tertiary)]">
-              {t("assistantInboxUpgradeState.handleHint", {
-                name: assistantName,
-              })}
-            </p>
-          </div>
-
           <ul className="flex flex-col gap-2 rounded-xl bg-[var(--surface-sunken)] p-4">
             {perks.map((perk) => (
               <li

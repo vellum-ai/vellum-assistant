@@ -1,20 +1,27 @@
+import type { CSSProperties } from "react";
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library";
 
+import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useTranslation } from "@/i18n";
 
 import { AssistantInboxShell } from "./assistant-inbox-shell";
 import { EmailAddressFields } from "./email-address-fields";
 import { InboxCard } from "./inbox-card";
 
+const AVATAR_SIZE = 44;
+const DISC_SIZE = 64;
+
 export interface AssistantInboxSetupCardProps {
+  /** Whose address this creates; the card shows their avatar. */
+  assistantId: string;
   /** The assistant's handle, set during onboarding; shown, not edited. */
   handle: string;
   rootDomain: string;
-  onNext: (draft: { prefix: string }) => void;
-  onSkip: () => void;
-  /** The registration is in flight; both actions hold. */
+  onConfirm: (draft: { prefix: string }) => void;
+  /** The registration is in flight; the action holds. */
   busy?: boolean;
 }
 
@@ -22,18 +29,31 @@ export interface AssistantInboxSetupCardProps {
  * The inbox on an entitled plan with no address yet. One decision is left,
  * the local part of the address, because onboarding already fixed the
  * handle, so that is the one field here: the handle and domain read as
- * text after the `@`. No creatures; the card is a form, and it should be
- * as quiet as one.
+ * text after the `@`. Everything is centred under the assistant's avatar,
+ * and there is one way out, forward. Skipping would leave the inbox with
+ * nothing to show, so the card does not offer it.
  */
 export function AssistantInboxSetupCard({
+  assistantId,
   handle,
   rootDomain,
-  onNext,
-  onSkip,
+  onConfirm,
   busy = false,
 }: AssistantInboxSetupCardProps) {
   const { t } = useTranslation("assistant-inbox");
+  const { components, traits, customImageUrl, accentHex } =
+    useAssistantAvatar(assistantId);
   const [prefix, setPrefix] = useState("hi");
+
+  const discStyle: CSSProperties = {
+    width: DISC_SIZE,
+    height: DISC_SIZE,
+    ...(accentHex
+      ? {
+          backgroundColor: `color-mix(in oklab, ${accentHex} 28%, var(--surface-active))`,
+        }
+      : {}),
+  };
 
   return (
     <AssistantInboxShell>
@@ -41,22 +61,32 @@ export function AssistantInboxSetupCard({
         <InboxCard
           title={t("assistantInboxSetupCard.title")}
           subtitle={t("assistantInboxSetupCard.subtitle")}
+          leading={
+            <span
+              aria-hidden="true"
+              className="flex items-center justify-center rounded-full bg-[var(--surface-active)]"
+              style={discStyle}
+            >
+              <ChatAvatar
+                components={components}
+                traits={traits}
+                customImageUrl={customImageUrl}
+                size={AVATAR_SIZE}
+              />
+            </span>
+          }
+          footerAlign="center"
           footer={
-            <>
-              <Button variant="outlined" disabled={busy} onClick={onSkip}>
-                {t("assistantInboxSetupCard.skip")}
-              </Button>
-              <Button
-                variant="primary"
-                disabled={!prefix || busy}
-                onClick={() => onNext({ prefix })}
-              >
-                {t("assistantInboxSetupCard.next")}
-              </Button>
-            </>
+            <Button
+              variant="primary"
+              disabled={!prefix || busy}
+              onClick={() => onConfirm({ prefix })}
+            >
+              {t("assistantInboxSetupCard.getStarted")}
+            </Button>
           }
         >
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col items-center gap-2">
             <EmailAddressFields
               prefix={prefix}
               handle={handle}
@@ -65,7 +95,7 @@ export function AssistantInboxSetupCard({
               disabled={busy}
               autoFocus
             />
-            <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+            <p className="text-center text-body-small-lighter text-[var(--content-tertiary)]">
               {t("assistantInboxSetupCard.addressPreview", {
                 address: `${prefix || "hi"}@${handle}.${rootDomain}`,
               })}

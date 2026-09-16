@@ -35,14 +35,11 @@
   },
   "emailAddressFields": {
     "prefixLabel": "前綴",
-    "handleLabel": "使用者名稱（公開）",
-    "prefixPlaceholder": "hi",
-    "handlePlaceholder": "my-assistant"
+    "prefixPlaceholder": "hi"
   },
   "assistantInboxUpgradeState": {
     "title": "給 {name} 一個收件匣",
     "subtitle": "一個別人可以寫信的電子郵件地址，以及一個閱讀所有來信的地方。",
-    "handleHint": "這是你已經設定的使用者名稱。升級後它會立即成為 {name} 的地址。",
     "perkAddress": "在 {rootDomain} 上的真實地址",
     "perkReads": "{name} 為你閱讀、整理並回覆",
     "perkHistory": "每封郵件都保存在這裡，包括收件和寄件",
@@ -53,7 +50,6 @@
     "title": "助理電子郵件",
     "subtitle": "為你的助理設定一個電子郵件。",
     "addressPreview": "你的助理的電子郵件地址將是 {address}。",
-    "skip": "略過",
-    "next": "下一步"
+    "getStarted": "開始使用"
   }
 }
