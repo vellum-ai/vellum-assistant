@@ -155,6 +155,48 @@ describe("IntegrationMethodsModal", () => {
     );
   });
 
+  test("shows a server authentication failure inside the open modal", () => {
+    const method = { definition: definition(), servers: [server()] };
+    const harness = connectionHarness(async () => ({
+      data: { servers: method.servers },
+      isError: false,
+    }));
+    const view = renderWithProviders(
+      <IntegrationMethodsModal
+        assistantId="assistant-123"
+        item={item(method)}
+        connections={harness.connections}
+        oauthDisabled={false}
+        onOAuth={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    harness.connections.auth.attempt = {
+      operationId: "operation-123",
+      serverId: "example-server",
+      displayName: "Example",
+      startedAt: Date.now(),
+      phase: "error",
+      error: "Could not start the connection. Try again.",
+    };
+    view.rerender(
+      <IntegrationMethodsModal
+        assistantId="assistant-123"
+        item={item(method)}
+        connections={harness.connections}
+        oauthDisabled={false}
+        onOAuth={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByText("Could not start the connection. Try again."),
+    ).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
   test("does not silently choose one server after a multi-server install", async () => {
     const ownedServers = [server(), server({ id: "example-admin" })];
     const harness = connectionHarness(async () => ({

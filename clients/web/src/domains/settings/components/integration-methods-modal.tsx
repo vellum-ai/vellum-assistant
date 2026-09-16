@@ -33,6 +33,10 @@ function PluginServerRow({
   connections: ReturnType<typeof useMcpConnections>;
 }) {
   const { t } = useTranslation("settings");
+  const authError =
+    connections.auth.attempt?.serverId === server.id
+      ? connections.auth.attempt.error
+      : undefined;
   const authenticating =
     connections.auth.isBusy &&
     connections.auth.attempt?.serverId === server.id;
@@ -41,53 +45,56 @@ function PluginServerRow({
     !connected && server.transport.type !== "stdio";
 
   return (
-    <IntegrationListRow
-      icon={<McpIntegrationIcon />}
-      title={server.id}
-      subtitle={
-        server.transport.type === "stdio"
-          ? t("pluginIntegration.localServer")
-          : t("pluginIntegration.remoteServer")
-      }
-      status={
-        <Tag tone={connected ? "positive" : "negative"}>
-          {connected
-            ? t("integrationRow.connected")
-            : t("integrationRow.needsAttention")}
-        </Tag>
-      }
-      primaryAction={
-        <Button
-          variant={canAuthenticate ? "primary" : "outlined"}
-          leftIcon={
-            authenticating ? <Loader2 className="animate-spin" /> : undefined
-          }
-          disabled={
-            authenticating ||
-            (canAuthenticate && connections.auth.isBusy)
-          }
-          onClick={() => {
-            if (canAuthenticate) {
-              connections.auth.connect(
-                server.id,
-                undefined,
-                method.definition.displayName,
-              );
-            } else {
-              connections.setConfigureServerId(server.id);
+    <div className="space-y-2">
+      <IntegrationListRow
+        icon={<McpIntegrationIcon />}
+        title={server.id}
+        subtitle={
+          server.transport.type === "stdio"
+            ? t("pluginIntegration.localServer")
+            : t("pluginIntegration.remoteServer")
+        }
+        status={
+          <Tag tone={connected ? "positive" : "negative"}>
+            {connected
+              ? t("integrationRow.connected")
+              : t("integrationRow.needsAttention")}
+          </Tag>
+        }
+        primaryAction={
+          <Button
+            variant={canAuthenticate ? "primary" : "outlined"}
+            leftIcon={
+              authenticating ? <Loader2 className="animate-spin" /> : undefined
             }
-          }}
-        >
-          {authenticating
-            ? t("mcpServerCard.connecting")
-            : canAuthenticate
-              ? server.status === "error"
-                ? t("mcpConnect.retry")
-                : t("integrationRow.connect")
-              : t("mcpServerCard.viewDetails")}
-        </Button>
-      }
-    />
+            disabled={
+              authenticating ||
+              (canAuthenticate && connections.auth.isBusy)
+            }
+            onClick={() => {
+              if (canAuthenticate) {
+                connections.auth.connect(
+                  server.id,
+                  undefined,
+                  method.definition.displayName,
+                );
+              } else {
+                connections.setConfigureServerId(server.id);
+              }
+            }}
+          >
+            {authenticating
+              ? t("mcpServerCard.connecting")
+              : canAuthenticate
+                ? server.status === "error"
+                  ? t("mcpConnect.retry")
+                  : t("integrationRow.connect")
+                : t("mcpServerCard.viewDetails")}
+          </Button>
+        }
+      />
+      {authError ? <Notice tone="warning">{authError}</Notice> : null}
+    </div>
   );
 }
 
