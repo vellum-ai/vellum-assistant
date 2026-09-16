@@ -195,8 +195,8 @@ export function SubagentDetailPanel({
         setSelectedDetailKey(key);
         return;
       }
-      // A tool pill whose history is missing (a fetch that failed) retries the
-      // fetch and opens once the call is there.
+      // A tool pill whose history is missing (a failed fetch, or one a stream
+      // gap dropped) reloads it and opens once the call is there.
       if (historyRef.current !== null) {
         return;
       }
