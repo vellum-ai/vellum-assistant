@@ -80,9 +80,9 @@ export const ExhaustedWithoutCta: Story = {
 
 /**
  * The subscriber's panel at full card width, which is what a current plan with
- * no next tile beside it gets. The bar sits a fixed gap after the title, with
- * the slack to the right of the percentage, and the reset line makes the title
- * block two lines that the bar centres against.
+ * no next tile beside it gets. The bar sits a fixed gap after the title and
+ * stretches to the percentage, and the reset line makes the title block two
+ * lines that the bar centres against.
  */
 export const WideTile: Story = {
   ...Subscriber,

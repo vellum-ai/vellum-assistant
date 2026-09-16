@@ -108,9 +108,9 @@ export function UsageBalancePanel({
         Container query, not a viewport breakpoint: the tile is half a card
         beside a next tile and the whole card without one, so the viewport says
         nothing about the panel's width. The threshold is the content box,
-        about 514px of panel, where the 64px gap and the full-length bar first
-        both fit. Below it the bar stays right-aligned and shrinks, which is
-        what phones need.
+        about 514px of panel, above which the bar takes a 64px gap after the
+        title and stretches to the percentage. Below it the gap tightens so
+        the bar keeps its length on phones.
       */}
       <div className="flex w-full items-center gap-3 @min-[30rem]:gap-16">
         <div className="flex min-w-0 flex-col">
@@ -132,13 +132,13 @@ export function UsageBalancePanel({
             </Typography>
           ) : null}
         </div>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-3 @min-[30rem]:justify-start">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <ProgressBar
             value={ratio}
             height={8}
             aria-label={barLabel}
             fillColor={spent ? "var(--system-negative-strong)" : undefined}
-            className="w-full min-w-0 max-w-[249px] rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
+            className="w-full min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-overlay)]"
           />
           <Typography
             as="span"
