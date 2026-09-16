@@ -410,6 +410,19 @@
     "providerLabel": "提供商",
     "unavailableOption": "{name} (不可用)"
   },
+  "cancelReasonSurvey": {
+    "optionCustomerService": "客服体验不佳",
+    "optionLowQuality": "质量没有达到我的预期",
+    "optionMissingFeatures": "缺少我需要的功能",
+    "optionOther": "其他",
+    "optionSwitchedService": "我换用了其他服务",
+    "optionTooComplex": "太复杂了",
+    "optionTooExpensive": "太贵了",
+    "optionUnused": "我用得不多",
+    "otherLabel": "告诉我们更多",
+    "otherPlaceholder": "我们可以在哪些方面做得更好？",
+    "title": "您为什么要取消？"
+  },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "您或您的团队管理员可能需要在 <settingsLink>ChatGPT 设置</settingsLink> 中启用设备代码授权。",
     "connected": "ChatGPT 订阅连接成功。",

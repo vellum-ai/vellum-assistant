@@ -25,7 +25,7 @@ import {
   type ReactNode,
 } from "react";
 import {
-  ACTIVITY_KEYS,
+  ACTIVITY_KEY,
   readToolInputString,
 } from "@/domains/chat/utils/tool-input";
 import { useTranslation } from "@/i18n";
@@ -336,7 +336,7 @@ export function ToolCallChip({
 
   const inputSummary = extractInputSummary(toolCall.name, toolCall.input);
   const activityLabel =
-    readToolInputString(toolCall.input ?? {}, ...ACTIVITY_KEYS) || null;
+    readToolInputString(toolCall.input ?? {}, ACTIVITY_KEY) || null;
   const label =
     activityLabel ??
     (isRunning

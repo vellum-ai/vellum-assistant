@@ -513,9 +513,7 @@ async function ensureLocalAssistantPlatformIdentity(
   const platformBaseUrl = status?.baseUrl ?? getPlatformRuntimeUrl();
   await injectPlatformCredentials(gateway, {
     assistantApiKey,
-    platformAssistantId,
     platformBaseUrl,
-    organizationId,
     webhookSecret: stringValue(registration.webhook_secret),
   });
   await persistPlatformRegistrationMetadata(assistant, {
@@ -737,16 +735,12 @@ async function injectPlatformCredentials(
   gateway: { gatewayUrl: string; actorToken: string },
   params: {
     assistantApiKey: string | null;
-    platformAssistantId: string;
     platformBaseUrl: string;
-    organizationId: string;
     webhookSecret: string | null;
   },
 ): Promise<void> {
   const entries: Array<[string, string | null]> = [
-    ["vellum:platform_assistant_id", params.platformAssistantId],
     ["vellum:platform_base_url", params.platformBaseUrl],
-    ["vellum:platform_organization_id", params.organizationId],
     ["vellum:webhook_secret", params.webhookSecret],
   ];
 

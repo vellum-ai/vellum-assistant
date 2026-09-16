@@ -396,6 +396,19 @@
     "providerLabel": "Провайдер",
     "unavailableOption": "{name} (недоступно)"
   },
+  "cancelReasonSurvey": {
+    "optionCustomerService": "Плохой опыт общения с поддержкой",
+    "optionLowQuality": "Качество не оправдало ожиданий",
+    "optionMissingFeatures": "Не хватает нужных функций",
+    "optionOther": "Другое",
+    "optionSwitchedService": "Переход на другой сервис",
+    "optionTooComplex": "Слишком сложно",
+    "optionTooExpensive": "Слишком дорого",
+    "optionUnused": "Редко пользуюсь",
+    "otherLabel": "Расскажите подробнее",
+    "otherPlaceholder": "Что мы могли бы сделать лучше?",
+    "title": "Почему вы отменяете подписку?"
+  },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "Вам или администратору команды может потребоваться включить авторизацию по коду устройства <settingsLink>в настройках ChatGPT</settingsLink>.",
     "connected": "Подписка ChatGPT успешно подключена.",
