@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -10,6 +10,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { usePluginActions } from "@/hooks/use-plugin-actions";
 import { useTranslation } from "@/i18n";
 import { openExternalUrl } from "@/runtime/browser";
+import { IntegrationIcon } from "@/components/integrations/integration-icon";
 
 import {
   type IntegrationItem,
@@ -105,6 +106,7 @@ function PluginMethodSection({
   refreshing,
   loadError,
   installedOverride,
+  icon,
   onRetryServers,
   onInstalled,
   onRemoved,
@@ -115,6 +117,7 @@ function PluginMethodSection({
   refreshing: boolean;
   loadError: boolean;
   installedOverride: boolean;
+  icon?: ReactNode;
   onRetryServers: () => void;
   onInstalled: (method: McpPluginMethod) => void;
   onRemoved: () => void;
@@ -130,10 +133,12 @@ function PluginMethodSection({
   return (
     <section className="space-y-3">
       <div className="flex items-start gap-3">
-        <PluginIntegrationIcon
-          assistantId={assistantId}
-          definition={method.definition}
-        />
+        {icon ?? (
+          <PluginIntegrationIcon
+            assistantId={assistantId}
+            definition={method.definition}
+          />
+        )}
         <div className="min-w-0 space-y-1">
           <h3 className="text-title-small text-[var(--content-default)]">
             {method.definition.displayName}
@@ -357,6 +362,16 @@ export function IntegrationMethodsModal({
               installedOverride={locallyInstalledPlugins.has(
                 method.definition.pluginName,
               )}
+              icon={
+                item.kind === "oauth" ? (
+                  <IntegrationIcon
+                    providerKey={item.provider.provider_key}
+                    displayName={item.name}
+                    logoUrl={item.provider.logo_url}
+                    size={32}
+                  />
+                ) : undefined
+              }
               onRetryServers={() => void handleInstalled(method)}
               onInstalled={handleInstalled}
               onRemoved={handleRemoved}

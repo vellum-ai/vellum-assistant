@@ -94,6 +94,34 @@ function item(
   };
 }
 
+function oauthItem(
+  method: McpPluginMethod,
+): Extract<IntegrationItem, { kind: "oauth" }> {
+  return {
+    kind: "oauth",
+    id: "oauth:notion",
+    name: "Notion",
+    description: "Pages and databases",
+    configured: false,
+    provider: {
+      provider_key: "notion",
+      display_name: "Notion",
+      description: "Pages and databases",
+      dashboard_url: null,
+      client_id_placeholder: null,
+      requires_client_secret: true,
+      logo_url: "https://cdn.example.com/notion-remote.svg",
+      supports_managed_mode: true,
+      managed_service_is_paid: false,
+      feature_flag: null,
+      tenant_host: null,
+      acts_as: "user",
+    },
+    connections: [],
+    methods: [method],
+  };
+}
+
 function connectionHarness(
   refetch: () => Promise<{
     data?: { servers: McpServerEntry[] };
@@ -129,6 +157,43 @@ afterEach(() => {
 afterAll(() => mock.restore());
 
 describe("IntegrationMethodsModal", () => {
+  test("uses one canonical logo for grouped connection methods", () => {
+    const method = {
+      definition: definition({
+        pluginName: "notion-mcp",
+        displayName: "Notion",
+        logo: "notion-mcp.png",
+      }),
+      servers: [],
+    };
+    const harness = connectionHarness(async () => ({
+      data: { servers: [] },
+      isError: false,
+    }));
+
+    renderWithProviders(
+      <IntegrationMethodsModal
+        assistantId="assistant-123"
+        item={oauthItem(method)}
+        connections={harness.connections}
+        oauthDisabled={false}
+        onOAuth={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+    const logos = Array.from(document.querySelectorAll("img")).map((image) =>
+      image.getAttribute("src"),
+    );
+    expect(logos).toHaveLength(2);
+    expect(new Set(logos).size).toBe(1);
+    expect(
+      logos.every((logo) =>
+        logo?.endsWith("images/integrations/notion.svg"),
+      ),
+    ).toBe(true);
+  });
+
   test("offers first sign-in for a declared remote server without stored OAuth", () => {
     const method = { definition: definition(), servers: [server()] };
     const harness = connectionHarness(async () => ({
