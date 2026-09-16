@@ -280,7 +280,9 @@ describe("live-voice look follow-up", () => {
     }
   });
 
-  test("a turn the user started since the look is not answered twice", async () => {
+  // The turn started before the frame was in the conversation, so it could
+  // not have read it: the look is still owed an answer once that turn is done.
+  test("a turn that started before the frame landed does not answer the look", async () => {
     const harness = createHarness({ lookFrames: true });
     try {
       await harness.askForLook();
@@ -293,9 +295,46 @@ describe("live-voice look follow-up", () => {
       });
 
       await harness.sendFrame(LOOK_FRAME_REASON);
-      await harness.reply(1, "That one is the plan picker.");
+      await harness.reply(1, "Which one do you mean?");
+      await waitFor(() => harness.turns.length === 3, {
+        timeoutMs: 2_000,
+        message: "Timed out waiting for the look to be answered",
+      });
+      expect(harness.turns[2]?.content).toBe(LOOK_FOLLOW_UP_CONTENT);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  test("a turn that starts after the frame landed is not answered twice", async () => {
+    const harness = createHarness({ lookFrames: true });
+    try {
+      await harness.askForLook();
+      await harness.session.handleClientFrame({
+        type: "text",
+        text: "the second dropdown",
+      });
+      await waitFor(() => harness.turns.length === 2, {
+        message: "Timed out waiting for the typed turn",
+      });
+
+      // Lands while the typed turn holds the floor, so the look waits.
+      await harness.sendFrame(LOOK_FRAME_REASON);
+      await harness.reply(1, "Which one do you mean?");
+      // The user's next turn starts before the look's wait checks again, and
+      // it reads the frame that is now in the conversation.
+      await harness.session.handleClientFrame({
+        type: "text",
+        text: "the plan picker",
+      });
+      await waitFor(() => harness.turns.length === 3, {
+        message: "Timed out waiting for the second typed turn",
+      });
+      await harness.reply(2, "That one sets the billing plan.");
       await settle();
-      expect(harness.turns).toHaveLength(2);
+
+      expect(harness.turns).toHaveLength(3);
+      expect(harness.turns[2]?.content).toBe("the plan picker");
     } finally {
       await harness.dispose();
     }

@@ -860,11 +860,10 @@ function describeInterruptedRequest(request: string): string {
 }
 
 // A look control waiting on its fresh frame: which look, when it was asked
-// for, how many turns had launched by then, and the wait's bound.
+// for, and the wait's bound.
 interface PendingLook {
   action: LookSessionControl;
   armedAtMs: number;
-  turnsLaunchedAtArm: number;
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -1282,8 +1281,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // onset asked for, measured from the daemon's own clock.
   private lastSpeechStartedAtMs: number | null = null;
   // How many assistant turns have launched, so a look can tell whether one has
-  // started since it was asked for. A count rather than a time: the look's own
-  // turn and the look can share a millisecond.
+  // started since its frame landed. A count rather than a time: two launches
+  // and a frame can share a millisecond.
   private turnsLaunched = 0;
   private readonly maxPendingAudioBytes: number;
   // Set on VAD speech onset; consumed when the first speech chunk is routed
@@ -3664,12 +3663,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         "Live voice look dropped: no frame arrived",
       );
     }, LOOK_FRAME_WAIT_MS);
-    this.pendingLook = {
-      action,
-      armedAtMs: Date.now(),
-      turnsLaunchedAtArm: this.turnsLaunched,
-      timer,
-    };
+    this.pendingLook = { action, armedAtMs: Date.now(), timer };
   }
 
   private clearPendingLook(): void {
@@ -3696,7 +3690,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     clearTimeout(pending.timer);
     this.pendingLook = null;
-    this.answerLookWhenFloorIsFree(pending, 0);
+    this.answerLookWhenFloorIsFree(pending, this.turnsLaunched, 0);
   }
 
   /**
@@ -3704,21 +3698,28 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
    *
    * The acknowledgement ("taking a look") can still be playing when the frame
    * lands, and the look's own turn can still be clearing, so both are waited
-   * out, as is the user mid-utterance. A turn the user started since the look
-   * was asked for is not: it reads the frame, so answering the look as well
-   * would answer it twice.
+   * out, as is the user mid-utterance. A turn that starts once the frame is in
+   * the conversation is not: it reads the frame, so answering the look as well
+   * would answer it twice. A turn that started before the frame landed did not
+   * see it, so the look is still answered once that turn is done.
+   *
+   * `turnsAtFrame` is how many turns had launched when the frame landed.
    */
-  private answerLookWhenFloorIsFree(look: PendingLook, rearms: number): void {
+  private answerLookWhenFloorIsFree(
+    look: PendingLook,
+    turnsAtFrame: number,
+    rearms: number,
+  ): void {
     if (this.lookFollowUpTimer !== null) {
       clearTimeout(this.lookFollowUpTimer);
       this.lookFollowUpTimer = null;
     }
-    const { action, armedAtMs, turnsLaunchedAtArm } = look;
-    // Any turn since the look was asked for: a spoken or typed one reads the
-    // frame already. Speech that never became a turn (a cough, noise that
-    // transcribed to nothing) is only waited out.
+    const { action, armedAtMs } = look;
+    // A turn launched since the frame landed read it already. Speech that
+    // never became a turn (a cough, noise that transcribed to nothing) is only
+    // waited out.
     const blockedBy =
-      this.turnsLaunched > turnsLaunchedAtArm
+      this.turnsLaunched > turnsAtFrame
         ? "turn_since_look"
         : this.sessionTurnFloorBlocker();
     if (blockedBy === null) {
@@ -3747,7 +3748,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.lookFollowUpTimer = setTimeout(
       () => {
         this.lookFollowUpTimer = null;
-        this.answerLookWhenFloorIsFree(look, rearms + 1);
+        this.answerLookWhenFloorIsFree(look, turnsAtFrame, rearms + 1);
       },
       Math.max(drainMs, LOOK_FOLLOW_UP_REARM_MS),
     );
