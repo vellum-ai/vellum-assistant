@@ -988,7 +988,7 @@ function openStorageSelect(): void {
   fireEvent.click(getSelectTrigger("Storage tier"));
 }
 
-describe("AdjustPlanModal Downgrade to Base — cancel survey", () => {
+describe("AdjustPlanModal Downgrade to Base cancel survey", () => {
   test("requires a reason, then posts it with the cancellation", async () => {
     const { getByTestId, getByRole, queryByTestId } = renderModal(
       subscription("pro", null),
