@@ -542,8 +542,7 @@ async function doResolveBackend(): Promise<CredentialBackend> {
     }
   }
 
-  // 3. CES HTTP. Managed failover when IPC is unavailable. The assistant
-  //    process still has CES_CREDENTIAL_URL; sanitized children do not.
+  // 3. CES HTTP. Managed failover when IPC is unavailable.
   if (getIsContainerized() && process.env.CES_CREDENTIAL_URL) {
     const ces = createCesCredentialBackend();
     if (ces.isAvailable()) {

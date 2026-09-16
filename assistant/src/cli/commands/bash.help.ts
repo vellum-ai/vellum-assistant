@@ -18,7 +18,7 @@ export const bashHelp: CliCommandHelp = {
 Spawns the command with the same sanitized environment, working directory,
 and platform shell the bash tool uses for tool-call subprocesses. CES
 bootstrap and workspace paths are forwarded so children can reach CES over
-IPC. CES HTTP credentials are not forwarded. The command does not go through
+IPC. CES HTTP credentials are also forwarded. The command does not go through
 the assistant HTTP or IPC
 API, and does not require a running assistant process.
 
