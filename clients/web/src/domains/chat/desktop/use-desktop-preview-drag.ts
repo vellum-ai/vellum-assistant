@@ -59,9 +59,17 @@ export function useDesktopPreviewDrag() {
         ((bounds.clientHeight - chromeHeight) * 16) / 9,
       ),
     );
-    const next = Math.min(maxWidth, Math.max(320, nextWidth));
+    const store = useDesktopPreviewStore.getState();
+    const preferredWidth = Math.min(
+      1000,
+      Math.max(
+        320,
+        nextWidth >= start.width ? Math.max(store.width, nextWidth) : nextWidth,
+      ),
+    );
+    const next = Math.min(maxWidth, preferredWidth);
     const height = (next * 9) / 16 + chromeHeight;
-    useDesktopPreviewStore.getState().resize(next, {
+    store.resize(preferredWidth, {
       x: Math.max(
         0,
         Math.min(start.left + start.width - next, bounds.clientWidth - next),
