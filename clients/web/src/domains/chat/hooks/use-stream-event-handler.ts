@@ -488,6 +488,7 @@ export function useStreamEventHandler(
         case "bookmark.created":
         case "bookmark.deleted":
         case "sync_changed":
+        case "desktop_activity_changed":
         case "home_feed_updated":
         case "relationship_state_updated":
         case "identity_changed":
