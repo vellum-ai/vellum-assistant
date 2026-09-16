@@ -63,7 +63,7 @@ function OverflowSourceLink({ item }: { item: WebSearchResultItem }) {
             onError={() => setImageFailed(true)}
           />
         ) : (
-          // typography: off-scale — 10px monogram inside 14px favicon slot
+          // typography: off-scale, 10px monogram inside 14px favicon slot
           <span className="text-[10px] font-medium leading-none text-[var(--content-default)]">
             {monogramLetter(item)}
           </span>
@@ -90,7 +90,7 @@ function OverflowSourceLink({ item }: { item: WebSearchResultItem }) {
 /**
  * Interactive "+N more" pill rendered at the tail of a `web_search` row when
  * the result list was clamped. Clicking it opens a popover listing the
- * remaining (hidden) sources as links so they stay reachable — without it the
+ * remaining (hidden) sources as links so they stay reachable. Without it the
  * pill would be a dead-end with no way to inspect the additional results.
  *
  * The trigger visually matches `FaviconChip` so the pill sits flush in the
@@ -133,7 +133,7 @@ export function OverflowChip({ results }: { results: WebSearchResultItem[] }) {
 /**
  * Chip used inside a `web_search_error` step row to surface the provider's
  * `errorMessage`. Uses the default pill's outlined geometry and neutral
- * tokens — failures render like any other step, without error chrome.
+ * tokens: failures render like any other step, without error chrome.
  */
 function ErrorChip({ message }: { message: string }) {
   return (
@@ -158,7 +158,7 @@ function ErrorChip({ message }: { message: string }) {
  * popover.
  *
  * Keyed by `rank` (the documented uniqueness invariant on
- * `WebSearchResultItem`) rather than `url` — providers occasionally return
+ * `WebSearchResultItem`) rather than `url`: providers occasionally return
  * duplicate URLs, which would collide as React keys and cause stale/missing
  * chips during live updates.
  */
@@ -171,7 +171,7 @@ export function WebSearchStepRow({
   return (
     <div className="flex flex-wrap items-center gap-1">
       {(step.results ?? []).map((r) => (
-        // Each result is a `ToolStepPill` web variant — the same pill chrome as
+        // Each result is a `ToolStepPill` web variant: the same pill chrome as
         // tool steps, with the site favicon as the glyph, that opens the source
         // in a new tab.
         <ToolStepPill

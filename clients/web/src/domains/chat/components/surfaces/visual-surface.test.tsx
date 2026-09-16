@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
 import { VisualSurface } from "@/domains/chat/components/surfaces/visual-surface";
 import type { Surface } from "@/domains/chat/types/types";
+import {
+  currentLocation,
+  LocationMirror,
+  LocationProbe,
+} from "@/hooks/router-probe.test-helper";
+import { useConversationStore } from "@/stores/conversation-store";
+import { hasAutoSendPromptState } from "@/utils/auto-send-prompt";
 
 function surface(data: Record<string, unknown>, title?: string): Surface {
   return {
@@ -186,14 +193,22 @@ describe("VisualSurface", () => {
 
 describe("VisualSurface link relay", () => {
   const originalOpen = window.open;
+  const CONVERSATION = "/assistant/conversations/conv-1";
   let opened: string[];
 
   /** Mount the surface and hand back its frame, so a relayed message can
-   *  carry the `source` the parent checks. */
-  function mountFrame(): HTMLIFrameElement {
+   *  carry the `source` the parent checks. `entryState` is what the entry the
+   *  transcript sits on records, the probe reads where a relay lands, and the
+   *  mirror puts the window on the same entry, which the relay reads to tell
+   *  whether it stays on the conversation the route names. */
+  function mountFrame(entryState?: unknown): HTMLIFrameElement {
     const { container } = render(
-      <MemoryRouter>
+      <MemoryRouter
+        initialEntries={[{ pathname: CONVERSATION, state: entryState }]}
+      >
         <VisualSurface surface={surface({ html: "<div>widget</div>" })} />
+        <LocationProbe />
+        <LocationMirror />
       </MemoryRouter>,
     );
     const frame = container.querySelector("iframe");
@@ -231,6 +246,7 @@ describe("VisualSurface link relay", () => {
 
   afterEach(() => {
     window.open = originalOpen;
+    useConversationStore.setState({ activeConversationId: null });
   });
 
   test("opens a relayed external link on the host", () => {
@@ -270,6 +286,34 @@ describe("VisualSurface link relay", () => {
     }
 
     expect(opened).toEqual([]);
+  });
+
+  test("relays a widget prompt carrying what the entry records", async () => {
+    // The relay replaces the entry the transcript sits on, so the recording
+    // that entry holds has to survive it for the close to still pop.
+    const entry = {
+      appEntry: { appId: "app-1", returnTo: CONVERSATION },
+    };
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    const frame = mountFrame(entry);
+
+    const event = new MessageEvent("message", {
+      data: {
+        type: "vellum_widget_prompt",
+        frameId: "surface-visual-1",
+        prompt: "explain this",
+      },
+    });
+    Object.defineProperty(event, "source", { value: frame.contentWindow });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+
+    await waitFor(() =>
+      expect(currentLocation().search).toContain("prompt=explain"),
+    );
+    expect(hasAutoSendPromptState(currentLocation().state)).toBe(true);
+    expect(currentLocation().state).toMatchObject(entry);
   });
 
   test("ignores a relay from anything but its own frame", () => {

@@ -1,3 +1,4 @@
+import type { ToolDefinition } from "../providers/types.js";
 import type {
   AddMessageOptions,
   ConversationRow,
@@ -49,6 +50,18 @@ export async function getMessages(
   conversationId: string,
 ): Promise<MessageRow[]> {
   const { getMessages: fn } = await import("./conversation-crud.js");
+  return fn(conversationId);
+}
+
+/**
+ * The tool definitions the conversation's most recent live turn sent to the
+ * provider, or `null` when none has been recorded.
+ */
+export async function getConversationToolSurface(
+  conversationId: string,
+): Promise<ToolDefinition[] | null> {
+  const { getConversationToolSurface: fn } =
+    await import("./conversation-tool-surface.js");
   return fn(conversationId);
 }
 

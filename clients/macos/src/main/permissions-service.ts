@@ -4,7 +4,6 @@ import {
   BrowserWindow,
   Notification,
   app,
-  desktopCapturer,
   shell,
   systemPreferences,
   type WebContents,
@@ -24,6 +23,7 @@ import {
   queryFreshMacHelperPermission,
   queryMacHelperPermission,
   requestMacHelperInputMonitoringPermission,
+  requestMacHelperScreenRecordingPermission,
   requestMacHelperSpeechRecognitionPermission,
   type MacHelperPermissionKind,
 } from "./hotkey-helper";
@@ -35,6 +35,7 @@ import {
   requestNotifierAuthorization,
   type NotifierAuthorizationResult,
 } from "./notifier";
+import { readScreenRecordingPermission } from "./screen-recording-permission";
 
 export const PERMISSION_KINDS = [
   "accessibility",
@@ -306,10 +307,7 @@ export class PermissionsService {
           await systemPreferences.askForMediaAccess("microphone");
           break;
         case "screen":
-          await desktopCapturer.getSources({
-            types: ["screen"],
-            thumbnailSize: { width: 1, height: 1 },
-          });
+          await requestMacHelperScreenRecordingPermission();
           break;
         case "speechRecognition":
           await requestMacHelperSpeechRecognitionPermission();
@@ -340,8 +338,13 @@ export class PermissionsService {
     kind: PermissionKind,
     sender?: WebContents,
   ): Promise<PermissionStateItem> {
+    // Asking first is what lists the helper in the pane, so there is a row
+    // to turn on when it opens.
     if (kind === "inputMonitoring") {
       await requestMacHelperInputMonitoringPermission();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    } else if (kind === "screen") {
+      await requestMacHelperScreenRecordingPermission();
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
     await shell.openExternal(settingsPaneUrl(kind));
@@ -373,7 +376,9 @@ export class PermissionsService {
       status,
       canRequest: this.canRequest(kind, status),
       canOpenSettings: status !== "granted",
-      requiresRestart: kind === "screen" && status === "denied",
+      // No grant needs the app relaunched. Screen Recording is the helper's,
+      // and a read that finds it newly granted lets the helper go.
+      requiresRestart: false,
       ...(error ? { error } : {}),
     };
   }
@@ -387,8 +392,9 @@ export class PermissionsService {
         return systemPreferences.isTrustedAccessibilityClient(false)
           ? "granted"
           : "denied";
+      // The helper's grant, not the app's: the helper takes every capture.
       case "screen":
-        return mapMediaStatus(systemPreferences.getMediaAccessStatus("screen"));
+        return await readScreenRecordingPermission();
       case "microphone":
         return mapMediaStatus(
           systemPreferences.getMediaAccessStatus("microphone"),
@@ -528,8 +534,18 @@ export class PermissionsService {
   }
 }
 
+let installedService: PermissionsService | null = null;
+
+/**
+ * The service the IPC handlers answer from, for a main-process caller that
+ * needs to send the user to a permission. Null before install.
+ */
+export const getPermissionsService = (): PermissionsService | null =>
+  installedService;
+
 export const installPermissionsService = (): PermissionsService => {
   const service = new PermissionsService();
+  installedService = service;
 
   handle("vellum:permissions:getState", z.tuple([]), (_args, event) =>
     service.refresh(event.sender),

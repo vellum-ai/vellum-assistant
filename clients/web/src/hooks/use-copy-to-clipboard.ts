@@ -7,6 +7,11 @@ const COPIED_RESET_MS = 1500;
 export interface UseCopyToClipboardOptions {
   /** Toast shown when the clipboard write fails. */
   errorMessage: string;
+  /**
+   * Toast shown after a successful write, alongside the copied flag. Omit when
+   * the control's own copied state is the only feedback the surface needs.
+   */
+  successMessage?: string;
 }
 
 /**
@@ -24,6 +29,7 @@ export interface UseCopyToClipboardOptions {
  */
 export function useCopyToClipboard({
   errorMessage,
+  successMessage,
 }: UseCopyToClipboardOptions) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -46,6 +52,7 @@ export function useCopyToClipboard({
     (text: string, onCopied?: () => void) => {
       copyToClipboard(text, {
         errorMessage,
+        successMessage,
         onCopied: () => {
           // The write resolves on its own schedule. If the drawer closed in
           // the meantime the cleanup has already run, so arming a timer here
@@ -65,8 +72,20 @@ export function useCopyToClipboard({
         },
       });
     },
-    [errorMessage],
+    [errorMessage, successMessage],
   );
 
-  return { copy, copied } as const;
+  /**
+   * Clear the copied flag and its pending reset now, for a surface that is
+   * dismissed and may reopen before the reset would have run.
+   */
+  const reset = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    setCopied(false);
+  }, []);
+
+  return { copy, copied, reset } as const;
 }

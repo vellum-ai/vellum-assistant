@@ -66,6 +66,34 @@ mock.module("../daemon/conversation-skill-tools.js", () => ({
   })),
 }));
 
+// Records every wire tool surface the resolver persists (conversation id +
+// tool names + the hash it already knew), and lets a test make the write fail.
+let recordedSurfaces: Array<{
+  conversationId: string;
+  toolNames: string[];
+  knownHash: string | undefined;
+}> = [];
+let recordSurfaceThrows: Error | null = null;
+mock.module("../persistence/conversation-tool-surface.js", () => ({
+  recordConversationToolSurface: (
+    conversationId: string,
+    tools: ToolDefinition[],
+    knownHash?: string,
+  ) => {
+    recordedSurfaces.push({
+      conversationId,
+      toolNames: tools.map((t) => t.name),
+      knownHash,
+    });
+    if (recordSurfaceThrows) {
+      throw recordSurfaceThrows;
+    }
+    return `hash:${tools.map((t) => t.name).join(",")}`;
+  },
+  hashConversationToolSurface: (tools: ToolDefinition[]) =>
+    `hash:${tools.map((t) => t.name).join(",")}`,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports after mocks are in place
 // ---------------------------------------------------------------------------
@@ -75,6 +103,7 @@ import { createSurfaceMutex } from "../daemon/conversation-surfaces.js";
 import {
   createResolveToolsCallback,
   createToolExecutor,
+  createWireToolSurfaceRecorder,
   isRefusedInReadOnlyPass,
   type SubagentToolStats,
 } from "../daemon/conversation-tool-setup.js";
@@ -1115,5 +1144,145 @@ describe("createResolveToolsCallback — read-only hides dynamic MCP tools", () 
     )!;
 
     expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toContain("srv_send");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resolver: wire tool surface record + replay (fork cache parity)
+// ---------------------------------------------------------------------------
+
+describe("createResolveToolsCallback: wire tool surface record and replay", () => {
+  beforeEach(() => {
+    recordedSurfaces = [];
+    recordSurfaceThrows = null;
+    projectedSkillToolNames = [];
+  });
+
+  test("the resolver itself never records: out-of-band callers read it too", () => {
+    const toolDefs = [makeToolDef("remember"), makeToolDef("tool_b")];
+    const ctx = makeProjectionCtx({ conversationId: "conv-live" });
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+
+    // The `/compact` token count resolves outside any turn, where presence
+    // reads clientless; recording here would overwrite the sent surface.
+    resolve(EMPTY_HISTORY);
+
+    expect(recordedSurfaces).toEqual([]);
+    expect(ctx.recordedToolSurfaceHash).toBeUndefined();
+  });
+
+  test("the send-boundary recorder records the sent array, keyed by conversation, and remembers its hash", () => {
+    const ctx = makeProjectionCtx({ conversationId: "conv-live" });
+    const record = createWireToolSurfaceRecorder(ctx);
+    const sent = [makeToolDef("remember"), makeToolDef("web_search")];
+
+    record(sent);
+    record(sent);
+
+    // Every provider call records; the persistence layer dedupes on the hash
+    // handed back from the previous call.
+    expect(recordedSurfaces).toEqual([
+      {
+        conversationId: "conv-live",
+        toolNames: ["remember", "web_search"],
+        knownHash: undefined,
+      },
+      {
+        conversationId: "conv-live",
+        toolNames: ["remember", "web_search"],
+        knownHash: "hash:remember,web_search",
+      },
+    ]);
+    expect(ctx.recordedToolSurfaceHash).toBe("hash:remember,web_search");
+  });
+
+  test("a failed record is swallowed and still counts as recorded", () => {
+    recordSurfaceThrows = new Error("no such table");
+    const record = createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-live" }),
+    );
+
+    expect(() => record([makeToolDef("remember")])).not.toThrow();
+    record([makeToolDef("remember")]);
+
+    // The second call carries the hash from the failed first one, so a
+    // persistent failure is retried once per distinct surface, not per call.
+    expect(recordedSurfaces.map((r) => r.knownHash)).toEqual([
+      undefined,
+      "hash:remember",
+    ]);
+  });
+
+  test("the recorder skips arrays that are not the conversation's own surface", () => {
+    const tools = [makeToolDef("remember")];
+
+    // A replaying wake sends its source's array.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-fork", wireToolReplay: tools }),
+    )(tools);
+    // A tools-disabled call sends nothing; a fork replaying [] could never
+    // call remember.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-live" }),
+    )([]);
+    // Disk-pressure cleanup narrows the wire to cleanup tools.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-live",
+        diskPressureCleanupModeActive: true,
+      }),
+    )(tools);
+
+    expect(recordedSurfaces).toEqual([]);
+  });
+
+  test("replays wireToolReplay verbatim on the wire while execution still derives from the fork's own context", () => {
+    projectedSkillToolNames = ["scaffold_managed_skill"];
+    const replay: ToolDefinition[] = [
+      makeToolDef("bash"),
+      makeToolDef("remember"),
+      makeToolDef("bell_jingle"),
+      {
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 5,
+      } as unknown as ToolDefinition,
+    ];
+    // The fork's own registry lacks bell_jingle (a user-plugin tool the
+    // worker never loads) and web_search (a server tool the loop appends).
+    const toolDefs = [makeToolDef("remember"), makeToolDef("bash")];
+    const ctx = makeProjectionCtx({
+      conversationId: "conv-fork",
+      subagentAllowedTools: new Set(["remember"]),
+      subagentToolGateMode: "execution",
+      wireToolReplay: replay,
+    });
+    const resolve = createResolveToolsCallback(toolDefs, ctx)!;
+
+    const tools = resolve(EMPTY_HISTORY);
+
+    // Byte-identical to the source's recorded array, in the source's order,
+    // including definitions this process could never resolve.
+    expect(JSON.stringify(tools)).toBe(JSON.stringify(replay));
+    // Execution-side inventory is still the fork's own derivation (plus the
+    // preactivated skill tools), never widened by the replayed definitions.
+    expect(ctx.allowedToolNames).toEqual(
+      new Set(["remember", "bash", "scaffold_managed_skill"]),
+    );
+  });
+
+  test("replay returns a fresh array each call so the loop cannot mutate the recorded one", () => {
+    const replay = [makeToolDef("remember")];
+    const ctx = makeProjectionCtx({
+      conversationId: "conv-fork",
+      wireToolReplay: replay,
+    });
+    const resolve = createResolveToolsCallback([makeToolDef("remember")], ctx)!;
+
+    const first = resolve(EMPTY_HISTORY);
+    first.push(makeToolDef("injected"));
+
+    expect(resolve(EMPTY_HISTORY).map((t) => t.name)).toEqual(["remember"]);
+    expect(replay.map((t) => t.name)).toEqual(["remember"]);
   });
 });

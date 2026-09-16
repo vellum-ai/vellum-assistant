@@ -1,12 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { Check, Copy, Loader2 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
@@ -15,8 +9,8 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { buildA2AInviteLink } from "@/domains/contacts/a2a-invite";
 import { integrationsA2aInvitePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useTranslation } from "@/i18n";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
 
 export interface GenerateInviteLinkDialogProps {
   open: boolean;
@@ -43,8 +37,11 @@ export function GenerateInviteLinkDialog({
   onClose,
 }: GenerateInviteLinkDialogProps) {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const {
+    copy,
+    copied,
+    reset: resetCopied,
+  } = useCopyToClipboard({ errorMessage: "Couldn't copy the invite link." });
   const prevOpenRef = useRef(false);
 
   const mutation = useMutation({
@@ -69,36 +66,11 @@ export function GenerateInviteLinkDialog({
     prevOpenRef.current = open;
   }, [open, assistantId]);
 
-  useEffect(() => {
-    return () => {
-      if (copiedTimerRef.current) {
-        clearTimeout(copiedTimerRef.current);
-      }
-    };
-  }, []);
-
   const handleClose = useCallback(() => {
     resetRef.current();
-    setCopied(false);
-    if (copiedTimerRef.current) {
-      clearTimeout(copiedTimerRef.current);
-      copiedTimerRef.current = null;
-    }
+    resetCopied();
     onClose();
-  }, [onClose]);
-
-  const handleCopy = useCallback((url: string) => {
-    copyToClipboard(url, {
-      errorMessage: "Couldn't copy the invite link.",
-      onCopied: () => {
-        setCopied(true);
-        if (copiedTimerRef.current) {
-          clearTimeout(copiedTimerRef.current);
-        }
-        copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
-      },
-    });
-  }, []);
+  }, [onClose, resetCopied]);
 
   const inviteUrl =
     mutation.isSuccess && mutation.data.token
@@ -168,7 +140,7 @@ export function GenerateInviteLinkDialog({
                 />
                 <button
                   type="button"
-                  onClick={() => handleCopy(inviteUrl)}
+                  onClick={() => copy(inviteUrl)}
                   aria-label={t("generateInviteLinkDialog.copyAriaLabel")}
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--border-base)] hover:bg-[var(--surface-hover)]"
                 >

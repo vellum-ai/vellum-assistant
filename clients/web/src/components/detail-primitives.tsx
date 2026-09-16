@@ -9,15 +9,13 @@
  * from here.
  */
 
-import { Check, Copy } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { CopyButton } from "@/components/copy-button";
 import { useTranslation } from "@/i18n";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
-
-const COPIED_RESET_MS = 1500;
+import { cn } from "@/utils/misc";
 
 /**
  * Content longer than this collapses behind "Show more". Roughly a dozen lines
@@ -28,59 +26,6 @@ const CLAMP_CHARS = 700;
 
 /** Collapsed height of a clamped block, in px. */
 const CLAMP_HEIGHT = 260;
-
-/**
- * Small ghost button that copies `text` to the clipboard and shows a transient
- * "Copied" confirmation. Positioned in the top-right corner of the
- * {@link DetailBlock} that holds it.
- */
-function CopyButton({ text }: { text: string }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = () => {
-    copyToClipboard(text, {
-      errorMessage: "Couldn't copy.",
-      onCopied: () => {
-        setCopied(true);
-        if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current);
-        }
-        timeoutRef.current = setTimeout(
-          () => setCopied(false),
-          COPIED_RESET_MS,
-        );
-      },
-    });
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      aria-label={
-        copied ? t("detailPrimitives.copied") : t("detailPrimitives.copy")
-      }
-      className="absolute right-2 top-2 flex items-center gap-1 rounded p-1 text-label-small-default text-[var(--content-tertiary)] transition-colors hover:bg-[var(--ghost-hover)] hover:text-[var(--content-default)]"
-    >
-      {copied ? (
-        <Check className="h-3.5 w-3.5" />
-      ) : (
-        <Copy className="h-3.5 w-3.5" />
-      )}
-      {copied ? t("detailPrimitives.copied") : null}
-    </button>
-  );
-}
 
 /**
  * Collapses `children` to a readable height when `length` exceeds the clamp,
@@ -158,9 +103,12 @@ interface DetailBlockProps {
  * when it runs long, with a copy button in its top-right corner when there is
  * text to copy.
  *
- * It owns the two conditions its parts depend on. The clamp's fade is painted in
- * `--surface-overlay`, so the block is that colour, and the copy button is
- * absolutely positioned, so the block is its containing block.
+ * It owns the conditions its parts depend on. The clamp's fade is painted in
+ * `--surface-overlay`, so the block is that colour. The copy button is
+ * absolutely positioned, so the block is its containing block, and it reserves
+ * the button's room so it neither covers text nor overhangs the block: 24px on
+ * the right on desktop, and where the button grows to a 40px touch target,
+ * 40px on the right plus a height that holds it below its 8px inset.
  */
 export function DetailBlock({
   variant = "outlined",
@@ -168,12 +116,25 @@ export function DetailBlock({
   copyText,
   children,
 }: DetailBlockProps) {
+  const { t } = useTranslation();
+  const hasCopy = copyText !== undefined;
+
   return (
     <div
-      className={`relative ${DETAIL_BLOCK_VARIANT_CLASSES[variant]} bg-[var(--surface-overlay)] p-3`}
+      className={cn(
+        "relative bg-[var(--surface-overlay)] p-3",
+        DETAIL_BLOCK_VARIANT_CLASSES[variant],
+        hasCopy && "pr-10 touch-mobile:min-h-14 touch-mobile:pr-14",
+      )}
     >
       <ClampedContent length={length}>{children}</ClampedContent>
-      {copyText !== undefined && <CopyButton text={copyText} />}
+      {hasCopy && (
+        <CopyButton
+          text={copyText}
+          ariaLabel={t("detailPrimitives.copy")}
+          className="absolute right-2 top-2"
+        />
+      )}
     </div>
   );
 }

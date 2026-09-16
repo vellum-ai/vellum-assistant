@@ -235,11 +235,29 @@ export function registerPluginsCommand(program: Command): void {
               // pinned commit. With platform features disabled (air-gapped /
               // self-hosted) there is no platform to call, so resolve the pin
               // from the bundled catalog and install through the GitHub path.
-              if (libs.catalogLocal.arePlatformFeaturesEnabled()) {
-                result = await libs.installPlatform.installPluginViaPlatform(
-                  { name: nameOrUrl, force: opts.force },
-                  { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
-                );
+              const platformEnabled =
+                libs.catalogLocal.arePlatformFeaturesEnabled();
+              if (platformEnabled) {
+                const match = (
+                  await libs.catalogCache.getPluginCatalog(DEFAULT_PLUGIN_REF, {
+                    fetch: globalThis.fetch.bind(globalThis),
+                  })
+                ).matches.find((candidate) => candidate.name === nameOrUrl);
+                if (match?.source.kind === "local") {
+                  result = await libs.installGitHub.installPlugin(
+                    {
+                      name: nameOrUrl,
+                      force: opts.force,
+                      trustedSource: match.source,
+                    },
+                    { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
+                  );
+                } else {
+                  result = await libs.installPlatform.installPluginViaPlatform(
+                    { name: nameOrUrl, force: opts.force },
+                    { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
+                  );
+                }
               } else {
                 const source =
                   libs.catalogLocal.resolveBundledPluginSource(nameOrUrl);
@@ -250,19 +268,30 @@ export function registerPluginsCommand(program: Command): void {
                   process.exitCode = 1;
                   return;
                 }
-                result = await libs.installGitHub.installPlugin(
-                  {
-                    name: nameOrUrl,
-                    force: opts.force,
-                    trustedSource: {
-                      owner: source.owner,
-                      repo: source.repo,
-                      rootPath: source.path,
-                      ref: source.ref,
+                if (source.kind === "local") {
+                  result = await libs.installGitHub.installPlugin(
+                    {
+                      name: nameOrUrl,
+                      force: opts.force,
+                      trustedSource: source,
                     },
-                  },
-                  { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
-                );
+                    { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
+                  );
+                } else {
+                  result = await libs.installGitHub.installPlugin(
+                    {
+                      name: nameOrUrl,
+                      force: opts.force,
+                      trustedSource: {
+                        owner: source.owner,
+                        repo: source.repo,
+                        rootPath: source.path,
+                        ref: source.ref,
+                      },
+                    },
+                    { fetch: globalThis.fetch.bind(globalThis), confirmStaged },
+                  );
+                }
               }
             } else {
               const installOpts = direct
@@ -1390,8 +1419,11 @@ function driftLine(changes: FingerprintComparison | null): string {
   return parts.join(", ");
 }
 
-/** Build the GitHub web URL for a remote pin's location (repo, or repo subtree). */
+/** Build the display location for a bundled package or GitHub pin. */
 function remoteLocation(remote: PluginRemoteInfo): string {
+  if (remote.kind === "local") {
+    return `bundled:${remote.path}`;
+  }
   const base = `https://github.com/${remote.repo}`;
   return remote.path ? `${base}/tree/${remote.commit}/${remote.path}` : base;
 }

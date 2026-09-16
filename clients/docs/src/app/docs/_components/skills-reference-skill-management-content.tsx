@@ -82,6 +82,15 @@ export function SkillsReferenceSkillManagementContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
+                    &ldquo;Change step 3 of the Hacker News skill&rdquo;
+                  </td>
+                  <td className="px-3 py-2">
+                    Rewrites that skill&apos;s instructions and keeps its other
+                    settings
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-3 py-2">
                     &ldquo;Delete the Hacker News skill&rdquo;
                   </td>
                   <td className="px-3 py-2">Removes a custom skill</td>
@@ -113,6 +122,13 @@ export function SkillsReferenceSkillManagementContent() {
               terminal; skills built this way cannot register executable skill
               tools (TOOLS.json ships only with built-in and
               community-installed skills)
+            </li>
+            <li>
+              Editing a skill replaces its instructions and its trigger
+              phrases; every other setting it carries (emoji, category,
+              included skills, avoid-when notes, and anything added by hand to
+              its frontmatter) stays as it was unless the edit changes or
+              clears it
             </li>
             <li>Skills are saved to ~/.vellum/workspace/skills/</li>
           </ul>

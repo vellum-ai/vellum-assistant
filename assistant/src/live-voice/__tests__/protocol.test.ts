@@ -800,6 +800,54 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("parses the lookFrames capability on the start frame", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      lookFrames: true,
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.frame).toMatchObject({ type: "start", lookFrames: true });
+  });
+
+  test("omits lookFrames from the start frame when false", () => {
+    // False and absent mean the same thing: no look frame is coming, so the
+    // session must not wait for one.
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      lookFrames: false,
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect("lookFrames" in result.frame).toBe(false);
+  });
+
+  test("returns a typed protocol error for a non-boolean lookFrames", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      lookFrames: 1,
+      audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "lookFrames",
+      frameType: "start",
+    });
+  });
+
   test("returns typed protocol errors for missing audio configuration fields", () => {
     const result = validateLiveVoiceClientFrame({
       type: "start",

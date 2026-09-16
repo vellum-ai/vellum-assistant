@@ -12,6 +12,7 @@ import { MemoryRouter, useNavigate } from "react-router";
 
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import type { OauthProvidersGetResponse } from "@/generated/daemon/types.gen";
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import type { McpServerEntry } from "../mcp/mcp-api";
 
 type OAuthProvider = OauthProvidersGetResponse["providers"][number];
@@ -27,7 +28,7 @@ let allowAdd = true;
 let hydrated = true;
 let selectedModalProvider: string | null = null;
 let selectedModalTenantHost: unknown = null;
-const setupConversation = mock(() => {});
+const setupConversation = mock(() => "draft-conversation");
 const getAssistant = mock(async (assistantId?: string) =>
   assistantAvailable
     ? { ok: true, data: { id: assistantId ?? "stale-assistant" } }
@@ -40,9 +41,9 @@ mock.module("@/assistant/api", () => ({
 mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "mcp-assistant-123",
 }));
-mock.module("@/utils/conversation-navigation", () => ({
-  navigateToNewConversation: setupConversation,
-}));
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({ navigateToNewConversation: setupConversation }),
+);
 mock.module("@/stores/assistant-feature-flag-store", () => ({
   useAssistantFeatureFlagStore: {
     use: {

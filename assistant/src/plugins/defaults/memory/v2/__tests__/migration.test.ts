@@ -62,7 +62,12 @@ mock.module("../../../../../persistence/jobs-store.js", () => ({
 // provider, but the safety net mock keeps any accidental real-call from
 // reaching the network — and lets us add a "no provider configured" test.
 let providerStub: Provider | null = null;
+// Spread the real module so the memory code under test keeps every other
+// plugin-API export (`safeStringSlice` among them); only the provider lookup
+// is stubbed.
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
 }));
 

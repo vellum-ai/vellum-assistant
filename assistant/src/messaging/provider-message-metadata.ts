@@ -30,9 +30,9 @@ import { CHANNEL_IDS } from "../channels/types.js";
  * The schema passes through what it does not name, so a provider carries its
  * own fields (Slack's file markers and timezone labels) on this same object
  * and validates them with its own schema. This is how `SourceMetadataSchema`
- * already carries `slackBotMentioned` and the email fields on the wire: one
- * object per row, no per-provider sub-envelope, and no second copy of
- * anything named here.
+ * carries `botMentioned` and the email fields on the wire: one object per
+ * row, no per-provider sub-envelope, and no second copy of anything named
+ * here.
  */
 
 const providerReactionMetadataSchema = z.object({

@@ -630,6 +630,10 @@ export class LiveVoiceChannelClient {
       // the outcome the text-only path exists to avoid.
       textInput: true,
       sessionControls: this.sessionControls,
+      // Unconditional: every look this client carries out ends in a fresh
+      // frame (the screen share and the room's sight hooks both take one), so
+      // the assistant can answer a look without waiting for more speech.
+      lookFrames: true,
       ...(this.entry ? { entry: this.entry } : {}),
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),

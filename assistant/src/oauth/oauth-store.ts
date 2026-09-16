@@ -59,7 +59,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
- * identityResponsePaths, identityFormat, identityOkField, featureFlag,
+ * identityResponsePaths, identityFormat, identityOkField, responseOkField, featureFlag,
  * scopeSeparator, defaultScopes, availableScopes)
  * and display metadata (displayLabel, description, dashboardUrl,
  * clientIdPlaceholder, logoUrl, requiresClientSecret) propagate to existing
@@ -111,6 +111,7 @@ export function seedProviders(
     identityResponsePaths?: string[];
     identityFormat?: string;
     identityOkField?: string;
+    responseOkField?: string;
     featureFlag?: string;
   }>,
 ): void {
@@ -175,6 +176,7 @@ export function seedProviders(
       : null;
     const identityFormat = p.identityFormat ?? null;
     const identityOkField = p.identityOkField ?? null;
+    const responseOkField = p.responseOkField ?? null;
     const featureFlag = p.featureFlag ?? null;
 
     db.insert(oauthProviders)
@@ -216,6 +218,7 @@ export function seedProviders(
         identityResponsePaths,
         identityFormat,
         identityOkField,
+        responseOkField,
         featureFlag,
         createdAt: now,
         updatedAt: now,
@@ -259,6 +262,7 @@ export function seedProviders(
           identityResponsePaths,
           identityFormat,
           identityOkField,
+          responseOkField,
           featureFlag,
           updatedAt: now,
         },
@@ -359,6 +363,7 @@ export function registerProvider(params: {
   identityResponsePaths?: string[];
   identityFormat?: string;
   identityOkField?: string;
+  responseOkField?: string;
   featureFlag?: string;
 }): OAuthProviderRow {
   const db = getDb();
@@ -425,6 +430,7 @@ export function registerProvider(params: {
       : null,
     identityFormat: params.identityFormat ?? null,
     identityOkField: params.identityOkField ?? null,
+    responseOkField: params.responseOkField ?? null,
     featureFlag: params.featureFlag ?? null,
     createdAt: now,
     updatedAt: now,
@@ -486,6 +492,7 @@ export function updateProvider(
     identityResponsePaths: string[];
     identityFormat: string;
     identityOkField: string;
+    responseOkField: string;
     featureFlag: string;
     managedServiceIsPaid: boolean;
   }>,
@@ -609,6 +616,9 @@ export function updateProvider(
   }
   if (params.identityOkField !== undefined) {
     set.identityOkField = params.identityOkField;
+  }
+  if (params.responseOkField !== undefined) {
+    set.responseOkField = params.responseOkField;
   }
   if (params.featureFlag !== undefined) {
     set.featureFlag = params.featureFlag;

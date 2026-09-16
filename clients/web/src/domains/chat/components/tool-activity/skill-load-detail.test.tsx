@@ -1,5 +1,5 @@
 /**
- * Tests for the `skill_load` activity panel — the "Used Skill" card, its View
+ * Tests for the `skill_load` activity panel: the "Used Skill" card, its View
  * action, and the Output section's Clean/Raw switch and Show more clamp
  * (Figma node 7778-163402).
  *
@@ -32,9 +32,8 @@ const exportNames = [...sdkSource.matchAll(/^export const (\w+)/gm)].map(
 const sdkMock = Object.fromEntries(exportNames.map((n) => [n, sdkStub]));
 mock.module("@/generated/daemon/sdk.gen", () => sdkMock);
 
-const { SkillLoadDetail } = await import(
-  "@/domains/chat/components/tool-activity/skill-load-detail"
-);
+const { SkillLoadDetail } =
+  await import("@/domains/chat/components/tool-activity/skill-load-detail");
 const { useViewerStore } = await import("@/stores/viewer-store");
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
@@ -171,8 +170,41 @@ describe("SkillLoadDetail", () => {
 
     expect(getByText(error)).toBeDefined();
     expect(queryByText("Output")).toBeNull();
-    // The error text appears in the notice only — not repeated as output.
+    // The error text appears in the notice only, not repeated as output.
     expect(container.textContent?.split("meet-join").length).toBe(2);
+  });
+
+  test("reads a refused load as not approved, not as still loading", () => {
+    // Refused before any result: the call has no terminal signal yet, so it
+    // also counts as running. The refusal decides what the card says.
+    const { getByText, queryByText, queryByRole } = renderDetail({
+      result: undefined,
+      isRunning: true,
+      isDenied: true,
+    });
+
+    expect(getByText("Not approved")).toBeDefined();
+    expect(
+      getByText("This tool call was not approved, so it did not run."),
+    ).toBeDefined();
+    expect(queryByText("Loading skill…")).toBeNull();
+    expect(queryByRole("status")).toBeNull();
+  });
+
+  test("does not show the daemon's refusal note as a failed load", () => {
+    const { getByText, queryByText, container } = renderDetail({
+      result:
+        'Permission denied. The "skill_load" tool was not allowed. Do NOT retry this tool call immediately.',
+      isError: true,
+      isDenied: true,
+    });
+
+    expect(getByText("Not approved")).toBeDefined();
+    expect(
+      getByText("This tool call was not approved, so it did not run."),
+    ).toBeDefined();
+    expect(queryByText("Failed to load")).toBeNull();
+    expect(container.textContent).not.toContain("Do NOT retry");
   });
 
   test("names the skill from its id while the load is still running", () => {

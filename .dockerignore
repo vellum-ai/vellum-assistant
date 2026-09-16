@@ -58,6 +58,10 @@ clients/macos/src
 # into place. Without it the assistant image cannot resolve that import.
 !plugins/
 !plugins/marketplace.json
+!plugins/mcp-catalog/
+!plugins/mcp-catalog/**
+!meta/
+!meta/sync-bundled-copies.ts
 
 # Exclude local dependencies and build outputs from included directories.
 assistant/dist/

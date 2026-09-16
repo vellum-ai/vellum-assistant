@@ -3,7 +3,7 @@ import type { Location, NavigateFunction } from "react-router";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DocumentContent } from "@/types/document-types";
 import { navigateToConversation } from "@/utils/conversation-navigation";
-import { routes } from "@/utils/routes";
+import { conversationIdForPath, routes } from "@/utils/routes";
 import {
   DOCUMENT_RETURN_PARAM,
   documentReturnPath,
@@ -76,15 +76,18 @@ export function returnFromDocument(
 ): void {
   if (hasDocumentReturnEntry(state, surfaceId, returnTo)) {
     void navigate(-1);
-  } else if (returnTo.startsWith(`${routes.conversations}/`)) {
-    navigateToConversation(
-      navigate,
-      returnTo.slice(`${routes.conversations}/`.length).replace(/\/$/, ""),
-      { silent: true, replace: true, destination: returnTo },
-    );
-  } else {
-    void navigate(returnTo, { replace: true });
+    return;
   }
+  const conversationId = conversationIdForPath(returnTo);
+  if (conversationId === null) {
+    void navigate(returnTo, { replace: true });
+    return;
+  }
+  navigateToConversation(navigate, conversationId, {
+    silent: true,
+    replace: true,
+    destination: returnTo,
+  });
 }
 
 export function documentConversationUrl(

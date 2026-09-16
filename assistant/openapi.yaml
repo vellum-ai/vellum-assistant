@@ -5042,7 +5042,7 @@ paths:
                           type: string
                       required:
                         - type
-                    slackBotMentioned:
+                    botMentioned:
                       type: boolean
                     slackEditedTs:
                       type: string
@@ -11941,6 +11941,8 @@ paths:
                       - ready
                       - failed
                       - unsupported
+                  automationActive:
+                    type: boolean
                   stage:
                     type: string
                     enum:
@@ -11971,6 +11973,8 @@ paths:
                       - ready
                       - failed
                       - unsupported
+                  automationActive:
+                    type: boolean
                   stage:
                     type: string
                     enum:
@@ -26622,26 +26626,44 @@ paths:
                     description: Resolved version (installed copy first, then repo `package.json`).
                   source:
                     anyOf:
-                      - type: object
-                        properties:
-                          kind:
-                            type: string
-                            const: github
-                          repo:
-                            type: string
-                            description: "`owner/repo` of the external plugin repository."
-                          path:
-                            description: Directory within the repo, when the plugin is not at the root.
-                            type: string
-                          ref:
-                            type: string
-                            description: Pinned git ref the plugin is fetched from.
-                        required:
-                          - kind
-                          - repo
-                          - ref
-                        additionalProperties: false
-                        description: "Origin of the match: a whitelisted external plugin repository."
+                      - oneOf:
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: github
+                              repo:
+                                type: string
+                                description: "`owner/repo` of the external plugin repository."
+                              path:
+                                description: Directory within the repo, when the plugin is not at the root.
+                                type: string
+                              ref:
+                                type: string
+                                description: Pinned git ref the plugin is fetched from.
+                            required:
+                              - kind
+                              - repo
+                              - ref
+                            additionalProperties: false
+                          - type: object
+                            properties:
+                              kind:
+                                type: string
+                                const: local
+                              path:
+                                type: string
+                                description: Package key in the assistant bundle.
+                              version:
+                                type: string
+                                description: Bundled package version.
+                            required:
+                              - kind
+                              - path
+                              - version
+                            additionalProperties: false
+                        description: Reviewed source of the marketplace entry.
+                        type: object
                       - type: "null"
                     description: Pinned origin from the marketplace entry, or null when an installed copy has no catalog entry.
                   readme:
@@ -26996,28 +27018,42 @@ paths:
                             description: ISO-8601 install timestamp from the sidecar; null when absent.
                           source:
                             anyOf:
-                              - type: object
-                                properties:
-                                  kind:
-                                    type: string
-                                    description: Source kind. Only `github` is written today.
-                                  owner:
-                                    type: string
-                                  repo:
-                                    type: string
-                                  path:
-                                    description: Repo-relative directory holding the plugin root; absent = repo root.
-                                    type: string
-                                  ref:
-                                    type: string
-                                    description: Ref the install resolved through (the pinned commit SHA for marketplace installs).
-                                required:
-                                  - kind
-                                  - owner
-                                  - repo
-                                  - ref
-                                additionalProperties: false
+                              - oneOf:
+                                  - type: object
+                                    properties:
+                                      kind:
+                                        type: string
+                                        const: github
+                                      owner:
+                                        type: string
+                                      repo:
+                                        type: string
+                                      path:
+                                        type: string
+                                      ref:
+                                        type: string
+                                    required:
+                                      - kind
+                                      - owner
+                                      - repo
+                                      - ref
+                                    additionalProperties: false
+                                  - type: object
+                                    properties:
+                                      kind:
+                                        type: string
+                                        const: local
+                                      path:
+                                        type: string
+                                      version:
+                                        type: string
+                                    required:
+                                      - kind
+                                      - path
+                                      - version
+                                    additionalProperties: false
                                 description: Source coordinates recorded in the install-time provenance sidecar.
+                                type: object
                               - type: "null"
                             description: Source recorded at install time; null when no sidecar exists.
                           localChanges:
@@ -27076,6 +27112,9 @@ paths:
                     anyOf:
                       - type: object
                         properties:
+                          kind:
+                            type: string
+                            const: local
                           repo:
                             type: string
                             description: "`owner/repo` of the external plugin repository."
@@ -27111,6 +27150,9 @@ paths:
                           marketplaceRef:
                             type: string
                             description: Ref of the canonical repo the marketplace manifest was read from.
+                          version:
+                            description: Bundled package version.
+                            type: string
                         required:
                           - repo
                           - path
@@ -27547,7 +27589,7 @@ paths:
                           description: Install name. Matches `assistant plugins install <name>`.
                         path:
                           type: string
-                          description: "Human-readable origin: a `github:owner/repo@ref` locator for the external plugin."
+                          description: Human-readable catalog origin locator.
                         description:
                           description: Short description, when known (external entries only today).
                           type: string
@@ -27561,27 +27603,87 @@ paths:
                             - type: string
                             - type: "null"
                           description: Marketplace category slug (Skills taxonomy); null when the entry declares none.
-                        source:
+                        integration:
                           type: object
                           properties:
                             kind:
                               type: string
-                              const: github
-                            repo:
+                              const: mcp
+                            displayName:
                               type: string
-                              description: "`owner/repo` of the external plugin repository."
-                            path:
-                              description: Directory within the repo, when the plugin is not at the root.
+                            documentationUrl:
                               type: string
-                            ref:
+                            verifiedAt:
                               type: string
-                              description: Pinned git ref the plugin is fetched from.
+                            verification:
+                              type: string
+                              const: documentation-only
+                            setup:
+                              type: object
+                              properties:
+                                mode:
+                                  type: string
+                                  enum:
+                                    - oauth
+                                    - manual
+                                instructions:
+                                  type: string
+                              required:
+                                - mode
+                                - instructions
+                              additionalProperties: false
+                            logo:
+                              type: string
+                            oauthProvider:
+                              type: string
                           required:
                             - kind
-                            - repo
-                            - ref
+                            - displayName
+                            - documentationUrl
+                            - verifiedAt
+                            - verification
+                            - setup
+                            - logo
                           additionalProperties: false
-                          description: "Origin of the match: a whitelisted external plugin repository."
+                        source:
+                          oneOf:
+                            - type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  const: github
+                                repo:
+                                  type: string
+                                  description: "`owner/repo` of the external plugin repository."
+                                path:
+                                  description: Directory within the repo, when the plugin is not at the root.
+                                  type: string
+                                ref:
+                                  type: string
+                                  description: Pinned git ref the plugin is fetched from.
+                              required:
+                                - kind
+                                - repo
+                                - ref
+                              additionalProperties: false
+                            - type: object
+                              properties:
+                                kind:
+                                  type: string
+                                  const: local
+                                path:
+                                  type: string
+                                  description: Package key in the assistant bundle.
+                                version:
+                                  type: string
+                                  description: Bundled package version.
+                              required:
+                                - kind
+                                - path
+                                - version
+                              additionalProperties: false
+                          description: Reviewed source of the marketplace entry.
+                          type: object
                       required:
                         - name
                         - path

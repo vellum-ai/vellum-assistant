@@ -146,7 +146,7 @@ export function ToolDetailBody({
                 ? (result as string)
                 : (streamedOutput ?? "")
             }
-            isDenied={isDenied && !hasResult}
+            isDenied={isDenied}
             isRunning={isRunning}
             isError={isError}
           />

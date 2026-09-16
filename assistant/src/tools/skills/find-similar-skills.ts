@@ -1,8 +1,13 @@
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { nearestExistingSkills } from "../../plugins/defaults/memory/v3/candidate-match.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
-import { getManagedSkillDir } from "../../skills/managed-store.js";
+import {
+  getManagedSkillDir,
+  readStoredManagedSkill,
+  type StoredManagedSkill,
+} from "../../skills/managed-store.js";
 import {
   filterSkillsByPlatform,
   type SkillPlatform,
@@ -21,6 +26,14 @@ import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
  * `"user"` = a person wrote it, off-limits). It is undefined for non-managed
  * sources and for managed skills with no recorded author, so the caller can
  * distinguish its OWN managed skills from a user's without re-reading meta.
+ *
+ * `current` is the skill as stored, present only on a hit the caller may
+ * refine (managed, assistant-authored) and only for the retrospective. A
+ * refinement is a whole-file overwrite and the pass has no other read path:
+ * its `skill_load` grant covers skill-management alone, and loading would
+ * stamp `lastUsedAt` and count as usage. Fields are spelled as
+ * `scaffold_managed_skill`'s own arguments so the pass carries forward what
+ * it is not changing without translating names.
  */
 interface EnrichedHit {
   skill_id: string;
@@ -29,6 +42,19 @@ interface EnrichedHit {
   source: SkillSource;
   author?: "assistant" | "user";
   score: number;
+  current?: CurrentSkill;
+}
+
+/** The refinable skill's present content, in `scaffold_managed_skill` argument names. */
+interface CurrentSkill {
+  name: string;
+  description: string;
+  emoji?: string;
+  category?: string;
+  includes?: string[];
+  activation_hints?: string[];
+  avoid_when?: string[];
+  body_markdown: string;
 }
 
 /**
@@ -37,7 +63,8 @@ interface EnrichedHit {
  * each joined to its catalog name/description. Exported so bundled-skill
  * executors and tests can call it directly.
  *
- * `deps` injects the shortlist + catalog seams so tests run without Qdrant.
+ * `deps` injects the shortlist, catalog, and stored-skill seams so tests run
+ * without Qdrant or a skills directory.
  */
 export async function executeFindSimilarSkills(
   input: Record<string, unknown>,
@@ -52,6 +79,7 @@ export async function executeFindSimilarSkills(
       owner?: OwnerInfo;
       platforms?: SkillPlatform[];
     }[];
+    readStoredManagedSkill?: (skillId: string) => StoredManagedSkill | null;
   } = {},
 ): Promise<ToolExecutionResult> {
   const goal = input.goal;
@@ -79,6 +107,7 @@ export async function executeFindSimilarSkills(
 
   const findNearest = deps.nearestExistingSkills ?? nearestExistingSkills;
   const loadCatalog = deps.loadCatalog ?? (() => loadSkillCatalog());
+  const readStored = deps.readStoredManagedSkill ?? readStoredManagedSkill;
 
   const catalog = loadCatalog();
   const byId = new Map(catalog.map((s) => [s.id, s]));
@@ -114,6 +143,9 @@ export async function executeFindSimilarSkills(
     ...(context.signal ? { signal: context.signal } : {}),
   });
 
+  const fromRetrospective =
+    context.requestOrigin === MEMORY_RETROSPECTIVE_ORIGIN;
+
   const enriched: EnrichedHit[] = [];
   for (const hit of hits) {
     const skill = byId.get(hit.skillId);
@@ -126,19 +158,40 @@ export async function executeFindSimilarSkills(
     if (outOfScope(skill)) {
       continue;
     }
+    // Join install-meta authorship for managed hits so the caller can tell its
+    // OWN skills (overwritable) from a user's. Best-effort: an absent/failed
+    // meta read leaves `author` undefined rather than throwing.
+    const author =
+      skill.source === "managed"
+        ? readManagedSkillAuthor(hit.skillId)
+        : undefined;
+    // Only a refinable hit pays for the disk read, and a failed read drops
+    // `current` rather than the hit: the pass can still skip a skill it
+    // cannot see, it just cannot rewrite it well. Absent fields serialize
+    // away with the result.
+    const stored =
+      fromRetrospective && author === "assistant"
+        ? readStored(hit.skillId)
+        : null;
     enriched.push({
       skill_id: hit.skillId,
       name: skill.name,
       description: skill.description,
       source: skill.source,
-      // Join install-meta authorship for managed hits so the caller can tell its
-      // OWN skills (overwritable) from a user's. Best-effort: an absent/failed
-      // meta read leaves `author` undefined rather than throwing.
-      author:
-        skill.source === "managed"
-          ? readManagedSkillAuthor(hit.skillId)
-          : undefined,
+      author,
       score: hit.score,
+      current: stored
+        ? {
+            name: stored.name,
+            description: stored.description,
+            emoji: stored.emoji,
+            category: stored.category,
+            includes: stored.includes,
+            activation_hints: stored.activationHints,
+            avoid_when: stored.avoidWhen,
+            body_markdown: stored.body,
+          }
+        : undefined,
     });
   }
 

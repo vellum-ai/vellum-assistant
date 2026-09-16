@@ -9,6 +9,8 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'assistant/**'
+      - 'plugins/marketplace.json'
+      - 'plugins/mcp-catalog/**'
       - 'credential-executor/**'
       - 'packages/**'
       - 'meta/feature-flags/**'

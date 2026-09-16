@@ -136,7 +136,7 @@ export function _resetPlatformIdentityEnsureForTests(): void {
  * Concurrent callers share one in-flight request.
  */
 export async function ensurePlatformIdentityIds(): Promise<void> {
-  if (getPlatformAssistantId().trim()) {
+  if (getPlatformAssistantId()?.trim()) {
     return;
   }
   if (Date.now() < nextEnsureAttemptAt) {
@@ -146,7 +146,7 @@ export async function ensurePlatformIdentityIds(): Promise<void> {
     ensureInFlight = (async () => {
       try {
         const apiKey = await readAssistantApiKey();
-        const baseUrl = getPlatformBaseUrl();
+        const baseUrl = (getPlatformBaseUrl() ?? "").replace(/\/+$/, "");
         if (!apiKey || !baseUrl) {
           return;
         }
@@ -167,12 +167,12 @@ export async function ensurePlatformIdentityIds(): Promise<void> {
 }
 
 export async function resolvePlatformAssistantId(): Promise<string> {
-  const existing = getPlatformAssistantId().trim();
+  const existing = getPlatformAssistantId()?.trim() ?? "";
   if (existing) {
     return existing;
   }
   await ensurePlatformIdentityIds();
-  return getPlatformAssistantId().trim();
+  return getPlatformAssistantId()?.trim() ?? "";
 }
 
 export async function resolvePlatformAssistantIdOrNull(): Promise<
@@ -183,19 +183,19 @@ export async function resolvePlatformAssistantIdOrNull(): Promise<
 }
 
 export async function resolvePlatformOrganizationId(): Promise<string> {
-  const existing = getPlatformOrganizationId().trim();
+  const existing = getPlatformOrganizationId()?.trim() ?? "";
   if (existing) {
     return existing;
   }
   await ensurePlatformIdentityIds();
-  return getPlatformOrganizationId().trim();
+  return getPlatformOrganizationId()?.trim() ?? "";
 }
 
 export async function resolvePlatformUserId(): Promise<string> {
-  const existing = getPlatformUserId().trim();
+  const existing = getPlatformUserId()?.trim() ?? "";
   if (existing) {
     return existing;
   }
   await ensurePlatformIdentityIds();
-  return getPlatformUserId().trim();
+  return getPlatformUserId()?.trim() ?? "";
 }

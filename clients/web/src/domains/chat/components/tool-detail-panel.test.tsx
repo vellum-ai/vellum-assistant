@@ -68,8 +68,8 @@ const render = (ui: Parameters<typeof rtlRender>[0]) =>
  * folds into the materialized snapshot, so this writes the snapshot.
  */
 function seedHistory(messages: DisplayMessage[]) {
-  // History now folds into the materialized snapshot, the single source the
-  // drawer reads, so seed it there.
+  // History folds into the materialized snapshot (the single source the
+  // drawer reads), so seed it there.
   useChatSessionStore.setState({ snapshot: snap(messages) });
 }
 
@@ -333,6 +333,26 @@ describe("ToolDetailPanel", () => {
     expect(getByTestId("tool-output-notice").textContent).toBe(
       "This tool call was not approved, so it did not run.",
     );
+  });
+
+  test("keeps saying a denied call did not run once its denial result lands", () => {
+    // The daemon answers a refusal with a result addressed to the model. It is
+    // not output, so the reader still sees why the call did not run.
+    const { getByTestId, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          result:
+            'Permission denied. The "subagent_spawn" tool was not allowed. Do NOT retry this tool call immediately.',
+          status: "denied",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByTestId("tool-output-notice").textContent).toBe(
+      "This tool call was not approved, so it did not run.",
+    );
+    expect(queryByText(/Do NOT retry/)).toBeNull();
   });
 
   test("picks up a denial that lands while the drawer is open", () => {

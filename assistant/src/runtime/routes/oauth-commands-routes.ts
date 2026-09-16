@@ -20,7 +20,10 @@ import {
   type Services,
   ServicesSchema,
 } from "../../config/schemas/services.js";
-import type { OAuthConnectionRequest } from "../../oauth/connection.js";
+import type {
+  OAuthConnectionRequest,
+  OAuthConnectionResponse,
+} from "../../oauth/connection.js";
 import {
   isBinaryOAuthBody,
   jsonSafeOAuthBody,
@@ -30,6 +33,7 @@ import {
   type ResolveOAuthConnectionOptions,
   resolveOAuthConnectionWithMeta,
 } from "../../oauth/connection-resolver.js";
+import { providerReportsFailure } from "../../oauth/identity-verifier.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
@@ -231,6 +235,27 @@ function assertOAuthRequestUrlAllowed(
       `OAuth request URL host "${parsedUrl.hostname}" is not allowed for "${providerRow.provider}". Allowed hosts: ${allowedHostPatterns.join(", ")}.`,
     );
   }
+}
+
+/**
+ * The verdict on a provider exchange: whether the status said success, and
+ * whether the provider's declared ok field (`responseOkField`) then took it
+ * back. The field is read only under a 2xx, so a 429 or 5xx whose body
+ * happens to carry it stays a transport failure rather than a refusal.
+ * `reportedFailure` is the one-line account of a refusal, absent otherwise.
+ */
+function judgeProviderResponse(
+  providerRow: OAuthProviderRow,
+  response: OAuthConnectionResponse,
+): { ok: boolean; reportedFailure?: string } {
+  const httpOk = response.status >= 200 && response.status < 300;
+  if (httpOk && providerReportsFailure(providerRow, response.body)) {
+    return {
+      ok: false,
+      reportedFailure: `${providerRow.provider} answered HTTP ${response.status} but reported ${providerRow.responseOkField}: false`,
+    };
+  }
+  return { ok: httpOk };
 }
 
 /**
@@ -689,7 +714,8 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     ...(pingBody !== undefined ? { body: pingBody } : {}),
   });
 
-  if (response.status >= 200 && response.status < 300) {
+  const verdict = judgeProviderResponse(providerRow, response);
+  if (verdict.ok) {
     return { ok: true, provider: b.provider, status: response.status };
   }
 
@@ -697,10 +723,21 @@ async function handlePing({ body = {} }: RouteHandlerArgs) {
     ok: false,
     provider: b.provider,
     status: response.status,
-    error: `Ping failed with HTTP ${response.status}`,
+    error: verdict.reportedFailure
+      ? `Ping failed: ${verdict.reportedFailure}`
+      : `Ping failed with HTTP ${response.status}`,
   };
+  if (verdict.reportedFailure) {
+    payload.body = response.body;
+  }
 
-  if (response.status === 401 || response.status === 403) {
+  // A provider that refuses the ping inside a 2xx is refusing the credential
+  // the same way a 401 does.
+  if (
+    response.status === 401 ||
+    response.status === 403 ||
+    verdict.reportedFailure
+  ) {
     payload.hint =
       `Run 'assistant oauth status ${b.provider}' to check connection health. ` +
       `To reconnect, run 'assistant oauth connect --help'.`;
@@ -978,8 +1015,10 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
   const response = await connection.request(req);
   const encodedBody = jsonSafeOAuthBody(response.body);
 
+  const verdict = judgeProviderResponse(providerRow, response);
+
   const result: Record<string, unknown> = {
-    ok: response.status >= 200 && response.status < 300,
+    ok: verdict.ok,
     status: response.status,
     headers: response.headers,
     body: encodedBody.body,
@@ -1001,7 +1040,11 @@ export async function handleRequest({ body = {} }: RouteHandlerArgs) {
       `used "${selected}". Pass --account to select a specific one.`;
   }
 
-  if (response.status === 401 || response.status === 403) {
+  if (verdict.reportedFailure) {
+    // The body carries the provider's own error code, so the hint says only
+    // why a 2xx is being reported as a failure.
+    result.hint = `${verdict.reportedFailure} in the response body. The body names the error.`;
+  } else if (response.status === 401 || response.status === 403) {
     // The recovery steps follow the credential's kind, not the door the
     // request came through: a channel bot's token was stored by the channel's
     // setup, so the OAuth status and connect commands cannot repair it.

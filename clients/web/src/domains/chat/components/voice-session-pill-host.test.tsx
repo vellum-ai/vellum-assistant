@@ -22,6 +22,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { MainView } from "@/stores/viewer-store";
+import { composerViewerStoreMock } from "@/stores/viewer-store.test-helper";
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 
 import {
@@ -54,13 +56,13 @@ mock.module("react-router", () => ({
 // matters, and only to decide whether the state word navigates.
 
 let mockMainView: MainView = "chat";
-mock.module("@/stores/viewer-store", () => ({
-  useViewerStore: {
-    use: {
-      mainView: () => mockMainView,
-    },
-  },
-}));
+let mockActiveAppId: string | null = null;
+mock.module("@/stores/viewer-store", () =>
+  composerViewerStoreMock(() => ({
+    mainView: mockMainView,
+    activeAppId: mockActiveAppId,
+  })),
+);
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -71,9 +73,11 @@ mock.module("@/hooks/use-is-mobile", () => ({
 const navigateToConversationSpy = mock(
   (_navigate: unknown, _conversationId: string) => {},
 );
-mock.module("@/utils/conversation-navigation", () => ({
-  navigateToConversation: navigateToConversationSpy,
-}));
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({
+    navigateToConversation: navigateToConversationSpy,
+  }),
+);
 
 // Avatar data feeding the pill's wave accent. Mocked so the host renders
 // without a QueryClientProvider (the real hook is React Query).
@@ -109,6 +113,7 @@ beforeEach(() => {
   mockPathname = routes.conversation(OTHER_CONVERSATION_ID);
   mockSearch = "";
   mockMainView = "chat";
+  mockActiveAppId = null;
   mockIsMobile = false;
   navigateFn.mockClear();
   navigateToConversationSpy.mockClear();
@@ -173,6 +178,7 @@ describe("VoiceSessionPillHost — visibility", () => {
       .setActiveConversationId(OWNING_CONVERSATION_ID);
     mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
     mockMainView = "app";
+    mockActiveAppId = "app-1";
     render(<VoiceSessionPillHost />);
     expect(pill()).not.toBeNull();
   });
@@ -184,6 +190,7 @@ describe("VoiceSessionPillHost — visibility", () => {
       .setActiveConversationId(OWNING_CONVERSATION_ID);
     mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
     mockMainView = "app";
+    mockActiveAppId = "app-1";
     mockIsMobile = true;
     const { container } = render(<VoiceSessionPillHost />);
     expect(container.firstChild).toBeNull();
@@ -268,6 +275,7 @@ describe("VoiceSessionPillHost — failure surface", () => {
       .setActiveConversationId(OWNING_CONVERSATION_ID);
     mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
     mockMainView = "app";
+    mockActiveAppId = "app-1";
     useLiveVoiceStore.getState().fail("Connection lost.");
     render(<VoiceSessionPillHost />);
     expect(errorChip()).not.toBeNull();

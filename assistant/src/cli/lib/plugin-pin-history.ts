@@ -130,7 +130,9 @@ async function listManifestCommits(
     body = JSON.parse(await res.text());
   } catch (err) {
     throw new PluginPinHistoryError(
-      `Marketplace commit history is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      `Marketplace commit history is not valid JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
     );
   }
   if (!Array.isArray(body)) {
@@ -166,7 +168,8 @@ async function pinAtCommit(
     { fetch: fetchFn },
     { ref: marketplaceCommit },
   );
-  return entries.find((e) => e.name === name)?.source.ref ?? null;
+  const source = entries.find((entry) => entry.name === name)?.source;
+  return source?.source === "github" ? source.ref : null;
 }
 
 /**

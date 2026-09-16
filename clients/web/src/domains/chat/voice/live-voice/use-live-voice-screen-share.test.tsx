@@ -733,6 +733,68 @@ describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
   });
 });
 
+/**
+ * The frame a look owes: the assistant said it would take a look and says
+ * nothing more until a frame reported as one lands, so the frame goes whether
+ * or not the gate would call the view new.
+ */
+describe("useLiveVoiceScreenShare: a look the assistant asked for", () => {
+  function owe(): void {
+    act(() => {
+      useLiveVoiceStore.getState().setLookFrameRequested("screen", true);
+    });
+  }
+
+  test("a share the look starts sends the look's frame as its first", async () => {
+    owe();
+    renderShare();
+    share(WINDOW);
+    await flush();
+
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(controls.sightFrame).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({ reason: "look" }),
+    );
+    expect(useLiveVoiceStore.getState().lookFrameRequested.screen).toBe(false);
+  });
+
+  // The incident this exists for: a look on a share already running did
+  // nothing, so the assistant said "I'm looking at it now" and went quiet.
+  test("a running share sends a fresh frame of an unchanged screen", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    owe();
+    await flush();
+
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "look" }),
+    );
+    expect(useLiveVoiceStore.getState().lookFrameRequested.screen).toBe(false);
+  });
+
+  test("is what the cadence's next frame is judged against", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    show("b");
+    owe();
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+
+    speak(true);
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("useLiveVoiceScreenShare: stopping", () => {
   test("a frame the helper could not take lowers the share", async () => {
     answerFrame = async () => null;

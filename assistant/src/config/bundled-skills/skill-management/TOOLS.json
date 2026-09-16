@@ -27,15 +27,15 @@
           },
           "emoji": {
             "type": "string",
-            "description": "Optional emoji icon for the skill."
+            "description": "Optional emoji icon for the skill. On an overwrite, omit to keep the current one; pass an empty string to clear it."
           },
           "category": {
             "type": "string",
-            "description": "Optional single lowercase category for grouping the skill in the Skills UI sidebar. Must be one of the published categories — a value outside this list shows under All with no sidebar bucket, so always pick the closest fit: browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice."
+            "description": "Optional single lowercase category for grouping the skill in the Skills UI sidebar. Must be one of the published categories: a value outside this list shows under All with no sidebar bucket, so always pick the closest fit: browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice. On an overwrite, omit to keep the current category; pass an empty string to clear it."
           },
           "overwrite": {
             "type": "boolean",
-            "description": "Whether to overwrite an existing skill with the same ID (default: false)."
+            "description": "Whether to overwrite an existing skill with the same ID (default: false). An overwrite always replaces the body and must restate activation_hints; every other frontmatter field keeps its current value when omitted (emoji, category, includes, avoid_when, and anything else the file carries), and an empty value clears one."
           },
           "change_summary": {
             "type": "string",
@@ -44,17 +44,17 @@
           "includes": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Optional list of child skill IDs this skill composes. When this skill is loaded via skill_load, each child's body is inlined after the parent's and the child's tools are projected, so the parent can rely on the child's procedure without re-stating it. Does not affect which skills get selected for a turn."
+            "description": "Optional list of child skill IDs this skill composes. When this skill is loaded via skill_load, each child's body is inlined after the parent's and the child's tools are projected, so the parent can rely on the child's procedure without re-stating it. Does not affect which skills get selected for a turn. On an overwrite, omit to keep the current list; pass an empty list to clear it."
           },
           "activation_hints": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Required. 1-4 short trigger phrases describing the situations where this skill should activate, phrased as the observed intent (e.g. \"user asks to deploy staging\"). Surfaced in memory as a \"Use when: …\" clause so the skill is retrievable by intent, not just by name. Scaffolding rewrites the whole SKILL.md, so an overwrite must pass the hints the skill should keep, revised if the procedure changed."
+            "description": "Required. 1-4 short trigger phrases describing the situations where this skill should activate, phrased as the observed intent (e.g. \"user asks to deploy staging\"). Surfaced in memory as a \"Use when: …\" clause so the skill is retrievable by intent, not just by name. Required on an overwrite too: the hints should track the body, so restate them, revised if the procedure changed."
           },
           "avoid_when": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Optional situations where this skill should NOT be used. Surfaced in memory as an \"Avoid when: …\" clause to steer retrieval away from the wrong contexts."
+            "description": "Optional situations where this skill should NOT be used. Surfaced in memory as an \"Avoid when: …\" clause to steer retrieval away from the wrong contexts. On an overwrite, omit to keep the current list; pass an empty list to clear it."
           },
           "files": {
             "type": "array",
@@ -118,7 +118,7 @@
     },
     {
       "name": "find_similar_skills",
-      "description": "Find the existing skills most similar to a goal. Scores the goal against the skill catalog's capability pages and returns a ranked shortlist of nearest skills, each with its name, description, source (bundled, managed, plugin, workspace, or extra), and similarity score. For a managed hit it also returns `author` — \"assistant\" if the assistant authored that skill (so it may be overwritten) or \"user\" if a person did (off-limits); `author` is omitted for non-managed sources and for managed skills with no recorded author. Read-only — it never creates, edits, or deletes anything.",
+      "description": "Find the existing skills most similar to a goal. Scores the goal against the skill catalog's capability pages and returns a ranked shortlist of nearest skills, each with its name, description, source (bundled, managed, plugin, workspace, or extra), and similarity score. For a managed hit it also returns `author`: \"assistant\" if the assistant authored that skill (so it may be overwritten) or \"user\" if a person did (off-limits); `author` is omitted for non-managed sources and for managed skills with no recorded author. For a background memory pass, a hit it may refine (managed, assistant-authored) also carries `current`: the skill as it is now, in scaffold_managed_skill's own argument names (name, description, emoji, category, includes, activation_hints, avoid_when, body_markdown), so a refinement can be written from the real skill and carry forward what it is not changing. Read-only: it never creates, edits, or deletes anything.",
       "category": "skills",
       "risk": "low",
       "input_schema": {

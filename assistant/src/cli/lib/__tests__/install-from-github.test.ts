@@ -253,6 +253,73 @@ describe("installPlugin — install lifecycle", () => {
     rmSync(ws, { recursive: true, force: true });
   });
 
+  test("installs a bundled standard package and discovers its MCP server", async () => {
+    const result = await installPlugin(
+      {
+        name: "fathom",
+        trustedSource: {
+          kind: "local",
+          path: "plugins/mcp-catalog/fathom",
+          version: "1.0.0",
+        },
+      },
+      {
+        fetch: (async () => {
+          throw new Error("local package install must not fetch");
+        }) as FetchLike,
+        runGit: unusedGitRunner,
+        workspacePluginsDir: pluginsDir,
+        materializeLocalPackage: (path, version, destination) => {
+          expect(path).toBe("plugins/mcp-catalog/fathom");
+          expect(version).toBe("1.0.0");
+          writeFileSync(
+            join(destination, "plugin.json"),
+            JSON.stringify({
+              $schema:
+                "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+              name: "fathom",
+              version: "1.0.0",
+            }),
+          );
+          writeFileSync(
+            join(destination, "mcp.json"),
+            JSON.stringify({
+              $schema:
+                "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+              mcpServers: {
+                fathom: {
+                  type: "streamable-http",
+                  url: "https://api.fathom.ai/mcp",
+                },
+              },
+            }),
+          );
+          return 2;
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      name: "fathom",
+      fileCount: 2,
+      ref: "1.0.0",
+      commit: null,
+    });
+    expect(readInstallMeta(result.target)?.source).toEqual({
+      kind: "local",
+      path: "plugins/mcp-catalog/fathom",
+      version: "1.0.0",
+    });
+    expect(
+      readPluginMcpServers({ workspacePluginsDir: pluginsDir }).servers,
+    ).toEqual([
+      expect.objectContaining({
+        pluginName: "fathom",
+        serverKey: "fathom",
+      }),
+    ]);
+  });
+
   test("refuses to overwrite an existing install without --force", async () => {
     // GIVEN a plugin already installed at <pluginsDir>/caveman
     const target = join(pluginsDir, "caveman");
