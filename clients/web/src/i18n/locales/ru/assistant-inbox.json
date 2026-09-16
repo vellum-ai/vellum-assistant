@@ -1,0 +1,59 @@
+{
+  "assistantInboxNavItem": {
+    "label": "Почта ассистента"
+  },
+  "assistantInboxHeader": {
+    "copyAddress": "Скопировать адрес",
+    "copied": "Скопировано",
+    "copyFailed": "Не удалось скопировать адрес.",
+    "subtitle": "Здесь все письма, которые я получил и отправил для вас.",
+    "usage": "{sent} отправлено сегодня · {received} получено сегодня"
+  },
+  "assistantInboxPage": {
+    "folderAriaLabel": "Папка почты",
+    "inboxTab": "Входящие",
+    "inboxTabUnread": "Входящие ({count})",
+    "sentTab": "Отправленные",
+    "inboxEmptyTitle": "Пока пусто",
+    "inboxEmptyBody": "Поделитесь адресом {address}, и всё, что на него придёт, появится здесь.",
+    "sentEmptyTitle": "Отправленных писем пока нет",
+    "sentEmptyBody": "Попросите меня написать кому-нибудь, и я сохраню копию здесь.",
+    "selectPrompt": "Выберите письмо, чтобы прочитать его.",
+    "backToList": "К списку"
+  },
+  "emailListRow": {
+    "unread": "Не прочитано",
+    "toPrefix": "Кому: {name}",
+    "attachments": "{count, plural, one {# вложение} few {# вложения} many {# вложений} other {# вложения}}"
+  },
+  "emailDetail": {
+    "from": "От",
+    "to": "Кому",
+    "sentBy": "Отправлено: {name}",
+    "attachments": "Вложения",
+    "askToReply": "Попросить {name} ответить"
+  },
+  "emailAddressFields": {
+    "prefixLabel": "Префикс",
+    "handleLabel": "Имя (публичное)",
+    "prefixPlaceholder": "hi",
+    "handlePlaceholder": "my-assistant"
+  },
+  "assistantInboxUpgradeState": {
+    "title": "Дайте {name} почтовый ящик",
+    "subtitle": "Адрес, на который могут писать люди, и одно место, где можно прочитать всё, что приходит.",
+    "handleHint": "Это имя вы уже задали. Оно станет адресом {name} сразу после перехода на новый тариф.",
+    "perkAddress": "Настоящий адрес на {rootDomain}",
+    "perkReads": "{name} читает, сортирует и отвечает за вас",
+    "perkHistory": "Каждое письмо хранится здесь: входящие и отправленные",
+    "upgradeButton": "Перейти на Super",
+    "seePlans": "Посмотреть тарифы"
+  },
+  "assistantInboxSetupCard": {
+    "title": "Почта ассистента",
+    "subtitle": "Настройте почту для вашего ассистента.",
+    "immutableNotice": "После установки имя изменить нельзя.",
+    "skip": "Пропустить",
+    "next": "Далее"
+  }
+}

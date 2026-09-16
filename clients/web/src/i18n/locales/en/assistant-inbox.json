@@ -1,0 +1,59 @@
+{
+  "assistantInboxNavItem": {
+    "label": "Assistant Inbox"
+  },
+  "assistantInboxHeader": {
+    "copyAddress": "Copy email address",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy the address.",
+    "subtitle": "Here are all the emails I've received and sent for you.",
+    "usage": "{sent} sent today · {received} received today"
+  },
+  "assistantInboxPage": {
+    "folderAriaLabel": "Mail folder",
+    "inboxTab": "Inbox",
+    "inboxTabUnread": "Inbox ({count})",
+    "sentTab": "Sent",
+    "inboxEmptyTitle": "Nothing here yet",
+    "inboxEmptyBody": "Share {address} and anything sent there shows up here.",
+    "sentEmptyTitle": "No sent mail yet",
+    "sentEmptyBody": "Ask me to email someone and I'll keep a copy here.",
+    "selectPrompt": "Pick an email to read it.",
+    "backToList": "Back to list"
+  },
+  "emailListRow": {
+    "unread": "Unread",
+    "toPrefix": "To {name}",
+    "attachments": "{count, plural, one {# attachment} other {# attachments}}"
+  },
+  "emailDetail": {
+    "from": "From",
+    "to": "To",
+    "sentBy": "Sent by {name}",
+    "attachments": "Attachments",
+    "askToReply": "Ask {name} to reply"
+  },
+  "emailAddressFields": {
+    "prefixLabel": "Prefix",
+    "handleLabel": "Handle (public)",
+    "prefixPlaceholder": "hi",
+    "handlePlaceholder": "my-assistant"
+  },
+  "assistantInboxUpgradeState": {
+    "title": "Give {name} an inbox",
+    "subtitle": "An email address people can write to, and one place to read everything that arrives.",
+    "handleHint": "This is the handle you already set. It becomes {name}'s address the moment you upgrade.",
+    "perkAddress": "A real address on {rootDomain}",
+    "perkReads": "{name} reads, sorts, and replies for you",
+    "perkHistory": "Every message kept here, inbox and sent",
+    "upgradeButton": "Upgrade to Super",
+    "seePlans": "See plans"
+  },
+  "assistantInboxSetupCard": {
+    "title": "Assistant Email",
+    "subtitle": "Set up an email for your assistant.",
+    "immutableNotice": "You won't be able to change the handle once set.",
+    "skip": "Skip",
+    "next": "Next"
+  }
+}

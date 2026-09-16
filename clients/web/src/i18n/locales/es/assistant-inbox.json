@@ -1,0 +1,59 @@
+{
+  "assistantInboxNavItem": {
+    "label": "Bandeja del asistente"
+  },
+  "assistantInboxHeader": {
+    "copyAddress": "Copiar dirección de correo",
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar la dirección.",
+    "subtitle": "Aquí están todos los correos que he recibido y enviado por ti.",
+    "usage": "{sent} enviados hoy · {received} recibidos hoy"
+  },
+  "assistantInboxPage": {
+    "folderAriaLabel": "Carpeta de correo",
+    "inboxTab": "Recibidos",
+    "inboxTabUnread": "Recibidos ({count})",
+    "sentTab": "Enviados",
+    "inboxEmptyTitle": "Todavía no hay nada",
+    "inboxEmptyBody": "Comparte {address} y todo lo que llegue aparecerá aquí.",
+    "sentEmptyTitle": "Aún no hay correos enviados",
+    "sentEmptyBody": "Pídeme que escriba a alguien y guardaré una copia aquí.",
+    "selectPrompt": "Elige un correo para leerlo.",
+    "backToList": "Volver a la lista"
+  },
+  "emailListRow": {
+    "unread": "No leído",
+    "toPrefix": "Para {name}",
+    "attachments": "{count, plural, one {# adjunto} other {# adjuntos}}"
+  },
+  "emailDetail": {
+    "from": "De",
+    "to": "Para",
+    "sentBy": "Enviado por {name}",
+    "attachments": "Adjuntos",
+    "askToReply": "Pedir a {name} que responda"
+  },
+  "emailAddressFields": {
+    "prefixLabel": "Prefijo",
+    "handleLabel": "Identificador (público)",
+    "prefixPlaceholder": "hola",
+    "handlePlaceholder": "mi-asistente"
+  },
+  "assistantInboxUpgradeState": {
+    "title": "Dale una bandeja de entrada a {name}",
+    "subtitle": "Una dirección de correo a la que la gente pueda escribir y un solo lugar para leer todo lo que llega.",
+    "handleHint": "Este es el identificador que ya configuraste. Se convertirá en la dirección de {name} en cuanto mejores tu plan.",
+    "perkAddress": "Una dirección real en {rootDomain}",
+    "perkReads": "{name} lee, ordena y responde por ti",
+    "perkHistory": "Cada mensaje guardado aquí, recibidos y enviados",
+    "upgradeButton": "Mejorar a Super",
+    "seePlans": "Ver planes"
+  },
+  "assistantInboxSetupCard": {
+    "title": "Correo del asistente",
+    "subtitle": "Configura un correo para tu asistente.",
+    "immutableNotice": "No podrás cambiar el identificador una vez establecido.",
+    "skip": "Omitir",
+    "next": "Siguiente"
+  }
+}

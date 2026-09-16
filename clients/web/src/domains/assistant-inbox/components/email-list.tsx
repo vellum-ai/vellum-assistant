@@ -1,0 +1,133 @@
+import { Paperclip } from "lucide-react";
+
+import { cn } from "@vellumai/design-library";
+
+import { useTranslation } from "@/i18n";
+
+import { formatEmailListTime } from "../format-email-time";
+import type { EmailParticipant, InboxEmail } from "../types";
+import { SenderDisc } from "./sender-disc";
+
+function displayName(participant: EmailParticipant): string {
+  return participant.name?.trim() || participant.address;
+}
+
+interface EmailListRowProps {
+  email: InboxEmail;
+  selected: boolean;
+  now: Date;
+  onSelect: (id: string) => void;
+}
+
+/**
+ * One message in the list. Inbound rows lead with who wrote; outbound rows
+ * lead with who it went to, since the sender is always the assistant. Unread
+ * carries in weight and a dot, not in colour alone.
+ */
+function EmailListRow({ email, selected, now, onSelect }: EmailListRowProps) {
+  const { t, i18n } = useTranslation("assistant-inbox");
+  const counterpart =
+    email.direction === "inbound" ? email.from : (email.to[0] ?? email.from);
+  const who =
+    email.direction === "inbound"
+      ? displayName(counterpart)
+      : t("emailListRow.toPrefix", { name: displayName(counterpart) });
+
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onSelect(email.id)}
+        aria-current={selected ? "true" : undefined}
+        className={cn(
+          "flex w-full items-start gap-3 px-4 py-3 text-left transition-colors duration-150",
+          "hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--border-active)]",
+          selected &&
+            "bg-[var(--surface-active)] hover:bg-[var(--surface-active)]",
+        )}
+      >
+        <SenderDisc participant={counterpart} className="mt-0.5" />
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex items-baseline gap-2">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-body-medium-lighter text-[var(--content-default)]",
+                email.unread && "text-body-medium-default",
+              )}
+            >
+              {email.unread ? (
+                <span
+                  role="img"
+                  aria-label={t("emailListRow.unread")}
+                  className="mr-1.5 inline-block size-2 -translate-y-px rounded-full bg-[var(--system-info-strong)] align-middle"
+                />
+              ) : null}
+              {who}
+            </span>
+            <time
+              dateTime={email.createdAt}
+              className="shrink-0 text-body-small-lighter text-[var(--content-tertiary)]"
+            >
+              {formatEmailListTime(email.createdAt, now, i18n.language)}
+            </time>
+          </span>
+          <span
+            className={cn(
+              "truncate text-body-small-lighter text-[var(--content-default)]",
+              email.unread && "text-body-small-default",
+            )}
+          >
+            {email.subject}
+          </span>
+          <span className="flex items-center gap-1.5 text-body-small-lighter text-[var(--content-tertiary)]">
+            {email.attachments.length > 0 ? (
+              <Paperclip
+                className="size-3 shrink-0"
+                aria-label={t("emailListRow.attachments", {
+                  count: email.attachments.length,
+                })}
+              />
+            ) : null}
+            <span className="truncate">{email.snippet}</span>
+          </span>
+        </span>
+      </button>
+    </li>
+  );
+}
+
+export interface EmailListProps {
+  emails: InboxEmail[];
+  selectedId: string | null;
+  now: Date;
+  onSelect: (id: string) => void;
+  className?: string;
+}
+
+/** The scrolling message list for one folder. */
+export function EmailList({
+  emails,
+  selectedId,
+  now,
+  onSelect,
+  className,
+}: EmailListProps) {
+  return (
+    <ul
+      className={cn(
+        "flex min-h-0 flex-col divide-y divide-[var(--border-subtle)] overflow-y-auto",
+        className,
+      )}
+    >
+      {emails.map((email) => (
+        <EmailListRow
+          key={email.id}
+          email={email}
+          selected={email.id === selectedId}
+          now={now}
+          onSelect={onSelect}
+        />
+      ))}
+    </ul>
+  );
+}
