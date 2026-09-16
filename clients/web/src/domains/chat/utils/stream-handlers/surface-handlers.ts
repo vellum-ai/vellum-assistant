@@ -5,6 +5,8 @@ import {
 } from "@/domains/chat/types/types";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { offerSurfaceToCompanion } from "@/domains/chat/companion-popover";
+import { companionTakesPrompts } from "@/runtime/companion-surface";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   UISurfaceCompleteEvent,
@@ -38,6 +40,14 @@ export function handleUISurfaceShow(
   };
   surfaceObj.display = classifySurfaceDisplay(surfaceObj);
   ctx.turnActions.showSurface(isSurfaceInteractive(surfaceObj));
+  // Shown beside the companion as well when the companion is on screen, which
+  // is when the user is away from this window. A surface put up while they
+  // are here is read here, and is not offered again when they leave.
+  void companionTakesPrompts().then((taken) => {
+    if (taken) {
+      offerSurfaceToCompanion(event.surfaceId);
+    }
+  });
 }
 
 export function handleUISurfaceUpdate(

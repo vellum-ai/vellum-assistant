@@ -880,7 +880,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-14T19:34:40.000Z"
+      "updatedAt": "2026-09-14T20:20:30.000Z"
     },
     {
       "id": "slack-app-setup",
@@ -984,7 +984,8 @@
           "display-name": "Telegram Setup",
           "activation-hints": [
             "Telegram bot setup, webhook configuration, or BotFather token",
-            "User wants to connect Telegram to the assistant"
+            "User wants to connect Telegram to the assistant",
+            "Telegram group, supergroup, or channel messages not arriving"
           ],
           "avoid-when": [
             "User wants to send/receive Telegram messages (use messaging skill instead)"
@@ -992,7 +993,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-06T20:22:56.000Z"
+      "updatedAt": "2026-09-15T19:25:15.000Z"
     },
     {
       "id": "twilio-setup",
@@ -1189,7 +1190,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-10T00:07:45.000Z"
+      "updatedAt": "2026-09-15T19:26:13.000Z"
     },
     {
       "id": "vellum-self-knowledge",

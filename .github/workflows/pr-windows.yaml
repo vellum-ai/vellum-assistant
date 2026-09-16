@@ -20,6 +20,7 @@ on:
       - 'packages/**'
       - '.github/workflows/pr-windows.yaml'
       - '.github/workflows/release-windows.yaml'
+      - '.github/workflows/publish-windows.yaml'
 
 concurrency:
   group: pr-windows-${{ github.event.pull_request.number }}

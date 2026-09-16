@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { desktopDependencyInstaller } from "../../desktop/desktop-dependencies.js";
-import { isAssistantDesktopEnabled } from "../../desktop/desktop-feature.js";
+import { isVirtualDesktopEnabled } from "../../desktop/virtual-desktop-feature.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
@@ -19,8 +19,10 @@ export const ROUTES: RouteDefinition[] = ["GET", "POST"].map((method) => ({
   method,
   policy: { requiredScopes: [], allowedPrincipalTypes: GATEWAY_PRINCIPALS },
   handler: () => {
-    if (!isAssistantDesktopEnabled(getConfig())) {
-      throw new NotFoundError("Desktop is not available on this assistant");
+    if (!isVirtualDesktopEnabled(getConfig())) {
+      throw new NotFoundError(
+        "Virtual desktop is available only on enabled platform-hosted assistants",
+      );
     }
     return method === "GET"
       ? desktopDependencyInstaller.getStatus()
@@ -28,8 +30,8 @@ export const ROUTES: RouteDefinition[] = ["GET", "POST"].map((method) => ({
   },
   summary:
     method === "GET"
-      ? "Get desktop setup status"
-      : "Install desktop components",
+      ? "Get virtual desktop setup status"
+      : "Install virtual desktop components",
   tags: ["desktop"],
   responseBody: statusSchema,
 }));

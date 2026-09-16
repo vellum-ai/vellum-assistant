@@ -73,11 +73,14 @@ export const routes = {
    *  specific message on load. */
   conversationAtMessage: (conversationId: string, messageId: string) =>
     `${dyn(r("/assistant/conversations"), conversationId)}?${SCROLL_TO_MESSAGE_PARAM}=${encodeURIComponent(messageId)}`,
-  /** Conversation URL that auto-sends `prompt` on load via the `?prompt=`
-   *  pathway (see `use-auto-send-effects.ts`). Lets another surface (app
-   *  viewer, document feedback) relay a message into a conversation. An
-   *  optional `relayToken` makes the URL unique so identical prompts relayed
-   *  back-to-back still re-fire the auto-send (the dedupe keys on the token). */
+  /** Conversation URL carrying `prompt` via the `?prompt=` pathway (see
+   *  `use-auto-send-effects.ts`). Lets another surface (app viewer, document
+   *  feedback) relay a message into a conversation. The prompt is only sent
+   *  on the user's behalf when the navigation also carries
+   *  `autoSendPromptState` (`utils/auto-send-prompt.ts`); a bare URL pre-fills
+   *  the composer instead. An optional `relayToken` makes the URL unique so
+   *  identical prompts relayed back-to-back still re-fire the auto-send (the
+   *  dedupe keys on the token). */
   conversationWithPrompt: (
     conversationId: string,
     prompt: string,

@@ -405,8 +405,16 @@ export async function executeScaffoldManagedSkill(
   // refused without one. The error returns to the pass in the same turn and
   // it retries with the field, the way a missing activation_hints does.
   // Checked after the ownership backstop so a pass that may not touch the
-  // skill hears that first, and before any write so nothing is lost.
-  if (fromRetrospective && managedSkillExistedBefore && !changeSummary) {
+  // skill hears that first, and only for a call that asked to overwrite: a
+  // call without the flag is blocked by the managed store's own overwrite
+  // error, and hearing about the summary instead would cost it a retry that
+  // still cannot succeed. Before any write, so nothing is lost.
+  if (
+    fromRetrospective &&
+    managedSkillExistedBefore &&
+    input.overwrite === true &&
+    !changeSummary
+  ) {
     return { content: `Error: ${MISSING_CHANGE_SUMMARY}`, isError: true };
   }
 

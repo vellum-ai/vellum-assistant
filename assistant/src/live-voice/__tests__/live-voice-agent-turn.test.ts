@@ -980,3 +980,146 @@ describe("LiveVoiceSession room reveal", () => {
     expect(ttsTexts.join(" ")).not.toContain("ASK_GUARDIAN_APPROVAL");
   });
 });
+
+describe("LiveVoiceSession spoken session controls", () => {
+  function createControlsHarness(
+    sessionControls?: LiveVoiceClientStartFrame["sessionControls"],
+  ) {
+    const { startVoiceTurn, getCallbacks } = createCapturingTurnStarter();
+    const { streamTtsAudio, ttsTexts } = createRecordingTtsStreamer();
+    const harness = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+      startFrame: {
+        ...START_FRAME,
+        ...(sessionControls ? { sessionControls } : {}),
+      },
+    });
+    return { ...harness, getCallbacks, ttsTexts };
+  }
+
+  test("a reply ending with [END_CALL] sends an end control after tts_done", async () => {
+    const { frames, session, getCallbacks, ttsTexts } = createControlsHarness([
+      "end",
+      "mute",
+    ]);
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Okay, talk soon. [END_CALL]");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "session_control"),
+    );
+
+    const ttsDoneIndex = frames.findIndex((frame) => frame.type === "tts_done");
+    const controlIndex = frames.findIndex(
+      (frame) => frame.type === "session_control",
+    );
+    // The goodbye is heard before the call ends.
+    expect(controlIndex).toBeGreaterThan(ttsDoneIndex);
+    expect(frames[controlIndex]).toMatchObject({
+      type: "session_control",
+      turnId: "live-turn-1",
+      action: "end",
+    });
+    expect(assistantDeltaTexts(frames).join("").trim()).toBe(
+      "Okay, talk soon.",
+    );
+    expect(ttsTexts.join(" ")).not.toContain("[END_CALL]");
+  });
+
+  test("a timed mute carries its duration", async () => {
+    const { frames, session, getCallbacks } = createControlsHarness(["mute"]);
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Muting you for thirty seconds. [MUTE:30]");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "session_control"),
+    );
+
+    expect(
+      frames.find((frame) => frame.type === "session_control"),
+    ).toMatchObject({ action: "mute", durationMs: 30_000 });
+  });
+
+  test("a declared look sends its look control after the acknowledgement", async () => {
+    const { frames, session, getCallbacks } = createControlsHarness([
+      "look_screen",
+    ]);
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(
+      getCallbacks,
+      "Taking a look. What should I focus on? [LOOK:SCREEN]",
+    );
+    emitMessageComplete(getCallbacks);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "session_control"),
+    );
+
+    expect(
+      frames.find((frame) => frame.type === "session_control"),
+    ).toMatchObject({ action: "look_screen" });
+    // The marker is control, never caption text.
+    expect(assistantDeltaTexts(frames).join("").includes("[LOOK")).toBe(false);
+  });
+
+  test("a control the client did not declare is never sent", async () => {
+    const { frames, session, getCallbacks } = createControlsHarness(["mute"]);
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Bye. [END_CALL]");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await flushAsyncCallbacks();
+
+    expect(frames.some((frame) => frame.type === "session_control")).toBe(
+      false,
+    );
+  });
+
+  test("a marker mid-reply controls nothing", async () => {
+    const { frames, session, getCallbacks } = createControlsHarness(["end"]);
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Say [END_CALL] and I would hang up, but no.");
+    emitMessageComplete(getCallbacks);
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await flushAsyncCallbacks();
+
+    expect(frames.some((frame) => frame.type === "session_control")).toBe(
+      false,
+    );
+  });
+
+  // Talking over "okay, bye" means they are not leaving.
+  test("an interrupted goodbye does not end the call", async () => {
+    const { frames, session, getCallbacks } = createControlsHarness(["end"]);
+
+    await startReleasedTurn(session, getCallbacks);
+    emitTextDelta(getCallbacks, "Okay, talk soon. [END_CALL]");
+    await flushAsyncCallbacks();
+    await session.handleClientFrame({ type: "interrupt" });
+    emitMessageComplete(getCallbacks);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(frames.some((frame) => frame.type === "session_control")).toBe(
+      false,
+    );
+  });
+
+  test("the prompt teaches only the declared controls", async () => {
+    const { session, getCallbacks, startVoiceTurn } = createControlsHarness([
+      "mute",
+    ]);
+
+    await startReleasedTurn(session, getCallbacks);
+    const prompt =
+      (startVoiceTurn as ReturnType<typeof mock>).mock.calls[0]?.[0]
+        ?.voiceControlPrompt ?? "";
+
+    expect(prompt).toContain("[MUTE]");
+    expect(prompt).not.toContain("[END_CALL]");
+  });
+});

@@ -334,7 +334,11 @@ export function useSendMessage({
       }
       const requestAssistantId = assistantId;
       const requestConversationId = activeConversationId;
+      const composerSessionGeneration =
+        useComposerStore.getState().sessionGeneration;
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
+        composerSessionGeneration ===
+          useComposerStore.getState().sessionGeneration &&
         isAsyncChatScopeCurrent({
           currentAssistantId:
             useResolvedAssistantsStore.getState().activeAssistantId,
@@ -442,6 +446,7 @@ export function useSendMessage({
                 requestAssistantId,
                 requestConversationId,
                 content,
+                composerSessionGeneration,
               );
           }
           return { status: "ignored" };
@@ -459,6 +464,12 @@ export function useSendMessage({
             ...(postResult.error.code ? { code: postResult.error.code } : {}),
           },
         };
+      }
+      if (
+        composerSessionGeneration !==
+        useComposerStore.getState().sessionGeneration
+      ) {
+        return { status: "ignored" };
       }
       // Success — drain the ref so subsequent messages omit the field.
       pendingOnboardingContextRef.current = null;
@@ -724,9 +735,13 @@ export function useSendMessage({
       // from a narrowing that a closure cannot carry. Every other caller runs
       // past that guard, where both are non-null and the extra checks stand
       // true.
+      const composerSessionGeneration =
+        useComposerStore.getState().sessionGeneration;
       const sendScopeIsCurrent = () =>
         assistantId !== null &&
         activeConversationId !== null &&
+        composerSessionGeneration ===
+          useComposerStore.getState().sessionGeneration &&
         isAsyncChatScopeCurrent({
           currentAssistantId:
             useResolvedAssistantsStore.getState().activeAssistantId,
@@ -955,8 +970,19 @@ export function useSendMessage({
             if (!onScreenAtFailure && !isHidden) {
               useComposerStore
                 .getState()
-                .restoreFailedDraft(assistantId, activeConversationId, content);
+                .restoreFailedDraft(
+                  assistantId,
+                  activeConversationId,
+                  content,
+                  composerSessionGeneration,
+                );
             }
+            return;
+          }
+          if (
+            composerSessionGeneration !==
+            useComposerStore.getState().sessionGeneration
+          ) {
             return;
           }
           void surfaceConversationAfterUserSend(
@@ -1049,7 +1075,12 @@ export function useSendMessage({
           if (!onScreenAtThrow && !isHidden) {
             useComposerStore
               .getState()
-              .restoreFailedDraft(assistantId, activeConversationId, content);
+              .restoreFailedDraft(
+                assistantId,
+                activeConversationId,
+                content,
+                composerSessionGeneration,
+              );
           }
         }
         return;
@@ -1264,7 +1295,12 @@ export function useSendMessage({
         if (!onScreenAtThrow && !isHidden) {
           useComposerStore
             .getState()
-            .restoreFailedDraft(assistantId, activeConversationId, content);
+            .restoreFailedDraft(
+              assistantId,
+              activeConversationId,
+              content,
+              composerSessionGeneration,
+            );
         }
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key

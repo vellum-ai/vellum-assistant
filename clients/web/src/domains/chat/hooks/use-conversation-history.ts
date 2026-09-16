@@ -61,6 +61,7 @@ import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/re
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
 import {
+  clearConfirmationByRequestId,
   parsePendingSecretState,
   parsePendingConfirmationData,
 } from "@/domains/chat/utils/send-message-utils";
@@ -78,6 +79,7 @@ import {
 } from "@/domains/chat/transcript/use-history-pagination";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import {
+  patchTranscriptMessages,
   registerHistoryCachePatcher,
   type MessagesUpdater,
 } from "@/domains/chat/transcript/patch-transcript-messages";
@@ -181,6 +183,12 @@ function applyReportedQuestion(params: {
   } else if (action.kind === "retire") {
     interactionStore.dismissQuestionIfMatches(action.requestId);
   }
+}
+
+function clearConfirmationTranscriptMarker(requestId: string): void {
+  patchTranscriptMessages((messages) =>
+    clearConfirmationByRequestId(messages, requestId),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -355,8 +363,9 @@ export function useConversationHistory({
     // failed acp_spawn (persisted `acp_claude_oauth_missing` marker). Without
     // this, a page reload or SSE reconnect wipes the in-memory prompt and the
     // card silently disappears. Skipped when a prompt is already active;
-    // `showAcpConnect` additionally no-ops a failure already retired this
-    // session (auto-continue or self-heal), so a reseed can't resurrect it.
+    // `showAcpConnect` additionally no-ops a failure already retired (auto-
+    // continue, self-heal, or a persisted user Dismiss), so a reseed can't
+    // resurrect it.
     const wirePendingAcpConnect = extractWirePendingAcpConnect(
       pagination.messages,
     );
@@ -481,6 +490,10 @@ export function useConversationHistory({
     // anything moved underneath it while the request was in flight.
     const questionRevisionBeforeFetch =
       useInteractionStore.getState().questionRevision;
+    const pendingSecretBeforeFetch =
+      useInteractionStore.getState().pendingSecret;
+    const pendingConfirmationBeforeFetch =
+      useInteractionStore.getState().pendingConfirmation;
     const generation = ++reconcileGenerationRef.current;
     void (async () => {
       // A read that never landed carries no opinion, exactly like an assistant
@@ -526,20 +539,65 @@ export function useConversationHistory({
               interactions.pendingSecret as Record<string, unknown>,
             )
           : null;
-        if (parsed_secret) {
-          useInteractionStore.getState().showSecret(parsed_secret);
-        }
         if (
-          interactions.pendingConfirmation &&
-          !useInteractionStore.getState().pendingConfirmation
+          parsed_secret &&
+          useInteractionStore.getState().pendingSecret ===
+            pendingSecretBeforeFetch
+        ) {
+          useInteractionStore.getState().showSecret(parsed_secret);
+        } else if (
+          !interactions.pendingSecret &&
+          pendingSecretBeforeFetch &&
+          useInteractionStore.getState().pendingSecret ===
+            pendingSecretBeforeFetch
         ) {
           useInteractionStore
             .getState()
-            .showConfirmation(
-              parsePendingConfirmationData(
-                interactions.pendingConfirmation as Record<string, unknown>,
-              ),
+            .dismissSecretIfMatches(pendingSecretBeforeFetch.requestId);
+        }
+        if (
+          interactions.pendingConfirmation &&
+          useInteractionStore.getState().pendingConfirmation ===
+            pendingConfirmationBeforeFetch
+        ) {
+          const parsedConfirmation = parsePendingConfirmationData(
+            interactions.pendingConfirmation as Record<string, unknown>,
+          );
+          if (
+            pendingConfirmationBeforeFetch &&
+            pendingConfirmationBeforeFetch.requestId !==
+              parsedConfirmation.requestId
+          ) {
+            const previousRequestId =
+              pendingConfirmationBeforeFetch.requestId;
+            const sessionStore = useChatSessionStore.getState();
+            useInteractionStore.getState().releaseInlineAnchorIfMatches(
+              sessionStore.confirmationToolCallMap.get(previousRequestId) ??
+                pendingConfirmationBeforeFetch.toolUseId,
             );
+            clearConfirmationTranscriptMarker(previousRequestId);
+            sessionStore.deleteConfirmationToolCall(previousRequestId);
+          }
+          useInteractionStore
+            .getState()
+            .showConfirmation(parsedConfirmation);
+        } else if (
+          !interactions.pendingConfirmation &&
+          pendingConfirmationBeforeFetch &&
+          useInteractionStore.getState().pendingConfirmation ===
+            pendingConfirmationBeforeFetch
+        ) {
+          const requestId = pendingConfirmationBeforeFetch.requestId;
+          const sessionStore = useChatSessionStore.getState();
+          useInteractionStore
+            .getState()
+            .dismissConfirmationIfMatches(requestId);
+          useInteractionStore.getState().releaseInlineAnchorIfMatches(
+            sessionStore.confirmationToolCallMap.get(requestId) ??
+              pendingConfirmationBeforeFetch.toolUseId,
+          );
+          clearConfirmationTranscriptMarker(requestId);
+          sessionStore.deleteConfirmationToolCall(requestId);
         }
         // A question parks the turn on the user exactly like a secret or a
         // confirmation does, and the rest of the attention machinery already
@@ -552,7 +610,10 @@ export function useConversationHistory({
         if (
           !interactions.pendingSecret &&
           !interactions.pendingConfirmation &&
-          !interactions.pendingQuestion
+          !interactions.pendingQuestion &&
+          !useInteractionStore.getState().pendingSecret &&
+          !useInteractionStore.getState().pendingConfirmation &&
+          !useInteractionStore.getState().pendingQuestion
         ) {
           useConversationStore
             .getState()

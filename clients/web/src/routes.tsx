@@ -421,6 +421,21 @@ export const routeTree = [
         ),
     },
   },
+  // The popover beside the companion: an approval, a card, a link or an image
+  // the assistant needs the user to see while they are away from the app's
+  // window. Its own window sized to the card, opened and placed by the shell;
+  // standalone for the reason the surface is.
+  {
+    path: "/assistant/floating/companion-popover",
+    ErrorBoundary: RouteErrorBoundary,
+    HydrateFallback: FloatingHydrateFallback,
+    lazy: {
+      Component: () =>
+        import("@/components/companion-popover-page").then(
+          (m) => m.CompanionPopoverPage,
+        ),
+    },
+  },
   // The frame's old URL. A shell that predates the rename still opens it,
   // and a renderer newer than its shell has to draw the frame there rather
   // than a not-found page over the desktop. Remove once no shipped shell

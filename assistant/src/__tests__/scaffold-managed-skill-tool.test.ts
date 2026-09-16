@@ -1797,6 +1797,29 @@ describe("background skill update notification", () => {
     }
   });
 
+  test("a background call on an existing skill without overwrite hears the overwrite error, not the summary requirement", async () => {
+    await seedAssistantSkill("weekly-export", "Old body.");
+
+    const result = await executeScaffoldManagedSkill(
+      {
+        skill_id: "weekly-export",
+        name: "Weekly Report Export",
+        description: "export the weekly usage report",
+        body_markdown: "1. Refined steps.",
+        activation_hints: HINTS,
+      },
+      makeRetrospectiveContext({ conversationId: "retro-run-conv" }),
+      lineage(),
+    );
+
+    // The flag is what actually blocks this call, so that is the error it
+    // gets: a retry that only adds change_summary would still fail.
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("Set overwrite=true to replace it.");
+    expect(result.content).not.toContain("change_summary");
+    expect(emittedSignals).toHaveLength(0);
+  });
+
   test("the ownership backstop speaks before the change_summary requirement", async () => {
     await executeScaffoldManagedSkill(
       {

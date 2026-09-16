@@ -4,11 +4,15 @@ import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { hasAutoSendPromptState } from "@/utils/auto-send-prompt";
 
 const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
 
 function makeCtx(isMobile = false) {
-  return { navigate: mock((_to: string) => {}), isMobile };
+  return {
+    navigate: mock((_to: string, _options?: { state?: unknown }) => {}),
+    isMobile,
+  };
 }
 
 let restoreViewport: (() => void) | undefined;
@@ -41,9 +45,11 @@ describe("handleAppViewerAction — relay_prompt", () => {
     handleAppViewerAction(ctx, "relay_prompt", { prompt: "hello" });
 
     expect(useViewerStore.getState().mainView).toBe("app-editing");
-    const [url] = ctx.navigate.mock.calls[0];
+    const [url, options] = ctx.navigate.mock.calls[0];
     expect(url).toContain("/assistant/conversations/conv-1?");
     expect(url).toContain("prompt=hello");
+    // The relay is in-app, so it may send; a bare URL would only pre-fill.
+    expect(hasAutoSendPromptState(options?.state)).toBe(true);
   });
 
   it("conversation 'new' starts a fresh draft and relays into it", () => {

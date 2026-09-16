@@ -417,6 +417,7 @@ describe("connectCdpWsTransport", () => {
         }
         expect(caught).toBeInstanceOf(CdpWsTransportError);
         expect((caught as CdpWsTransportError).code).toBe("closed");
+        expect(transport.closed).toBe(true);
 
         // After close, subsequent sends also reject with closed.
         let caught2: unknown;

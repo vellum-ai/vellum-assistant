@@ -33,6 +33,7 @@ import { useTurnStore } from "@/domains/chat/turn-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import type {
   DisplayMessage,
   EphemeralMetaResult,
@@ -193,6 +194,8 @@ export interface ChatSessionActions {
     assistantId: string;
     activeConversationId: string;
   }) => void;
+  /** Clear all in-memory chat state owned by the authenticated user. */
+  resetForLogout: () => void;
 
   /**
    * Mark a draft→server ID resolution so the next activeConversationId
@@ -470,6 +473,13 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       return;
     }
 
+    if (
+      state.previousAssistantId === assistantId &&
+      state.previousConversationId === activeConversationId
+    ) {
+      return;
+    }
+
     // Track outgoing conversation's attention state.
     const outgoingConversationId = state.previousConversationId;
     const isConversationSwitch = Boolean(
@@ -570,6 +580,16 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       previousAssistantId: assistantId,
       draftConversationIdResolution: false,
     });
+  },
+
+  resetForLogout: () => {
+    abandonSwitchMeasurement("context_change");
+    useStreamStore.getState().cancelAndClearStream();
+    useConversationStore.getState().reset();
+    useComposerStore.getState().resetForLogout();
+    useTurnStore.getState().resetTurn();
+    useInteractionStore.getState().resetForLogout();
+    set(initialState());
   },
 
   markDraftResolution: () => set({ draftConversationIdResolution: true }),

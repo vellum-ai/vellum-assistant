@@ -35,24 +35,34 @@ mock.module("../mcp-oauth-provider.js", () => ({
 }));
 
 const mockSetMcpAuthPending = mock(
-  (_serverId: string, _authUrl: string, _attemptId: string) => {},
+  (
+    _serverId: string,
+    _authUrl: string,
+    _attemptId: string,
+    _targetKey: string,
+  ) => {},
 );
 // Default behavior: pretend the attempt still owns the slot (return true),
 // so completion writes are applied unless a test overrides this.
 const mockSetMcpAuthComplete = mock(
-  (_serverId: string, _attemptId: string): boolean => true,
+  (_serverId: string, _attemptId: string, _targetKey: string): boolean => true,
 );
 const mockSetMcpAuthError = mock(
-  (_serverId: string, _error: string, _attemptId: string): boolean => true,
+  (
+    _serverId: string,
+    _error: string,
+    _attemptId: string,
+    _targetKey: string,
+  ): boolean => true,
 );
 
 mock.module("../mcp-auth-state.js", () => ({
   setMcpAuthPending: (...args: unknown[]) =>
-    mockSetMcpAuthPending(...(args as [string, string, string])),
+    mockSetMcpAuthPending(...(args as [string, string, string, string])),
   setMcpAuthComplete: (...args: unknown[]) =>
-    mockSetMcpAuthComplete(...(args as [string, string])),
+    mockSetMcpAuthComplete(...(args as [string, string, string])),
   setMcpAuthError: (...args: unknown[]) =>
-    mockSetMcpAuthError(...(args as [string, string, string])),
+    mockSetMcpAuthError(...(args as [string, string, string, string])),
 }));
 
 const mockReloadMcpServers = mock(async () => ({
@@ -167,6 +177,7 @@ describe("orchestrateMcpOAuthConnect", () => {
       "test-server",
       "https://auth.example.com/oauth",
       expect.any(String) as unknown as string, // attemptId UUID
+      "mcp:test-server:tokens",
     ]);
     // Sanity-check the attemptId looks UUID-shaped
     expect(mockSetMcpAuthPending.mock.calls[0][2]).toMatch(
@@ -195,6 +206,7 @@ describe("orchestrateMcpOAuthConnect", () => {
     expect(mockSetMcpAuthComplete).toHaveBeenCalledWith(
       "test-server",
       expect.any(String) as unknown as string,
+      "mcp:test-server:tokens",
     );
     // Daemon-side reload should be triggered after a successful completion.
     expect(mockReloadMcpServers).toHaveBeenCalled();
@@ -218,6 +230,7 @@ describe("orchestrateMcpOAuthConnect", () => {
       "test-server",
       "exchange failed",
       expect.any(String) as unknown as string,
+      "mcp:test-server:tokens",
     );
     expect(mockSetMcpAuthComplete).not.toHaveBeenCalled();
   });
@@ -236,6 +249,7 @@ describe("orchestrateMcpOAuthConnect", () => {
       "test-server",
       "MCP OAuth callback timed out",
       expect.any(String) as unknown as string,
+      "mcp:test-server:tokens",
     );
     expect(mockSetMcpAuthComplete).not.toHaveBeenCalled();
   });

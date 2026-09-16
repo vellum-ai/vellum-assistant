@@ -2,12 +2,12 @@
  * Tests for the inline "Connect Claude Code" affordance rendered when an
  * `acp_spawn` fails for a missing OAuth token.
  *
- * Covers the version gate and the live-status self-heal: the affordance renders
- * its Connect button when the daemon supports Connect, renders nothing (falling
- * back to the plain error rendering) against a daemon too old to serve the
- * routes, and retires itself when Claude is already connected (leaving a
- * diagnostic breadcrumb behind). Which failed tool
- * call raises the prompt — and its reseed survival — is covered in
+ * Covers the version gate, the live-status self-heal, and user Dismiss: the
+ * affordance renders Connect and Dismiss when the daemon supports Connect,
+ * renders nothing (falling back to the plain error rendering) against a daemon
+ * too old to serve the routes, and retires itself when Claude is already
+ * connected (leaving a diagnostic breadcrumb behind). Which failed tool call
+ * raises the prompt, and its reseed survival, is covered in
  * `acp-connect-prompt.test.ts`.
  */
 
@@ -23,6 +23,8 @@ import {
 import type { ReactNode } from "react";
 
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { loadDismissedAcpConnectIds } from "@/domains/chat/utils/dismissed-acp-connect-storage";
+import { clearUserScopedOverrides } from "@/utils/typed-storage";
 
 let supported = true;
 let alreadyConnected = false;
@@ -129,6 +131,8 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
+  clearUserScopedOverrides();
 });
 
 describe("AcpConnectAffordance", () => {
@@ -141,9 +145,19 @@ describe("AcpConnectAffordance", () => {
     expect(
       screen.getByText("Use your Claude Code subscription"),
     ).not.toBeNull();
-    // The card has no manual dismissal; it retires via the connect flow's
-    // auto-continue or the already-connected self-heal.
-    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Dismiss" })).not.toBeNull();
+  });
+
+  test("Dismiss retires the card and persists the failed spawn", () => {
+    useInteractionStore
+      .getState()
+      .showAcpConnect({ toolUseId: "toolu-acp-1", reason: "missing" });
+
+    render(<AcpConnectAffordance assistantId="assistant-123" />);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
+    expect(useInteractionStore.getState().pendingAcpConnect).toBeNull();
+    expect(loadDismissedAcpConnectIds().has("toolu-acp-1")).toBe(true);
   });
 
   test("renders nothing when the daemon is too old to support Connect", () => {
@@ -298,7 +312,7 @@ describe("AcpConnectAffordance", () => {
     expect(
       screen.getByText("Paste the key from the tab that opened"),
     ).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Dismiss" })).not.toBeNull();
   });
 
   test("signals auto-continue once the connect flow completes", async () => {
