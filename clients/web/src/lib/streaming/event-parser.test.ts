@@ -3634,3 +3634,8 @@ describe("ConversationMessage wire shape", () => {
     expect(msg.contentOrder).toBeUndefined();
   });
 });
+
+test("parses desktop activity notifications for status refresh", () => {
+  const parsed = parseAssistantEvent({ type: "desktop_activity_changed" });
+  expect(parsed.message).toEqual({ type: "desktop_activity_changed" });
+});

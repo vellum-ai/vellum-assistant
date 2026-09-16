@@ -28,16 +28,19 @@ mock.module("@/hooks/use-bus-subscription", () => ({
   },
 }));
 const { DesktopPanel } = await import("./desktop-panel");
+const { useDesktopSetupStatus } = await import("./use-desktop-setup");
 
 const originalGet = client.get;
 const originalPost = client.post;
 let state = "required";
+let automationActive = false;
 let missingRoute = false;
 let postCalls = 0;
 let queryClient: QueryClient;
 
 beforeEach(() => {
   state = "required";
+  automationActive = false;
   orgReady = true;
   missingRoute = false;
   postCalls = 0;
@@ -46,7 +49,7 @@ beforeEach(() => {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   client.get = mock(async () => ({
-    data: { state },
+    data: { state, automationActive },
     response: new Response(null, { status: missingRoute ? 404 : 200 }),
   })) as unknown as typeof client.get;
   client.post = mock(async () => {
@@ -105,9 +108,15 @@ test("reopening observes an existing install and offers retry after failure", as
 
 test("older assistants keep their existing streaming flow without an install request", async () => {
   missingRoute = true;
-  mount();
+  const panel = mount();
   await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+  panel.unmount();
+  mount();
+  await waitFor(() => expect(open).toHaveBeenCalledTimes(2));
+  expect(client.get).toHaveBeenCalledTimes(1);
   expect(postCalls).toBe(0);
+  act(() => listeners.get("sse.opened")?.({}));
+  await waitFor(() => expect(client.get).toHaveBeenCalledTimes(2));
 });
 
 test("an automatic install request failure offers retry without a retry loop", async () => {
@@ -167,4 +176,50 @@ test("setup waits for organization readiness", async () => {
   );
   await screen.findByText("Installing virtual desktop components…");
   expect(postCalls).toBe(1);
+});
+
+test("reading desktop activity never installs and refreshes on activity and reconnect", async () => {
+  render(
+    <QueryClientProvider client={queryClient}>
+      <Activity />
+    </QueryClientProvider>,
+  );
+  await screen.findByText("false");
+  expect(postCalls).toBe(0);
+  automationActive = true;
+  act(() =>
+    listeners.get("sse.event")?.({
+      message: { type: "desktop_activity_changed" },
+    }),
+  );
+  await screen.findByText("true");
+  automationActive = false;
+  act(() => listeners.get("sse.opened")?.({}));
+  await screen.findByText("false");
+  expect(postCalls).toBe(0);
+});
+
+function Activity() {
+  const { query } = useDesktopSetupStatus("assistant-123");
+  return <output>{String(query.data?.automationActive)}</output>;
+}
+
+test("remounting desktop activity catches completion while the drawer was closed", async () => {
+  automationActive = true;
+  const activity = render(
+    <QueryClientProvider client={queryClient}>
+      <Activity />
+    </QueryClientProvider>,
+  );
+  await screen.findByText("true");
+  activity.unmount();
+  automationActive = false;
+  render(
+    <QueryClientProvider client={queryClient}>
+      <Activity />
+    </QueryClientProvider>,
+  );
+  await screen.findByText("false");
+  expect(client.get).toHaveBeenCalledTimes(2);
+  expect(postCalls).toBe(0);
 });
