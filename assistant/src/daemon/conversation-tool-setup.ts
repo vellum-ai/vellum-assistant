@@ -49,11 +49,8 @@ import {
   injectActivityField,
   stripActivityField,
 } from "../tools/schema-transforms.js";
-import {
-  augmentSkillExecuteError,
-  recoverSkillExecuteEnvelope,
-  resolveSkillExecuteInput,
-} from "../tools/skills/execute.js";
+import { augmentSkillExecuteError } from "../tools/skills/execute.js";
+import { resolveSkillExecuteInvocation } from "../tools/skills/resolve-execute-invocation.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import type {
   ProxyApprovalCallback,
@@ -539,23 +536,8 @@ export function createToolExecutor(
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
     if (executionName === "skill_execute") {
-      // Recover an envelope the provider wrapped as unparseable when MiniMax's
-      // coercion failed to JSON-decode a bare-string `input` (see
-      // recoverSkillExecuteEnvelope), then resolve the inner tool + params.
-      const envelope = recoverSkillExecuteEnvelope(executionInput);
-      const rawToolName =
-        typeof envelope.tool === "string" ? envelope.tool : "";
-      const innerSchema = rawToolName
-        ? getTool(rawToolName)?.input_schema
-        : undefined;
-      const rawToolInput = resolveSkillExecuteInput(envelope, innerSchema);
-
-      // Clone to avoid mutating shared input objects
-      const { name: toolName, input: toolInput } = resolveToolInvocationAlias(
-        rawToolName,
-        { ...rawToolInput },
-        ctx.allowedToolNames,
-      );
+      const { name: toolName, input: toolInput } =
+        resolveSkillExecuteInvocation(executionInput, ctx.allowedToolNames);
 
       if (!toolName) {
         return {
@@ -966,31 +948,47 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
 }
 
 /**
- * Record the wire tool array a turn sends so a later fork wake can replay it
- * (`recordConversationToolSurface`). Best-effort: a failed write is logged
- * and the array still counts as recorded, so a persistent failure logs once
- * per distinct surface rather than once per provider call.
+ * Build the agent loop's `onToolsSent` observer for a conversation: record
+ * the tool array each provider call sends so a later fork wake can replay it
+ * (`recordConversationToolSurface`). Only the loop's send boundary sees the
+ * sent array. The resolver is also consulted out of band (the token count
+ * behind `/compact` and `/clean`, compaction estimates), where a read outside
+ * any turn resolves a clientless surface that would overwrite the one the
+ * conversation's turns actually send.
+ *
+ * Arrays that are not the conversation's own surface are skipped: a replaying
+ * wake sends its source's array, an empty array is a tools-disabled call (a
+ * fork replaying it could never call `remember`), and disk-pressure cleanup
+ * mode narrows the wire to cleanup tools. Best-effort: a failed write is
+ * logged and the array still counts as recorded, so a persistent failure logs
+ * once per distinct surface rather than once per provider call.
  */
-function recordWireToolSurface(
+export function createWireToolSurfaceRecorder(
   ctx: Conversation,
-  wireDefs: ToolDefinition[],
-): void {
-  if (!ctx.conversationId) {
-    return;
-  }
-  try {
-    ctx.recordedToolSurfaceHash = recordConversationToolSurface(
-      ctx.conversationId,
-      wireDefs,
-      ctx.recordedToolSurfaceHash,
-    );
-  } catch (err) {
-    log.warn(
-      { err, conversationId: ctx.conversationId },
-      "failed to record the conversation's wire tool surface; continuing",
-    );
-    ctx.recordedToolSurfaceHash = hashConversationToolSurface(wireDefs);
-  }
+): (tools: ToolDefinition[]) => void {
+  return (tools) => {
+    if (
+      !ctx.conversationId ||
+      ctx.wireToolReplay ||
+      tools.length === 0 ||
+      ctx.diskPressureCleanupModeActive === true
+    ) {
+      return;
+    }
+    try {
+      ctx.recordedToolSurfaceHash = recordConversationToolSurface(
+        ctx.conversationId,
+        tools,
+        ctx.recordedToolSurfaceHash,
+      );
+    } catch (err) {
+      log.warn(
+        { err, conversationId: ctx.conversationId },
+        "failed to record the conversation's wire tool surface; continuing",
+      );
+      ctx.recordedToolSurfaceHash = hashConversationToolSurface(tools);
+    }
+  };
 }
 
 /**
@@ -1293,11 +1291,8 @@ export function createResolveToolsCallback(
     // source's cached prefix instead of rewriting it. Execution is unaffected:
     // `allowedToolNames` above and the executor's allowlist gate still decide
     // what may run.
-    if (ctx.wireToolReplay) {
-      return [...ctx.wireToolReplay];
-    }
-    const wireDefs = applyActivityField(allBaseDefs);
-    recordWireToolSurface(ctx, wireDefs);
-    return wireDefs;
+    return ctx.wireToolReplay
+      ? [...ctx.wireToolReplay]
+      : applyActivityField(allBaseDefs);
   };
 }

@@ -6,8 +6,8 @@ import { useTranslation } from "@/i18n";
  * Output section with a Clean/Raw switch.
  *
  * The generic drawer rendered this call at its worst: `{"skill":"app-builder"}`
- * as raw JSON input, and the skill's entire instruction body — often thousands
- * of lines, including a machine-facing "## Available Tools" manifest — dumped
+ * as raw JSON input, and the skill's entire instruction body (often thousands
+ * of lines, including a machine-facing "## Available Tools" manifest) dumped
  * into a monospace `<pre>`.
  */
 
@@ -17,13 +17,14 @@ import { SectionLabel } from "@/components/detail-primitives";
 import { SkillLoadCard } from "@/domains/chat/components/tool-activity/skill-load-card";
 import { SkillLoadOutput } from "@/domains/chat/components/tool-activity/skill-load-output";
 import { SkillToolList } from "@/domains/chat/components/tool-activity/skill-tool-list";
+import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import { parseSkillLoadActivity } from "@/domains/chat/utils/skill-activity";
 import type { ToolActivityRendererProps } from "@/domains/chat/components/tool-activity/types";
 
 /**
  * Placeholder for the sections still in flight while `skill_load` runs: the
- * tool manifest and the instruction body. Mirrors the real layout — bordered
- * tool cards over staggered prose lines — so the panel doesn't reflow when the
+ * tool manifest and the instruction body. Mirrors the real layout (bordered
+ * tool cards over staggered prose lines) so the panel doesn't reflow when the
  * body lands.
  *
  * The skill card above is NOT skeletonised: the skill id comes from the call's
@@ -62,6 +63,7 @@ export function SkillLoadDetail({
   result,
   isRunning,
   isError,
+  isDenied,
   assistantId,
 }: ToolActivityRendererProps) {
   const { t } = useTranslation("chat");
@@ -75,13 +77,18 @@ export function SkillLoadDetail({
   } = parseSkillLoadActivity({ input: detail.input, result, isError });
 
   // The card's second line is the skill's description once the body lands, and
-  // the load's own state until then — the description is the more useful thing
-  // to say, and it's only absent while there's something else to report.
-  const status = isRunning
-    ? "Loading skill…"
-    : errorMessage
-      ? "Failed to load"
-      : "";
+  // the load's own state until then: the description is the more useful thing
+  // to say, and it's only absent while there's something else to report. A
+  // refused load never ran, so its result is the daemon's note to the model,
+  // not an error for the reader, and it reads as not approved rather than as
+  // loading or failed.
+  const status = isDenied
+    ? t("skillLoadDetail.notApproved")
+    : isRunning
+      ? t("skillLoadDetail.loading")
+      : errorMessage
+        ? t("skillLoadDetail.failed")
+        : "";
 
   return (
     <div className="flex flex-col gap-5">
@@ -89,39 +96,48 @@ export function SkillLoadDetail({
         <SectionLabel>{t("skillLoadDetail.usedSkill")}</SectionLabel>
         <SkillLoadCard
           skillId={skillId}
-          name={displayName || skillId || "Skill"}
-          secondary={description || status}
+          name={displayName || skillId || t("skillLoadDetail.unnamedSkill")}
+          secondary={isDenied ? status : description || status}
           assistantId={assistantId}
         />
       </div>
 
-      {errorMessage && (
-        <Notice tone="error">
-          <span className="whitespace-pre-wrap break-words">
-            {errorMessage}
-          </span>
-        </Notice>
-      )}
-
-      {tools.length > 0 && (
+      {isDenied ? (
         <div>
-          <SectionLabel>{t("skillLoadDetail.provides")}</SectionLabel>
-          <SkillToolList tools={tools} />
+          <SectionLabel>{t("toolDetailPanel.output")}</SectionLabel>
+          <ToolOutputBody text="" isDenied isRunning={false} isError={false} />
         </div>
-      )}
+      ) : (
+        <>
+          {errorMessage && (
+            <Notice tone="error">
+              <span className="whitespace-pre-wrap break-words">
+                {errorMessage}
+              </span>
+            </Notice>
+          )}
 
-      {/* A failed load's "output" is the error text, which the notice above
-          already shows in full — rendering it again as Output would say the
-          same thing twice. */}
-      {!errorMessage && (
-        <SkillLoadOutput
-          instructions={instructions}
-          raw={typeof result === "string" ? result : ""}
-          assistantId={assistantId}
-        />
-      )}
+          {tools.length > 0 && (
+            <div>
+              <SectionLabel>{t("skillLoadDetail.provides")}</SectionLabel>
+              <SkillToolList tools={tools} />
+            </div>
+          )}
 
-      {isRunning && !instructions && !errorMessage && <SkillLoadSkeleton />}
+          {/* A failed load's "output" is the error text, which the notice
+              above already shows in full; rendering it again as Output would
+              say the same thing twice. */}
+          {!errorMessage && (
+            <SkillLoadOutput
+              instructions={instructions}
+              raw={typeof result === "string" ? result : ""}
+              assistantId={assistantId}
+            />
+          )}
+
+          {isRunning && !instructions && !errorMessage && <SkillLoadSkeleton />}
+        </>
+      )}
     </div>
   );
 }

@@ -13,14 +13,15 @@ interface CopyButtonProps {
 
 /**
  * Ghost icon button that copies `text` to the clipboard, flashing a
- * positive-tinted check while the transient copied state is active.
+ * positive-tinted check while the transient copied state is active. Icon-only,
+ * so its width never changes and a container can reserve room for it.
  */
 export function CopyButton({
   text,
   ariaLabel,
   className,
 }: CopyButtonProps): ReactNode {
-  const { t } = useTranslation("chat");
+  const { t } = useTranslation();
   const { copy, copied } = useCopyToClipboard({
     errorMessage: t("copyButton.copyFailed"),
   });

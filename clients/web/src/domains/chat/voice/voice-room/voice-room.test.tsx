@@ -41,6 +41,7 @@ import { Capacitor } from "@capacitor/core";
 import * as motionReact from "motion/react";
 
 import type { MainView } from "@/stores/viewer-store";
+import { composerViewerStoreMock } from "@/stores/viewer-store.test-helper";
 import { routes } from "@/utils/routes";
 
 import {
@@ -91,13 +92,13 @@ mock.module("react-router", () => ({
 }));
 
 let mockMainView: MainView = "chat";
-mock.module("@/stores/viewer-store", () => ({
-  useViewerStore: {
-    use: {
-      mainView: () => mockMainView,
-    },
-  },
-}));
+let mockActiveAppId: string | null = null;
+mock.module("@/stores/viewer-store", () =>
+  composerViewerStoreMock(() => ({
+    mainView: mockMainView,
+    activeAppId: mockActiveAppId,
+  })),
+);
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -401,6 +402,7 @@ beforeEach(() => {
   mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
   mockSearch = "";
   mockMainView = "chat";
+  mockActiveAppId = null;
   mockIsMobile = false;
   mockAvatarData = { components: null, traits: null, customImageUrl: null };
   mockCustomFieldHex = null;
@@ -611,6 +613,7 @@ describe("VoiceRoom — visibility", () => {
   test("renders nothing over the desktop fullscreen app viewer (composer replaced)", () => {
     startOwnedSession("listening");
     mockMainView = "app";
+    mockActiveAppId = "app-1";
     render(<VoiceRoom />);
     expect(roomDialog()).toBeNull();
   });

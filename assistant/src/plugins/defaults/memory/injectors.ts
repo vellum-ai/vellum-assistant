@@ -374,9 +374,10 @@ const memoryV2StaticInjector: Injector = {
     if (mode !== "full") {
       return null;
     }
-    // The consolidation agent reads and rewrites memory/buffer.md through
-    // file tools; injecting the buffer section here would duplicate the
-    // entire backlog into its context (and go stale as it edits the file).
+    // The consolidation run already carries its pass's buffer entries in
+    // the prompt itself, and the job removes them from memory/buffer.md
+    // after the run; injecting the buffer section here would duplicate the
+    // pass and hand the agent entries that are not its to file.
     const content = readGatedMemoryV2Static(ctx.trust, {
       excludeBuffer: ctx.callSite === "memoryV2Consolidation",
     });

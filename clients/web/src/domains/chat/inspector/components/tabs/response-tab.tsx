@@ -8,7 +8,7 @@ import type {
 } from "@vellumai/assistant-api";
 import { Card } from "@vellumai/design-library";
 
-import { CopyButton } from "@/domains/chat/inspector/components/copy-button";
+import { CopyButton } from "@/components/copy-button";
 import { LlmCallErrorCard } from "@/domains/chat/inspector/components/llm-call-error-card";
 import { t, useTranslation } from "@/i18n";
 
@@ -318,8 +318,7 @@ function buildSectionModels(
     const pKind = toPresentationKind(section.kind);
     const rawTitle = section.label?.trim() ?? "";
     const title =
-      rawTitle ||
-      t("chat:responseTab.sectionTitle", { number: index + 1 });
+      rawTitle || t("chat:responseTab.sectionTitle", { number: index + 1 });
     const body = sectionBodyText(section);
     return {
       id: index,

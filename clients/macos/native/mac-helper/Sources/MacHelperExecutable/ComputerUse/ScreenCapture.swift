@@ -10,6 +10,10 @@ enum CaptureError: LocalizedError {
     case windowNotFound
     case conversionFailed
     case permissionDenied
+    /// ScreenCaptureKit could not list what is on screen for a reason other
+    /// than a missing grant, carried with the system's own words so a report
+    /// can tell the two apart.
+    case contentUnavailable(String)
 
     var errorDescription: String? {
         switch self {
@@ -18,6 +22,7 @@ enum CaptureError: LocalizedError {
         case .windowNotFound: return "The window to capture is no longer on screen"
         case .conversionFailed: return "Failed to convert screenshot to JPEG"
         case .permissionDenied: return "Screen Recording permission denied"
+        case .contentUnavailable(let reason): return "Could not read what is on screen: \(reason)"
         }
     }
 }
@@ -81,7 +86,13 @@ final class ScreenCapture: ScreenCaptureProviding, @unchecked Sendable {
         do {
             content = try await SCShareableContent.current
         } catch {
-            throw CaptureError.permissionDenied
+            // Only a missing grant is called one. Anything else ScreenCaptureKit
+            // refuses with is passed on as itself, so a failure that is not
+            // about permission never sends the user to Settings for nothing.
+            guard CGPreflightScreenCaptureAccess() else {
+                throw CaptureError.permissionDenied
+            }
+            throw CaptureError.contentUnavailable(error.localizedDescription)
         }
 
         let filter: SCContentFilter

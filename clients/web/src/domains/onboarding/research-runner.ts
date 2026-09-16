@@ -173,7 +173,10 @@ export function selectRecommendableCapabilities(
     if (!name || !description) {
       continue;
     }
-    if (repoOwner(m.source?.repo) !== VELLUM_PLUGIN_OWNER) {
+    if (
+      m.source?.kind !== "github" ||
+      repoOwner(m.source.repo) !== VELLUM_PLUGIN_OWNER
+    ) {
       continue;
     }
     if (NON_RECOMMENDABLE_PLUGINS.has(name)) {
