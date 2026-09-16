@@ -712,7 +712,45 @@ describe("SubagentDetailPanel: nested detail reads the live call", () => {
     expect(screen.queryByText("unparsed provider text")).toBeNull();
   });
 
-  test("a tool pill with no call in the history stays on the timeline", () => {
+  test("a pill whose call is only in the timeline events opens the event-built detail", () => {
+    const events: SubagentEntry["events"] = [
+      {
+        id: "te-call",
+        type: "tool_call",
+        content: "ls",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        input: { command: "ls" },
+        timestamp: 0,
+      },
+      {
+        id: "te-result",
+        type: "tool_result",
+        content: "event-output",
+        result: "event-output",
+        toolName: "bash",
+        toolUseId: "tool-1",
+        timestamp: 10,
+      },
+    ];
+    // History is present but keyed by an id the events never carried (a
+    // positional id from an older assistant), so the canonical lookup misses.
+    const entry = withToolCalls(makeEntry({ events }), [
+      {
+        id: "tool-history-msg-1-0",
+        name: "bash",
+        input: { command: "ls" },
+        result: "canonical-output",
+      },
+    ]);
+    render(<SubagentDetailPanel entry={entry} onClose={noop} />);
+    fireEvent.click(screen.getByTestId("timeline-pill"));
+
+    expect(screen.queryByTestId("timeline")).toBeNull();
+    expect(screen.getByText("event-output")).toBeDefined();
+  });
+
+  test("a pill with nothing behind it in either source stays on the timeline", () => {
     render(
       <SubagentDetailPanel
         entry={makeEntry({ events: [TOOL_EVENT] })}

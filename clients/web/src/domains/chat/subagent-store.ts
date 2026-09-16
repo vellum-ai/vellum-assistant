@@ -1215,7 +1215,19 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         snapshot.seq ?? null,
       ),
     );
-    if (seed.kind !== "seed") {
+    if (seed.kind === "skip_anchorless") {
+      recordDiagnostic("subagent_history_seed_skipped_anchorless", {
+        subagentId,
+        liveSeq: seed.liveSeq,
+      });
+      return;
+    }
+    if (seed.kind === "skip_stale_anchor") {
+      recordDiagnostic("subagent_history_seed_skipped_stale_anchor", {
+        subagentId,
+        liveSeq: seed.liveSeq,
+        fetchedSeq: seed.fetchedSeq,
+      });
       return;
     }
     set({
@@ -1265,6 +1277,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
   invalidateHistories: (parentConversationId) => {
     const { byId } = get();
     let next: typeof byId | null = null;
+    const dropped: string[] = [];
     for (const entry of Object.values(byId)) {
       if (
         entry.parentConversationId !== parentConversationId ||
@@ -1280,9 +1293,14 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       if (entry.history !== null) {
         next ??= { ...byId };
         next[entry.subagentId] = { ...entry, history: null };
+        dropped.push(entry.subagentId);
       }
     }
     if (next) {
+      recordDiagnostic("subagent_history_invalidated", {
+        parentConversationId,
+        subagentIds: dropped,
+      });
       set({ byId: next });
     }
   },

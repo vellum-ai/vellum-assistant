@@ -26,10 +26,7 @@ import {
 } from "@/domains/chat/components/metric-card";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
 import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
-import {
-  useSubagentStore,
-  type SubagentEntry,
-} from "@/domains/chat/subagent-store";
+import type { SubagentEntry } from "@/domains/chat/subagent-store";
 import { useSubagentHistory } from "@/domains/chat/hooks/use-subagent-history";
 import { subagentTraits } from "@/utils/avatar-subagent";
 import { isActiveStatus } from "@/utils/subagent-status";
@@ -179,39 +176,28 @@ export function SubagentDetailPanel({
   // after commit always reads the committed values.
   const stepDetailsRef = useRef(stepDetails);
   const historyRef = useRef(entry.history);
-  const subagentId = entry.subagentId;
-  const shownSubagentIdRef = useRef(subagentId);
   useLayoutEffect(() => {
     stepDetailsRef.current = stepDetails;
     historyRef.current = entry.history;
-    shownSubagentIdRef.current = subagentId;
-  }, [stepDetails, entry.history, subagentId]);
+  }, [stepDetails, entry.history]);
   const handleStepDetailClick = useCallback(
     (key: string) => {
+      // A pill always opens: the call from the subagent's history when it is
+      // there, otherwise the detail built from the timeline's own events. A
+      // missing history (a failed fetch, or one a stream gap dropped) reloads
+      // in the background, and the canonical call replaces the fallback when
+      // it lands.
+      if (historyRef.current === null) {
+        void loadHistory();
+      }
       if (
         stepDetailsRef.current.has(key) ||
         findToolCall(historyRef.current?.messages ?? [], key)
       ) {
         setSelectedDetailKey(key);
-        return;
       }
-      // A tool pill whose history is missing (a failed fetch, or one a stream
-      // gap dropped) reloads it and opens once the call is there.
-      if (historyRef.current !== null) {
-        return;
-      }
-      void loadHistory().then(() => {
-        const messages =
-          useSubagentStore.getState().byId[subagentId]?.history?.messages;
-        if (
-          shownSubagentIdRef.current === subagentId &&
-          findToolCall(messages ?? [], key)
-        ) {
-          setSelectedDetailKey(key);
-        }
-      });
     },
-    [loadHistory, subagentId],
+    [loadHistory],
   );
 
   // Which timeline groups are expanded. Lifted out of `SubagentPhaseTimeline`
@@ -284,9 +270,11 @@ export function SubagentDetailPanel({
   }, [entry.subagentId, canFetchDetail, entry.events.length, onRequestDetail]);
 
   // The selected step's nested detail: a tool call derived from the live call
-  // in this subagent's history, the same way a main-chat call's drawer is, or
-  // a thinking segment's payload. `undefined` when nothing is selected or the
-  // target can't be resolved, which falls back to the timeline view.
+  // in this subagent's history, the same way a main-chat call's drawer is. A
+  // call the history lacks (not loaded, loaded incomplete, or keyed by an id
+  // the events never carried) falls back to the payload built from the
+  // timeline's events, as does a thinking segment. `undefined` only when
+  // nothing is selected.
   const liveToolCall = useLiveToolCall(toolCallSource, selectedDetailKey);
   const activeDetail = liveToolCall
     ? toolDetailPayloadFromToolCall(liveToolCall)

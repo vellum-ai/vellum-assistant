@@ -889,10 +889,10 @@ describe("computeSubagentCardData — web tools match main-chat group labels", (
     expect(phaseFromStep(step)).toBe("Thinking");
   });
 
-  test("web_fetch step's detailKey is the call's tool-use id (clickable)", () => {
-    // The "Reading <domain>" pill must open a detail. The nested detail finds
-    // the call in the subagent's history by its tool-use id, so the pill's
-    // detailKey has to be that id or clicking it is a no-op.
+  test("web_fetch step's detailKey resolves to a buildSubagentStepDetails payload (clickable)", () => {
+    // Regression: the "Reading <domain>" pill must open a detail. The timeline
+    // step and the detail map both key on `toolUseId`, so the pill's detailKey
+    // has to exist in the payload map or clicking it is a no-op.
     const entry = makeEntry({
       events: [
         makeEvent({
@@ -910,9 +910,12 @@ describe("computeSubagentCardData — web tools match main-chat group labels", (
       ],
     });
     const step = computeSubagentCardData(entry).steps[0]!;
-    expect(step.kind).toBe("thinking");
+    const details = buildSubagentStepDetails(entry.events);
     if (step.kind === "thinking") {
       expect(step.detailKey).toBe("tu-wf");
+      expect(details.has(step.detailKey!)).toBe(true);
+      // The payload routes to the web_fetch view (kind "tool" + toolName).
+      expect(details.get(step.detailKey!)?.toolName).toBe("web_fetch");
     }
   });
 
@@ -1308,37 +1311,421 @@ describe("computeSubagentCardData — error event toolUseId correlation", () => 
 });
 
 // ---------------------------------------------------------------------------
-// buildSubagentStepDetails: reasoning payloads for the nested detail
+// buildSubagentStepDetails — nested tool-detail payload map
 // ---------------------------------------------------------------------------
 
 describe("buildSubagentStepDetails", () => {
-  test("text event yields a thinking payload with the full, un-truncated content", () => {
+  test("tool_call + tool_result → one completed payload with raw input/result + duration", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              content: "ls -la",
+              input: { command: "ls -la" },
+              timestamp: NOW,
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              result: "total 0",
+              timestamp: NOW + 2500,
+            },
+            1,
+          ),
+        ],
+      }).events,
+    );
+    expect(details.size).toBe(1);
+    const payload = details.get("tu-1")!;
+    expect(payload.toolCallId).toBe("tu-1");
+    expect(payload.toolName).toBe("bash");
+    // Raw input is preserved verbatim (not the reconstructed summary bag).
+    expect(payload.input).toEqual({ command: "ls -la" });
+    expect(payload.result).toBe("total 0");
+    expect(payload.status).toBe("completed");
+    expect(payload.durationLabel).toBe("3s");
+    expect(payload.kind).toBe("tool");
+  });
+
+  test("text event → thinking payload with the full, un-truncated content", () => {
     const content = "Line one.\n\nLine two with   many   spaces preserved.";
-    const details = buildSubagentStepDetails([
-      makeEvent({ type: "text", content }, 0),
-    ]);
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [makeEvent({ type: "text", content }, 0)],
+      }).events,
+    );
     expect(details.size).toBe(1);
     const payload = details.get("te-0")!;
     expect(payload.kind).toBe("thinking");
     expect(payload.status).toBe("completed");
+    // Full content verbatim — NOT the collapsed/truncated timeline preview.
     expect(payload.thinkingText).toBe(content);
   });
 
-  test("whitespace-only text and tool events produce no payload", () => {
-    const details = buildSubagentStepDetails([
-      makeEvent({ type: "text", content: "   \n  " }, 0),
-      makeEvent({ type: "tool_call", toolName: "bash", toolUseId: "tu-1" }, 1),
-      makeEvent(
-        {
-          type: "tool_result",
-          toolName: "bash",
-          toolUseId: "tu-1",
-          result: "ok",
-        },
-        2,
-      ),
+  test("web_search tool_call + tool_result → web_search payload with query + parsed sources", () => {
+    const resultText = [
+      "First Result Title",
+      "https://example.com/a",
+      "Second Result Title",
+      "https://foo.org/b",
+    ].join("\n");
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              input: { query: "best vector databases" },
+              timestamp: NOW,
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              result: resultText,
+              timestamp: NOW + 1500,
+            },
+            1,
+          ),
+        ],
+      }).events,
+    );
+    expect(details.size).toBe(1);
+    const payload = details.get("tu-ws")!;
+    // A dedicated web_search payload (NOT the generic "tool" body) carrying the
+    // query + the parsed source list for the nested detail view.
+    expect(payload.kind).toBe("web_search");
+    expect(payload.searchQuery).toBe("best vector databases");
+    expect(payload.status).toBe("completed");
+    expect(payload.searchResults?.map((r) => r.url)).toEqual([
+      "https://example.com/a",
+      "https://foo.org/b",
     ]);
+  });
+
+  test("web_search payload backfills searchQuery from the result when the call carried none (live)", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "web_search", toolUseId: "tu-ws" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              result: "results...",
+              searchQuery: "best thermos 2025",
+            },
+            1,
+          ),
+        ],
+      }).events,
+    );
+    const payload = details.get("tu-ws")!;
+    expect(payload.kind).toBe("web_search");
+    expect(payload.searchQuery).toBe("best thermos 2025");
+  });
+
+  test("whitespace-only text event produces no thinking payload", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [makeEvent({ type: "text", content: "   \n  " }, 0)],
+      }).events,
+    );
     expect(details.size).toBe(0);
+  });
+
+  test("falls back to event.content for result when result is absent", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              content: "fallback output",
+            },
+            1,
+          ),
+        ],
+      }).events,
+    );
+    expect(details.get("tu-1")!.result).toBe("fallback output");
+  });
+
+  // Codex review (P2): a FAILED tool's error output must stay inspectable in
+  // the nested detail. `buildSubagentStepDetails` carries the error content into
+  // the payload's `result` (status "error"), and `ToolDetailBody` renders
+  // `result` in its Output section regardless of status — so clicking the pill
+  // surfaces WHY the tool failed, not just that it did. Both the fetched-history
+  // shape (`tool_result` + `isError`) and the live shape (a raw `error` event
+  // carrying the content) resolve through the same branch, so both are covered.
+  test("failed tool_result (isError) → payload preserves the error output, status error", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              isError: true,
+              result: "bash: command not found: foo",
+            },
+            1,
+          ),
+        ],
+      }).events,
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe("bash: command not found: foo");
+  });
+
+  test("failed tool delivered as a raw error event → payload preserves the content", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "error",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              isError: true,
+              content: "permission denied",
+            },
+            1,
+          ),
+        ],
+      }).events,
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe("permission denied");
+  });
+
+  test("failed web_search → payload kept (status error) with the full untruncated error", () => {
+    // The timeline chip shows only a `trimTextPreview` snippet; the detail must
+    // keep the FULL provider error so the user can inspect why the search failed
+    // — parity with a failed tool. Keyed by the tool id the chip's `detailKey`
+    // points at, so it's reachable (NOT filtered out as a dead entry).
+    const longError =
+      "provider error: backend 503; " + "rate limited; ".repeat(20);
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "web_search", toolUseId: "tu-ws" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "web_search",
+              toolUseId: "tu-ws",
+              isError: true,
+              result: longError,
+            },
+            1,
+          ),
+        ],
+      }).events,
+    );
+    const payload = details.get("tu-ws")!;
+    expect(payload).toBeDefined();
+    expect(payload.kind).toBe("web_search");
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe(longError);
+    expect(payload.result!.length).toBeGreaterThan(160);
+  });
+
+  test("in-flight tool_call with no result → running payload, result undefined", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              input: { command: "sleep 5" },
+            },
+            0,
+          ),
+        ],
+      }).events,
+    );
+    expect(details.size).toBe(1);
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("running");
+    expect(payload.result).toBeUndefined();
+    expect(payload.durationLabel).toBe("");
+    expect(payload.input).toEqual({ command: "sleep 5" });
+  });
+
+  test("tool_call with empty toolUseId is skipped (can't be keyed/clicked)", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [makeEvent({ type: "tool_call", toolName: "bash" })],
+      }).events,
+    );
+    expect(details.size).toBe(0);
+  });
+
+  test("parallel calls to the same tool with distinct ids → two payloads matched by id", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-A",
+              input: { command: "first" },
+            },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_call",
+              toolName: "bash",
+              toolUseId: "tu-B",
+              input: { command: "second" },
+            },
+            1,
+          ),
+          // The SECOND call's result lands first; must close tu-B, not tu-A.
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-B",
+              result: "second done",
+            },
+            2,
+          ),
+        ],
+      }).events,
+    );
+    expect(details.size).toBe(2);
+    const a = details.get("tu-A")!;
+    const b = details.get("tu-B")!;
+    expect(a.status).toBe("running");
+    expect(a.result).toBeUndefined();
+    expect(a.input).toEqual({ command: "first" });
+    expect(b.status).toBe("completed");
+    expect(b.result).toBe("second done");
+    expect(b.input).toEqual({ command: "second" });
+  });
+
+  test("isError result → error status with the result preserved", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "tool_result",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              isError: true,
+              result: "command failed",
+            },
+            1,
+          ),
+        ],
+      }).events,
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe("command failed");
+  });
+
+  test("a FAILED tool result mapped to a raw error event is still matched", () => {
+    // When a tool fails, the store maps the inner event to type `"error"`
+    // (not `"tool_result"`) but preserves `result` + `isError`. The matcher
+    // must catch it regardless of the mapped type.
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        events: [
+          makeEvent(
+            { type: "tool_call", toolName: "bash", toolUseId: "tu-1" },
+            0,
+          ),
+          makeEvent(
+            {
+              type: "error",
+              toolName: "bash",
+              toolUseId: "tu-1",
+              isError: true,
+              result: "boom",
+            },
+            1,
+          ),
+        ],
+      }).events,
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("error");
+    expect(payload.result).toBe("boom");
+  });
+
+  test("equal timestamps (synthetic history) yield no durationLabel", () => {
+    const details = buildSubagentStepDetails(
+      makeEntry({
+        status: "completed",
+        events: [
+          makeEvent({
+            type: "tool_call",
+            toolName: "bash",
+            toolUseId: "tu-1",
+            timestamp: NOW,
+          }),
+          makeEvent({
+            type: "tool_result",
+            toolName: "bash",
+            toolUseId: "tu-1",
+            result: "ok",
+            timestamp: NOW,
+          }),
+        ],
+      }).events,
+    );
+    const payload = details.get("tu-1")!;
+    expect(payload.status).toBe("completed");
+    expect(payload.durationLabel).toBe("");
   });
 });
 
@@ -1561,6 +1948,6 @@ describe("heavy projections are memoizable on entry.events", () => {
     const second = memo.run(entryB.events);
     expect(memo.calls).toBe(1);
     expect(second).toBe(first);
-    expect(first.get("te-0")?.thinkingText).toBe("Investigating");
+    expect(first.get("tu-1")?.status).toBe("completed");
   });
 });
