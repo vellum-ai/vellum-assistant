@@ -189,23 +189,14 @@ enum FrontSelection {
         let focused = focusedValue as! AXUIElement
         AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
         let role = stringAttribute(focused, kAXRoleAttribute as CFString)
-        // **In Chromium only the page itself is a trusted no.** Web editors
-        // hand focus to wrappers that report their text as unwritable while
-        // the editor inside them takes the paste: Slack's composer is an
-        // `AXGroup` around its real `AXTextArea`. A focused web area is the
-        // page with nothing editable focused, and that one it gets right.
-        let takes = takesText(focused, role: role)
-            || (chromium && role != webAreaRole)
         return Focus(
             focused: true,
-            takesText: takes,
+            takesText: takesText(focused, role: role, chromium: chromium),
             role: role,
             bundleId: bundleId,
             chromium: chromium
         )
     }
-
-    private static let webAreaRole = "AXWebArea"
 
     /// Answers from `isChromium`, by bundle path. An application's frameworks
     /// do not change while it runs, and this is asked at the end of every hold.
@@ -253,7 +244,15 @@ enum FrontSelection {
     /// marks get their turn: a text control's role, and a selected text
     /// range, which is the generic sign of something with a caret in it and
     /// catches the editors that answer to neither of the others.
-    private static func takesText(_ element: AXUIElement, role: String?) -> Bool {
+    ///
+    /// **The one exception is a Chromium group.** Web editors hand focus to a
+    /// wrapper that reports its text as unwritable while the editor inside it
+    /// takes the paste: Slack's composer is an `AXGroup` around its real
+    /// `AXTextArea`. Only that role is let through. A read-only field, a
+    /// button or a link in Chromium still answers no.
+    private static func takesText(
+        _ element: AXUIElement, role: String?, chromium: Bool
+    ) -> Bool {
         if isDisabled(element) {
             return false
         }
@@ -261,7 +260,7 @@ enum FrontSelection {
         case .settable:
             return true
         case .fixed:
-            return false
+            return chromium && role == chromiumWrapperRole
         case .unknown:
             break
         }
@@ -273,6 +272,8 @@ enum FrontSelection {
             element, kAXSelectedTextRangeAttribute as CFString, &rangeRef
         ) == .success
     }
+
+    private static let chromiumWrapperRole = "AXGroup"
 
     /// What an element says about writing its text: that it can be written,
     /// that it cannot, or nothing usable. The third is its own answer because
