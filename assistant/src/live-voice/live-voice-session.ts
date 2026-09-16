@@ -3291,10 +3291,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private foregroundTaskRequestForTurn(turn: ActiveAssistantTurn): string {
-    return (
-      turn.interruptedRequest ??
-      turn.utterance.finalTranscriptSegments.join(" ").trim()
-    );
+    const currentRequest = turn.utterance.finalTranscriptSegments
+      .join(" ")
+      .trim();
+    return currentRequest || turn.interruptedRequest || "";
   }
 
   private createForegroundTaskOwnership(
