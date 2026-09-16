@@ -63,11 +63,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * The text of a value written as-is: a string, number, boolean or null, or an
  * empty list or object. `null` for anything with contents to lay out. An empty
- * string is written as `""`, since a blank value reads as a missing one.
+ * or whitespace-only string is written quoted, since a blank value reads as a
+ * missing one.
  */
 function scalarText(value: unknown): string | null {
   if (typeof value === "string") {
-    return value === "" ? '""' : value;
+    return value.trim() === "" ? JSON.stringify(value) : value;
   }
   if (Array.isArray(value)) {
     return value.length === 0 ? "[]" : null;
@@ -79,10 +80,11 @@ function scalarText(value: unknown): string | null {
 }
 
 /**
- * Pretty-printed JSON for a value past the depth limit. A value that can't be
- * serialised (a cycle) degrades to its `String()` form rather than throwing.
+ * Pretty-printed JSON, for a value past the depth limit and for the raw input.
+ * A value that can't be serialised (a cycle) degrades to its `String()` form
+ * rather than throwing.
  */
-function jsonText(value: unknown): string {
+export function jsonText(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2) ?? String(value);
   } catch {

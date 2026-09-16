@@ -11,7 +11,10 @@
 import { CodeBlock, SectionLabel } from "@/components/detail-primitives";
 import { DetailDisclosure } from "@/domains/chat/components/tool-activity/detail-disclosure";
 import { ToolParamFields } from "@/domains/chat/components/tool-activity/tool-param-fields";
-import { layoutToolParams } from "@/domains/chat/utils/tool-param-layout";
+import {
+  jsonText,
+  layoutToolParams,
+} from "@/domains/chat/utils/tool-param-layout";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -19,7 +22,7 @@ import { useTranslation } from "@/i18n";
  * unmounts closed content, only serializes the input once someone opens it.
  */
 function RawInputJson({ input }: { input: Record<string, unknown> }) {
-  return <CodeBlock text={JSON.stringify(input, null, 2)} />;
+  return <CodeBlock text={jsonText(input)} />;
 }
 
 interface ToolInputParametersProps {
