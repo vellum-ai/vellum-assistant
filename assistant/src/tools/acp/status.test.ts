@@ -44,11 +44,11 @@ mock.module("../../acp/acp-claude-oauth.js", () => ({
   storedClaudeTokenDigest: async () => fakeStoredCredential,
 }));
 
-import { claudeTokenDigest } from "../../acp/acp-auth-marker-store.js";
 import {
   clearHistory,
   insertHistoryRow,
 } from "../../acp/__tests__/helpers/acp-history-db.js";
+import { claudeTokenDigest } from "../../acp/acp-auth-marker-store.js";
 import { initializeDb } from "../../persistence/db-init.js";
 
 const { executeAcpStatus } = await import("./status.js");
