@@ -59,7 +59,7 @@ end tell
 **System Events menu clicking is the fallback**, for apps with no dictionary
 entry for what you need: `click menu item "Split Clip" of menu "Modify" of menu
 bar 1` inside `tell application "System Events" to tell process "iMovie"`. It is
-UI automation in a script's clothes — it still depends on the menu sitting where
+UI automation in a script's clothes: it still depends on the menu sitting where
 you expect and on the app being frontmost. A menu item that needs a selection or
 a playhead position does nothing when that context is missing, so set it up
 first, and read `enabled of menu item` when unsure.

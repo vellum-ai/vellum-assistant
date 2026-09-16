@@ -60,7 +60,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     ///
     /// Off by default, and deliberately so. `ax.locate` needs a scrolled-away
     /// element to be *in* the tree so it can answer "it exists, it is not on
-    /// screen" — dropping it during the walk would make that answer "not
+    /// screen". Dropping it during the walk would make that answer "not
     /// found", which sends a coachmark somewhere else. Only the CU observation
     /// path, whose tree is a list of things to act on right now, turns this on.
     var skipClippedSubtrees = false
@@ -693,7 +693,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 // difference between "this list has four rows" and "this list
                 // has four rows on screen", and only the second tells the
                 // model that scrolling is what reaches the rest.
-                lines.append("  (\(clippedCount) elements scrolled out of view — scroll to bring them on screen)")
+                lines.append("  (\(clippedCount) elements scrolled out of view: scroll to bring them on screen)")
             }
         }
 
@@ -719,7 +719,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// Nil clip is nothing cropping, which is most of a tree and every tree
     /// from an app that scrolls nothing, so everything counts. Where something
     /// is cropping, the question is the same geometric one
-    /// {@link AXDisplayMatch} asks of a display — any overlap counts, so a row
+    /// {@link AXDisplayMatch} asks of a display. Any overlap counts, so a row
     /// half out of the pane stays listed, and a frame with no area is on
     /// nothing and cannot be pointed at either way.
     private static func isOnScreen(_ frame: CGRect, within clip: CGRect?) -> Bool {
@@ -730,7 +730,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// `clip` is the rectangle this level's ancestors leave, exactly as
     /// `flattenClipped` computes it. A row scrolled out of its pane keeps the
     /// frame it would have on screen, so without this every row of a long list
-    /// is reported at a real-looking position that nothing is drawn at — a
+    /// is reported at a real-looking position that nothing is drawn at. A
     /// Finder window of 700 files listed all 700, of which ~45 were on screen.
     ///
     /// A tree with nothing cropping in it (no `AXScrollArea` ancestor) keeps a
