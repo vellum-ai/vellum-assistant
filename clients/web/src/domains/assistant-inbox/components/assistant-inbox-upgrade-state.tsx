@@ -45,8 +45,10 @@ export function AssistantInboxUpgradeState({
   const checkStyle: CSSProperties = accentHex
     ? { color: accentHex }
     : { color: "var(--content-secondary)" };
-  const checkDiscStyle: CSSProperties = wash
-    ? { backgroundColor: String(wash["--panel-item-hover"]) }
+  /* A firmer step than the panel's hover mix, which is a shade the eye
+     cannot pick out of the wash it sits on. */
+  const checkDiscStyle: CSSProperties = accentHex
+    ? { backgroundColor: `color-mix(in oklab, ${accentHex} 22%, transparent)` }
     : { backgroundColor: "var(--surface-active)" };
 
   const perks = [
@@ -81,21 +83,25 @@ export function AssistantInboxUpgradeState({
             </>
           }
         >
+          {/* Shrink-wrapped and centred, so the panel sits on the same axis
+              as the title above it and the actions below, rather than a
+              full-width block with its rows hanging off the left edge. */}
           <ul
-            className="flex flex-col gap-2 rounded-xl bg-[var(--surface-sunken)] p-4"
+            className="mx-auto flex w-fit max-w-full flex-col gap-3 rounded-2xl bg-[var(--surface-sunken)] px-6 py-5"
             style={panelStyle}
           >
             {perks.map((perk) => (
               <li
                 key={perk}
-                className="flex items-center gap-2.5 text-body-small-lighter text-[var(--content-default)]"
+                className="flex items-center gap-3 text-body-medium-lighter text-[var(--content-default)]"
               >
                 <span
-                  className="flex size-5 shrink-0 items-center justify-center rounded-full"
+                  className="flex size-6 shrink-0 items-center justify-center rounded-full"
                   style={checkDiscStyle}
                 >
                   <Check
-                    className="size-3"
+                    className="size-3.5"
+                    strokeWidth={2.5}
                     style={checkStyle}
                     aria-hidden="true"
                   />
