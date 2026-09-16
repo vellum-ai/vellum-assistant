@@ -10,6 +10,10 @@
 import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
+import {
+  OPENCODE_RESPONSES_ONLY_MODELS,
+  resolveOpenCodeRequestHeaders,
+} from "../opencode/client.js";
 import type { Auth, ConnectionModel } from "./auth.js";
 import { resolveAuth } from "./resolve-auth.js";
 
@@ -45,10 +49,12 @@ function hintForStatus(status: number): string {
 }
 
 /**
- * Probe a connection's custom endpoint with a minimal chat-completions
- * request (`max_tokens: 1`). Returns `null` when there is nothing to probe:
- * no custom base URL, no model id to send, or auth that cannot be resolved
- * (a missing credential surfaces through its own error path).
+ * Probe a connection's custom endpoint with a minimal request on the wire
+ * its first model is served over: chat completions (`max_tokens: 1`), or
+ * the Responses API for OpenCode's responses-only models, which answer
+ * `/chat/completions` with HTTP 500. Returns `null` when there is nothing
+ * to probe: no custom base URL, no model id to send, or auth that cannot be
+ * resolved (a missing credential surfaces through its own error path).
  */
 export async function testInferenceConnection(
   connection: {
@@ -72,18 +78,36 @@ export async function testInferenceConnection(
   }
   const authHeaders =
     resolved.resolved.kind === "header" ? resolved.resolved.headers : {};
+  // OpenCode Go rejects requests without a session header, which would
+  // report a false HTTP 400 hint for a correctly configured connection.
+  const providerHeaders =
+    connection.provider === "opencode" ? resolveOpenCodeRequestHeaders() : {};
 
-  const url = `${connection.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const useResponses =
+    connection.provider === "opencode" &&
+    OPENCODE_RESPONSES_ONLY_MODELS.has(model);
+  const url = `${connection.baseUrl.replace(/\/+$/, "")}${
+    useResponses ? "/responses" : "/chat/completions"
+  }`;
   try {
     const res = await fetchImpl(url, {
       method: "POST",
-      headers: { ...authHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: "ping" }],
-        max_tokens: 1,
-        stream: false,
-      }),
+      headers: {
+        ...authHeaders,
+        ...providerHeaders,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(
+        useResponses
+          ? // The Responses API rejects output budgets below 16 tokens.
+            { model, input: "ping", max_output_tokens: 16, stream: false }
+          : {
+              model,
+              messages: [{ role: "user", content: "ping" }],
+              max_tokens: 1,
+              stream: false,
+            },
+      ),
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     void res.body?.cancel();

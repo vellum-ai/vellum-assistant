@@ -53,6 +53,7 @@ import {
   PluginAlreadyInStateException,
   PluginDirectoryNotFoundError,
 } from "../lib/toggle-plugin.js";
+import type { PluginUninstallWarningKey } from "../lib/uninstall-plugin.js";
 import type { PluginUpgradeResult } from "../lib/upgrade-plugin.js";
 import { getCliLogger } from "../logger.js";
 import { PLUGINS_SEARCH_INSTALL_HINT, pluginsHelp } from "./plugins.help.js";
@@ -666,11 +667,16 @@ export function registerPluginsCommand(program: Command): void {
             // when the daemon is unreachable (a transport error carries no
             // `statusCode`); an operator can still uninstall while it's stopped,
             // and `shutdown` then runs in this process, the only one available.
-            const daemon = await cliIpcCall<{ name: string; target: string }>(
-              "plugins_uninstall",
-              { pathParams: { name } },
-            );
-            let result: { name: string; target: string };
+            const daemon = await cliIpcCall<{
+              name: string;
+              target: string;
+              warnings?: PluginUninstallWarningKey[];
+            }>("plugins_uninstall", { pathParams: { name } });
+            let result: {
+              name: string;
+              target: string;
+              warnings?: PluginUninstallWarningKey[];
+            };
             if (daemon.ok && daemon.result) {
               result = daemon.result;
             } else if (daemon.statusCode === undefined) {
@@ -693,6 +699,11 @@ export function registerPluginsCommand(program: Command): void {
             console.log(
               `Uninstalled plugin "${result.name}" from ${result.target}`,
             );
+            for (const warning of result.warnings ?? []) {
+              console.warn(
+                `Warning: ${libs.uninstall.resolvePluginUninstallWarning(warning)}`,
+              );
+            }
           } catch (err) {
             if (err instanceof libs.installGitHub.InvalidPluginNameError) {
               console.error(err.message);

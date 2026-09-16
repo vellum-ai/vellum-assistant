@@ -155,8 +155,33 @@
       "title": "交谈"
     }
   },
-  "companionSurface": {
+  "companionPopover": {
     "allow": "允许",
+    "confirm": "确认",
+    "credentialLabel": "凭据",
+    "defaultSuffix": "（默认）",
+    "deny": "拒绝",
+    "dismiss": "关闭",
+    "enter": "输入",
+    "microphoneFallback": "麦克风 {index}",
+    "microphonePermissionHint": "允许访问麦克风后即可按名称查看每个麦克风。",
+    "microphoneTitle": "麦克风",
+    "needsCredentials": "需要凭据",
+    "needsCredentialsFor": "需要 {service} 的凭据",
+    "needsOkCount": "{count, plural, other {有 # 项需要你的同意}}",
+    "notNow": "暂不",
+    "openApp": "打开 Vellum",
+    "pendingBadge": "{count, plural, other {有 # 项需要你的同意}}",
+    "previewVoice": "试听 {voice}",
+    "review": "查看",
+    "savedMicrophone": "已保存的麦克风",
+    "savedMicrophoneNotConnected": "已保存的麦克风（未连接）",
+    "stopPreview": "停止试听",
+    "surfaceFallback": "有内容要给你看",
+    "systemDefault": "系统默认",
+    "voiceTitle": "声音"
+  },
+  "companionSurface": {
     "calling": "正在呼叫…",
     "callingNamed": "正在呼叫 {name}…",
     "captureKind": "来源类型",
@@ -166,7 +191,6 @@
     "captureScreens": "屏幕",
     "captureTabs": "Chrome 标签页",
     "captureWindows": "窗口",
-    "deny": "拒绝",
     "draw": "绘制",
     "clearMarks": "清除标记",
     "drawTools": "绘图工具",
@@ -196,7 +220,9 @@
     "unmuteAssistant": "取消助手静音",
     "unmuteMicrophone": "取消麦克风静音",
     "dictating": "正在聆听",
-    "dictatingTranscribing": "正在思考"
+    "dictatingTranscribing": "正在思考",
+    "chooseMicrophone": "选择麦克风",
+    "chooseVoice": "选择声音"
   },
   "companionWatchFramePage": {
     "sharingScreen": "正在分享你的屏幕",
@@ -424,6 +450,22 @@
   "quickInputPage": {
     "logoAlt": "Vellum",
     "placeholder": "向 Vellum 提问..."
+  },
+  "referralContent": {
+    "copied": "已复制！",
+    "copyError": "无法复制推荐链接。",
+    "copySuccess": "已复制到剪贴板！",
+    "creditsEarned": "已赚取积分",
+    "friendsReferred": "已推荐好友",
+    "gatedTooltip": "订阅或购买积分以开始赚取！",
+    "loadError": "加载推荐信息失败。",
+    "loading": "加载中...",
+    "shareLink": "分享链接",
+    "subtitleDefault": "与好友分享 Vellum，每次注册均可赚取积分。",
+    "subtitleWithAmounts": "与好友分享 Vellum - 他们注册后，您和好友将各获得 {creditAmount} 积分，总计最高可达 {earningCap}。"
+  },
+  "referralModal": {
+    "title": "赚取免费积分"
   },
   "removeFromDeviceDialog": {
     "confirm": "移除",
@@ -667,6 +709,7 @@
     "copied": "已复制！",
     "copyName": "复制名称",
     "displayNameHint": "对于显示名称，<strong>{suggestedName}</strong> 可使此机器人与您的助手匹配。用户名是独立的，不必匹配。",
+    "dmOnlyNotice": "目前仅支持私聊。群组、超级群组和频道中的消息与按钮点击暂不支持。",
     "inBotFather": "在 BotFather 中：",
     "intro": "Telegram 机器人通过向 <strong>@BotFather</strong> 发送消息来创建。打开它，按照提示操作，然后带着它给您的令牌回来。",
     "next": "下一步",
@@ -681,6 +724,10 @@
     "copyError": "无法复制名称。请改为在 BotFather 中输入。",
     "stepConnect": "连接",
     "stepCreate": "创建机器人"
+  },
+  "tenantHost": {
+    "shopifyLabel": "店铺域名",
+    "shopifyPlaceholder": "your-store.myshopify.com"
   },
   "terminalPanel": {
     "recoveryModeBanner": "恢复模式已激活：此会话已连接到调试终端。"

@@ -76,7 +76,7 @@ const installSpy = mock(async (_options: unknown) => ({
   ...okResponse,
 }));
 const deleteSpy = mock(async (_options: unknown) => ({
-  data: undefined,
+  data: { name: "simple-memory", target: "/ws/plugins/simple-memory" },
   ...okResponse,
 }));
 const upgradeSpy = mock(async (_options: unknown) => ({
@@ -176,12 +176,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 // the list still renders under happy-dom.
 const toastSuccessSpy = mock((_message: string) => {});
 const toastErrorSpy = mock((_message: string) => {});
+const toastWarningSpy = mock((_message: string) => {});
 const dlActual = await import("@vellumai/design-library");
 mock.module("@vellumai/design-library", () => ({
   ...dlActual,
   toast: Object.assign((_message: string) => {}, {
     success: toastSuccessSpy,
     error: toastErrorSpy,
+    warning: toastWarningSpy,
     dismiss: () => {},
   }),
 }));
@@ -253,7 +255,8 @@ function pluginDetail(name: string): PluginsByNameGetResponse {
 function catalog(overrides: Partial<CatalogMatch> = {}): CatalogMatch {
   return {
     name: "apollo-bot-brain",
-    path: "github:acme/apollo-bot-brain@1111111111111111111111111111111111111111",
+    path:
+      "github:acme/apollo-bot-brain@1111111111111111111111111111111111111111",
     category: null,
     source: {
       kind: "github",
@@ -320,6 +323,7 @@ beforeEach(() => {
   upgradeSpy.mockClear();
   toastSuccessSpy.mockClear();
   toastErrorSpy.mockClear();
+  toastWarningSpy.mockClear();
   // Plugin-surface capable by default; individual tests drop below the
   // minimum to exercise the skills-only degradation.
   useAssistantIdentityStore
@@ -603,6 +607,28 @@ describe("SuperpowersTab", () => {
       await screen.findByText(/Remove "simple-memory" from this assistant\?/),
     ).toBeTruthy();
     expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  test("confirmed plugin removal shows a returned cleanup warning", async () => {
+    installedPlugins = [installed()];
+    deleteSpy.mockImplementationOnce(async () => ({
+      data: {
+        name: "simple-memory",
+        target: "/ws/plugins/simple-memory",
+        warnings: ["plugin.uninstall.mcp_oauth_credentials_unchecked"],
+      },
+      ...okResponse,
+    }));
+
+    const { findByLabelText } = renderTab();
+    fireEvent.click(await findByLabelText("Remove plugin"));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+
+    await waitFor(() =>
+      expect(toastWarningSpy).toHaveBeenCalledWith(
+        "Credential storage is unavailable, so historical plugin MCP OAuth credentials could not be checked.",
+      ),
+    );
   });
 
   test("shows the empty state when nothing is installed or available", async () => {

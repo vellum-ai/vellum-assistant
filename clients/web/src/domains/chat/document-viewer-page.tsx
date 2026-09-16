@@ -13,6 +13,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DocumentContent } from "@/types/document-types";
+import { autoSendPromptState } from "@/utils/auto-send-prompt";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
@@ -205,7 +206,8 @@ export function DocumentViewerPage() {
           );
           navigateToConversation(navigate, conversationId, {
             silent: true,
-            ...(isMobile ? { replace: true, state: navigationState } : {}),
+            ...(isMobile ? { replace: true } : {}),
+            state: autoSendPromptState(isMobile ? navigationState : undefined),
             destination: isMobile
               ? documentConversationUrl(
                   conversationId,

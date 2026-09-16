@@ -8,6 +8,10 @@ import {
   resetMockFetch,
 } from "../__tests__/mock-fetch.js";
 import {
+  applyPlatformIdentityIds,
+  _resetPlatformIdentityForTests,
+} from "../platform-identity.js";
+import {
   registerEmailCallbackRoute,
   EMAIL_CALLBACK_PATH,
 } from "./register-callback.js";
@@ -16,6 +20,7 @@ afterEach(() => {
   resetMockFetch();
   delete process.env.VELLUM_PLATFORM_URL;
   delete process.env.ASSISTANT_API_KEY;
+  _resetPlatformIdentityForTests();
 });
 
 function makeConfigFile(
@@ -45,11 +50,17 @@ function makeCaches(opts: {
       credentialKey("vellum", "assistant_api_key"),
       opts.assistantApiKey,
     );
-  if (opts.platformAssistantId)
+  if (opts.platformAssistantId) {
     store.set(
       credentialKey("vellum", "platform_assistant_id"),
       opts.platformAssistantId,
     );
+    applyPlatformIdentityIds({
+      assistantId: opts.platformAssistantId,
+      organizationId: "org-abc",
+      userId: "user-123",
+    });
+  }
 
   const result: {
     credentials: CredentialCache;

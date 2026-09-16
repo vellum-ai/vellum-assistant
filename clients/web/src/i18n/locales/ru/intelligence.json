@@ -264,7 +264,9 @@
   },
   "pluginToast": {
     "alreadyUpToDate": "{name} уже в актуальной версии",
+    "cleanupWarning": "Очистка плагина завершена с предупреждением.",
     "installed": "Установлен {name}",
+    "mcpOAuthCredentialsUnchecked": "Хранилище учетных данных недоступно, поэтому не удалось проверить сохраненные учетные данные OAuth MCP плагина.",
     "pluginFallback": "плагин",
     "pluginFallbackCapitalized": "Плагин",
     "removed": "Удалён {name}",

@@ -125,5 +125,5 @@ Default to the conversation's current working directory when spawning an agent. 
 
 - The spawned agent runs autonomously with its own tools, file editing, and terminal access.
 - Results are streamed back and injected into the conversation when the agent completes.
-- Use `acp_status` to check on running agents and `acp_abort` to stop them.
+- Use `acp_status` to inspect running and idle agents. Use `acp_steer` to attempt follow-up work on an idle session; do not replace it with a new `acp_spawn`.
 - The `cwd` parameter controls where the agent works - set it to the project root the user wants the agent to operate in.

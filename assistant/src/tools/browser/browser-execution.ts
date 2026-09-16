@@ -1,4 +1,5 @@
 import { optimizeImageForTransport } from "../../agent/image-optimize.js";
+import type { BrowserOperationContext as ToolContext } from "../../browser/types.js";
 import { getConfig } from "../../config/loader.js";
 import { HostBrowserProxy } from "../../daemon/host-browser-proxy.js";
 import type { ImageContent } from "../../providers/types.js";
@@ -21,7 +22,7 @@ import {
   sanitizeUrlForOutput,
   sanitizeUrlStringForOutput,
 } from "../network/url-safety.js";
-import type { ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolExecutionResult } from "../types.js";
 import {
   type AuthChallenge,
   detectAuthChallenge,
@@ -515,6 +516,9 @@ async function acquireCdpClientWithMode(
     }
   | { cdp?: never; browserMode?: never; errorResult: ToolExecutionResult }
 > {
+  if (context.cdpClient) {
+    return { cdp: context.cdpClient, browserMode: "cdp-inspect" };
+  }
   const modeResult = parseBrowserMode(input);
   if (!modeResult.ok) {
     return {
@@ -746,6 +750,17 @@ export type ResolvedElement =
   | { kind: "backend"; backendNodeId: number; eid: string }
   | { kind: "selector"; selector: string };
 
+function snapshotConversationId(context: ToolContext): string {
+  return context.cdpClient?.conversationId ?? context.conversationId;
+}
+
+function clearBrowserSessionState(context: ToolContext): void {
+  browserManager.clearSnapshotBackendNodeMap(snapshotConversationId(context));
+  if (!context.cdpClient) {
+    browserManager.clearPreferredBackendKind(context.conversationId);
+  }
+}
+
 /**
  * Resolve an element reference (either `element_id` from a prior
  * snapshot or a raw `selector`) for CDP-native tools. Returns a
@@ -872,6 +887,9 @@ export async function executeBrowserNavigate(
     typeof input.target_client_id === "string" && input.target_client_id !== ""
       ? input.target_client_id
       : undefined;
+  if (context.cdpClient && forceNewTab) {
+    await cdp.send("Vellum.createTab", {}, context.signal);
+  }
   if (cdp.kind === "extension" && useActiveTab) {
     // Explicit opt-out: target the currently-active tab. Clear any
     // conversation pin and reset the live session so this navigate is
@@ -1188,7 +1206,7 @@ export async function executeBrowserNavigate(
     // Navigation changed the page content, so clear stale snapshot
     // mappings regardless of backend. The backendNodeId map is shared
     // per-conversation state that needs to be invalidated on any nav.
-    browserManager.clearSnapshotBackendNodeMap(context.conversationId);
+    browserManager.clearSnapshotBackendNodeMap(snapshotConversationId(context));
 
     // Auto-dismiss common blocker modals (regulatory notices, cookie
     // banners) that aren't exposed in the accessibility tree. Runs
@@ -1398,7 +1416,7 @@ export async function executeBrowserSnapshot(
     const { elements, selectorMap: backendNodeMap } = transformAxTree(rawTree);
 
     browserManager.storeSnapshotBackendNodeMap(
-      context.conversationId,
+      snapshotConversationId(context),
       backendNodeMap,
     );
 
@@ -1600,8 +1618,7 @@ export async function executeBrowserDetach(
     // Vellum.detach round-trip failed (target gone, transport dropped).
     // browser_detach is the user's recovery path — leaving a stale
     // sticky backend or snapshot map behind would defeat its purpose.
-    browserManager.clearSnapshotBackendNodeMap(context.conversationId);
-    browserManager.clearPreferredBackendKind(context.conversationId);
+    clearBrowserSessionState(context);
     cdp.dispose();
   }
 }
@@ -1653,8 +1670,7 @@ export async function executeBrowserClose(
         // Tolerate detach failures (already detached, tab closed, etc.)
       }
     }
-    browserManager.clearSnapshotBackendNodeMap(context.conversationId);
-    browserManager.clearPreferredBackendKind(context.conversationId);
+    clearBrowserSessionState(context);
     return {
       content:
         "Browser session cleared. (Your Chrome tab was not closed — close it yourself if desired.)",
@@ -1683,7 +1699,10 @@ export async function executeBrowserClick(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { resolved, error } = resolveElement(context.conversationId, input);
+  const { resolved, error } = resolveElement(
+    snapshotConversationId(context),
+    input,
+  );
   if (error) {
     return { content: error, isError: true };
   }
@@ -1796,7 +1815,10 @@ export async function executeBrowserType(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { resolved, error } = resolveElement(context.conversationId, input);
+  const { resolved, error } = resolveElement(
+    snapshotConversationId(context),
+    input,
+  );
   if (error) {
     return { content: error, isError: true };
   }
@@ -1887,7 +1909,7 @@ export async function executeBrowserPressKey(
   let targetDescription: string | null = null;
   let resolved: ResolvedElement | null = null;
   if (hasTarget) {
-    const res = resolveElement(context.conversationId, input);
+    const res = resolveElement(snapshotConversationId(context), input);
     if (res.error) {
       return { content: res.error, isError: true };
     }
@@ -2025,7 +2047,10 @@ export async function executeBrowserSelectOption(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { resolved, error } = resolveElement(context.conversationId, input);
+  const { resolved, error } = resolveElement(
+    snapshotConversationId(context),
+    input,
+  );
   if (error) {
     return { content: error, isError: true };
   }
@@ -2162,7 +2187,10 @@ export async function executeBrowserHover(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
-  const { resolved, error } = resolveElement(context.conversationId, input);
+  const { resolved, error } = resolveElement(
+    snapshotConversationId(context),
+    input,
+  );
   if (error) {
     return { content: error, isError: true };
   }
@@ -2410,7 +2438,10 @@ export async function executeBrowserFillCredential(
     return { content: "Error: field is required.", isError: true };
   }
 
-  const { resolved, error } = resolveElement(context.conversationId, input);
+  const { resolved, error } = resolveElement(
+    snapshotConversationId(context),
+    input,
+  );
   if (error) {
     return { content: error, isError: true };
   }

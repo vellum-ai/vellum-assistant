@@ -15,10 +15,13 @@ import { existsSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { runShutdownHook } from "../../hooks/hook-loader.js";
+import { MESSAGE_KEYS, t } from "../../i18n/index.js";
 import { isPluginDisabled } from "../../plugins/disabled-state.js";
+import { PLUGIN_MCP_MANIFEST } from "../../plugins/mcp-servers.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   InvalidPluginNameError,
+  readInstallMeta,
   sanitizePluginName,
 } from "./install-from-github.js";
 
@@ -40,11 +43,27 @@ export interface UninstallPluginOptions {
   readonly workspacePluginsDir?: string;
 }
 
+export const PLUGIN_UNINSTALL_WARNING_KEYS = {
+  MCP_OAUTH_CREDENTIALS_UNCHECKED:
+    MESSAGE_KEYS.PLUGIN_MCP_OAUTH_CREDENTIALS_UNCHECKED,
+} as const;
+
+export type PluginUninstallWarningKey =
+  (typeof PLUGIN_UNINSTALL_WARNING_KEYS)[keyof typeof PLUGIN_UNINSTALL_WARNING_KEYS];
+
+export function resolvePluginUninstallWarning(
+  key: PluginUninstallWarningKey,
+): string {
+  return t(key);
+}
+
 /** Result of a successful uninstall. */
 export interface UninstallPluginResult {
   readonly name: string;
   /** Absolute path that was removed. */
   readonly target: string;
+  /** Stable keys for non-fatal cleanup limitations. */
+  readonly warnings?: PluginUninstallWarningKey[];
 }
 
 /**
@@ -87,6 +106,41 @@ export async function uninstallPlugin(
     throw new PluginNotInstalledError(name, target);
   }
 
+  const hasCurrentMcpManifest = existsSync(join(target, PLUGIN_MCP_MANIFEST));
+  const recordedFiles = readInstallMeta(target)?.fingerprint?.files;
+  const hasRecordedMcpManifest =
+    recordedFiles !== undefined &&
+    Object.hasOwn(recordedFiles, PLUGIN_MCP_MANIFEST);
+  const warnings: PluginUninstallWarningKey[] = [];
+  const { deletePluginMcpOAuthCredentials } =
+    await import("../../mcp/mcp-oauth-provider.js");
+  let credentialsReachable = true;
+  let cleanup:
+    | Awaited<ReturnType<typeof deletePluginMcpOAuthCredentials>>
+    | undefined;
+  try {
+    cleanup = await deletePluginMcpOAuthCredentials(name);
+    credentialsReachable = !cleanup.unreachable;
+  } catch {
+    credentialsReachable = false;
+  }
+  if (cleanup && !cleanup.unreachable && !cleanup.ok) {
+    throw new Error(
+      `Plugin "${name}" was not removed because its MCP OAuth credentials could not be deleted.`,
+    );
+  }
+
+  if (!credentialsReachable) {
+    if (hasCurrentMcpManifest || hasRecordedMcpManifest) {
+      throw new Error(
+        `Plugin "${name}" was not removed because credential storage is unavailable and its MCP OAuth credentials could not be checked.`,
+      );
+    }
+    warnings.push(
+      PLUGIN_UNINSTALL_WARNING_KEYS.MCP_OAUTH_CREDENTIALS_UNCHECKED,
+    );
+  }
+
   // Skip the shutdown hook when the plugin is disabled. A `.disabled` plugin
   // is never loaded — no hooks, tools, or init — so its shutdown was never
   // paired with an init. Running it on uninstall would be the first and only
@@ -98,7 +152,11 @@ export async function uninstallPlugin(
   }
 
   rmSync(target, { recursive: true, force: true });
-  return { name, target };
+  return {
+    name,
+    target,
+    ...(warnings.length > 0 && { warnings }),
+  };
 }
 
 export { InvalidPluginNameError };

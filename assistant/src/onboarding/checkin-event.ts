@@ -69,7 +69,8 @@ export function buildCheckinTitle({
  * Google Calendar strips nearly all styling, so the body relies only on the
  * tags that survive (`<p>`, `<strong>`, `<a>`, emoji) and makes the CTA a bold
  * link rather than a styled button. The deep link opens a fresh conversation
- * (`uuid`) pre-seeded with the first-week prompt.
+ * (`uuid`) with the first-week prompt staged in the composer; the user sends
+ * it. A clicked link never auto-sends (`clients/web/src/utils/auto-send-prompt.ts`).
  */
 export function buildCheckinDescription(uuid: string): string {
   // `vref` is an app-owned attribution param, NOT a marketing `utm_*`: the

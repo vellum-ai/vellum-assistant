@@ -13,6 +13,7 @@ import {
 } from "../feature-flag-resolver.js";
 import { callTelegramApi } from "./api.js";
 import { getLogger } from "../logger.js";
+import { resolvePlatformAssistantIdOrUndefined } from "../platform-identity.js";
 
 const log = getLogger("webhook-manager");
 const TELEGRAM_CALLBACK_PATH = "webhooks/telegram";
@@ -52,16 +53,12 @@ async function registerManagedTelegramCallbackRoute(
     return undefined;
   }
 
-  const [platformBaseUrlRaw, assistantApiKeyRaw, assistantIdRaw] =
-    caches?.credentials
-      ? await Promise.all([
-          caches.credentials.get(credentialKey("vellum", "platform_base_url")),
-          caches.credentials.get(credentialKey("vellum", "assistant_api_key")),
-          caches.credentials.get(
-            credentialKey("vellum", "platform_assistant_id"),
-          ),
-        ])
-      : [undefined, undefined, undefined];
+  const [platformBaseUrlRaw, assistantApiKeyRaw] = caches?.credentials
+    ? await Promise.all([
+        caches.credentials.get(credentialKey("vellum", "platform_base_url")),
+        caches.credentials.get(credentialKey("vellum", "assistant_api_key")),
+      ])
+    : [undefined, undefined];
 
   // Fall back to env vars when managed pod credentials are not yet cached,
   // matching the daemon's resolvePlatformCallbackRegistrationContext().
@@ -76,7 +73,7 @@ async function registerManagedTelegramCallbackRoute(
     process.env.ASSISTANT_API_KEY?.trim() ||
     undefined;
 
-  const assistantId = assistantIdRaw?.trim() || undefined;
+  const assistantId = await resolvePlatformAssistantIdOrUndefined();
 
   if (!platformBaseUrl || !assistantCredential || !assistantId) {
     log.debug(

@@ -25,13 +25,23 @@ import {
 } from "@testing-library/react";
 
 type Listener = (event: unknown) => void;
+let touch = false;
+mock.module("@/utils/pointer", () => ({
+  usePointerCoarse: () => touch,
+  isPointerCoarse: () => touch,
+}));
+beforeEach(() => {
+  touch = false;
+});
 
 class FakeRFB {
   static instances: FakeRFB[] = [];
   channel: unknown;
   scaleViewport = false;
   resizeSession = false;
+  viewOnly = false;
   clipViewport = true;
+  dragViewport = false;
   disconnectCalls = 0;
   pasted: string[] = [];
   private listeners = new Map<string, Listener[]>();
@@ -189,13 +199,12 @@ afterEach(() => {
 });
 
 describe("DesktopViewer", () => {
-  test("hands noVNC the open socket, scaled and driving the remote size", async () => {
+  test("hands noVNC the open socket and scales the whole desktop", async () => {
     await mountPanel();
 
     expect(socket().binaryType).toBe("arraybuffer");
     expect(rfb().channel).toBe(socket());
     expect(rfb().scaleViewport).toBe(true);
-    expect(rfb().resizeSession).toBe(true);
     expect(rfb().clipViewport).toBe(false);
     expect(status()).toBe("connecting");
   });
@@ -215,7 +224,7 @@ describe("DesktopViewer", () => {
 
     expect(status()).toBe("busy");
     expect(
-      screen.getByText("The desktop is in use by another viewer."),
+      screen.getByText("The virtual desktop is in use by another viewer."),
     ).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
   });
@@ -235,7 +244,9 @@ describe("DesktopViewer", () => {
     act(() => socket().serverClose(4011));
 
     expect(status()).toBe("failed");
-    expect(screen.getByText("The desktop couldn't start.")).not.toBeNull();
+    expect(
+      screen.getByText("The virtual desktop couldn't start."),
+    ).not.toBeNull();
     expect(screen.getByRole("button", { name: "Reconnect" })).not.toBeNull();
   });
 
@@ -388,4 +399,86 @@ describe("DesktopViewer", () => {
 
 afterAll(() => {
   globalThis.WebSocket = originalWebSocket;
+});
+
+test("expanding the view-only preview enables input without reconnecting", async () => {
+  const { rerender } = render(
+    <DesktopViewer assistantId="assistant-123" viewOnly />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const rfb = FakeRFB.instances.at(-1)!;
+  expect(rfb.viewOnly).toBe(true);
+  expect(rfb.resizeSession).toBe(false);
+  const count = FakeRFB.instances.length;
+  rerender(<DesktopViewer assistantId="assistant-123" viewOnly={false} />);
+  expect(rfb.viewOnly).toBe(false);
+  expect(rfb.resizeSession).toBe(false);
+  expect(FakeRFB.instances).toHaveLength(count);
+});
+
+test("touch viewport controls switch modes without reconnecting the live session", async () => {
+  touch = true;
+  const { rerender } = render(<DesktopViewer assistantId="asst-1" />);
+  await flush();
+  act(() => rfb().emit("connect"));
+  expect(
+    screen.getByRole("button", { name: "Pan" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Fit" }));
+  expect(
+    screen.getByRole("button", { name: "Fit" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  fireEvent.click(screen.getByRole("button", { name: "Control" }));
+  expect(
+    screen
+      .getByRole("button", { name: "Control" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  rerender(<DesktopViewer assistantId="asst-1" viewOnly />);
+  expect(screen.queryByRole("button", { name: "Pan" })).toBeNull();
+  expect(FakeRFB.instances).toHaveLength(1);
+  expect(rfb().disconnectCalls).toBe(0);
+  expect(rfb().scaleViewport).toBe(true);
+});
+
+test("preview suppresses clipboard traffic and expands without reconnecting", async () => {
+  const written: string[] = [];
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        written.push(text);
+      },
+    },
+  });
+  const { rerender } = render(<DesktopViewer assistantId="asst-1" viewOnly />);
+  await flush();
+  act(() => rfb().emit("connect"));
+  const node = document.createTextNode("selected text");
+  document.body.appendChild(node);
+  document.getSelection()?.selectAllChildren(document.body);
+  const selected = document.getSelection()?.toString() ?? "";
+  act(() => {
+    rfb().emit("clipboard", { text: "remote text" });
+    window.dispatchEvent(new Event("copy"));
+  });
+  await flush();
+  expect(written).toEqual([]);
+  expect(rfb().pasted).toEqual([]);
+  rerender(<DesktopViewer assistantId="asst-1" viewOnly={false} />);
+  act(() => {
+    rfb().emit("clipboard", { text: "remote text" });
+    window.dispatchEvent(new Event("copy"));
+  });
+  await flush();
+  expect(written).toEqual(["remote text"]);
+  expect(rfb().pasted).toEqual([selected]);
+  expect(FakeRFB.instances).toHaveLength(1);
+  expect(rfb().disconnectCalls).toBe(0);
+  expect(
+    screen.queryByRole("button", { name: "Expand virtual desktop" }),
+  ).toBeNull();
+  node.remove();
 });

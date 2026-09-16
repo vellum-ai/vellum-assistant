@@ -30,6 +30,7 @@ import {
   pluginRiskyUpgradeConfirmMessage,
 } from "@/domains/intelligence/plugins/constants";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
+import { showPluginUninstallWarnings } from "@/domains/intelligence/plugins/plugin-uninstall-warnings";
 import type {
   InstalledPlugin,
   PluginCatalogMatch,
@@ -367,8 +368,10 @@ export function SuperpowersTab({ assistantId }: SuperpowersTabProps) {
 
   const removeMutation = usePluginsByNameDeleteMutation({
     onMutate: (variables) => setRemovingName(variables.path.name),
-    onSuccess: (_data, variables) =>
-      toast.success(t("pluginToast.removed", { name: variables.path.name })),
+    onSuccess: (result, variables) => {
+      toast.success(t("pluginToast.removed", { name: variables.path.name }));
+      showPluginUninstallWarnings(result.warnings, t);
+    },
     onError: () => toast.error(PLUGIN_REMOVE_ERROR),
     onSettled: (_data, _error, variables) => {
       setRemovingName(null);

@@ -48,6 +48,7 @@ export interface FakeDesktopOptions {
   /** Whether a SIGKILL does; without either the child survives both. */
   exitOnKill?: boolean;
   sourceEnv?: NodeJS.ProcessEnv;
+  panelRestartDelayMs?: number;
   renderWallpaper?: (width: number, height: number) => Promise<Buffer | null>;
 }
 
@@ -57,6 +58,7 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
   let vncReady = true;
   let chromiumPath: () => Promise<string> = async () => "/fake/chromium";
   const manager = new DesktopSessionManager({
+    allocateDebugPort: async () => 9222,
     spawn: (role, request) => {
       if (options.failSpawn?.includes(role)) {
         throw new Error(`spawn ${role} failed`);
@@ -85,6 +87,8 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
     panelConfigDir:
       options.panelConfigDir ?? join(options.profileDir, "desktop-panel"),
     sourceEnv: options.sourceEnv,
+    panelRestartDelayMs: options.panelRestartDelayMs,
+    writeWindowManagerConfig: (configDir) => join(configDir, "openbox.xml"),
   });
   return {
     manager,

@@ -511,6 +511,15 @@ export class LiveVoiceMetricsCollector {
         turnId: turn.turnId,
         finishReason,
         ...aggregateFieldsForTurn(snapshotTurn(turn)),
+        // Stated even at zero, unlike the telemetry field this overrides.
+        // Zero is the single most informative value this count takes: it is
+        // what a turn asked for fewer updates looks like, and equally what a
+        // narrator that is failing every attempt looks like. Left absent, the
+        // two read identically to anyone reading the log, and "the feature is
+        // off" becomes indistinguishable from "the feature did its job".
+        // The wire payload keeps the omission (see optionalTurnFields), so
+        // turns that never engage narration are unchanged for telemetry.
+        progressUpdatesSpoken: turn.progressUpdatesSpoken,
       },
       "Live voice turn latency",
     );

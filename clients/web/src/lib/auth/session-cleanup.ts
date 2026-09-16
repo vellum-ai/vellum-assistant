@@ -23,6 +23,7 @@
  */
 
 import { clearTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { resetNotificationIdentitySession } from "@/runtime/notification-avatar";
 import { clearCameraGateDebug } from "@/stores/camera-gate-debug-store";
 import { clearUserScopedOverrides } from "@/utils/typed-storage";
@@ -75,6 +76,7 @@ function isUserScopedKey(key: string): boolean {
 
 export function clearUserScopedStorage(): void {
   resetNotificationIdentitySession();
+  useChatSessionStore.getState().resetForLogout();
 
   // The takeover avatar stash can outlive `sessionStorage.clear()` through its
   // in-memory mirror when the write never reached storage.

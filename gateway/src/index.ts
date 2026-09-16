@@ -188,6 +188,11 @@ import {
   createChannelPermissionResolveHandler,
 } from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
+import {
+  bindPlatformIdentityCredentialCache,
+  ensurePlatformIdentityIds,
+  resolvePlatformAssistantIdOrUndefined,
+} from "./platform-identity.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import { CircuitBreakerOpenError, uploadAttachment } from "./runtime/client.js";
 import {
@@ -436,6 +441,8 @@ async function main() {
   // Handlers read dynamic credentials and config.json values from these
   // caches at call time, with automatic TTL refresh.
   const credentialCache = new CredentialCache();
+  bindPlatformIdentityCredentialCache(credentialCache);
+  void ensurePlatformIdentityIds();
   const configFileCache = new ConfigFileCache();
   const velayTunnelClient = createVelayTunnelClient(config, {
     credentials: credentialCache,
@@ -2485,14 +2492,13 @@ async function main() {
     lastRecordActivityTs = now;
 
     try {
-      const [platformBaseUrl, assistantApiKey, assistantIdRaw] =
-        await Promise.all([
+      const [platformBaseUrl, assistantApiKey, assistantId] = await Promise.all(
+        [
           getPlatformBaseUrl(credentialCache),
           credentialCache.get(credentialKey("vellum", "assistant_api_key")),
-          credentialCache.get(credentialKey("vellum", "platform_assistant_id")),
-        ]);
-
-      const assistantId = assistantIdRaw?.trim() || undefined;
+          resolvePlatformAssistantIdOrUndefined(),
+        ],
+      );
 
       if (!platformBaseUrl || !assistantApiKey || !assistantId) return;
 
@@ -2855,10 +2861,13 @@ async function main() {
 
     const vellumCreds = event.credentials.get("vellum");
     vellumReady = !!(
-      vellumCreds?.platform_base_url &&
-      vellumCreds?.assistant_api_key &&
-      vellumCreds?.platform_assistant_id
+      vellumCreds?.platform_base_url && vellumCreds?.assistant_api_key
     );
+    if (vellumReady) {
+      // Re-run validate when the API key / base URL change so a warm-pool
+      // claim does not keep the previous assistant's bound owner ids.
+      void ensurePlatformIdentityIds();
+    }
     const twilioCreds = event.credentials.get("twilio");
 
     // Side effects keyed by service name
@@ -3076,7 +3085,6 @@ async function main() {
     ...createCredentialRequestIpcRoutes(
       config,
       configFileCache,
-      credentialCache,
       ensurePublicIngressLiveForCredentialLink,
     ),
   ]);

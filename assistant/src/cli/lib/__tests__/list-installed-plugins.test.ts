@@ -93,6 +93,46 @@ describe("listInstalledPlugins", () => {
     expect(result[0]!.packageJson?.icon).toBe("🚀");
   });
 
+  test("lists metadata from a standard-only plugin.json", () => {
+    mkdirSync(join(pluginsDir, "standard"));
+    writeFileSync(
+      join(pluginsDir, "standard", "plugin.json"),
+      JSON.stringify({
+        $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        name: "standard",
+        version: "3.0.0",
+        description: "standard plugin",
+      }),
+    );
+
+    const result = listInstalledPlugins({ workspacePluginsDir: pluginsDir });
+
+    expect(result[0]!.packageJson).toEqual({
+      name: "standard",
+      version: "3.0.0",
+      description: "standard plugin",
+      peerDependencies: undefined,
+    });
+    expect(result[0]!.issues).toEqual([]);
+  });
+
+  test("does not validate an unselected plugin.json beside package.json", () => {
+    mkdirSync(join(pluginsDir, "legacy"));
+    writeFileSync(
+      join(pluginsDir, "legacy", "package.json"),
+      JSON.stringify({ name: "legacy", version: "1.0.0" }),
+    );
+    writeFileSync(
+      join(pluginsDir, "legacy", "plugin.json"),
+      "{ foreign and malformed }",
+    );
+
+    const result = listInstalledPlugins({ workspacePluginsDir: pluginsDir });
+
+    expect(result[0]!.packageJson?.version).toBe("1.0.0");
+    expect(result[0]!.issues).toEqual([]);
+  });
+
   test.each([
     ["missing vellum block", { name: "p", version: "1.0.0" }],
     ["non-string icon", { name: "p", version: "1.0.0", vellum: { icon: 42 } }],
@@ -120,7 +160,9 @@ describe("listInstalledPlugins", () => {
     const result = listInstalledPlugins({ workspacePluginsDir: pluginsDir });
     expect(result).toHaveLength(1);
     expect(result[0]!.packageJson).toBeNull();
-    expect(result[0]!.issues).toEqual(["missing package.json"]);
+    expect(result[0]!.issues[0]).toContain(
+      "missing package.json and plugin.json",
+    );
   });
 
   test("reports malformed JSON as an issue rather than failing", () => {
@@ -130,7 +172,7 @@ describe("listInstalledPlugins", () => {
     const result = listInstalledPlugins({ workspacePluginsDir: pluginsDir });
     expect(result).toHaveLength(1);
     expect(result[0]!.packageJson).toBeNull();
-    expect(result[0]!.issues[0]).toMatch(/invalid JSON/);
+    expect(result[0]!.issues[0]).toContain("could not be read or parsed");
   });
 
   test("reports non-object package.json as an issue", () => {
@@ -143,7 +185,7 @@ describe("listInstalledPlugins", () => {
     const result = listInstalledPlugins({ workspacePluginsDir: pluginsDir });
     expect(result).toHaveLength(1);
     expect(result[0]!.packageJson).toBeNull();
-    expect(result[0]!.issues).toContain("package.json is not an object");
+    expect(result[0]!.issues[0]).toContain("failed schema validation");
   });
 
   test("skips hidden entries and non-directories", () => {

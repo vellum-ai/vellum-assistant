@@ -41,6 +41,16 @@ function makeFakeCdp(
     dispose() {
       _cdpDisposed = true;
     },
+    setCdpSessionId() {},
+    async listTabs() {
+      return [];
+    },
+    async selectTab(tabId: number) {
+      return { tabId };
+    },
+    async closeTab(tabId: number) {
+      return { tabId, closed: true };
+    },
   };
 }
 
@@ -142,6 +152,8 @@ mock.module("../tools/network/url-safety.js", () => ({
 
 import {
   executeBrowserClick,
+  executeBrowserClose,
+  executeBrowserDetach,
   executeBrowserNavigate,
   executeBrowserScreenshot,
   executeBrowserSnapshot,
@@ -686,6 +698,42 @@ describe("browser_mode wiring through tool execution", () => {
   });
 
   // ── Per-conversation sticky backend kind ─────────────────────────
+
+  for (const release of [executeBrowserDetach, executeBrowserClose]) {
+    test.each(["local", "extension", "cdp-inspect"])(
+      `${release.name} on desktop preserves the normal %s session's backend`,
+      async (mode) => {
+        const first = await executeBrowserSnapshot({ browser_mode: mode }, ctx);
+        expect(first.isError).toBe(false);
+
+        factoryModeCalls.length = 0;
+        const desktop = await release(
+          {},
+          {
+            ...ctx,
+            cdpClient: makeFakeCdp(
+              "cdp-inspect",
+              `desktop-browser:${ctx.conversationId}`,
+            ),
+          },
+        );
+        expect(desktop.isError).toBe(false);
+        expect(factoryModeCalls).toEqual([]);
+
+        const resumed = await executeBrowserSnapshot({}, ctx);
+        expect(resumed.isError).toBe(false);
+        expect(factoryModeCalls).toEqual([mode]);
+      },
+    );
+
+    test(`${release.name} on the normal browser still resets automatic selection`, async () => {
+      await executeBrowserSnapshot({ browser_mode: "extension" }, ctx);
+      expect((await release({}, ctx)).isError).toBe(false);
+      factoryModeCalls.length = 0;
+      expect((await executeBrowserSnapshot({}, ctx)).isError).toBe(false);
+      expect(factoryModeCalls).toEqual(["auto"]);
+    });
+  }
 
   test("auto-mode call after an explicit pin sticks to the pinned kind", async () => {
     const first = await executeBrowserNavigate(

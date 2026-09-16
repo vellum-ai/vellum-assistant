@@ -42,8 +42,8 @@ export function ChatInfoAppTile({
   const { t } = useTranslation("chat");
 
   const loadHtml = useCallback(
-    () => getCachedAppHtml(assistantId, app.id),
-    [assistantId, app.id],
+    () => getCachedAppHtml(assistantId, app.id, app.updatedAt),
+    [assistantId, app.id, app.updatedAt],
   );
 
   return (

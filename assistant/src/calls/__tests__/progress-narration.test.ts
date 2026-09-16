@@ -185,6 +185,29 @@ describe("createVoiceProgressNarrator", () => {
     expect(Date.now() - startedAt).toBeLessThan(1000);
   });
 
+  test("an update that runs out of budget aborts as a narration timeout, not a session abort", async () => {
+    // The budget lapsing means this beat goes unspoken; it does not mean the
+    // call ended. Sharing `voice_session_aborted` made a narrator whose budget
+    // sat below the model's roundtrip read in the logs as a session dying once
+    // per update, which is what hid a turn that had gone silent for minutes.
+    let seen: AbortSignal | undefined;
+    const narrator = createVoiceProgressNarrator({
+      config: VoiceProgressConfigSchema.parse({ generationTimeoutMs: 20 }),
+      getProvider: async () =>
+        stubProvider((_messages, options) => {
+          seen = options?.signal;
+          return new Promise<ProviderResponse>(() => {});
+        }),
+    });
+
+    expect(await narrator.generateProgressText(progressInput)).toBeNull();
+    expect(seen?.aborted).toBe(true);
+    expect(seen?.reason).toMatchObject({
+      kind: "voice_progress_narration_timeout",
+      source: "voice-progress-narration",
+    });
+  });
+
   test("a caller abort settles promptly", async () => {
     const narrator = createVoiceProgressNarrator({
       config: VoiceProgressConfigSchema.parse({

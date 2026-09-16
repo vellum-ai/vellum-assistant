@@ -35,9 +35,7 @@ describe("negotiateLocale", () => {
 
 describe("localeFromAcceptLanguage", () => {
   test("honors quality values", () => {
-    expect(localeFromAcceptLanguage("fr;q=0.8, es;q=0.9, en;q=0.5")).toBe(
-      "es",
-    );
+    expect(localeFromAcceptLanguage("fr;q=0.8, es;q=0.9, en;q=0.5")).toBe("es");
   });
 
   test("defaults on missing or empty", () => {
@@ -58,7 +56,7 @@ describe("catalog completeness", () => {
 });
 
 describe("t", () => {
-  test("resolves generating and untitled per locale", () => {
+  test("resolves message keys per locale", () => {
     expect(t(MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING, "en")).toBe(
       "Generating title...",
     );
@@ -68,13 +66,19 @@ describe("t", () => {
     expect(t(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED, "es")).toBe(
       "Sin título",
     );
+    expect(
+      t(MESSAGE_KEYS.PLUGIN_MCP_OAUTH_CREDENTIALS_UNCHECKED, "es"),
+    ).toContain("almacenamiento de credenciales");
   });
 });
 
 describe("resolveConversationTitle", () => {
   test("resolves a stored key and an empty title", () => {
     expect(
-      resolveConversationTitle(MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING, "zh"),
+      resolveConversationTitle(
+        MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING,
+        "zh",
+      ),
     ).toBe("标题生成中...");
     expect(resolveConversationTitle(null, "es")).toBe("Sin título");
     expect(resolveConversationTitle("")).toBe("Untitled Conversation");

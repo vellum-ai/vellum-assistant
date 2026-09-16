@@ -11,6 +11,7 @@ metadata:
     activation-hints:
       - "Telegram bot setup, webhook configuration, or BotFather token"
       - "User wants to connect Telegram to the assistant"
+      - "Telegram group, supergroup, or channel messages not arriving"
     avoid-when:
       - "User wants to send/receive Telegram messages (use messaging skill instead)"
 ---
@@ -18,6 +19,12 @@ metadata:
 You are helping your user connect a Telegram bot. The wizard collects the token, the rest of setup runs automatically, and you confirm it worked.
 
 DO NOT use this skill for runtime Telegram operations (sending, replying, reading). That is the separate messaging skill.
+
+## Supported chats
+
+Telegram is private-chat only. The assistant receives and replies in private chats. Group, supergroup, and channel messages and button taps are not supported yet and do not reach the assistant. There is no Telegram error for those chats; they are dropped on purpose.
+
+Tell the user this limitation during setup, when they ask why a group message vanished, and in the Step 5 summary. Do not diagnose webhook or credential failures for a group, supergroup, or channel report.
 
 ## What happens without you
 
@@ -67,7 +74,7 @@ Call `ui_show` with `surface_type: "channel_setup"` and `data: { channel: "teleg
 
 After it returns success, tell the user:
 
-> I've opened the Telegram setup wizard in the side panel. It walks you through creating the bot with @BotFather and brings its token back. It'll let me know when you're done, and I'll check Telegram is actually delivering.
+> I've opened the Telegram setup wizard in the side panel. It walks you through creating the bot with @BotFather and brings its token back. Telegram works in private chats only. Messages and button taps from groups, supergroups, and channels are not supported yet. It'll let me know when you're done, and I'll check Telegram is actually delivering.
 
 **Hand-off notification (phones and narrow windows).** On phone-sized clients setup opens on the Contacts page instead of a side drawer and cannot auto-notify. The client sends a hidden message like `[User action on channel_setup surface: moved the telegram setup to the Contacts page]`. When you receive it:
 
@@ -98,7 +105,6 @@ Triggered by the wizard-closed notification, `[User action on channel_setup surf
 
    Find the `webhook_delivery` check in `remoteChecks`. It has **three**
    outcomes, and the third is the one that matters:
-
    - **`passed: true`, no `indeterminate`** → confirmed. Telegram is
      registered at the address this assistant set. Continue to Step 4.
    - **`passed: false`** → the channel is not live. Its `message` already
@@ -154,6 +160,7 @@ Summarize:
 - Bot connected: @{botUsername}
 - Telegram delivery: {confirmed | stored, not yet confirmed}
 - Guardian identity: {verified | skipped}
+- Supported chats: private chats only. Group, supergroup, and channel messages and button taps are not supported yet.
 
 Use "confirmed" only for a `webhook_delivery` that passed without
 `indeterminate`. If it was indeterminate, say so in the summary rather than

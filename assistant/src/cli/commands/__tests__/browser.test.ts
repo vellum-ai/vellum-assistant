@@ -67,9 +67,8 @@ mock.module("../../../util/logger.js", () => ({
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { formatBrowserStatusLines, registerBrowserCommand } = await import(
-  "../browser.js"
-);
+const { formatBrowserStatusLines, registerBrowserCommand } =
+  await import("../browser.js");
 
 // ---------------------------------------------------------------------------
 // Test helper
@@ -641,3 +640,85 @@ describe("error exit codes", () => {
     expect(exitCode).toBe(0);
   });
 });
+
+for (const desktopFlag of ["--virtual-desktop", "--desktop"]) {
+  describe(`virtual desktop routing via ${desktopFlag}`, () => {
+    test("routes semantic actions through IPC with conversation and element identity", async () => {
+      process.env.__CONVERSATION_ID = "conv-desktop";
+      const result = await runCommand([
+        "browser",
+        desktopFlag,
+        "--json",
+        "click",
+        "--element-id",
+        "e7",
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(lastIpcCall?.method).toBe("browser_execute");
+      expect(lastBody()).toMatchObject({
+        desktop: true,
+        conversationId: "conv-desktop",
+        operation: "click",
+        input: { element_id: "e7" },
+      });
+      expect(
+        (lastBody().input as Record<string, unknown>).desktop,
+      ).toBeUndefined();
+    });
+
+    test.each([
+      { args: ["list"] },
+      { args: ["select", "--tab-id", "7"] },
+      { args: ["new"] },
+      { args: ["close", "--tab-id", "7"] },
+    ])("routes desktop tabs $args through IPC", async ({ args }) => {
+      mockIpcResult = { ok: true, result: { ok: true, tabs: [] } };
+      const result = await runCommand([
+        "browser",
+        desktopFlag,
+        "--json",
+        "tabs",
+        ...args,
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(lastIpcCall?.method).toBe("browser_tabs");
+      expect(lastBody()).toMatchObject({ desktop: true, command: args[0] });
+    });
+
+    test.each([
+      { flags: ["--browser-mode", "extension"] },
+      { flags: ["--target-client-id", "client-123"] },
+    ])("rejects conflicting desktop targets before IPC", async ({ flags }) => {
+      const result = await runCommand([
+        "browser",
+        desktopFlag,
+        ...flags,
+        "tabs",
+        "list",
+      ]);
+      expect(result.exitCode).not.toBe(0);
+      expect(lastIpcCall).toBeNull();
+    });
+  });
+}
+
+test.each([
+  { args: ["list"] },
+  { args: ["select", "--tab-id", "1"] },
+  { args: ["new", "--url", "https://example.com"] },
+  { args: ["close", "--tab-id", "1"] },
+])(
+  "tab command $args forwards an explicit backend override",
+  async ({ args }) => {
+    mockIpcResult = { ok: true, result: { ok: true, tabs: [] } };
+    await runCommand([
+      "browser",
+      "--browser-mode",
+      "extension",
+      "tabs",
+      ...args,
+    ]);
+    expect(lastIpcCall?.method).toBe("browser_tabs");
+    expect(lastBody().browserMode).toBe("extension");
+  },
+);
