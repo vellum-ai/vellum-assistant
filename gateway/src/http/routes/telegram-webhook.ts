@@ -291,14 +291,16 @@ export function createTelegramWebhookHandler(
     };
 
     // Normalize the update. The bot's own identity is what lets the
-    // admission gate recognise a room message that addresses it. A private
-    // chat is admitted without one, so it is resolved only for other chat
-    // kinds; cached per token, it then costs a call only on the first room
-    // update after start or a token rotation.
+    // admission gate recognise a room message that addresses it, so it is
+    // resolved only for the chat kinds the gate admits on a mention; a
+    // private chat, a channel post, or a malformed update never needs it.
+    // Cached per token, it costs a call only on the first room update after
+    // start or a token rotation.
+    const chatType = telegramUpdateChatType(payload);
     const bot =
-      telegramUpdateChatType(payload) === "private"
-        ? undefined
-        : await resolveBotIdentity();
+      chatType === "group" || chatType === "supergroup"
+        ? await resolveBotIdentity()
+        : undefined;
     const normalization = normalizeTelegramUpdate(payload, { bot });
     if (normalization.dropped) {
       // Telegram sees a 200 either way, so this line is the only place the
