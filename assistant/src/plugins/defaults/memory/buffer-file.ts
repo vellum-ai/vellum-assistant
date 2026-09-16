@@ -72,6 +72,7 @@ import {
   renameSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -243,24 +244,36 @@ export async function consumeBufferEntries(
     let lateAppendBytesRecovered = 0;
     let unrecoveredLateAppendBytes = 0;
     let lateAppendDrainFailed = false;
+    // Copies through an explicit write loop so a retry resumes from the
+    // first unwritten byte: an append that wrote part of the bytes before
+    // failing (disk pressure) must not have its prefix appended twice.
     const copyBack = async (bytes: Buffer): Promise<void> => {
+      let written = 0;
       for (let attempt = 1; ; attempt++) {
         try {
-          appendFileSync(bufferPath, bytes);
+          const out = openSync(bufferPath, "a");
+          try {
+            while (written < bytes.length) {
+              written += writeSync(out, bytes, written, bytes.length - written);
+            }
+          } finally {
+            closeSync(out);
+          }
           lateAppendBytesRecovered += bytes.length;
           return;
         } catch (err) {
           if (attempt >= LATE_APPEND_COPY_ATTEMPTS) {
             log.error(
-              { err, bufferPath, bytes: bytes.length, attempt },
-              "buffer consume: could not copy entries appended during the rewrite back into the buffer; giving them up",
+              { err, bufferPath, bytes: bytes.length, written, attempt },
+              "buffer consume: could not copy entries appended during the rewrite back into the buffer; giving up the rest",
             );
-            unrecoveredLateAppendBytes += bytes.length;
+            lateAppendBytesRecovered += written;
+            unrecoveredLateAppendBytes += bytes.length - written;
             return;
           }
           log.warn(
-            { err, bufferPath, bytes: bytes.length, attempt },
-            "buffer consume: copying late-appended entries failed; retrying",
+            { err, bufferPath, bytes: bytes.length, written, attempt },
+            "buffer consume: copying late-appended entries failed; retrying from the first unwritten byte",
           );
           await new Promise((resolve) =>
             setTimeout(resolve, LATE_APPEND_COPY_RETRY_MS),
