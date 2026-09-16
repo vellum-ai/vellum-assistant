@@ -26,7 +26,11 @@ import {
 } from "@/domains/chat/components/metric-card";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
 import { canAddressSubagentDetail } from "@/domains/chat/store-helpers/subagent-detail-addressability";
-import type { SubagentEntry } from "@/domains/chat/subagent-store";
+import {
+  useSubagentStore,
+  type SubagentEntry,
+} from "@/domains/chat/subagent-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { subagentTraits } from "@/utils/avatar-subagent";
 import { isActiveStatus } from "@/utils/subagent-status";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -157,6 +161,27 @@ export function SubagentDetailPanel({
     [entry.subagentId],
   );
 
+  // The history those calls live in is fetched when the panel shows it, and
+  // again whenever it is missing: after a failed fetch, or after a stream gap
+  // dropped it.
+  const activeAssistantId = useResolvedAssistantsStore(
+    (s) => s.activeAssistantId,
+  );
+  const historyAssistantId = assistantId ?? activeAssistantId;
+  const historyMissing = entry.history === null;
+  useEffect(() => {
+    if (historyMissing && historyAssistantId) {
+      void useSubagentStore
+        .getState()
+        .loadHistoryIfNeeded(historyAssistantId, entry.subagentId);
+    }
+  }, [
+    historyMissing,
+    historyAssistantId,
+    entry.subagentId,
+    entry.conversationId,
+  ]);
+
   // Which step's detail (if any) is shown nested inside this panel: a tool
   // call's id or a thinking segment's key, or `null` to show the timeline.
   // Reset on subagent switch via the render-phase block below so a detail
@@ -176,14 +201,42 @@ export function SubagentDetailPanel({
   const historyRef = useRef(entry.history);
   // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest history
   historyRef.current = entry.history;
-  const handleStepDetailClick = useCallback((key: string) => {
-    if (
-      stepDetailsRef.current.has(key) ||
-      findToolCall(historyRef.current?.messages ?? [], key)
-    ) {
-      setSelectedDetailKey(key);
-    }
-  }, []);
+  const historyAssistantIdRef = useRef(historyAssistantId);
+  // eslint-disable-next-line react-hooks/refs -- render-phase sync so the stable handler below reads the latest assistant
+  historyAssistantIdRef.current = historyAssistantId;
+  const subagentId = entry.subagentId;
+  const shownSubagentIdRef = useRef(subagentId);
+  // eslint-disable-next-line react-hooks/refs -- render-phase sync so a late fetch cannot open a pill on the next subagent
+  shownSubagentIdRef.current = subagentId;
+  const handleStepDetailClick = useCallback(
+    (key: string) => {
+      if (
+        stepDetailsRef.current.has(key) ||
+        findToolCall(historyRef.current?.messages ?? [], key)
+      ) {
+        setSelectedDetailKey(key);
+        return;
+      }
+      // A tool pill whose history is missing (a fetch that failed) retries the
+      // fetch and opens once the call is there.
+      const assistant = historyAssistantIdRef.current;
+      if (historyRef.current !== null || !assistant) {
+        return;
+      }
+      const store = useSubagentStore.getState();
+      void store.loadHistoryIfNeeded(assistant, subagentId).then(() => {
+        const messages =
+          useSubagentStore.getState().byId[subagentId]?.history?.messages;
+        if (
+          shownSubagentIdRef.current === subagentId &&
+          findToolCall(messages ?? [], key)
+        ) {
+          setSelectedDetailKey(key);
+        }
+      });
+    },
+    [subagentId],
+  );
 
   // Which timeline groups are expanded. Lifted out of `SubagentPhaseTimeline`
   // so the expansion survives the timeline unmounting while a nested tool
@@ -379,165 +432,169 @@ export function SubagentDetailPanel({
       {/* Body: swaps to a step's nested detail when one is selected, keeping
           the header above mounted in both views. */}
       <motion.div
-          key={activeDetail ? "detail" : "list"}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={
-            reduce
-              ? { duration: 0 }
-              : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }
-          }
-        >
-          {activeDetail ? (
-            <>
-              {/* Navigation back to the timeline lives in the header (Back button)
+        key={activeDetail ? "detail" : "list"}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={
+          reduce ? { duration: 0 } : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }
+        }
+      >
+        {activeDetail ? (
+          <>
+            {/* Navigation back to the timeline lives in the header (Back button)
               and the breadcrumb; this body only renders the step's detail.
               Thinking steps render their reasoning markdown statically, because
               subagent detail is not a live chat-session source; every tool goes
               through `ToolDetailBody`, which picks its renderer. */}
-              {activeDetail.kind === "thinking" ? (
-                <ChatMarkdownMessage
-                  content={activeDetail.thinkingText ?? ""}
-                  hardLineBreaks
-                  assistantId={assistantId}
+            {activeDetail.kind === "thinking" ? (
+              <ChatMarkdownMessage
+                content={activeDetail.thinkingText ?? ""}
+                hardLineBreaks
+                assistantId={assistantId}
+              />
+            ) : (
+              <ToolDetailBody
+                detail={activeDetail}
+                source={toolCallSource}
+                assistantId={assistantId}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {/* Metrics row */}
+            <div className="mb-5 grid grid-cols-2 gap-3">
+              <AnimatedMetricCard
+                icon={
+                  <ArrowDownToLine
+                    className="h-4 w-4 shrink-0"
+                    style={{ color: "var(--content-secondary)" }}
+                  />
+                }
+                target={entry.inputTokens}
+                format={(n) => formatNumber(Math.round(n))}
+                label={t("subagentDetailPanel.input")}
+              />
+              <AnimatedMetricCard
+                icon={
+                  <ArrowUpFromLine
+                    className="h-4 w-4 shrink-0"
+                    style={{ color: "var(--content-secondary)" }}
+                  />
+                }
+                target={entry.outputTokens}
+                format={(n) => formatNumber(Math.round(n))}
+                label={t("subagentDetailPanel.output")}
+              />
+            </div>
+
+            {/* Objective section */}
+            {entry.objective && (
+              <div className="mb-5">
+                <Typography
+                  variant="body-medium-default"
+                  as="h3"
+                  className="mb-2 text-[var(--content-emphasised)]"
+                >
+                  {t("subagentDetailPanel.objective")}
+                </Typography>
+                <Typography
+                  ref={objectiveBodyRef}
+                  variant="body-medium-lighter"
+                  as="p"
+                  // When expanded the text becomes its own scroll container, so
+                  // make it a focusable, labelled region — otherwise keyboard
+                  // users can't reach the overflowed objective content.
+                  tabIndex={objectiveExpanded ? 0 : undefined}
+                  role={objectiveExpanded ? "region" : undefined}
+                  aria-label={
+                    objectiveExpanded
+                      ? t("subagentDetailPanel.objective")
+                      : undefined
+                  }
+                  className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
+                    objectiveExpanded
+                      ? "max-h-[280px] overflow-y-auto"
+                      : "line-clamp-5"
+                  }`}
+                >
+                  {entry.objective}
+                </Typography>
+                {objectiveOverflows && (
+                  <Button
+                    variant="link"
+                    onClick={() => setObjectiveExpanded((prev) => !prev)}
+                    aria-expanded={objectiveExpanded}
+                    rightIcon={
+                      <ChevronDown
+                        className={`h-3.5 w-3.5 transition-transform ${
+                          objectiveExpanded ? "rotate-180" : ""
+                        }`}
+                        aria-hidden
+                      />
+                    }
+                    // no-underline: this is a disclosure toggle, not a link.
+                    // border-0: see the breadcrumb crumb above.
+                    className="mt-1.5 inline-flex gap-1 border-0 text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)] hover:no-underline"
+                  >
+                    <Typography variant="label-small-default">
+                      {objectiveExpanded
+                        ? t("subagentDetailPanel.showLess")
+                        : t("subagentDetailPanel.showMore")}
+                    </Typography>
+                  </Button>
+                )}
+                <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
+              </div>
+            )}
+
+            {/* Timeline section */}
+            <div>
+              <Typography
+                variant="title-medium"
+                as="h3"
+                className="mb-4 text-[var(--content-emphasised)]"
+              >
+                {t("subagentDetailPanel.timeline")}
+              </Typography>
+              {/*
+               * Key by subagent id so the timeline remounts on subagent switch,
+               * resetting the expand/collapse state it holds. The drawer keeps this
+               * component mounted across switches, so without a per-subagent reset
+               * an expanded phase would leak its expanded state onto the next
+               * subagent's same-positioned phase.
+               */}
+              {/*
+               * Gate the empty state on the RAW `entry.events`, not on the
+               * projected `steps`. `computeSubagentSteps` can intentionally
+               * DROP events (e.g. a `tool_result` with no preceding in-flight
+               * `tool_call`), so `entry.events` can be non-empty while `steps`
+               * is empty. Gating on steps would show a false "No events yet"
+               * AND — because `entry.events.length !== 0` — the detail-refetch
+               * effect above wouldn't fire to recover. When the store has events
+               * we render the timeline (which returns null for zero steps, an
+               * acceptable no-op).
+               */}
+              {entry.events.length > 0 ? (
+                <SubagentPhaseTimeline
+                  key={entry.subagentId}
+                  steps={steps}
+                  expandedKeys={expandedSectionKeys}
+                  onExpandedKeysChange={setExpandedSectionKeys}
+                  onStepDetailClick={handleStepDetailClick}
+                  // Keeps the last phase's node pulsing while the subagent is
+                  // still active but its last phase has settled.
+                  isRunning={isRunning}
                 />
               ) : (
-                <ToolDetailBody
-                  detail={activeDetail}
-                  source={toolCallSource}
-                  assistantId={assistantId}
-                />
+                <DetailShellNotice>
+                  {t("subagentDetailPanel.noEventsYet")}
+                </DetailShellNotice>
               )}
-            </>
-          ) : (
-            <>
-              {/* Metrics row */}
-              <div className="mb-5 grid grid-cols-2 gap-3">
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowDownToLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
-                  target={entry.inputTokens}
-                  format={(n) => formatNumber(Math.round(n))}
-                  label={t("subagentDetailPanel.input")}
-                />
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowUpFromLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
-                    />
-                  }
-                  target={entry.outputTokens}
-                  format={(n) => formatNumber(Math.round(n))}
-                  label={t("subagentDetailPanel.output")}
-                />
-              </div>
-
-              {/* Objective section */}
-              {entry.objective && (
-                <div className="mb-5">
-                  <Typography
-                    variant="body-medium-default"
-                    as="h3"
-                    className="mb-2 text-[var(--content-emphasised)]"
-                  >
-                    {t("subagentDetailPanel.objective")}
-                  </Typography>
-                  <Typography
-                    ref={objectiveBodyRef}
-                    variant="body-medium-lighter"
-                    as="p"
-                    // When expanded the text becomes its own scroll container, so
-                    // make it a focusable, labelled region — otherwise keyboard
-                    // users can't reach the overflowed objective content.
-                    tabIndex={objectiveExpanded ? 0 : undefined}
-                    role={objectiveExpanded ? "region" : undefined}
-                    aria-label={objectiveExpanded ? t("subagentDetailPanel.objective") : undefined}
-                    className={`whitespace-pre-wrap break-words leading-relaxed text-[var(--content-default)] ${
-                      objectiveExpanded
-                        ? "max-h-[280px] overflow-y-auto"
-                        : "line-clamp-5"
-                    }`}
-                  >
-                    {entry.objective}
-                  </Typography>
-                  {objectiveOverflows && (
-                    <Button
-                      variant="link"
-                      onClick={() => setObjectiveExpanded((prev) => !prev)}
-                      aria-expanded={objectiveExpanded}
-                      rightIcon={
-                        <ChevronDown
-                          className={`h-3.5 w-3.5 transition-transform ${
-                            objectiveExpanded ? "rotate-180" : ""
-                          }`}
-                          aria-hidden
-                        />
-                      }
-                      // no-underline: this is a disclosure toggle, not a link.
-                      // border-0: see the breadcrumb crumb above.
-                      className="mt-1.5 inline-flex gap-1 border-0 text-[color:var(--content-secondary)] hover:text-[color:var(--content-default)] hover:no-underline"
-                    >
-                      <Typography variant="label-small-default">
-                        {objectiveExpanded ? t("subagentDetailPanel.showLess") : t("subagentDetailPanel.showMore")}
-                      </Typography>
-                    </Button>
-                  )}
-                  <div className="mt-5 h-px w-full bg-[var(--border-hover)]" />
-                </div>
-              )}
-
-              {/* Timeline section */}
-              <div>
-                <Typography
-                  variant="title-medium"
-                  as="h3"
-                  className="mb-4 text-[var(--content-emphasised)]"
-                >
-                  {t("subagentDetailPanel.timeline")}
-                </Typography>
-                {/*
-                 * Key by subagent id so the timeline remounts on subagent switch,
-                 * resetting the expand/collapse state it holds. The drawer keeps this
-                 * component mounted across switches, so without a per-subagent reset
-                 * an expanded phase would leak its expanded state onto the next
-                 * subagent's same-positioned phase.
-                 */}
-                {/*
-                 * Gate the empty state on the RAW `entry.events`, not on the
-                 * projected `steps`. `computeSubagentSteps` can intentionally
-                 * DROP events (e.g. a `tool_result` with no preceding in-flight
-                 * `tool_call`), so `entry.events` can be non-empty while `steps`
-                 * is empty. Gating on steps would show a false "No events yet"
-                 * AND — because `entry.events.length !== 0` — the detail-refetch
-                 * effect above wouldn't fire to recover. When the store has events
-                 * we render the timeline (which returns null for zero steps, an
-                 * acceptable no-op).
-                 */}
-                {entry.events.length > 0 ? (
-                  <SubagentPhaseTimeline
-                    key={entry.subagentId}
-                    steps={steps}
-                    expandedKeys={expandedSectionKeys}
-                    onExpandedKeysChange={setExpandedSectionKeys}
-                    onStepDetailClick={handleStepDetailClick}
-                    // Keeps the last phase's node pulsing while the subagent is
-                    // still active but its last phase has settled.
-                    isRunning={isRunning}
-                  />
-                ) : (
-                  <DetailShellNotice>
-                    {t("subagentDetailPanel.noEventsYet")}
-                  </DetailShellNotice>
-                )}
-              </div>
-            </>
-          )}
-        </motion.div>
+            </div>
+          </>
+        )}
+      </motion.div>
     </DetailShell>
   );
 }

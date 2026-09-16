@@ -236,8 +236,12 @@ export function useEventStream({
       // Seq-gap reconcile: a proven out-of-ring gap means the live suffix
       // is non-contiguous, so re-bootstrap authoritatively from the server
       // snapshot rather than keeping the holey local rows.
-      reconcileActive: () =>
-        reconcileActiveConversationRef.current("seq_gap", true),
+      reconcileActive: () => {
+        // The gap also dropped events from this conversation's subagents, so
+        // their histories are refetched rather than advanced with holes.
+        useSubagentStore.getState().invalidateHistories(activeConversationId);
+        return reconcileActiveConversationRef.current("seq_gap", true);
+      },
     });
   }, [
     assistantStateKind,

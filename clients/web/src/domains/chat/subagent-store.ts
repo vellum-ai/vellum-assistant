@@ -104,9 +104,10 @@ export interface SubagentEntry {
    * The subagent's own conversation in the transcript's canonical form: the
    * child's `/messages` snapshot advanced by folding its `subagent_event`
    * inner events, exactly as the main chat folds its own stream. `null` until
-   * seeded, and while unseeded live events are not folded (the seed replays
-   * the buffered tail). A live spawn seeds empty, since every event it will
-   * ever have arrives on the stream.
+   * seeded, which `loadHistoryIfNeeded` does on demand; while unseeded, live
+   * events are not folded (the seed replays the buffered tail). A subagent
+   * with no child conversation to fetch seeds empty at spawn, since every
+   * event it will have arrives on the stream.
    */
   history: PaginatedHistoryResult | null;
   /** The subagent's own conversation ID, used to fetch detail data. */
@@ -306,6 +307,26 @@ export interface SubagentActions {
 
   /** Seed an unseeded entry with an empty history so live events fold. */
   seedLiveHistory: (subagentId: string) => void;
+
+  /**
+   * Fetch and seed a subagent's history from its child conversation when it
+   * has none. Called by the surfaces that read the history (the detail panel),
+   * so a subagent that is never opened costs no request. Concurrent calls for
+   * one subagent share a single fetch. A failed fetch leaves the history
+   * unseeded, so the next call retries rather than settling on an empty one.
+   */
+  loadHistoryIfNeeded: (
+    assistantId: string,
+    subagentId: string,
+  ) => Promise<void>;
+
+  /**
+   * Drop the fetched histories of a parent conversation's subagents after its
+   * stream proved a gap: events the histories never folded are missing, and
+   * the next `loadHistoryIfNeeded` reseeds them from the child conversations.
+   * A history no fetch can reseed (no child conversation) is kept.
+   */
+  invalidateHistories: (parentConversationId: string) => void;
 
   loadDetail: (params: {
     subagentId: string;
@@ -676,31 +697,8 @@ function subagentEnvelopesSince(
   return inner;
 }
 
-/**
- * Seed a subagent's history from its child conversation's `/messages`. With no
- * child conversation to ask, or on a failed fetch, the entry seeds empty so
- * the live stream still accrues a history.
- */
-async function loadSubagentHistory(
-  get: () => SubagentStore,
-  assistantId: string,
-  subagentId: string,
-): Promise<void> {
-  const conversationId = get().byId[subagentId]?.conversationId;
-  if (!conversationId) {
-    get().seedLiveHistory(subagentId);
-    return;
-  }
-  try {
-    get().seedHistory(
-      subagentId,
-      await fetchSubagentHistory(assistantId, conversationId),
-    );
-  } catch (err) {
-    captureError(err, { context: "loadSubagentHistory", bestEffort: true });
-    get().seedLiveHistory(subagentId);
-  }
-}
+/** In-flight history fetches by subagent id, so concurrent loads share one. */
+const historyLoads = new Map<string, Promise<void>>();
 
 let timelineEventCounter = 0;
 
@@ -1221,6 +1219,44 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     get().seedHistory(subagentId, emptyHistory());
   },
 
+  loadHistoryIfNeeded: (assistantId, subagentId) => {
+    const inFlight = historyLoads.get(subagentId);
+    if (inFlight) {
+      return inFlight;
+    }
+    const entry = get().byId[subagentId];
+    const conversationId = entry?.conversationId;
+    if (!entry || entry.history !== null || !conversationId) {
+      return Promise.resolve();
+    }
+    const load = fetchSubagentHistory(assistantId, conversationId)
+      .then((snapshot) => get().seedHistory(subagentId, snapshot))
+      .catch((err: unknown) => {
+        captureError(err, { context: "loadHistoryIfNeeded", bestEffort: true });
+      })
+      .finally(() => historyLoads.delete(subagentId));
+    historyLoads.set(subagentId, load);
+    return load;
+  },
+
+  invalidateHistories: (parentConversationId) => {
+    const { byId } = get();
+    let next: typeof byId | null = null;
+    for (const entry of Object.values(byId)) {
+      if (
+        entry.parentConversationId === parentConversationId &&
+        entry.conversationId &&
+        entry.history !== null
+      ) {
+        next ??= { ...byId };
+        next[entry.subagentId] = { ...entry, history: null };
+      }
+    }
+    if (next) {
+      set({ byId: next });
+    }
+  },
+
   loadDetail: (params) => {
     const { byId } = get();
     const existing = byId[params.subagentId];
@@ -1492,7 +1528,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
           },
         });
       }
-      await loadSubagentHistory(get, assistantId, subagentId);
       return;
     }
 
@@ -1513,9 +1548,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       parentToolUseId: detail.parentToolUseId,
       conversationId: detail.conversationId,
     });
-    // After `loadDetail`, which learns the child conversation the history is
-    // read from.
-    await loadSubagentHistory(get, assistantId, subagentId);
   },
 
   reconcileFromDaemon: (

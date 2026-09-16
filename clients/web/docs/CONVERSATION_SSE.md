@@ -106,6 +106,32 @@ later can't be ring-replayed. The recovery path is a refetch:
   effect then reseeds from the authoritative server copy (canonical ids/ordering,
   persisted surfaces), replacing the client-folded turn.
 
+## Subagent histories
+
+A subagent runs in its own child conversation, and its events reach the client
+wrapped in the parent's stream as `subagent_event`. The child conversation's
+history uses the same shape and the same fold as the parent's, so a subagent's
+tool calls are the canonical `ChatMessageToolCall` the main chat renders.
+
+- Each `SubagentEntry` holds `history: PaginatedHistoryResult | null` in the
+  subagent store. `use-event-stream` unwraps every `subagent_event` for the
+  active conversation and folds the inner event into that entry's history
+  (`applySubagentEnvelope`). The parent's fold still ignores `subagent_event`.
+- The child's `seq` and the wrapper's `seq` come from the same assistant-wide
+  counter, so the child's `/messages` anchor and the wrapped events are
+  idempotent against each other exactly as the parent's are.
+- A history is fetched when something reads it: the subagent detail panel calls
+  `loadHistoryIfNeeded`, which fetches the child's `/messages` and seeds it with
+  `seedHistory` under the same rules as `seedSnapshot` (`resolveSeed`, with the
+  buffered wrapped tail as the replay). Until then the history is `null` and live
+  events are not folded; the seed replays them. A failed fetch leaves it `null`,
+  so the next read retries.
+- A subagent with no child conversation to fetch seeds an empty history at spawn
+  and is built from the stream alone.
+- A proven seq gap on the parent stream drops the fetched subagent histories
+  (`invalidateHistories`) alongside the parent's authoritative reconcile, so they
+  are refetched rather than advanced with missing events.
+
 ## Invariant
 
 The fold is certified by a property test (`rolling-snapshot.test.ts`): rebuilding
@@ -126,3 +152,4 @@ produces the same history as a clean one. Keep new reducer cases pure and
 | Send / optimistic / queue | `hooks/use-send-message.ts`, `hooks/use-message-queue.ts` |
 | Reseed + reconnect refetch | `hooks/use-conversation-history.ts`, `hooks/use-message-reconciliation.ts` |
 | Event buffer (resync tail) | `lib/streaming/stream-debug.ts` |
+| Subagent histories (fold, seed, invalidate) | `subagent-store.ts` |

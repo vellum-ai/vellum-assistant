@@ -3341,11 +3341,11 @@ describe("history", () => {
     expect(toolCalls()).toHaveLength(1);
   });
 
-  it("fetchDetailIfNeeded seeds the history from the child conversation", async () => {
+  it("loadHistoryIfNeeded seeds the history from the child conversation", async () => {
     spawn("completed");
     fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
 
-    await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
 
     expect(fetchSubagentHistory).toHaveBeenCalledWith(
       "assistant-1",
@@ -3354,13 +3354,65 @@ describe("history", () => {
     expect(toolCalls()).toHaveLength(1);
   });
 
-  it("a failed history fetch seeds empty so live events still fold", async () => {
-    spawn();
-    fetchSubagentHistory.mockRejectedValueOnce(new Error("offline"));
+  it("fetchDetailIfNeeded leaves the history for the panel to load", async () => {
+    spawn("completed");
 
     await getState().fetchDetailIfNeeded("assistant-1", "sa-1");
-    stream(toolStart(1));
 
+    expect(fetchSubagentHistory).not.toHaveBeenCalled();
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+  });
+
+  it("concurrent loads share one fetch", async () => {
+    spawn("completed");
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+
+    await Promise.all([
+      getState().loadHistoryIfNeeded("assistant-1", "sa-1"),
+      getState().loadHistoryIfNeeded("assistant-1", "sa-1"),
+    ]);
+
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed fetch leaves the history unseeded, and the next load retries", async () => {
+    spawn("completed");
+    fetchSubagentHistory.mockRejectedValueOnce(new Error("offline"));
+
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(2);
     expect(toolCalls()).toHaveLength(1);
+  });
+
+  it("a stream gap drops fetched histories so the next load refetches", async () => {
+    spawn();
+    getState().spawnSubagent({
+      subagentId: "sa-live-only",
+      label: "Agent",
+      objective: "",
+      status: "running",
+      parentConversationId: PARENT,
+      timestamp: NOW,
+    });
+    // Known only by its parent, so nothing can refetch it: its history is
+    // whatever the stream folded.
+    getState().seedLiveHistory("sa-live-only");
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+
+    getState().invalidateHistories(PARENT);
+
+    expect(getState().byId["sa-1"]?.history).toBeNull();
+    // No child conversation to refetch from, so its live history is kept.
+    expect(getState().byId["sa-live-only"]?.history).not.toBeNull();
+
+    fetchSubagentHistory.mockResolvedValueOnce(snapshotAt(null));
+    await getState().loadHistoryIfNeeded("assistant-1", "sa-1");
+    expect(fetchSubagentHistory).toHaveBeenCalledTimes(2);
   });
 });
