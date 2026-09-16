@@ -1,5 +1,5 @@
 import { Check, Coins, Copy, Loader2, Users } from "lucide-react";
-import { type ReactNode, useCallback, useId } from "react";
+import { type ReactNode, useId } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -61,8 +61,6 @@ export function ReferralContent() {
     errorMessage: t("referralContent.copyError"),
   });
 
-  const handleCopy = useCallback((url: string) => copy(url), [copy]);
-
   const creditsGated = data?.is_eligible_for_credits === false;
   const hoverCapable = useHoverCapable();
   const gatedHintId = useId();
@@ -82,7 +80,7 @@ export function ReferralContent() {
       className={cn("shrink-0", creditsGated && "pointer-events-none")}
       disabled={creditsGated}
       aria-describedby={creditsGated ? gatedHintId : undefined}
-      onClick={() => handleCopy(data.referral_url)}
+      onClick={() => copy(data.referral_url)}
       leftIcon={
         copied ? (
           <Check className="h-3.5 w-3.5" />

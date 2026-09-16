@@ -72,8 +72,6 @@ export function GenerateInviteLinkDialog({
     onClose();
   }, [onClose, resetCopied]);
 
-  const handleCopy = useCallback((url: string) => copy(url), [copy]);
-
   const inviteUrl =
     mutation.isSuccess && mutation.data.token
       ? buildA2AInviteLink({
@@ -142,7 +140,7 @@ export function GenerateInviteLinkDialog({
                 />
                 <button
                   type="button"
-                  onClick={() => handleCopy(inviteUrl)}
+                  onClick={() => copy(inviteUrl)}
                   aria-label={t("generateInviteLinkDialog.copyAriaLabel")}
                   className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--border-base)] hover:bg-[var(--surface-hover)]"
                 >
