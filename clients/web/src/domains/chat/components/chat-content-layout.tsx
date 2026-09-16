@@ -655,13 +655,6 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       rightPanel = (
         <LazyBoundary>
           <ActivityStepsPanel
-            // Re-key per group so the drill-in level resets when a different
-            // group's header is clicked while the panel is already open.
-            key={`${activeActivitySteps.messageId ?? "snapshot"}:${
-              activeActivitySteps.groupIndex ??
-              activeActivitySteps.toolCalls[0]?.id ??
-              ""
-            }`}
             payload={activeActivitySteps}
             onClose={closeActivitySteps}
             assistantId={assistantId}

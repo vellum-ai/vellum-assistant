@@ -128,6 +128,7 @@ async function runSettle(): Promise<Message[]> {
     ctx,
     state: {
       lastAssistantMessageId: ASSISTANT_MESSAGE_ID,
+      assistantMessageIdsToSync: new Set(),
       inflightWriters: new Map<string, InflightContentWriter>(),
     },
     rlog,
@@ -168,5 +169,40 @@ describe("settleTurnContent conversation deleted after the terminal SSE", () => 
     expect(truncateCalls).toEqual([CONVERSATION_DIR]);
     expect(diskSyncCalls).toEqual([ASSISTANT_MESSAGE_ID]);
     expect(messages).toEqual(TRUNCATED_MESSAGES);
+  });
+
+  test("exports a queued attachment target only once when it is the final row", async () => {
+    const ctx = { conversationId: CONVERSATION_ID, messages: [] as Message[] };
+
+    await settleTurnContent({
+      ctx,
+      state: {
+        lastAssistantMessageId: ASSISTANT_MESSAGE_ID,
+        assistantMessageIdsToSync: new Set([ASSISTANT_MESSAGE_ID]),
+        inflightWriters: new Map<string, InflightContentWriter>(),
+      },
+      rlog,
+    });
+
+    expect(diskSyncCalls).toEqual([ASSISTANT_MESSAGE_ID]);
+  });
+
+  test("exports an earlier attachment target before the final private row", async () => {
+    const ctx = { conversationId: CONVERSATION_ID, messages: [] as Message[] };
+
+    await settleTurnContent({
+      ctx,
+      state: {
+        lastAssistantMessageId: ASSISTANT_MESSAGE_ID,
+        assistantMessageIdsToSync: new Set(["msg-delivered-reply"]),
+        inflightWriters: new Map<string, InflightContentWriter>(),
+      },
+      rlog,
+    });
+
+    expect(diskSyncCalls).toEqual([
+      "msg-delivered-reply",
+      ASSISTANT_MESSAGE_ID,
+    ]);
   });
 });

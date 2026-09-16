@@ -33,10 +33,23 @@ let contentResponse: () => Promise<{
 }> = async () => ({ data: new Blob(["bytes"]), error: null });
 
 const attachmentsByIdContentGet = mock(() => contentResponse());
+let metadataResponse = async () => ({
+  data: {
+    id: "att-1",
+    filename: "photo.png",
+    mimeType: "image/png",
+    sizeBytes: 5,
+    kind: "image",
+    data: null,
+  },
+  error: null,
+});
+const attachmentsByIdGet = mock(() => metadataResponse());
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   attachmentsByIdContentGet,
+  attachmentsByIdGet,
 }));
 
 const saveFile = mock(
@@ -70,10 +83,22 @@ beforeEach(() => {
   captured = [];
   downloads = [];
   contentResponse = async () => ({ data: new Blob(["bytes"]), error: null });
+  metadataResponse = async () => ({
+    data: {
+      id: "att-1",
+      filename: "photo.png",
+      mimeType: "image/png",
+      sizeBytes: 5,
+      kind: "image",
+      data: null,
+    },
+    error: null,
+  });
 });
 
 afterEach(() => {
   attachmentsByIdContentGet.mockClear();
+  attachmentsByIdGet.mockClear();
   saveFile.mockClear();
 });
 
@@ -180,6 +205,50 @@ describe("downloadAttachment", () => {
 
     expect(saveFile).toHaveBeenCalledTimes(1);
     expect(downloads).toEqual([]);
+  });
+
+  test("saves referenced image bytes with canonical names and MIME types", async () => {
+    const cases = [
+      ["image/jpeg", "capture.jpeg"],
+      ["image/webp", "capture.webp"],
+      ["image/png", "capture.png"],
+    ] as const;
+
+    for (const [mimeType, filename] of cases) {
+      const bytes = `${mimeType}-bytes`;
+      contentResponse = async () => ({
+        data: new Blob([bytes], { type: mimeType }),
+        error: null,
+      });
+      metadataResponse = async () => ({
+        data: {
+          id: "att-image",
+          filename,
+          mimeType,
+          sizeBytes: bytes.length,
+          kind: "image",
+          data: null,
+        },
+        error: null,
+      });
+
+      await downloadAttachment(
+        {
+          id: "att-image",
+          filename: "computer-use-click.png",
+          previewUrl: null,
+          resolveReferenceMetadata: true,
+        },
+        "asst-1",
+      );
+
+      const call = saveFile.mock.calls.at(-1)!;
+      expect(call[0]).toBeInstanceOf(Blob);
+      expect((call[0] as Blob).type).toBe(mimeType);
+      expect(await (call[0] as Blob).text()).toBe(bytes);
+      expect(call[1]).toBe(filename);
+    }
+    expect(attachmentsByIdGet).toHaveBeenCalledTimes(cases.length);
   });
 
   test("stays quiet when the inline preview was saved", async () => {

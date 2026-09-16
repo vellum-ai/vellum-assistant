@@ -84,6 +84,7 @@ export function appendEventToMessages(
         at,
       );
     case "message_complete":
+    case "generation_handoff":
       // The turn produced its final row, so no announced visual can still be
       // coming. Retire every placeholder along with the row finalization.
       return clearPendingVisualSurfaces(

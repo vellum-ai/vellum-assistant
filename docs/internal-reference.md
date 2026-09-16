@@ -327,7 +327,7 @@ The assistant can attach files and images to its replies. Attachments flow throu
 
 #### Desktop (HTTP+SSE)
 
-Attachments are sent inline (base64) in `message_complete` and `generation_handoff` SSE events; historical attachments are returned by the HTTP conversation-history route. The macOS app renders thumbnails for images and displays file metadata for documents.
+Attachments are sent inline (base64) in `message_complete` and `generation_handoff` SSE events; historical attachments are returned by the HTTP conversation-history route. An attachment may carry `computerUseScreenshot: true` when it is the proven automatic final screenshot placement for that reply. The field is optional for compatibility. The macOS app renders thumbnails for images and displays file metadata for documents.
 
 #### Runtime HTTP API
 
@@ -339,7 +339,8 @@ The `GET /v1/assistants/:id/messages?conversationId=<id>` endpoint returns attac
   "filename": "chart.png",
   "mimeType": "image/png",
   "sizeBytes": 12345,
-  "kind": "image"
+  "kind": "image",
+  "computerUseScreenshot": true
 }
 ```
 
@@ -358,7 +359,7 @@ The gateway downloads attachments from the runtime API and delivers them via Tel
 The assistant creates attachments from two sources:
 
 1. **Directives**: `<vellum-attachment source="sandbox|host" path="..." />` tags in response text. Sandbox paths are relative to the working directory; host paths require user approval.
-2. **Tool output**: Image and file content blocks from tool results are automatically converted into attachments.
+2. **Tool output**: Image and file content blocks from tool results are persisted as attachments. For computer-use calls, every screenshot remains linked to its tool-result row and only the final screenshot-bearing call is also linked automatically to the reply. Explicit attachments remain independent. Files and channel delivery continue to read reply links, so they receive that final screenshot plus any explicit or unrelated reply attachments.
 
 Limits: 100 MB per attachment (20 MB for Telegram).
 

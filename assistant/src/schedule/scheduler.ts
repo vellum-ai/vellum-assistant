@@ -58,6 +58,13 @@ import {
   scheduleRetry,
   setScheduleRunConversationId,
 } from "./schedule-store.js";
+import {
+  getScheduleToolSurfaceSnapshot,
+  getScheduleToolSurfaceState,
+  isScheduleToolSurfaceReady,
+  MCP_NOT_READY_DEFER_MS,
+  scheduleModeNeedsToolSurface,
+} from "./tool-surface-readiness.js";
 import { buildWakeScheduleOptions } from "./wake-schedule-options.js";
 import {
   isScheduleWorkerAdministrativelyStopped,
@@ -703,6 +710,32 @@ export async function runDueSchedulesOnce(
       continue;
     }
 
+    if (
+      scheduleModeNeedsToolSurface(job.mode) &&
+      !isScheduleToolSurfaceReady()
+    ) {
+      log.info(
+        {
+          jobId: job.id,
+          name: job.name,
+          mode: job.mode,
+          toolSurfaceState: getScheduleToolSurfaceState(),
+          ...getScheduleToolSurfaceSnapshot(),
+        },
+        "Deferring tool-backed schedule until the MCP tool surface is ready",
+      );
+      try {
+        await deferClaimedSchedule(job.id, Date.now() + MCP_NOT_READY_DEFER_MS);
+      } catch (err) {
+        log.warn(
+          { err, jobId: job.id },
+          "Failed to defer claimed schedule while MCP tool surface is not ready",
+        );
+      }
+      result.skipped += 1;
+      continue;
+    }
+
     const isOneShot = job.expression == null;
 
     // ── Notify mode (one-shot or recurring) ─────────────────────────
@@ -1149,19 +1182,22 @@ export async function runDueSchedulesOnce(
       // that before the run is called done and its one result is produced.
       await awaitDelegatedWork(conversationId, runStartedAt, log);
       await completeScheduleRun(runId, { status: "ok" });
-      // The run succeeded; make sure it was not invisible. No-ops when the run
-      // already notified or produced nothing user-facing, so a schedule whose
-      // prompt ends in an explicit `assistant notifications send` is unaffected.
+      // Automatic completion notification for successful execute-mode runs.
+      // Quiet schedules skip this fallback so a clean tick stays silent.
+      // Explicit in-run delivery (e.g. `assistant notifications send`) is
+      // unaffected because it never goes through this producer.
       // Awaited rather than fired and forgotten: the schedule worker can exit
       // once the tick's loop drains, and a detached emit would race that exit.
-      await emitScheduleResultNotification({
-        scheduleId: job.id,
-        scheduleName: job.name,
-        conversationId,
-        runId,
-        runStartedAt,
-        rlog: log,
-      });
+      if (!job.quiet) {
+        await emitScheduleResultNotification({
+          scheduleId: job.id,
+          scheduleName: job.name,
+          conversationId,
+          runId,
+          runStartedAt,
+          rlog: log,
+        });
+      }
       if (isOneShot) {
         await completeOneShot(job.id);
       }

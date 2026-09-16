@@ -35,6 +35,7 @@ export function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
     mode: "execute",
     status: "active",
     routingIntent: "all_channels",
+    quiet: false,
     reuseConversation: false,
     wakeConversationId: null,
     workflowName: null,

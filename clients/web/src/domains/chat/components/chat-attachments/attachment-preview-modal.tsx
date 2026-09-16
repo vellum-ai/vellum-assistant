@@ -16,6 +16,7 @@ import { PreviewModalHeader } from "@/domains/chat/components/preview-modal-head
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
+import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import {
   classifyAttachment,
   formatAttachmentSize,
@@ -52,10 +53,14 @@ const TEXT_PREVIEW_APPLICATION_MIMES = new Set([
   "application/xml",
 ]);
 
+type PreviewAttachment = DisplayAttachment & {
+  resolveReferenceMetadata?: boolean;
+};
+
 interface AttachmentPreviewModalProps {
   open: boolean;
   onClose: () => void;
-  attachment: DisplayAttachment;
+  attachment: PreviewAttachment;
   /** When set, the modal will fetch missing content from
    *  /v1/assistants/{assistantId}/attachments/{attachment.id}/content. */
   assistantId?: string | null;
@@ -226,9 +231,13 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     if (!effectiveUrl) {
       return;
     }
+    if (attachment.resolveReferenceMetadata) {
+      await downloadAttachment(attachment, assistantId);
+      return;
+    }
     const { saveFile } = await import("@/runtime/native-file");
     await saveFile(effectiveUrl, attachment.filename);
-  }, [effectiveUrl, attachment.filename]);
+  }, [assistantId, attachment, effectiveUrl]);
 
   if (!open) {
     return null;

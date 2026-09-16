@@ -175,6 +175,7 @@ describe("parseAssistantEvent", () => {
           mimeType: "image/png",
           data: "iVBORw0KGgo=",
           sourceType: "sandbox_file",
+          computerUseScreenshot: true,
         },
       ],
     });
@@ -188,6 +189,7 @@ describe("parseAssistantEvent", () => {
           mimeType: "image/png",
           data: "iVBORw0KGgo=",
           sourceType: "sandbox_file",
+          computerUseScreenshot: true,
         },
       ],
     });

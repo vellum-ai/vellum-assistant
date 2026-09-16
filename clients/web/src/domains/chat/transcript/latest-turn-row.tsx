@@ -7,7 +7,7 @@ import type {
 } from "@/domains/chat/transcript/types";
 
 import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
-import { useTurnStore } from "@/domains/chat/turn-store";
+import { isActivityLive, useTurnStore } from "@/domains/chat/turn-store";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
@@ -105,12 +105,11 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   onStopWorkflow,
   responseArtifactsByKey,
 }: LatestTurnRowProps) {
-  // The response cluster is "streaming" whenever the turn is in flight. This
-  // keeps each response message's last tool-call group expanded for the whole
-  // turn, rather than only during the instants a tool reports `running`.
+  // The response cluster is "streaming" while response output can still
+  // append. This keeps each response message's last tool-call group expanded
+  // between tool updates and settles it while awaiting user input.
   const phase = useTurnStore.use.phase();
-  const isStreaming =
-    phase === "queued" || phase === "thinking" || phase === "streaming";
+  const isStreaming = isActivityLive(phase);
   // The last message-kind item of the cluster is the latest message
   // (see `TranscriptRowProps.isLatestMessage`). Trailing non-message rows —
   // the thinking slot, pending prompts — carry no trailer of their own, so

@@ -82,7 +82,10 @@ export function isBackgroundConversationType(
  * columns into one label.
  */
 export type ConversationKind =
-  "user" | "background" | "background_memory_consolidation" | "scheduled";
+  | "user"
+  | "background"
+  | "background_memory_consolidation"
+  | "scheduled";
 
 /**
  * Single classifier shared by the LLM-context routes and the notification
@@ -270,6 +273,10 @@ export function isVoiceSessionUserMessage(
  */
 export const SIGHT_FRAME_ATTACHMENT_IDS_KEY = "sightFrameAttachmentIds";
 
+/** Metadata key naming computer-use screenshots automatically linked to a reply. */
+export const COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY =
+  "computerUseScreenshotAttachmentIds";
+
 /**
  * The row's attachments that arrived as ambient camera frames, by attachment
  * id. A user attachment carries no metadata of its own, so the marking lives on
@@ -283,6 +290,23 @@ export function sightFrameAttachmentIdsFromMetadata(
   metadata: Record<string, unknown> | null | undefined,
 ): string[] {
   const ids = metadata?.[SIGHT_FRAME_ATTACHMENT_IDS_KEY];
+  if (!Array.isArray(ids)) {
+    return [];
+  }
+  return ids.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+/**
+ * Attachment ids whose placement on this row was automatic computer-use
+ * screenshot promotion. Malformed and legacy metadata conservatively yields
+ * no marked attachments.
+ */
+export function computerUseScreenshotAttachmentIdsFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): string[] {
+  const ids = metadata?.[COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY];
   if (!Array.isArray(ids)) {
     return [];
   }
@@ -360,9 +384,7 @@ export function isDesktopOriginatedUserMessage(
     return false;
   }
   const clientOs = parseClientOs((client as Record<string, unknown>).os);
-  return (
-    clientOs === "macos" || clientOs === "windows" || clientOs === "linux"
-  );
+  return clientOs === "macos" || clientOs === "windows" || clientOs === "linux";
 }
 
 /**

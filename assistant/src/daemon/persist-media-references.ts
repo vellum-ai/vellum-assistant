@@ -29,6 +29,7 @@ import type {
   WorkspaceRefMediaSource,
 } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
+import { toolImageFilename } from "./assistant-attachments.js";
 
 const log = getLogger("persist-media-references");
 
@@ -62,6 +63,7 @@ async function referenceMediaBlock(
   messageId: string,
   block: ImageContent | FileContent,
   position: number,
+  imageFilenameOverride?: string,
 ): Promise<ContentBlock | null> {
   if (block.source.type !== "base64") {
     return block;
@@ -69,7 +71,9 @@ async function referenceMediaBlock(
   const { data, media_type } = block.source;
   const filename =
     block.source.filename ??
-    (block.type === "image" ? imageFilename(media_type) : "attachment");
+    (block.type === "image"
+      ? (imageFilenameOverride ?? imageFilename(media_type))
+      : "attachment");
 
   let stored: { id: string; sizeBytes: number };
   try {
@@ -127,11 +131,15 @@ export async function referenceMediaBlocksForPersist(
   conversationCreatedAt: number,
   messageId: string,
   blocks: ContentBlock[],
+  computerUseToolNames?: ReadonlyMap<string, string>,
 ): Promise<ContentBlock[]> {
   // A single link position counter across all attachments in the message so
   // their `message_attachments` rows keep content order.
   let position = 0;
-  const convert = async (block: ContentBlock): Promise<ContentBlock> => {
+  const convert = async (
+    block: ContentBlock,
+    imageFilenameOverride?: string,
+  ): Promise<ContentBlock> => {
     if (block.type === "image" || block.type === "file") {
       if (block.source.type !== "base64") {
         return block;
@@ -143,13 +151,22 @@ export async function referenceMediaBlocksForPersist(
           messageId,
           block,
           position++,
+          imageFilenameOverride,
         )) ?? block
       );
     }
     if (block.type === "tool_result" && block.contentBlocks?.length) {
       const contentBlocks: ContentBlock[] = [];
+      const computerUseToolName = computerUseToolNames?.get(block.tool_use_id);
       for (const cb of block.contentBlocks) {
-        contentBlocks.push(await convert(cb));
+        contentBlocks.push(
+          await convert(
+            cb,
+            cb.type === "image" && computerUseToolName
+              ? toolImageFilename(cb.source.media_type, computerUseToolName)
+              : undefined,
+          ),
+        );
       }
       return { ...block, contentBlocks };
     }

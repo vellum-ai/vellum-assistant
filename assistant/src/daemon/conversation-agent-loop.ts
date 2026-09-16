@@ -106,6 +106,7 @@ import {
   type EventHandlerDeps,
   finalizePendingToolResultRow,
   resetInjectionLedgersForStrip,
+  selectFinalComputerUseScreenshotCandidate,
   settlePendingPartialFlush,
 } from "./conversation-agent-loop-handlers.js";
 import {
@@ -1951,6 +1952,8 @@ export async function runAgentLoopImpl(
               state.lastAssistantMessageId,
             )
           : state.lastAssistantMessageId;
+      const computerUseScreenshotCandidate =
+        selectFinalComputerUseScreenshotCandidate(state);
       // Resolve attachments (only when not cancelled, this is expensive async I/O)
       const attachmentResult = await resolveAssistantAttachments(
         state.accumulatedDirectives,
@@ -1967,9 +1970,16 @@ export async function runAgentLoopImpl(
           ),
         attachmentTargetMessageId,
         state.toolContentBlockToolNames,
+        computerUseScreenshotCandidate,
       );
       const { assistantAttachments, emittedAttachments } = attachmentResult;
       persistedAttachmentFiles = attachmentResult.persistedFiles;
+      if (
+        attachmentTargetMessageId &&
+        attachmentResult.linkedAttachmentIds.length > 0
+      ) {
+        state.assistantMessageIdsToSync.add(attachmentTargetMessageId);
+      }
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;

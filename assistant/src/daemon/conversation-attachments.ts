@@ -2,10 +2,14 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import {
   attachInlineAttachmentToMessage,
   AttachmentUploadError,
+  getAttachmentsByIds,
   getFilePathForAttachment,
+  linkAttachmentToMessage,
   setAttachmentThumbnail,
 } from "../persistence/attachments-store.js";
-import type { ContentBlock } from "../providers/types.js";
+import { updateMessageMetadata } from "../persistence/conversation-crud.js";
+import { COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY } from "../persistence/conversation-types.js";
+import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import {
   type ApproveHostRead,
@@ -14,7 +18,9 @@ import {
   contentBlocksToDrafts,
   deduplicateDrafts,
   type DirectiveRequest,
+  estimateBase64Bytes,
   resolveDirectives,
+  toolImageFilename,
   validateDrafts,
 } from "./assistant-attachments.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
@@ -88,6 +94,19 @@ export interface AttachmentResolutionResult {
   emittedAttachments: UserMessageAttachment[];
   directiveWarnings: string[];
   persistedFiles: PersistedAttachmentFile[];
+  /** Attachment ids successfully linked to the target assistant row. */
+  linkedAttachmentIds: string[];
+  computerUseScreenshotAttachmentIds: string[];
+}
+
+export interface ComputerUseScreenshotCandidate {
+  toolName: string;
+  block: ImageContent;
+}
+
+interface ResolvedAttachmentDraft extends AssistantAttachmentDraft {
+  existingAttachmentId?: string;
+  computerUseScreenshot?: boolean;
 }
 
 /**
@@ -102,10 +121,13 @@ export async function resolveAssistantAttachments(
   approveHostRead: ApproveHostRead,
   lastAssistantMessageId: string | undefined,
   toolContentBlockToolNames?: ReadonlyMap<number, string>,
+  computerUseScreenshotCandidate?: ComputerUseScreenshotCandidate,
 ): Promise<AttachmentResolutionResult> {
-  let assistantAttachments: AssistantAttachmentDraft[] = [];
+  let assistantAttachments: ResolvedAttachmentDraft[] = [];
   const emittedAttachments: UserMessageAttachment[] = [];
   const persistedFiles: PersistedAttachmentFile[] = [];
+  const linkedAttachmentIds: string[] = [];
+  const computerUseScreenshotAttachmentIds: string[] = [];
 
   const recordPersistedFile = (draft: AssistantAttachmentDraft): void => {
     if (draft.sourcePath) {
@@ -128,7 +150,8 @@ export async function resolveAssistantAttachments(
 
   if (
     accumulatedDirectives.length > 0 ||
-    accumulatedToolContentBlocks.length > 0
+    accumulatedToolContentBlocks.length > 0 ||
+    computerUseScreenshotCandidate !== undefined
   ) {
     const directiveDrafts =
       accumulatedDirectives.length > 0
@@ -159,10 +182,42 @@ export async function resolveAssistantAttachments(
       "Directive resolution complete",
     );
 
-    const toolDrafts = contentBlocksToDrafts(
+    const toolDrafts: ResolvedAttachmentDraft[] = contentBlocksToDrafts(
       accumulatedToolContentBlocks,
       toolContentBlockToolNames,
     );
+    if (computerUseScreenshotCandidate) {
+      const { block, toolName } = computerUseScreenshotCandidate;
+      const filename =
+        block.source.filename ??
+        toolImageFilename(block.source.media_type, toolName);
+      if (block.source.type === "workspace_ref") {
+        const stored = getAttachmentsByIds([block.source.attachmentId], {
+          hydrateFileData: true,
+        })[0];
+        if (stored?.dataBase64) {
+          toolDrafts.push({
+            sourceType: "tool_block",
+            filename,
+            mimeType: stored.mimeType,
+            dataBase64: stored.dataBase64,
+            sizeBytes: stored.sizeBytes,
+            kind: "image",
+            existingAttachmentId: stored.id,
+            computerUseScreenshot: true,
+          });
+        }
+      } else {
+        toolDrafts.push({
+          sourceType: "tool_block",
+          filename,
+          mimeType: block.source.media_type,
+          dataBase64: block.source.data,
+          sizeBytes: estimateBase64Bytes(block.source.data),
+          kind: "image",
+        });
+      }
+    }
     // Most recent tool outputs first so deduplication keeps the latest version.
     toolDrafts.reverse();
     const merged = deduplicateDrafts([
@@ -195,14 +250,27 @@ export async function resolveAssistantAttachments(
       const draft = assistantAttachments[i];
       let stored;
       try {
-        stored = await attachInlineAttachmentToMessage(
-          lastAssistantMessageId,
-          i,
-          draft.filename,
-          draft.mimeType,
-          draft.dataBase64,
-          { skipSizeLimit: true },
-        );
+        stored = draft.existingAttachmentId
+          ? getAttachmentsByIds([
+              linkAttachmentToMessage(
+                lastAssistantMessageId,
+                draft.existingAttachmentId,
+                i,
+              ),
+            ])[0]
+          : await attachInlineAttachmentToMessage(
+              lastAssistantMessageId,
+              i,
+              draft.filename,
+              draft.mimeType,
+              draft.dataBase64,
+              { skipSizeLimit: true },
+            );
+        if (!stored) {
+          throw new Error(
+            `Attachment not found: ${draft.existingAttachmentId}`,
+          );
+        }
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
           log.warn(
@@ -241,6 +309,7 @@ export async function resolveAssistantAttachments(
       }
 
       recordPersistedFile(draft);
+      linkedAttachmentIds.push(stored.id);
       emittedAttachments.push({
         id: stored.id,
         filename: draft.filename,
@@ -250,6 +319,16 @@ export async function resolveAssistantAttachments(
         ...(omitData ? { sizeBytes: draft.sizeBytes } : {}),
         fileBacked: true,
         ...(thumbnailData ? { thumbnailData } : {}),
+        ...(draft.computerUseScreenshot ? { computerUseScreenshot: true } : {}),
+      });
+      if (draft.computerUseScreenshot) {
+        computerUseScreenshotAttachmentIds.push(stored.id);
+      }
+    }
+    if (computerUseScreenshotAttachmentIds.length > 0) {
+      updateMessageMetadata(lastAssistantMessageId, {
+        [COMPUTER_USE_SCREENSHOT_ATTACHMENT_IDS_KEY]:
+          computerUseScreenshotAttachmentIds,
       });
     }
   } else if (assistantAttachments.length > 0) {
@@ -271,5 +350,7 @@ export async function resolveAssistantAttachments(
     emittedAttachments,
     directiveWarnings,
     persistedFiles,
+    linkedAttachmentIds,
+    computerUseScreenshotAttachmentIds,
   };
 }

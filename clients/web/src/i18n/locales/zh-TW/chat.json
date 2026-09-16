@@ -65,8 +65,17 @@
     "backAria": "返回所有步驟",
     "backTooltip": "所有步驟",
     "closeSteps": "關閉步驟",
+    "screenshotAria": "預覽來自「{activity}」的螢幕截圖",
+    "screenshotFallbackAria": "預覽電腦螢幕截圖",
+    "screenshotFallbackTitle": "電腦螢幕截圖",
+    "screenshotTitle": "來自「{activity}」的螢幕截圖",
     "thinkingTitle": "思考中",
     "viewThinkingAria": "檢視思考過程"
+  },
+  "computerUseScreenshotPreview": {
+    "unavailable": "最新螢幕截圖無法使用。",
+    "unavailableShowingPrevious": "最新螢幕截圖無法使用。正在顯示上一張螢幕截圖。",
+    "updating": "正在更新螢幕截圖..."
   },
   "addToChatSheet": {
     "camera": "相機",
