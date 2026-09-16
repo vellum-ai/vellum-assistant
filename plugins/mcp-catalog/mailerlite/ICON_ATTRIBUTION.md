@@ -1,5 +1,5 @@
 # Icon attribution
 
-Source: [MailerLite's official 48px website favicon](https://assets.mailerlite.com/images/favicon-48x48.png).
+Source: [MailerLite's official 180px apple touch icon](https://www.mailerlite.com/site/themes/new/img/favicons/apple-touch-icon.png), linked from [mailerlite.com](https://www.mailerlite.com/).
 
-This unmodified provider asset is a trademark of MailerLite and is used only to identify this integration.
+The asset was resized to 128x128. It is a trademark of MailerLite and is used only to identify this integration.

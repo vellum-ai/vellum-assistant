@@ -1,5 +1,5 @@
 # Icon attribution
 
-Source: [Circleback's official website favicon](https://circleback.ai/favicon.ico).
+Source: [Circleback's official 1024px apple touch icon](https://circleback.ai/apple-touch-icon.png), linked from [circleback.ai](https://circleback.ai/).
 
-The 48px favicon frame was converted to PNG. This provider asset is a trademark of Circleback and is used only to identify this integration.
+The asset was resized to 128x128. It is a trademark of Circleback and is used only to identify this integration.

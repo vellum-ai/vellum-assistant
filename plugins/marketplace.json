@@ -139,7 +139,7 @@
       "name": "contractor-voice-invoicer",
       "description": "Converts 20-second truck voice memos and job photos into itemized client invoices with custom labor rates, material markups, and one-click accounting staging.",
       "category": "commerce",
-      "icon": "\ud83d\udd27",
+      "icon": "🔧",
       "license": "MIT",
       "homepage": "https://github.com/ZeebBoyBlue/contractor-voice-invoicer",
       "source": {
@@ -584,7 +584,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/fathom",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search meeting transcripts and summaries.",
       "homepage": "https://developers.fathom.ai/mcp-docs",
@@ -607,7 +607,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/brex",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Review expenses, cards, and company spending.",
       "homepage": "https://www.brex.com/support/using-brex-in-ai-apps",
@@ -630,7 +630,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/ramp",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Explore expenses, bills, and company spending.",
       "homepage": "https://agents.ramp.com/docs/guides/connecting",
@@ -653,7 +653,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/linear",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Find issues, projects, and team updates.",
       "homepage": "https://linear.app/docs/mcp",
@@ -677,7 +677,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/notion",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search and work with workspace pages and databases.",
       "homepage": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
@@ -701,7 +701,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/sentry",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Investigate errors, issues, and application performance.",
       "homepage": "https://github.com/getsentry/sentry-mcp",
@@ -724,7 +724,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/stripe",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Explore payments, customers, and account activity.",
       "homepage": "https://docs.stripe.com/mcp",
@@ -747,7 +747,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/atlassian",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search Jira, Confluence, and connected Atlassian products.",
       "homepage": "https://atlassian.github.io/atlassian-mcp-server/",
@@ -770,7 +770,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/amplemarket",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Find and enrich prospects, then manage outreach sequences.",
       "homepage": "https://knowledge.amplemarket.com/articles/8022685319-connecting-to-the-amplemarket-mcp-server",
@@ -816,7 +816,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/attio",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search and update CRM records, lists, notes, and tasks.",
       "homepage": "https://docs.attio.com/mcp/overview",
@@ -839,7 +839,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/calendly",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Review availability, scheduling links, and planned events.",
       "homepage": "https://developer.calendly.com/docs/mcp/calendly-mcp-server",
@@ -863,7 +863,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/circleback",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search meeting notes, transcripts, and action items.",
       "homepage": "https://support.circleback.ai/en/articles/13249081-circleback-mcp",
@@ -886,7 +886,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/clay",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Research, enrich, and update people and company records.",
       "homepage": "https://university.clay.com/docs/connect-to-clay-mcp",
@@ -909,7 +909,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/craft",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search and work with documents in your Craft workspace.",
       "homepage": "https://www.craft.do/imagine/guide/mcp",
@@ -932,7 +932,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/customer-io",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Explore campaigns, broadcasts, segments, and customer activity.",
       "homepage": "https://docs.customer.io/ai/mcp/get-started/",
@@ -955,7 +955,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/fireflies",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search meeting transcripts, summaries, and conversation insights.",
       "homepage": "https://docs.fireflies.ai/getting-started/mcp-configuration",
@@ -978,7 +978,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/gamma",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Create presentations, documents, and social posts.",
       "homepage": "https://developers.gamma.app/mcp/gamma-mcp-server.md",
@@ -1001,7 +1001,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/guru",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search trusted company knowledge and source documents.",
       "homepage": "https://developer.getguru.com/docs/guru-mcp-server-overview",
@@ -1047,7 +1047,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/intercom",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search conversations, contacts, tickets, and help center content.",
       "homepage": "https://developers.intercom.com/docs/guides/mcp",
@@ -1116,7 +1116,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/klaviyo",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Analyze campaigns, profiles, segments, and marketing performance.",
       "homepage": "https://developers.klaviyo.com/en/docs/klaviyo_mcp_server",
@@ -1139,7 +1139,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/mailerlite",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Manage subscribers, groups, campaigns, and automations.",
       "homepage": "https://developers.mailerlite.com/mcp",
@@ -1162,7 +1162,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/meltwater",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Research media coverage, social conversations, and brand insights.",
       "homepage": "https://developer.meltwater.com/guides/meltwater-mcp/overview/",
@@ -1208,7 +1208,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/mercury",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Review accounts, transactions, payments, and company finances.",
       "homepage": "https://docs.mercury.com/docs/what-is-mercury-mcp",
@@ -1231,7 +1231,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/navan",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search business travel, expenses, and company policy information.",
       "homepage": "https://developer.navan.com/mcp/",
@@ -1254,7 +1254,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/otter",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search meeting conversations and transcripts.",
       "homepage": "https://help.otter.ai/hc/en-us/articles/35287607569687-Otter-MCP-Server",
@@ -1277,7 +1277,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/profound",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Analyze brand visibility and performance in AI search.",
       "homepage": "https://docs.tryprofound.com/mcp/overview",
@@ -1300,7 +1300,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/readwise",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search highlights, documents, and reading notes.",
       "homepage": "https://docs.readwise.io/tools/mcp",
@@ -1323,7 +1323,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/semrush",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Research keywords, competitors, backlinks, and site performance.",
       "homepage": "https://developer.semrush.com/api/v4/introduction/semrush-mcp/",
@@ -1346,7 +1346,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/todoist",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Find and manage tasks, projects, sections, and comments.",
       "homepage": "https://github.com/Doist/todoist-mcp",
@@ -1393,7 +1393,7 @@
       "source": {
         "source": "local",
         "path": "plugins/mcp-catalog/upwork",
-        "version": "1.0.1"
+        "version": "1.0.2"
       },
       "description": "Search talent and manage hiring work on Upwork.",
       "homepage": "https://www.upwork.com/ai/mcp",

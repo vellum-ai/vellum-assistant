@@ -1,5 +1,5 @@
 # Icon attribution
 
-Source: [Otter's official website favicon](https://cdn.prod.website-files.com/618e9316785b3582a5178502/618e94bcbca88b51e2ad81f7_favicon.png).
+Source: [Otter's official 256px apple touch icon](https://cdn.prod.website-files.com/618e9316785b3582a5178502/618e943a80919a98b5e9bf69_apple-icon.png), linked from [otter.ai](https://otter.ai/).
 
-This unmodified provider asset is a trademark of Otter and is used only to identify this integration.
+The asset was resized to 128x128. It is a trademark of Otter and is used only to identify this integration.

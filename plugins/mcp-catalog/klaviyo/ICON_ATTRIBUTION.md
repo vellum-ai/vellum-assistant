@@ -1,5 +1,5 @@
 # Icon attribution
 
-Source: [Klaviyo's official 48px website favicon](https://www.klaviyo.com/icons/icon-48x48.png).
+Source: [Klaviyo's official 512px website icon](https://www.klaviyo.com/icons/icon-512x512.png), linked from [klaviyo.com](https://www.klaviyo.com/).
 
-This unmodified provider asset is a trademark of Klaviyo and is used only to identify this integration.
+The asset was resized to 128x128. It is a trademark of Klaviyo and is used only to identify this integration.

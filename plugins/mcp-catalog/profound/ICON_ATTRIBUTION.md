@@ -1,5 +1,5 @@
 # Icon attribution
 
-Source: [Profound's official website favicon](https://www.tryprofound.com/favicon.ico).
+Source: [Profound's official light-theme vector website icon](https://www.tryprofound.com/favicons/favicon-light.svg), linked from [tryprofound.com](https://www.tryprofound.com/).
 
-The official favicon's 32px frame uses an opaque white background. This provider asset is a trademark of Profound and is used only to identify this integration.
+The vector was rasterized at 128x128 on a white background for theme contrast. It is a trademark of Profound and is used only to identify this integration.

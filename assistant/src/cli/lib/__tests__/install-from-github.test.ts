@@ -328,7 +328,7 @@ describe("installPlugin — install lifecycle", () => {
         trustedSource: {
           kind: "local",
           path: "plugins/mcp-catalog/fathom",
-          version: "1.0.1",
+          version: "1.0.2",
         },
       },
       {
@@ -342,7 +342,7 @@ describe("installPlugin — install lifecycle", () => {
 
     expect(result).toMatchObject({
       name: "fathom",
-      ref: "1.0.1",
+      ref: "1.0.2",
       commit: null,
     });
     expect(readValidatedPluginIcon(result.target).hasIcon).toBe(true);
