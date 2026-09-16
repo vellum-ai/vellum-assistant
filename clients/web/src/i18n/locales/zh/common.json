@@ -242,6 +242,10 @@
   "conversationTitle": {
     "untitled": "无标题"
   },
+  "copyButton": {
+    "copied": "已复制",
+    "copyFailed": "无法复制到剪贴板。"
+  },
   "createAssistantDialog": {
     "cancel": "取消",
     "create": "创建",
@@ -278,7 +282,6 @@
     "tooltip": "停止"
   },
   "detailPrimitives": {
-    "copied": "已复制",
     "copy": "复制",
     "showLess": "显示更少",
     "showMore": "显示更多"

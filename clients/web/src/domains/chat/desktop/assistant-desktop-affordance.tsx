@@ -3,11 +3,13 @@ import { Monitor } from "lucide-react";
 
 import { useAssistantName } from "@/hooks/use-assistant-name";
 import { useTranslation } from "@/i18n";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { usePointerCoarse } from "@/utils/pointer";
 
+import { AVATAR_ACCENT } from "../components/streaming-shimmer-text";
 import { useDesktopPreviewStore } from "./desktop-preview-store";
+import { useDesktopSetupStatus } from "./use-desktop-setup";
+import { useVirtualDesktopEnabled } from "./use-virtual-desktop-enabled";
 
 export function AssistantDesktopAffordance({
   onToggle,
@@ -15,7 +17,7 @@ export function AssistantDesktopAffordance({
   onToggle?: () => void;
 }) {
   const { t } = useTranslation("chat");
-  const enabled = useAssistantFeatureFlagStore.use.assistantDesktop();
+  const enabled = useVirtualDesktopEnabled();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantName = useAssistantName(assistantId);
   const session = useDesktopPreviewStore.use.session();
@@ -36,7 +38,7 @@ export function AssistantDesktopAffordance({
     <Button
       variant="ghost"
       active={open}
-      iconOnly={<Monitor />}
+      iconOnly={<DesktopActivityIcon assistantId={assistantId} />}
       aria-label={label}
       tooltip={label}
       aria-expanded={open}
@@ -47,6 +49,18 @@ export function AssistantDesktopAffordance({
         useDesktopPreviewStore.getState().toggle(assistantId);
         onToggle?.();
       }}
+    />
+  );
+}
+
+function DesktopActivityIcon({ assistantId }: { assistantId: string }) {
+  const { query } = useDesktopSetupStatus(assistantId);
+  return (
+    <Monitor
+      color={query.data?.automationActive ? AVATAR_ACCENT : undefined}
+      className={
+        query.data?.automationActive ? "motion-safe:animate-pulse" : undefined
+      }
     />
   );
 }

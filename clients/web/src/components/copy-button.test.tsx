@@ -1,5 +1,5 @@
 /**
- * Regression tests for the inspector copy button. `Button` takes the icon
+ * Regression tests for the shared copy button. `Button` takes the icon
  * element itself via `iconOnly`; a bare boolean there renders an empty,
  * invisible button, so these tests pin that a real icon reaches the markup.
  */

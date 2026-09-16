@@ -44,6 +44,7 @@ import {
   formatShellOutput,
   MAX_OUTPUT_LENGTH,
   OUTPUT_TRUNCATED_TAG,
+  SHELL_DID_NOT_START_MESSAGE,
 } from "../tools/shared/shell-output.js";
 import {
   ALWAYS_INJECTED_ENV_VARS,
@@ -332,6 +333,13 @@ describe("formatShellOutput", () => {
     const result = formatShellOutput("", "", 0, false, 120);
     expect(result.content).toBe("<command_completed />");
     expect(result.isError).toBe(false);
+  });
+
+  test("a close with exit 0 and empty pipes is an error when the process never started", () => {
+    const result = formatShellOutput("", "", 0, false, 120, { started: false });
+    expect(result.content).toBe(SHELL_DID_NOT_START_MESSAGE);
+    expect(result.isError).toBe(true);
+    expect(result.content).not.toBe("<command_completed />");
   });
 
   test("failed command with no output shows exit code tag and descriptive message", () => {

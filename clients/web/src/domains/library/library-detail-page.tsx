@@ -21,6 +21,7 @@ import { isReadOnlyApp } from "@/types/app-types";
 import { useTranslation } from "@/i18n";
 
 interface LoadedApp {
+  assistantId: string;
   appId: string;
   dirName?: string;
   name: string;
@@ -62,6 +63,7 @@ export function LibraryDetailPage() {
         }
         primeAppHtmlCache(assistantId, result.appId, result.html);
         setApp({
+          assistantId,
           appId: result.appId,
           dirName: result.dirName,
           name: result.name,

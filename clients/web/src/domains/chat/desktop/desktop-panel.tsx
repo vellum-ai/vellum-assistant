@@ -43,7 +43,11 @@ export function DesktopPanel({ assistantId, viewOnly }: DesktopPanelProps) {
     );
   }
   const busy =
-    query.isPending || install.isPending || setup?.state === "installing";
+    !install.isError &&
+    (query.isPending ||
+      install.isPending ||
+      setup?.state === "installing" ||
+      setup?.state === "required");
   const failed = query.isError || install.isError || setup?.state === "failed";
   return (
     <DesktopStatus
@@ -57,22 +61,19 @@ export function DesktopPanel({ assistantId, viewOnly }: DesktopPanelProps) {
               ? t("assistantDesktop.setupUnsupported")
               : setup?.state === "installing"
                 ? t(SETUP_STAGE_KEY[setup.stage ?? "packages"])
-                : busy
-                  ? t("assistantDesktop.checkingSetup")
-                  : t("assistantDesktop.installDescription")
+                : t("assistantDesktop.checkingSetup")
       }
     >
-      {query.isError || install.isError ? (
+      {query.isError ? (
         <Button
           variant="outlined"
           onClick={() => {
-            install.reset();
             void query.refetch();
           }}
         >
           {t("assistantDesktop.reconnectButton")}
         </Button>
-      ) : setup?.state === "required" || setup?.state === "failed" ? (
+      ) : install.isError || setup?.state === "failed" ? (
         <Button
           variant="outlined"
           disabled={busy}

@@ -156,7 +156,7 @@ export class DesktopDependencyInstaller {
       })
       .catch((err: unknown) => {
         log.warn({ err }, "Desktop installation failed");
-        this.status = { state: "failed" };
+        this.status = { state: "failed", stage: this.status?.stage };
       })
       .finally(() => {
         this.installing = null;
@@ -166,11 +166,32 @@ export class DesktopDependencyInstaller {
     return this.status;
   }
 
-  async ensureReady(): Promise<void> {
+  async ensureReady(signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     this.start();
-    await this.installing;
-    if (this.getStatus().state !== "ready") {
-      throw new Error("Desktop setup did not complete");
+    let onAbort: (() => void) | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        onAbort = () => reject(signal?.reason);
+        signal?.addEventListener("abort", onAbort, { once: true });
+        void Promise.resolve(this.installing).then(() => resolve(), reject);
+      });
+      signal?.throwIfAborted();
+      const status = this.getStatus();
+      if (status.state === "unsupported") {
+        throw new Error(
+          "Virtual desktop installation is unsupported on this assistant.",
+        );
+      }
+      if (status.state !== "ready") {
+        throw new Error(
+          `Virtual desktop setup failed during ${status.stage ?? "installation"}. Open the Virtual desktop panel to retry. Do not launch Chrome manually.`,
+        );
+      }
+    } finally {
+      if (onAbort) {
+        signal?.removeEventListener("abort", onAbort);
+      }
     }
   }
 

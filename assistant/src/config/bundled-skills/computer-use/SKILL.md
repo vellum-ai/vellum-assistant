@@ -40,13 +40,32 @@ cut off. If the element you need is not in it, call `computer_use_observe` with
 ## Scripting apps (macOS)
 
 Reach for `computer_use_run_applescript` first when an app can be driven by
-script: a menu item (`click menu item "Split Clip" of menu "Modify" of menu bar
-1` inside `tell application "System Events" to tell process "iMovie"`), an
-app's own scripting dictionary, or window management. It does not take the
-cursor. A menu item that needs a selection or a playhead position does nothing
-when that context is missing, so set it up first, and read
-`enabled of menu item` when unsure. Click and type for everything a script
-cannot reach. `host_bash` is for shell commands, not for driving apps.
+script. It does not take the cursor.
+
+**Try the app's own scripting dictionary before anything else.** Ask it for the
+state you want, not for the clicks that would produce that state. Finder, Mail,
+Music, Notes, Safari, Terminal and many third-party apps have one, and where
+there is a dictionary the whole task is usually a sentence with no window to
+open, no tree to read and nothing to click:
+
+```applescript
+tell application "Finder"
+  set target of front window to desktop
+  set current view of front window to list view
+  set sort column of list view options of front window to name column
+end tell
+```
+
+**System Events menu clicking is the fallback**, for apps with no dictionary
+entry for what you need: `click menu item "Split Clip" of menu "Modify" of menu
+bar 1` inside `tell application "System Events" to tell process "iMovie"`. It is
+UI automation in a script's clothes: it still depends on the menu sitting where
+you expect and on the app being frontmost. A menu item that needs a selection or
+a playhead position does nothing when that context is missing, so set it up
+first, and read `enabled of menu item` when unsure.
+
+Click and type for everything a script cannot reach. `host_bash` is for shell
+commands, not for driving apps.
 
 ## Typing is not sending
 

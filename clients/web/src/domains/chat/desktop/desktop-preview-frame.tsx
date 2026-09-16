@@ -51,17 +51,15 @@ export function DesktopPreviewFrame({
           exit={{ opacity: 0 }}
           transition={{ duration: reduce ? 0 : 0.15 }}
         >
-          <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--border-base)] px-1 transition-colors hover:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]">
+          <div className="grid h-10 shrink-0 grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-1 border-b border-[var(--border-base)] px-1 transition-colors hover:bg-[color-mix(in_srgb,var(--primary-second-hover)_15%,transparent)]">
+            <GripHorizontal className="size-4 justify-self-center text-[var(--content-tertiary)]" />
             <Button
               variant="ghost"
               size="regular"
               expandOnMobile={false}
               leftIcon={<Monitor className="size-4" />}
-              rightIcon={
-                <GripHorizontal className="ml-auto size-4 text-[var(--content-tertiary)]" />
-              }
               aria-label={t("assistantDesktop.moveAria")}
-              className="min-w-0 flex-1 cursor-grab hover:bg-transparent active:cursor-grabbing active:scale-100 active:bg-transparent"
+              className="min-w-0 cursor-grab justify-center hover:bg-transparent active:cursor-grabbing active:scale-100 active:bg-transparent"
               onKeyDown={onMoveKeyDown}
               onClick={() =>
                 useDesktopPreviewStore.getState().setFullscreen(true)

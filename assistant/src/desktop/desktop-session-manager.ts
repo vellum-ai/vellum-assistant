@@ -12,19 +12,30 @@ import { join } from "node:path";
 import { readAvatarState } from "../avatar/avatar-manifest.js";
 import { resolveNotificationAccentHex } from "../avatar/notification-avatar.js";
 import { getIsContainerized } from "../config/env-registry.js";
+import { connectCdpWsTransport } from "../tools/browser/cdp-client/cdp-inspect/ws-transport.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
-import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
+import { DesktopBrowserClient } from "./desktop-browser-client.js";
 import {
-  configureDesktopChromeFrame,
-  shouldRestoreDesktopChromeSession,
-} from "./desktop-chrome-session.js";
+  allocateDesktopDebugPort,
+  desktopChromeArguments,
+  discoverDesktopBrowser,
+  findDesktopBrowserPid,
+} from "./desktop-browser-endpoint.js";
+import { writeDesktopChromePolicy } from "./desktop-chrome-policy.js";
+import { configureDesktopChromeFrame } from "./desktop-chrome-session.js";
 import {
   desktopChromePath,
   resolveDesktopBinaries,
 } from "./desktop-dependencies.js";
+import {
+  DESKTOP_DISPLAY,
+  DESKTOP_HEIGHT,
+  DESKTOP_OVERRIDABLE_PARAMETERS,
+  DESKTOP_WIDTH,
+} from "./desktop-display.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
 import { DESKTOP_WINDOW_DRAG_SCRIPT } from "./desktop-window-drag.js";
@@ -33,10 +44,7 @@ import { writeDesktopWindowTheme } from "./desktop-window-theme.js";
 
 const log = getLogger("desktop-session");
 
-const DESKTOP_DISPLAY = ":99";
 export const DESKTOP_VNC_PORT = 5999;
-const DESKTOP_WIDTH = 1600;
-const DESKTOP_HEIGHT = 900;
 const DESKTOP_GEOMETRY = `${DESKTOP_WIDTH}x${DESKTOP_HEIGHT}`;
 const DESKTOP_LINGER_MS = 5 * 60_000;
 const VNC_READY_DEADLINE_MS = 10_000;
@@ -156,6 +164,7 @@ type ViewerSlotResult =
   | { readonly ok: false; readonly loss: DesktopLoss };
 
 interface DesktopSessionManagerOptions {
+  readonly allocateDebugPort?: () => Promise<number>;
   readonly spawn?: (
     role: DesktopChildRole,
     request: DesktopSpawnRequest,
@@ -197,6 +206,7 @@ export class DesktopSessionManager {
   /** Bumped on every teardown so an in-flight start notices it lost its tree. */
   private generation = 0;
   private viewer: DesktopViewer | null = null;
+  private automation: DesktopViewer | null = null;
   private lingerTimer: ReturnType<typeof setTimeout> | null = null;
   private ingressClosed = false;
   /** Resolved for the current tree, and read again when the dock comes up. */
@@ -213,6 +223,70 @@ export class DesktopSessionManager {
     generation: number;
     refreshQueued: boolean;
   } | null = null;
+
+  private debugPort?: number;
+  private browserStarting: Promise<void> | null = null;
+  private readonly allocateDebugPort: () => Promise<number>;
+  readonly browser = new DesktopBrowserClient(async (signal) => {
+    if (!this.automation) {
+      throw new Error("Desktop browser requires an automation slot");
+    }
+    const generation = this.generation;
+    const owner = this.automation;
+    let child = this.children.get("browser");
+    let pid = child?.pid;
+    if (!pid && this.debugPort) {
+      pid = await findDesktopBrowserPid(
+        await this.resolveChromePath(),
+        this.profileDir,
+        this.debugPort,
+      );
+    }
+    if (this.generation !== generation || this.automation !== owner) {
+      throw new Error("Desktop Chrome session changed. Observe again.");
+    }
+    signal.throwIfAborted();
+    if (!pid) {
+      await this.ensureBrowser(this.childEnv(), generation);
+      child = this.children.get("browser");
+      pid = child?.pid;
+    }
+    const port = this.debugPort;
+    const isCurrent = () =>
+      this.generation === generation &&
+      this.automation === owner &&
+      (!child || this.children.get("browser") === child);
+    if (!pid || !port) {
+      throw new Error(
+        "Desktop Chrome is unavailable. Open the Desktop modal to inspect it, then retry the browser command.",
+      );
+    }
+    signal = AbortSignal.any([signal, AbortSignal.timeout(5_000)]);
+    const deadline = Date.now() + 5_000;
+    while (true) {
+      signal.throwIfAborted();
+      if (!isCurrent()) {
+        throw new Error("Desktop Chrome session changed. Observe again.");
+      }
+      try {
+        const url = await discoverDesktopBrowser(pid, port, signal);
+        const transport = await connectCdpWsTransport(url, {
+          signal,
+          connectTimeoutMs: 3000,
+        });
+        if (!isCurrent() || signal.aborted) {
+          transport.dispose();
+          throw new Error("Desktop Chrome session changed. Observe again.");
+        }
+        return transport;
+      } catch (error) {
+        if (Date.now() >= deadline || signal.aborted) {
+          throw error;
+        }
+        await sleep(100);
+      }
+    }
+  });
 
   private readonly spawn: NonNullable<DesktopSessionManagerOptions["spawn"]>;
   private readonly which: NonNullable<DesktopSessionManagerOptions["which"]>;
@@ -238,6 +312,8 @@ export class DesktopSessionManager {
   private readonly writeWindowManagerConfig: (configDir: string) => string;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
+    this.allocateDebugPort =
+      options.allocateDebugPort ?? allocateDesktopDebugPort;
     this.spawn = options.spawn ?? spawnDetached;
     this.which = options.which ?? Bun.which;
     this.probeVncPort = options.probeVncPort ?? probeLoopbackPort;
@@ -311,7 +387,29 @@ export class DesktopSessionManager {
       return;
     }
     this.viewer = null;
-    if (this.running || this.starting) {
+    if (!this.automation && (this.running || this.starting)) {
+      this.armLinger();
+    }
+  }
+
+  acquireAutomationSlot(owner: DesktopViewer): ViewerSlotResult {
+    if (this.ingressClosed) {
+      return { ok: false, loss: SHUTTING_DOWN_LOSS };
+    }
+    if (this.automation) {
+      return { ok: false, loss: BUSY_LOSS };
+    }
+    this.automation = owner;
+    this.clearLinger();
+    return { ok: true };
+  }
+
+  releaseAutomationSlot(owner: DesktopViewer): void {
+    if (this.automation !== owner) {
+      return;
+    }
+    this.automation = null;
+    if (!this.viewer && (this.running || this.starting)) {
       this.armLinger();
     }
   }
@@ -396,7 +494,7 @@ export class DesktopSessionManager {
     this.running = true;
     log.info({ display: DESKTOP_DISPLAY }, "Desktop started");
     void this.refreshWallpaper(env, generation);
-    void this.startBrowser(env, generation);
+    void this.ensureBrowser(env, generation);
   }
 
   private async refreshWallpaper(
@@ -458,23 +556,42 @@ export class DesktopSessionManager {
   }
 
   /** Launch Chrome and its dock once the X server is ready. */
+  private ensureBrowser(
+    env: Record<string, string>,
+    generation: number,
+  ): Promise<void> {
+    if (this.children.has("browser")) {
+      return Promise.resolve();
+    }
+    this.browserStarting ??= this.startBrowser(env, generation).finally(() => {
+      this.browserStarting = null;
+    });
+    return this.browserStarting;
+  }
+
   private async startBrowser(
     env: Record<string, string>,
     generation: number,
   ): Promise<void> {
     try {
       const executable = await this.resolveChromePath();
-      if (this.generation !== generation) {
+      const debugPort = this.debugPort ?? (await this.allocateDebugPort());
+      if (this.generation !== generation || this.children.has("browser")) {
         return;
       }
       mkdirSync(this.profileDir, { recursive: true });
+      this.debugPort = debugPort;
       try {
         configureDesktopChromeFrame(this.profileDir);
       } catch (err) {
         log.warn({ err }, "Desktop Chrome frame could not be configured");
       }
       this.startPanel(executable, env);
-      this.launch("browser", browserCommand(executable, this.profileDir), env);
+      this.launch(
+        "browser",
+        [executable, ...desktopChromeArguments(this.profileDir, debugPort)],
+        env,
+      );
     } catch (err) {
       log.warn({ err }, "Desktop browser failed to launch");
       if (this.generation === generation) {
@@ -499,6 +616,7 @@ export class DesktopSessionManager {
         configDir: this.panelConfigDir,
         chromiumPath,
         chromiumProfileDir: this.profileDir,
+        debugPort: this.debugPort,
         terminalPath: binaries.terminal,
       });
       this.launch("panel", [binaries.panelSession, "--", binaries.panel], {
@@ -585,6 +703,7 @@ export class DesktopSessionManager {
       return;
     }
     if (role === "browser") {
+      this.browser.dispose();
       log.info({ outcome }, "Desktop browser exited");
       return;
     }
@@ -607,6 +726,8 @@ export class DesktopSessionManager {
   private teardown(loss?: DesktopLoss): Promise<void> {
     this.clearLinger();
     this.generation += 1;
+    this.browser.dispose();
+    this.debugPort = undefined;
     this.running = false;
     this.binaries = null;
     this.panelStarted = false;
@@ -621,7 +742,12 @@ export class DesktopSessionManager {
     const children = new Map(this.children);
     this.children.clear();
     const viewer = this.viewer;
+    const automation = this.automation;
     this.viewer = null;
+    this.automation = null;
+    if (automation && loss) {
+      automation.onDesktopLost(loss);
+    }
     if (viewer && loss) {
       viewer.onDesktopLost(loss);
     }
@@ -741,6 +867,8 @@ function xServerCommand(executable: string): string[] {
     "None",
     "-rfbport",
     String(DESKTOP_VNC_PORT),
+    "-AllowOverride",
+    DESKTOP_OVERRIDABLE_PARAMETERS.join(","),
     "-geometry",
     DESKTOP_GEOMETRY,
     // Keep the dock and wallpaper anchored to a stable display.
@@ -749,22 +877,6 @@ function xServerCommand(executable: string): string[] {
     "24",
     "-desktop",
     "Vellum",
-  ];
-}
-
-function browserCommand(executable: string, profileDir: string): string[] {
-  // Explicit window bounds override Chrome's maximized startup state.
-  return [
-    executable,
-    "--no-sandbox",
-    "--no-first-run",
-    "--disable-dev-shm-usage",
-    // Crash recovery requires both flags; clean exits use normal startup.
-    ...(shouldRestoreDesktopChromeSession(profileDir)
-      ? ["--restore-last-session", "--hide-crash-restore-bubble"]
-      : []),
-    "--start-maximized",
-    `--user-data-dir=${profileDir}`,
   ];
 }
 

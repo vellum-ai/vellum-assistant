@@ -11,10 +11,9 @@
 
 import { useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useConversationStore } from "@/stores/conversation-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
@@ -34,12 +33,14 @@ import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-su
 import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
 import { MobileWakeDetailOverlay } from "@/domains/chat/components/mobile-wake-detail-overlay";
 import { MobileWorkflowDetailOverlay } from "@/domains/chat/components/mobile-workflow-detail-overlay";
+import { useAppViewerRouteHandlers } from "@/domains/chat/hooks/use-app-viewer-route-handlers";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 
 export function MobileChatOverlays() {
   const overlayTarget = useMobileOverlayTarget();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const mainView = useViewerStore.use.mainView();
@@ -62,18 +63,8 @@ export function MobileChatOverlays() {
   const backgroundTaskById = useBackgroundTaskStore.use.byId();
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
-  const handleCloseApp = useCallback(() => {
-    useViewerStore.getState().closeApp();
-    useConversationStore.getState().setEditingConversationId(null);
-  }, []);
-
-  const handleNavigateAppRoute = useCallback(
-    (href: string) => {
-      handleCloseApp();
-      navigate(href);
-    },
-    [handleCloseApp, navigate],
-  );
+  const { handleCloseApp, handleNavigateAppRoute } =
+    useAppViewerRouteHandlers();
 
   const handleShareApp = useCallback(() => {
     const app = useViewerStore.getState().openedAppState;
@@ -97,8 +88,12 @@ export function MobileChatOverlays() {
     // This portal only mounts on mobile (useMobileOverlayTarget), so
     // side-by-side never applies — `set_view: "split"` is a no-op here.
     (actionId: string, data?: Record<string, unknown>) =>
-      handleAppViewerAction({ navigate, isMobile: true }, actionId, data),
-    [navigate],
+      handleAppViewerAction(
+        { navigate, isMobile: true, state: location.state },
+        actionId,
+        data,
+      ),
+    [navigate, location.state],
   );
 
   const handleCloseDocument = useCallback(() => {

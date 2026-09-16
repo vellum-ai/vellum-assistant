@@ -1882,7 +1882,9 @@ paths:
           - monday
           - notion
           - outlook
+          - quickbooks
           - salesforce
+          - shopify
           - stripe_link
           - todoist
           - twitter
@@ -6216,13 +6218,15 @@ components:
   schemas:
     AccessConsent:
       type: object
-      description: Serializer for the user-controlled admin log access consent toggle.
+      description: Serializer for the user-controlled staff access consent toggle.
       properties:
         access_consented:
           type: boolean
-          description: When True, Vellum admins may view the daemon log files (/workspace/data/logs/assistant-*.log)
-            from this assistant pod for debugging. Defaults to False; the owner can
-            revoke at any time.
+          description: 'When True, Vellum staff may access this assistant and its
+            data for debugging: daemon log files, an admin terminal on the running
+            assistant, and a disposable clone of its disk. Defaults to False; the
+            owner can revoke at any time, which blocks new access and further commands
+            in open admin terminal sessions.'
       required:
       - access_consented
     AcknowledgeRequest:
@@ -8701,6 +8705,10 @@ components:
           type: string
           format: date-time
           nullable: true
+        provider_params:
+          type: object
+          additionalProperties:
+            type: string
       required:
       - account_label
       - connected
@@ -8749,6 +8757,8 @@ components:
       - monday
       - figma
       - stripe_link
+      - shopify
+      - quickbooks
       type: string
       description: |-
         * `twitter` - twitter
@@ -8769,6 +8779,8 @@ components:
         * `monday` - monday
         * `figma` - figma
         * `stripe_link` - stripe_link
+        * `shopify` - shopify
+        * `quickbooks` - quickbooks
     OAuthStartRequestRequest:
       type: object
       properties:
@@ -9333,13 +9345,15 @@ components:
             $ref: '#/components/schemas/OrganizationRead'
     PatchedAccessConsentRequest:
       type: object
-      description: Serializer for the user-controlled admin log access consent toggle.
+      description: Serializer for the user-controlled staff access consent toggle.
       properties:
         access_consented:
           type: boolean
-          description: When True, Vellum admins may view the daemon log files (/workspace/data/logs/assistant-*.log)
-            from this assistant pod for debugging. Defaults to False; the owner can
-            revoke at any time.
+          description: 'When True, Vellum staff may access this assistant and its
+            data for debugging: daemon log files, an admin terminal on the running
+            assistant, and a disposable clone of its disk. Defaults to False; the
+            owner can revoke at any time, which blocks new access and further commands
+            in open admin terminal sessions.'
     PatchedAssistantPartialUpdateRequest:
       type: object
       description: |-

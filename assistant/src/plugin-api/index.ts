@@ -286,6 +286,11 @@ export {
 // writes files under the workspace (e.g. its own `plugins/<name>/data/`
 // directory) resolves them against this instead of hardcoding a base path.
 export { getWorkspaceDir } from "../util/platform.js";
+// `String.prototype.slice` that never cuts a UTF-16 surrogate pair in half.
+// Any text a plugin truncates by character budget and hands to a model must
+// go through this: an orphaned half is invalid UTF-16 that strict provider
+// parsers reject.
+export { safeStringSlice } from "../util/unicode.js";
 // Declarative help for the top-level `assistant` CLI commands that have adopted
 // the static-help split. Plugins (e.g. the memory capability indexer) read this
 // to embed CLI command capabilities without importing the CLI action graph.
@@ -359,7 +364,8 @@ export {
   stringifyMessageContent,
 } from "../persistence/message-content.js";
 // Conversation history — reads and writes on the host conversation store
-// (rows, message history, processing state, disk-view paths) plus the lexical
+// (rows, message history, processing state, the recorded wire tool surface,
+// disk-view paths) plus the lexical
 // message-search surface. Every operation takes explicit parameters; nothing
 // is resolved from config. Async because the facade loads the DB store graph
 // lazily on first call.
@@ -371,6 +377,7 @@ export {
   getConversation,
   getConversationDirPath,
   getConversationProcessingStartedAt,
+  getConversationToolSurface,
   getMessages,
   hasLexicalTokens,
   isConversationProcessing,
@@ -438,6 +445,7 @@ export type {
   RunConversationTurnResult,
 } from "./conversation-turn.js";
 export { runConversationTurn } from "./conversation-turn.js";
+export { PluginTurnNotAdmittedError } from "./plugin-channel-turn-trust.js";
 // Live voice — drive a single client's real-time voice session (STT → agent
 // turn → TTS, with server-VAD turn-taking, pauses, and barge-in) over a
 // transport the plugin owns. The plugin brings only a `send` callback (e.g.

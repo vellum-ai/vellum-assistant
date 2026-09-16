@@ -14,6 +14,7 @@ import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
   requestLiveVoiceCameraLook,
+  requestLiveVoiceLookFrame,
   restoreVoiceRoom,
   setLiveVoiceMuted,
   useLiveVoiceStore,
@@ -167,19 +168,29 @@ export function applyLiveVoiceSessionControl(
       return;
     }
     case "look_screen":
+      if (!liveVoiceCanBeShownTheScreen()) {
+        return;
+      }
+      // Owed before the share is asked for, so a share this starts takes the
+      // look's frame as its first. The session answers the look from that
+      // frame, so one is owed even when a share is already running: the
+      // assistant asked to see the screen as it is now, and the last frame the
+      // call was given can be of a view that has since moved on.
+      requestLiveVoiceLookFrame("screen");
       // The screen under the pointer, as Option+S shares it. Where the mouse
       // is belongs to the host at the moment the ask lands. A share already
-      // running is left alone: the user asked to be seen, and they are.
-      if (
-        liveVoiceCanBeShownTheScreen() &&
-        useLiveVoiceStore.getState().screenShareTarget === null
-      ) {
+      // running is left on its target: the user asked to be seen, and they
+      // are.
+      if (useLiveVoiceStore.getState().screenShareTarget === null) {
         setCompanionScreenShare({ kind: "pointerDisplay" });
       }
       return;
     case "look_camera":
-      // The room owns the camera, so bring it back and leave the ask for it.
+      // The room owns the camera, so bring it back and leave the ask for it,
+      // with a fresh frame owed for the look whether Live starts now or was
+      // already running.
       restoreVoiceRoom();
+      requestLiveVoiceLookFrame("camera");
       requestLiveVoiceCameraLook("start");
       return;
     case "look_stop":

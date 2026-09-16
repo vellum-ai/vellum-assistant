@@ -78,6 +78,7 @@ const log = getLogger("assistant-ipc-server");
 // ---------------------------------------------------------------------------
 
 export type IpcRequest = {
+  cancelOnDisconnect?: boolean;
   id: string;
   method: string;
   params?: Record<string, unknown>;
@@ -404,6 +405,16 @@ export class AssistantIpcServer {
       this.abortControllers.set(req.id, abortController);
     }
 
+    const onDisconnect = () => abortController?.abort();
+    if (req.cancelOnDisconnect === true) {
+      socket.once("close", onDisconnect);
+    }
+    const removeDisconnectListener = () => {
+      if (req.cancelOnDisconnect === true) {
+        socket.off("close", onDisconnect);
+      }
+    };
+
     try {
       const handlerArgs = {
         ...injectLocalActorHeader(req.params),
@@ -434,14 +445,17 @@ export class AssistantIpcServer {
               reader,
               this.buildErrorResponse(req.id, err),
             );
-          });
+          })
+          .finally(removeDisconnectListener);
       } else {
+        removeDisconnectListener();
         if (!isIpcStreamingResponse(result)) {
           this.abortControllers.delete(req.id);
         }
         this.sendResult(socket, reader, req.id, result);
       }
     } catch (err) {
+      removeDisconnectListener();
       this.abortControllers.delete(req.id);
       log.warn({ err, method: req.method }, "IPC handler error");
       this.sendResponse(socket, reader, this.buildErrorResponse(req.id, err));

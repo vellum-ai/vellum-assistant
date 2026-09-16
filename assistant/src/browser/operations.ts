@@ -32,7 +32,8 @@ import {
 } from "../tools/browser/browser-execution.js";
 import { browserManager } from "../tools/browser/browser-manager.js";
 import { normalizeBrowserMode } from "../tools/browser/browser-mode.js";
-import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { ToolExecutionResult } from "../tools/types.js";
+import type { BrowserOperationContext as ToolContext } from "./types.js";
 import type { BrowserOperation } from "./types.js";
 
 // ── Dispatch handlers ────────────────────────────────────────────────

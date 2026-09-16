@@ -372,6 +372,9 @@ export async function handleInbound(
             : {}),
           chatType: event.source.chatType,
           conversationType: event.source.conversationType,
+          ...(event.source.botMentioned !== undefined
+            ? { botMentioned: event.source.botMentioned }
+            : {}),
           ...(event.source.threadId ? { threadId: event.source.threadId } : {}),
           ...(sourceChannelName ? { channelName: sourceChannelName } : {}),
           languageCode: event.actor.languageCode,

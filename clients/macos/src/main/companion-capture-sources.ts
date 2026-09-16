@@ -629,13 +629,15 @@ const SHARED_FRAME_MAX_HEIGHT = 1000;
  * One frame of a display or a window at a given size, or nothing when the
  * helper would not take it. The refusal is logged rather than thrown: both
  * callers ask for frames they can do without, and `what` is how the line says
- * which of them was asking.
+ * which of them was asking. `onError` hears why, for a caller that acts on
+ * the reason.
  */
 async function frameOf(
   target: WatchCaptureTarget,
   maxWidth: number,
   maxHeight: number,
   what: string,
+  onError?: (err: unknown) => void,
 ): Promise<ScreenCaptureFrame | null> {
   const params =
     target.kind === "display"
@@ -651,6 +653,7 @@ async function frameOf(
     );
   } catch (err) {
     log.warn(`[companion] could not take a frame of ${what}:`, err);
+    onError?.(err);
     return null;
   }
 }
@@ -660,16 +663,19 @@ async function frameOf(
  * when it could not: the window has gone, the display was unplugged, or
  * Screen Recording is not granted. The refusal is logged rather than thrown,
  * since the caller shares frames on a cadence and one missed frame is not an
- * error the user needs to hear about.
+ * error the call should notice. `onError` hears the reason, since a missing
+ * grant is one the user does need to hear about.
  */
 export async function captureTargetFrame(
   target: WatchCaptureTarget,
+  onError?: (err: unknown) => void,
 ): Promise<ScreenCaptureFrame | null> {
   return frameOf(
     target,
     SHARED_FRAME_MAX_WIDTH,
     SHARED_FRAME_MAX_HEIGHT,
     "the shared target",
+    onError,
   );
 }
 

@@ -94,11 +94,14 @@ describe("buildSlackSourceMetadata", () => {
     expect(meta.threadId).toBeUndefined();
   });
 
-  it("marks an app mention", () => {
+  it("carries only the thread: the mention fact rides the event itself", () => {
+    // `botMentioned` is stated on the inbound event's `source` block and
+    // forwarded by `handleInbound` like every other normalizer-stated fact,
+    // so an app_mention contributes nothing here beyond its thread.
     expect(
       buildSlackSourceMetadata(
         normalized({ rawType: "app_mention", threadTs: MESSAGE_TS }),
       ),
-    ).toEqual({ slackBotMentioned: true, threadId: MESSAGE_TS });
+    ).toEqual({ threadId: MESSAGE_TS });
   });
 });

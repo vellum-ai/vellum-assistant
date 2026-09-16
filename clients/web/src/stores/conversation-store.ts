@@ -33,6 +33,9 @@
  * - `pendingDraftPlugins` — plugins picked in the composer for the same
  *   not-yet-loaded conversations, keyed by conversation id → selected plugin
  *   ids (see field doc below)
+ * - `draftReplacements`: draft ids the server re-keyed on their first send,
+ *   mapped to the id it assigned, so a history entry naming the retired draft
+ *   can be redirected onto the row (see field doc below)
  *
  * @see https://zustand.docs.pmnd.rs/guides/flux-inspired-practice
  * @see @/hooks/conversation-queries.ts for the server-state half
@@ -98,6 +101,81 @@ function deleteFromMap<K, V>(prev: Map<K, V>, key: K): Map<K, V> {
 }
 
 // ---------------------------------------------------------------------------
+// Draft-replacement storage
+//
+// `sessionStorage`, not `localStorage`: a replacement is only ever looked up
+// for a history entry in the tab that recorded it, and another tab's entries
+// would redirect a key this tab never retired.
+// ---------------------------------------------------------------------------
+
+/** The one `sessionStorage` key, exported so tests need not redeclare it. */
+export const DRAFT_REPLACEMENTS_KEY = "vellum.draftReplacements";
+
+/** Cap on recorded replacements, oldest dropped first. */
+const MAX_DRAFT_REPLACEMENTS = 50;
+
+function boundDraftReplacements(
+  replacements: Map<string, string>,
+): Map<string, string> {
+  if (replacements.size <= MAX_DRAFT_REPLACEMENTS) {
+    return replacements;
+  }
+  return new Map([...replacements].slice(-MAX_DRAFT_REPLACEMENTS));
+}
+
+/**
+ * The replacements this tab has stored, as a map of draft id to server id.
+ *
+ * Empty when the key is absent or holds anything else, and when storage
+ * refuses the read, which a private window does: a redirect that cannot be
+ * looked up is the same as one that was never recorded.
+ */
+export function readStoredDraftReplacements(): Map<string, string> {
+  if (typeof window === "undefined") {
+    return new Map();
+  }
+  try {
+    const raw = sessionStorage.getItem(DRAFT_REPLACEMENTS_KEY);
+    if (raw === null) {
+      return new Map();
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      return new Map();
+    }
+    const entries = Object.entries(parsed as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    );
+    return boundDraftReplacements(new Map(entries));
+  } catch {
+    return new Map();
+  }
+}
+
+/** Store the map, dropping the key entirely when it is empty. */
+function writeStoredDraftReplacements(replacements: Map<string, string>): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    if (replacements.size === 0) {
+      sessionStorage.removeItem(DRAFT_REPLACEMENTS_KEY);
+      return;
+    }
+    sessionStorage.setItem(
+      DRAFT_REPLACEMENTS_KEY,
+      JSON.stringify(Object.fromEntries(replacements)),
+    );
+  } catch {
+    // Storage refuses the write; the map in memory still serves this load.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // State & Actions
 // ---------------------------------------------------------------------------
 
@@ -148,6 +226,21 @@ export interface ConversationListState {
    * removed once applied and on reset.
    */
   pendingDraftPlugins: Map<string, Set<string>>;
+  /**
+   * Draft ids a first send re-keyed, mapped to the id the server assigned.
+   *
+   * History entries pushed while the conversation was still a draft go on
+   * naming the draft id, and the daemon never had a row under it: selecting it
+   * lands an empty transcript on a dead key. `useConversationLoader` reads this
+   * to redirect such an entry onto its row instead.
+   *
+   * Lives as long as the tab's history does, which is why it is stored in
+   * `sessionStorage` rather than held only in memory: a reload keeps both the
+   * entry naming the draft and the marker that returns to it, so the mapping
+   * that resolves one onto the other has to outlive the load too. A new tab
+   * starts with none, and nothing here outlives the tab.
+   */
+  draftReplacements: Map<string, string>;
 }
 
 export interface ConversationListActions {
@@ -195,6 +288,14 @@ export interface ConversationListActions {
   /** Drop the draft mark once the key resolves server-side (no-op when absent). */
   clearDraftConversationId: (conversationId: string) => void;
 
+  // --- Draft replacements ---
+  /**
+   * Record the id a send assigned a draft. A draft the server kept the id of
+   * records nothing: the entries naming it name a row that exists, and a
+   * self-mapping would redirect onto itself.
+   */
+  recordDraftReplacement: (draftId: string, serverId: string) => void;
+
   // --- Pending draft profiles ---
   setPendingDraftProfile: (conversationId: string, profile: string) => void;
   /** Remove the stash for a single conversation id (no-op when absent). */
@@ -231,6 +332,7 @@ const INITIAL_STATE: ConversationListState = {
   draftConversationIds: new Set(),
   pendingDraftProfiles: new Map(),
   pendingDraftPlugins: new Map(),
+  draftReplacements: readStoredDraftReplacements(),
 };
 
 // ---------------------------------------------------------------------------
@@ -374,6 +476,20 @@ export const useConversationStore = createSelectors(
       });
     },
 
+    // --- Draft replacements ---
+
+    recordDraftReplacement: (draftId, serverId) => {
+      const current = get().draftReplacements;
+      if (draftId === serverId || current.get(draftId) === serverId) {
+        return;
+      }
+      const next = boundDraftReplacements(
+        new Map(current).set(draftId, serverId),
+      );
+      set({ draftReplacements: next });
+      writeStoredDraftReplacements(next);
+    },
+
     // --- Pending draft profiles ---
 
     setPendingDraftProfile: (conversationId, profile) => {
@@ -457,6 +573,7 @@ export const useConversationStore = createSelectors(
     // --- Reset ---
 
     reset: () => {
+      writeStoredDraftReplacements(new Map());
       set({
         ...INITIAL_STATE,
         processingConversationIds: new Set(),
@@ -465,6 +582,7 @@ export const useConversationStore = createSelectors(
         draftConversationIds: new Set(),
         pendingDraftProfiles: new Map(),
         pendingDraftPlugins: new Map(),
+        draftReplacements: new Map(),
       });
     },
   })),

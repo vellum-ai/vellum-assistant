@@ -7,6 +7,7 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { useTranslation } from "@/i18n";
 
 import { IntegrationListRow } from "../components/integration-list-row";
+import { integrationHostname } from "../integration-items";
 import type { McpServerEntry } from "./mcp-api";
 import { McpIntegrationIcon } from "./mcp-integration-icon";
 
@@ -15,8 +16,9 @@ interface McpServerCardProps {
   onRemove: (serverId: string) => void;
   onConfigure: (serverId: string) => void;
   onAuthenticate: (serverId: string) => void;
-  onManagePlugin: (pluginName: string) => void;
+  onManagePlugin: (pluginName?: string) => void;
   isAuthenticating: boolean;
+  connectDisabled?: boolean;
 }
 
 export function McpServerCard({
@@ -26,6 +28,7 @@ export function McpServerCard({
   onAuthenticate,
   onManagePlugin,
   isAuthenticating,
+  connectDisabled = false,
 }: McpServerCardProps) {
   const { t } = useTranslation("settings");
   const pluginOwned = server.source === "plugin";
@@ -48,7 +51,7 @@ export function McpServerCard({
     <IntegrationListRow
       icon={<McpIntegrationIcon />}
       title={server.id}
-      subtitle={pluginOwned ? server.pluginName : undefined}
+      subtitle={pluginOwned ? server.pluginName : integrationHostname(server)}
       status={
         <Tag tone={isConnected ? "positive" : "negative"}>
           {isConnected
@@ -64,16 +67,17 @@ export function McpServerCard({
           }
           onClick={() => {
             if (pluginOwned) {
-              if (server.pluginName) {
-                onManagePlugin(server.pluginName);
-              }
+              onManagePlugin(server.pluginName);
             } else if (needsAuth) {
               onAuthenticate(server.id);
             } else {
               onConfigure(server.id);
             }
           }}
-          disabled={isAuthenticating || (pluginOwned && !server.pluginName)}
+          disabled={
+            isAuthenticating ||
+            (needsAuth && connectDisabled)
+          }
         >
           {actionLabel}
         </Button>

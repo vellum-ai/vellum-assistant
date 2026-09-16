@@ -19,6 +19,7 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 import { cleanup, render, renderHook } from "@testing-library/react";
 
+import { conversationNavigationMock } from "@/utils/conversation-navigation.test-helper";
 import { routes } from "@/utils/routes";
 
 const utils = await import("@/lib/backwards-compat/utils");
@@ -58,24 +59,25 @@ mock.module("@/hooks/use-is-mobile", () => ({
 }));
 
 let mintedDraftCount = 0;
-mock.module("@/utils/conversation-navigation", () => ({
-  navigateToConversation: () => {},
-  // What the draft mint calls to bring the chat on screen. Stood in with the
-  // plain reveal the real one falls through to, since no app is open here.
-  revealConversationView: () => {
-    useViewerStore.getState().setMainView("chat");
-  },
-  // The mint's fresh-surface preparation, stood in with the parts this
-  // harness observes: a fresh key, selected and brought on screen. The
-  // process-store resets the real one performs have no readers here.
-  prepareFreshConversation: () => {
-    mintedDraftCount += 1;
-    const draftId = `voice-draft-${mintedDraftCount}`;
-    useViewerStore.getState().setMainView("chat");
-    useConversationStore.getState().setActiveConversationId(draftId);
-    return draftId;
-  },
-}));
+mock.module("@/utils/conversation-navigation", () =>
+  conversationNavigationMock({
+    // What the draft mint calls to bring the chat on screen. Stood in with the
+    // plain reveal the real one falls through to, since no app is open here.
+    revealConversationView: () => {
+      useViewerStore.getState().setMainView("chat");
+    },
+    // The mint's fresh-surface preparation, stood in with the parts this
+    // harness observes: a fresh key, selected and brought on screen. The
+    // process-store resets the real one performs have no readers here.
+    prepareFreshConversation: () => {
+      mintedDraftCount += 1;
+      const draftId = `voice-draft-${mintedDraftCount}`;
+      useViewerStore.getState().setMainView("chat");
+      useConversationStore.getState().setActiveConversationId(draftId);
+      return draftId;
+    },
+  }),
+);
 
 mock.module("@/hooks/use-assistant-avatar", () => ({
   useAssistantAvatar: () => ({

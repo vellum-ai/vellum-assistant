@@ -120,6 +120,19 @@ describe("McpServerCard", () => {
     expect(handlers.onConfigure).toHaveBeenCalledWith("example-meeting-notes");
   });
 
+  test("a partial plugin row opens generic plugin management", () => {
+    render(
+      <McpServerCard
+        {...handlers}
+        server={server({ source: "plugin", pluginName: undefined })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Manage plugin" }));
+    expect(handlers.onManagePlugin).toHaveBeenCalledWith(undefined);
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+  });
+
   test("the workspace action menu keeps Configure and Remove reachable during recovery", async () => {
     render(
       <McpServerCard {...handlers} server={server({ status: "needs-auth" })} />,

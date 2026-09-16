@@ -3,7 +3,7 @@
   "skills": {
     "acp": {
       "docsSlug": "acp",
-      "sha256": "afacaedef9be08a21b6c193944ffd1e5a8f0224c838a0aaa9f23b08ef4120f17"
+      "sha256": "856f7eb970aec89fd8095cb58315df7c675c81903a1add2b9b8962151a4ac27e"
     },
     "app-builder": {
       "docsSlug": "app-builder",
@@ -11,7 +11,7 @@
     },
     "computer-use": {
       "docsSlug": "computer-use",
-      "sha256": "ad8179cdb78b4d83a2833452f48db2562277c84834d37247b8b38d743305088d"
+      "sha256": "7f19d29f8244b323daf1f27a6779e28c8232300d01cc6a41a01d93e7a7db223e"
     },
     "contacts": {
       "docsSlug": "contacts",
@@ -51,7 +51,7 @@
     },
     "skill-management": {
       "docsSlug": "skill-management",
-      "sha256": "cc095fdb54af9ab614227aca110449b7ae6d4466e80ee4b36f0b9ce04e7aa92d"
+      "sha256": "57dac1438ed7c7587a5cff1a9140155479fc8e4df3022e9189c919bac6d12bb4"
     },
     "subagent": {
       "docsSlug": "subagent",

@@ -851,6 +851,22 @@ the URL is the source of truth. Custom in-memory navigation state
 (e.g. `MainView` enums synced to URLs via effects) should be replaced
 by routes as views are ported.
 
+The app viewer is ported this way:
+`/assistant/conversations/:conversationId/app/:appId` names the app on
+screen. `useAppRouteSync` is the one bridge from that segment into
+`useViewerStore`. An open navigates to
+`routes.conversation(conversationId, appId)`; every removal of the
+segment goes through the helpers in `utils/conversation-navigation.ts`,
+whose docblocks carry the rules.
+
+The split, the minimized strip and the app itself are presentation
+rather than history, so a reload lands the app full width. The chat pane
+bound beside the app names a conversation, which the URL also names, so
+`useAppRouteSync` keeps the binding on the conversation the route names.
+Closing returns through the entry the open recorded
+(`utils/app-navigation.ts`, mirroring `utils/document-navigation.ts`)
+and replaces the app's own entry when there is none.
+
 References:
 - [React Router — Nested Routes](https://reactrouter.com/start/framework/routing#nested-routes)
 - [React Router — useSearchParams](https://reactrouter.com/hooks/use-search-params)
