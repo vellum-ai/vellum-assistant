@@ -1398,11 +1398,20 @@ export const PROVIDER_SEED_DATA: Record<
       "read_customers",
       "write_customers",
       "read_inventory",
+      "write_inventory",
       "read_locations",
       "read_fulfillments",
+      "write_fulfillments",
       "read_discounts",
       "write_discounts",
       "read_price_rules",
+      "write_price_rules",
+      "read_content",
+      "write_content",
+      "read_reports",
+      // Location, shipping, and marketing writes stay opt-in from the scope
+      // picker: they change store setup rather than day-to-day operations,
+      // and keeping them out of the defaults keeps the install consent short.
       // write_themes covers listing, duplicating, and publishing themes.
       // Writing theme files (settings, JSON templates, Liquid) also requires
       // Shopify's theme-code exemption on the app itself, which is granted
@@ -1449,6 +1458,7 @@ export const PROVIDER_SEED_DATA: Record<
         description: "Adjust inventory levels and items",
       },
       { scope: "read_locations", description: "Read store locations" },
+      { scope: "write_locations", description: "Add and edit store locations" },
       { scope: "read_fulfillments", description: "Read fulfillment services" },
       {
         scope: "write_fulfillments",
@@ -1468,6 +1478,14 @@ export const PROVIDER_SEED_DATA: Record<
       },
       { scope: "read_files", description: "Read files uploaded to the store" },
       { scope: "write_files", description: "Upload and update files" },
+      {
+        scope: "read_content",
+        description: "Read blog posts, pages, and comments",
+      },
+      {
+        scope: "write_content",
+        description: "Create and update blog posts, pages, and comments",
+      },
       { scope: "read_gift_cards", description: "Read gift cards" },
       {
         scope: "write_gift_cards",
@@ -1481,10 +1499,22 @@ export const PROVIDER_SEED_DATA: Record<
         scope: "read_shipping",
         description: "Read shipping and delivery carrier services",
       },
+      {
+        scope: "write_shipping",
+        description: "Create and update delivery carrier services",
+      },
+      {
+        scope: "read_reports",
+        description: "Run ShopifyQL sales and analytics queries",
+      },
       { scope: "read_analytics", description: "Read analytics and reports" },
       {
         scope: "read_marketing_events",
         description: "Read marketing events and activities",
+      },
+      {
+        scope: "write_marketing_events",
+        description: "Create and update marketing events and activities",
       },
       { scope: "read_order_edits", description: "Read order edits" },
       {
