@@ -4,11 +4,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { PreviewModalHeader } from "@/domains/chat/components/preview-modal-header";
+import {
+  useInteractionStore,
+  useSubmittingRequestId,
+} from "@/domains/chat/interaction-store";
 import { useTranslation } from "@/i18n";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import { cn } from "@/utils/misc";
 
 import { DesktopPanel } from "./desktop-panel";
+import { getDesktopHelpEntry } from "./desktop-help";
 import { useDesktopPreviewStore } from "./desktop-preview-store";
 
 interface DesktopPreviewContentProps {
@@ -26,7 +31,13 @@ export function DesktopPreviewContent({
 }: DesktopPreviewContentProps) {
   const { t } = useTranslation("chat");
   const isPresent = useIsPresent();
-  const interactive = fullscreen && isPresent;
+  const question = useInteractionStore.use.pendingQuestion();
+  const submittingRequestId = useSubmittingRequestId("question");
+  const submittingHelp =
+    !!getDesktopHelpEntry(question) &&
+    submittingRequestId === question?.requestId;
+  const modalOpen = fullscreen && isPresent;
+  const interactive = modalOpen && !submittingHelp;
   const previewRef = useRef<HTMLDivElement>(null);
   // A stable portal host keeps the live session mounted across both surfaces.
   const [host] = useState(() => {
@@ -89,7 +100,7 @@ export function DesktopPreviewContent({
         <DesktopPanel assistantId={assistantId} viewOnly={!interactive} />,
         host,
       )}
-      <Modal.Root open={interactive} onOpenChange={setFullscreen}>
+      <Modal.Root open={modalOpen} onOpenChange={setFullscreen}>
         <Modal.Content
           id="assistant-desktop-modal"
           hideCloseButton

@@ -800,3 +800,38 @@ test.each([false, true])(
     }
   },
 );
+
+test("submitting desktop help disables input before the request resolves", async () => {
+  useInteractionStore.setState({
+    pendingQuestion: { requestId: "req-help", entries: [helpEntry] },
+  });
+  try {
+    render(
+      <>
+        <PendingDesktopHelpRow requestId="req-help" />
+        <AssistantDesktopPreview />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Step In" }));
+    const panel = await screen.findByTestId("desktop-panel");
+    expect(panel.getAttribute("data-view-only")).toBe("false");
+    act(() => {
+      useInteractionStore.getState().claimSubmission("question", "req-help");
+    });
+    expect(panel.getAttribute("data-view-only")).toBe("true");
+    expect(useInteractionStore.getState().pendingQuestion?.requestId).toBe(
+      "req-help",
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(panelUnmounts).toBe(0);
+    act(() => {
+      useInteractionStore.getState().releaseSubmission("question", "req-help");
+    });
+    expect(panel.getAttribute("data-view-only")).toBe("false");
+  } finally {
+    act(() => {
+      useInteractionStore.getState().releaseSubmission("question", "req-help");
+      useInteractionStore.setState({ pendingQuestion: null });
+    });
+  }
+});
