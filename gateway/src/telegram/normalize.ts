@@ -21,10 +21,10 @@ import type {
   ModeledKeysAreOfficial,
   OfficialValueSatisfiesOurs,
 } from "../webhook-crosscheck.js";
+import type { RoomAdmissionDropReason } from "../channels/room-admission.js";
 import {
   admitTelegramMessage,
   type TelegramAdmissionCandidate,
-  type TelegramAdmissionDropReason,
 } from "./admit.js";
 import type { TelegramBotIdentity } from "./bot-identity.js";
 
@@ -257,7 +257,7 @@ const TelegramUpdateSchema = z.object({
  * normalizer cannot read.
  */
 export type TelegramDropReason =
-  | TelegramAdmissionDropReason
+  | RoomAdmissionDropReason
   | "malformed_update"
   | "missing_update_id"
   | "missing_chat"

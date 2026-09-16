@@ -1,14 +1,17 @@
 import { describe, expect, test } from "bun:test";
 
 import { createDiscordAdmissionDropLog } from "./admission-log.js";
-import type { AdmissionDropReason } from "./admit.js";
+import type { RoomAdmissionDropReason } from "../channels/room-admission.js";
 import "../__tests__/test-preload.js";
 
 const CHANNEL = "1532468750740357331";
 const OTHER_CHANNEL = "800000000000000002";
 
 /** Reasons that never surface: machine traffic, unbounded volume, no signal. */
-const NEVER_PROMOTED: AdmissionDropReason[] = ["self_authored", "bot_authored"];
+const NEVER_PROMOTED: RoomAdmissionDropReason[] = [
+  "self_authored",
+  "bot_authored",
+];
 
 describe("Discord admission drop log", () => {
   test("a person's un-addressed message surfaces once, at info", () => {

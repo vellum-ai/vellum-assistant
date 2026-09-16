@@ -8,33 +8,25 @@ import {
   AdmissionDropLog,
   type AdmissionDropLogLevel,
 } from "../channels/admission-drop-log.js";
+import { ROOM_ADMISSION_DROP_LOG_SEVERITY } from "../channels/room-admission.js";
 import type { TelegramDropReason } from "./normalize.js";
 
 /**
- * The level a reason logs at on its first occurrence for a chat.
+ * The level a reason logs at on its first occurrence for a chat. The
+ * room-admission reasons carry the shared severities; the rest are shapes the
+ * normalizer cannot read.
  *
- * `bot_not_mentioned` is a person making a room remark that does not address
- * the bot. It is not a fault, but it is evidence that events reach the
- * gateway at all, which is the fact a person debugging a quiet group needs,
- * and this line is the only place that records it, since Telegram sees a 200
- * either way. `chat_not_supported` and `bot_identity_unknown` are the two a
- * person or operator can act on. The malformed-shape reasons promote because
- * a well-formed Bot API update never produces them, so any occurrence is
- * worth a look.
+ * The malformed-shape reasons promote because a well-formed Bot API update
+ * never produces them, so any occurrence is worth a look. They name no chat,
+ * so the policy promotes every one of them.
  *
  * `no_supported_content` is ordinary traffic: a sticker, a location, a
  * contact card. The bot is not built to read them and nothing is
  * misconfigured. The callback edge cases are inline-mode artifacts of the
- * same kind. `self_authored` and `bot_authored` never promote for the reason
- * Discord's table gives: they scale with room chatter and no
- * misconfiguration produces them.
+ * same kind.
  */
 const DROP_LOG_SEVERITY: Record<TelegramDropReason, AdmissionDropLogLevel> = {
-  bot_not_mentioned: "info",
-  chat_not_supported: "info",
-  bot_identity_unknown: "info",
-  self_authored: "debug",
-  bot_authored: "debug",
+  ...ROOM_ADMISSION_DROP_LOG_SEVERITY,
   malformed_update: "info",
   missing_update_id: "info",
   missing_chat: "info",
