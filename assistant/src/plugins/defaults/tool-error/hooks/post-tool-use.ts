@@ -10,7 +10,10 @@
  * guidance while the client-facing and persisted tool output stay the tool's
  * actual result. This mirrors how Claude Code (`additionalContext`) and Codex
  * (`additional_contexts`) surface PostToolUse feedback as separate context
- * rather than rewriting the tool response.
+ * rather than rewriting the tool response. The one exception is an assistant
+ * turn that left a native web search deferred: its answering message must
+ * hold tool_result blocks alone, so the loop folds the guidance into the
+ * provider-bound copy of the errored tool_result (see `buildToolResultFollowUp`).
  *
  * The coaching is bounded per tool: once a single tool has failed
  * `MAX_CONSECUTIVE_ERROR_NUDGES` times in a row the notice is dropped — the
