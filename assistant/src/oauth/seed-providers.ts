@@ -1400,7 +1400,6 @@ export const PROVIDER_SEED_DATA: Record<
       "read_inventory",
       "write_inventory",
       "read_locations",
-      "write_locations",
       "read_fulfillments",
       "write_fulfillments",
       "read_discounts",
@@ -1409,11 +1408,10 @@ export const PROVIDER_SEED_DATA: Record<
       "write_price_rules",
       "read_content",
       "write_content",
-      "read_shipping",
-      "write_shipping",
       "read_reports",
-      "read_marketing_events",
-      "write_marketing_events",
+      // Location, shipping, and marketing writes stay opt-in from the scope
+      // picker: they change store setup rather than day-to-day operations,
+      // and keeping them out of the defaults keeps the install consent short.
       // write_themes covers listing, duplicating, and publishing themes.
       // Writing theme files (settings, JSON templates, Liquid) also requires
       // Shopify's theme-code exemption on the app itself, which is granted
