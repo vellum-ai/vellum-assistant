@@ -40,7 +40,9 @@ export function InboxCard({
         className,
       )}
     >
-      <div className="relative flex flex-col gap-6 px-8 pb-6 pt-12">
+      {/* Even top and bottom: the title sits as far from the card's top as
+          the action does from its bottom. */}
+      <div className="relative flex flex-col gap-6 px-8 py-8">
         <header className="flex flex-col items-center gap-2 text-center">
           <h2 className="text-[var(--content-emphasised)]" style={TITLE_STYLE}>
             {title}

@@ -62,6 +62,7 @@ export function AssistantInboxSetupCard({
       <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
         <InboxCard
           title={t("assistantInboxSetupCard.title")}
+          subtitle={t("assistantInboxSetupCard.subtitle")}
           footerAlign="center"
           footer={
             <Button

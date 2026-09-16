@@ -48,6 +48,7 @@
   },
   "assistantInboxSetupCard": {
     "title": "Assistant Email",
+    "subtitle": "Set up an email for your assistant.",
     "getStarted": "Get started"
   }
 }
