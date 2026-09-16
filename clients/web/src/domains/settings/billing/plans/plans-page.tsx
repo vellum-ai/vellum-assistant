@@ -553,9 +553,12 @@ function PlansPageContent() {
       : undefined;
 
     // Confirmed Pro → Free cancellation: schedule it server-side. Success
-    // closes the confirm (the hook's toast names the end date); failure keeps
-    // it open for a retry (the hook already toasted the error). A sub the
-    // endpoint would reject hands off to the Stripe portal instead.
+    // leaves the takeover for the billing settings tab, where the pending
+    // cancellation is shown (the hook's toast names the end date); the plans
+    // page is replaced in history so Back doesn't land on a now-stale plan
+    // picker. Failure keeps the confirm open for a retry (the hook already
+    // toasted the error). A sub the endpoint would reject hands off to the
+    // Stripe portal instead.
     const confirmFreeDowngrade = async (survey: CancelReasonSurveyValue) => {
       if (!canCancelDirectly) {
         setFreeDowngradeOpen(false);
@@ -565,6 +568,7 @@ function PlansPageContent() {
       const result = await cancelSubscription(toCancelRequestBody(survey));
       if (result) {
         setFreeDowngradeOpen(false);
+        navigate(routes.settings.usageBilling, { replace: true });
       }
     };
 

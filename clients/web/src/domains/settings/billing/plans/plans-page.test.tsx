@@ -969,9 +969,12 @@ describe("PlansPage — Pro package switch (change-package)", () => {
     expect(
       toastInfoCalls.some((m) => m.startsWith("Pro plan canceled")),
     ).toBe(true);
-    // Stays on the plans page with no Stripe redirect, and never touches the
+    // Lands on the billing settings tab (where the pending cancellation is
+    // shown) with no Stripe redirect, and never touches the
     // portal/package/checkout endpoints.
-    expect(getByTestId("loc").textContent).toBe("/assistant/plans");
+    await waitFor(() =>
+      expect(getByTestId("loc").textContent).toBe(routes.settings.usageBilling),
+    );
     expect(openedUrl).toBeNull();
     expect(portalSessionCall).toBeNull();
     expect(changePackageCall).toBeNull();
