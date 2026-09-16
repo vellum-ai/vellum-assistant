@@ -46,7 +46,7 @@ import type {
 } from "@/domains/chat/transcript/types";
 import {
   applyEvent,
-  resolveSnapshot,
+  resolveSeed,
 } from "@/domains/chat/transcript/rolling-snapshot";
 import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
@@ -352,59 +352,30 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   // --- Materialized snapshot ---
   seedSnapshot: (conversationId, snapshot) => {
-    // Anchor-less regression guard. `seq: null` means the daemon has not yet
-    // durably persisted any stream content for this conversation — typically a
-    // fresh conversation's first turn, where the partial-persist debounce
-    // (1s) outlives a short reply, so every mid-turn `/messages` fetch comes
-    // back with no anchor. With no anchor there is no cursor to replay the
-    // buffered tail from, so taking such a fetch wholesale would wipe every
-    // event the live view has already folded: the streamed text vanishes and
-    // the following deltas rebuild only the suffix until the turn-end reseed
-    // restores the full reply (the mid-turn "vanishing prefix" flicker). A
-    // live view that has folded seq-stamped events is a superset of anything
-    // an anchor-less fetch can hold, so keep it and drop the fetch. The
-    // snapshot reset on conversation switch guarantees a non-null live view
-    // belongs to `conversationId`.
-    const current = get().snapshot;
-    if (
-      snapshot.seq == null &&
-      current !== null &&
-      typeof current.seq === "number"
-    ) {
+    // The snapshot reset on conversation switch guarantees a non-null live view
+    // belongs to `conversationId`, so the guards in `resolveSeed` compare like
+    // with like.
+    const seed = resolveSeed(
+      get().snapshot,
+      snapshot,
+      getSseEnvelopesSince(conversationId, snapshot.seq ?? null),
+    );
+    if (seed.kind === "skip_anchorless") {
       recordDiagnostic("history_seed_skipped_anchorless", {
         conversationId,
-        liveSeq: current.seq,
+        liveSeq: seed.liveSeq,
       });
       return;
     }
-    const tail = getSseEnvelopesSince(conversationId, snapshot.seq ?? null);
-    // Stale-anchored regression guard, the anchored twin of the guard above.
-    // A `/messages` fetch that was already in flight when the live view folded
-    // newer stream content commits with an older watermark — e.g. a refetch
-    // started just before a send whose `user_message_echo` has since folded in.
-    // When the ring can't bridge from the fetch's anchor (`tail === null`,
-    // typically because other conversations' events pushed the global seq past
-    // it while this tab was backgrounded), taking the fetch wholesale would
-    // regress the snapshot to its pre-send state — and since the echo already
-    // retired the optimistic copy, the user's just-sent message vanishes until
-    // the next authoritative reconcile restores it (the send flicker). The
-    // live view is anchored strictly ahead of the fetch, so keep it and drop
-    // the fetch; a later fetch with a caught-up anchor reseeds normally.
-    if (
-      tail === null &&
-      current !== null &&
-      typeof current.seq === "number" &&
-      typeof snapshot.seq === "number" &&
-      snapshot.seq < current.seq
-    ) {
+    if (seed.kind === "skip_stale_anchor") {
       recordDiagnostic("history_seed_skipped_stale_anchor", {
         conversationId,
-        liveSeq: current.seq,
-        fetchedSeq: snapshot.seq,
+        liveSeq: seed.liveSeq,
+        fetchedSeq: seed.fetchedSeq,
       });
       return;
     }
-    const resolved = resolveSnapshot(snapshot, tail);
+    const resolved = seed.history;
     set((s) => ({
       snapshot: resolved,
       optimisticSends: pruneConfirmedOptimisticSends(

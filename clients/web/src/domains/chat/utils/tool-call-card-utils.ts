@@ -106,8 +106,7 @@ export type ToolCallCardStep =
       /**
        * Stable key (the originating `tool_call`'s `toolUseId`) that lets the
        * subagent timeline render this search as a clickable pill opening its
-       * nested query + sources detail — matching the key
-       * `buildSubagentStepDetails` emits. Unset for main-chat builders, whose
+       * nested query + sources detail. Unset for main-chat builders, whose
        * searches aren't clickable.
        */
       detailKey?: string;
@@ -540,13 +539,35 @@ function computeTotalDurationLabel(
  * drawer payload construction lives in one place. Reuses the same
  * `deriveStepLabel` / status / duration derivations the card row uses, so the
  * drawer opens with identical title/activity/status/duration regardless of
- * which affordance the user clicks.
+ * which affordance the user clicks. A web search carries the query and sources
+ * of the same step the card builds for it, so its drawer shows them rather than
+ * raw input and output; a failed one keeps the generic body, where its error
+ * reads in full.
  */
 export function toolDetailPayloadFromToolCall(
   tc: ChatMessageToolCall,
 ): ToolDetailPayload {
   const { title, activity } = deriveStepLabel(tc);
+  const searchStep =
+    tc.name === "web_search" ? buildStepForToolCall(tc, {}) : null;
+  const search: Pick<
+    ToolDetailPayload,
+    "kind" | "searchQuery" | "searchResults"
+  > =
+    searchStep?.kind === "web_search"
+      ? {
+          kind: "web_search",
+          searchQuery:
+            tc.activityMetadata?.webSearch?.query ||
+            readToolInputString(tc.input ?? {}, "query"),
+          searchResults: [
+            ...searchStep.results,
+            ...(searchStep.overflowResults ?? []),
+          ],
+        }
+      : {};
   return {
+    ...search,
     toolCallId: tc.id,
     toolName: tc.name,
     title,

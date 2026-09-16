@@ -16,7 +16,12 @@ export function handleSubagentSpawned(
   event: SubagentSpawnedEvent,
   ctx: StreamHandlerContext,
 ): void {
-  useSubagentStore.getState().spawnSubagent({
+  const store = useSubagentStore.getState();
+  // A spawn seen live starts the subagent's stream, so its history seeds empty
+  // and every event folds in. An entry recovered before the spawn arrived
+  // keeps waiting for its fetched seed.
+  const isNew = !store.byId[event.subagentId];
+  store.spawnSubagent({
     subagentId: event.subagentId,
     label: event.label,
     objective: event.objective,
@@ -26,6 +31,9 @@ export function handleSubagentSpawned(
     parentMessageStableId: ctx.currentAssistantMessageIdRef.current,
     parentToolUseId: event.parentToolUseId,
   });
+  if (isNew) {
+    store.seedLiveHistory(event.subagentId);
+  }
 }
 
 export function handleSubagentStatusChanged(

@@ -6,12 +6,6 @@
  * stream — a seedable LCG event generator plus an append/coalesce simulator that
  * mirrors `subagent-store.receiveEvent`'s two incremental array shapes — so the
  * generator lives here ONCE to keep the two suites in lockstep.
- *
- * The ONE genuine divergence between the two suites is parameterized: when an
- * `error` event closes an in-flight tool, the detail suite attaches the tool's
- * `toolName` / `toolUseId` / `isError` / `result` metadata (so the failed-tool
- * payload is keyed and carries the error), while the step suite emits a bare
- * error row. Pass `errorEventsCarryToolMeta` to `generateStream` to select.
  */
 
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
@@ -101,17 +95,6 @@ export type Mutation =
   | { kind: "append"; event: SubagentTimelineEvent }
   | { kind: "coalesce"; delta: string };
 
-export interface GenerateStreamOptions {
-  /**
-   * When an `error` event closes an in-flight tool, attach the tool's
-   * `toolName` / `toolUseId` / `isError` / `result` metadata. The detail suite
-   * needs this so the failed-tool payload is keyed by `toolUseId` and carries
-   * the error; the step suite emits a bare error row instead. Defaults to
-   * `false`.
-   */
-  errorEventsCarryToolMeta?: boolean;
-}
-
 /**
  * Generate a deterministic sequence of store mutations: text deltas (coalesced
  * when consecutive), tool calls, their results/errors, and web_search/web_fetch
@@ -122,7 +105,6 @@ export function generateStream(
   seed: number,
   n: number,
   makeEvent: MakeEvent,
-  { errorEventsCarryToolMeta = false }: GenerateStreamOptions = {},
 ): Mutation[] {
   const rng = makeRng(seed);
   const mutations: Mutation[] = [];
@@ -220,26 +202,12 @@ export function generateStream(
     }
 
     if (openTools.length > 0) {
-      // Close an open tool with a raw error event. The detail suite keys the
-      // failed-tool payload off the closed tool's metadata; the step suite
-      // emits a bare error row.
+      // Close an open tool with a raw error event.
       const idx = Math.floor(rng() * openTools.length);
-      const open = openTools.splice(idx, 1)[0]!;
+      openTools.splice(idx, 1);
       mutations.push({
         kind: "append",
-        event: errorEventsCarryToolMeta
-          ? makeEvent(
-              {
-                type: "error",
-                toolName: open.toolName,
-                toolUseId: open.id,
-                isError: true,
-                result: `err-${i}`,
-                content: `err-${i}`,
-              },
-              ts,
-            )
-          : makeEvent({ type: "error", content: `err-${i}` }, ts),
+        event: makeEvent({ type: "error", content: `err-${i}` }, ts),
       });
       continue;
     }

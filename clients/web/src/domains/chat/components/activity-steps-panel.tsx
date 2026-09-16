@@ -59,6 +59,7 @@ import {
   WebSearchStepRow,
 } from "@/domains/chat/components/web-search/web-search-step-row";
 import { useLiveActivityGroup } from "@/domains/chat/hooks/use-live-activity-group";
+import { TRANSCRIPT_TOOL_CALL_SOURCE } from "@/domains/chat/hooks/use-live-tool-call";
 import { useToolCallCardDataFromItems } from "@/domains/chat/hooks/use-tool-call-card-data";
 import { isActivityLive, useTurnStore } from "@/domains/chat/turn-store";
 import {
@@ -297,7 +298,10 @@ function ActivityStepsPanelTarget({
                 {t("activityStepsPanel.thinkingTitle")}
               </Typography>
             ) : (
-              <ToolDetailHeaderTitle detail={stepDetail} />
+              <ToolDetailHeaderTitle
+                detail={stepDetail}
+                source={TRANSCRIPT_TOOL_CALL_SOURCE}
+              />
             )
           ) : (
             <DetailShellTitleWithCount
@@ -498,7 +502,11 @@ function StepDetailLevel({
       {detail.kind === "thinking" ? (
         <ThinkingDetailMarkdown detail={detail} assistantId={assistantId} />
       ) : (
-        <ToolDetailBody detail={detail} assistantId={assistantId} />
+        <ToolDetailBody
+          detail={detail}
+          source={TRANSCRIPT_TOOL_CALL_SOURCE}
+          assistantId={assistantId}
+        />
       )}
     </div>
   );

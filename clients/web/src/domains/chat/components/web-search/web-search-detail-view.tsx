@@ -8,7 +8,7 @@ import { useTranslation } from "@/i18n";
  *
  * Static / presentational: reads only the `searchQuery` + `searchResults` the
  * panel already built into the `ToolDetailPayload` (see
- * `buildSubagentStepDetails`), so it never re-parses or fetches.
+ * `toolDetailPayloadFromToolCall`), so it never re-parses or fetches.
  */
 
 import { Typography } from "@vellumai/design-library";

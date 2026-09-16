@@ -18,7 +18,7 @@
  *     — not just last-id equality. `mapDetailEvents` restarts ids at `detail-1`
  *     per subagent, so two different subagents whose detail arrays each have one
  *     event collide on `id === "detail-1"`; matching only by id would misclassify
- *     a subagent switch as mutate-last and leave a stale tool entry that a full
+ *     a subagent switch as mutate-last and leave a stale entry that a full
  *     rebuild drops (then a stale pill could open the previous subagent's detail).
  *  3. **Full-replace** — `loadDetail` swaps the whole array (history hydration /
  *     subagent switch).
@@ -48,13 +48,9 @@ import { classifyEventsDiff } from "@/domains/chat/subagent-projection-diff";
 import type { SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
-/** Per-payload metadata tracked in parallel with `payloads` (indexed by position). */
-type DetailMeta = { startTs: number; running: boolean };
-
 /** The per-event reducer signature shared by the full and incremental paths. */
 type DetailReducer = (
   payloads: ToolDetailPayload[],
-  meta: DetailMeta[],
   event: SubagentTimelineEvent,
 ) => void;
 
@@ -69,8 +65,8 @@ function payloadsToMap(
  * Create a stateful incremental detail projector. `project(events)` returns the
  * `toolCallId`-keyed `Map<string, ToolDetailPayload>` for `events`, replaying
  * only the diff vs the previous call through `applyDetailEvent`. The payload
- * array, parallel meta array, and resulting `Map` are cached; identical inputs
- * return the cached `Map` by reference.
+ * array and resulting `Map` are cached; identical inputs return the cached `Map`
+ * by reference.
  *
  * One projector instance owns one cache slot — hold it per component instance
  * (see `useSubagentStepDetails`), never module-global, so the panel and any
@@ -84,23 +80,20 @@ export function createIncrementalDetailProjection(
 ) {
   let prevEvents: SubagentTimelineEvent[] | null = null;
   let payloads: ToolDetailPayload[] = [];
-  let meta: DetailMeta[] = [];
   let map: Map<string, ToolDetailPayload> = new Map();
 
   function fullBuild(
     events: SubagentTimelineEvent[],
   ): Map<string, ToolDetailPayload> {
     // Re-run the reducer ourselves (rather than calling `buildSubagentStepDetails`)
-    // so the cached `payloads`/`meta` stay in sync for the next incremental diff.
+    // so the cached `payloads` stay in sync for the next incremental diff.
     const builtPayloads: ToolDetailPayload[] = [];
-    const builtMeta: DetailMeta[] = [];
     for (const event of events) {
-      reducer(builtPayloads, builtMeta, event);
+      reducer(builtPayloads, event);
     }
 
     prevEvents = events;
     payloads = builtPayloads;
-    meta = builtMeta;
     map = payloadsToMap(payloads);
     return map;
   }
@@ -127,16 +120,11 @@ export function createIncrementalDetailProjection(
       case "append": {
         const len = events.length;
         const payloadsClone = payloads.slice();
-        const metaClone = meta.slice();
         for (let i = diff.from; i < len; i++) {
-          reducer(payloadsClone, metaClone, events[i]!);
+          reducer(payloadsClone, events[i]!);
         }
         prevEvents = events;
         payloads = payloadsClone;
-        meta = metaClone;
-        // The Map build is O(n) but pointer-cheap — the expensive per-event
-        // parsing (parseWebSearchResultText, deriveStepLabelFromName) already ran
-        // only for the appended events inside the reducer above.
         map = payloadsToMap(payloads);
         return map;
       }
@@ -145,7 +133,6 @@ export function createIncrementalDetailProjection(
       case "mutate-last": {
         const len = events.length;
         const payloadsClone = payloads.slice();
-        const metaClone = meta.slice();
 
         // A text event contributes 0 or 1 trailing `thinking` payload (keyed by
         // the event id) and never mutates earlier payloads, so popping the keyed
@@ -160,14 +147,12 @@ export function createIncrementalDetailProjection(
           tail.toolCallId === events[len - 1]!.id
         ) {
           payloadsClone.pop();
-          metaClone.pop();
         }
 
-        reducer(payloadsClone, metaClone, events[len - 1]!);
+        reducer(payloadsClone, events[len - 1]!);
 
         prevEvents = events;
         payloads = payloadsClone;
-        meta = metaClone;
         map = payloadsToMap(payloads);
         return map;
       }

@@ -27,6 +27,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   createReachabilityBurstLimiter,
   type ReachabilityBurstLimiter,
@@ -293,6 +294,9 @@ export function useEventStream({
       envelope.conversationId === activeConversationIdLatestRef.current
     ) {
       useChatSessionStore.getState().applyEnvelopeToSnapshot(envelope);
+      // A subagent's own events ride this conversation's stream inside
+      // `subagent_event`; they fold into that subagent's history the same way.
+      useSubagentStore.getState().applySubagentEnvelope(envelope);
     }
   });
 

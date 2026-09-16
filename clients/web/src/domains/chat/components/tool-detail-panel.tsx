@@ -24,7 +24,11 @@ import { ThinkingDetailMarkdown } from "@/domains/chat/components/thinking-detai
 import { friendlyName } from "@/domains/chat/components/tool-call-chip/utils";
 import { ToolOutputBody } from "@/domains/chat/components/tool-activity/tool-output-body";
 import { getToolActivityRenderer } from "@/domains/chat/components/tool-activity/tool-activity-renderers";
-import { useLiveToolCall } from "@/domains/chat/hooks/use-live-tool-call";
+import {
+  TRANSCRIPT_TOOL_CALL_SOURCE,
+  useLiveToolCall,
+  type ToolCallSource,
+} from "@/domains/chat/hooks/use-live-tool-call";
 import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import {
@@ -70,21 +74,24 @@ function ThinkingDetailBody({
  * The tool that ran and its risk level belong to `ToolDetailHeaderTitle`, so
  * nothing here repeats them.
  *
- * Subscribes to the chat-session store via `useLiveToolCall` so an open drawer
+ * Reads the call from its `source` via `useLiveToolCall` so an open drawer
  * streams `tool_output_chunk` output while the call runs and flips to the final
  * `result` when it lands, falling back to the open-time snapshot on `detail`
  * when the call can't be resolved live (e.g. paged out).
  */
 export function ToolDetailBody({
   detail,
+  source,
   assistantId,
 }: {
   detail: ToolDetailPayload;
+  /** Where the call lives, so the body reads it live. */
+  source: ToolCallSource;
   /** Threaded to any markdown a tool-specific renderer shows. */
   assistantId?: string | null;
 }) {
   const { t } = useTranslation("chat");
-  const liveTc = useLiveToolCall(detail.toolCallId);
+  const liveTc = useLiveToolCall(source, detail.toolCallId);
   const result = liveTc?.result ?? detail.result;
   const streamedOutput = liveTc?.streamedOutput ?? detail.streamedOutput;
 
@@ -179,13 +186,16 @@ export function toolDetailHeaderTitle(detail: ToolDetailPayload): string {
  */
 export function ToolDetailHeaderTitle({
   detail,
+  source,
 }: {
   detail: ToolDetailPayload;
+  /** Where the call lives, so the risk level reads live. */
+  source: ToolCallSource;
 }) {
   // Risk is classified asynchronously and can land after the drawer opens, so
   // read it live and fall back to the open-time snapshot. The raw `riskReason`
   // rule-match string ("ls (default)") is classifier jargon and stays hidden.
-  const liveTc = useLiveToolCall(detail.toolCallId);
+  const liveTc = useLiveToolCall(source, detail.toolCallId);
   const riskLevel = liveTc?.riskLevel ?? detail.riskLevel;
   const title = toolDetailHeaderTitle(detail);
   return (
@@ -251,14 +261,23 @@ export function ToolDetailPanel({
   return (
     <DetailShell
       Glyph={Glyph}
-      titleNode={<ToolDetailHeaderTitle detail={detail} />}
+      titleNode={
+        <ToolDetailHeaderTitle
+          detail={detail}
+          source={TRANSCRIPT_TOOL_CALL_SOURCE}
+        />
+      }
       closeLabel={t("toolDetailPanel.closeAria")}
       // Bordered X, matching the Figma sidepanel header and the sibling
       // background-task / settings drawers.
       closeVariant="outlined"
       onClose={onClose}
     >
-      <ToolDetailBody detail={detail} assistantId={assistantId} />
+      <ToolDetailBody
+        detail={detail}
+        source={TRANSCRIPT_TOOL_CALL_SOURCE}
+        assistantId={assistantId}
+      />
     </DetailShell>
   );
 }

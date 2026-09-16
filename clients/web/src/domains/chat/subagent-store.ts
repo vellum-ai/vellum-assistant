@@ -23,14 +23,24 @@ import { createSelectors } from "@/utils/create-selectors";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
+  AssistantEventSchema,
   SubagentStatusSchema,
+  type AssistantEventEnvelope,
   type SubagentStatus,
   type SubagentInnerEvent,
 } from "@vellumai/assistant-api";
+import {
+  applyEvent,
+  emptyHistory,
+  resolveSeed,
+} from "@/domains/chat/transcript/rolling-snapshot";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import { getSseEnvelopesSince } from "@/lib/streaming/stream-debug";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import { isActiveStatus, shouldApplyStatus } from "@/utils/subagent-status";
 import { supportsSubagentsReconcile } from "@/lib/backwards-compat/subagents-reconcile";
 import { fetchSubagentDetail } from "./fetch-subagent-detail";
+import { fetchSubagentHistory } from "./fetch-subagent-history";
 import { mapDetailEvents } from "./map-detail-events";
 import { setToolUseAnchor } from "./store-helpers/by-tool-use-id-index";
 import {
@@ -63,7 +73,7 @@ export interface SubagentTimelineEvent {
   toolUseId?: string;
   /**
    * `content` remains the ≤120-char summary that drives labels; `input`/
-   * `result` are the raw payloads used only by the nested tool-detail view.
+   * `result` are the raw payloads the timeline's richer labels read.
    */
   input?: Record<string, unknown>;
   result?: string;
@@ -90,6 +100,15 @@ export interface SubagentEntry {
   outputTokens: number;
   spawnedAt: number;
   events: SubagentTimelineEvent[];
+  /**
+   * The subagent's own conversation in the transcript's canonical form: the
+   * child's `/messages` snapshot advanced by folding its `subagent_event`
+   * inner events, exactly as the main chat folds its own stream. `null` until
+   * seeded, and while unseeded live events are not folded (the seed replays
+   * the buffered tail). A live spawn seeds empty, since every event it will
+   * ever have arrives on the stream.
+   */
+  history: PaginatedHistoryResult | null;
   /** The subagent's own conversation ID, used to fetch detail data. */
   conversationId?: string;
   /**
@@ -269,6 +288,24 @@ export interface SubagentActions {
     event: SubagentInnerEvent;
     timestamp: number;
   }) => void;
+
+  /**
+   * Fold one stream envelope into its subagent's history when it is a
+   * `subagent_event` for a seeded entry. Idempotent by the envelope's `seq`,
+   * which the child's `/messages` anchor shares.
+   */
+  applySubagentEnvelope: (envelope: AssistantEventEnvelope) => void;
+
+  /**
+   * Seed (or resync) a subagent's history from its child conversation's
+   * snapshot, replaying the buffered `subagent_event` tail after the
+   * snapshot's anchor. Same merge rule as the main chat's `seedSnapshot`
+   * (`resolveSeed`).
+   */
+  seedHistory: (subagentId: string, snapshot: PaginatedHistoryResult) => void;
+
+  /** Seed an unseeded entry with an empty history so live events fold. */
+  seedLiveHistory: (subagentId: string) => void;
 
   loadDetail: (params: {
     subagentId: string;
@@ -590,6 +627,81 @@ function extractSearchQuery(event: SubagentInnerEvent): string | undefined {
   return typeof query === "string" && query.length > 0 ? query : undefined;
 }
 
+/**
+ * The inner event of a `subagent_event` envelope re-enveloped under the outer
+ * envelope's `seq` and `emittedAt`, so the transcript fold can apply it. `null`
+ * for any other event, or an inner event the canonical schema rejects.
+ */
+function unwrapSubagentEnvelope(
+  envelope: AssistantEventEnvelope,
+): { subagentId: string; envelope: AssistantEventEnvelope } | null {
+  const message = envelope.message;
+  if (message.type !== "subagent_event") {
+    return null;
+  }
+  const inner = AssistantEventSchema.safeParse(message.event);
+  if (!inner.success) {
+    return null;
+  }
+  return {
+    subagentId: message.subagentId,
+    envelope: { ...envelope, message: inner.data },
+  };
+}
+
+/**
+ * The buffered inner events for one subagent with `seq > sinceSeq`, or `null`
+ * when the buffer can't bridge the anchor (see `getSseEnvelopesSince`). The
+ * wrapping envelopes are scoped to the parent conversation.
+ */
+function subagentEnvelopesSince(
+  parentConversationId: string | undefined,
+  subagentId: string,
+  sinceSeq: number | null,
+): AssistantEventEnvelope[] | null {
+  if (!parentConversationId) {
+    return null;
+  }
+  const tail = getSseEnvelopesSince(parentConversationId, sinceSeq);
+  if (tail === null) {
+    return null;
+  }
+  const inner: AssistantEventEnvelope[] = [];
+  for (const envelope of tail) {
+    const unwrapped = unwrapSubagentEnvelope(envelope);
+    if (unwrapped?.subagentId === subagentId) {
+      inner.push(unwrapped.envelope);
+    }
+  }
+  return inner;
+}
+
+/**
+ * Seed a subagent's history from its child conversation's `/messages`. With no
+ * child conversation to ask, or on a failed fetch, the entry seeds empty so
+ * the live stream still accrues a history.
+ */
+async function loadSubagentHistory(
+  get: () => SubagentStore,
+  assistantId: string,
+  subagentId: string,
+): Promise<void> {
+  const conversationId = get().byId[subagentId]?.conversationId;
+  if (!conversationId) {
+    get().seedLiveHistory(subagentId);
+    return;
+  }
+  try {
+    get().seedHistory(
+      subagentId,
+      await fetchSubagentHistory(assistantId, conversationId),
+    );
+  } catch (err) {
+    captureError(err, { context: "loadSubagentHistory", bestEffort: true });
+    get().seedLiveHistory(subagentId);
+  }
+}
+
 let timelineEventCounter = 0;
 
 /** Generate a unique ID for timeline events. */
@@ -824,6 +936,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       outputTokens: params.outputTokens ?? 0,
       spawnedAt: params.timestamp,
       events: [],
+      history: null,
       conversationId: params.conversationId,
       parentConversationId: params.parentConversationId,
       parentMessageStableId: params.parentMessageStableId,
@@ -884,15 +997,18 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       outputTokens: params.outputTokens,
     });
 
+    const addressable = canAddressSubagentDetail({
+      conversationId: params.conversationId,
+      parentConversationId,
+    });
+    // No fetch can ever seed an unaddressable row, so its history is what the
+    // stream delivers from here on.
+    if (!addressable) {
+      get().seedLiveHistory(params.subagentId);
+    }
     // Only a live row can have its backfill overtaken by streamed events, and
     // only an addressable one has a backfill coming at all.
-    if (
-      !isActiveStatus(status) ||
-      !canAddressSubagentDetail({
-        conversationId: params.conversationId,
-        parentConversationId,
-      })
-    ) {
+    if (!isActiveStatus(status) || !addressable) {
       return;
     }
     const { byId } = get();
@@ -1049,6 +1165,60 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
         },
       },
     });
+  },
+
+  applySubagentEnvelope: (envelope) => {
+    const unwrapped = unwrapSubagentEnvelope(envelope);
+    if (!unwrapped) {
+      return;
+    }
+    const { byId } = get();
+    const existing = byId[unwrapped.subagentId];
+    if (!existing?.history) {
+      return;
+    }
+    const history = applyEvent(existing.history, unwrapped.envelope);
+    // Events that change no content (usage, lifecycle) leave the entry alone
+    // rather than churn every subscriber for a watermark.
+    if (history.messages === existing.history.messages) {
+      return;
+    }
+    set({
+      byId: {
+        ...byId,
+        [unwrapped.subagentId]: { ...existing, history },
+      },
+    });
+  },
+
+  seedHistory: (subagentId, snapshot) => {
+    const { byId } = get();
+    const existing = byId[subagentId];
+    if (!existing) {
+      return;
+    }
+    const seed = resolveSeed(
+      existing.history,
+      snapshot,
+      subagentEnvelopesSince(
+        existing.parentConversationId,
+        subagentId,
+        snapshot.seq ?? null,
+      ),
+    );
+    if (seed.kind !== "seed") {
+      return;
+    }
+    set({
+      byId: { ...byId, [subagentId]: { ...existing, history: seed.history } },
+    });
+  },
+
+  seedLiveHistory: (subagentId) => {
+    if (get().byId[subagentId]?.history !== null) {
+      return;
+    }
+    get().seedHistory(subagentId, emptyHistory());
   },
 
   loadDetail: (params) => {
@@ -1322,6 +1492,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
           },
         });
       }
+      await loadSubagentHistory(get, assistantId, subagentId);
       return;
     }
 
@@ -1342,6 +1513,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       parentToolUseId: detail.parentToolUseId,
       conversationId: detail.conversationId,
     });
+    // After `loadDetail`, which learns the child conversation the history is
+    // read from.
+    await loadSubagentHistory(get, assistantId, subagentId);
   },
 
   reconcileFromDaemon: (

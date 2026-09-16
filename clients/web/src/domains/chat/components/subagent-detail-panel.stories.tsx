@@ -36,6 +36,7 @@ const runningEntry: SubagentEntry = {
   inputTokens: 1200,
   outputTokens: 340,
   spawnedAt: now,
+  history: null,
   events: [
     {
       id: "te-call",
