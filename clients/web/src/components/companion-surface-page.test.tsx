@@ -1405,21 +1405,19 @@ describe("the companion's introduction", () => {
     expect(advanceIntroMock.mock.calls).toEqual([["next"]]);
   });
 
-  test("Skip ends the run rather than advancing it", async () => {
+  test("the close glyph ends the run rather than advancing it", async () => {
     STATE.intro = "meet";
     const { container } = render(<CompanionSurfacePage />);
     const card = await pinCard(container);
-    const skip = Array.from(card.querySelectorAll("button")).find(
-      (button) => button.textContent === "Skip",
-    );
-    fireEvent.click(skip as HTMLElement);
+    const close = card.querySelector('[aria-label="Close"]');
+    fireEvent.click(close as HTMLElement);
     expect(advanceIntroMock.mock.calls).toEqual([["dismiss"]]);
   });
 
   /**
-   * The window is click-through everywhere it has not been told otherwise, so a
-   * card that did not make it interactive would put Next and Skip on screen
-   * with every press on them landing in whatever app is behind.
+   * The window is click-through everywhere it has not been told otherwise, so
+   * a card that did not make it interactive would put Next and the close glyph
+   * on screen with every press on them landing in whatever app is behind.
    */
   test("makes the window clickable while the pointer is on the card", async () => {
     STATE.intro = "meet";

@@ -9,6 +9,8 @@ import type {
 import type { VoiceActivityState } from "@vellumai/ipc-contract";
 import type { CSSProperties, Ref } from "react";
 
+import { X } from "lucide-react";
+
 import { useTranslation } from "@/i18n";
 
 import { companionLayoutFor } from "@/components/companion-layout";
@@ -368,12 +370,23 @@ export function CompanionIntro({
         event.stopPropagation();
       }}
     >
+      {/* The way out, in the corner every panel keeps one in rather than as a
+          word beside the primary control: it is the same affordance on every
+          beat, including the last, and one that does not have to be read. */}
+      <button
+        type="button"
+        aria-label={t("companionIntro.close")}
+        className="absolute top-2 right-2 flex size-6 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/10 hover:text-white/80"
+        onClick={() => onAdvance?.("dismiss")}
+      >
+        <X className="size-3.5" />
+      </button>
       {/* Clamped, because the only variable in this card is a name the user
           chose and there is no length it has to be. The card's width is fixed
           and its height is borrowed from the canvas main reserves for it, so a
           title free to wrap is a title free to grow the card past what it was
           drawn into. Two lines holds every name worth reading. */}
-      <p className="flex items-center gap-1.5 text-[13px] leading-tight font-medium text-white">
+      <p className="flex items-center gap-1.5 pr-6 text-[13px] leading-tight font-medium text-white">
         {/* The first beat is the introduction proper, so it is the one that
             says the name. Two keys rather than one with an empty argument: a
             sentence built around a name that is not there reads as a bug, and
@@ -424,28 +437,13 @@ export function CompanionIntro({
             />
           ))}
         </div>
-        <div className="flex items-center gap-1">
-          {/* Skip is offered only while there is something left to skip. On
-              the last beat the primary control already ends the run, and two
-              buttons that do the same thing is a choice the user has to stop
-              and read. */}
-          {!isLast && (
-            <button
-              type="button"
-              className="h-7 rounded-full px-2.5 text-[12px] text-white/55 transition-colors hover:bg-white/10 hover:text-white/80"
-              onClick={() => onAdvance?.("dismiss")}
-            >
-              {t("companionIntro.skip")}
-            </button>
-          )}
-          <button
-            type="button"
-            className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
-            onClick={() => onAdvance?.("next")}
-          >
-            {isLast ? t("companionIntro.done") : t("companionIntro.next")}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="h-7 rounded-full bg-white/15 px-3 text-[12px] text-white transition-colors hover:bg-white/25"
+          onClick={() => onAdvance?.("next")}
+        >
+          {isLast ? t("companionIntro.done") : t("companionIntro.next")}
+        </button>
       </div>
     </div>
   );

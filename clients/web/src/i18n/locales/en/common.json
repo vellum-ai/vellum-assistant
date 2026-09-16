@@ -138,6 +138,7 @@
   },
   "companionIntro": {
     "ariaLabel": "Introducing your companion",
+    "close": "Close",
     "done": "Got it",
     "draw": {
       "body": "Circle or point at anything on your screen while I'm looking.",
@@ -163,7 +164,6 @@
       "line": "Listening",
       "title": "Show me your screen"
     },
-    "skip": "Skip",
     "talk": {
       "body": "Click me or double tap Fn to start a conversation.",
       "title": "Talk"
