@@ -28,6 +28,7 @@ import {
   type AcpSessionSnapshot,
   listAcpSessionSnapshots,
   snapshotHistoryRow,
+  withCurrentAuthMarkers,
 } from "../../acp/session-snapshot.js";
 import { isLiveAcpStatus } from "../../acp/types.js";
 import {
@@ -560,43 +561,12 @@ async function listSessions({ queryParams }: RouteHandlerArgs) {
   return { sessions: [...page, stripMarkerCredential(marker)] };
 }
 
-/**
- * Blank the failure code on any session whose marker no longer describes the
- * credential its agent would resolve.
- *
- * This comparison is what retires a Connect card: not a sweep that has to run
- * at the right moment, but the marker no longer describing the credential in
- * use. Applied after merging rather than inside the query, so live sessions
- * and history rows are judged by exactly the same rule.
- *
- * Resolved per agent, because precedence is per agent: one alias can carry a
- * configured token while another falls through to the vault. Memoised across
- * the request, since a conversation's marked runs are nearly always one agent
- * and each resolution costs a vault read.
- */
 async function withCurrentMarkersOnly(
   sessions: MergedSession[],
   resolvedFor: (agentId: string) => Promise<string | undefined>,
 ): Promise<SessionEntry[]> {
-  const strip = stripMarkerCredential;
-  if (!sessions.some((s) => s.authErrorCode !== undefined)) {
-    return sessions.map(strip);
-  }
-  const judged: SessionEntry[] = [];
-  for (const session of sessions) {
-    if (session.authErrorCode === undefined) {
-      judged.push(strip(session));
-      continue;
-    }
-    const current = acpAuthMarkerStillCurrent(
-      session.authErrorCredential,
-      await resolvedFor(session.agentId),
-    );
-    judged.push(
-      strip(current ? session : { ...session, authErrorCode: undefined }),
-    );
-  }
-  return judged;
+  const judged = await withCurrentAuthMarkers(sessions, resolvedFor);
+  return judged.map(stripMarkerCredential);
 }
 
 function bulkDeleteSessions({ queryParams }: RouteHandlerArgs) {

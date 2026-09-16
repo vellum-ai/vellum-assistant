@@ -1,15 +1,36 @@
 import { z } from "zod";
 
+import { resolvedClaudeCredentialDigest } from "../../acp/prepare-agent-env.js";
 import {
   type AcpSessionSnapshot,
   getAcpSessionSnapshot,
   listAcpSessionSnapshots,
+  withCurrentAuthMarkers,
 } from "../../acp/session-snapshot.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
 } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+
+const STATUS_LIST_LIMIT = 50;
+
+/**
+ * Keep every live session visible, then fill remaining capacity from durable
+ * history. An older active run must not be displaced by newer historical rows.
+ */
+function selectStatusSnapshots(
+  sessions: AcpSessionSnapshot[],
+): AcpSessionSnapshot[] {
+  const live = sessions.filter((session) => session.source === "live");
+  const history = sessions
+    .filter((session) => session.source === "history")
+    .sort((a, b) => b.startedAt - a.startedAt);
+  const remaining = Math.max(0, STATUS_LIST_LIMIT - live.length);
+  return [...live, ...history.slice(0, remaining)].sort(
+    (a, b) => b.startedAt - a.startedAt,
+  );
+}
 
 /**
  * Model-input schema, `safeParse`d at the top of {@link executeAcpStatus}.
@@ -89,22 +110,40 @@ export async function executeAcpStatus(
           isError: true,
         };
       }
+      const judged = (
+        await withCurrentAuthMarkers(
+          [snapshot],
+          resolvedClaudeCredentialDigest,
+        )
+      )[0];
+      if (!judged) {
+        return {
+          content: `ACP session "${acpSessionId}" not found`,
+          isError: true,
+        };
+      }
       return {
-        content: JSON.stringify(projectSession(snapshot)),
+        content: JSON.stringify(projectSession(judged)),
         isError: false,
       };
     }
 
-    const snapshots = listAcpSessionSnapshots({
-      limit: 50,
-      includeEventLog: false,
-    }).sessions.slice(0, 50);
+    const snapshots = selectStatusSnapshots(
+      listAcpSessionSnapshots({
+        limit: STATUS_LIST_LIMIT,
+        includeEventLog: false,
+      }).sessions,
+    );
     if (snapshots.length === 0) {
       return { content: "No ACP sessions found.", isError: false };
     }
 
+    const judged = await withCurrentAuthMarkers(
+      snapshots,
+      resolvedClaudeCredentialDigest,
+    );
     return {
-      content: JSON.stringify(snapshots.map(projectSession)),
+      content: JSON.stringify(judged.map(projectSession)),
       isError: false,
     };
   } catch (err) {

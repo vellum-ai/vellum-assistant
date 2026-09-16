@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
+import { acpAuthMarkerStillCurrent } from "./acp-auth-marker-store.js";
 import { getAcpSessionManager } from "./index.js";
 import type { AcpSessionManager } from "./session-manager.js";
 import type { AcpSessionState } from "./types.js";
@@ -136,6 +137,54 @@ export function snapshotHistoryRow(
     resumable: isResumableHistoryRow(row),
     cwd: row.cwd,
   };
+}
+
+/**
+ * Blank `authErrorCode` on any session whose marker no longer describes the
+ * credential its agent would resolve.
+ *
+ * This comparison is what retires a Connect card: the marker no longer
+ * describing the credential in use. Applied after merging rather than inside
+ * the query, so live sessions and history rows are judged by the same rule.
+ *
+ * Resolved per agent and memoised across the batch, because precedence is per
+ * agent and each resolution costs a vault read.
+ */
+export async function withCurrentAuthMarkers<
+  T extends {
+    agentId: string;
+    authErrorCode?: string;
+    authErrorCredential?: string;
+  },
+>(
+  sessions: readonly T[],
+  resolvedFor: (agentId: string) => Promise<string | undefined>,
+): Promise<T[]> {
+  if (!sessions.some((session) => session.authErrorCode !== undefined)) {
+    return [...sessions];
+  }
+  const resolvedByAgent = new Map<string, string | undefined>();
+  const resolve = async (agentId: string) => {
+    if (!resolvedByAgent.has(agentId)) {
+      resolvedByAgent.set(agentId, await resolvedFor(agentId));
+    }
+    return resolvedByAgent.get(agentId);
+  };
+  const judged: T[] = [];
+  for (const session of sessions) {
+    if (session.authErrorCode === undefined) {
+      judged.push(session);
+      continue;
+    }
+    const current = acpAuthMarkerStillCurrent(
+      session.authErrorCredential,
+      await resolve(session.agentId),
+    );
+    judged.push(
+      current ? session : { ...session, authErrorCode: undefined },
+    );
+  }
+  return judged;
 }
 
 export function getAcpSessionSnapshot(

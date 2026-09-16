@@ -27,6 +27,7 @@ const RUNNING_STATE: AcpSessionState = {
 };
 
 let liveStates: AcpSessionState[] = [];
+let fakeStoredCredential: string | undefined;
 
 const realAcpModule = await import("../../acp/index.js");
 mock.module("../../acp/index.js", () => ({
@@ -37,6 +38,13 @@ mock.module("../../acp/index.js", () => ({
   }),
 }));
 
+const realClaudeOauth = await import("../../acp/acp-claude-oauth.js");
+mock.module("../../acp/acp-claude-oauth.js", () => ({
+  ...realClaudeOauth,
+  storedClaudeTokenDigest: async () => fakeStoredCredential,
+}));
+
+import { claudeTokenDigest } from "../../acp/acp-auth-marker-store.js";
 import {
   clearHistory,
   insertHistoryRow,
@@ -54,6 +62,7 @@ const context = {
 
 beforeEach(() => {
   liveStates = [];
+  fakeStoredCredential = undefined;
   clearHistory();
 });
 
@@ -253,5 +262,88 @@ describe("executeAcpStatus", () => {
 
     expect(result.content).toBe("No ACP sessions found.");
     expect(result.isError).toBe(false);
+  });
+
+  test("withholds a persisted auth marker after the credential is replaced", async () => {
+    const refused = claudeTokenDigest("sk-ant-oat-refused");
+    insertHistoryRow({
+      id: "auth-failed-1",
+      status: "failed",
+      error: "authentication required",
+      cwd: "/tmp/project",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: refused,
+    });
+    fakeStoredCredential = claudeTokenDigest("sk-ant-oat-replacement");
+
+    const result = await executeAcpStatus(
+      { acp_session_id: "auth-failed-1" },
+      context,
+    );
+
+    expect(JSON.parse(result.content)).toMatchObject({
+      id: "auth-failed-1",
+      status: "failed",
+      lastRunStatus: "failed",
+    });
+    expect(JSON.parse(result.content).authErrorCode).toBeUndefined();
+    expect(result.content).not.toContain("authErrorCredential");
+  });
+
+  test("keeps a persisted auth marker while the refused credential is current", async () => {
+    const refused = claudeTokenDigest("sk-ant-oat-refused");
+    insertHistoryRow({
+      id: "auth-failed-2",
+      status: "failed",
+      cwd: "/tmp/project",
+      authErrorCode: "acp_claude_auth_required",
+      authErrorCredential: refused,
+    });
+    fakeStoredCredential = refused;
+
+    const result = await executeAcpStatus(
+      { acp_session_id: "auth-failed-2" },
+      context,
+    );
+
+    expect(JSON.parse(result.content)).toMatchObject({
+      id: "auth-failed-2",
+      status: "failed",
+      authErrorCode: "acp_claude_auth_required",
+    });
+    expect(result.content).not.toContain("authErrorCredential");
+  });
+
+  test("keeps an older live session when 50 newer history rows exist", async () => {
+    liveStates = [
+      {
+        ...RUNNING_STATE,
+        id: "old-live",
+        startedAt: 1,
+      },
+    ];
+    for (let i = 0; i < 50; i++) {
+      insertHistoryRow({
+        id: `hist-${i}`,
+        acpSessionId: `proto-hist-${i}`,
+        startedAt: 1000 + i,
+        status: "completed",
+        cwd: "/tmp/project",
+      });
+    }
+
+    const result = await executeAcpStatus({}, context);
+    const payload = JSON.parse(result.content) as Array<{
+      id: string;
+      status: string;
+    }>;
+
+    expect(payload).toHaveLength(50);
+    expect(payload.some((entry) => entry.id === "old-live")).toBe(true);
+    expect(payload.find((entry) => entry.id === "old-live")?.status).toBe(
+      "running",
+    );
+    expect(payload[0]?.id).toBe("hist-49");
+    expect(payload.some((entry) => entry.id === "hist-0")).toBe(false);
   });
 });
