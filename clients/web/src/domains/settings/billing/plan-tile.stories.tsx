@@ -40,6 +40,7 @@ import {
   priceLabelFromCents,
 } from "@/domains/settings/components/tier-pricing";
 import { useDocumentTheme } from "@/hooks/use-document-theme";
+import { formatMonthDay } from "@/utils/format-date";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 
 // Every story here draws a creature avatar, so warm the bundled-component
@@ -71,10 +72,14 @@ const NEXT_PLAN_TAG = (
   </Tag>
 );
 
-/** The current-plan tile's footer: a rule and the monthly price. */
-function priceFooter(label: string) {
+/**
+ * The current-plan tile's footer: a rule and the monthly price, with the
+ * renewal date beside it for a sub that has one, as `plan-card.tsx` lays it
+ * out when there is no usage reading to chart instead.
+ */
+function priceFooter(label: string, renewal?: string) {
   return (
-    <div className="flex h-10 items-center border-t border-[var(--border-base)]">
+    <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
       <Typography
         as="span"
         variant="body-large-default"
@@ -82,6 +87,15 @@ function priceFooter(label: string) {
       >
         {label}
       </Typography>
+      {renewal ? (
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="whitespace-nowrap text-[var(--content-tertiary)]"
+        >
+          {renewal}
+        </Typography>
+      ) : null}
     </div>
   );
 }
@@ -181,7 +195,8 @@ export const CurrentFreeUsageBalance: Story = {
 /**
  * A subscriber's current-plan tile, on the catalog's Mighty package, when the
  * platform reports no grant figures to chart: with no Current Usage reading
- * the footer keeps the price row. The price is the fixture's own
+ * the footer keeps the price row, dated with the renewal the subscription
+ * itself carries. The price is the fixture's own
  * `total_price_cents` run through the shared `priceLabelFromCents` formatter,
  * so it stays honest if the package is repriced.
  */
@@ -193,7 +208,10 @@ export const CurrentPaid: Story = {
     nameTestId: "plan-card-name",
     tag: CURRENT_TAG,
     specs: packageSpecs(MIGHTY, `${MIGHTY.name} usage, reset monthly`),
-    footer: priceFooter(priceLabelFromCents(MIGHTY.total_price_cents)),
+    footer: priceFooter(
+      priceLabelFromCents(MIGHTY.total_price_cents),
+      `Renews on ${formatMonthDay(STORY_PERIOD_END)}`,
+    ),
   },
 };
 

@@ -22,6 +22,7 @@ import {
 } from "@/domains/settings/billing/plan-spec";
 import { PlanTile } from "@/domains/settings/billing/plan-tile";
 import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
+import { formatMonthDay } from "@/utils/format-date";
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
 import { useCheckoutDismissRefresh } from "@/domains/settings/billing/use-checkout-dismiss-refresh";
 import {
@@ -473,8 +474,23 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
     : currentPackage
       ? priceLabelFromCents(currentPackage.total_price_cents)
       : null;
+  // The renewal is dated only where one is coming: not for the free plan,
+  // whose grant is one-time, not for a sub that is ending rather than
+  // renewing, which the header's cancellation line already dates, and not for
+  // a status the platform bears no entitlement for (`unpaid`, `incomplete`,
+  // `paused`, a null status), which keeps its last `current_period_end`
+  // without renewing on it.
+  const usagePeriodEnd: string | undefined =
+    !isFreePlan &&
+    !isCancelling &&
+    subscription.status != null &&
+    TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status) &&
+    subscription.current_period_end
+      ? subscription.current_period_end
+      : undefined;
+  const renewalDate = usagePeriodEnd ? formatMonthDay(usagePeriodEnd) : null;
   const priceRow = priceLabel ? (
-    <div className="flex h-10 items-center border-t border-[var(--border-base)]">
+    <div className="flex h-10 items-center justify-between gap-3 border-t border-[var(--border-base)]">
       <Typography
         as="span"
         variant="body-large-default"
@@ -483,6 +499,19 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
       >
         {priceLabel}
       </Typography>
+      {renewalDate ? (
+        // The price row is the footer only while there is no reading to
+        // chart, so a renewing sub keeps its date here rather than losing it
+        // to a summary that has not loaded.
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="whitespace-nowrap text-[var(--content-tertiary)]"
+          data-testid="plan-card-renews"
+        >
+          {t("planCard.usageBalanceRenews", { date: renewalDate })}
+        </Typography>
+      ) : null}
     </div>
   ) : undefined;
   // The add-credits strip is only warranted once the wallet behind the bundle
@@ -494,20 +523,6 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // for chat banners, where a BYOK route never spends the managed wallet.
   const walletEmpty = balance != null && Number(balance) <= 0;
   const creditsExhausted = usage != null && usage.ratio >= 1 && walletEmpty;
-  // The line dates a renewal, so it is printed only where one is coming: not
-  // for the free plan, whose grant is one-time, not for a sub that is ending
-  // rather than renewing, which the header's cancellation line already dates,
-  // and not for a status the platform bears no entitlement for (`unpaid`,
-  // `incomplete`, `paused`, a null status), which keeps its last
-  // `current_period_end` without renewing on it.
-  const usagePeriodEnd: string | undefined =
-    !isFreePlan &&
-    !isCancelling &&
-    subscription.status != null &&
-    TIER_CHANGE_ELIGIBLE_STATUSES.has(subscription.status) &&
-    subscription.current_period_end
-      ? subscription.current_period_end
-      : undefined;
   const usagePanel = usage ? (
     <UsageBalancePanel
       ratio={usage.ratio}
@@ -520,7 +535,7 @@ export function PlanCard({ onManage, onTierUpgraded }: PlanCardProps) {
   // the same allowance twice. With no bar to trade for (a free account that
   // was never granted usage, or a platform whose summary reports no grant
   // figures), the price row stays as the footer rather than leaving the tile
-  // with an empty bottom slot.
+  // with an empty bottom slot, and dates the renewal itself.
   const currentFooter: ReactNode = usagePanel ?? priceRow;
 
   return (

@@ -1152,8 +1152,9 @@ describe("PlanCard usage balance", () => {
     expect(panel.textContent).toContain("Renews on Aug 10");
     expect(panel.textContent).toContain("40% used");
     // The bar is the replacement, so the monthly price must not stand beside
-    // it on the current tile.
+    // it on the current tile, and the panel dates the renewal on its own.
     expect(queryByTestId("plan-card-price")).toBeNull();
+    expect(queryByTestId("plan-card-renews")).toBeNull();
     expect(within(currentTile(container)).queryByText("$30/month")).toBeNull();
   });
 
@@ -1212,11 +1213,12 @@ describe("PlanCard usage balance", () => {
     }
   });
 
-  test("no grant figures keeps the price row and prints no cycle date", async () => {
-    // An older platform omits both usage-grant fields, so there is no honest
-    // reading. The tile keeps its price rather than an empty footer, and the
-    // date lives only in the panel, so a tile without one prints no date.
-    const { container, queryByTestId } = renderCardInteractive(
+  test("no grant figures keeps the price row and dates the renewal beside it", async () => {
+    // An older platform omits both usage-grant fields, or the summary has not
+    // loaded, so there is no honest reading. The tile keeps its price rather
+    // than an empty footer, and the renewal date the subscription itself
+    // carries moves beside the price instead of vanishing with the panel.
+    const { container, getByTestId, queryByTestId } = renderCardInteractive(
       proMightySubscription(),
       plansWithSuper(),
       () => {},
@@ -1232,6 +1234,28 @@ describe("PlanCard usage balance", () => {
     expect(
       within(currentTile(container)).getByTestId("plan-card-price").textContent,
     ).toBe("$30/month");
+    expect(getByTestId("plan-card-renews").textContent).toBe(
+      "Renews on Aug 10",
+    );
+  });
+
+  test("no grant figures on a cancelling sub prints no renewal beside the price", async () => {
+    // The price row follows the panel's rule: a sub that is ending does not
+    // renew, and the header's cancellation line already says when it stops.
+    const { container, getByTestId, queryByTestId } = renderCardInteractive(
+      { ...proMightySubscription(), cancel_at_period_end: true },
+      plansWithSuper(),
+      () => {},
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      within(currentTile(container)).getByTestId("plan-card-price").textContent,
+    ).toBe("$30/month");
+    expect(queryByTestId("plan-card-renews")).toBeNull();
+    expect(getByTestId("plan-card-cancels")).toBeTruthy();
   });
 
   test("a Custom sub reads the same summary and still shows no chips", async () => {
