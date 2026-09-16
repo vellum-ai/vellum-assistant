@@ -40,12 +40,8 @@ export function AccessConsentSetting() {
   // empty state below.
   const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const queryClient = useQueryClient();
-  // Address the assistant this settings page is showing. The id-less
-  // `/assistants/access-consent/` endpoint lets the server pick "the user's
-  // presumably unique assistant", which for a user with several can be a
-  // different one from the one on screen, so staff would see the wrong
-  // assistant unlocked. The privacy page is not under `ActiveAssistantGate`,
-  // so read the raw store and wait for a non-null id.
+  // The privacy page is not under `ActiveAssistantGate`, so read the raw
+  // store and wait for a non-null id.
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const canQuery =
     platformGate === "full" && isPlatformHosted && assistantId !== null;
