@@ -24,10 +24,6 @@
  * useless in the other direction: a bot in a community server sees every
  * message in every room it can view, and promoting all of them floods the
  * stream the gate exists to keep quiet.
- *
- * The first channel to need this was Discord, whose gate denies by design;
- * Telegram's normalizer became the second when a group message dropped with
- * no line anywhere, which is the failure the policy exists to prevent.
  */
 
 /** Levels this policy selects between. Both exist on the gateway logger. */

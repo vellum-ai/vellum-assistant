@@ -14,10 +14,10 @@ import type { TelegramDropReason } from "./normalize.js";
  * The level a reason logs at on its first occurrence for a chat.
  *
  * `chat_not_private` is the one a person can act on: they added the bot to a
- * group and their messages are vanishing. Before this line existed the only
- * way to learn groups are unsupported was to diff webhook payloads by hand
- * (LUM-3623). The malformed-shape reasons promote because a well-formed Bot
- * API update never produces them, so any occurrence is worth a look.
+ * group and their messages are not arriving, and this line is the only place
+ * that says so, since Telegram sees a 200 either way. The malformed-shape
+ * reasons promote because a well-formed Bot API update never produces them,
+ * so any occurrence is worth a look.
  *
  * `no_supported_content` is ordinary traffic: a sticker, a location, a
  * contact card. The bot is not built to read them and nothing is
