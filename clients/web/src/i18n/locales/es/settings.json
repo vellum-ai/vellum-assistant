@@ -410,6 +410,19 @@
     "providerLabel": "Proveedor",
     "unavailableOption": "{name} (no disponible)"
   },
+  "cancelReasonSurvey": {
+    "optionCustomerService": "Tuve una mala experiencia con el soporte",
+    "optionLowQuality": "La calidad no cumplió mis expectativas",
+    "optionMissingFeatures": "Le faltan funciones que necesito",
+    "optionOther": "Otro",
+    "optionSwitchedService": "Cambié a otro servicio",
+    "optionTooComplex": "Es demasiado complicado",
+    "optionTooExpensive": "Es demasiado caro",
+    "optionUnused": "No lo uso lo suficiente",
+    "otherLabel": "Cuéntanos más",
+    "otherPlaceholder": "¿Qué podríamos haber hecho mejor?",
+    "title": "¿Por qué cancelas?"
+  },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "Puede que tú o el administrador de tu equipo tengáis que activar la autorización por código de dispositivo <settingsLink>en los ajustes de ChatGPT</settingsLink>.",
     "connected": "Suscripción a ChatGPT conectada correctamente.",
