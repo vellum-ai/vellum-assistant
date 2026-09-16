@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "guru",
+  "version": "1.0.0",
+  "description": "Search trusted company knowledge and source documents.",
+  "homepage": "https://developer.getguru.com/docs/guru-mcp-server-overview",
+  "license": "MIT"
+}

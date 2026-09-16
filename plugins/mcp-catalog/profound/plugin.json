@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "profound",
+  "version": "1.0.0",
+  "description": "Analyze brand visibility and performance in AI search.",
+  "homepage": "https://docs.tryprofound.com/mcp/overview",
+  "license": "MIT"
+}

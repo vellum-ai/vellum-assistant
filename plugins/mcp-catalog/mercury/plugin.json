@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mercury",
+  "version": "1.0.0",
+  "description": "Review accounts, transactions, payments, and company finances.",
+  "homepage": "https://docs.mercury.com/docs/what-is-mercury-mcp",
+  "license": "MIT"
+}

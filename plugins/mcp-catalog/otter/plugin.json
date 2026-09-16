@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "otter",
+  "version": "1.0.0",
+  "description": "Search meeting conversations and transcripts.",
+  "homepage": "https://help.otter.ai/hc/en-us/articles/35287607569687-Otter-MCP-Server",
+  "license": "MIT"
+}

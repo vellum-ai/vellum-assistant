@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "webull",
+  "version": "1.0.0",
+  "description": "Review brokerage accounts, orders, positions, and market data.",
+  "homepage": "https://developer.webull.com/apis/docs/AI-friendly-Resources/mcp/",
+  "license": "MIT"
+}

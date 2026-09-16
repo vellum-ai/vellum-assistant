@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "circleback",
+  "version": "1.0.0",
+  "description": "Search meeting notes, transcripts, and action items.",
+  "homepage": "https://support.circleback.ai/en/articles/13249081-circleback-mcp",
+  "license": "MIT"
+}

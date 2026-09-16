@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "juicebox",
+  "version": "1.0.0",
+  "description": "Search talent profiles and market intelligence.",
+  "homepage": "https://docs.juicebox.ai/juicebox-mcp",
+  "license": "MIT"
+}

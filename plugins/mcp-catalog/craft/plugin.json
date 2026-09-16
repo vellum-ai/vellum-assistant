@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "craft",
+  "version": "1.0.0",
+  "description": "Search and work with documents in your Craft workspace.",
+  "homepage": "https://www.craft.do/imagine/guide/mcp",
+  "license": "MIT"
+}

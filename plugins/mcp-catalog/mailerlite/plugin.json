@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "mailerlite",
+  "version": "1.0.0",
+  "description": "Manage subscribers, groups, campaigns, and automations.",
+  "homepage": "https://developers.mailerlite.com/mcp",
+  "license": "MIT"
+}

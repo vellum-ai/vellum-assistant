@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "linear",
+  "version": "1.0.0",
+  "description": "Find issues, projects, and team updates.",
+  "homepage": "https://linear.app/docs/mcp",
+  "license": "MIT"
+}

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "intercom",
+  "version": "1.0.0",
+  "description": "Search conversations, contacts, tickets, and help center content.",
+  "homepage": "https://developers.intercom.com/docs/guides/mcp",
+  "license": "MIT"
+}

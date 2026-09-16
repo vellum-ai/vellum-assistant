@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "ramp",
+  "version": "1.0.0",
+  "description": "Explore expenses, bills, and company spending.",
+  "homepage": "https://agents.ramp.com/docs/guides/connecting",
+  "license": "MIT"
+}

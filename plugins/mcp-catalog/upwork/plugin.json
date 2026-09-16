@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "upwork",
+  "version": "1.0.0",
+  "description": "Search talent and manage hiring work on Upwork.",
+  "homepage": "https://www.upwork.com/ai/mcp",
+  "license": "MIT"
+}

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "amplemarket",
+  "version": "1.0.0",
+  "description": "Find and enrich prospects, then manage outreach sequences.",
+  "homepage": "https://knowledge.amplemarket.com/articles/8022685319-connecting-to-the-amplemarket-mcp-server",
+  "license": "MIT"
+}

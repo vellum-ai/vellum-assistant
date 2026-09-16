@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "ashby",
+  "version": "1.0.0",
+  "description": "Search candidates, prepare interviews, and manage recruiting pipelines.",
+  "homepage": "https://docs.ashbyhq.com/ashby-mcp-server-beta",
+  "license": "MIT"
+}

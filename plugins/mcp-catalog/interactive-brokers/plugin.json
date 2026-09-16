@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "interactive-brokers",
+  "version": "1.0.0",
+  "description": "Review portfolios, market data, and brokerage account activity.",
+  "homepage": "https://www.interactivebrokers.com/en/trading/ai-integrations.php",
+  "license": "MIT"
+}

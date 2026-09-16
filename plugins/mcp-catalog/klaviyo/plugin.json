@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "klaviyo",
+  "version": "1.0.0",
+  "description": "Analyze campaigns, profiles, segments, and marketing performance.",
+  "homepage": "https://developers.klaviyo.com/en/docs/klaviyo_mcp_server",
+  "license": "MIT"
+}

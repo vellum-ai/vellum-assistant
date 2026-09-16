@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "atlassian",
+  "version": "1.0.0",
+  "description": "Connect AI agents to Atlassian products including Jira and Confluence, with reusable skills for common workflows.",
+  "author": {
+    "name": "Atlassian",
+    "url": "https://www.atlassian.com"
+  },
+  "homepage": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
+  "repository": "https://github.com/atlassian/atlassian-mcp-server",
+  "license": "Apache-2.0",
+  "keywords": [
+    "atlassian",
+    "rovo",
+    "mcp",
+    "jira",
+    "confluence",
+    "jira-service-management",
+    "bitbucket",
+    "compass"
+  ]
+}

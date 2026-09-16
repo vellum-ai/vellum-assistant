@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "meltwater",
+  "version": "1.0.0",
+  "description": "Research media coverage, social conversations, and brand insights.",
+  "homepage": "https://developer.meltwater.com/guides/meltwater-mcp/overview/",
+  "license": "MIT"
+}

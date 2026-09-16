@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "stripe",
+  "version": "1.0.0",
+  "description": "Explore payments, customers, and account activity.",
+  "homepage": "https://docs.stripe.com/mcp",
+  "license": "MIT"
+}

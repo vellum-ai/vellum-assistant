@@ -320,6 +320,46 @@ describe("installPlugin — install lifecycle", () => {
     ]);
   });
 
+  test("installs the reviewed Fathom package from the generated bundle", async () => {
+    const result = await installPlugin(
+      {
+        name: "fathom",
+        trustedSource: {
+          kind: "local",
+          path: "plugins/mcp-catalog/fathom",
+          version: "1.0.0",
+        },
+      },
+      {
+        fetch: (async () => {
+          throw new Error("local package install must not fetch");
+        }) as FetchLike,
+        runGit: unusedGitRunner,
+        workspacePluginsDir: pluginsDir,
+      },
+    );
+
+    expect(result).toMatchObject({
+      name: "fathom",
+      fileCount: 2,
+      ref: "1.0.0",
+      commit: null,
+    });
+    expect(
+      readPluginMcpServers({ workspacePluginsDir: pluginsDir }).servers,
+    ).toEqual([
+      expect.objectContaining({
+        pluginName: "fathom",
+        serverKey: "fathom",
+        config: expect.objectContaining({
+          transport: expect.objectContaining({
+            url: "https://api.fathom.ai/mcp",
+          }),
+        }),
+      }),
+    ]);
+  });
+
   test("refuses to overwrite an existing install without --force", async () => {
     // GIVEN a plugin already installed at <pluginsDir>/caveman
     const target = join(pluginsDir, "caveman");

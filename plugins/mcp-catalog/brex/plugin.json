@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "brex",
+  "version": "1.0.0",
+  "description": "Review expenses, cards, and company spending.",
+  "homepage": "https://www.brex.com/support/using-brex-in-ai-apps",
+  "license": "MIT"
+}
