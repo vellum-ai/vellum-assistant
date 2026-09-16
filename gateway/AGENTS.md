@@ -90,6 +90,8 @@ Gateway inbound events use a channel-discriminated union model (`GatewayInboundE
 
 Trust/guardian decisions must be keyed on `actorExternalId` only — never fall back to `conversationExternalId` for actor identity.
 
+**Room admission is one verdict, two adapter halves.** Whether the gateway acts on an inbound message at all is decided by `channels/room-admission.ts` over a neutral candidate: self and bot authors drop first, a direct chat is admitted on its own lane without a mention, a room only when the message addresses the bot, a chat kind the product does not serve is refused, and an unknown bot identity drops rather than admits. Each channel builds the candidate from its own facts (`discord/admit.ts`, `telegram/admit.ts`): how the platform proves a chat is direct (guild absence, `chat.type`) and how it proves a message is addressed (a mentions array, text entities, a reply to the bot's post). Extend the verdict, never a copy of it; a platform-only rule rides a neutral fact (Discord's legacy allow-list is `roomAllowed`). A drop is never silent: every channel logs it through `channels/admission-drop-log.ts`, one promoted line per reason and conversation, with a drop that names no conversation promoted every time. Slack's socket filter predates this and still carries the same rules inline; converging it is queued with the Slack envelope work.
+
 Physical DB column names (`externalUserId`, `externalChatId`) are unchanged; the rename is at the API/type layer only.
 
 **Provider words that are not our words.** A Discord **guild** is what Discord's

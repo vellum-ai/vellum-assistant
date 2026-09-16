@@ -102,6 +102,7 @@
     "hideAria": "Hide virtual desktop",
     "closeAria": "Close virtual desktop preview",
     "moveAria": "Move virtual desktop preview (arrow keys)",
+    "resizeAria": "Resize virtual desktop preview (arrow keys)",
     "expandAria": "Expand virtual desktop",
     "busy": "The virtual desktop is in use by another viewer.",
     "connecting": "Connecting to the virtual desktop…",

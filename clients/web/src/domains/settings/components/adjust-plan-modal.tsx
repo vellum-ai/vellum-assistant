@@ -4,6 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { captureTakeoverAvatarStash } from "@/lib/billing/takeover-avatar-stash";
+import {
+  CancelReasonSurvey,
+  EMPTY_CANCEL_REASON,
+  isCancelReasonComplete,
+  toCancelRequestBody,
+} from "@/domains/settings/billing/cancel-reason-survey";
 import { proPackageDisplayName } from "@/domains/settings/billing/package-types";
 import { currentPlanFeatures } from "@/domains/settings/billing/plan-spec";
 import { useCancelSubscription } from "@/domains/settings/billing/use-cancel-subscription";
@@ -96,6 +102,13 @@ function AdjustPlanModalContent({
   const { cancelSubscription, isPending: cancelPending } =
     useCancelSubscription();
   const [view, setView] = useState<"plans" | "downgrade-confirm">("plans");
+  const [cancelReason, setCancelReason] = useState(EMPTY_CANCEL_REASON);
+  // Leaving the confirm step (back, close, or a scheduled cancellation) drops
+  // the survey so a later visit starts blank.
+  const showPlans = () => {
+    setView("plans");
+    setCancelReason(EMPTY_CANCEL_REASON);
+  };
   const [tierDowngradeOpen, setTierDowngradeOpen] = useState(false);
   const [selectedMachineTier, setSelectedMachineTier] =
     useState<MachineTierEnum | null>(null);
@@ -337,6 +350,11 @@ function AdjustPlanModalContent({
     );
   };
 
+  // The in-app cancel asks why; the portal handoff collects its own survey.
+  const directCancel = isDirectCancelEligible(subscriptionQuery.data);
+  const canConfirmDowngrade =
+    !directCancel || isCancelReasonComplete(cancelReason);
+
   // Success returns to the plans view, where the invalidated subscription
   // read now shows "Your plan ends on ..." and the Keep-plan CTA; failure
   // stays on the confirm step so the user can retry (the hook already
@@ -347,14 +365,14 @@ function AdjustPlanModalContent({
     }
     // A Pro sub the cancel endpoint rejects (non-entitlement status) keeps
     // the Stripe portal handoff, which can still cancel it.
-    if (!isDirectCancelEligible(subscriptionQuery.data)) {
-      setView("plans");
+    if (!directCancel) {
+      showPlans();
       portalMutation.mutate({});
       return;
     }
-    const result = await cancelSubscription();
+    const result = await cancelSubscription(toCancelRequestBody(cancelReason));
     if (result) {
-      setView("plans");
+      showPlans();
     }
   };
 
@@ -478,7 +496,7 @@ function AdjustPlanModalContent({
         open={open}
         onOpenChange={(next) => {
           if (!next) {
-            setView("plans");
+            showPlans();
             onClose();
           }
         }}
@@ -506,11 +524,18 @@ function AdjustPlanModalContent({
                     </li>
                   ))}
                 </ul>
+                {directCancel ? (
+                  <CancelReasonSurvey
+                    value={cancelReason}
+                    onChange={setCancelReason}
+                    disabled={cancelPending || portalMutation.isPending}
+                  />
+                ) : null}
               </Modal.Body>
               <Modal.Footer>
                 <Button
                   variant="ghost"
-                  onClick={() => setView("plans")}
+                  onClick={showPlans}
                   disabled={cancelPending || portalMutation.isPending}
                   leftIcon={<ArrowLeft className="h-4 w-4" />}
                 >
@@ -519,7 +544,11 @@ function AdjustPlanModalContent({
                 <Button
                   variant="danger"
                   onClick={() => void handleConfirmDowngrade()}
-                  disabled={cancelPending || portalMutation.isPending}
+                  disabled={
+                    cancelPending ||
+                    portalMutation.isPending ||
+                    !canConfirmDowngrade
+                  }
                   data-testid="confirm-downgrade-button"
                 >
                   {t("adjustPlanModal.confirmDowngrade")}

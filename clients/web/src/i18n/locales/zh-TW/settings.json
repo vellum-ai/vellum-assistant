@@ -410,6 +410,19 @@
     "providerLabel": "提供者",
     "unavailableOption": "{name} (不可用)"
   },
+  "cancelReasonSurvey": {
+    "optionCustomerService": "客服體驗不佳",
+    "optionLowQuality": "品質沒有達到我的預期",
+    "optionMissingFeatures": "缺少我需要的功能",
+    "optionOther": "其他",
+    "optionSwitchedService": "我改用了其他服務",
+    "optionTooComplex": "太複雜了",
+    "optionTooExpensive": "太貴了",
+    "optionUnused": "我用得不多",
+    "otherLabel": "告訴我們更多",
+    "otherPlaceholder": "我們可以在哪些方面做得更好？",
+    "title": "您為什麼要取消？"
+  },
   "chatgptDeviceAuthFlow": {
     "authorizationHint": "您或您的團隊管理員可能需要在 <settingsLink>ChatGPT 設定</settingsLink> 中啟用裝置代碼授權。",
     "connected": "ChatGPT 訂閱已成功連線。",

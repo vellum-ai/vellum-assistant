@@ -6,6 +6,7 @@ interface DesktopPreviewState {
   inlinePreview: { assistantId: string; container: HTMLDivElement } | null;
   session: { assistantId: string; view: "preview" | "fullscreen" } | null;
   position: { x: number; y: number } | null;
+  width: number;
 }
 
 interface DesktopPreviewActions {
@@ -13,6 +14,7 @@ interface DesktopPreviewActions {
   openFullscreen: (assistantId: string) => void;
   openPreview: (assistantId: string) => void;
   setPosition: (position: { x: number; y: number }) => void;
+  resize: (width: number, position: { x: number; y: number }) => void;
   toggle: (assistantId: string) => void;
   setFullscreen: (fullscreen: boolean) => void;
   close: () => void;
@@ -28,6 +30,8 @@ export const useDesktopPreviewStore = createSelectors(
       set({ session: { assistantId, view: "fullscreen" } }),
     session: null,
     position: null,
+    width: 320,
+    resize: (width, position) => set({ width, position }),
     setPosition: (position) => set({ position }),
     toggle: (assistantId) =>
       set((state) => ({

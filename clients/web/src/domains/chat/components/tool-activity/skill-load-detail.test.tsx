@@ -1,5 +1,5 @@
 /**
- * Tests for the `skill_load` activity panel — the "Used Skill" card, its View
+ * Tests for the `skill_load` activity panel: the "Used Skill" card, its View
  * action, and the Output section's Clean/Raw switch and Show more clamp
  * (Figma node 7778-163402).
  *
@@ -170,7 +170,7 @@ describe("SkillLoadDetail", () => {
 
     expect(getByText(error)).toBeDefined();
     expect(queryByText("Output")).toBeNull();
-    // The error text appears in the notice only — not repeated as output.
+    // The error text appears in the notice only, not repeated as output.
     expect(container.textContent?.split("meet-join").length).toBe(2);
   });
 

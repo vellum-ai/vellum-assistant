@@ -76,7 +76,7 @@ export interface DetailShellHeaderProps {
   title?: string;
   /**
    * Pre-composed title cluster rendered in place of the default truncating
-   * `title` Typography — for headers whose title mixes several inline pieces
+   * `title` Typography, for headers whose title mixes several inline pieces
    * (e.g. the activity-steps panel's "Thinking · 6 steps"). Takes precedence
    * over `title`.
    */

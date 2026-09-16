@@ -102,6 +102,7 @@
     "hideAria": "Ocultar escritorio virtual",
     "closeAria": "Cerrar vista previa del escritorio virtual",
     "moveAria": "Mover vista previa del escritorio virtual (teclas de flecha)",
+    "resizeAria": "Cambiar tamaño de la vista previa del escritorio virtual (teclas de flecha)",
     "expandAria": "Ampliar escritorio virtual",
     "busy": "Otro usuario está usando el escritorio virtual.",
     "connecting": "Conectando con el escritorio virtual…",

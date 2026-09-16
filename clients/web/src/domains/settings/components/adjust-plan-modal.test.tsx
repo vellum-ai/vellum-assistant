@@ -41,6 +41,8 @@ type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
 let upgradeResponse: Record<string, unknown> = { status: "ok" };
 let changePackageCall: Captured | null = null;
+// Captures the subscription-cancel post from the Downgrade to Base confirm.
+let cancelCall: Captured | null = null;
 // The reads `renderModal` seeds into the cache, served again by the mocked
 // SDK when a tier change refetches them right before posting.
 let subscriptionFixture: SubscriptionResponse | null = null;
@@ -56,6 +58,13 @@ mock.module("@/generated/api/sdk.gen", () => ({
     changePackageCall = opts;
     return Promise.resolve({
       data: { status: "ok", package: null },
+      response: { ok: true },
+    });
+  },
+  organizationsBillingSubscriptionCancelCreate: (opts: Captured) => {
+    cancelCall = opts;
+    return Promise.resolve({
+      data: { status: "ok", cancel_at: "2026-09-24T00:00:00Z" },
       response: { ok: true },
     });
   },
@@ -290,6 +299,7 @@ beforeEach(() => {
   upgradeCall = null;
   upgradeResponse = { status: "ok" };
   changePackageCall = null;
+  cancelCall = null;
   subscriptionFixture = null;
   onboardingFixture = null;
   openedUrl = null;
@@ -977,6 +987,57 @@ const LARGE_MACHINE_ONBOARDING: OnboardingData = {
 function openStorageSelect(): void {
   fireEvent.click(getSelectTrigger("Storage tier"));
 }
+
+describe("AdjustPlanModal Downgrade to Base cancel survey", () => {
+  test("requires a reason, then posts it with the cancellation", async () => {
+    const { getByTestId, getByRole, queryByTestId } = renderModal(
+      subscription("pro", null),
+      proPlansResponse(),
+    );
+
+    fireEvent.click(getByTestId("modal-downgrade-to-base-button"));
+    const confirm = getByTestId("confirm-downgrade-button") as HTMLButtonElement;
+    // No reason yet: the confirm can't post a survey-less cancellation.
+    expect(confirm.disabled).toBe(true);
+    expect(queryByTestId("cancel-reason-comment")).toBeNull();
+
+    fireEvent.click(getByRole("radio", { name: "Other" }));
+    fireEvent.change(getByTestId("cancel-reason-comment"), {
+      target: { value: " Consolidating tools. " },
+    });
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(cancelCall).not.toBeNull());
+    expect(cancelCall!.body).toEqual({
+      feedback: "other",
+      comment: "Consolidating tools.",
+    });
+    expect(changePackageCall).toBeNull();
+    expect(upgradeCall).toBeNull();
+  });
+
+  test("Back clears the survey so a second visit starts blank", async () => {
+    const { getByTestId, getByRole, queryByTestId } = renderModal(
+      subscription("pro", null),
+      proPlansResponse(),
+    );
+
+    fireEvent.click(getByTestId("modal-downgrade-to-base-button"));
+    fireEvent.click(getByRole("radio", { name: "Other" }));
+    fireEvent.change(getByTestId("cancel-reason-comment"), {
+      target: { value: "draft" },
+    });
+    fireEvent.click(getByRole("button", { name: "Back" }));
+
+    fireEvent.click(getByTestId("modal-downgrade-to-base-button"));
+    expect(queryByTestId("cancel-reason-comment")).toBeNull();
+    expect(
+      (getByTestId("confirm-downgrade-button") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(cancelCall).toBeNull();
+  });
+});
 
 describe("AdjustPlanModal — multi-dimension tier coordination", () => {
   test("storage upgrade + machine downgrade still triggers onTierUpgraded", async () => {

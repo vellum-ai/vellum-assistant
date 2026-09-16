@@ -20,6 +20,10 @@ import {
 } from "@/domains/settings/billing/plans/custom-plan-modal";
 import { CustomPlanRow } from "@/domains/settings/billing/plans/custom-plan-row";
 import { PRICING_DOCS_URL } from "@/domains/settings/billing/plans/docs-links";
+import {
+  type CancelReasonSurveyValue,
+  toCancelRequestBody,
+} from "@/domains/settings/billing/cancel-reason-survey";
 import { FreeDowngradeConfirmModal } from "@/domains/settings/billing/plans/free-downgrade-confirm-modal";
 import { PackageSwitchConfirmModal } from "@/domains/settings/billing/plans/package-switch-confirm-modal";
 import { PlanColumnCard } from "@/domains/settings/billing/plans/plan-column-card";
@@ -552,13 +556,13 @@ function PlansPageContent() {
     // closes the confirm (the hook's toast names the end date); failure keeps
     // it open for a retry (the hook already toasted the error). A sub the
     // endpoint would reject hands off to the Stripe portal instead.
-    const confirmFreeDowngrade = async () => {
+    const confirmFreeDowngrade = async (survey: CancelReasonSurveyValue) => {
       if (!canCancelDirectly) {
         setFreeDowngradeOpen(false);
         portalMutation.mutate({});
         return;
       }
-      const result = await cancelSubscription();
+      const result = await cancelSubscription(toCancelRequestBody(survey));
       if (result) {
         setFreeDowngradeOpen(false);
       }
@@ -855,7 +859,7 @@ function PlansPageContent() {
           viaPortal={!canCancelDirectly}
           pending={cancelPending || portalMutation.isPending}
           onCancel={() => setFreeDowngradeOpen(false)}
-          onConfirm={() => void confirmFreeDowngrade()}
+          onConfirm={(survey) => void confirmFreeDowngrade(survey)}
         />
 
         <BillingOnboardingModal

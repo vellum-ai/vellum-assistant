@@ -47,6 +47,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     identityResponsePaths: null,
     identityFormat: null,
     identityOkField: null,
+    responseOkField: null,
     featureFlag: null,
     createdAt: now,
     updatedAt: now,

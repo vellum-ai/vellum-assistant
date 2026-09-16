@@ -387,7 +387,7 @@ describe("normalizeDiscordMessage", () => {
       admitDiscordMessage(candidate!, {
         botUserId: "bot-1",
       }),
-    ).toEqual({ admitted: true });
+    ).toEqual({ admitted: true, botMentioned: false });
   });
 
   test("a malformed guild id stays a guild message, not a DM", () => {

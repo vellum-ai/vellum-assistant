@@ -10,7 +10,7 @@ import {
   Square,
   Volume2,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "@/i18n";
 
 import type { MessageHoverActionsProps } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
@@ -21,7 +21,7 @@ import {
   useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
-import { copyToClipboard } from "@/lib/copy-to-clipboard";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { BottomSheet, PanelItem } from "@vellumai/design-library";
 
@@ -64,20 +64,14 @@ export function MessageLongPressActions({
 
   const content = useMemo(() => messageCopyText(message), [message]);
 
-  const [showCopied, setShowCopied] = useState(false);
+  const { copy, copied: showCopied } = useCopyToClipboard({
+    errorMessage: t("messageLongPressActions.copyFailed"),
+  });
   const hasCopyableText = showTextActions && content.trim().length > 0;
 
   const close = useCallback(() => onOpenChange(false), [onOpenChange]);
 
-  const handleCopy = useCallback(() => {
-    copyToClipboard(content, {
-      errorMessage: t("messageLongPressActions.copyFailed"),
-      onCopied: () => {
-        setShowCopied(true);
-        setTimeout(() => setShowCopied(false), 1500);
-      },
-    });
-  }, [content, t]);
+  const handleCopy = useCallback(() => copy(content), [copy, content]);
 
   const handleReadAloud = useCallback(() => {
     if (!message.id) {

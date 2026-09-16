@@ -1,5 +1,5 @@
 /**
- * Tests for `ToolDetailPanel` — the side-drawer body for a tool-call step.
+ * Tests for `ToolDetailPanel`, the side-drawer body for a tool-call step.
  *
  * Runs under happy-dom (see clients/web/test-setup.ts) so we can render
  * interactively and assert click / clipboard behavior.
@@ -68,8 +68,8 @@ const render = (ui: Parameters<typeof rtlRender>[0]) =>
  * folds into the materialized snapshot, so this writes the snapshot.
  */
 function seedHistory(messages: DisplayMessage[]) {
-  // History now folds into the materialized snapshot — the single source the
-  // drawer reads — so seed it there.
+  // History now folds into the materialized snapshot (the single source the
+  // drawer reads), so seed it there.
   useChatSessionStore.setState({ snapshot: snap(messages) });
 }
 

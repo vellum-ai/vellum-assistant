@@ -486,6 +486,7 @@ import { migrateCreateChannelOutboundPosts } from "./migrations/375-create-chann
 import { migrateNotificationDeliveriesCanonicalMessageId } from "./migrations/376-notification-deliveries-canonical-message-id.js";
 import { migrateAddSubagentBudgetStopReason } from "./migrations/377-add-subagent-budget-stop-reason.js";
 import { migrateCreateConversationToolSurfaces } from "./migrations/378-create-conversation-tool-surfaces.js";
+import { migrateOAuthProvidersResponseOkField } from "./migrations/379-oauth-providers-response-ok-field.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1607,10 +1608,19 @@ export const migrationSteps: MigrationStep[] = [
   {
     name: "migrateAddSubagentBudgetStopReason",
     run: migrateAddSubagentBudgetStopReason,
-    // The column guard treats a missing table as nothing-to-do, so the table
-    // must be checkpointed first or a repair flow could permanently checkpoint
-    // this as a no-op.
+    // The column guard reads the table's columns and the ALTER throws on a
+    // missing table, so the table must be checkpointed first or a repair flow
+    // that failed to create it would fail this step needlessly.
     dependsOn: ["migrateCreateSubagentsTable"],
   },
   migrateCreateConversationToolSurfaces,
+  {
+    name: "migrateOAuthProvidersResponseOkField",
+    run: migrateOAuthProvidersResponseOkField,
+    // The column guard reads the table's columns, and an `ALTER` on a missing
+    // table throws, so the table must be checkpointed first or a repair flow
+    // that failed to create it would either fail this step needlessly or, if
+    // the error were swallowed, checkpoint it as done against no table.
+    dependsOn: ["createOAuthTables"],
+  },
 ];

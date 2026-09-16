@@ -1,27 +1,30 @@
 /**
- * Admission gate for inbound Telegram messages.
+ * Admission gate for inbound Telegram messages: the Telegram side of the
+ * shared verdict in `channels/room-admission.ts`.
  *
  * A bot in a group sees whatever Telegram delivers it. With privacy mode on,
  * the default, that is already only mentions, replies to the bot, and
  * commands. With privacy mode off, or for a bot promoted to administrator
  * (Telegram documents that admins receive everything), it is every message
- * in the room. This gate makes the two cases behave the same: a room message
- * is acted on only when it addresses the bot, and everything else is dropped
- * before it can start a turn. It is the Telegram shape of the Discord gate in
- * `discord/admit.ts`, and the rules are deliberately the same.
- *
- * A private chat is the one message already addressed to the bot and nobody
- * else, so it is admitted on its own lane without a mention. What that lane
- * admits is a chat, not a person: who may be answered is the trust-class
- * admission floor's decision downstream.
+ * in the room. The verdict makes the two cases behave the same.
  *
  * A Telegram "channel" is a broadcast feed, not a room, and nothing in the
- * product addresses one. It is refused here rather than mapped, for the
- * reason `telegramConversationType` gives.
+ * product addresses one. It is refused rather than mapped, for the reason
+ * `telegramConversationType` gives.
+ *
+ * Telegram never delivers a bot's own posts back to it, nor other bots'
+ * messages, so the self and bot checks never fire on a real update; they cost
+ * nothing and a reply loop is the failure they prevent.
  *
  * The input is a structural shape rather than a parsed-payload type so the
  * gate stays a pure function over the few facts it reads.
  */
+
+import {
+  admitRoomMessage,
+  type RoomAdmissionVerdict,
+} from "../channels/room-admission.js";
+import type { TelegramMessage, TelegramMessageEntity } from "./schemas.js";
 
 /** The facts of a Telegram message this gate reads. */
 export interface TelegramAdmissionCandidate {
@@ -43,25 +46,6 @@ export interface TelegramAdmissionCandidate {
   repliedToAuthorId: string | undefined;
 }
 
-export type TelegramAdmissionDropReason =
-  | "self_authored"
-  | "bot_authored"
-  | "chat_not_supported"
-  | "bot_identity_unknown"
-  | "bot_not_mentioned";
-
-export type TelegramAdmissionVerdict =
-  | {
-      admitted: true;
-      /**
-       * Whether the message addresses the bot by name or by reply. Proven in
-       * both directions whenever the bot's identity is known, so it is always
-       * stated on an admitted message.
-       */
-      botMentioned: boolean;
-    }
-  | { admitted: false; reason: TelegramAdmissionDropReason };
-
 export interface TelegramAdmissionPolicy {
   /** The bot's own user id, for self-filtering, text mentions, and replies. */
   botUserId?: string;
@@ -69,59 +53,26 @@ export interface TelegramAdmissionPolicy {
   botUsername?: string;
 }
 
-function drop(reason: TelegramAdmissionDropReason): TelegramAdmissionVerdict {
-  return { admitted: false, reason };
-}
-
 /**
- * Decide whether a message is one the gateway acts on.
- *
- * Checks run cheapest-and-most-decisive first, and every one of them is a
- * denial: there is no branch that admits a message the operator did not ask
- * for.
+ * Decide whether a message is one the gateway acts on: Telegram's facts,
+ * mapped onto the neutral candidate the shared verdict reads.
  */
 export function admitTelegramMessage(
   candidate: TelegramAdmissionCandidate,
   policy: TelegramAdmissionPolicy,
-): TelegramAdmissionVerdict {
-  // Telegram does not deliver a bot's own posts back to it, nor other bots'
-  // messages, so these two never fire on a real update. They stay because a
-  // reply loop is the failure they prevent and they cost nothing.
-  if (
-    policy.botUserId !== undefined &&
-    candidate.authorId === policy.botUserId
-  ) {
-    return drop("self_authored");
-  }
-  if (candidate.authorIsBot) {
-    return drop("bot_authored");
-  }
-
-  const mentioned = isBotAddressed(candidate, policy);
-
-  // A private chat is already addressed to the bot alone. The chat is
-  // admitted; whether this person is answered is the runtime's floor to
-  // decide.
-  if (candidate.chatType === "private") {
-    return { admitted: true, botMentioned: mentioned };
-  }
-
-  if (candidate.chatType !== "group" && candidate.chatType !== "supergroup") {
-    return drop("chat_not_supported");
-  }
-
-  // Without its own identity the gate cannot tell an addressed room message
-  // from any other, and admitting every message is the one thing it must
-  // never do.
-  if (policy.botUserId === undefined && policy.botUsername === undefined) {
-    return drop("bot_identity_unknown");
-  }
-
-  if (!mentioned) {
-    return drop("bot_not_mentioned");
-  }
-
-  return { admitted: true, botMentioned: true };
+): RoomAdmissionVerdict {
+  const identityKnown =
+    policy.botUserId !== undefined || policy.botUsername !== undefined;
+  return admitRoomMessage({
+    authorIsSelf:
+      policy.botUserId !== undefined && candidate.authorId === policy.botUserId,
+    authorIsBot: candidate.authorIsBot === true,
+    isDirectChat: candidate.chatType === "private",
+    chatSupported:
+      candidate.chatType === "group" || candidate.chatType === "supergroup",
+    roomAllowed: true,
+    addressesBot: identityKnown ? isBotAddressed(candidate, policy) : undefined,
+  });
 }
 
 function isBotAddressed(
@@ -141,4 +92,58 @@ function isBotAddressed(
     candidate.mentionedUserIds.includes(policy.botUserId) ||
     candidate.repliedToAuthorId === policy.botUserId
   );
+}
+
+/** Who a message names, read off its entities the way the verdict wants them. */
+export function toAdmissionCandidate(
+  message: TelegramMessage,
+): TelegramAdmissionCandidate {
+  const mentionedUsernames: string[] = [];
+  const mentionedUserIds: string[] = [];
+  const read = (
+    text: string | undefined,
+    entities: TelegramMessageEntity[],
+  ) => {
+    for (const entity of entities) {
+      if (entity.type === "text_mention" && entity.user?.id != null) {
+        mentionedUserIds.push(String(entity.user.id));
+        continue;
+      }
+      if (
+        (entity.type !== "mention" && entity.type !== "bot_command") ||
+        text === undefined ||
+        entity.offset == null ||
+        entity.length == null
+      ) {
+        continue;
+      }
+      // Offsets and lengths are in UTF-16 code units, which is what a
+      // JavaScript string indexes by.
+      const span = text.slice(entity.offset, entity.offset + entity.length);
+      const at = span.indexOf("@");
+      if (at === -1) {
+        continue;
+      }
+      const username = span
+        .slice(at + 1)
+        .trim()
+        .toLowerCase();
+      if (username) {
+        mentionedUsernames.push(username);
+      }
+    }
+  };
+  read(message.text, message.entities ?? []);
+  read(message.caption, message.caption_entities ?? []);
+  return {
+    chatType: message.chat?.type,
+    authorId: message.from?.id != null ? String(message.from.id) : undefined,
+    authorIsBot: message.from?.is_bot,
+    mentionedUsernames,
+    mentionedUserIds,
+    repliedToAuthorId:
+      message.reply_to_message?.from?.id != null
+        ? String(message.reply_to_message.from.id)
+        : undefined,
+  };
 }
