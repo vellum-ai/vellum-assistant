@@ -1,5 +1,11 @@
 import { formatLocale } from "@/i18n";
 
+/** Short month and numeric day, the shape both month-day formatters share. */
+const MONTH_DAY_OPTIONS = {
+  day: "numeric",
+  month: "short",
+} as const;
+
 /**
  * Format a date as a short, human-readable string (e.g., "27 May" or "27 May 2025").
  * Omits the year when it matches the current year, unless `alwaysShowYear` is set.
@@ -15,8 +21,7 @@ export function formatFriendlyDate(
   opts?: { alwaysShowYear?: boolean; locale?: string },
 ): string {
   return date.toLocaleDateString(opts?.locale ?? formatLocale(), {
-    day: "numeric",
-    month: "short",
+    ...MONTH_DAY_OPTIONS,
     year:
       opts?.alwaysShowYear || date.getFullYear() !== new Date().getFullYear()
         ? "numeric"
@@ -25,9 +30,11 @@ export function formatFriendlyDate(
 }
 
 /**
- * Month and day only, in the reader's formatting locale, never the year. Null
- * for an instant that will not parse, so a caller drops its line rather than
- * printing an ISO string.
+ * Month and day only, in the reader's formatting locale. The year never shows,
+ * unlike {@link formatFriendlyDate}: the billing cycle is monthly and the
+ * panel names the next turnover, so the year is noise. Null for an instant
+ * that will not parse, so a caller drops its line rather than printing an ISO
+ * string.
  */
 export function formatMonthDay(
   iso: string,
@@ -37,10 +44,7 @@ export function formatMonthDay(
   if (Number.isNaN(date.getTime())) {
     return null;
   }
-  return new Intl.DateTimeFormat(locale, {
-    month: "short",
-    day: "numeric",
-  }).format(date);
+  return date.toLocaleDateString(locale, MONTH_DAY_OPTIONS);
 }
 
 /** Local time, with optional seconds for closely spaced events. */

@@ -1,22 +1,16 @@
 /**
- * The Current Usage reading that sits where the current plan's price row
- * otherwise would: how much of the usage credit the
- * account was granted is already used, and, once the wallet behind it is
- * empty too, a strip offering to top it up. The reading itself turns
- * negative as soon as the granted credit is used up, whatever the wallet
- * holds.
- *
- * Pure props, so every reading below is a fixture rather than a live usage
- * read. `PlanTile` mounts it as a footer; `Settings/Billing/PlanTile` carries
+ * The Current Usage panel on its own, one story per reading it draws. Pure
+ * props, so every reading below is a fixture rather than a live usage read;
+ * `PlanTile` mounts it as a footer, and `Settings/Billing/PlanTile` carries
  * that composition.
  */
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import { frameWidthDecorator } from "@/domains/settings/billing/story-frame-width";
+import {
+  frameWidthDecorator,
+  STORY_PERIOD_END,
+} from "@/domains/settings/billing/billing-story-frame";
 import { UsageBalancePanel } from "@/domains/settings/billing/usage-balance-panel";
-
-/** The instant a subscriber's billing cycle ends on. */
-const PERIOD_END_AT = "2026-09-20T12:00:00Z";
 
 const meta = {
   title: "Settings/Billing/UsageBalancePanel",
@@ -24,7 +18,6 @@ const meta = {
   parameters: { layout: "centered" },
   args: {
     ratio: 0.68,
-    periodEnd: null,
     exhausted: false,
   },
   argTypes: {
@@ -45,7 +38,7 @@ export const MidCycle: Story = {};
  * line.
  */
 export const Subscriber: Story = {
-  args: { periodEnd: { at: PERIOD_END_AT, kind: "resets" } },
+  args: { periodEnd: STORY_PERIOD_END },
 };
 
 /**
@@ -55,7 +48,7 @@ export const Subscriber: Story = {
  */
 export const SubscriberNoBundle: Story = {
   name: "Subscriber without a bundle",
-  args: { periodEnd: { at: PERIOD_END_AT, kind: "renews" } },
+  args: { periodEnd: { ...STORY_PERIOD_END, kind: "renews" } },
 };
 
 /**
@@ -88,10 +81,9 @@ export const ExhaustedWithoutCta: Story = {
 
 /**
  * The subscriber's panel at full card width, which is what a current plan with
- * no next tile beside it gets. The bar sits a fixed gap after the title
- * instead of at the far edge, with the slack to the right of the percentage,
- * and the reset line makes the title block two lines that the bar centres
- * against.
+ * no next tile beside it gets. The bar sits a fixed gap after the title, with
+ * the slack to the right of the percentage, and the reset line makes the title
+ * block two lines that the bar centres against.
  */
 export const WideTile: Story = {
   ...Subscriber,

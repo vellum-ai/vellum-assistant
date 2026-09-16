@@ -1293,6 +1293,8 @@
     "powerUp": "Potenciar",
     "powerUpFor": "Potenciar por +{amount}/mes",
     "usageBalanceAddCredits": "Añadir",
+    "usageBalanceBarRenews": "Uso actual, se renueva el {date}",
+    "usageBalanceBarResets": "Uso actual, se restablece el {date}",
     "usageBalanceExhausted": "Añade créditos para seguir usando tu asistente",
     "usageBalancePctUsed": "{pct}% usado",
     "usageBalanceRenews": "Se renueva el {date}",
