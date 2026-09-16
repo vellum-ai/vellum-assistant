@@ -257,6 +257,7 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
     "weekly-export": {
       name: "Weekly Report Export",
       description: "Export the weekly usage report",
+      frontmatter: {},
       emoji: "📊",
       category: "productivity",
       includes: ["csv-basics"],
@@ -267,11 +268,13 @@ describe("find_similar_skills: current skill for a refinable hit", () => {
     "user-skill": {
       name: "User Skill",
       description: "A person wrote this",
+      frontmatter: {},
       body: "Do the user's thing.",
     },
     "clean-disk": {
       name: "Clean Disk",
       description: "Free up disk space",
+      frontmatter: {},
       body: "Delete caches.",
     },
   };
