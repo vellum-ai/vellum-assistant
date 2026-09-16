@@ -118,7 +118,7 @@
     },
     {
       "name": "find_similar_skills",
-      "description": "Find the existing skills most similar to a goal. Scores the goal against the skill catalog's capability pages and returns a ranked shortlist of nearest skills, each with its name, description, source (bundled, managed, plugin, workspace, or extra), and similarity score. For a managed hit it also returns `author` — \"assistant\" if the assistant authored that skill (so it may be overwritten) or \"user\" if a person did (off-limits); `author` is omitted for non-managed sources and for managed skills with no recorded author. Read-only — it never creates, edits, or deletes anything.",
+      "description": "Find the existing skills most similar to a goal. Scores the goal against the skill catalog's capability pages and returns a ranked shortlist of nearest skills, each with its name, description, source (bundled, managed, plugin, workspace, or extra), and similarity score. For a managed hit it also returns `author`: \"assistant\" if the assistant authored that skill (so it may be overwritten) or \"user\" if a person did (off-limits); `author` is omitted for non-managed sources and for managed skills with no recorded author. For a background memory pass, a hit it may refine (managed, assistant-authored) also carries `current`: the skill as it is now, in scaffold_managed_skill's own argument names (name, description, emoji, category, includes, activation_hints, avoid_when, body_markdown), so a refinement can be written from the real skill and carry forward what it is not changing. Read-only: it never creates, edits, or deletes anything.",
       "category": "skills",
       "risk": "low",
       "input_schema": {
