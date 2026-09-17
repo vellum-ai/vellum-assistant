@@ -85,8 +85,12 @@ export function OverridesDetailPanel({
   // Older assistants live-inherit blank profile fields at resolution time,
   // so a sparse profile dispatches there and must not be judged incomplete.
   const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
-  const dispatchOptions = useMemo(
+  const conversationDispatchOptions = useMemo(
     () => ({ requireOwnProviderAndModel }),
+    [requireOwnProviderAndModel],
+  );
+  const callSiteDispatchOptions = useMemo(
+    () => ({ requireOwnProviderAndModel, requireTextGeneration: false }),
     [requireOwnProviderAndModel],
   );
 
@@ -177,11 +181,13 @@ export function OverridesDetailPanel({
   // current selection. It carries the same warning affordance the Profiles
   // row uses, rather than a word appended to its name.
   const toProfileOption = useCallback(
-    (p: (typeof orderedProfiles)[number]) => ({
+    (
+      p: (typeof orderedProfiles)[number],
+      options: typeof conversationDispatchOptions,
+    ) => ({
       value: p.name,
       label: profilePickerLabel(p),
-      ...(profilePickerIssue(p, orderedProfiles, dispatchOptions) ===
-      "undispatchable"
+      ...(profilePickerIssue(p, orderedProfiles, options) === "undispatchable"
         ? {
             icon: (
               <AlertCircle className="h-3.5 w-3.5 text-[var(--system-mid-strong)]" />
@@ -190,7 +196,7 @@ export function OverridesDetailPanel({
           }
         : {}),
     }),
-    [orderedProfiles, dispatchOptions],
+    [orderedProfiles],
   );
 
   const advisorOptions = useMemo(
@@ -198,9 +204,14 @@ export function OverridesDetailPanel({
       visibleProfilesForPicker(
         orderedProfiles,
         [persistedAdvisor],
-        dispatchOptions,
-      ).map(toProfileOption),
-    [orderedProfiles, persistedAdvisor, toProfileOption, dispatchOptions],
+        conversationDispatchOptions,
+      ).map((p) => toProfileOption(p, conversationDispatchOptions)),
+    [
+      orderedProfiles,
+      persistedAdvisor,
+      toProfileOption,
+      conversationDispatchOptions,
+    ],
   );
 
   // "advisor" isn't in the call-site catalog, so its row filters on its own
@@ -237,14 +248,14 @@ export function OverridesDetailPanel({
       const visible = visibleProfilesForPicker(
         orderedProfiles,
         [selectedProfile],
-        dispatchOptions,
+        callSiteDispatchOptions,
       );
       return [
-        ...visible.map(toProfileOption),
+        ...visible.map((p) => toProfileOption(p, callSiteDispatchOptions)),
         { value: CUSTOM_SENTINEL, label: t("overridesDetailPanel.customProfileOption") },
       ];
     },
-    [orderedProfiles, toProfileOption, dispatchOptions, t],
+    [orderedProfiles, toProfileOption, callSiteDispatchOptions, t],
   );
 
   const filteredCallSites = useMemo(() => {
@@ -300,7 +311,7 @@ export function OverridesDetailPanel({
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
         cs?.defaultProfile,
-        dispatchOptions,
+        callSiteDispatchOptions,
       );
       if (seedProfile) {
         setDraft(id, { profile: seedProfile });
@@ -316,7 +327,7 @@ export function OverridesDetailPanel({
       orderedProfiles,
       selectableInferenceProviders,
       setDraft,
-      dispatchOptions,
+      callSiteDispatchOptions,
     ],
   );
 

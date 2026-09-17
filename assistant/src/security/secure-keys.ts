@@ -1,22 +1,18 @@
 /**
- * Unified secure key storage — single-backend routing through CredentialBackend
+ * Unified secure key storage: single-backend routing through CredentialBackend
  * adapters.
  *
  * Backend selection (`resolveBackendAsync`) is the single async decision point:
- *   1. CES RPC (primary) - injected via `setCesClient()`: delegates credential
- *      operations to the CES process over Unix socket RPC. This is the default
- *      path for the assistant (which calls startCes() at boot) and for
- *      child processes that lazily connect to the CES socket (see below).
- *   2. Lazy CES RPC connect - non-assistant processes (workers, CLI
- *      subprocesses) that never call startCes(). On first credential
- *      resolution they discover the CES bootstrap socket
- *      (`CES_BOOTSTRAP_SOCKET_DIR`) and cache
- *      the connection.
- *   3. CES HTTP - containerized failover when IPC is unavailable
+ *   1. CES RPC (primary) - connect to the CES bootstrap socket and talk RPC.
+ *      `openCesRpcSession` is the one client constructor. The assistant
+ *      claims session ownership at boot (`startCes`) and hands CES the
+ *      assistant API key. Child processes open a session on first credential
+ *      read only when this process has no client and no reconnect owner.
+ *   2. CES HTTP - containerized failover when IPC is unavailable
  *      (`IS_CONTAINERIZED` + `CES_CREDENTIAL_URL`). Used if the assistant's
  *      bootstrap RPC transport is down, or if a process with HTTP env could
  *      not open the socket.
- *   4. Encrypted file store (fallback) - used when CES is unavailable locally.
+ *   3. Encrypted file store (fallback) - used when CES is unavailable locally.
  *
  * All operations (reads, writes, lists, deletes) go to exactly one backend.
  * There are no cross-store fallbacks or merges. The only transport failover is
@@ -35,14 +31,11 @@ import type {
 
 import { getIsContainerized } from "../config/env-registry.js";
 import {
-  type CesClient,
-  createCesClient,
-} from "../credential-execution/client.js";
+  openCesRpcSession,
+  reconnectCesRpcSession,
+} from "../credential-execution/ces-connect.js";
+import { type CesClient } from "../credential-execution/client.js";
 import { discoverCes } from "../credential-execution/executable-discovery.js";
-import {
-  CesUnavailableError,
-  createCesProcessManager,
-} from "../credential-execution/process-manager.js";
 import { getAnyProviderEnvVar } from "../providers/provider-env-vars.js";
 import { getLogger } from "../util/logger.js";
 import { getProtectedDir } from "../util/platform.js";
@@ -85,11 +78,11 @@ let _resolvedBackend: CredentialBackend | undefined;
 let _resolvePromise: Promise<CredentialBackend> | undefined;
 
 /**
- * In-flight lazy CES connection promise for non-daemon processes.
+ * In-flight CES RPC session promise for processes that did not call startCes().
  *
  * Workers and CLI subprocesses never call startCes(). When they hit
  * resolveBackendAsync() with no _cesClient and no _cesReconnect
- * (daemon-only), this promise memoizes a direct CES connection attempt so
+ * (assistant-boot only), this promise memoizes `openCesRpcSession` so
  * concurrent credential reads in the same process share a single
  * connect+handshake rather than racing.
  */
@@ -206,10 +199,9 @@ function getEncryptedStoreBackend(): CredentialBackend {
  * Resolve the primary credential backend for this process (async).
  *
  * Priority:
- *   1. CES RPC client: primary path in every environment.
- *   2. Lazy CES RPC connect: child processes discover the CES socket.
- *   3. Containerized + CES_CREDENTIAL_URL: CES HTTP, only if IPC is down.
- *   4. Encrypted file store: local fallback when CES is unavailable.
+ *   1. CES RPC: live client, or open one via `openCesRpcSession`.
+ *   2. Containerized + CES_CREDENTIAL_URL: CES HTTP, only if IPC is down.
+ *   3. Encrypted file store: local fallback when CES is unavailable.
  *
  * Once resolved, the backend is cached. If it becomes unavailable (e.g. the
  * CES transport dies), we attempt to reconnect via `_cesReconnect` rather
@@ -415,19 +407,19 @@ export async function attemptCesReconnection(
 }
 
 /**
- * Lazily connect to a CES sibling socket from a non-daemon process.
+ * Open a CES RPC session from a process that did not call startCes().
  *
  * Workers and CLI subprocesses never call startCes(). This function
- * establishes a direct CES connection on first credential resolution,
+ * opens the same `openCesRpcSession` path the assistant uses at boot,
  * memoizing the in-flight promise so concurrent callers share a single
  * connect+handshake. Discovery uses the shared CES bootstrap socket; a
  * missing socket fails immediately so callers can fall through without
  * polling.
  *
  * On success, the client is injected via setCesClient() so subsequent
- * resolveBackendAsync() calls take the fast CES RPC path (step 1). A
- * reconnect callback is also registered so the lazy connection can heal
- * if the transport drops mid-process.
+ * resolveBackendAsync() calls take the live CES RPC path. A reconnect
+ * callback is also registered so the session can heal if the transport
+ * drops mid-process.
  *
  * Returns undefined on any failure (socket not found, handshake rejected,
  * timeout) so the caller falls through to the encrypted file store.
@@ -438,70 +430,30 @@ async function tryLazyCesConnect(): Promise<CesClient | undefined> {
   }
 
   _lazyConnectPromise = (async () => {
-    try {
-      const discovery = discoverCes();
-      if (discovery.mode === "unavailable") {
-        log.info(
-          { reason: discovery.reason },
-          "CES socket not reachable for lazy connect, falling back to encrypted file store",
-        );
-        return undefined;
-      }
-      const pm = createCesProcessManager({});
-      const transport = await pm.start();
-      const client = createCesClient(transport);
-      const { accepted, reason } = await client.handshake();
-      if (!accepted) {
-        log.warn(
-          { reason },
-          "Lazy CES connection handshake rejected — falling back to encrypted file store",
-        );
-        client.close();
-        await pm.stop().catch(() => {});
-        return undefined;
-      }
+    const discovery = discoverCes();
+    if (discovery.mode === "unavailable") {
       log.info(
-        "Lazy CES connection established — credential operations routed through CES RPC",
+        { reason: discovery.reason },
+        "CES socket not reachable for lazy connect, falling back to encrypted file store",
       );
-      setCesClient(client);
-      // Register a reconnect callback so the lazy connection self-heals
-      // if the transport drops, mirroring the daemon's proactive reconnect.
-      setCesReconnect(async () => {
-        try {
-          await pm.stop();
-          const newTransport = await pm.start();
-          const newClient = createCesClient(newTransport);
-          const { accepted: ok } = await newClient.handshake();
-          if (ok) {
-            log.info("Lazy CES reconnection successful");
-            return newClient;
-          }
-          newClient.close();
-          await pm.stop().catch(() => {});
-          return undefined;
-        } catch (err) {
-          log.warn(
-            { error: err instanceof Error ? err.message : String(err) },
-            "Lazy CES reconnection failed",
-          );
-          return undefined;
-        }
-      });
-      return client;
-    } catch (err) {
-      if (err instanceof CesUnavailableError) {
-        log.info(
-          { reason: err.message },
-          "CES socket not reachable for lazy connect — falling back to encrypted file store",
-        );
-      } else {
-        log.warn(
-          { error: err instanceof Error ? err.message : String(err) },
-          "Lazy CES connection failed — falling back to encrypted file store",
-        );
-      }
       return undefined;
     }
+    const session = await openCesRpcSession();
+    if (!session) {
+      return undefined;
+    }
+    log.info(
+      "CES RPC session established; credential operations route through CES RPC",
+    );
+    setCesClient(session.client);
+    setCesReconnect(async () => {
+      const client = await reconnectCesRpcSession(session.processManager);
+      if (client) {
+        log.info("CES RPC reconnection successful");
+      }
+      return client;
+    });
+    return session.client;
   })();
 
   try {
@@ -512,7 +464,10 @@ async function tryLazyCesConnect(): Promise<CesClient | undefined> {
 }
 
 async function doResolveBackend(): Promise<CredentialBackend> {
-  // 1. CES RPC. Primary credential backend in every environment.
+  // 1. CES RPC. Primary credential backend in every environment. Boot
+  //    claims reconnect ownership before it reads handshake identity, so
+  //    that read cannot open a second session. Children open here only
+  //    when this process has no client and no reconnect owner.
   if (_cesClient) {
     const cesRpc = new CesRpcCredentialBackend(_cesClient);
     if (cesRpc.isAvailable()) {
@@ -525,24 +480,19 @@ async function doResolveBackend(): Promise<CredentialBackend> {
     );
   }
 
-  // 2. Lazy CES RPC connect. Child processes never call startCes(). When
-  //    the assistant's setCesReconnect() is NOT registered, attempt a
-  //    direct connection to the CES bootstrap socket. On success, inject
-  //    the client via setCesClient()
-  //    and re-resolve through the CES RPC path. On failure, fall through.
   if (!_cesClient && !_cesReconnect) {
-    const lazyClient = await tryLazyCesConnect();
-    if (lazyClient) {
-      const cesRpc = new CesRpcCredentialBackend(lazyClient);
+    const client = await tryLazyCesConnect();
+    if (client) {
+      const cesRpc = new CesRpcCredentialBackend(client);
       if (cesRpc.isAvailable()) {
         _resolvedBackend = cesRpc;
-        log.info("Resolved credential backend: ces-rpc (lazy connect)");
+        log.info("Resolved credential backend: ces-rpc");
         return cesRpc;
       }
     }
   }
 
-  // 3. CES HTTP. Managed failover when IPC is unavailable.
+  // 2. CES HTTP. Managed failover when IPC is unavailable.
   if (getIsContainerized() && process.env.CES_CREDENTIAL_URL) {
     const ces = createCesCredentialBackend();
     if (ces.isAvailable()) {
@@ -556,7 +506,7 @@ async function doResolveBackend(): Promise<CredentialBackend> {
     );
   }
 
-  // 4. On a containerized pod the local encrypted store does not exist and CES
+  // 3. On a containerized pod the local encrypted store does not exist and CES
   //    owns credentials. Never resolve to the encrypted store here; it would
   //    report a provisioned credential as absent. Return an unreachable backend
   //    (presence indeterminate, which callers retry) WITHOUT caching it, so the
@@ -568,7 +518,7 @@ async function doResolveBackend(): Promise<CredentialBackend> {
     return createUnavailableBackend();
   }
 
-  // 5. Encrypted file store: the legitimate backend for local / self-hosted
+  // 4. Encrypted file store: the legitimate backend for local / self-hosted
   //    mode when CES is unavailable.
   _resolvedBackend = getEncryptedStoreBackend();
   log.info("Resolved credential backend: encrypted-store (local mode)");

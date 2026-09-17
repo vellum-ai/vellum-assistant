@@ -228,7 +228,7 @@ function getIdentity() {
 
   const version = APP_VERSION;
 
-  const createdAt = resolveIdentityCreatedAt(identityPath);
+  const createdAt = resolveHatchedAtReadOnly(identityPath);
 
   return {
     name: fields.name ?? "",
@@ -239,10 +239,6 @@ function getIdentity() {
     version,
     createdAt,
   };
-}
-
-function resolveIdentityCreatedAt(identityPath: string): string | undefined {
-  return resolveHatchedAtReadOnly(identityPath);
 }
 
 // ---------------------------------------------------------------------------

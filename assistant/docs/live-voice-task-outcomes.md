@@ -42,10 +42,42 @@ PCM is framed into at most 100ms chunks, with the first available samples emitte
 immediately. Socket emission runs roughly 500ms ahead of estimated playback,
 keeping prefetched synthesis from flooding the relay queue. Pacing waits stay
 outside the shared outbound-frame queue and abort with the turn, so cancellation
-and control frames are not delayed. Hands-free clients reconnect on retryable
+and control frames are not delayed. Assistant audio recordings contain only
+frames successfully sent to the transport. Hands-free clients reconnect on retryable
 relay closes, including legacy backpressure code 4013.
 
 The pending queue is session-local; this does not add a durable notification ledger
 or client playback acknowledgements. Task records and worker output retain their
 existing persistence. Automatic announcements follow the current exchange rather
 than merging task updates into an already-running response.
+
+## macOS companion QA
+
+Start a fresh conversation from the companion and use a new investigation topic
+so an earlier report cannot satisfy the request. Ask explicitly for a background
+agent. Use ordinary conversational pauses; timed silence is not required.
+Continuous Flux input and the diagnostics described in
+[voice input diagnostics](voice-input-diagnostics.md) apply to these calls.
+
+1. **Ordinary completion.** Ask for a small background investigation and wait.
+   Confirm the task actually starts, the assistant acknowledges the request, and
+   useful findings are spoken without asking for them. A completion-only notice
+   or visual summary without an audible explanation is not sufficient.
+2. **Keep talking.** Start another investigation, then ask an unrelated question.
+   Include a natural pause partway through the question. The question should stay
+   together, the work should survive, and its results should wait for the current
+   exchange to finish before being announced.
+3. **Interrupt the announcement.** Speak while findings are being announced.
+   The assistant should yield, answer the interruption, and retain the unheard
+   result for appropriate delivery. Interrupting an announcement should not spawn
+   another copy of the investigation.
+4. **Two tasks.** Request two independent investigations. Keep chatting while
+   they run, then leave an opening. Both useful outcomes should arrive without
+   overlapping audio, repetitive status announcements, or a disconnect.
+5. **Hang up before delivery.** End the call with work still running or a result
+   waiting to be heard. Confirm the outcome reaches the conversation afterward.
+
+Record approximate times for requests, interruptions, missing results, and any
+disconnect. Export support logs after the call. Distinguish the request being
+acknowledged, the worker starting, and the result being heard; they exercise
+different parts of the flow.

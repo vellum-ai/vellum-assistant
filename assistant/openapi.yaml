@@ -16556,7 +16556,7 @@ paths:
             type: string
           description:
             "Filter by provider id. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, jev,
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, typesafe,
             vellum"
       responses:
         "200":
@@ -16829,7 +16829,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, jev,
+            vercel-ai-gateway, litellm, opencode, openai-compatible, minimax, atlascloud, baseten, poolside, typesafe,
             vellum, chatgpt"
       responses:
         "200":
@@ -38400,7 +38400,7 @@ components:
         - atlascloud
         - baseten
         - poolside
-        - jev
+        - typesafe
         - vellum
         - chatgpt
     Auth:

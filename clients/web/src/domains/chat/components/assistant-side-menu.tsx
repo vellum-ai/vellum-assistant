@@ -200,7 +200,7 @@ function SearchButton() {
  * Structure (top → bottom):
  *
  *   Header
- *     • Your Assistant → Intelligence view, with New Chat beneath it
+ *     • Your Assistant → Intelligence view, with New Chat beside it
  *   Body · one section list, in the user's own order (default shown)
  *     • Pinned ▾       - when non-empty
  *     • Group ▾        - one collapsible section per custom group

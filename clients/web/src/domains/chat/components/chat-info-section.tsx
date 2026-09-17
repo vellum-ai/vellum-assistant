@@ -40,7 +40,8 @@ export function fitTileCount(rowWidth: number, tileWidth: number): number {
 export interface ChatInfoSectionProps<T> {
   title: string;
   /** The category's exact total, which may exceed `items.length` when the source is paged. */
-  count: number;
+  count: number | null;
+  notice?: ReactNode;
   items: T[];
   /** Fixed (strip) or minimum (fitted row) width of one tile, for the fit computation. */
   tileWidth: number;
@@ -57,6 +58,7 @@ export interface ChatInfoSectionProps<T> {
 export function ChatInfoSection<T>({
   title,
   count,
+  notice,
   items,
   tileWidth,
   renderTile,
@@ -69,7 +71,7 @@ export function ChatInfoSection<T>({
   const isMobile = useIsMobile();
   // The strip's bleed is padding, not extra room, so one fit serves both layouts.
   const fit = fitTileCount(size.w, tileWidth);
-  const showSeeAll = count > fit;
+  const showSeeAll = (count ?? items.length) > fit;
 
   return (
     <section
@@ -86,13 +88,17 @@ export function ChatInfoSection<T>({
           >
             {title}
           </Typography>
-          <MidlineDot className="bg-[var(--content-disabled)]" />
-          <Typography
-            variant="title-small"
-            className="shrink-0 text-[var(--content-disabled)]"
-          >
-            {count}
-          </Typography>
+          {count !== null && (
+            <>
+              <MidlineDot className="bg-[var(--content-disabled)]" />
+              <Typography
+                variant="title-small"
+                className="shrink-0 text-[var(--content-disabled)]"
+              >
+                {count}
+              </Typography>
+            </>
+          )}
         </span>
         {showSeeAll && (
           // The mock draws See All as plain title-small text at the right edge,
@@ -109,6 +115,7 @@ export function ChatInfoSection<T>({
           </Button>
         )}
       </div>
+      {notice}
       {/* Both layouts are the same "one line" decision read at this one
           measured width, so See All and the visible tiles can never disagree:
           a roomy window truncates the line to what fits, a narrow one scrolls

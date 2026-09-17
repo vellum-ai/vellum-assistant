@@ -4,9 +4,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { attachmentsGetInfiniteQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { ApiError } from "@/utils/api-errors";
+
 const feedbackRequests: unknown[] = [];
 let capacitorPlatform: "web" | "ios" | "android" = "web";
 let rejectAndroidFeedbackClient = false;
+let staffUser = false;
+const downloadedFiles: File[] = [];
+
+mock.module("@/runtime/native-file", () => ({
+  saveFile: async (file: File) => {
+    downloadedFiles.push(file);
+  },
+}));
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   feedbackCreateMutation: () => ({
@@ -34,7 +45,7 @@ mock.module("@capacitor/core", () => ({
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
-      user: () => null,
+      user: () => (staffUser ? { isStaff: true, email: null } : null),
     },
   },
 }));
@@ -47,6 +58,8 @@ afterEach(() => {
   feedbackRequests.length = 0;
   capacitorPlatform = "web";
   rejectAndroidFeedbackClient = false;
+  staffUser = false;
+  downloadedFiles.length = 0;
   delete (window as unknown as { _vellumDebug?: unknown })._vellumDebug;
   delete (window as unknown as { vellum?: unknown }).vellum;
 });
@@ -58,10 +71,11 @@ async function decompressLogs(logsFile: File): Promise<string> {
   ).text();
 }
 
-async function submitAndGetLogsText(): Promise<string> {
-  const client = new QueryClient({
+async function submitAndGetLogsText(
+  client = new QueryClient({
     defaultOptions: { mutations: { retry: false } },
-  });
+  }),
+): Promise<string> {
   render(
     <QueryClientProvider client={client}>
       <ShareFeedbackModal
@@ -82,6 +96,71 @@ async function submitAndGetLogsText(): Promise<string> {
 }
 
 describe("ShareFeedbackModal", () => {
+  test("includes the asset snapshot in the direct diagnostic download", async () => {
+    staffUser = true;
+    const client = new QueryClient();
+    client.setQueryData(
+      attachmentsGetInfiniteQueryKey({
+        path: { assistant_id: "assistant-123" },
+        query: {
+          conversationId: "conv-download",
+          sightFrames: "only",
+          limit: 200,
+        },
+      }),
+      { pages: [], pageParams: [] },
+    );
+    render(
+      <QueryClientProvider client={client}>
+        <ShareFeedbackModal open onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole("switch", { name: "Download diagnostics directly" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Download diagnostics" }),
+    );
+    await waitFor(() => expect(downloadedFiles).toHaveLength(1));
+    const tarText = await decompressLogs(downloadedFiles[0]!);
+    expect(tarText).toContain("web-asset-diagnostics.json");
+    expect(tarText).toContain('"conversationId": "conv-download"');
+    expect(tarText).toContain('"source": "frames"');
+    expect(feedbackRequests).toHaveLength(0);
+    client.clear();
+  });
+
+  test("includes the current scoped asset failures in the logs archive", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    await expect(
+      client.fetchQuery({
+        queryKey: attachmentsGetInfiniteQueryKey({
+          path: { assistant_id: "assistant-123" },
+          query: {
+            conversationId: "conv-123",
+            sightFrames: "exclude",
+            limit: 200,
+          },
+        }),
+        queryFn: async () => {
+          throw new ApiError(405, "private failure response");
+        },
+      }),
+    ).rejects.toThrow();
+    const tarText = await submitAndGetLogsText(client);
+    expect(tarText).toContain("web-asset-diagnostics.json");
+    expect(tarText).toContain('"httpStatus": 405');
+    expect(tarText).toContain('"conversationId": "conv-123"');
+    expect(tarText).not.toContain("private failure response");
+    client.clear();
+  });
+
   test("prefills the feedback message", () => {
     const client = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
@@ -311,9 +390,7 @@ describe("diagnostics capture base64 stripping", () => {
     expect(logsText.split("look at this photo").length - 1).toBe(2);
     expect(logsText.split("[stripped data URI image/png,").length - 1).toBe(1);
     expect(logsText.split("[stripped base64,").length - 1).toBe(1);
-    expect(logsText).toContain(
-      "[deduplicated: see clientMessages msg-1]",
-    );
+    expect(logsText).toContain("[deduplicated: see clientMessages msg-1]");
     // The item-layer structure survives alongside the pointer.
     expect(logsText).toContain('"kind": "message"');
     expect(logsText).toContain('"photo.png"');

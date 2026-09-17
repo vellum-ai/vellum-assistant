@@ -11,6 +11,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Browser extension                           | [`clients/chrome-extension/README.md`](clients/chrome-extension/README.md)                         |
 | Clients (web, iOS, Android, macOS, Windows) | [`clients/README.md`](clients/README.md)                                                           |
 | Mobile document chat session                | [`clients/web/docs/DOCUMENT_CHAT.md`](clients/web/docs/DOCUMENT_CHAT.md)                           |
+| Conversation assets                         | [`clients/web/docs/CONVERSATION_ASSETS.md`](clients/web/docs/CONVERSATION_ASSETS.md)               |
 | Public docs site (`clients/docs`)           | [`clients/docs/README.md`](clients/docs/README.md)                                                 |
 | Assistant memory deep dive                  | [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md)                   |
 | Assistant integrations deep dive            | [`assistant/docs/architecture/integrations.md`](assistant/docs/architecture/integrations.md)       |
@@ -786,6 +787,14 @@ flowchart LR
     Voice -->|Silent acknowledgement| Done[Update consumed]
     Queue -->|Hang-up after teardown| Parent
 ```
+
+## Live Voice Input Diagnostics
+
+Hands-free voice records applied browser microphone settings and playback transitions through the client diagnostics ring and Electron renderer logs. The live-voice session records bounded signal summaries, barge-in decisions, and transcription outcomes in the assistant log, linked by session, speech generation, and input-turn identifiers. These observations do not alter speech classification or cancellation and add no raw audio or transcript content.
+
+See [Voice input diagnostics](assistant/docs/voice-input-diagnostics.md) for the event fields, companion reproduction procedure, and support export locations.
+
+With Flux turn detection enabled, the transcription stream receives quiet microphone frames through pauses and idle periods. Confirmed playback echo becomes equal-duration silence; local VAD continues to own barge-in independently. Submission cadence and provider turn-end confidence, trigger, and audio position are logged for correlation with the input measurements.
 
 ## Watch Sessions
 

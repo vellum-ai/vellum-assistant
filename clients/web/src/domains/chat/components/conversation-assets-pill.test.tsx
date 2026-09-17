@@ -70,10 +70,12 @@ const {
   ASSETS_PILL_UNSEEN_DOT_TESTID,
   ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS,
 } = await import("@/domains/chat/components/conversation-assets-pill");
-const { ChatInfoPanel } =
-  await import("@/domains/chat/components/chat-info-panel");
-const { useUnseenDocumentChangesStore } =
-  await import("@/domains/chat/unseen-document-changes-store");
+const { ChatInfoPanel } = await import(
+  "@/domains/chat/components/chat-info-panel"
+);
+const { useUnseenDocumentChangesStore } = await import(
+  "@/domains/chat/unseen-document-changes-store"
+);
 const { useViewerStore } = await import("@/stores/viewer-store");
 
 const ASSISTANT_ID = "asst-1";
@@ -84,12 +86,12 @@ const OTHER_SURFACE_ID = "surface-2";
 
 const DOC_TITLE = "Roadmap";
 
-const UNAVAILABLE_LABEL = "Conversation assets, could not be loaded";
+const UNAVAILABLE_LABEL = "Conversation assets, some could not be loaded";
 
 // Singular: these fixtures seed one asset, and the ICU `plural` in
 // `conversationAssets.ariaLabel` agrees with the count.
-const SEEN_LABEL = "Conversation assets, 1 item";
-const UNSEEN_LABEL = "Conversation assets, 1 item (unseen changes)";
+const SEEN_LABEL = "Conversation assets, 1 loaded item";
+const UNSEEN_LABEL = "Conversation assets, 1 loaded item (unseen changes)";
 
 function makeDocument(
   conversationId = CONVERSATION_ID,
@@ -485,9 +487,7 @@ describe("empty asset list", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  // The three sources resolve one at a time, so a total counted before they
-  // all have is a number the trigger would have to take back.
-  test("renders nothing while a source is unresolved, whatever it has counted", () => {
+  test("keeps available assets reachable while another source loads", () => {
     seedTranscriptMessages(
       ASSISTANT_ID,
       CONVERSATION_ID,
@@ -496,7 +496,7 @@ describe("empty asset list", () => {
 
     renderPillWith(makePendingChatInfoQueryClient());
 
-    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.getByRole("button", { name: SEEN_LABEL })).toBeTruthy();
   });
 
   // A first load that failed also counts nothing, and hiding the trigger there
@@ -543,7 +543,9 @@ describe("desktop tooltip", () => {
       screen.getByRole("button", { name: SEEN_LABEL }).focus();
     });
 
-    expect((await screen.findByRole("tooltip")).textContent).toBe("1 asset");
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "1 loaded asset",
+    );
   });
 
   test("names the failure instead of a count it cannot know", async () => {
@@ -554,7 +556,7 @@ describe("desktop tooltip", () => {
     });
 
     expect((await screen.findByRole("tooltip")).textContent).toBe(
-      "Assets could not be loaded",
+      "Some assets could not be loaded",
     );
   });
 });

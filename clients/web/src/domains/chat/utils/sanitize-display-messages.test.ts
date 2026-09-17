@@ -220,6 +220,49 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     ).toEqual(["gone", "live"]);
   });
 
+  test("never drops the second of two adjacent reaction records", () => {
+    // Two of the assistant's own reactions in one turn persist as two rows
+    // with the same `[reaction]` sentinel text and no tool calls, so they
+    // read as twins; each carries its own reaction fact.
+    const reaction = (id: string, emoji: string) =>
+      makeMessage({
+        id,
+        role: "assistant",
+        ...textBody("[reaction]"),
+        timestamp: 1000,
+        reaction: {
+          emoji,
+          op: "added",
+          targetMessageId: "1700000000.111111",
+          selfAuthored: true,
+        },
+      });
+    expect(
+      sanitizeDisplayMessages([
+        reaction("r-1", "eyes"),
+        reaction("r-2", "tada"),
+      ]).map((m) => m.id),
+    ).toEqual(["r-1", "r-2"]);
+  });
+
+  test("never drops the second of two adjacent silence markers", () => {
+    // Two wake-triggered turns that both chose silence, before the turn-end
+    // reseed: each live row carries the streamed sentinel text and the
+    // silence flag, and no user row sits between them (wake rows render no
+    // bubble). They read as twins, but each is a turn of its own.
+    const quiet = (id: string) =>
+      makeMessage({
+        id,
+        role: "assistant",
+        ...textBody("<no_response/>"),
+        isNoResponse: true,
+        timestamp: 1000,
+      });
+    expect(
+      sanitizeDisplayMessages([quiet("q-1"), quiet("q-2")]).map((m) => m.id),
+    ).toEqual(["q-1", "q-2"]);
+  });
+
   test("keeps both rows when only one is the assistant", () => {
     const user = makeMessage({
       id: "u",

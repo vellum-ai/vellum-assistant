@@ -10,6 +10,7 @@ import type {
 } from "../../stt/types.js";
 import {
   LiveVoiceSession,
+  type LiveVoiceSessionAudioArchiver,
   type LiveVoiceTtsStreamer,
   type LiveVoiceTurnStarter,
 } from "../live-voice-session.js";
@@ -86,6 +87,7 @@ function createContext(): {
 function createSessionHarness(options: {
   startVoiceTurn: LiveVoiceTurnStarter;
   streamTtsAudio: LiveVoiceTtsStreamer | null;
+  archiveAudio?: LiveVoiceSessionAudioArchiver;
 }) {
   const transcriber = new MockStreamingTranscriber();
   const { context, frames } = createContext();
@@ -93,6 +95,7 @@ function createSessionHarness(options: {
     resolveTranscriber: mock(async () => transcriber),
     startVoiceTurn: options.startVoiceTurn,
     streamTtsAudio: options.streamTtsAudio,
+    archiveAudio: options.archiveAudio,
     createTurnId: () => "live-turn-1",
   });
 
@@ -496,40 +499,64 @@ describe("LiveVoiceSession TTS", () => {
     }
   });
 
-  test("paces a prefetched audio burst without holding up interruption", async () => {
-    let callbacks: VoiceTurnCallbacks | undefined;
-    const { session, frames } = createSessionHarness({
-      startVoiceTurn: async (options) => {
-        callbacks = options.callbacks;
-        return { turnId: "bridge-turn-1", abort: mock() };
-      },
-      streamTtsAudio: async (options) => {
-        for (let index = 0; index < 20; index += 1) {
-          options.onAudioChunk({
-            ...makeTtsChunk(""),
-            dataBase64: Buffer.alloc(4800, index).toString("base64"),
-          });
+  test.each(["interrupt", "close"])(
+    "archives only sent audio when %s stops a paced burst",
+    async (stop) => {
+      let callbacks: VoiceTurnCallbacks | undefined;
+      const archivedAudio: Buffer[] = [];
+      const { session, frames } = createSessionHarness({
+        archiveAudio: async (input) => {
+          if (input.role === "assistant") {
+            archivedAudio.push(Buffer.from(input.audio.dataBase64, "base64"));
+          }
+          return {
+            type: "warning",
+            warning: { code: "archive_failed", message: "held in test" },
+          };
+        },
+        startVoiceTurn: async (options) => {
+          callbacks = options.callbacks;
+          return { turnId: "bridge-turn-1", abort: mock() };
+        },
+        streamTtsAudio: async (options) => {
+          for (let index = 0; index < 20; index += 1) {
+            options.onAudioChunk({
+              ...makeTtsChunk(""),
+              dataBase64: Buffer.alloc(4800, index).toString("base64"),
+            });
+          }
+          return makeTtsResult("");
+        },
+      });
+      await startReleasedTurn(session);
+      try {
+        callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
+        callbacks?.message_complete?.(makeMessageComplete());
+        const audioCount = () =>
+          frames.filter((frame) => frame.type === "tts_audio").length;
+        await waitFor(() => audioCount() >= 5);
+        expect(audioCount()).toBeLessThanOrEqual(7);
+        const countBefore = audioCount();
+        if (stop === "interrupt") {
+          await session.handleClientFrame({ type: "interrupt" });
+        } else {
+          await session.close("client_end");
         }
-        return makeTtsResult("");
-      },
-    });
-    await startReleasedTurn(session);
-    try {
-      callbacks?.assistant_text_delta?.(makeTextDelta(FIRST_SENTENCE));
-      callbacks?.message_complete?.(makeMessageComplete());
-      const audioCount = () =>
-        frames.filter((frame) => frame.type === "tts_audio").length;
-      await waitFor(() => audioCount() >= 5);
-      expect(audioCount()).toBeLessThanOrEqual(7);
-      const countBefore = audioCount();
-      await session.handleClientFrame({ type: "interrupt" });
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      expect(audioCount()).toBe(countBefore);
-      expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
-    } finally {
-      await session.close("client_end");
-    }
-  });
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(audioCount()).toBe(countBefore);
+        expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+        expect(archivedAudio).toEqual([
+          Buffer.concat(
+            ttsAudioPayloads(frames).map((audio) =>
+              Buffer.from(audio, "base64"),
+            ),
+          ),
+        ]);
+      } finally {
+        await session.close("client_end");
+      }
+    },
+  );
 
   test("interrupt prevents late TTS chunks from reaching the socket", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;

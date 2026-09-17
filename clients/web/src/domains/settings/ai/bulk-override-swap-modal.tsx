@@ -81,7 +81,7 @@ export function BulkOverrideSwapModal({
   // dispatches there and must not be filtered out of the target list.
   const requireOwnProviderAndModel = useSupportsCompleteProfileSnapshots();
   const dispatchOptions = useMemo(
-    () => ({ requireOwnProviderAndModel }),
+    () => ({ requireOwnProviderAndModel, requireTextGeneration: false }),
     [requireOwnProviderAndModel],
   );
 

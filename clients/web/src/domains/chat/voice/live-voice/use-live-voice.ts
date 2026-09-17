@@ -81,6 +81,7 @@
  */
 
 import { useCallback, useEffect, useRef } from "react";
+import { recordVoiceInputDiagnostic } from "@/domains/chat/voice/live-voice/input-diagnostics";
 
 import {
   LiveVoiceChannelClient,
@@ -932,12 +933,27 @@ export function useLiveVoice(
         busyRetry: null,
       };
 
+      const captureDiagnosticId = crypto.randomUUID();
+      let diagnosticSessionId: string | null = null;
+      const recordInputDiagnostic = (
+        event: string,
+        details: Record<string, unknown> = {},
+      ) => {
+        recordVoiceInputDiagnostic(event, {
+          captureId: captureDiagnosticId,
+          sessionId: diagnosticSessionId,
+          conversationId,
+          entry: session.entry,
+          ...details,
+        });
+      };
       const capture = (
         opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o))
       )({
         onChunk: (buf) => handleChunk(session, buf),
         onAmplitude: (amplitude) =>
           handleAmplitude(session, amplitude, teardown),
+        onDiagnostic: recordInputDiagnostic,
       });
       session.capture = capture;
       sessionRef.current = session;
@@ -1026,6 +1042,11 @@ export function useLiveVoice(
           if (!live()) {
             return;
           }
+          diagnosticSessionId = frame.sessionId;
+          recordInputDiagnostic("session_ready", {
+            turnDetection: frame.turnDetection,
+            conversationId: frame.conversationId,
+          });
           // Version skew: an older daemon ignores the start frame's
           // turnDetection and runs a manual session without echoing the mode.
           // Fall back to manual behavior (auto-release, amplitude barge-in,
@@ -1111,6 +1132,10 @@ export function useLiveVoice(
           if (!live() || !session.handsFree) {
             return;
           }
+          recordInputDiagnostic("speech_started", {
+            playbackActive: session.responseAudioStarted,
+            alreadyHoldingPlayback: session.player.hasHeldPlayback(),
+          });
           // Server VAD heard the user: flush tail playback unconditionally
           // (even mid-`thinking`, when no cancellation follows) and open the
           // next utterance. Speech resuming inside a HELD utterance (semantic
@@ -1170,6 +1195,9 @@ export function useLiveVoice(
           // was wrong: put the flushed reply back rather than leaving silence
           // where the answer was. Resuming sets `speaking` itself.
           const resumed = resumeHeldPlayback(session, teardown);
+          recordInputDiagnostic("utterance_discarded", {
+            playbackResumed: resumed,
+          });
           // Same for a spoken control the onset held off. Re-armed after the
           // resume, so its drain waits on the reply playing again rather than
           // resolving on the silence the flush left.
@@ -1385,6 +1413,9 @@ export function useLiveVoice(
           if (!live() || !session.handsFree) {
             return;
           }
+          recordInputDiagnostic("turn_cancelled", {
+            holdingPlayback: session.player.hasHeldPlayback(),
+          });
           // A cancelled turn's control goes with it.
           session.pendingSessionControl = null;
           // Drop the cancelled turn's bound stamp so the next response's

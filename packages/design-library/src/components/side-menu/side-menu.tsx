@@ -121,7 +121,7 @@ export const SIDE_MENU_MIN_WIDTH = 220;
 export const SIDE_MENU_MAX_WIDTH = 400;
 
 /**
- * The height of a top-level rail pill (an assistant identity row, New Chat, a
+ * The height of a top-level rail pill (an assistant identity row, a
  * pinned app, a section header, Preferences), and so also the diameter of the
  * circle each of those becomes when the rail collapses: a tile is one of those
  * pills with its label taken away, and holding the pill's height is what keeps

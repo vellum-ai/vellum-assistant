@@ -389,7 +389,7 @@ describe("setInferenceProfileSession", () => {
       profiles: {
         jev: {
           source: "user",
-          provider: "jev",
+          provider: "typesafe",
           model: "jev-latest",
           status: "active",
         },
