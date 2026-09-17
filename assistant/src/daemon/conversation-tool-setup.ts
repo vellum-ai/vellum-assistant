@@ -31,7 +31,6 @@ import { getBindingByConversation } from "../persistence/external-conversation-s
 import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
-import { resolveDelegateIndependentTasks } from "../prompts/system-prompt.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import { supportsClientOsForSkillTool } from "../tools/client-os.js";
@@ -954,29 +953,11 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
 }
 
 /**
- * The delegation-section state the conversation's system prompt renders for
- * the turn in flight, from the same inputs `buildCurrentSystemPrompt` hands
- * the prompt builder. `null` when the conversation runs on a system-prompt
- * override: the prompt is the override verbatim, whose contents this cannot
- * see.
- */
-function resolveRenderedDelegateIndependentTasks(
-  ctx: Conversation,
-): boolean | null {
-  if (ctx.hasSystemPromptOverride) {
-    return null;
-  }
-  return resolveDelegateIndependentTasks({
-    canSpawnSubagents: canSpawnSubagentsForTurn(ctx),
-    channelCapabilities: ctx.currentTurnChannelCapabilities,
-  });
-}
-
-/**
  * Build the agent loop's `onToolsSent` observer for a conversation: record
  * the tool array each provider call sends, with the delegation-section state
- * the turn's system prompt renders, so a later fork wake can replay both
- * (`recordConversationToolSurface`). Only the loop's send boundary sees the
+ * the prompt build captured for the prompt that call carries
+ * (`Conversation.renderedDelegateIndependentTasks`), so a later fork wake can
+ * replay both (`recordConversationToolSurface`). Only the loop's send boundary sees the
  * sent array. The resolver is also consulted out of band (the token count
  * behind `/compact` and `/clean`, compaction estimates), where a read outside
  * any turn resolves a clientless surface that would overwrite the one the
@@ -987,9 +968,7 @@ function resolveRenderedDelegateIndependentTasks(
  * fork replaying it could never call `remember`), and disk-pressure cleanup
  * mode narrows the wire to cleanup tools. Best-effort: a failed write is
  * logged and the surface still counts as recorded, so a persistent failure
- * logs once per distinct surface rather than once per provider call, and a
- * delegation state that cannot be resolved is recorded as unknown rather than
- * costing the turn (the loop requires this observer never to throw).
+ * logs once per distinct surface rather than once per provider call.
  */
 export function createWireToolSurfaceRecorder(
   ctx: Conversation,
@@ -1003,18 +982,10 @@ export function createWireToolSurfaceRecorder(
     ) {
       return;
     }
-    let delegateIndependentTasks: boolean | null = null;
-    try {
-      delegateIndependentTasks = resolveRenderedDelegateIndependentTasks(ctx);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: ctx.conversationId },
-        "failed to resolve the delegation-section state for the wire tool surface; recording it as unknown",
-      );
-    }
     const surface: ConversationToolSurface = {
       tools,
-      delegateIndependentTasks,
+      // Unknown before the first prompt build or for a verbatim override.
+      delegateIndependentTasks: ctx.renderedDelegateIndependentTasks ?? null,
     };
     try {
       ctx.recordedToolSurfaceHash = recordConversationToolSurface(

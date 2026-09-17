@@ -92,6 +92,7 @@ import {
   markV3LiveBlock,
   MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
 } from "../plugins/defaults/memory/v3/types.js";
+import { resolveDelegateIndependentTasks } from "../prompts/delegation-gate.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -472,6 +473,16 @@ export class Conversation {
    * @internal
    */
   delegateIndependentTasksReplay?: boolean;
+  /**
+   * The delegation-section state the system prompt most recently built by
+   * {@link buildCurrentSystemPrompt} rendered: the value the loop's prompt
+   * carries until the next build. `null` when that prompt is a verbatim
+   * override, unset before the first build. Read by the wire-surface recorder
+   * so the recorded state is the one the provider received, not a
+   * re-derivation that a config change mid-turn could flip.
+   * @internal
+   */
+  renderedDelegateIndependentTasks?: boolean | null;
   /**
    * Hash of the wire surface last recorded for this conversation in this
    * process, so an unchanged surface is not rewritten on every provider call.
@@ -1159,27 +1170,36 @@ export class Conversation {
    * the provider's prefix cache).
    */
   buildCurrentSystemPrompt(): string {
-    return this.hasSystemPromptOverride
-      ? this.systemPrompt
-      : buildSystemPrompt({
-          hasNoClient: this.hasNoClient,
-          trustContext: this.currentTurnTrustContext,
-          channelCapabilities: this.currentTurnChannelCapabilities,
-          personaOverride: this.wakePersonaOverride,
-          onboardingContext: this.getOnboardingContext(),
-          conversationId: this.conversationId,
-          sendUserMessageTool: resolveSendUserMessageActive(this),
-          // Read off this turn's resolved tool surface: a workspace
-          // `tools.exclude` entry, a background run's `allowedTools` scope, a
-          // read-only subagent pass, or tools disabled all answer no, and the
-          // delegation section renders off rather than pointing at a tool the
-          // turn cannot call.
-          canSpawnSubagents: canSpawnSubagentsForTurn(this),
-          // A wake replaying its source's recorded surface renders the
-          // section the source's live turn rendered; unset otherwise, so the
-          // derivation from the answer above decides.
-          delegateIndependentTasks: this.delegateIndependentTasksReplay,
-        });
+    if (this.hasSystemPromptOverride) {
+      this.renderedDelegateIndependentTasks = null;
+      return this.systemPrompt;
+    }
+    // Resolved once here, handed to the builder, and kept for the
+    // wire-surface recorder, so the prompt the provider receives and the state
+    // a fork replays are the same value by construction. A wake replaying its
+    // source's recorded surface renders the section the source's live turn
+    // rendered; otherwise the answer is read off this turn's resolved tool
+    // surface: a workspace `tools.exclude` entry, a background run's
+    // `allowedTools` scope, a read-only subagent pass, or tools disabled all
+    // answer no, and the section renders off rather than pointing at a tool
+    // the turn cannot call.
+    const delegateIndependentTasks =
+      this.delegateIndependentTasksReplay ??
+      resolveDelegateIndependentTasks({
+        canSpawnSubagents: canSpawnSubagentsForTurn(this),
+        channelCapabilities: this.currentTurnChannelCapabilities,
+      });
+    this.renderedDelegateIndependentTasks = delegateIndependentTasks;
+    return buildSystemPrompt({
+      hasNoClient: this.hasNoClient,
+      trustContext: this.currentTurnTrustContext,
+      channelCapabilities: this.currentTurnChannelCapabilities,
+      personaOverride: this.wakePersonaOverride,
+      onboardingContext: this.getOnboardingContext(),
+      conversationId: this.conversationId,
+      sendUserMessageTool: resolveSendUserMessageActive(this),
+      delegateIndependentTasks,
+    });
   }
 
   /**

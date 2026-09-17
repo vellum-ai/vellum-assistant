@@ -1178,7 +1178,10 @@ describe("createResolveToolsCallback: wire tool surface record and replay", () =
   });
 
   test("the send-boundary recorder records the sent array, keyed by conversation, and remembers its hash", () => {
-    const ctx = makeProjectionCtx({ conversationId: "conv-live" });
+    const ctx = makeProjectionCtx({
+      conversationId: "conv-live",
+      renderedDelegateIndependentTasks: true,
+    });
     const record = createWireToolSurfaceRecorder(ctx);
     const sent = [makeToolDef("remember"), makeToolDef("web_search")];
 
@@ -1204,40 +1207,37 @@ describe("createResolveToolsCallback: wire tool surface record and replay", () =
     expect(ctx.recordedToolSurfaceHash).toBe("hash:remember,web_search");
   });
 
-  test("the recorder records the delegation-section state the turn's prompt renders", () => {
+  test("the recorder records the state the prompt build captured, never a re-derivation", () => {
     const sent = [makeToolDef("remember")];
-    const channel = {
-      channel: "slack",
-      dashboardCapable: false,
-      supportsDynamicUi: false,
-      supportsVoiceInput: false,
-    };
 
-    // An unrestricted interactive turn renders the section.
-    createWireToolSurfaceRecorder(
-      makeProjectionCtx({ conversationId: "conv-live" }),
-    )(sent);
-    // A wire-scoped background run whose allowlist carries no spawn path
-    // renders it off.
+    // The loop sends the prompt built before the run, so the captured state
+    // is recorded as is even where the live scope would now derive the
+    // opposite: a spawn path excluded after the build (here, an allowlist
+    // with none) still records the section on...
     createWireToolSurfaceRecorder(
       makeProjectionCtx({
-        conversationId: "conv-scoped",
+        conversationId: "conv-captured-on",
         subagentAllowedTools: new Set(["remember"]),
+        renderedDelegateIndependentTasks: true,
       }),
     )(sent);
-    // So does a channel-delivered turn, whatever it could spawn.
+    // ...and a path restored after the build still records it off.
     createWireToolSurfaceRecorder(
       makeProjectionCtx({
-        conversationId: "conv-channel",
-        currentTurnChannelCapabilities: channel,
+        conversationId: "conv-captured-off",
+        renderedDelegateIndependentTasks: false,
       }),
     )(sent);
-    // A system-prompt override renders whatever the override says: unknown.
+    // A verbatim system-prompt override captures unknown.
     createWireToolSurfaceRecorder(
       makeProjectionCtx({
         conversationId: "conv-override",
-        hasSystemPromptOverride: true,
+        renderedDelegateIndependentTasks: null,
       }),
+    )(sent);
+    // No prompt built yet: unknown as well.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-unbuilt" }),
     )(sent);
 
     expect(
@@ -1246,10 +1246,10 @@ describe("createResolveToolsCallback: wire tool surface record and replay", () =
         r.delegateIndependentTasks,
       ]),
     ).toEqual([
-      ["conv-live", true],
-      ["conv-scoped", false],
-      ["conv-channel", false],
+      ["conv-captured-on", true],
+      ["conv-captured-off", false],
       ["conv-override", null],
+      ["conv-unbuilt", null],
     ]);
   });
 
