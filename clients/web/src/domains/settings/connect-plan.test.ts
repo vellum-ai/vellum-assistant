@@ -4,6 +4,7 @@ import type { OAuthConnection } from "@/generated/api/types.gen";
 
 import {
   buildConnectPlan,
+  connectableMethods,
   planMethods,
   type ConnectPlan,
   type ConnectPlanContext,
@@ -14,6 +15,7 @@ import type {
   McpPluginMethod,
   OAuthProvider,
 } from "./integration-items";
+import type { McpServerEntry } from "./mcp/mcp-api";
 
 function provider(): OAuthProvider {
   return {
@@ -63,6 +65,22 @@ function pluginMethod(
   overrides: Partial<McpPluginDefinition> = {},
 ): McpPluginMethod {
   return { definition: definition(overrides), servers: [] };
+}
+
+function connectedServer(): McpServerEntry {
+  return {
+    id: "notion",
+    status: "connected",
+    source: "plugin",
+    pluginName: "notion-mcp",
+    transport: {
+      type: "streamable-http",
+      url: "https://mcp.example.com/notion-mcp",
+    },
+    hasOAuth: true,
+    hasStaticAuth: false,
+    authType: "none",
+  };
 }
 
 function oauthItem(methods: McpPluginMethod[]): ConnectableIntegrationItem {
@@ -189,5 +207,36 @@ describe("buildConnectPlan", () => {
     expect(plan.primary.instructions).toBe(
       "A Ramp admin must allowlist the callback URL.",
     );
+  });
+});
+
+describe("connectableMethods", () => {
+  test("keeps an MCP method on offer while nothing is connected to it", () => {
+    const plan = planOf(oauthItem([pluginMethod()]), {
+      platformGate: "full",
+      ownOAuthAvailable: false,
+    });
+
+    expect(connectableMethods(plan).map((method) => method.kind)).toEqual([
+      "mcp-oauth",
+      "managed-oauth",
+    ]);
+  });
+
+  test("drops an MCP method once its server is installed", () => {
+    const plan = planOf(
+      oauthItem([{ definition: definition(), servers: [connectedServer()] }]),
+      { platformGate: "full", ownOAuthAvailable: true },
+    );
+
+    expect(planMethods(plan).map((method) => method.kind)).toEqual([
+      "mcp-oauth",
+      "managed-oauth",
+      "own-oauth",
+    ]);
+    expect(connectableMethods(plan).map((method) => method.kind)).toEqual([
+      "managed-oauth",
+      "own-oauth",
+    ]);
   });
 });

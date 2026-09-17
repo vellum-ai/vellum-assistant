@@ -263,7 +263,11 @@ export const Failed: Story = {
   },
 };
 
-/** With a connection in place the modal opens on what is already connected. */
+/**
+ * With a connection in place the modal opens on what is already connected.
+ * The plugin installs once, so with no other path there is no "Connect
+ * another" here: the row on screen is everything this integration can be.
+ */
 export const ConnectedMcp: Story = {
   args: {
     plan: planFor({
@@ -273,7 +277,11 @@ export const ConnectedMcp: Story = {
   },
 };
 
-/** Two live paths to one integration, told apart by their method tag. */
+/**
+ * Two live paths to one integration, told apart by their method tag. Only the
+ * hosted sign-in takes another account, so it is the whole "Connect another"
+ * menu.
+ */
 export const ConnectedBoth: Story = {
   args: {
     plan: planFor({

@@ -20,6 +20,7 @@ import {
   useConnectMethodLabel,
 } from "../connect-method-display";
 import {
+  connectableMethods,
   isMcpMethodKind,
   planMethods,
   type ConnectMethod,
@@ -51,8 +52,8 @@ export type TileConnectState =
       error: string;
       /**
        * The method that failed. "Try another way" offers every other method
-       * the plan carries, so the way out of a failed alternative includes the
-       * recommended path the user skipped to get here.
+       * still open to the plan, so the way out of a failed alternative
+       * includes the recommended path the user skipped to get here.
        */
       methodId: string;
       methodKind: ConnectMethodKind;
@@ -183,11 +184,11 @@ export function IntegrationTile({
 
   let footer: ReactNode = null;
   if (state.phase === "failed") {
-    // Every way in but the one that just failed. The method that failed can
-    // be an alternative the user picked, so the menu has to be able to offer
-    // the recommended path they skipped to get here, which `plan.alternatives`
-    // by itself never contains.
-    const otherMethods = planMethods(plan).filter(
+    // Every way in that is still open but the one that just failed. The method
+    // that failed can be an alternative the user picked, so the menu has to be
+    // able to offer the recommended path they skipped to get here, which
+    // `plan.alternatives` by itself never contains.
+    const otherMethods = connectableMethods(plan).filter(
       (method) => method.id !== state.methodId,
     );
     footer = (

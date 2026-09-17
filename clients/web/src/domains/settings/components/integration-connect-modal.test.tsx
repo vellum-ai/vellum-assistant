@@ -73,20 +73,52 @@ describe("IntegrationConnectModal", () => {
     screen.getByText("Needs attention");
   });
 
-  test("confirms a disconnect in the words of the thing being removed", async () => {
+  test("asks one plain question before removing an MCP server", async () => {
     modal({ plan: connectedPlan });
 
     openMenu("More actions for Notion MCP server");
-    fireEvent.click(
-      await screen.findByRole("menuitem", { name: "Disconnect" }),
-    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
 
-    await screen.findByText("Disconnect Notion MCP server?");
-    screen.getByText(
-      "Vellum removes the Notion MCP server and its tools. You can connect it again at any time.",
-    );
+    await screen.findByText("Remove Notion MCP server?");
+    screen.getByText("Are you sure?");
 
     expect(handlers.onDisconnect).not.toHaveBeenCalled();
+  });
+
+  test("asks an account the same question, and removes it on confirm", async () => {
+    modal({ plan: connectedPlan });
+
+    openMenu("More actions for user@example.com");
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove" }));
+
+    await screen.findByText("Remove user@example.com?");
+    screen.getByText("Are you sure?");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(handlers.onDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  test("leaves out an MCP server a plugin has already installed", async () => {
+    modal({ plan: connectedPlan });
+
+    openMenu("Connect another");
+    await screen.findByRole("menuitem", { name: "Sign in through Vellum" });
+    expect(
+      screen.queryByRole("menuitem", { name: "Notion MCP server" }),
+    ).toBeNull();
+  });
+
+  test("drops Connect another when the only path is already connected", () => {
+    modal({
+      plan: planFor({
+        servers: [mcpServer("notion-mcp", { id: "notion" })],
+        definitions: [pluginDefinition({ oauthProvider: undefined })],
+      }),
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Connect another" }),
+    ).toBeNull();
   });
 
   test("puts an MCP server's tools behind the row they belong to", async () => {

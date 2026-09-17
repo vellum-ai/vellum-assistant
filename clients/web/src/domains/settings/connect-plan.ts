@@ -241,3 +241,18 @@ export function planMethods(plan: ConnectPlan): ConnectMethod[] {
 export function planConnections(plan: ConnectPlan): ConnectionSummary[] {
   return planMethods(plan).flatMap((method) => method.connections);
 }
+
+/**
+ * The methods that can still take a connection of their own.
+ *
+ * A catalog plugin declares its MCP server and installs once, so an MCP
+ * method that already has a connection has no second one to offer: pointing
+ * a user back at it leads nowhere. OAuth methods hold as many accounts as the
+ * user signs in with, so they stay on offer.
+ */
+export function connectableMethods(plan: ConnectPlan): ConnectMethod[] {
+  return planMethods(plan).filter(
+    (method) =>
+      !isMcpMethodKind(method.kind) || method.connections.length === 0,
+  );
+}

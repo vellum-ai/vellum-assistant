@@ -7,7 +7,7 @@ import {
   Loader2,
   MoreHorizontal,
   RefreshCw,
-  Unplug,
+  Trash2,
   Wrench,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -31,6 +31,7 @@ import {
   useConnectMethodLabel,
 } from "../connect-method-display";
 import {
+  connectableMethods,
   isMcpMethodKind,
   planConnections,
   planMethods,
@@ -315,15 +316,11 @@ export function IntegrationConnectModal({
       <ConfirmDialog
         open={confirming !== null}
         destructive
-        title={t("integrationConnect.disconnectTitle", {
+        title={t("integrationConnect.removeTitle", {
           label: confirming ? connectionTitle(confirming) : "",
         })}
-        message={
-          confirming && isMcpMethodKind(confirming.methodKind)
-            ? t("integrationConnect.disconnectMessageMcp", { name: plan.name })
-            : t("integrationConnect.disconnectMessageManaged")
-        }
-        confirmLabel={t("integrationConnect.disconnect")}
+        message={t("integrationConnect.removeMessage")}
+        confirmLabel={t("integrationConnect.remove")}
         cancelLabel={t("integrationConnect.cancel")}
         onConfirm={() => {
           if (confirming) {
@@ -671,6 +668,10 @@ function ConnectionsView({
   onClose: () => void;
 }) {
   const { t } = useTranslation("settings");
+  // Only the paths that have another connection left in them. With none, the
+  // list on screen is already everything this integration can be, so the
+  // footer drops the control rather than opening an empty menu.
+  const another = connectableMethods(plan);
 
   function subtitle(connection: ConnectionSummary): string | undefined {
     const method = methods.find(
@@ -744,9 +745,9 @@ function ConnectionsView({
                         />
                       ) : null}
                       <ActionMenu.Item
-                        icon={Unplug}
+                        icon={Trash2}
                         tone="destructive"
-                        label={t("integrationConnect.disconnect")}
+                        label={t("integrationConnect.remove")}
                         onSelect={() => onRequestDisconnect(connection)}
                       />
                     </ActionMenu.Content>
@@ -759,20 +760,22 @@ function ConnectionsView({
       </Modal.Body>
 
       <Modal.Footer>
-        <ActionMenu.Root>
-          <ActionMenu.Trigger asChild>
-            <Button
-              variant="outlined"
-              className="min-h-11"
-              rightIcon={<ChevronDown />}
-            >
-              {t("integrationConnect.connectAnother")}
-            </Button>
-          </ActionMenu.Trigger>
-          <ActionMenu.Content title={t("integrationConnect.connectAnother")}>
-            {methodItems(methods, onPickMethod)}
-          </ActionMenu.Content>
-        </ActionMenu.Root>
+        {another.length > 0 ? (
+          <ActionMenu.Root>
+            <ActionMenu.Trigger asChild>
+              <Button
+                variant="outlined"
+                className="min-h-11"
+                rightIcon={<ChevronDown />}
+              >
+                {t("integrationConnect.connectAnother")}
+              </Button>
+            </ActionMenu.Trigger>
+            <ActionMenu.Content title={t("integrationConnect.connectAnother")}>
+              {methodItems(another, onPickMethod)}
+            </ActionMenu.Content>
+          </ActionMenu.Root>
+        ) : null}
         <Button className="min-h-11" onClick={onClose}>
           {t("integrationConnect.done")}
         </Button>

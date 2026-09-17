@@ -6,6 +6,7 @@ import {
   NOTION_PROVIDER,
   googlePlan,
   linearMcpPlan,
+  mcpServer,
   notionPlan,
   planFor,
   pluginDefinition,
@@ -115,6 +116,33 @@ describe("IntegrationTile", () => {
     await screen.findByRole("menuitem", { name: "Use your own OAuth app" });
     expect(
       screen.queryByRole("menuitem", { name: "Sign in through Vellum" }),
+    ).toBeNull();
+  });
+
+  test("never offers an MCP server the plugin has already installed", () => {
+    const plan = planFor({
+      providers: [NOTION_PROVIDER],
+      servers: [mcpServer("notion-mcp", { id: "notion" })],
+      definitions: [pluginDefinition()],
+    });
+    const failed = plan.alternatives.find(
+      (method) => method.kind === "managed-oauth",
+    );
+    if (!failed) {
+      throw new Error("expected a managed alternative in the fixture plan");
+    }
+    tile({
+      plan,
+      state: {
+        phase: "failed",
+        error: "Notion rejected the sign-in.",
+        methodId: failed.id,
+        methodKind: failed.kind,
+      },
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Try another way" }),
     ).toBeNull();
   });
 
