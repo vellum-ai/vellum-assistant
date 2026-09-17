@@ -1,101 +1,114 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import {
-  SNAPSHOT_TOOL_CALL_SOURCE,
-  type ToolCallSource,
-} from "@/domains/chat/hooks/use-live-tool-call";
 import { resolveSubagentStepDetail } from "@/domains/chat/utils/subagent-step-detail";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
-const SUBAGENT: ToolCallSource = { kind: "subagent", subagentId: "sa-1" };
-
 const eventDetail = (
-  status: ToolDetailPayload["status"],
+  overrides: Partial<ToolDetailPayload> = {},
 ): ToolDetailPayload => ({
   toolCallId: "tu-1",
   toolName: "bash",
   title: "Running a command",
   activity: "",
   input: { command: "ls" },
-  result: status === "running" ? undefined : "event-output",
-  status,
+  result: "event-output",
+  status: "completed",
   kind: "tool",
+  ...overrides,
 });
 
 const runningCall: ChatMessageToolCall = {
   id: "tu-1",
   name: "bash",
   input: { command: "ls" },
-};
-
-const finishedCall: ChatMessageToolCall = {
-  ...runningCall,
-  result: "canonical-output",
   riskLevel: "low",
 };
 
 describe("resolveSubagentStepDetail", () => {
-  test("prefers the canonical call and reads it live from the subagent", () => {
-    const resolved = resolveSubagentStepDetail(
-      finishedCall,
-      eventDetail("completed"),
-      SUBAGENT,
+  test("uses the event-built detail when the history lacks the call", () => {
+    expect(resolveSubagentStepDetail(null, eventDetail())?.result).toBe(
+      "event-output",
     );
-    expect(resolved?.source).toBe(SUBAGENT);
-    expect(resolved?.detail.result).toBe("canonical-output");
   });
 
-  test("falls back to the event-built detail when the history lacks the call", () => {
-    const resolved = resolveSubagentStepDetail(
-      null,
-      eventDetail("completed"),
-      SUBAGENT,
+  test("uses the canonical call alone when the events carry no detail", () => {
+    const detail = resolveSubagentStepDetail(
+      { ...runningCall, result: "canonical-output" },
+      undefined,
     );
-    expect(resolved?.source).toBe(SNAPSHOT_TOOL_CALL_SOURCE);
-    expect(resolved?.detail.result).toBe("event-output");
+    expect(detail?.result).toBe("canonical-output");
+    expect(detail?.riskLevel).toBe("low");
   });
 
-  test("keeps the event-built detail when it finished and the canonical copy still runs", () => {
-    const resolved = resolveSubagentStepDetail(
-      runningCall,
-      eventDetail("completed"),
-      SUBAGENT,
+  test("keeps the canonical call's own values where it has them", () => {
+    const detail = resolveSubagentStepDetail(
+      { ...runningCall, result: "canonical-output" },
+      eventDetail(),
     );
-    expect(resolved?.source).toBe(SNAPSHOT_TOOL_CALL_SOURCE);
-    expect(resolved?.detail.result).toBe("event-output");
+    expect(detail?.result).toBe("canonical-output");
+    expect(detail?.status).toBe("completed");
   });
 
-  test("keeps the event-built detail when the canonical copy finished without its result", () => {
-    const resolved = resolveSubagentStepDetail(
+  test("fills a still-running canonical copy from the finished events", () => {
+    const detail = resolveSubagentStepDetail(runningCall, eventDetail());
+    expect(detail?.result).toBe("event-output");
+    expect(detail?.status).toBe("completed");
+    expect(detail?.riskLevel).toBe("low");
+  });
+
+  test("fills a result the canonical copy was completed without", () => {
+    const detail = resolveSubagentStepDetail(
       { ...runningCall, completedAt: 1 },
-      eventDetail("completed"),
-      SUBAGENT,
+      eventDetail(),
     );
-    expect(resolved?.source).toBe(SNAPSHOT_TOOL_CALL_SOURCE);
-    expect(resolved?.detail.result).toBe("event-output");
+    expect(detail?.result).toBe("event-output");
   });
 
-  test("returns to the canonical call once it catches up", () => {
-    const event = eventDetail("completed");
-    expect(
-      resolveSubagentStepDetail(runningCall, event, SUBAGENT)?.source,
-    ).toBe(SNAPSHOT_TOOL_CALL_SOURCE);
-    expect(
-      resolveSubagentStepDetail(finishedCall, event, SUBAGENT)?.source,
-    ).toBe(SUBAGENT);
+  test("fills a web search's sources the canonical copy has no metadata for", () => {
+    const sources = [
+      {
+        rank: 1,
+        title: "Toronto",
+        url: "https://example.com/toronto",
+        domain: "example.com",
+      },
+    ];
+    const detail = resolveSubagentStepDetail(
+      {
+        id: "tu-1",
+        name: "web_search",
+        input: { query: "toronto" },
+        completedAt: 1,
+      },
+      eventDetail({
+        toolName: "web_search",
+        kind: "web_search",
+        result: undefined,
+        searchQuery: "toronto",
+        searchResults: sources,
+      }),
+    );
+    expect(detail?.kind).toBe("web_search");
+    expect(detail?.searchResults).toEqual(sources);
   });
 
-  test("keeps the canonical call while both are still running", () => {
+  test("takes the more final status of the two", () => {
     expect(
-      resolveSubagentStepDetail(runningCall, eventDetail("running"), SUBAGENT)
-        ?.source,
-    ).toBe(SUBAGENT);
+      resolveSubagentStepDetail(
+        { ...runningCall, result: "ok" },
+        eventDetail({ status: "error" }),
+      )?.status,
+    ).toBe("error");
+    expect(
+      resolveSubagentStepDetail(
+        { ...runningCall, isError: true, result: "boom" },
+        eventDetail({ status: "running", result: undefined }),
+      )?.status,
+    ).toBe("error");
   });
 
-  test("resolves nothing when neither source has the step", () => {
-    expect(
-      resolveSubagentStepDetail(null, undefined, SUBAGENT),
-    ).toBeUndefined();
+  test("resolves nothing when neither copy has the step", () => {
+    expect(resolveSubagentStepDetail(null, undefined)).toBeUndefined();
   });
 });

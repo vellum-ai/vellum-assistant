@@ -132,15 +132,14 @@ tool calls are the canonical `ChatMessageToolCall` the main chat renders.
 - A subagent whose `subagent_spawned` arrives live, or that has no child
   conversation to fetch, seeds an empty history at spawn and is built from the
   stream alone.
-- The history is preferred, not required. A subagent's timeline pills come from
-  its flattened timeline events, and a pill whose call the history lacks (not
-  yet loaded, loaded incomplete, or keyed by a positional id an older assistant
-  synthesized) opens the detail built from those events instead, as does a
-  call whose ending the events know more about: the history's copy still runs,
-  or finished without the result the events carry
-  (`resolveSubagentStepDetail`). The choice is remade on every render, so the
-  drawer returns to the history's copy once it catches up. A pill that renders
-  always opens something.
+- A subagent's timeline pills come from its flattened timeline events, and a
+  tool pill's detail merges two copies (`resolveSubagentStepDetail`): the
+  canonical call from the history as the base, every field it leaves empty
+  filled from the detail built from those events, and the more final of the two
+  statuses. A call the history lacks (not yet loaded, or keyed by a positional
+  id an older assistant synthesized) opens the event-built detail alone. The
+  merge is remade from the live call on every render, so nothing either copy
+  knows is lost and a pill that renders always opens something.
 - A proven seq gap on the parent stream drops the fetched subagent histories
   (`invalidateHistories`) alongside the parent's authoritative reconcile, so they
   are refetched rather than advanced with missing events.

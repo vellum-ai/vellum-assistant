@@ -50,6 +50,7 @@ import {
 import {
   findToolCall,
   useLiveToolCall,
+  SNAPSHOT_TOOL_CALL_SOURCE,
   type ToolCallSource,
 } from "@/domains/chat/hooks/use-live-tool-call";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
@@ -269,17 +270,16 @@ export function SubagentDetailPanel({
     }
   }, [entry.subagentId, canFetchDetail, entry.events.length, onRequestDetail]);
 
-  // The selected step's nested detail, and where the drawer reads it live:
-  // the canonical call in this subagent's history when it is there and no less
-  // complete than the timeline, otherwise the payload built from the timeline's
-  // events (see `resolveSubagentStepDetail`).
+  // The selected step's nested detail: the canonical call in this subagent's
+  // history merged with the payload built from the timeline's events (see
+  // `resolveSubagentStepDetail`). The merge is remade from the live call on
+  // every render, so the body reads it as a snapshot rather than re-reading
+  // the canonical copy alone.
   const liveToolCall = useLiveToolCall(toolCallSource, selectedDetailKey);
-  const selectedStep = resolveSubagentStepDetail(
+  const activeDetail = resolveSubagentStepDetail(
     liveToolCall,
     selectedDetailKey ? stepDetails.get(selectedDetailKey) : undefined,
-    toolCallSource,
   );
-  const activeDetail = selectedStep?.detail;
 
   // Returns from a nested step detail to the subagent timeline. Clearing only
   // `selectedDetailKey` preserves `expandedSectionKeys` (and the objective
@@ -376,7 +376,7 @@ export function SubagentDetailPanel({
         showToolHeader && activeDetail ? (
           <ToolDetailHeaderTitle
             detail={activeDetail}
-            source={selectedStep.source}
+            source={SNAPSHOT_TOOL_CALL_SOURCE}
           />
         ) : undefined
       }
@@ -420,7 +420,7 @@ export function SubagentDetailPanel({
               ) : (
                 <ToolDetailBody
                   detail={activeDetail}
-                  source={selectedStep.source}
+                  source={SNAPSHOT_TOOL_CALL_SOURCE}
                   assistantId={assistantId}
                 />
               )}

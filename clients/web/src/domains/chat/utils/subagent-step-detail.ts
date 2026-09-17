@@ -1,65 +1,66 @@
 /**
- * Which detail a subagent timeline pill opens.
+ * The detail a subagent timeline pill opens.
  *
- * A subagent's pills come from its flattened timeline events, and the detail
- * behind a tool pill can come from two places: the canonical call in the
- * subagent's history, or the payload built from those same events. The
- * canonical call carries more (risk, streamed output, structured metadata), so
- * it is preferred. The event-built payload is the floor, so a pill that renders
- * always opens something, and it wins whenever it knows more about how the
- * call ended than the canonical copy does: the canonical copy still runs while
- * the events show it finished, or it is marked finished without the result the
- * events carry (a history seeded from a snapshot older than the timeline).
+ * A subagent's pills come from its flattened timeline events, and a tool pill's
+ * detail exists in two copies: the canonical call in the subagent's history,
+ * and the payload built from those same events. Either can know something the
+ * other does not. The canonical call carries risk, streamed output and
+ * structured metadata; the event-built copy can hold a result or parsed search
+ * sources the history has not caught up to (a history seeded from a snapshot
+ * older than the timeline, or a call force-completed without its result).
  *
- * The choice is made on every render from the live canonical call, so once the
- * canonical copy catches up the drawer reads it live again.
+ * So the two are merged rather than one chosen: the canonical call is the base,
+ * every field it leaves empty is filled from the event-built copy, and the
+ * status is the more final of the two. Nothing either copy knows is discarded,
+ * and the merge is remade on every render from the live canonical call, so the
+ * detail tracks the history as it fills in.
  */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import {
-  SNAPSHOT_TOOL_CALL_SOURCE,
-  type ToolCallSource,
-} from "@/domains/chat/hooks/use-live-tool-call";
 import { toolDetailPayloadFromToolCall } from "@/domains/chat/utils/tool-call-card-utils";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 
-export interface SubagentStepDetail {
-  detail: ToolDetailPayload;
-  /** Where the drawer reads the call live: the subagent, or nowhere. */
-  source: ToolCallSource;
-}
-
 /**
- * How much a copy knows about how the call ended: still running, finished
- * without its result, or finished with its result.
+ * How final a status is, in the precedence `toolCallRank` gives tool calls:
+ * a refusal or an error outranks a completion, which outranks running.
  */
-function outcomeKnown(running: boolean, result: string | undefined): number {
-  if (running) {
-    return 0;
-  }
-  return result === undefined ? 1 : 2;
+const STATUS_RANK: Record<ToolDetailPayload["status"], number> = {
+  running: 0,
+  completed: 1,
+  error: 2,
+  denied: 2,
+};
+
+function mergeDetails(
+  canonical: ToolDetailPayload,
+  event: ToolDetailPayload,
+): ToolDetailPayload {
+  return {
+    ...canonical,
+    kind: canonical.kind ?? event.kind,
+    input:
+      Object.keys(canonical.input).length > 0 ? canonical.input : event.input,
+    result: canonical.result ?? event.result,
+    streamedOutput: canonical.streamedOutput ?? event.streamedOutput,
+    durationLabel: canonical.durationLabel || event.durationLabel,
+    searchQuery: canonical.searchQuery || event.searchQuery,
+    searchResults: canonical.searchResults?.length
+      ? canonical.searchResults
+      : (event.searchResults ?? canonical.searchResults),
+    status:
+      STATUS_RANK[event.status] > STATUS_RANK[canonical.status]
+        ? event.status
+        : canonical.status,
+  };
 }
 
 export function resolveSubagentStepDetail(
   canonicalCall: ChatMessageToolCall | null,
   eventDetail: ToolDetailPayload | undefined,
-  subagentSource: ToolCallSource,
-): SubagentStepDetail | undefined {
-  const eventKnown = eventDetail
-    ? outcomeKnown(eventDetail.status === "running", eventDetail.result)
-    : -1;
-  if (
-    canonicalCall &&
-    outcomeKnown(isToolCallRunning(canonicalCall), canonicalCall.result) >=
-      eventKnown
-  ) {
-    return {
-      detail: toolDetailPayloadFromToolCall(canonicalCall),
-      source: subagentSource,
-    };
+): ToolDetailPayload | undefined {
+  if (!canonicalCall) {
+    return eventDetail;
   }
-  return eventDetail
-    ? { detail: eventDetail, source: SNAPSHOT_TOOL_CALL_SOURCE }
-    : undefined;
+  const canonical = toolDetailPayloadFromToolCall(canonicalCall);
+  return eventDetail ? mergeDetails(canonical, eventDetail) : canonical;
 }
