@@ -10,6 +10,8 @@
  * a depth past which the rest is shown as JSON.
  */
 
+import { isRecord } from "@/utils/is-record";
+
 /** Nesting depth at which a list or object is shown as JSON instead. */
 const MAX_DEPTH = 4;
 
@@ -60,21 +62,24 @@ export interface ValuePair {
   text: string;
 }
 
+/** A list of records or a `{ columns, rows }` object, drawn as a table. */
+export interface TableField {
+  kind: "table";
+  label: string;
+  columns: string[];
+  /** One cell per column per row, already written as text. */
+  rows: string[][];
+  /** Rows left out past the cap. */
+  more: number;
+}
+
 /** A labelled field, with its value shaped by how it is shown. */
 export type ValueField =
   | { kind: "text"; label: string; text: string }
   | { kind: "code"; label: string; text: string }
   | { kind: "list"; label: string; items: string[] }
   | { kind: "pairs"; label: string; pairs: ValuePair[] }
-  | {
-      kind: "table";
-      label: string;
-      columns: string[];
-      /** One cell per column per row, already written as text. */
-      rows: string[][];
-      /** Rows left out past the cap. */
-      more: number;
-    }
+  | TableField
   | { kind: "nested"; label: string; fields: ValueFieldList };
 
 /** Fields in order, and how many more were left out past the cap. */
@@ -88,10 +93,6 @@ type ColumnsRowsTable = { columns: string[]; rows: unknown[][] };
 
 function isShortText(text: string, max: number): boolean {
   return text.length <= max && !text.includes("\n");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 /**
@@ -156,25 +157,27 @@ function unionKeys(records: Record<string, unknown>[]): string[] {
 }
 
 /**
- * Whether `items` is a list of same-shaped records that reads as a table: at
- * least `MIN_TABLE_ROWS` items, every one a plain object, between 1 and
- * `MAX_TABLE_COLUMNS` keys across them, and every key present in at least
- * `TABLE_KEY_COVERAGE` of the items. The columns are the union of the keys in
- * first-seen order, so a key one record adds late still gets a column.
+ * The columns of `items` when it is a list of same-shaped records that reads
+ * as a table, else `null`: at least `MIN_TABLE_ROWS` items, every one a plain
+ * object, between 1 and `MAX_TABLE_COLUMNS` keys across them, and every key
+ * present in at least `TABLE_KEY_COVERAGE` of the items. The columns are the
+ * union of the keys in first-seen order, so a key one record adds late still
+ * gets a column.
  */
-function isRecordTable(items: unknown[]): items is Record<string, unknown>[] {
+function recordTableColumns(items: unknown[]): string[] | null {
   if (items.length < MIN_TABLE_ROWS || !items.every(isRecord)) {
-    return false;
+    return null;
   }
   const columns = unionKeys(items);
   if (columns.length < 1 || columns.length > MAX_TABLE_COLUMNS) {
-    return false;
+    return null;
   }
   const needed = items.length * TABLE_KEY_COVERAGE;
-  return columns.every(
+  const covered = columns.every(
     (column) =>
       items.filter((item) => Object.hasOwn(item, column)).length >= needed,
   );
+  return covered ? columns : null;
 }
 
 /**
@@ -203,17 +206,19 @@ function isColumnsRowsTable(
   );
 }
 
+/** A table of the first `MAX_TABLE_ROWS` of `total` rows, the rest counted. */
 function tableField(
   label: string,
   columns: string[],
   rows: unknown[][],
-): ValueField {
+  total: number,
+): TableField {
   return {
     kind: "table",
     label,
     columns,
-    rows: rows.slice(0, MAX_TABLE_ROWS).map((row) => row.map(cellText)),
-    more: Math.max(0, rows.length - MAX_TABLE_ROWS),
+    rows: rows.map((row) => row.map(cellText)),
+    more: Math.max(0, total - MAX_TABLE_ROWS),
   };
 }
 
@@ -273,12 +278,15 @@ function fieldFor(label: string, value: unknown, depth: number): ValueField {
     return { kind: "code", label, text: jsonText(value) };
   }
   if (Array.isArray(value)) {
-    if (isRecordTable(value)) {
-      const columns = unionKeys(value);
+    const columns = recordTableColumns(value);
+    if (columns) {
       return tableField(
         label,
         columns,
-        value.map((record) => columns.map((column) => record[column])),
+        value
+          .slice(0, MAX_TABLE_ROWS)
+          .map((record) => columns.map((column) => record[column])),
+        value.length,
       );
     }
     const items = oneLineList(value);
@@ -295,11 +303,14 @@ function fieldFor(label: string, value: unknown, depth: number): ValueField {
   }
   if (isRecord(value)) {
     if (isColumnsRowsTable(value)) {
-      const { columns } = value;
+      const { columns, rows } = value;
       return tableField(
         label,
         columns,
-        value.rows.map((row) => columns.map((_, index) => row[index])),
+        rows
+          .slice(0, MAX_TABLE_ROWS)
+          .map((row) => columns.map((_, index) => row[index])),
+        rows.length,
       );
     }
     const entries = Object.entries(value);

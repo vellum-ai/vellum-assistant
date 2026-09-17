@@ -14,6 +14,7 @@ import {
   type DataTableRow,
 } from "@/domains/chat/components/data-table";
 import type {
+  TableField,
   ValueField,
   ValueFieldList,
 } from "@/domains/chat/utils/value-layout";
@@ -27,10 +28,16 @@ import { cn } from "@/utils/misc";
  * spaces, which normal collapsing would hide. A block element, so its lines
  * take the machine text's own leading rather than the field's.
  */
-function ValueText({ children }: { children: ReactNode }) {
+function ValueText({
+  as = "div",
+  children,
+}: {
+  as?: "div" | "span";
+  children: ReactNode;
+}) {
   return (
     <MachineText
-      as="div"
+      as={as}
       className="whitespace-pre-wrap [overflow-wrap:anywhere]"
     >
       {children}
@@ -57,7 +64,7 @@ function MoreInRawInput({ count }: { count: number }) {
  * position rather than name, since a `{ columns, rows }` result can name two
  * columns alike.
  */
-function tableProps(field: Extract<ValueField, { kind: "table" }>): {
+function tableProps(field: TableField): {
   columns: DataTableColumn[];
   rows: DataTableRow[];
 } {
@@ -108,11 +115,7 @@ function FieldValue({ field }: { field: ValueField }) {
         <div className="mt-1 flex min-w-0 flex-col gap-2">
           <DataTable
             {...tableProps(field)}
-            renderCell={(text) => (
-              <MachineText className="whitespace-pre-wrap [overflow-wrap:anywhere]">
-                {text}
-              </MachineText>
-            )}
+            renderCell={(text) => <ValueText as="span">{text}</ValueText>}
           />
           {field.more > 0 && <MoreInRawInput count={field.more} />}
         </div>
