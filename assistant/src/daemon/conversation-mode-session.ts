@@ -348,9 +348,8 @@ export class ConversationModeSessionCoordinator {
     if (!association || association.conversationId !== this.#conversationId) {
       return undefined;
     }
-    this.#structuralAssociations.delete(key);
-
     const session = this.#readActiveSession(association.owner.id);
+    this.#structuralAssociations.delete(key);
     if (!session || session.mode !== association.owner.mode) {
       return undefined;
     }

@@ -460,6 +460,57 @@ describe("ConversationModeSessionCoordinator", () => {
     ).toBeUndefined();
   });
 
+  test("preserves a structural response after a failed session lookup for retry and settlement", () => {
+    const store = createDependencies();
+    let failLookup = false;
+    const coordinator = new ConversationModeSessionCoordinator("conv-123", {
+      ...store.dependencies,
+      getSession: (conversationId, sessionId) => {
+        if (failLookup) {
+          failLookup = false;
+          throw new Error("session lookup unavailable");
+        }
+        return store.dependencies.getSession(conversationId, sessionId);
+      },
+    });
+    const handle = activateSource(coordinator, store.session());
+    coordinator.claimTurn("turn-origin", handle, 110);
+    const response = { kind: "surface", responseId: "surface-123" } as const;
+    coordinator.recordStructuralWait("turn-origin", response);
+    coordinator.releaseTurn("turn-origin", {
+      status: "completed",
+      endReason: "turn_settled",
+    });
+
+    failLookup = true;
+    expect(() => coordinator.acceptTurn("turn-response", response)).toThrow(
+      "session lookup unavailable",
+    );
+    expect(coordinator.getTurnOwner("turn-response")).toBeUndefined();
+    expect(coordinator.describeSummary(store.session())?.runtimeState).toBe(
+      "waiting",
+    );
+
+    expect(coordinator.acceptTurn("turn-response", response)).toEqual({
+      id: handle.id,
+      mode: handle.mode,
+    });
+    coordinator.trackPersistedRow("turn-response", "user-response", 120);
+    expect(store.stamps).toEqual([
+      { messageId: "user-response", sessionId: handle.id },
+    ]);
+    expect(coordinator.acceptTurn("turn-replayed", response)).toBeUndefined();
+    coordinator.releaseTurn("turn-response", {
+      status: "completed",
+      endReason: "turn_settled",
+    });
+    expect(store.session()).toMatchObject({
+      status: "completed",
+      endReason: "turn_settled",
+    });
+    expect(coordinator.hasResidentWork()).toBe(false);
+  });
+
   test("normal ask_question answers resume the same owned turn", async () => {
     const { askQuestionTool } =
       await import("../tools/ask-question/ask-question-tool.js");
