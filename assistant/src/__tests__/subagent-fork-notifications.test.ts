@@ -22,8 +22,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
       });
       return { queued: true };
     },
-    persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
-    runAgentLoop: async () => {},
+    kickDrainQueue: async () => {},
   }),
 }));
 
