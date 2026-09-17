@@ -472,32 +472,31 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
         lastActivityAt:
           message.modeSessionActivity?.lastAt ?? message.timestamp ?? null,
       });
-      const claimedPreviousKeys = new Set<string>();
-      const history = groupSessionItems({
-        items: partition.historyItems,
+      const projected = groupSessionItems({
+        items,
         conversationId,
         summariesById,
         getModeSession,
         getActivityBounds,
         previousSegments,
-        claimedPreviousKeys,
       });
-      const latestInput = [
-        ...(partition.anchorMessage ? [partition.anchorMessage] : []),
-        ...partition.responseItems,
-      ];
-      const latest = groupSessionItems({
-        items: latestInput,
-        conversationId,
-        summariesById,
-        getModeSession,
-        getActivityBounds,
-        previousSegments,
-        claimedPreviousKeys,
-      });
-      return { history, latest };
+      const anchor = partition.anchorMessage;
+      const latestIndex = anchor
+        ? projected.findIndex((item) =>
+            item.kind === "sessionGroup"
+              ? item.items.includes(anchor)
+              : item === anchor,
+          )
+        : -1;
+      return latestIndex === -1
+        ? { history: projected, latest: [] }
+        : {
+            history: projected.slice(0, latestIndex),
+            latest: projected.slice(latestIndex),
+          };
     }, [
       conversationId,
+      items,
       partition,
       previousSegments,
       sessionGroupsOn,
@@ -767,17 +766,19 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       ...partition.responseItems,
     ].findLast((item) => item.kind === "message");
     const latestStreaming = isActivityLive(turnPhase);
-    const renderLatestRows = (rows: SessionGroupSegment["items"]) =>
-      rows.map((item) => (
+    const renderLatestRows = (rows: SessionGroupSegment["items"]) => {
+      const anchorIndex = rows.indexOf(partition.anchorMessage!);
+      return rows.map((item, index) => (
         <TranscriptRow
           key={item.key}
           item={item}
           {...rowProps}
           responseArtifacts={responseArtifactsByKey.get(item.key)}
-          isStreaming={latestStreaming}
+          isStreaming={latestStreaming && index > anchorIndex}
           isLatestMessage={item === latestMessageItem}
         />
       ));
+    };
     const renderGroupedLatest = () => {
       const hasSegment = grouped.latest.some(
         (item) => item.kind === "sessionGroup",

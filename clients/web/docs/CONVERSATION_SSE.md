@@ -64,7 +64,9 @@ events can stamp optional `modeSession` metadata onto the row they create or
 update. Text and thinking deltas keep their existing shape and preserve the
 row's stamp. History can also provide `modeSessionActivity` bounds widened
 across canonical message folds. The transcript remains flat in the store; the
-flagged render projection groups rows only after latest-turn partitioning.
+flagged render projection groups contiguous rows before dividing history from
+the latest turn. A group containing the newest user message stays whole in the
+latest section, while only that turn's response rows receive streaming state.
 
 ## Optimistic sends
 

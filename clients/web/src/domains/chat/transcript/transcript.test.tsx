@@ -81,7 +81,10 @@ import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type { ModeSessionDescriptor } from "@vellumai/assistant-api";
 import type { SessionDisclosureState } from "@/domains/chat/transcript/use-session-disclosure-state";
 
-import { textBody } from "@/domains/chat/utils/message-test-helpers";
+import {
+  textBody,
+  thinkingBodyWithBlocks,
+} from "@/domains/chat/utils/message-test-helpers";
 function userMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
     id,
@@ -98,6 +101,20 @@ function assistantMessage(id: string, content: string): TranscriptItem {
     ...textBody(content),
   };
   return { kind: "message", key: id, message: msg };
+}
+
+function sessionMessage(
+  item: TranscriptItem,
+  mode: ModeSessionDescriptor["summary"]["mode"],
+  id = "session-1",
+): TranscriptItem {
+  if (item.kind !== "message") {
+    throw new Error("Expected message fixture");
+  }
+  return {
+    ...item,
+    message: { ...item.message, timestamp: 2_000, modeSession: { mode, id } },
+  };
 }
 
 const noop = () => {};
@@ -148,6 +165,236 @@ afterEach(() => {
 });
 
 describe("Transcript", () => {
+  test("only the newest reply's thinking shimmers within a shared Live group", () => {
+    const thinking = (id: string): TranscriptItem =>
+      sessionMessage(
+        {
+          kind: "message",
+          key: id,
+          message: {
+            id,
+            role: "assistant",
+            ...thinkingBodyWithBlocks("Considering the question"),
+          },
+        },
+        "live_vision",
+      );
+    useTurnStore.setState({ phase: "streaming" });
+    try {
+      const { getAllByTestId, getByTestId, queryByTestId } = render(
+        <Transcript
+          items={[
+            sessionMessage(userMessage("u1", "First question"), "live_vision"),
+            thinking("a1"),
+            sessionMessage(userMessage("u2", "Next question"), "live_vision"),
+            thinking("a2"),
+          ]}
+          conversationId="conv-1"
+          modeSessionDescriptors={[
+            {
+              summary: {
+                ...activeDescriptor("session-1", "u1").summary,
+                mode: "live_vision",
+              },
+            },
+          ]}
+          sessionGroupsEnabled
+          sessionDisclosureState={openDisclosure}
+          onSurfaceAction={noop}
+        />,
+      );
+      expect(getAllByTestId("thought-process-link")).toHaveLength(2);
+      expect(getAllByTestId("thought-process-loading")).toHaveLength(1);
+      expect(
+        getByTestId("thought-process-loading")
+          .closest("[data-message-id]")
+          ?.getAttribute("data-message-id"),
+      ).toBe("a2");
+      act(() => useTurnStore.setState({ phase: "idle" }));
+      expect(queryByTestId("thought-process-loading")).toBeNull();
+    } finally {
+      useTurnStore.setState(INITIAL_TURN_STATE);
+    }
+  });
+
+  test("keeps one active Live header across replies until that session ends", () => {
+    const firstUser = sessionMessage(
+      userMessage("u1", "First question"),
+      "live_vision",
+    );
+    const firstReply = sessionMessage(
+      assistantMessage("a1", "First answer"),
+      "live_vision",
+    );
+    const nextUser = sessionMessage(
+      userMessage("u2", "Next question"),
+      "live_vision",
+    );
+    const nextReply = sessionMessage(
+      assistantMessage("a2", "Next answer"),
+      "live_vision",
+    );
+    const active: ModeSessionDescriptor = {
+      summary: {
+        ...activeDescriptor("session-1", "u1").summary,
+        mode: "live_vision",
+      },
+    };
+    const view = (
+      items: TranscriptItem[],
+      descriptors = [active],
+      enabled = true,
+    ) => (
+      <Transcript
+        items={items}
+        conversationId="conv-1"
+        modeSessionDescriptors={descriptors}
+        sessionGroupsEnabled={enabled}
+        sessionDisclosureState={openDisclosure}
+        onSurfaceAction={noop}
+      />
+    );
+    const { getAllByRole, getByText, queryByText, rerender } = render(
+      view([firstUser, firstReply]),
+    );
+    const header = getAllByRole("button", { name: /Live vision session/ })[0];
+    for (const items of [
+      [firstUser, firstReply, nextUser],
+      [firstUser, firstReply, nextUser, nextReply],
+    ]) {
+      rerender(view(items));
+      const headers = getAllByRole("button", { name: /Live vision session/ });
+      expect(headers).toHaveLength(1);
+      expect(headers[0]).toBe(header);
+      expect(header?.textContent).toContain("Working");
+      expect(queryByText(/Ended/)).toBeNull();
+      expect(
+        getByText("Next question").closest('[data-header-visible="true"]'),
+      ).toBe(getByText("First answer").closest('[data-header-visible="true"]'));
+    }
+    const completed: ModeSessionDescriptor = {
+      summary: {
+        ...active.summary,
+        status: "completed",
+        revision: 2,
+        endedAt: 3_000,
+        endReason: "camera_session_ended",
+      },
+    };
+    const items = [firstUser, firstReply, nextUser, nextReply];
+    rerender(view(items, [completed]));
+    expect(
+      getAllByRole("button", { name: /Live vision session/ }),
+    ).toHaveLength(1);
+    expect(getAllByRole("button", { name: /Live vision session/ })[0]).toBe(
+      header,
+    );
+    expect(header?.textContent).toContain("Ended");
+
+    const restarted = sessionMessage(
+      userMessage("u3", "Restarted camera"),
+      "live_vision",
+      "session-2",
+    );
+    const restartedReply = sessionMessage(
+      assistantMessage("a3", "New camera answer"),
+      "live_vision",
+      "session-2",
+    );
+    const restartedDescriptor: ModeSessionDescriptor = {
+      summary: {
+        ...active.summary,
+        id: "session-2",
+        firstIncludedMessageId: "u3",
+        lastOwnedMessageId: "a3",
+      },
+    };
+    rerender(
+      view(
+        [...items, restarted, restartedReply],
+        [completed, restartedDescriptor],
+      ),
+    );
+    const headers = getAllByRole("button", { name: /Live vision session/ });
+    expect(headers).toHaveLength(2);
+    expect(headers[0]?.textContent).toContain("Ended");
+    expect(headers[1]?.textContent).toContain("Working");
+
+    rerender(view(items, [completed], false));
+    expect(queryByText("Live vision session")).toBeNull();
+    for (const text of [
+      "First question",
+      "First answer",
+      "Next question",
+      "Next answer",
+    ]) {
+      expect(getByText(text).closest("[data-session-mode]")).toBeNull();
+    }
+  });
+
+  test.each(["browser", "computer_use"] as const)(
+    "%s keeps a stamped structural response inside its group before the next reply",
+    (mode) => {
+      const first = sessionMessage(
+        assistantMessage("a1", "Choose an option"),
+        mode,
+      );
+      const answer = sessionMessage(userMessage("u2", "Chosen option"), mode);
+      const reply = sessionMessage(
+        assistantMessage("a2", "Continuing the task"),
+        mode,
+      );
+      const descriptor: ModeSessionDescriptor = {
+        summary: { ...activeDescriptor("session-1", "a1").summary, mode },
+      };
+      const view = (items: TranscriptItem[]) => (
+        <Transcript
+          items={items}
+          conversationId="conv-1"
+          modeSessionDescriptors={[descriptor]}
+          sessionGroupsEnabled
+          sessionDisclosureState={openDisclosure}
+          onSurfaceAction={noop}
+        />
+      );
+      const { getByText, getAllByTestId, rerender } = render(
+        view([first, answer]),
+      );
+      const group = getByText("Choose an option").closest(
+        '[data-header-visible="true"]',
+      );
+      expect(group).not.toBeNull();
+      expect(
+        getByText("Chosen option").closest('[data-header-visible="true"]'),
+      ).toBe(group);
+      expect(
+        getAllByTestId("session-group-trigger").filter(
+          (trigger) => !trigger.hidden,
+        ),
+      ).toHaveLength(1);
+      rerender(view([first, answer, reply]));
+      expect(
+        getByText("Continuing the task").closest(
+          '[data-header-visible="true"]',
+        ),
+      ).toBe(group);
+      expect(
+        getAllByTestId("session-group-trigger").filter(
+          (trigger) => !trigger.hidden,
+        ),
+      ).toHaveLength(1);
+      rerender(
+        view([first, answer, reply, userMessage("u3", "Unrelated question")]),
+      );
+      expect(
+        getByText("Unrelated question").closest('[data-header-visible="true"]'),
+      ).toBeNull();
+      expect(
+        getByText("Chosen option").closest('[data-header-visible="true"]'),
+      ).not.toBeNull();
+    },
+  );
+
   test("keeps the latest reply DOM mounted while its session header appears", () => {
     const anchor = userMessage("u-session", "Open the page");
     const response = assistantMessage("a-session", "Session reply");
