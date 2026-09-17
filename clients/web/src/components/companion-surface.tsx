@@ -2733,10 +2733,22 @@ function CallBody({
             <Volume2 className="size-4" />
           )
         }
+        // The speaker silences whoever is on the call, so it is named the way
+        // the dial names them and the row reads as one conversation rather
+        // than as a device panel. Unnamed until a name arrives, since a label
+        // built around an empty one reads as a bug.
         label={
-          outputMuted
-            ? t("companionSurface.unmuteAssistant")
-            : t("companionSurface.muteAssistant")
+          assistantName === ""
+            ? outputMuted
+              ? t("companionSurface.unmuteAssistant")
+              : t("companionSurface.muteAssistant")
+            : outputMuted
+              ? t("companionSurface.unmuteAssistantNamed", {
+                  name: assistantName,
+                })
+              : t("companionSurface.muteAssistantNamed", {
+                  name: assistantName,
+                })
         }
         shortcut={shortcuts?.muteAssistant}
         // The mute beat is about both directions, so both controls are lit:

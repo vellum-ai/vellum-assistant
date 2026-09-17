@@ -1219,6 +1219,68 @@ describe("the companion surface's call bar", () => {
 });
 
 /**
+ * The two mutes, which stop the two halves of the call.
+ *
+ * The microphone is a device and is named as one. The speaker stops the
+ * assistant, who has a name and is already called by it a control away on the
+ * dial, so it uses that name too: the row reads as a call with someone rather
+ * than as an audio panel.
+ */
+describe("the companion surface's mutes", () => {
+  test("names the assistant on the speaker, and the device on the microphone", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        assistantName="Ziggy"
+        call={LISTENING_CALL}
+      />,
+    );
+    expect(buttonOf(container, "Mute Ziggy")).not.toBeNull();
+    expect(buttonOf(container, "Mute assistant")).toBeNull();
+    expect(buttonOf(container, "Mute microphone")).not.toBeNull();
+  });
+
+  test("names the assistant on the way back out of the mute", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        assistantName="Ziggy"
+        call={{ ...LISTENING_CALL, outputMuted: true }}
+      />,
+    );
+    expect(buttonOf(container, "Unmute Ziggy")).not.toBeNull();
+  });
+
+  /**
+   * No name to use, so the control says what it acts on instead. A label
+   * built around the empty name would read as a bug.
+   */
+  test("says what it acts on with no name to say", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" call={LISTENING_CALL} />,
+    );
+    expect(buttonOf(container, "Mute assistant")).not.toBeNull();
+    expect(buttonOf(container, "Mute ")).toBeNull();
+  });
+
+  test("still acts on the session's audio under the name", () => {
+    const actions: string[] = [];
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        assistantName="Ziggy"
+        call={LISTENING_CALL}
+        onControl={(action) => {
+          actions.push(action);
+        }}
+      />,
+    );
+    fireEvent.click(buttonOf(container, "Mute Ziggy")!);
+    expect(actions).toEqual(["muteAssistantAudio"]);
+  });
+});
+
+/**
  * The bar docked to a side of the display, which stands it up. The same
  * controls in the same order read down a column under the creature, and
  * everything the row says over or across its controls stands off the column

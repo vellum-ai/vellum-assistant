@@ -230,6 +230,7 @@
     "drawCircle": "Círculo",
     "endSession": "Finalizar sesión",
     "muteAssistant": "Silenciar asistente",
+    "muteAssistantNamed": "Silenciar a {name}",
     "muteMicrophone": "Silenciar micrófono",
     "notNow": "Ahora no",
     "offerCopy": "Copiar",
@@ -248,6 +249,7 @@
     "talk": "Hablar",
     "teach": "Enseñar",
     "unmuteAssistant": "Activar sonido del asistente",
+    "unmuteAssistantNamed": "Activar sonido de {name}",
     "unmuteMicrophone": "Activar micrófono",
     "chooseMicrophone": "Elegir micrófono",
     "chooseVoice": "Elegir voz"
