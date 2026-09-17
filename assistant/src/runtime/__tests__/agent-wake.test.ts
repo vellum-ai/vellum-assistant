@@ -1365,15 +1365,17 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.toolContextPin).toBeUndefined();
   });
 
-  test("applies wireToolDefinitions alongside the allowlist and restores it after the wake", async () => {
+  test("applies wireToolDefinitions and the delegation state alongside the allowlist and restores both after the wake", async () => {
     const replay = [
       { name: "remember", description: "Save", input_schema: {} },
       { name: "bell_jingle", description: "Ring", input_schema: {} },
     ];
     let replayDuringRun: unknown;
+    let delegationDuringRun: unknown;
     const conversation = makeWakeConversation({
       runImpl: async (input) => {
         replayDuringRun = conversation.wireToolReplay;
+        delegationDuringRun = conversation.delegateIndependentTasksReplay;
         return runResult([
           ...input,
           { role: "assistant", content: [{ type: "text", text: "Saved." }] },
@@ -1389,16 +1391,22 @@ describe("wakeAgentForOpportunity", () => {
         allowedTools: ["remember"],
         toolGateMode: "execution",
         wireToolDefinitions: replay,
+        delegateIndependentTasks: true,
       },
       { resolveTarget: async () => conversation },
     );
 
     expect(result).toEqual({ invoked: true, producedToolCalls: false });
     // The replay array is live on the conversation for the duration of the
-    // run (the tool resolver returns it as the wire array)...
+    // run (the tool resolver returns it as the wire array), as is the
+    // delegation-section state the source's prompt rendered (the prompt
+    // build reads it)...
     expect(replayDuringRun).toEqual(replay);
-    // ...and cleared alongside the allowlist + gate mode after the wake.
+    expect(delegationDuringRun).toBe(true);
+    // ...and both are cleared alongside the allowlist + gate mode after the
+    // wake.
     expect(conversation.wireToolReplay).toBeUndefined();
+    expect(conversation.delegateIndependentTasksReplay).toBeUndefined();
   });
 
   test("defaults to the wire gate mode when toolGateMode is absent", async () => {

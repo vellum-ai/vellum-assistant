@@ -440,6 +440,15 @@ export interface BuildSystemPromptOptions {
    * pass), rather than from a caller's assumption.
    */
   canSpawnSubagents?: boolean;
+  /**
+   * The delegation section's rendered state, replacing the derivation from
+   * `canSpawnSubagents` and `channelCapabilities` when set. A fork wake
+   * replaying its source conversation's recorded surface passes the state
+   * the source's live turn rendered (`ConversationToolSurface`), so the
+   * fork's system prompt matches the source's byte for byte even though the
+   * wake's own scope cannot spawn; a spawn is still rejected at execution.
+   */
+  delegateIndependentTasks?: boolean;
 }
 
 /**
@@ -457,6 +466,38 @@ function isExternalChannelTurn(
 ): boolean {
   const channel = capabilities?.channel;
   return channel !== undefined && channel !== "vellum";
+}
+
+/**
+ * The delegation section's gate: the turn can spawn AND a subagent's answer
+ * would reach whoever asked.
+ *
+ * Off unless a caller states it can spawn, and the caller that states it
+ * derives the answer from the turn's resolved tool surface rather than
+ * assuming (`canSpawnSubagentsForTurn`). Guidance about handing work to
+ * subagents is worth nothing to a turn that cannot spawn, and worse than
+ * nothing when it makes that turn defer work it has to do inline.
+ *
+ * Off on an external channel for the second reason: a subagent's terminal
+ * summary reaches the parent through the conversation's event sink, which an
+ * app client reads and a channel does not, so a delegated answer would never
+ * be delivered to the person who asked for it.
+ *
+ * Exported so the wire-surface recorder can persist the state a turn's prompt
+ * rendered from the same inputs the prompt build passes here.
+ */
+export function resolveDelegateIndependentTasks(
+  options:
+    | Pick<
+        BuildSystemPromptOptions,
+        "canSpawnSubagents" | "channelCapabilities"
+      >
+    | undefined,
+): boolean {
+  return (
+    options?.canSpawnSubagents === true &&
+    !isExternalChannelTurn(options?.channelCapabilities)
+  );
 }
 
 /**
@@ -525,22 +566,11 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const ctx = {
     ...options,
     hasNoClient,
-    // The delegation section's gate: the turn can spawn AND a subagent's
-    // answer would reach whoever asked.
-    //
-    // Off unless a caller states it can spawn, and the caller that states it
-    // derives the answer from the turn's resolved tool surface rather than
-    // assuming (`canSpawnSubagentsForTurn`). Guidance about handing work to
-    // subagents is worth nothing to a turn that cannot spawn, and worse than
-    // nothing when it makes that turn defer work it has to do inline.
-    //
-    // Off on an external channel for the second reason: a subagent's terminal
-    // summary reaches the parent through the conversation's event sink, which
-    // an app client reads and a channel does not, so a delegated answer would
-    // never be delivered to the person who asked for it.
+    // The delegation section's gate, or the rendered state a replaying wake
+    // carries from its source (see `resolveDelegateIndependentTasks`).
     delegateIndependentTasks:
-      options?.canSpawnSubagents === true &&
-      !isExternalChannelTurn(options?.channelCapabilities),
+      options?.delegateIndependentTasks ??
+      resolveDelegateIndependentTasks(options),
     isContainerized: getIsContainerized(),
     sendUserMessageTool: options?.sendUserMessageTool === true,
     workspaceDir: getWorkspaceDir(),

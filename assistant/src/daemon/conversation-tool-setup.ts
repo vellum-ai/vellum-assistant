@@ -23,6 +23,7 @@ import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import {
+  type ConversationToolSurface,
   hashConversationToolSurface,
   recordConversationToolSurface,
 } from "../persistence/conversation-tool-surface.js";
@@ -30,6 +31,7 @@ import { getBindingByConversation } from "../persistence/external-conversation-s
 import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
+import { resolveDelegateIndependentTasks } from "../prompts/system-prompt.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import { supportsClientOsForSkillTool } from "../tools/client-os.js";
@@ -936,8 +938,12 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
   // executor instead. That is the right answer to "is this tool on the wire"
   // and the wrong one to "could this turn actually spawn": the memory
   // retrospective wake runs in execution mode with an allowlist that names
-  // `skill_load` but neither the dispatcher nor the spawn tool, so the spawn
-  // is denied after the prompt has already told the model to delegate.
+  // `skill_load` but neither the dispatcher nor the spawn tool, so a spawn is
+  // denied at execution. A wake replaying its source's recorded surface
+  // renders the source's delegation state in place of this answer
+  // (`Conversation.delegateIndependentTasksReplay`): a denied spawn attempt
+  // costs one tool error, a system prompt that differs from the source's
+  // costs the whole cached prefix behind it.
   const allowlist = ctx.subagentAllowedTools;
   return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(
     (name) =>
@@ -948,8 +954,28 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
 }
 
 /**
+ * The delegation-section state the conversation's system prompt renders for
+ * the turn in flight, from the same inputs `buildCurrentSystemPrompt` hands
+ * the prompt builder. `null` when the conversation runs on a system-prompt
+ * override: the prompt is the override verbatim, whose contents this cannot
+ * see.
+ */
+function resolveRenderedDelegateIndependentTasks(
+  ctx: Conversation,
+): boolean | null {
+  if (ctx.hasSystemPromptOverride) {
+    return null;
+  }
+  return resolveDelegateIndependentTasks({
+    canSpawnSubagents: canSpawnSubagentsForTurn(ctx),
+    channelCapabilities: ctx.currentTurnChannelCapabilities,
+  });
+}
+
+/**
  * Build the agent loop's `onToolsSent` observer for a conversation: record
- * the tool array each provider call sends so a later fork wake can replay it
+ * the tool array each provider call sends, with the delegation-section state
+ * the turn's system prompt renders, so a later fork wake can replay both
  * (`recordConversationToolSurface`). Only the loop's send boundary sees the
  * sent array. The resolver is also consulted out of band (the token count
  * behind `/compact` and `/clean`, compaction estimates), where a read outside
@@ -960,8 +986,10 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
  * wake sends its source's array, an empty array is a tools-disabled call (a
  * fork replaying it could never call `remember`), and disk-pressure cleanup
  * mode narrows the wire to cleanup tools. Best-effort: a failed write is
- * logged and the array still counts as recorded, so a persistent failure logs
- * once per distinct surface rather than once per provider call.
+ * logged and the surface still counts as recorded, so a persistent failure
+ * logs once per distinct surface rather than once per provider call, and a
+ * delegation state that cannot be resolved is recorded as unknown rather than
+ * costing the turn (the loop requires this observer never to throw).
  */
 export function createWireToolSurfaceRecorder(
   ctx: Conversation,
@@ -975,10 +1003,23 @@ export function createWireToolSurfaceRecorder(
     ) {
       return;
     }
+    let delegateIndependentTasks: boolean | null = null;
+    try {
+      delegateIndependentTasks = resolveRenderedDelegateIndependentTasks(ctx);
+    } catch (err) {
+      log.warn(
+        { err, conversationId: ctx.conversationId },
+        "failed to resolve the delegation-section state for the wire tool surface; recording it as unknown",
+      );
+    }
+    const surface: ConversationToolSurface = {
+      tools,
+      delegateIndependentTasks,
+    };
     try {
       ctx.recordedToolSurfaceHash = recordConversationToolSurface(
         ctx.conversationId,
-        tools,
+        surface,
         ctx.recordedToolSurfaceHash,
       );
     } catch (err) {
@@ -986,7 +1027,7 @@ export function createWireToolSurfaceRecorder(
         { err, conversationId: ctx.conversationId },
         "failed to record the conversation's wire tool surface; continuing",
       );
-      ctx.recordedToolSurfaceHash = hashConversationToolSurface(tools);
+      ctx.recordedToolSurfaceHash = hashConversationToolSurface(surface);
     }
   };
 }

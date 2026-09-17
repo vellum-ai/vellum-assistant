@@ -463,7 +463,17 @@ export class Conversation {
    */
   wireToolReplay?: readonly ToolDefinition[];
   /**
-   * Hash of the wire tool array last recorded for this conversation in this
+   * The delegation section's rendered state a wake replaying its source's
+   * recorded surface carries into its system prompt, in place of the answer
+   * derived from the wake's own scope (`canSpawnSubagentsForTurn`). Set and
+   * restored alongside {@link wireToolReplay} by `scopeWakeAllowedTools`;
+   * read only by {@link buildCurrentSystemPrompt}, so it never widens what
+   * may execute.
+   * @internal
+   */
+  delegateIndependentTasksReplay?: boolean;
+  /**
+   * Hash of the wire surface last recorded for this conversation in this
    * process, so an unchanged surface is not rewritten on every provider call.
    * @internal
    */
@@ -1165,6 +1175,10 @@ export class Conversation {
           // delegation section renders off rather than pointing at a tool the
           // turn cannot call.
           canSpawnSubagents: canSpawnSubagentsForTurn(this),
+          // A wake replaying its source's recorded surface renders the
+          // section the source's live turn rendered; unset otherwise, so the
+          // derivation from the answer above decides.
+          delegateIndependentTasks: this.delegateIndependentTasksReplay,
         });
   }
 

@@ -387,6 +387,7 @@ export {
   syncMessageToDisk,
   updateMessageMetadata,
 } from "../persistence/conversation-plugin-facade.js";
+export type { ConversationToolSurface } from "../persistence/conversation-tool-surface.js";
 // System cards: a transcript notice authored by the daemon rather than the
 // assistant persona, for telling the user something a turn did to their input
 // that the model's reply cannot explain (e.g. an attachment that could not be

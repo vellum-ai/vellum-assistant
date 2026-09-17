@@ -363,6 +363,16 @@ export interface WakeOptions {
    */
   wireToolDefinitions?: readonly ToolDefinition[];
   /**
+   * Whether the source's recorded surface rendered the system prompt's
+   * parallel-delegation section, replayed into the wake's prompt so that
+   * tier of the provider cache prefix matches the source's too (the wake's
+   * own scope cannot spawn, so deriving it would render the section off where
+   * an interactive source rendered it on). Prompt only: a spawn attempt is
+   * still rejected at execution. Applied and restored alongside
+   * `allowedTools`; ignored when `allowedTools` is absent.
+   */
+  delegateIndependentTasks?: boolean;
+  /**
    * Explicit persona/channel slugs for the wake's system-prompt build,
    * applied to the conversation for the duration of the run and restored
    * afterwards. Wakes bypass the orchestrator's turn-start persona snapshot,
@@ -1440,6 +1450,7 @@ export async function wakeAgentForOpportunity(
             toolContextPin: opts.toolContextPin,
             preactivateSkillIds: opts.preactivateSkillIds,
             wireToolDefinitions: opts.wireToolDefinitions,
+            delegateIndependentTasks: opts.delegateIndependentTasks,
           },
         );
         return true;

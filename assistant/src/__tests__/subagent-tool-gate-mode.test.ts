@@ -68,30 +68,36 @@ mock.module("../daemon/conversation-skill-tools.js", () => ({
 
 // Records every wire tool surface the resolver persists (conversation id +
 // tool names + the hash it already knew), and lets a test make the write fail.
+type RecordedSurface = {
+  tools: ToolDefinition[];
+  delegateIndependentTasks: boolean | null;
+};
 let recordedSurfaces: Array<{
   conversationId: string;
   toolNames: string[];
+  delegateIndependentTasks: boolean | null;
   knownHash: string | undefined;
 }> = [];
 let recordSurfaceThrows: Error | null = null;
 mock.module("../persistence/conversation-tool-surface.js", () => ({
   recordConversationToolSurface: (
     conversationId: string,
-    tools: ToolDefinition[],
+    surface: RecordedSurface,
     knownHash?: string,
   ) => {
     recordedSurfaces.push({
       conversationId,
-      toolNames: tools.map((t) => t.name),
+      toolNames: surface.tools.map((t) => t.name),
+      delegateIndependentTasks: surface.delegateIndependentTasks,
       knownHash,
     });
     if (recordSurfaceThrows) {
       throw recordSurfaceThrows;
     }
-    return `hash:${tools.map((t) => t.name).join(",")}`;
+    return `hash:${surface.tools.map((t) => t.name).join(",")}`;
   },
-  hashConversationToolSurface: (tools: ToolDefinition[]) =>
-    `hash:${tools.map((t) => t.name).join(",")}`,
+  hashConversationToolSurface: (surface: RecordedSurface) =>
+    `hash:${surface.tools.map((t) => t.name).join(",")}`,
 }));
 
 // ---------------------------------------------------------------------------
@@ -1185,15 +1191,66 @@ describe("createResolveToolsCallback: wire tool surface record and replay", () =
       {
         conversationId: "conv-live",
         toolNames: ["remember", "web_search"],
+        delegateIndependentTasks: true,
         knownHash: undefined,
       },
       {
         conversationId: "conv-live",
         toolNames: ["remember", "web_search"],
+        delegateIndependentTasks: true,
         knownHash: "hash:remember,web_search",
       },
     ]);
     expect(ctx.recordedToolSurfaceHash).toBe("hash:remember,web_search");
+  });
+
+  test("the recorder records the delegation-section state the turn's prompt renders", () => {
+    const sent = [makeToolDef("remember")];
+    const channel = {
+      channel: "slack",
+      dashboardCapable: false,
+      supportsDynamicUi: false,
+      supportsVoiceInput: false,
+    };
+
+    // An unrestricted interactive turn renders the section.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({ conversationId: "conv-live" }),
+    )(sent);
+    // A wire-scoped background run whose allowlist carries no spawn path
+    // renders it off.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-scoped",
+        subagentAllowedTools: new Set(["remember"]),
+      }),
+    )(sent);
+    // So does a channel-delivered turn, whatever it could spawn.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-channel",
+        currentTurnChannelCapabilities: channel,
+      }),
+    )(sent);
+    // A system-prompt override renders whatever the override says: unknown.
+    createWireToolSurfaceRecorder(
+      makeProjectionCtx({
+        conversationId: "conv-override",
+        hasSystemPromptOverride: true,
+      }),
+    )(sent);
+
+    expect(
+      recordedSurfaces.map((r) => [
+        r.conversationId,
+        r.delegateIndependentTasks,
+      ]),
+    ).toEqual([
+      ["conv-live", true],
+      ["conv-scoped", false],
+      ["conv-channel", false],
+      ["conv-override", null],
+    ]);
   });
 
   test("a failed record is swallowed and still counts as recorded", () => {

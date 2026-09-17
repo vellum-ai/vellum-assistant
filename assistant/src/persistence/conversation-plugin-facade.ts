@@ -1,4 +1,3 @@
-import type { ToolDefinition } from "../providers/types.js";
 import type {
   AddMessageOptions,
   ConversationRow,
@@ -6,6 +5,7 @@ import type {
   MessageRow,
 } from "./conversation-crud.js";
 import type { ArchiveStatusFilter } from "./conversation-queries.js";
+import type { ConversationToolSurface } from "./conversation-tool-surface.js";
 import type { ConversationType } from "./conversation-types.js";
 
 /**
@@ -54,12 +54,14 @@ export async function getMessages(
 }
 
 /**
- * The tool definitions the conversation's most recent live turn sent to the
- * provider, or `null` when none has been recorded.
+ * What the conversation's most recent live turn sent to the provider that a
+ * replaying fork reproduces verbatim (its tool definitions and the
+ * delegation-section state of its system prompt), or `null` when none has
+ * been recorded.
  */
 export async function getConversationToolSurface(
   conversationId: string,
-): Promise<ToolDefinition[] | null> {
+): Promise<ConversationToolSurface | null> {
   const { getConversationToolSurface: fn } =
     await import("./conversation-tool-surface.js");
   return fn(conversationId);
