@@ -73,7 +73,9 @@ describe("LLMSchema.defaultProvider", () => {
   });
 
   test("rejects a structured-decision catalog provider", () => {
-    expect(() => DefaultProviderSchema.parse({ provider: "jev" })).toThrow();
+    expect(() =>
+      DefaultProviderSchema.parse({ provider: "typesafe" }),
+    ).toThrow();
   });
 
   test("rejects an empty connectionName", () => {

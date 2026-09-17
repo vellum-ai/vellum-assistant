@@ -2428,7 +2428,7 @@
       ]
     },
     {
-      "id": "jev",
+      "id": "typesafe",
       "displayName": "TypeSafe",
       "subtitle": "TypeSafe System One decision model. Returns structured answers, not generated text. Requires a TypeSafe API key.",
       "setupMode": "api-key",

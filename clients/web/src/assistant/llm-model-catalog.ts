@@ -1154,7 +1154,7 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
   ],
-  jev: [
+  typesafe: [
     {
       id: "jev-latest",
       displayName: "Jev",
@@ -1195,7 +1195,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   opencode: "",
   baseten: "thinkingmachines/inkling",
   poolside: "poolside/laguna-s-2.1",
-  jev: "jev-latest",
+  typesafe: "jev-latest",
   vellum: "qwen/qwen3-8b",
   "openai-compatible": "",
 };
@@ -1225,7 +1225,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   opencode: "OpenCode",
   baseten: "Baseten",
   poolside: "Poolside",
-  jev: "TypeSafe",
+  typesafe: "TypeSafe",
 };
 
 /**
@@ -1281,7 +1281,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   opencode: false,
   baseten: false,
   poolside: false,
-  jev: false,
+  typesafe: false,
   vellum: true,
 };
 

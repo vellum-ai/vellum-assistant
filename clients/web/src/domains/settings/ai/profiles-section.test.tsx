@@ -344,7 +344,7 @@ describe("ProfilesSection - kebab menus", () => {
       jev: {
         label: "Jev",
         source: "user",
-        provider: "jev",
+        provider: "typesafe",
         model: "jev-latest",
       },
     };

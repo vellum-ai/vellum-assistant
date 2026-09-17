@@ -59,7 +59,7 @@ describe("isDispatchableProfile", () => {
         {
           name: "jev",
           label: "Jev",
-          provider: "jev",
+          provider: "typesafe",
           model: "jev-latest",
         },
         profiles,
@@ -74,7 +74,7 @@ describe("isDispatchableProfile", () => {
         {
           name: "jev",
           label: "Jev",
-          provider: "jev",
+          provider: "typesafe",
           model: "jev-latest",
         },
         profiles,
@@ -250,7 +250,7 @@ describe("visibleProfilesForPicker", () => {
       {
         name: "jev",
         label: "Jev",
-        provider: "jev",
+        provider: "typesafe",
         model: "jev-latest",
       },
     ];
@@ -268,7 +268,7 @@ describe("visibleProfilesForPicker", () => {
       {
         name: "jev",
         label: "Jev",
-        provider: "jev",
+        provider: "typesafe",
         model: "jev-latest",
       },
     ];
@@ -353,7 +353,7 @@ describe("undispatchableProfileReason", () => {
     const reason = undispatchableProfileReason({
       name: "jev",
       label: "Jev",
-      provider: "jev",
+      provider: "typesafe",
       model: "jev-latest",
     });
     expect(reason).toContain("Jev");

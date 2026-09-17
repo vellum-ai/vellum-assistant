@@ -2533,7 +2533,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     apiKeyPlaceholder: "Your Poolside API key",
   },
   {
-    id: "jev",
+    id: "typesafe",
     displayName: "TypeSafe",
     subtitle:
       "TypeSafe System One decision model. Returns structured answers, not generated text. Requires a TypeSafe API key.",
