@@ -1997,6 +1997,7 @@
     "subtitle": "Move your assistant to a different hosting environment.",
     "switchFailed": "Switch failed: {message}",
     "switchFailedUnknown": "Failed to switch assistant.",
+    "switchingStep": "Switching to the new assistant...",
     "teleportFailed": "Teleport failed: {message}",
     "teleportFailedUnknown": "Teleport failed.",
     "title": "Teleport",

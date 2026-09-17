@@ -190,6 +190,11 @@ export function useTeleport(): TeleportController {
     if (!target) {
       return;
     }
+    // Leave the verifying phase synchronously so Cancel is no longer offered.
+    // The switch below awaits network work (connecting, then registering the
+    // target as the successor); a cancel landing in that window would retire
+    // the fresh target while this continuation went on to retire the source.
+    setStep(t("settings:teleportCard.switchingStep"));
 
     void (async () => {
       let successorAssistantId: string | null = null;
@@ -262,7 +267,7 @@ export function useTeleport(): TeleportController {
       reset();
       void navigate(routes.assistant, { replace: true });
     })();
-  }, [navigate, reset, queryClient]);
+  }, [navigate, reset, queryClient, setStep]);
 
   const cancelTeleport = useCallback(() => {
     const target = targetRef.current;
