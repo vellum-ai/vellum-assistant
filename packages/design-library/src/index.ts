@@ -5,6 +5,7 @@ export {
   type ButtonVariant,
   type ButtonSize,
 } from "./components/button";
+export { SplitButton, type SplitButtonProps } from "./components/split-button";
 export {
   Card,
   CardRoot,

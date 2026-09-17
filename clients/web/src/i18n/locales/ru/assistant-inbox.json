@@ -1,0 +1,60 @@
+{
+  "assistantInboxNavItem": {
+    "label": "Почта ассистента",
+    "dismiss": "Скрыть почту ассистента"
+  },
+  "assistantInboxHeader": {
+    "title": "Почта {name}",
+    "subtitle": "Здесь все письма, которые я получил и отправил для вас.",
+    "usage": "{sent, plural, one {# отправлено} other {# отправлено}} сегодня · {received, plural, one {# получено} other {# получено}} сегодня"
+  },
+  "addressPill": {
+    "copyAddress": "Скопировать адрес",
+    "copied": "Скопировано",
+    "copyFailed": "Не удалось скопировать адрес."
+  },
+  "assistantInboxPage": {
+    "folderAriaLabel": "Папка почты",
+    "inboxTab": "Полученные",
+    "sentTab": "Отправленные",
+    "inboxEmptyTitle": "Пока пусто",
+    "inboxEmptyBody": "Поделитесь адресом {address}, и всё, что на него придёт, появится здесь.",
+    "sentEmptyTitle": "Отправленных писем пока нет",
+    "sentEmptyBody": "Попросите меня написать кому-нибудь, и я сохраню копию здесь.",
+    "selectPrompt": "Выберите письмо, чтобы прочитать его.",
+    "backToList": "К списку",
+    "searchPlaceholder": "Поиск писем",
+    "searchAriaLabel": "Искать в этой папке",
+    "searchEmptyTitle": "Ничего не найдено",
+    "searchEmptyBody": "В этой папке ничего не соответствует запросу."
+  },
+  "emailListRow": {
+    "toPrefix": "Кому: {name}",
+    "attachments": "{count, plural, one {# вложение} few {# вложения} many {# вложений} other {# вложения}}"
+  },
+  "emailDetail": {
+    "from": "От",
+    "to": "Кому",
+    "sentBy": "Отправлено: {name}",
+    "attachments": "Вложения",
+    "askToReply": "Попросить {name} ответить"
+  },
+  "emailAddressFields": {
+    "prefixLabel": "Префикс",
+    "prefixPlaceholder": "hi"
+  },
+  "assistantInboxUpgradeState": {
+    "title": "Дайте {name} почтовый ящик",
+    "subtitle": "Адрес, на который могут писать люди, и одно место, где можно прочитать всё, что приходит.",
+    "perkAddress": "Настоящий адрес на {rootDomain}",
+    "perkReads": "{name} читает, сортирует и отвечает за вас",
+    "perkHistory": "Каждое письмо хранится здесь: входящие и отправленные",
+    "upgradeButton": "Перейти на Super",
+    "seePlans": "Посмотреть тарифы"
+  },
+  "assistantInboxSetupCard": {
+    "title": "Почта ассистента",
+    "subtitle": "Настройте почту для вашего ассистента.",
+    "getStarted": "Начать"
+  }
+}

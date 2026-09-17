@@ -220,7 +220,8 @@ not break.
   behind a re-injected copy), and a reset whose ledger clear fails reports
   that the same way a missing marker does.
 - **The store is plugin-owned.** `memory_v3_injected_sections`,
-  `memory_v3_pools`, and the `section_key` column of `memory_v3_selections`
+  `memory_v3_pools`, `memory_v3_pool_inputs`, `memory_v3_pool_texts`, and
+  the `section_key` column of `memory_v3_selections`
   are created by `v3/plugin-schema.ts` (`ensureMemoryV3PluginSchema` from the
   `init` hook, and each store's once-per-connection ensure on first use),
   never by the global migration chain, and every read goes through its
@@ -372,13 +373,16 @@ Persisted rows; a rename orphans every existing install.
 | `memory_v2_injection_events`      | v2 scoring feedback                                             |
 | `memory_v3_selections`            | v3 selection log (`section_key` column plugin-added, see below) |
 | `memory_v3_pools`                 | v3 selector pool audit (plugin-created, see below)              |
+| `memory_v3_pool_inputs`           | v3 selector input capture, opt-in (plugin-created, see below)   |
+| `memory_v3_pool_texts`            | v3 pooled candidate texts by content hash, opt-in (see below)   |
 | `memory_v3_injected_sections`     | v3 section dedup, prune bytes + recency (plugin-created, below) |
 | `memory_v3_ever_injected`         | v3 card dedup (superseded, frozen)                              |
 | `memory_retrospective_state`      | retrospective (tier-agnostic)                                   |
 | `activation_sessions`             | onboarding activation rail                                      |
 
-`memory_v3_pools` and `memory_v3_injected_sections` are the plugin's own
-tables, created by the plugin rather than by the global migration chain
+`memory_v3_pools`, `memory_v3_pool_inputs`, `memory_v3_pool_texts`, and
+`memory_v3_injected_sections` are the plugin's own tables, created by the
+plugin rather than by the global migration chain
 (`v3/plugin-schema.ts`): the memory plugin's `init` hook ensures both on every
 boot, and each store ensures again on the first use of a connection in its
 process (the memory worker is a separate process), idempotently and fail-open,
@@ -430,6 +434,24 @@ selection rows always describe the same observation. Rows are per-turn
 diagnostics, roughly 10KB each, with no retention job; a conversation delete
 purges them with the other conversation-keyed tables
 (`conversation-memory-purge.ts`).
+
+`memory_v3_pool_inputs` and `memory_v3_pool_texts` (`v3/pool-log-store.ts`,
+written only under `memory.v3.poolLog.captureInput`, off by default) extend
+the pool row with the selector's exact input, for offline selector
+evaluation and training data. One `memory_v3_pool_inputs` row per turn
+holds the context strings the selector was given (situation, recent context,
+current message, the previous assistant reply), the selector prompt's
+content hash, the gate reason, the keep-all flag, and the content hash of
+every pooled candidate's rendered text in pool order, aligned index for
+index with the pool row's `candidates_json` (pool position `i + 1` is the
+number the selector saw candidate `i` under). `memory_v3_pool_texts` holds
+each rendered text once by that hash: a stable-prefix card is its
+pre-rendered card, a finder line is exactly the line the selector saw minus
+its number (`renderFinderLine` in `v3/pool-select.ts`), and a card repeated
+across turns is stored once. The input row is written in the transaction
+that writes the pool and selection rows and purged with the conversation;
+the texts table is page-derived and keyed by content, so it is never purged
+per conversation.
 
 **v3 finder lanes.** The per-turn finder lanes (`v3/orchestrate.ts`) surface
 candidates in a fixed order, needle, dense, reply, span, entity, rare, then

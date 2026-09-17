@@ -11,11 +11,6 @@ import {
 
 const log = getLogger("clawhub");
 
-// Managed skills directory — where installed skill folders live
-function getManagedSkillsDir(): string {
-  return getWorkspaceSkillsDir();
-}
-
 // ClaWHub project root — clawhub creates a `skills/` subdir inside its cwd,
 // so we use the parent of the managed skills dir as the project root.
 function getClawhubProjectRoot(): string {
@@ -39,7 +34,7 @@ interface IntegrityRecord {
 type IntegrityManifest = Record<string, IntegrityRecord>;
 
 function getIntegrityPath(): string {
-  return join(getManagedSkillsDir(), ".integrity.json");
+  return join(getWorkspaceSkillsDir(), ".integrity.json");
 }
 
 function loadIntegrityManifest(): IntegrityManifest {
@@ -66,7 +61,7 @@ function loadIntegrityManifest(): IntegrityManifest {
  * from skills that haven't been migrated yet.
  */
 export function verifyAndRecordSkillHash(slug: string): void {
-  const skillDir = join(getManagedSkillsDir(), slug);
+  const skillDir = join(getWorkspaceSkillsDir(), slug);
   const hash = computeSkillHash(skillDir);
   if (!hash) {
     log.warn({ slug }, "Could not compute content hash for installed skill");
@@ -232,7 +227,7 @@ function getSkillNameFromSlug(slug: string): string {
 }
 
 function getClawhubSkillsDir(projectRoot?: string): string {
-  return projectRoot ? join(projectRoot, "skills") : getManagedSkillsDir();
+  return projectRoot ? join(projectRoot, "skills") : getWorkspaceSkillsDir();
 }
 
 function hasRootSkillFile(skillDir: string): boolean {

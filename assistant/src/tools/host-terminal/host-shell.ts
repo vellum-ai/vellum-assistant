@@ -17,6 +17,7 @@ import { supportsHostProxy } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { applyActivePluginName } from "../../plugins/active-plugin-env.js";
 import { wakeAgentForOpportunity } from "../../runtime/agent-wake.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { conversationRevealNonce } from "../../runtime/reveal-nonce.js";
@@ -92,8 +93,9 @@ function buildHostBashProxyEnv(conversationId: string): Record<string, string> {
   // Keep nested `assistant` CLI calls in host_bash aligned with the
   // originating conversation so browser IPC can resolve live proxy context.
   env.__CONVERSATION_ID = conversationId;
-  // Secret binding for reveal-derived chat authority — see reveal-nonce.ts.
+  // Secret binding for reveal-derived chat authority. See reveal-nonce.ts.
   env.__REVEAL_NONCE = conversationRevealNonce(conversationId);
+  applyActivePluginName(env, conversationId);
   return env;
 }
 
@@ -438,6 +440,7 @@ export const hostShellTool = {
     // the active conversation when running through host_bash.
     hostEnv.__CONVERSATION_ID = context.conversationId;
     hostEnv.__REVEAL_NONCE = conversationRevealNonce(context.conversationId);
+    applyActivePluginName(hostEnv, context.conversationId);
 
     if (background) {
       // Check the registry limit BEFORE spawning so we never leak an

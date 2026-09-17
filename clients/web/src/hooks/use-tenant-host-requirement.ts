@@ -29,6 +29,29 @@ const LEGACY_REQUIREMENTS: Record<string, NonNullable<TenantHostWire>> = {
 };
 
 /**
+ * The raw requirement for a provider, before any copy is applied: the wire
+ * field when the assistant sends one, the legacy fallback when it does not.
+ */
+function tenantHostSource(
+  providerKey: string,
+  wire: TenantHostWire | undefined,
+): NonNullable<TenantHostWire> | null {
+  return wire === undefined ? (LEGACY_REQUIREMENTS[providerKey] ?? null) : wire;
+}
+
+/**
+ * Does connecting this provider need a host from the user first? A surface
+ * with nowhere to ask (an icon-sized action on a tile) sends them somewhere
+ * that can instead of starting an authorization that cannot succeed.
+ */
+export function requiresTenantHost(
+  providerKey: string,
+  wire: TenantHostWire | undefined,
+): boolean {
+  return tenantHostSource(providerKey, wire) !== null;
+}
+
+/**
  * Resolve what to ask the user for before a per-tenant provider's managed
  * connect can start. `null` for providers with one global host.
  *
@@ -43,8 +66,7 @@ export function useTenantHostRequirement(
 ): TenantHostRequirement | null {
   const { t } = useTranslation("common");
   return useMemo(() => {
-    const source =
-      wire === undefined ? (LEGACY_REQUIREMENTS[providerKey] ?? null) : wire;
+    const source = tenantHostSource(providerKey, wire);
     if (!source) {
       return null;
     }

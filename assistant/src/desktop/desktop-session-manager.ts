@@ -46,7 +46,7 @@ const log = getLogger("desktop-session");
 
 export const DESKTOP_VNC_PORT = 5999;
 const DESKTOP_GEOMETRY = `${DESKTOP_WIDTH}x${DESKTOP_HEIGHT}`;
-const DESKTOP_LINGER_MS = 5 * 60_000;
+const DESKTOP_LINGER_MS = 24 * 60 * 60_000;
 const VNC_READY_DEADLINE_MS = 10_000;
 const VNC_PROBE_INTERVAL_MS = 100;
 const KILL_GRACE_MS = 2_000;

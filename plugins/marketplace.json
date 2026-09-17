@@ -232,7 +232,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/imessage",
-        "ref": "41b8e9ad87b4975bf3fbdc9a8e46deda489d3d51"
+        "ref": "af3d9f79903817358084de74e056422e6ca91fe4"
       },
       "description": "iMessage and SMS channel for the Vellum assistant, backed by a Photon line.",
       "category": "productivity",

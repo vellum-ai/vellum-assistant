@@ -47,7 +47,7 @@ import {
   deleteConversation,
   getConversation,
   getConversationProcessingStartedAt,
-  getConversationToolSurface,
+  getRecordedConversationToolSurface,
   isConversationProcessing,
 } from "@vellumai/plugin-api";
 
@@ -563,12 +563,26 @@ export async function runForkBasedRetrospective(
       // wire tool block is the first tier of the provider cache prefix
       // (tools → system → messages), so any wire difference busts cache parity
       // with the source's live turns, re-creating the cached prefix instead of
-      // reading it. The allowlist still holds at execution time: non-allowlisted
-      // calls are rejected before any executor or side effect runs. See
+      // reading it. The recorded delegation-section state rides with the array
+      // into the fork's system prompt (the second tier) for the same reason:
+      // this wake's own scope cannot spawn, so deriving the section here
+      // renders it off where an interactive source rendered it on. The
+      // allowlist still holds at execution time: non-allowlisted calls are
+      // rejected before any executor or side effect runs. See
       // {@link SubagentToolGateMode} and {@link WakeToolContextPin}.
       toolGateMode: "execution" as const,
       toolContextPin,
-      ...(sourceToolSurface ? { wireToolDefinitions: sourceToolSurface } : {}),
+      ...(sourceToolSurface
+        ? {
+            wireToolDefinitions: sourceToolSurface.tools,
+            ...(sourceToolSurface.delegateIndependentTasks === null
+              ? {}
+              : {
+                  delegateIndependentTasks:
+                    sourceToolSurface.delegateIndependentTasks,
+                }),
+          }
+        : {}),
       // Preactivate skill-management so its authoring tools (`find_similar_skills`
       // / `scaffold_managed_skill` / the `skill_load` target) are in the turn's
       // active set from turn 1; the checker's origin-scoped grant then makes them
@@ -749,14 +763,15 @@ function enqueueFollowUpJobs(): string[] {
 }
 
 /**
- * The source's recorded wire tool array, or `null` when none is recorded or
- * the read fails (logged; the fork then derives its wire surface).
+ * The source's recorded wire surface (its tool array and the delegation
+ * section state of its system prompt), or `null` when none is recorded or the
+ * read fails (logged; the fork then derives both for itself).
  */
 async function readSourceToolSurface(
   sourceConversationId: string,
-): ReturnType<typeof getConversationToolSurface> {
+): ReturnType<typeof getRecordedConversationToolSurface> {
   try {
-    return await getConversationToolSurface(sourceConversationId);
+    return await getRecordedConversationToolSurface(sourceConversationId);
   } catch (err) {
     log.warn(
       { err, sourceConversationId },

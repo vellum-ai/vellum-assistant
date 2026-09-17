@@ -53,9 +53,7 @@ export type DiscoveryResult = ManagedDiscoverySuccess | DiscoveryFailure;
  * processes can each connect. The actual connection is made later by
  * `CesProcessManager.start()`.
  */
-export function discoverManagedCes():
-  | ManagedDiscoverySuccess
-  | DiscoveryFailure {
+export function discoverCes(): DiscoveryResult {
   const socketPath = getCesSocketPath();
 
   if (!isNamedPipePath(socketPath) && !existsSync(socketPath)) {
@@ -66,14 +64,6 @@ export function discoverManagedCes():
 
   log.info({ socketPath }, "CES bootstrap socket found");
   return { mode: "managed", socketPath };
-}
-
-/**
- * Discover CES for the current process. Local and managed topologies use
- * the same bootstrap socket path.
- */
-export function discoverCes(): DiscoveryResult {
-  return discoverManagedCes();
 }
 
 /** How long to poll for the CES socket before giving up. */

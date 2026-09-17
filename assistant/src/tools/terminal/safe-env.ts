@@ -86,6 +86,10 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MINIKUBE_STORAGE_SIZE",
   "VELLUM_BACKUP_DIR",
   "VELLUM_BACKUP_KEY_PATH",
+  // VELLUM_PLUGIN_NAME is intentionally absent. The daemon injects the
+  // owning plugin install name after sanitizing the child environment.
+  // Inheriting a parent-supplied value would let an arbitrary process
+  // claim another plugin's credential scope.
 ] as const;
 
 export const WINDOWS_SAFE_ENV_VARS = [

@@ -6,7 +6,7 @@ const VIRTUAL_DESKTOP_FLAG = "assistant-desktop" as const;
 
 /** Gates desktop streaming and control to enabled, platform-hosted containers. */
 export function isVirtualDesktopEnabled(
-  config: AssistantConfig,
+  config?: AssistantConfig,
   containerized: boolean = getIsContainerized(),
   platformHosted: boolean = getIsPlatform(),
 ): boolean {

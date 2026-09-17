@@ -25,6 +25,7 @@ import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/mig
 import {
   deleteLegacyCardRows,
   ensureMemoryV3InjectedSectionsSchema,
+  ensureMemoryV3PoolInputsSchema,
   ensureMemoryV3PoolsSchema,
   ensureMemoryV3SelectionsSectionKeyOnce,
   ensureOncePerConnection,
@@ -438,6 +439,17 @@ describe("ensureMemoryV3PoolsSchema", () => {
         "idx_memory_v3_pools_message",
         "idx_memory_v3_pools_conv",
       ]),
+    );
+  });
+});
+
+describe("ensureMemoryV3PoolInputsSchema", () => {
+  test("creates the input and text tables, idempotently", () => {
+    ensureMemoryV3PoolInputsSchema(memorySqlite);
+    ensureMemoryV3PoolInputsSchema(memorySqlite);
+
+    expect(objectNames(memorySqlite, "table")).toEqual(
+      expect.arrayContaining(["memory_v3_pool_inputs", "memory_v3_pool_texts"]),
     );
   });
 });

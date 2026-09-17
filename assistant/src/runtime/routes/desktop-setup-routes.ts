@@ -1,6 +1,5 @@
 import { z } from "zod";
 
-import { getConfig } from "../../config/loader.js";
 import { desktopAutomationLease } from "../../desktop/desktop-automation-lease.js";
 import { desktopDependencyInstaller } from "../../desktop/desktop-dependencies.js";
 import { isVirtualDesktopEnabled } from "../../desktop/virtual-desktop-feature.js";
@@ -21,7 +20,7 @@ export const ROUTES: RouteDefinition[] = ["GET", "POST"].map((method) => ({
   method,
   policy: { requiredScopes: [], allowedPrincipalTypes: GATEWAY_PRINCIPALS },
   handler: () => {
-    if (!isVirtualDesktopEnabled(getConfig())) {
+    if (!isVirtualDesktopEnabled()) {
       throw new NotFoundError(
         "Virtual desktop is available only on enabled platform-hosted assistants",
       );

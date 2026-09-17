@@ -29,10 +29,14 @@ const realPluginApi = await import("@vellumai/plugin-api");
 
 let selectMockActive = false;
 let sendMessageImpl: (() => Promise<ProviderResponse>) | null = null;
+// The messages of the most recent selector call, for asserting the rendered
+// pool.
+let lastMessages: unknown = null;
 
 const mockProvider = {
   name: "mock-memory-v3-selector",
-  async sendMessage(): Promise<ProviderResponse> {
+  async sendMessage(messages: unknown): Promise<ProviderResponse> {
+    lastMessages = messages;
     if (!sendMessageImpl) {
       throw new Error("sendMessageImpl not configured");
     }
@@ -50,7 +54,7 @@ mock.module("@vellumai/plugin-api", () => ({
       : realPluginApi.getConfiguredProvider(...args),
 }));
 
-const { MemoryV3RetrievalUnavailableError, selectPool } =
+const { MemoryV3RetrievalUnavailableError, renderFinderLine, selectPool } =
   await import("./pool-select.js");
 
 function response(content: ContentBlock[]): ProviderResponse {
@@ -141,6 +145,35 @@ describe("selectPool", () => {
       pages: [{ slug: "page-a", sections: [] }],
       keptAll: true,
     });
+  });
+
+  test("a finder line is shown as its pool number and renderFinderLine", async () => {
+    sendMessageImpl = async () =>
+      response([
+        {
+          type: "tool_use",
+          id: "call-1",
+          name: "select_pages",
+          input: { ids: [] },
+        },
+      ]);
+    const candidate = {
+      slug: "page-a" as Slug,
+      descriptor: "a descriptor",
+      lane: "needle",
+    };
+    await selectPool(
+      {
+        stable: [{ slug: "page-s" as Slug, card: "card s" }],
+        finder: [candidate],
+      },
+      turn,
+    );
+    const sent = JSON.stringify(lastMessages);
+    expect(sent).toContain(
+      JSON.stringify(`[2] ${renderFinderLine(candidate)}`).slice(1, -1),
+    );
+    expect(sent).toContain(JSON.stringify("[1] card s").slice(1, -1));
   });
 
   test("an empty candidate pool returns no selections", async () => {

@@ -315,6 +315,30 @@ describe("ConfigWatcher workspace file handlers", () => {
     expect(evictCallCount).toBe(1);
   });
 
+  test("config.json change reloads MCP when tools.mcpGlobalMaxTools changes", async () => {
+    watcher.initFingerprint({
+      tools: { exclude: [], mcpGlobalMaxTools: 50 },
+    } as never);
+    watcher.refreshConfigFromSources = async () => true;
+    watcher.start();
+    simulateFileChange(WORKSPACE_DIR, "config.json");
+    await new Promise((r) => setTimeout(r, WAIT_MS));
+    expect(mcpReloadCallCount).toBe(1);
+    expect(evictCallCount).toBe(1);
+  });
+
+  test("config.json change does not reload MCP when the global max is unchanged", async () => {
+    watcher.initFingerprint({
+      tools: { exclude: [] },
+    } as never);
+    watcher.refreshConfigFromSources = async () => true;
+    watcher.start();
+    simulateFileChange(WORKSPACE_DIR, "config.json");
+    await new Promise((r) => setTimeout(r, WAIT_MS));
+    expect(mcpReloadCallCount).toBe(0);
+    expect(evictCallCount).toBe(1);
+  });
+
   test("config.json change is suppressed when suppressConfigReload is true", async () => {
     let refreshCalled = false;
     watcher.refreshConfigFromSources = async () => {
