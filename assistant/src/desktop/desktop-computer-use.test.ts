@@ -1,11 +1,13 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
 
+import { run as click } from "../config/bundled-skills/computer-use/tools/computer-use-click.js";
 import * as configLoader from "../config/loader.js";
 import { HostCuProxy } from "../daemon/host-cu-proxy.js";
 import { desktopAutomationLease } from "./desktop-automation-lease.js";
 import {
   executeDesktopComputerUse,
   performDesktopComputerUse,
+  planDesktopComputerUse,
 } from "./desktop-computer-use.js";
 
 function driver() {
@@ -21,13 +23,25 @@ function driver() {
   };
 }
 
+const perform = async (
+  toolName: string,
+  input: Record<string, unknown>,
+  signal: AbortSignal,
+  backend: Parameters<typeof performDesktopComputerUse>[2],
+) =>
+  performDesktopComputerUse(
+    planDesktopComputerUse(toolName, input),
+    signal,
+    backend,
+  );
+
 const signal = () => new AbortController().signal;
 
 describe("virtual desktop computer use", () => {
   test("observes without input and returns pixels on repeated observations", async () => {
     const backend = driver();
     for (let i = 0; i < 2; i++) {
-      const result = await performDesktopComputerUse(
+      const result = await perform(
         "computer_use_observe",
         {},
         signal(),
@@ -41,7 +55,7 @@ describe("virtual desktop computer use", () => {
 
   test("runs a sequence in order and captures once after its last action", async () => {
     const backend = driver();
-    await performDesktopComputerUse(
+    await perform(
       "computer_use_sequence",
       {
         actions: [
@@ -71,10 +85,65 @@ describe("virtual desktop computer use", () => {
     expect(backend.capture).toHaveBeenCalledTimes(1);
   });
 
+  for (const clickType of ["double", "right"] as const) {
+    test(`the bundled click wrapper executes a ${clickType} click`, async () => {
+      const backend = driver();
+      const proxy = new HostCuProxy(10);
+      await click(
+        { click_type: clickType, x: 30, y: 40 },
+        {
+          workingDir: "/tmp",
+          conversationId: "conv-123",
+          trustClass: "guardian",
+          proxyToolResolver: (name, input) =>
+            proxy.executeLocal(name, input, () =>
+              perform(name, input, signal(), backend),
+            ),
+        },
+      );
+      expect(backend.input.mock.calls[0][0]).toEqual([
+        "mousemove",
+        "30",
+        "40",
+        "click",
+        "--repeat",
+        clickType === "double" ? "2" : "1",
+        "--delay",
+        "100",
+        clickType === "right" ? "3" : "1",
+      ]);
+      expect(backend.capture).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  test("invalid input does not claim a lease or consume the CU budget", async () => {
+    const proxy = new HostCuProxy(1);
+    const run = spyOn(desktopAutomationLease, "runBrowser");
+    try {
+      await expect(
+        executeDesktopComputerUse(
+          "computer_use_click",
+          { element_id: 1 },
+          {
+            workingDir: "/tmp",
+            conversationId: "conv-123",
+            trustClass: "guardian",
+          },
+          proxy,
+        ),
+      ).rejects.toThrow("Accessibility element IDs");
+      expect(run).not.toHaveBeenCalled();
+      expect(proxy.stepCount).toBe(0);
+      expect(proxy.actionHistory).toHaveLength(0);
+    } finally {
+      run.mockRestore();
+    }
+  });
+
   test("an execution failure stops a sequence and returns the resulting screen", async () => {
     const backend = driver();
     backend.input.mockRejectedValueOnce(new Error("Input failed"));
-    const result = await performDesktopComputerUse(
+    const result = await perform(
       "computer_use_sequence",
       {
         actions: [
@@ -159,7 +228,7 @@ describe("virtual desktop computer use", () => {
   test("validates the whole sequence before any input", async () => {
     const backend = driver();
     await expect(
-      performDesktopComputerUse(
+      perform(
         "computer_use_sequence",
         {
           actions: [
@@ -184,9 +253,7 @@ describe("virtual desktop computer use", () => {
   ] as const) {
     test(`rejects unsupported input for ${tool} before acting`, async () => {
       const backend = driver();
-      await expect(
-        performDesktopComputerUse(tool, input, signal(), backend),
-      ).rejects.toThrow();
+      await expect(perform(tool, input, signal(), backend)).rejects.toThrow();
       expect(backend.input).not.toHaveBeenCalled();
       expect(backend.capture).not.toHaveBeenCalled();
     });
@@ -202,7 +269,7 @@ describe("virtual desktop computer use", () => {
       }
     });
     await expect(
-      performDesktopComputerUse(
+      perform(
         "computer_use_drag",
         {
           x: 30,
@@ -223,12 +290,7 @@ describe("virtual desktop computer use", () => {
     const abort = new AbortController();
     abort.abort();
     await expect(
-      performDesktopComputerUse(
-        "computer_use_click",
-        { x: 30, y: 40 },
-        abort.signal,
-        backend,
-      ),
+      perform("computer_use_click", { x: 30, y: 40 }, abort.signal, backend),
     ).rejects.toThrow();
     expect(backend.input).not.toHaveBeenCalled();
     expect(backend.capture).not.toHaveBeenCalled();

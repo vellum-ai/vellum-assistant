@@ -46,7 +46,7 @@ function proxyExecute(toolName: string) {
 export const computerUseClickTool = {
   name: "computer_use_click",
   description:
-    "Click an element on screen. Prefer element_id (from the accessibility tree) over x/y coordinates.",
+    "Click on screen. On a connected personal computer, prefer element_id from the accessibility tree. On the virtual desktop, supply x and y from its screenshot; element IDs are unavailable.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -167,7 +167,7 @@ export const computerUseKeyTool = {
 export const computerUseScrollTool = {
   name: "computer_use_scroll",
   description:
-    "Scroll within an element by its [ID], or at raw screen coordinates as fallback.",
+    "Scroll within a connected personal computer element by its [ID], or at screen coordinates. The virtual desktop supports coordinates or the current pointer position only.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -220,7 +220,7 @@ export const computerUseScrollTool = {
 export const computerUseDragTool = {
   name: "computer_use_drag",
   description:
-    "Drag from one element or position to another. Use for moving files, resizing windows, rearranging items, or adjusting sliders.",
+    "Drag from one element or position to another. The virtual desktop requires x, y, to_x, and to_y; element IDs are supported only on connected personal computers. Use for moving files, resizing windows, rearranging items, or adjusting sliders.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -387,7 +387,7 @@ export const computerUseRunAppleScriptTool = {
 export const computerUseSequenceTool = {
   name: "computer_use_sequence",
   description:
-    "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest observation, so use them only for actions that act before the screen changes. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action.",
+    "Run several computer-use actions you already know, in order, in one step, for example open an app, press cmd+n, type a URL and press enter. Use it when no action depends on seeing the result of the one before; otherwise act one step at a time. Element IDs refer to the latest connected personal desktop observation, so use them only before the screen changes. On the virtual desktop, use coordinates and keyboard shortcuts; open_app and element IDs are unsupported. Stops at the first action that is refused or fails and reports which one. Returns one observation after the last action.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",
@@ -549,7 +549,7 @@ export const computerUseRespondTool = {
 export const computerUseObserveTool = {
   name: "computer_use_observe",
   description:
-    "Capture the current screen state. Returns the accessibility tree with [ID] element references and optionally a screenshot.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions - this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting.",
+    "Capture the current screen state. On a connected personal computer, returns the accessibility tree with [ID] element references and optionally a screenshot. The virtual desktop returns a full-screen screenshot without an accessibility tree; use screen coordinates there.\n\nThe accessibility tree shows interactive elements like [3] AXButton 'Save' or [17] AXTextField 'Search'. Use element_id to target these elements in subsequent actions - this is much more reliable than pixel coordinates.\n\nCall this before your first computer use action, or to check screen state without acting.",
   category: "computer-use",
   defaultRiskLevel: RiskLevel.Low,
   executionTarget: "host",

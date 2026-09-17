@@ -141,8 +141,15 @@ function planAction(
   switch (toolName) {
     case "computer_use_observe":
       return [];
+    case "computer_use_double_click":
+    case "computer_use_right_click":
     case "computer_use_click": {
-      const type = input.click_type ?? "single";
+      const type =
+        toolName === "computer_use_double_click"
+          ? "double"
+          : toolName === "computer_use_right_click"
+            ? "right"
+            : (input.click_type ?? "single");
       if (!["single", "double", "right"].includes(String(type))) {
         throw new Error("click_type must be single, double, or right");
       }
@@ -251,7 +258,10 @@ function planAction(
   }
 }
 
-function plan(toolName: string, input: Record<string, unknown>): Action[] {
+export function planDesktopComputerUse(
+  toolName: string,
+  input: Record<string, unknown>,
+): Action[] {
   assertScreenTarget(input);
   if (toolName !== "computer_use_sequence") {
     return planAction(toolName, input);
@@ -289,12 +299,10 @@ function plan(toolName: string, input: Record<string, unknown>): Action[] {
 }
 
 export async function performDesktopComputerUse(
-  toolName: string,
-  input: Record<string, unknown>,
+  actions: Action[],
   signal: AbortSignal,
   driver: DesktopComputerUseBackend = backend,
 ): Promise<CuObservationResult> {
-  const actions = plan(toolName, input);
   let executionError: string | undefined;
   try {
     for (const action of actions) {
@@ -353,6 +361,7 @@ export async function executeDesktopComputerUse(
       isError: false,
     };
   }
+  const actions = planDesktopComputerUse(toolName, input);
   const deadline = new AbortController();
   const timer = setTimeout(
     () =>
@@ -374,7 +383,7 @@ export async function executeDesktopComputerUse(
       (signal) =>
         proxy.executeLocal(toolName, input, async () => {
           await getDesktopSessionManager().browser.release();
-          return performDesktopComputerUse(toolName, input, signal);
+          return performDesktopComputerUse(actions, signal);
         }),
     );
   } finally {
